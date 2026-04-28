@@ -1,0 +1,656 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  --background: #000000;
+  --foreground: oklch(0.985 0 0);
+  --card: #000000;
+  --card-foreground: oklch(0.985 0 0);
+  --popover: #000000;
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --input-background: #111111;
+  --switch-background: #333333;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: oklch(0.439 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /**
+  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
+  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
+  */
+
+  html {
+    font-size: var(--font-size);
+    scroll-behavior: smooth;
+  }
+
+  h1 {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h2 {
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h3 {
+    font-size: var(--text-lg);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h4 {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  label {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  button {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  input {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.5;
+  }
+
+  /* 
+    --------------------------------------------------
+    NEURAL PREMIUM SCROLLBAR SYSTEM 
+    Tech: Border-Clip Expansion
+    --------------------------------------------------
+  */
+
+  /* Webkit (Chrome, Edge, Safari, Opera) */
+  ::-webkit-scrollbar {
+    width: 14px;  /* Largura física fixa para evitar layout shift */
+    height: 14px; /* Altura física fixa para scroll horizontal */
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent; /* Fundo invisível */
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.2); /* Slate-400 com baixa opacidade */
+    border-radius: 9999px;       /* Totalmente arredondado */
+    border: 5px solid transparent; /* O TRUQUE: Borda grossa empurra a cor pra dentro */
+    background-clip: content-box;  /* A cor só aparece dentro da borda */
+    transition: background-color 0.2s ease, border-width 0.2s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.6); /* Mais visível no hover */
+    border: 2px solid transparent; /* Borda menor = Barra parece mais grossa */
+  }
+  
+  /* Corner */
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Firefox Fallback (Suporte limitado a expansão) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+  }
+
+  /* 
+    --------------------------------------------------
+    CURSOR CUSTOMIZADO - BOLINHA AZUL (Modo Ponto)
+    --------------------------------------------------
+  */
+  
+  /* 🎯 Quando modo ponto está ativo, esconder cursor em TODO o documento */
+  body.cursor-dot-mode,
+  body.cursor-dot-mode * {
+    cursor: none !important;
+  }
+  
+  .cursor-dot {
+    cursor: none !important;
+    position: relative;
+  }
+
+  /* 🚫 FORÇAR REMOÇÃO DE QUALQUER CROSSHAIR DA BIBLIOTECA */
+  .cursor-dot [class*="crosshair"],
+  .cursor-dot [class*="cross-hair"],
+  .cursor-dot [class*="k-line-chart-crosshair"],
+  .cursor-dot svg line[stroke*="blue"],
+  .cursor-dot svg line[stroke="#3b82f6"],
+  .cursor-dot canvas + svg line,
+  .cursor-dot svg line,
+  .cursor-dot line,
+  .cursor-dot path[stroke],
+  .cursor-dot rect[class*="crosshair"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    stroke: transparent !important;
+    stroke-width: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  /* 🔵 Bolinha do cursor - agora com melhor visibilidade */
+  .cursor-dot-indicator {
+    position: fixed;
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 9999;
+    transform: translate(-50%, -50%);
+    box-shadow: 
+      0 0 0 1px rgba(59, 130, 246, 0.2),
+      0 0 12px rgba(59, 130, 246, 0.6),
+      0 0 20px rgba(59, 130, 246, 0.3);
+    transition: transform 0.1s ease-out;
+  }
+
+  .cursor-dot-indicator.active {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+
+  /* ➡️ MODO SETA - Forçar cursor padrão (seta tradicional) */
+  .cursor-default-mode,
+  .cursor-default-mode *,
+  .cursor-default-mode canvas,
+  .cursor-default-mode svg {
+    cursor: default !important;
+  }
+
+  /* 🎯 Esconder possíveis elementos de overlay indesejados */
+  #chart-container svg circle[fill="#000"],
+  #chart-container svg circle[fill="#000000"],
+  #chart-container svg circle[fill="black"] {
+    display: none !important;
+    opacity: 0 !important;
+  }
+
+  /* 🚫 Remover círculos pretos de qualquer elemento do gráfico */
+  [id^="chart-"] svg circle[fill="#000"],
+  [id^="chart-"] svg circle[fill="#000000"],
+  [id^="chart-"] svg circle[fill="black"],
+  .k-line-chart svg circle[fill="#000"],
+  .k-line-chart svg circle[fill="#000000"],
+  .k-line-chart svg circle[fill="black"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
+
+  /* 🚫🚫 SUPER AGRESSIVO: Remover TODOS os círculos pretos sem exceção */
+  svg circle[fill="#000"],
+  svg circle[fill="#000000"],
+  svg circle[fill="black"],
+  svg circle[fill="rgb(0,0,0)"],
+  svg circle[fill="rgba(0,0,0,1)"],
+  canvas + svg circle,
+  div[id*="chart"] svg circle[r="3"],
+  div[id*="chart"] svg circle[r="4"],
+  div[id*="chart"] svg circle[r="5"],
+  div svg circle[fill*="#00"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    fill: transparent !important;
+    stroke: transparent !important;
+    r: 0 !important;
+  }
+
+  /* 🚫 MODO SETA - Remover TODOS os crosshairs da biblioteca */
+  .cursor-default-mode [class*="crosshair"],
+  .cursor-default-mode [class*="cross-hair"],
+  .cursor-default-mode [class*="k-line-chart-crosshair"],
+  .cursor-default-mode svg line,
+  .cursor-default-mode line,
+  .cursor-default-mode path[stroke],
+  .cursor-default-mode rect[class*="crosshair"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    stroke: transparent !important;
+    stroke-width: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+    pointer-events: none !important;
+  }
+
+  /* 
+    --------------------------------------------------
+    🎨 MODO APRESENTAÇÃO - Cursor de Desenho Customizado
+    --------------------------------------------------
+  */
+  .cursor-pen-drawing {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19l7-7 3 3-7 7-3-3z'/%3E%3Cpath d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'/%3E%3Cpath d='M2 2l7.586 7.586'/%3E%3Ccircle cx='11' cy='11' r='2' fill='%233b82f6'/%3E%3C/svg%3E") 4 20, crosshair !important;
+  }
+
+  /* 🧹 MODO BORRACHA - Cursor de Borracha Customizado */
+  .cursor-eraser {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/%3E%3Cpath d='M22 21H7'/%3E%3Cpath d='m5 11 9 9'/%3E%3C/svg%3E") 4 4, pointer !important;
+  }
+
+  /* Animações slide-in para o banner */
+  @keyframes slide-in-from-top {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-in-from-bottom {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .animate-in {
+    animation-fill-mode: both;
+  }
+
+  .slide-in-from-top {
+    animation-name: slide-in-from-top;
+  }
+
+  .slide-in-from-bottom {
+    animation-name: slide-in-from-bottom;
+  }
+
+  .duration-300 {
+    animation-duration: 300ms;
+  }
+
+  /* Shimmer animation para AI status banner */
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* 
+    --------------------------------------------------
+    SMART SCROLL - Scroll inteligente que aparece/some
+    --------------------------------------------------
+  */
+  .smart-scroll-container {
+    position: relative;
+  }
+
+  /* Estado escondido (padrão) */
+  .smart-scroll-hidden::-webkit-scrollbar-thumb {
+    background: transparent !important;
+  }
+
+  .smart-scroll-hidden {
+    scrollbar-color: transparent transparent;
+  }
+
+  /* Estado visível (ao mover mouse ou próximo ao scroll) */
+  .smart-scroll-visible::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3) !important;
+    transition: background 0.3s ease;
+  }
+
+  .smart-scroll-visible::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.5) !important;
+  }
+
+  .smart-scroll-visible {
+    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+  }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ticker-scroll {
+  animation: ticker-scroll 160s linear infinite; /* ✅ MAIS LENTO: 80s → 160s (2x mais devagar) */
+}
+
+/* Custom Scrollbar for Liquidity Detector and other components */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+/* Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) rgba(0, 0, 0, 0.2);
+}
+
+/* 
+  --------------------------------------------------
+  🎯 SMART SCROLL SYSTEM
+  Scrollbar inteligente que aparece/desaparece
+  --------------------------------------------------
+*/
+
+/* Container base do Smart Scroll */
+.smart-scroll-container {
+  position: relative;
+  scrollbar-gutter: stable; /* Evita layout shift ao mostrar/esconder scrollbar */
+}
+
+/* Estado ESCONDIDO (padrão) */
+.smart-scroll-container.smart-scroll-hidden::-webkit-scrollbar-thumb {
+  opacity: 0;
+  background-color: transparent;
+  transition: opacity 0.3s ease, background-color 0.3s ease;
+}
+
+.smart-scroll-container.smart-scroll-hidden {
+  scrollbar-color: transparent transparent; /* Firefox */
+}
+
+/* Estado VISÍVEL (hover ou hint) */
+.smart-scroll-container.smart-scroll-visible::-webkit-scrollbar-thumb {
+  opacity: 1;
+  background-color: rgba(148, 163, 184, 0.3);
+  transition: opacity 0.3s ease, background-color 0.3s ease;
+}
+
+.smart-scroll-container.smart-scroll-visible::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.6);
+}
+
+.smart-scroll-container.smart-scroll-visible {
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent; /* Firefox */
+}
+
+/* Animação de pulse para hint educativo (primeira vez) */
+@keyframes scrollbar-pulse {
+  0%, 100% {
+    background-color: rgba(148, 163, 184, 0.3);
+  }
+  50% {
+    background-color: rgba(148, 163, 184, 0.7);
+  }
+}
+
+.smart-scroll-container.smart-scroll-pulse::-webkit-scrollbar-thumb {
+  animation: scrollbar-pulse 2s ease-in-out 2;
+}
+
+/* Scrollbar sempre com largura fixa para evitar layout shift */
+.smart-scroll-container::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.smart-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.smart-scroll-container::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.smart-scroll-container::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 
+  --------------------------------------------------
+  🔥 SONNER TOAST CUSTOMIZATION - TEMA ESCURO FORÇADO
+  --------------------------------------------------
+*/
+
+/* FORÇA TODOS OS TOASTS A SEREM ESCUROS */
+[data-sonner-toast],
+[data-sonner-toaster] [data-sonner-toast] {
+  background-color: #18181b !important;
+  border: 1px solid #3f3f46 !important;
+  color: #f4f4f5 !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Título do toast */
+[data-sonner-toast] [data-title] {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+/* Descrição do toast */
+[data-sonner-toast] [data-description] {
+  color: #d4d4d8 !important;
+}
+
+/* Botão de fechar */
+[data-sonner-toast] [data-close-button] {
+  background-color: #27272a !important;
+  color: #a1a1aa !important;
+  border: none !important;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background-color: #3f3f46 !important;
+  color: #ffffff !important;
+}
+
+/* Toast de SUCESSO */
+[data-sonner-toast][data-type="success"] {
+  border-left: 4px solid #10b981 !important;
+}
+
+[data-sonner-toast][data-type="success"] [data-icon] {
+  color: #10b981 !important;
+}
+
+/* Toast de ERRO */
+[data-sonner-toast][data-type="error"] {
+  border-left: 4px solid #ef4444 !important;
+}
+
+[data-sonner-toast][data-type="error"] [data-icon] {
+  color: #ef4444 !important;
+}
+
+/* Toast de WARNING */
+[data-sonner-toast][data-type="warning"] {
+  border-left: 4px solid #f59e0b !important;
+}
+
+[data-sonner-toast][data-type="warning"] [data-icon] {
+  color: #f59e0b !important;
+}
+
+/* Toast de INFO */
+[data-sonner-toast][data-type="info"] {
+  border-left: 4px solid #3b82f6 !important;
+}
+
+[data-sonner-toast][data-type="info"] [data-icon] {
+  color: #3b82f6 !important;
+}
+
+/* Progressbar (loading) */
+[data-sonner-toast] [data-content] svg {
+  color: #a1a1aa !important;
+}
+
+/* Remover qualquer fundo branco residual */
+.sonner-toast-custom,
+.Toaster,
+.Toaster > * {
+  background-color: transparent !important;
+}
+
+/* Garantir que o container do Toaster não tenha fundo branco */
+[data-sonner-toaster] {
+  background: transparent !important;
+}
+
+/* Ícones de status */
+[data-sonner-toast] svg path {
+  fill: currentColor !important;
+}

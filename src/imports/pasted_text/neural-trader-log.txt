@@ -1,0 +1,402 @@
+[Hydrated]
+9247afc1ef3578a67181d0ab300233b041a603a1.js:49414 [SymbolMappingService] ✅ 29 mapeamentos carregados
+9247afc1ef3578a67181d0ab300233b041a603a1.js:49946 [ChartView] ✅ Point Marker overlay registrado
+9247afc1ef3578a67181d0ab300233b041a603a1.js:50010 [ChartView] ✅ Fibonacci Extension overlay registrado
+9247afc1ef3578a67181d0ab300233b041a603a1.js:106835 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:106835 🔥 NEURAL DAY TRADER PLATFORM v3.5.0
+9247afc1ef3578a67181d0ab300233b041a603a1.js:106835 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:106835 ✅ Cache Buster Automático Ativo
+9247afc1ef3578a67181d0ab300233b041a603a1.js:106835 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13935 🚀 [USE APEX LOGIC] Hook inicializado - 21 JAN 2026 Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13945 [useApexLogic] 💾 Modo de execução salvo: DEMO
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13378 [MarketContext] 🚀 Iniciando RealMarketDataService...
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13251 [RealMarketData] 📡 Subscribing to 13 symbols (interval: 10000ms)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12829 [AUTH] 🚀 AuthProvider montado
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12870 [AUTH] 👤 USER STATE MUDOU: NULL
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ EURUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ GBPUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ USDJPY: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ AUDUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ SPX500: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ NAS100: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ US30: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ AUS200: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ XAUUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ XAGUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:898 [FigmaErrorHandler] ✅ Handler instalado - erros do Figma serão silenciados
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12833 [AUTH] 🔍 Verificando sessionStorage: VAZIO
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12845 [AUTH] 🔐 Verificando sessão Supabase...
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12846 [AUTH] ✅ Sessão Supabase encontrada
+9247afc1ef3578a67181d0ab300233b041a603a1.js:37472 [DASHBOARD] 📊 Dashboard Principal - v2.0
+9247afc1ef3578a67181d0ab300233b041a603a1.js:24038 [TENDENCY ENGINE] 🧠 Calculando tendência para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23271 [useMarketPrice] 📡 Subscribing to REAL data: BTCUSDT → BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23005 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23167 [UnifiedMarketData] 📡 Símbolo normalizado: BTCUSDT → BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23074 [BinancePolling] 🔄 SUBSCRIBE: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23084 [BinancePolling] 🆕 Nova subscription criada para BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23098 [BinancePolling] ▶️ Iniciando polling para BTCUSDT (1000ms)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32288 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:31847 [isMarketOpen] 🕐 Checking market hours: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:31847 [isMarketOpen] 🕐 Checking market hours: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32290 [MarketScoreBoard] 📊 Market Info: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32305 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32344 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32346 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23005 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32410 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32423 [MarketScoreBoard] 🚀 CRYPTO DETECTADO! Iniciando WebSocket... Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23167 [UnifiedMarketData] 📡 Símbolo normalizado: BTCUSDT → BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23091 [BinancePolling] ❌ Callback removido (restantes: 0)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23091 [BinancePolling] 🛑 Polling parado para BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23074 [BinancePolling] 🔄 SUBSCRIBE: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23084 [BinancePolling] 🆕 Nova subscription criada para BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23098 [BinancePolling] ▶️ Iniciando polling para BTCUSDT (1000ms)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32469 [Animation] ⏸️ Animação DESATIVADA para crypto. Usando valores exatos da API.
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32947 🔄 [AGENDA] Iniciando carregamento de eventos...
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32964 📡 [AGENDA ECONÔMICA] Chamando API multi-fonte...
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32964 📡 [AGENDA ECONÔMICA] URL: https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32937 🕐 [AGENDA] Próxima atualização automática em: 0.38 horas (meia-noite)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for BTCUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching BTC (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12870 [AUTH] 👤 USER STATE MUDOU: cleber.couto@we-expand.com (ID: 1929cbb3-e041-44c2-9f86-3084a7440a27)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:24084 [TENDENCY ENGINE] ✅ Tendência calculada: Object
+inject.bundle.js:216 [ChromePolyfill] Chrome API support enabled for web context
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12851 [AUTH] 🔄 onAuthStateChange: INITIAL_SESSION sessão ativa
+9247afc1ef3578a67181d0ab300233b041a603a1.js:12870 [AUTH] 👤 USER STATE MUDOU: cleber.couto@we-expand.com (ID: 1929cbb3-e041-44c2-9f86-3084a7440a27)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ ETHUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ BTCUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23026 [BinanceValidator] ✅ RAW DATA: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23213 [UnifiedMarketData] ✅ BTCUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23290 [useMarketPrice] ✅ Initial data loaded: BTCUSDT @ $74147.83
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Unchecked runtime.lastError: The message port closed before a response was received.Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para BTCUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for BTCUSD: $102739.30041, change: -0.17%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for ETHUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23026 [BinanceValidator] ✅ RAW DATA: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23213 [UnifiedMarketData] ✅ BTCUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32348 [MarketScoreBoard] 📊 Valores PUROS recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32348 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32354 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32254 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para ETHUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for ETHUSD: $3073.93004, change: -0.56%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for XRPUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32975 📡 [AGENDA ECONÔMICA] Response status: 200
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32975 📡 [AGENDA ECONÔMICA] Response ok: true
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32980 📊 [AGENDA ECONÔMICA] ✅ RESPOSTA DA API COMPLETA: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32980 📊 [AGENDA ECONÔMICA] RESPOSTA DA API: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32991 ✅ [AGENDA ECONÔMICA] 39 eventos carregados da fonte: Investing.com (Fallback Português)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32950 ✅ [AGENDA] Dados reais recebidos: Investing.com (Fallback Português)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] 📊 Dados recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] ✅ Callbacks executados: 0/0
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para XRPUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for XRPUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for BNBUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34060 [VIX ENHANCED] 📊 Resultado backend: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34063 [VIX ENHANCED] ✅ Usando Backend: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for BTCUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ BTC: $74147.83 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching ETH (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para BNBUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for BNBUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for SOLUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] 📊 Dados recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23169 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23183 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32429 [🎯 DASHBOARD] 🚨🚨🚨 CALLBACK EXECUTADO! Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [🎯 DASHBOARD WebSocket] 🚨 CALLBACK EXECUTADO! Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32437 [🎯 DASHBOARD] 📌 REFS ATUALIZADAS: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [🎯 DASHBOARD WebSocket] 🔥 RE-RENDER FORÇADO! Counter: 0 → 1
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [🎯 DASHBOARD WebSocket] ✅ STREAMING: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] ✅ Callbacks executados: 1/1
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32254 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para SOLUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for SOLUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for ADAUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for ETHUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ ETH: $2325.79 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching SOL (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32288 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:31847 [isMarketOpen] 🕐 Checking market hours: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:31847 [isMarketOpen] 🕐 Checking market hours: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32290 [MarketScoreBoard] 📊 Market Info: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32305 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32344 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32346 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32410 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32348 [MarketScoreBoard] 📊 Valores PUROS recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32348 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32354 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32254 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para ADAUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for ADAUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for DOGUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34060 [VIX ENHANCED] 📊 Resultado backend: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34063 [VIX ENHANCED] ✅ Usando Backend: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for SOLUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ SOL: $94.98 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching XRP (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para DOGUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for DOGUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for AVAUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] 📊 Dados recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23169 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23183 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32429 [🎯 DASHBOARD] 🚨🚨🚨 CALLBACK EXECUTADO! Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [🎯 DASHBOARD WebSocket] 🚨 CALLBACK EXECUTADO! Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32437 [🎯 DASHBOARD] 📌 REFS ATUALIZADAS: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [🎯 DASHBOARD WebSocket] 🔥 RE-RENDER FORÇADO! Counter: 1 → 2
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [🎯 DASHBOARD WebSocket] ✅ STREAMING: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] ✅ Callbacks executados: 1/1
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32254 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para AVAUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for AVAUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for DOTUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para DOTUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for DOTUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for MATUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for XRPUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ XRP: $1.52 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching BNB (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para MATUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for MATUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for US500
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para US500: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for US500: $5907.39300, change: -0.03%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for NAS100
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para NAS100: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for NAS100: $21236.96502, change: -0.04%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for US30
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34053 ═══════════════════════════════════════════════════════
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for BNBUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ BNB: $670.15 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching ADA (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:22607 [SIDEBAR] 🔄 Mudando para: ai-trader
+9247afc1ef3578a67181d0ab300233b041a603a1.js:106839 [APP] 🔄 Mudando view de dashboard para ai-trader
+9247afc1ef3578a67181d0ab300233b041a603a1.js:77419 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 🛡️ Error caught: Error: useMarketData deve ser usado dentro de MarketDataProvider
+    at DLe (9247afc1ef3578a67181d0ab300233b041a603a1.js:76639:11)
+    at ILe (9247afc1ef3578a67181d0ab300233b041a603a1.js:77420:270)
+    at iS (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:6:16997)
+    at P1 (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:43968)
+    at R1 (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39726)
+    at zM (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39654)
+    at qd (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39508)
+    at DE (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:36624)
+    at Ri (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:6:3274)
+    at sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:34209
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 🚨 ERRO DE CONTEXTO DETECTADO - PROBLEMA DE CACHE!
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 📋 Contexto ausente: useMarketData deve ser usado dentro de MarketDataProvider
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 💡 SOLUÇÃO: Limpar cache do navegador e do Vite
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 📝 Ver: SOLUCAO_ERRO_MAC_PROVIDER.md
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:77419 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 🛡️ Error caught: Error: useMarketData deve ser usado dentro de MarketDataProvider
+    at DLe (9247afc1ef3578a67181d0ab300233b041a603a1.js:76639:11)
+    at ILe (9247afc1ef3578a67181d0ab300233b041a603a1.js:77420:270)
+    at iS (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:6:16997)
+    at P1 (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:43968)
+    at R1 (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39726)
+    at zM (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39654)
+    at qd (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39508)
+    at Av (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:35876)
+    at DE (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:36679)
+    at Ri (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:6:3274)
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 🚨 ERRO DE CONTEXTO DETECTADO - PROBLEMA DE CACHE!
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 📋 Contexto ausente: useMarketData deve ser usado dentro de MarketDataProvider
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 💡 SOLUÇÃO: Limpar cache do navegador e do Vite
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 📝 Ver: SOLUCAO_ERRO_MAC_PROVIDER.md
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 Error: useMarketData deve ser usado dentro de MarketDataProvider
+    at DLe (9247afc1ef3578a67181d0ab300233b041a603a1.js:76639:11)
+    at ILe (9247afc1ef3578a67181d0ab300233b041a603a1.js:77420:270)
+    at iS (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:6:16997)
+    at P1 (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:43968)
+    at R1 (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39726)
+    at zM (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39654)
+    at qd (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:39508)
+    at Av (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:35876)
+    at DE (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:8:36679)
+    at Ri (sites-runtime.33e2ee7bb17c42f7a05f714ed67ab906b1bcf091eed03f65b17c30067e8dbd40.js:6:3274)
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:897 [ErrorBoundary] 🚨 Component error details: Object
+UZ.console.error @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:897Entenda o erro
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23324 [useMarketPrice] 🧹 Unsubscribing from BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23190 [UnifiedMarketData] 🔌 Unsubscribe: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23091 [BinancePolling] ❌ Callback removido (restantes: 1)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32465 [MarketScoreBoard] 🔌 Desconectando WebSocket: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23190 [UnifiedMarketData] 🔌 Unsubscribe: BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23091 [BinancePolling] ❌ Callback removido (restantes: 0)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23091 [BinancePolling] 🛑 Polling parado para BTCUSDT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] 📊 Dados recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] ✅ Callbacks executados: 0/0
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para US30: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for US30: $43673.93004, change: -0.04%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for DE40
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para DE40: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for DE40: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for UK100
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for ADAUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ ADA: $0.29 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching DOGE (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para UK100: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for UK100: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for JPN225
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34060 [VIX ENHANCED] 📊 Resultado backend: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:34063 [VIX ENHANCED] ✅ Usando Backend: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] 📊 Dados recebidos: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:23056 [BinancePolling] ✅ Callbacks executados: 0/0
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para JPN225: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for JPN225: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for HKG33
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for DOGEUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ DOGE: $0.10 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105726 [UnifiedMarketData] Unknown symbol: POL
+getPrice @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:105726Entenda o aviso
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para HKG33: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for HKG33: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for EURUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105726 [UnifiedMarketData] Unknown symbol: DOT
+getPrice @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:105726Entenda o aviso
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105727 [UnifiedMarketData] Fetching AVAX (crypto)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para EURUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for EURUSD: $1.15000, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for GBPUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105615 [Binance] 📊 RAW DATA for AVAXUSDT: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105729 [UnifiedMarketData] ✅ AVAX: $10.23 (binance)
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105726 [UnifiedMarketData] Unknown symbol: LINK
+getPrice @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:105726Entenda o aviso
+9247afc1ef3578a67181d0ab300233b041a603a1.js:105726 [UnifiedMarketData] Unknown symbol: UNI
+getPrice @ 9247afc1ef3578a67181d0ab300233b041a603a1.js:105726Entenda o aviso
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para GBPUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for GBPUSD: $1.33000, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for USDJPY
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para USDJPY: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for USDJPY: $159.17000, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for USDCHF
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para USDCHF: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for USDCHF: $0.78800, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for AUDUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para AUDUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for AUDUSD: $0.70600, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for USDCAD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ EURUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ GBPUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ USDJPY: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ AUDUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ SPX500: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ NAS100: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ US30: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ AUS200: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ XAUUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ XAGUSD: Object
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para USDCAD: {last: 1.37, bid: 1.37, price: undefined, change: 0.002921099745459843, changePercent: 0.21367455418381343, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for USDCAD: $1.37000, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for NZDUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ BTCUSDT: {price: 74128.77, change: -0.825, source: 'binance'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ SOLUSDT: {price: 94.96, change: -1.135, source: 'binance'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ ETHUSDT: {price: 2325.3, change: -1.321, source: 'binance'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para NZDUSD: {last: 0.585, bid: 0.585, price: undefined, change: 0.0012473309132073895, changePercent: 0.21367455418381343, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for NZDUSD: $0.58500, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for EURGBP
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para EURGBP: {last: 0.864, bid: 0.864, price: undefined, change: 0.0018422118102754403, changePercent: 0.21367455418381343, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for EURGBP: $0.86400, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for EURJPY
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para EURJPY: {last: 182.87, bid: 182.87, price: undefined, change: 0.3899135112790191, changePercent: 0.21367455418381343, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for EURJPY: $182.87000, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for GBPJPY
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para GBPJPY: {last: 211.68, bid: 211.68, price: undefined, change: 0.4513418935174798, changePercent: 0.21367455418381343, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for GBPJPY: $211.68000, change: 0.21%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for XAUUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para XAUUSD: {last: 2657.393004115226, bid: 2657.393004115226, price: undefined, change: -1.7242798353909166, changePercent: -0.06484406858614283, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for XAUUSD: $2657.39300, change: -0.06%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for XAGUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para XAGUSD: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for XAGUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for XPTUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para XPTUSD: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for XPTUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for XPDUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para XPDUSD: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for XPDUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for UKOUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para UKOUSD: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for UKOUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for USOUSD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para USOUSD: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for USOUSD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for NGAS
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para NGAS: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for NGAS: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for AAPL
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para AAPL: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for AAPL: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for MSFT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para MSFT: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for MSFT: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for GOOGL
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para GOOGL: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for GOOGL: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for AMZN
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para AMZN: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for AMZN: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for NVDA
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para NVDA: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for NVDA: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for TSLA
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para TSLA: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for TSLA: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for META
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para META: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for META: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for NFLX
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para NFLX: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for NFLX: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for AMD
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para AMD: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for AMD: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for INTC
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para INTC: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for INTC: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for COPPER
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para COPPER: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for COPPER: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for WHEAT
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para WHEAT: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for WHEAT: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for Coffee
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para Coffee: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for Coffee: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32036 [MetaApi] 🌐 Fetching market data for SUGAR
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32046 🔍 [MetaApi] RAW API RESPONSE para SUGAR: {last: 0.9936965020576132, bid: 0.9936965020576132, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866856795877968, …}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:32055 [MetaApi] ✅ Got data from server for SUGAR: $0.99370, change: -0.09%
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ EURUSD: {price: 1.0405982023057612, change: -0.06451714677641261, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ GBPUSD: {price: 1.2237899359240054, change: -0.0645171467764114, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ USDJPY: {price: 156.14319582919066, change: -0.06451714677641389, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ AUDUSD: {price: 0.6229472098105281, change: -0.08064643347050411, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ SPX500: {price: 5995.725423525377, change: -0.40323216735254563, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ NAS100: {price: 20068.748718278464, change: -0.40323216735253414, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ US30: {price: 49300.40007716049, change: -0.40323216735254247, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ AUS200: {price: 8227.359572668038, change: -0.08064643347051495, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ XAUUSD: {price: 2671.9697768081273, change: -0.2419393004115247, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ XAGUSD: {price: 31.1743939686214, change: -0.241939300411525, source: 'generated'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ ETHUSDT: {price: 2325.12, change: -1.332, source: 'binance'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ SOLUSDT: {price: 94.94, change: -1.166, source: 'binance'}
+9247afc1ef3578a67181d0ab300233b041a603a1.js:13400 [MarketContext] ✅ BTCUSDT: {price: 74128.77, change: -0.827, source: 'binance'}

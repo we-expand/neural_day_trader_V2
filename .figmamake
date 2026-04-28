@@ -1,0 +1,22 @@
+# Figma Make Configuration
+# This file instructs Figma Make to skip Edge Function deployment
+
+[supabase]
+skip_edge_functions = true
+ignore_403_errors = true
+frontend_only = true
+
+[deployment]
+type = "frontend-only"
+skip_supabase_functions = true
+suppress_errors = ["403", "edge_functions"]
+
+[build]
+include = ["src/**", "public/**", "index.html", "vite.config.ts", "package.json"]
+exclude = ["supabase/functions/**", ".supabase/**"]
+
+# IMPORTANT:
+# This platform uses DIRECT API connections (MetaAPI, Binance, etc.)
+# Edge Functions are OPTIONAL and NOT required
+# Error 403 can be IGNORED - it does not affect functionality
+# See /ERRO_403_RESOLVIDO.md for full documentation

@@ -1,0 +1,27 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle with Gradient -->
+  <defs>
+    <linearGradient id="neuralGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#9333ea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="64" height="64" rx="12" fill="url(#neuralGradient)"/>
+  <rect width="64" height="64" rx="12" fill="url(#neuralGradient)" opacity="0.3" filter="url(#glow)"/>
+  
+  <!-- Letter N -->
+  <path d="M18 16 L18 48 L24 48 L24 28 L40 48 L46 48 L46 16 L40 16 L40 36 L24 16 Z" fill="white" stroke="white" stroke-width="0.5"/>
+  
+  <!-- Accent dots (circuit style) -->
+  <circle cx="22" cy="20" r="1.5" fill="#06b6d4" opacity="0.8"/>
+  <circle cx="42" cy="44" r="1.5" fill="#06b6d4" opacity="0.8"/>
+</svg>

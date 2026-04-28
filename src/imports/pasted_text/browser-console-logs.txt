@@ -1,0 +1,528 @@
+[Hydrated]
+inject.bundle.js:216 [ChromePolyfill] Chrome API support enabled for web context
+e9069730981ba281d54a71e3474904a806a7e633.js:200 [FigmaErrorHandler] ✅ Handler instalado - erros do Figma serão silenciados
+e9069730981ba281d54a71e3474904a806a7e633.js:56587 [SymbolMappingService] ✅ 29 mapeamentos carregados
+e9069730981ba281d54a71e3474904a806a7e633.js:57119 [ChartView] ✅ Point Marker overlay registrado
+e9069730981ba281d54a71e3474904a806a7e633.js:57183 [ChartView] ✅ Fibonacci Extension overlay registrado
+e9069730981ba281d54a71e3474904a806a7e633.js:114850 ═══════════════════════════════════════════════════════
+e9069730981ba281d54a71e3474904a806a7e633.js:114850 🔥 NEURAL DAY TRADER PLATFORM v3.5.0
+e9069730981ba281d54a71e3474904a806a7e633.js:114850 ═══════════════════════════════════════════════════════
+e9069730981ba281d54a71e3474904a806a7e633.js:114850 ✅ Cache Buster Automático Ativo
+e9069730981ba281d54a71e3474904a806a7e633.js:114850 ═══════════════════════════════════════════════════════
+e9069730981ba281d54a71e3474904a806a7e633.js:22114 [Favicon] ✅ Logo Trade Hub configurado
+e9069730981ba281d54a71e3474904a806a7e633.js:21114 🚀 [USE APEX LOGIC] Hook inicializado - 21 JAN 2026 Object
+e9069730981ba281d54a71e3474904a806a7e633.js:21124 [useApexLogic] 💾 Modo de execução salvo: DEMO
+e9069730981ba281d54a71e3474904a806a7e633.js:21239 [TRADING] 📊 Status: isActive=false, isPaused=false, isSafeMode=false
+e9069730981ba281d54a71e3474904a806a7e633.js:21240 [TRADING] ⏸️ AI está pausada ou inativa - não iniciando loop de trading
+e9069730981ba281d54a71e3474904a806a7e633.js:20568 [Market Data] ⏸️ Auto-refresh pausado (aguardando conexão)
+e9069730981ba281d54a71e3474904a806a7e633.js:20582 [Market Data] Status: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19039 [MarketContext] 🚀 Iniciando RealMarketDataService...
+e9069730981ba281d54a71e3474904a806a7e633.js:18912 [RealMarketData] 📡 Subscribing to 13 symbols (interval: 10000ms)
+e9069730981ba281d54a71e3474904a806a7e633.js:18486 [AUTH] 🚀 AuthProvider montado
+e9069730981ba281d54a71e3474904a806a7e633.js:18531 [AUTH] 👤 USER STATE MUDOU: NULL
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ EURUSD: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ GBPUSD: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ USDJPY: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ AUDUSD: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ SPX500: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ NAS100: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ US30: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ AUS200: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ XAUUSD: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:19061 [MarketContext] ✅ SOLUSDT: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:20510 [Market Data] 🚀 Context inicializado com segurança
+e9069730981ba281d54a71e3474904a806a7e633.js:20568 [Market Data] ⏸️ Auto-refresh pausado (aguardando conexão)
+(índice):1 Unchecked runtime.lastError: The message port closed before a response was received.Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:18492 [AUTH] 🔍 Verificando sessionStorage: ENCONTRADO
+e9069730981ba281d54a71e3474904a806a7e633.js:18495 [AUTH] ✅ Recuperando user do sessionStorage: @Ilona0302
+e9069730981ba281d54a71e3474904a806a7e633.js:44616 [DASHBOARD] 📊 Dashboard Principal - v2.0
+e9069730981ba281d54a71e3474904a806a7e633.js:31182 [TENDENCY ENGINE] 🧠 Calculando tendência para: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25333 [useMarketPrice] 📡 Subscribing to REAL data: BTCUSDT → BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25067 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25229 [UnifiedMarketData] 📡 Símbolo normalizado: BTCUSDT → BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25136 [BinancePolling] 🔄 SUBSCRIBE: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25146 [BinancePolling] 🆕 Nova subscription criada para BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25160 [BinancePolling] ▶️ Iniciando polling para BTCUSDT (1000ms)
+e9069730981ba281d54a71e3474904a806a7e633.js:39432 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:38991 [isMarketOpen] 🕐 Checking market hours: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:38991 [isMarketOpen] 🕐 Checking market hours: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:39434 [MarketScoreBoard] 📊 Market Info: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:39449 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:39488 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:39490 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25067 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:39554 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+e9069730981ba281d54a71e3474904a806a7e633.js:39567 [MarketScoreBoard] 🚀 CRYPTO DETECTADO! Iniciando WebSocket... Object
+e9069730981ba281d54a71e3474904a806a7e633.js:25229 [UnifiedMarketData] 📡 Símbolo normalizado: BTCUSDT → BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25153 [BinancePolling] ❌ Callback removido (restantes: 0)
+e9069730981ba281d54a71e3474904a806a7e633.js:25153 [BinancePolling] 🛑 Polling parado para BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25136 [BinancePolling] 🔄 SUBSCRIBE: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25146 [BinancePolling] 🆕 Nova subscription criada para BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25160 [BinancePolling] ▶️ Iniciando polling para BTCUSDT (1000ms)
+e9069730981ba281d54a71e3474904a806a7e633.js:39613 [Animation] ⏸️ Animação DESATIVADA para crypto. Usando valores exatos da API.
+e9069730981ba281d54a71e3474904a806a7e633.js:40091 🔄 [AGENDA] Iniciando carregamento de eventos...
+e9069730981ba281d54a71e3474904a806a7e633.js:40108 📡 [AGENDA ECONÔMICA] Chamando API multi-fonte...
+e9069730981ba281d54a71e3474904a806a7e633.js:40108 📡 [AGENDA ECONÔMICA] URL: https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar
+e9069730981ba281d54a71e3474904a806a7e633.js:40081 🕐 [AGENDA] Próxima atualização automática em: 11.70 horas (meia-noite)
+e9069730981ba281d54a71e3474904a806a7e633.js:41197 ═══════════════════════════════════════════════════════
+e9069730981ba281d54a71e3474904a806a7e633.js:41197 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+e9069730981ba281d54a71e3474904a806a7e633.js:41197 ═══════════════════════════════════════════════════════
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for BTCUSD
+e9069730981ba281d54a71e3474904a806a7e633.js:18531 [AUTH] 👤 USER STATE MUDOU: @Ilona0302 (ID: mock-user-123)
+e9069730981ba281d54a71e3474904a806a7e633.js:31228 [TENDENCY ENGINE] ✅ Tendência calculada: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/binance-proxy/ticker/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/binance-proxy/ticker/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 [BinancePolling] ❌ Erro ao buscar dados: TypeError: Failed to fetch
+    at mse.fetchAndNotify (e9069730981ba281d54a71e3474904a806a7e633.js:25178:25)
+    at mse.startPolling (e9069730981ba281d54a71e3474904a806a7e633.js:25160:106)
+    at mse.subscribe (e9069730981ba281d54a71e3474904a806a7e633.js:25146:118)
+    at ZP (e9069730981ba281d54a71e3474904a806a7e633.js:25230:17)
+    at e9069730981ba281d54a71e3474904a806a7e633.js:25361:23
+    at Dp (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:24249)
+    at ml (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:42323)
+    at sA (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:36566)
+    at Ys (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:6:3274)
+    at a5 (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:41226)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/user-profile?userId=mock-user-123' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/user-profile?userId=mock-user-123:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 Error loading profile: TypeError: Failed to fetch
+    at a (e9069730981ba281d54a71e3474904a806a7e633.js:22087:32)
+    at e9069730981ba281d54a71e3474904a806a7e633.js:22082:14
+    at Dp (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:24249)
+    at ml (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:42323)
+    at sA (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:36566)
+    at Ys (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:6:3274)
+    at a5 (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:41226)
+    at Wi (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:40214)
+    at $y (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:35676)
+    at dT (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:1:9206)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/BTCUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/BTCUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for BTCUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/vix' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/vix:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:41204 [VIX ENHANCED] 📊 Resultado backend: null
+e9069730981ba281d54a71e3474904a806a7e633.js:41214 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9069730981ba281d54a71e3474904a806a7e633.js:41214Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:41218 [VIX ENHANCED] 📊 Fallback gerado: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/binance-proxy/ticker/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/binance-proxy/ticker/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 [BinancePolling] ❌ Erro ao buscar dados: TypeError: Failed to fetch
+    at mse.fetchAndNotify (e9069730981ba281d54a71e3474904a806a7e633.js:25178:25)
+    at mse.startPolling (e9069730981ba281d54a71e3474904a806a7e633.js:25160:106)
+    at mse.subscribe (e9069730981ba281d54a71e3474904a806a7e633.js:25146:118)
+    at ZP (e9069730981ba281d54a71e3474904a806a7e633.js:25230:17)
+    at e9069730981ba281d54a71e3474904a806a7e633.js:39572:16
+    at Dp (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:24249)
+    at ml (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:42323)
+    at sA (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:36566)
+    at Ys (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:6:3274)
+    at a5 (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:41226)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 [AGENDA ECONÔMICA] ❌ Erro ao buscar dados: TypeError: Failed to fetch
+    at h (e9069730981ba281d54a71e3474904a806a7e633.js:40109:23)
+    at u (e9069730981ba281d54a71e3474904a806a7e633.js:40092:23)
+    at e9069730981ba281d54a71e3474904a806a7e633.js:40076:5
+    at Dp (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:24249)
+    at ml (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:42323)
+    at sA (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:36566)
+    at Ys (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:6:3274)
+    at a5 (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:41226)
+    at Wi (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:40214)
+    at $y (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:35676)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:40097 ⚠️ [AGENDA] API não retornou dados, usando mock...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/user-profile?userId=mock-user-123' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/user-profile?userId=mock-user-123:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 Error loading profile: TypeError: Failed to fetch
+    at a (e9069730981ba281d54a71e3474904a806a7e633.js:22087:32)
+    at e9069730981ba281d54a71e3474904a806a7e633.js:22082:14
+    at Dp (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:24249)
+    at ml (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:42323)
+    at sA (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:36566)
+    at Ys (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:6:3274)
+    at a5 (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:41226)
+    at Wi (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:40214)
+    at $y (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:35676)
+    at dT (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:1:9206)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for ETHUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/ETHUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/ETHUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for ETHUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for XRPUSD
+e9069730981ba281d54a71e3474904a806a7e633.js:20502 [Market Data] ℹ️ Nenhuma credencial salva encontrada
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XRPUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XRPUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for XRPUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/XRPUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/XRPUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for BNBUSD
+e9069730981ba281d54a71e3474904a806a7e633.js:25088 [BinanceValidator] ✅ RAW DATA: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:25275 [UnifiedMarketData] ✅ BTCUSDT: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:25352 [useMarketPrice] ✅ Initial data loaded: BTCUSDT @ $76100.09
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/BNBUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/BNBUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for BNBUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BNBUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BNBUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for SOLUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/SOLUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/SOLUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for SOLUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for ADAUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/ADAUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/ADAUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for ADAUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ADAUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ADAUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for DOGUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/DOGUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/DOGUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for DOGUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for AVAUSD
+e9069730981ba281d54a71e3474904a806a7e633.js:25088 [BinanceValidator] ✅ RAW DATA: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:25275 [UnifiedMarketData] ✅ BTCUSDT: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:39492 [MarketScoreBoard] 📊 Valores PUROS recebidos: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:39492 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: Object
+e9069730981ba281d54a71e3474904a806a7e633.js:39498 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: Object
+2e9069730981ba281d54a71e3474904a806a7e633.js:44616 [DASHBOARD] 📊 Dashboard Principal - v2.0
+e9069730981ba281d54a71e3474904a806a7e633.js:39398 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+2e9069730981ba281d54a71e3474904a806a7e633.js:199 [ErrorBoundary] 🛡️ Error caught: NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.
+    at Ky (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:26066)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27356)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.
+    at Ky (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:26066)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27356)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 [ErrorBoundary] 🚨 Component error details: Object
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.
+    at Ky (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:26066)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27356)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+    at jy (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27816)
+    at kn (sites-runtime.ad1cb1aa32b86da24ecbe57f7ba825c8679987ef5714881ff4c9516fce2990f8.js:8:27506)
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:199 [ErrorBoundary] 🚨 Component error details: Object
+console.error @ e9069730981ba281d54a71e3474904a806a7e633.js:199Entenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:18523 [AUTH] 🧹 Limpando AuthProvider...
+e9069730981ba281d54a71e3474904a806a7e633.js:19087 [MarketContext] 🔄 Desconectando RealMarketDataService...
+e9069730981ba281d54a71e3474904a806a7e633.js:18930 [RealMarketData] 🛑 Unsubscribing from 13 symbols
+e9069730981ba281d54a71e3474904a806a7e633.js:25386 [useMarketPrice] 🧹 Unsubscribing from BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25252 [UnifiedMarketData] 🔌 Unsubscribe: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25153 [BinancePolling] ❌ Callback removido (restantes: 1)
+e9069730981ba281d54a71e3474904a806a7e633.js:39609 [MarketScoreBoard] 🔌 Desconectando WebSocket: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25252 [UnifiedMarketData] 🔌 Unsubscribe: BTCUSDT
+e9069730981ba281d54a71e3474904a806a7e633.js:25153 [BinancePolling] ❌ Callback removido (restantes: 0)
+e9069730981ba281d54a71e3474904a806a7e633.js:25153 [BinancePolling] 🛑 Polling parado para BTCUSDT
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AVAUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AVAUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for AVAUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for DOTUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/DOTUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/DOTUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for DOTUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/DOTUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/DOTUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for MATUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/MATUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/MATUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for MATUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/MATUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/MATUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for US500
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/US500' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/US500:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for US500...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for NAS100
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NAS100' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NAS100:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for NAS100...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for US30
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/US30' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/US30:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for US30...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for DE40
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/DE40' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/DE40:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for DE40...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for UK100
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/UK100' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/UK100:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for UK100...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for JPN225
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/JPN225' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/JPN225:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for JPN225...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for HKG33
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/HKG33' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/HKG33:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for HKG33...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for EURUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/EURUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/EURUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for EURUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for GBPUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/GBPUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/GBPUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for GBPUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for USDJPY
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USDJPY' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USDJPY:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for USDJPY...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for USDCHF
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USDCHF' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USDCHF:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for USDCHF...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/USDCHFUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/USDCHFUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for AUDUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AUDUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AUDUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for AUDUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for USDCAD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USDCAD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USDCAD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for USDCAD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/USDCADUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/USDCADUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for NZDUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NZDUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NZDUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for NZDUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for EURGBP
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/EURGBP' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/EURGBP:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for EURGBP...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for EURJPY
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/EURJPY' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/EURJPY:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for EURJPY...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for GBPJPY
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/GBPJPY' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/GBPJPY:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for GBPJPY...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for XAUUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XAUUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XAUUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for XAUUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for XAGUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XAGUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XAGUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for XAGUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for XPTUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XPTUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XPTUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for XPTUSD...
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/XPTUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/XPTUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for XPDUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XPDUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/XPDUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for XPDUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for UKOUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/UKOUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/UKOUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for UKOUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for USOUSD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USOUSD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/USOUSD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for USOUSD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for NGAS
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NGAS' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NGAS:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for NGAS...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for AAPL
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AAPL' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AAPL:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for AAPL...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for MSFT
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/MSFT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/MSFT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for MSFT...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for GOOGL
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/GOOGL' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/GOOGL:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for GOOGL...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for AMZN
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AMZN' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AMZN:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for AMZN...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for NVDA
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NVDA' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NVDA:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for NVDA...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for TSLA
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/TSLA' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/TSLA:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for TSLA...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for META
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/META' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/META:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for META...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for NFLX
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NFLX' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/NFLX:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for NFLX...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for AMD
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AMD' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/AMD:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for AMD...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for INTC
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/INTC' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/INTC:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for INTC...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for COPPER
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/COPPER' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/COPPER:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for COPPER...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for WHEAT
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/WHEAT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/WHEAT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for WHEAT...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for Coffee
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/Coffee' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/Coffee:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for Coffee...
+e9069730981ba281d54a71e3474904a806a7e633.js:39180 [MetaApi] 🌐 Fetching market data for SUGAR
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/SUGAR' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/market-data/SUGAR:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+e9069730981ba281d54a71e3474904a806a7e633.js:39218 [MetaApi] ⚠️ Error fetching from MetaApi: Failed to fetch
+WS @ e9069730981ba281d54a71e3474904a806a7e633.js:39218Entenda o aviso
+e9069730981ba281d54a71e3474904a806a7e633.js:39221 [MetaApi] 🔄 Using fallback service for SUGAR...

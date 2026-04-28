@@ -1,0 +1,815 @@
+service for AUDUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AUDUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for USDCAD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for USDCAD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCAD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for USDCAD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCAD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for USDCAD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCAD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18653Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NZDUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NZDUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for EURGBP
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for EURGBP...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for EURJPY
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for EURJPY...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for GBPJPY
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for GBPJPY...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XAUUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XAUUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XAGUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XAGUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XPTUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XPTUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para XPTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for XPTUSD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para XPTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for XPTUSD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para XPTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18653Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XPDUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XPDUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for UKOUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for UKOUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for USOUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for USOUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NGAS
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NGAS...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AAPL
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AAPL...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for MSFT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for MSFT...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for GOOGL
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for GOOGL...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AMZN
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AMZN...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NVDA
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NVDA...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for TSLA
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for TSLA...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for META
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for META...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NFLX
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NFLX...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AMD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AMD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for INTC
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for INTC...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for COPPER
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for COPPER...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for WHEAT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for WHEAT...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for Coffee
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for Coffee...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for SUGAR
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for SUGAR...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for BTCUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for BTCUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for ETHUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for ETHUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XRPUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XRPUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for BNBUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for BNBUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for SOLUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for SOLUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for ADAUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for ADAUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for DOGUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for DOGUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AVAUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AVAUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for DOTUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for DOTUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para DOTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for DOTUSD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39403 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:38999 [isMarketOpen] 🕐 Checking market hours: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:38999 [isMarketOpen] 🕐 Checking market hours: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39405 [MarketScoreBoard] 📊 Market Info: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39420 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39459 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39461 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:24943 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39525 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para DOTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for DOTUSD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:24964 [BinanceValidator] ✅ RAW DATA: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:25283 [UnifiedMarketData] ✅ BTCUSDT: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39463 [MarketScoreBoard] 📊 Valores PUROS recebidos: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39463 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39469 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39369 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para DOTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18653Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for MATUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for MATUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para MATUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ MATUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for MATUSD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para MATUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ MATUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for MATUSD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para MATUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ MATUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for MATUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18653Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for US500
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for US500...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NAS100
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NAS100...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for US30
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for US30...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for DE40
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for DE40...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for UK100
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for UK100...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for JPN225
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for JPN225...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for HKG33
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for HKG33...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for EURUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for EURUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for GBPUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for GBPUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for USDJPY
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for USDJPY...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for USDCHF
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for USDCHF...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCHF
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCHF: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for USDCHF. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCHF
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCHF: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for USDCHF. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCHF
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCHF: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for USDCHF: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18653Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AUDUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AUDUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for USDCAD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for USDCAD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCAD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for USDCAD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCAD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for USDCAD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para USDCAD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for USDCAD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NZDUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NZDUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for EURGBP
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for EURGBP...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for EURJPY
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for EURJPY...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for GBPJPY
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for GBPJPY...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XAUUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XAUUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XAGUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XAGUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XPTUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XPTUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para XPTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for XPTUSD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para XPTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for XPTUSD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para XPTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for XPTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XPDUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XPDUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for UKOUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for UKOUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for USOUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for USOUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NGAS
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NGAS...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AAPL
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AAPL...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for MSFT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for MSFT...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for GOOGL
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for GOOGL...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AMZN
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AMZN...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NVDA
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NVDA...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for TSLA
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for TSLA...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for META
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for META...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for NFLX
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for NFLX...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AMD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AMD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for INTC
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for INTC...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for COPPER
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for COPPER...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for WHEAT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for WHEAT...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for Coffee
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for Coffee...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for SUGAR
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for SUGAR...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: Object
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for BTCUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for BTCUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for ETHUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for ETHUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for XRPUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for XRPUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for BNBUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for BNBUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for SOLUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for SOLUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39403 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:38999 [isMarketOpen] 🕐 Checking market hours: {symbol: 'BTCUSDT', marketType: 'CRYPTO', utcDay: 0, utcHours: 16, utcMinutes: 48, …}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:38999 [isMarketOpen] 🕐 Checking market hours: {symbol: 'BTCUSDT', marketType: 'CRYPTO', utcDay: 0, utcHours: 16, utcMinutes: 48, …}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39405 [MarketScoreBoard] 📊 Market Info: {symbol: 'BTCUSDT', isOpen: true, status: 'OPEN', statusMessage: '🟢 Bitcoin ABERTO '}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39420 [MarketScoreBoard] 🔍 Detecção de tipo: {symbol: 'BTCUSDT', isCrypto: true, isSPX: false}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39459 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39461 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:24943 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39525 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for ADAUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for ADAUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:24964 [BinanceValidator] ✅ RAW DATA: {symbol: 'BTCUSDT', lastPrice: 75607.98, priceChange: -350.02, priceChangePercent: -0.461}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:25283 [UnifiedMarketData] ✅ BTCUSDT: {price: '75607.98', change: '-350.02', changePercent: '-0.46%', ⚠️ BINANCE RAW %: -0.461, openPrice: '75958.00'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39463 [MarketScoreBoard] 📊 Valores PUROS recebidos: {symbol: 'BTCUSDT', price: 75607.98, change: -350.02, changePercent: -0.461, high: 76240.66, …}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39463 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: {symbol: 'BTCUSDT', PREÇO exibido: '75607.98', CHANGE exibido: '-350.02', % HOJE exibido: '-0.46%', 📊 RAW changePercent: -0.461}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39469 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: {Price esperado: 'Verifique: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', Price recebido: 75607.98, Change esperado: 'priceChange da API', Change recebido: -350.02, ChangePercent esperado: 'priceChangePercent da API', …}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39369 [🎨 DASHBOARD RENDER] Exibindo na tela: {displayPrice: '75607.98', displayChange: '-350.02', displayTrend: '-0.46%', 🔥 Update #: 1, isCrypto: true, …}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for DOGUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for DOGUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for AVAUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for AVAUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for DOTUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for DOTUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para DOTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for DOTUSD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para DOTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for DOTUSD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para DOTUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ All 3 attempts failed for DOTUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18653
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39188 [MetaApi] 🔄 Using fallback service for MATUSD
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39190 [MetaApi] 🔄 Using fallback service for MATUSD...
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para MATUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ MATUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 1/3 failed for MATUSD. Retrying in 1000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679 [Binance] ⚠️ Binance direta falhou para MATUSD
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18679
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199 [Binance] ❌ MATUSD: Binance direct fetch failed
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:199
+console.error @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:114513
+yre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18681
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18646
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o erro
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650 [Binance] ⚠️ Attempt 2/3 failed for MATUSD. Retrying in 2000ms...
+gre @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18650
+await in gre
+d7 @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:18606
+ZS @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:39192
+n @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:104504Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40892 ═══════════════════════════════════════════════════════
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40894 [VIX ENHANCED] 📊 Resultado backend: null
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897 [VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...
+_ @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40897
+(anônimo) @ e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40935Entenda o aviso
+e9e02ef00046ef615d42c7679883b9e3c55f38d1.js:40901 [VIX ENHANCED] 📊 Fallback gerado: {value: '21.83', change: '4.83', changePercent: '28.40'}

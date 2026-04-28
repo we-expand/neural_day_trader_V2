@@ -1,0 +1,9 @@
+# Supabase Configuration
+# Desabilitar auto-deploy de Edge Functions
+
+[deploy]
+  enabled = false
+
+[edge-functions]
+  auto-deploy = false
+  skip = true

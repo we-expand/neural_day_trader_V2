@@ -1,0 +1,283 @@
+[Hydrated]
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:200 [FigmaErrorHandler] ✅ Handler instalado - erros do Figma serão silenciados
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:56393 [SymbolMappingService] ✅ 29 mapeamentos carregados
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:56925 [ChartView] ✅ Point Marker overlay registrado
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:56989 [ChartView] ✅ Fibonacci Extension overlay registrado
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:114479 ═══════════════════════════════════════════════════════
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:114479 🔥 NEURAL DAY TRADER PLATFORM v3.5.0
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:114479 ═══════════════════════════════════════════════════════
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:114479 ✅ Cache Buster Automático Ativo
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:114479 ═══════════════════════════════════════════════════════
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:21920 [Favicon] ✅ Logo Trade Hub configurado
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20920 🚀 [USE APEX LOGIC] Hook inicializado - 21 JAN 2026 Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20930 [useApexLogic] 💾 Modo de execução salvo: DEMO
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:21045 [TRADING] 📊 Status: isActive=false, isPaused=false, isSafeMode=false
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:21046 [TRADING] ⏸️ AI está pausada ou inativa - não iniciando loop de trading
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20374 [Market Data] ⏸️ Auto-refresh pausado (aguardando conexão)
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20388 [Market Data] Status: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18845 [MarketContext] 🚀 Iniciando RealMarketDataService...
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18718 [RealMarketData] 📡 Subscribing to 13 symbols (interval: 10000ms)
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18292 [AUTH] 🚀 AuthProvider montado
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18337 [AUTH] 👤 USER STATE MUDOU: NULL
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20316 [Market Data] 🚀 Context inicializado com segurança
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20374 [Market Data] ⏸️ Auto-refresh pausado (aguardando conexão)
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18298 [AUTH] 🔍 Verificando sessionStorage: VAZIO
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18310 [AUTH] 🔐 Verificando sessão Supabase...
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18313 [AUTH] ⚠️ Nenhuma sessão Supabase
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18316 [AUTH] 🔄 onAuthStateChange: INITIAL_SESSION sem sessão
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:20308 [Market Data] ℹ️ Nenhuma credencial salva encontrada
+inject.bundle.js:216 [ChromePolyfill] Chrome API support enabled for web context
+(índice):1 Unchecked runtime.lastError: The message port closed before a response was received.Entenda o erro
+noise.svg:1  Failed to load resource: the server responded with a status of 403 ()Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) <input type=​"password" placeholder=​"••••••••" class=​"w-full bg-transparent border-b py-4 text-2xl placeholder-slate-700 focus:​outline-none transition-colors font-light tracking-widest border-red-500 text-red-500 placeholder-red-500/​50" value=​"@Ilona0302" data-listener-added_cba14a85=​"true">​
+bgarakvnuppzkugzptsr.supabase.co/auth/v1/token?grant_type=password:1  Failed to load resource: the server responded with a status of 402 ()Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+bgarakvnuppzkugzptsr.supabase.co/auth/v1/token?grant_type=password:1  Failed to load resource: the server responded with a status of 402 ()Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: Object
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT:1  Failed to load resource: net::ERR_FAILEDEntenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: Object
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ EURUSD: {price: 1.0406696057176954, change: -0.05765980795610334, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ GBPUSD: {price: 1.2238739095237312, change: -0.0576598079560988, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ USDJPY: {price: 156.15391000965707, change: -0.057659807956101976, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUDUSD: {price: 0.6230006499091221, change: -0.07207475994512405, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SPX500: {price: 5998.305497256516, change: -0.360373799725648, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ NAS100: {price: 20077.38467935528, change: -0.36037379972565636, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ US30: {price: 49321.6149691358, change: -0.3603737997256556, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ AUS200: {price: 8228.065364266118, change: -0.07207475994512758, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAUUSD: {price: 2672.658540776749, change: -0.2162242798353887, source: 'generated'}
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ XAGUSD: {price: 31.18242991255144, change: -0.21622427983538725, source: 'generated'}
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18415  GET https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/BTCUSDT net::ERR_FAILED
+fetchViaServer @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18415
+validateAndAlign @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18392
+Vte @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18567
+Yte @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18554
+G9 @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18514
+(anônimo) @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18725
+a @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18723Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ BTCUSDT: {price: 87957.57664010316, change: 0.06550243470210715, source: 'binance'}
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18415  GET https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/ETHUSDT net::ERR_FAILED
+fetchViaServer @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18415
+validateAndAlign @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18392
+Vte @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18567
+Yte @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18554
+G9 @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18514
+(anônimo) @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18725
+a @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18723Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ ETHUSDT: {price: 3257.8368148731047, change: 0.056413233203459284, source: 'binance'}
+(índice):1 Access to fetch at 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT' from origin 'https://stroke-donut-85811224.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18415  GET https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/real/binance/SOLUSDT net::ERR_FAILED
+fetchViaServer @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18415
+validateAndAlign @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18392
+Vte @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18567
+Yte @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18554
+G9 @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18514
+(anônimo) @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18725
+a @ ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18723Entenda o erro
+ba9c072552a5e3a27fa05dc4121450fb62d3f010.js:18867 [MarketContext] ✅ SOLUSDT: {price: 235.04413499647617, change: 0.018780849564316027, source: 'binance'}

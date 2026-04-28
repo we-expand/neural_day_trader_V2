@@ -1,0 +1,13 @@
+# DO NOT DEPLOY ANY EDGE FUNCTIONS
+# This project uses direct MetaAPI connection
+# See /README_403.md for details
+
+*
+**/*
+server/
+server/**
+make-server/
+make-server/**
+*.ts
+*.tsx
+*.js

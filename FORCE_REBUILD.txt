@@ -1,0 +1,34 @@
+🚀 FORCE REBUILD - 2026-04-19 15:30:00
+
+MUDANÇAS CRÍTICAS:
+==================
+
+1. ✅ DirectBinanceService criado
+   - Busca dados DIRETAMENTE da Binance API
+   - SEM passar por Supabase Edge Functions
+   - SEM consumir quota
+   - SEM erro 402
+
+2. ✅ BinancePollingService atualizado
+   - Tenta API primeiro (Vercel ou Supabase)
+   - Se falhar, usa Binance direta automaticamente
+   - Fallback automático e transparente
+
+3. ✅ RealMarketDataService atualizado
+   - Prioridade 1: Binance DIRETA (sem limites!)
+   - Fallback 2: Servidor Supabase
+   - Fallback 3: Dados simulados
+
+4. ✅ Intervalo otimizado
+   - 120 segundos (2 minutos) em vez de 1 segundo
+   - Redução de 99% no consumo de quota
+
+RESULTADO:
+==========
+- ✅ Plataforma funciona MESMO com quota Supabase excedida
+- ✅ Dados reais da Binance sem intermediários
+- ✅ Sem erro 402
+- ✅ Sem erro CORS
+- ✅ Dashboard carrega normalmente
+
+Rebuild timestamp: 2026-04-19T15:30:00.000Z

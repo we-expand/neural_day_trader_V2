@@ -1,0 +1,22 @@
+{
+  "currentSnapshot": null,
+  "lastUpdate": "2026-04-19T16:10:00.000Z",
+  "snapshots": [],
+  "stableVersions": [
+    {
+      "tag": "STABLE-v4.3",
+      "description": "MODO OFFLINE TOTAL - Todas APIs Supabase desabilitadas",
+      "timestamp": "2026-04-19T16:00:00.000Z",
+      "features": [
+        "Trading Engine completo",
+        "18 ativos operacionais",
+        "Sistema de IA AUTO/MANUAL",
+        "Performance Analytics",
+        "Liquidity Map",
+        "Correlation Matrix",
+        "Economic Calendar",
+        "Sistema de contenção estrutural 5 camadas"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# Ignorar Edge Functions do Supabase
+supabase/functions/**
+supabase/functions
+/supabase/functions/**
+**/supabase/functions/**
+
+# Ignorar arquivos de configuração do Supabase
+supabase/**/*.json
+**/deno.json
+**/deno.lock
+
+# Ignorar documentação de troubleshooting
+**/NO_DEPLOY.md
+**/TROUBLESHOOTING_*.md
+**/LEIA_PRIMEIRO_403.md
+**/SOLUCAO_*.md

@@ -1,0 +1,10 @@
+# Ignore all Edge Functions
+functions/
+functions/**
+server/
+server/**
+make-server/
+make-server/**
+make-server-*/
+*.edge-function.ts
+*.edge-function.tsx

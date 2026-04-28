@@ -1,0 +1,948 @@
+[Hydrated]
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:49928 [SymbolMappingService] ✅ 29 mapeamentos carregados
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:50460 [ChartView] ✅ Point Marker overlay registrado
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:50524 [ChartView] ✅ Fibonacci Extension overlay registrado
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:106985 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:106985 🔥 NEURAL DAY TRADER PLATFORM v3.5.0
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:106985 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:106985 ✅ Cache Buster Automático Ativo
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:106985 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:904 [FigmaErrorHandler] ✅ Handler instalado - erros do Figma serão silenciados
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:14450 🚀 [USE APEX LOGIC] Hook inicializado - 21 JAN 2026 Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:14460 [useApexLogic] 💾 Modo de execução salvo: DEMO
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13918 [Market Data] Status: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13384 [MarketContext] 🚀 Iniciando RealMarketDataService...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13257 [RealMarketData] 📡 Subscribing to 13 symbols (interval: 10000ms)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12835 [AUTH] 🚀 AuthProvider montado
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12876 [AUTH] 👤 USER STATE MUDOU: NULL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12839 [AUTH] 🔍 Verificando sessionStorage: VAZIO
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12851 [AUTH] 🔐 Verificando sessão Supabase...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13855 [Market Data] 🚀 Context inicializado com segurança
+inject.bundle.js:216 [ChromePolyfill] Chrome API support enabled for web context
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12852 [AUTH] ✅ Sessão Supabase encontrada
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:37986 [DASHBOARD] 📊 Dashboard Principal - v2.0
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:24552 [TENDENCY ENGINE] 🧠 Calculando tendência para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23785 [useMarketPrice] 📡 Subscribing to REAL data: BTCUSDT → BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23519 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23681 [UnifiedMarketData] 📡 Símbolo normalizado: BTCUSDT → BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23588 [BinancePolling] 🔄 SUBSCRIBE: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23598 [BinancePolling] 🆕 Nova subscription criada para BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23612 [BinancePolling] ▶️ Iniciando polling para BTCUSDT (1000ms)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32802 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32361 [isMarketOpen] 🕐 Checking market hours: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32361 [isMarketOpen] 🕐 Checking market hours: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32804 [MarketScoreBoard] 📊 Market Info: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32819 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32858 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32860 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23519 [BinanceValidator] 📡 Fetching: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32924 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32937 [MarketScoreBoard] 🚀 CRYPTO DETECTADO! Iniciando WebSocket... Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23681 [UnifiedMarketData] 📡 Símbolo normalizado: BTCUSDT → BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23605 [BinancePolling] ❌ Callback removido (restantes: 0)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23605 [BinancePolling] 🛑 Polling parado para BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23588 [BinancePolling] 🔄 SUBSCRIBE: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23598 [BinancePolling] 🆕 Nova subscription criada para BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23612 [BinancePolling] ▶️ Iniciando polling para BTCUSDT (1000ms)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32983 [Animation] ⏸️ Animação DESATIVADA para crypto. Usando valores exatos da API.
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33461 🔄 [AGENDA] Iniciando carregamento de eventos...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33478 📡 [AGENDA ECONÔMICA] Chamando API multi-fonte...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33478 📡 [AGENDA ECONÔMICA] URL: https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33451 🕐 [AGENDA] Próxima atualização automática em: 23.75 horas (meia-noite)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34567 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34567 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34567 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BTCUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching BTC (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12876 [AUTH] 👤 USER STATE MUDOU: cleber.couto@we-expand.com (ID: 1929cbb3-e041-44c2-9f86-3084a7440a27)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:24598 [TENDENCY ENGINE] ✅ Tendência calculada: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12857 [AUTH] 🔄 onAuthStateChange: INITIAL_SESSION sessão ativa
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12876 [AUTH] 👤 USER STATE MUDOU: cleber.couto@we-expand.com (ID: 1929cbb3-e041-44c2-9f86-3084a7440a27)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13847 [Market Data] ℹ️ Nenhuma credencial salva encontrada
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23540 [BinanceValidator] ✅ RAW DATA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23727 [UnifiedMarketData] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23804 [useMarketPrice] ✅ Initial data loaded: BTCUSDT @ $74005.59
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23540 [BinanceValidator] ✅ RAW DATA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23727 [UnifiedMarketData] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32862 [MarketScoreBoard] 📊 Valores PUROS recebidos: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32862 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32868 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32768 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+(índice):1 Unchecked runtime.lastError: The message port closed before a response was received.Entenda o erro
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ BTC: $74005.59 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching ETH (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [BinancePolling] 📊 Dados recebidos: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23683 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23697 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32943 [🎯 DASHBOARD] 🚨🚨🚨 CALLBACK EXECUTADO! Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [🎯 DASHBOARD WebSocket] 🚨 CALLBACK EXECUTADO! Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32951 [🎯 DASHBOARD] 📌 REFS ATUALIZADAS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [🎯 DASHBOARD WebSocket] 🔥 RE-RENDER FORÇADO! Counter: 0 → 1
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [🎯 DASHBOARD WebSocket] ✅ STREAMING: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [BinancePolling] ✅ Callbacks executados: 1/1
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32768 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ ETH: $2321.73 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching SOL (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34567 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34567 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34567 ═══════════════════════════════════════════════════════
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32802 [MarketScoreBoard] 🚀 INICIANDO fetchData para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32361 [isMarketOpen] 🕐 Checking market hours: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32361 [isMarketOpen] 🕐 Checking market hours: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32804 [MarketScoreBoard] 📊 Market Info: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32819 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32858 [MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32860 [MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32924 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32862 [MarketScoreBoard] 📊 Valores PUROS recebidos: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32862 [🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32868 [Crypto] 🔍 COMPARAÇÃO COM BINANCE: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32768 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [BinancePolling] 📊 Dados recebidos: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [BinancePolling] ✅ Callbacks executados: 0/0
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BTCUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BTCUSD: $102898.78258, change: -0.17%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ETHUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [BinancePolling] 📊 Dados recebidos: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23683 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23697 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32943 [🎯 DASHBOARD] 🚨🚨🚨 CALLBACK EXECUTADO! Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [🎯 DASHBOARD WebSocket] 🚨 CALLBACK EXECUTADO! Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32951 [🎯 DASHBOARD] 📌 REFS ATUALIZADAS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [🎯 DASHBOARD WebSocket] 🔥 RE-RENDER FORÇADO! Counter: 1 → 2
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [🎯 DASHBOARD WebSocket] ✅ STREAMING: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23570 [BinancePolling] ✅ Callbacks executados: 1/1
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32768 [🎨 DASHBOARD RENDER] Exibindo na tela: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23121 [SIDEBAR] 🔄 Mudando para: ai-trader
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:106989 [APP] 🔄 Mudando view de dashboard para ai-trader
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23838 [useMarketPrice] 🧹 Unsubscribing from BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23704 [UnifiedMarketData] 🔌 Unsubscribe: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23605 [BinancePolling] ❌ Callback removido (restantes: 1)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32979 [MarketScoreBoard] 🔌 Desconectando WebSocket: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23704 [UnifiedMarketData] 🔌 Unsubscribe: BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23605 [BinancePolling] ❌ Callback removido (restantes: 0)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:23605 [BinancePolling] 🛑 Polling parado para BTCUSDT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77589 [MT5] ✅ Login carregado do localStorage: 87026945
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77589 [MT5] ✅ Servidor carregado do localStorage: InfinoxLimited-MT5Live
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77591 [MT5] ✅ MetaAPI Account ID carregado: 87026945
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ SOL: $94.73 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching XRP (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ETHUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ETHUSD: $3089.87826, change: -0.55%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XRPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34574 [VIX ENHANCED] 📊 Resultado backend: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34577 [VIX ENHANCED] ✅ Usando Backend: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for XRPUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ XRP: $1.52 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching BNB (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33489 📡 [AGENDA ECONÔMICA] Response status: 200
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33489 📡 [AGENDA ECONÔMICA] Response ok: true
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33494 📊 [AGENDA ECONÔMICA] ✅ RESPOSTA DA API COMPLETA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33494 📊 [AGENDA ECONÔMICA] RESPOSTA DA API: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33505 ✅ [AGENDA ECONÔMICA] 39 eventos carregados da fonte: Investing.com (Fallback Português)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:33464 ✅ [AGENDA] Dados reais recebidos: Investing.com (Fallback Português)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34574 [VIX ENHANCED] 📊 Resultado backend: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:34577 [VIX ENHANCED] ✅ Usando Backend: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XRPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XRPUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BNBUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for BNBUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ BNB: $668.76 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching ADA (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for ADAUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ ADA: $0.29 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching DOGE (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BNBUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BNBUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SOLUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for DOGEUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ DOGE: $0.10 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867 [UnifiedMarketData] Unknown symbol: POL
+getPrice @ f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867Entenda o aviso
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SOLUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SOLUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ADAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867 [UnifiedMarketData] Unknown symbol: DOT
+getPrice @ f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867Entenda o aviso
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105868 [UnifiedMarketData] Fetching AVAX (crypto)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ADAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ADAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105756 [Binance] 📊 RAW DATA for AVAXUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105870 [UnifiedMarketData] ✅ AVAX: $10.20 (binance)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867 [UnifiedMarketData] Unknown symbol: LINK
+getPrice @ f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867Entenda o aviso
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867 [UnifiedMarketData] Unknown symbol: UNI
+getPrice @ f391ee2eb8763215cdedff98286b515c6e1687fa.js:105867Entenda o aviso
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AVAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AVAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AVAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MATUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MATUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MATUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US500
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US500: $5908.98783, change: -0.03%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NAS100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NAS100: $21244.93913, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US30
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US30: $43689.87826, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DE40
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DE40: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DE40: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UK100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UK100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UK100: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for JPN225
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para JPN225: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for JPN225: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for HKG33
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para HKG33: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for HKG33: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURUSD: $1.15000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPUSD: $1.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDJPY: $158.98000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCHF
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCHF: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCHF: $0.78600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AUDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AUDUSD: $0.71000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCAD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCAD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCAD: $1.37000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NZDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NZDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NZDUSD: $0.58600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURGBP
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURGBP: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURGBP: $0.86400, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURJPY: $183.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPJPY: $212.19000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAUUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAUUSD: $2658.98783, change: -0.06%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPDUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UKOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UKOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UKOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NGAS
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NGAS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NGAS: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AAPL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AAPL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AAPL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MSFT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MSFT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MSFT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GOOGL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GOOGL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GOOGL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMZN
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMZN: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMZN: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NVDA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NVDA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NVDA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for TSLA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para TSLA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for TSLA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for META
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para META: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for META: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NFLX
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NFLX: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NFLX: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BTCUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BTCUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BTCUSD: $102898.78258, change: -0.17%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ETHUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for INTC
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ETHUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ETHUSD: $3089.87826, change: -0.55%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XRPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para INTC: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for INTC: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for COPPER
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XRPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XRPUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BNBUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BNBUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BNBUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SOLUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SOLUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SOLUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ADAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para COPPER: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for COPPER: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for WHEAT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ADAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ADAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AVAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para WHEAT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for WHEAT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for Coffee
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AVAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AVAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MATUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para Coffee: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for Coffee: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SUGAR
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MATUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MATUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US500
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US500: $5908.98783, change: -0.03%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NAS100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SUGAR: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SUGAR: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NAS100: $21244.93913, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US30
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US30: $43689.87826, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DE40
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DE40: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DE40: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UK100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UK100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UK100: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for JPN225
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para JPN225: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for JPN225: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for HKG33
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para HKG33: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for HKG33: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURUSD: $1.15000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPUSD: $1.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDJPY: $158.98000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCHF
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCHF: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCHF: $0.78600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AUDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AUDUSD: $0.71000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCAD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCAD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCAD: $1.37000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NZDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NZDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NZDUSD: $0.58600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURGBP
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURGBP: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURGBP: $0.86400, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURJPY: $183.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPJPY: $212.19000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAUUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAUUSD: $2658.98783, change: -0.06%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPDUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UKOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UKOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UKOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NGAS
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NGAS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NGAS: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AAPL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AAPL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AAPL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MSFT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MSFT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MSFT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GOOGL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GOOGL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GOOGL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMZN
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMZN: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMZN: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NVDA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NVDA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NVDA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for TSLA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para TSLA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for TSLA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for META
+(índice):1 [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) <input type=​"password" placeholder=​"••••••••" class=​"w-full px-4 py-3 bg-[#1e222d]​ border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:​outline-none focus:​border-blue-500" value=​"@Ilona0302" data-listener-added_df29c8a5=​"true">​
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para META: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for META: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NFLX
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NFLX: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NFLX: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for INTC
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para INTC: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for INTC: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for COPPER
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para COPPER: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for COPPER: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for WHEAT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para WHEAT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for WHEAT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for Coffee
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para Coffee: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for Coffee: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SUGAR
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SUGAR: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SUGAR: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12857 [AUTH] 🔄 onAuthStateChange: SIGNED_IN sessão ativa
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:12876 [AUTH] 👤 USER STATE MUDOU: cleber.couto@we-expand.com (ID: 1929cbb3-e041-44c2-9f86-3084a7440a27)
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BTCUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BTCUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BTCUSD: $102898.78258, change: -0.17%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ETHUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ETHUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ETHUSD: $3089.87826, change: -0.55%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XRPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XRPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XRPUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BNBUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BNBUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BNBUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SOLUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SOLUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SOLUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ADAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ADAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ADAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AVAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AVAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AVAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MATUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MATUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MATUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US500
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US500: $5908.98783, change: -0.03%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NAS100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NAS100: $21244.93913, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US30
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US30: $43689.87826, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DE40
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DE40: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DE40: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UK100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UK100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UK100: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for JPN225
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para JPN225: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for JPN225: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for HKG33
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para HKG33: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for HKG33: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURUSD: $1.15000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPUSD: $1.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDJPY: $158.98000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCHF
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCHF: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCHF: $0.78600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AUDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AUDUSD: $0.71000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCAD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCAD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCAD: $1.37000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NZDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NZDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NZDUSD: $0.58600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURGBP
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURGBP: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURGBP: $0.86400, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURJPY: $183.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPJPY: $212.19000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAUUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAUUSD: $2658.98783, change: -0.06%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPDUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UKOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UKOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UKOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NGAS
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NGAS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NGAS: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AAPL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AAPL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AAPL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MSFT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MSFT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MSFT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GOOGL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GOOGL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GOOGL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMZN
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMZN: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMZN: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NVDA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NVDA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NVDA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for TSLA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para TSLA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for TSLA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for META
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para META: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for META: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NFLX
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NFLX: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NFLX: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for INTC
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para INTC: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for INTC: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for COPPER
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para COPPER: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for COPPER: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for WHEAT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para WHEAT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for WHEAT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for Coffee
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para Coffee: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for Coffee: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SUGAR
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SUGAR: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SUGAR: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BTCUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BTCUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BTCUSD: $102898.78258, change: -0.17%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ETHUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ETHUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ETHUSD: $3089.87826, change: -0.55%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XRPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XRPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XRPUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for BNBUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para BNBUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for BNBUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SOLUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SOLUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SOLUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for ADAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para ADAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for ADAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AVAUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AVAUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AVAUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DOTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DOTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DOTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MATUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MATUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MATUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US500
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US500: $5908.98783, change: -0.03%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NAS100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NAS100: $21244.93913, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for US30
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for US30: $43689.87826, change: -0.04%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for DE40
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para DE40: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for DE40: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UK100
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UK100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UK100: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for JPN225
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para JPN225: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for JPN225: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for HKG33
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para HKG33: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for HKG33: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURUSD: $1.15000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPUSD: $1.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDJPY: $158.98000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCHF
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCHF: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCHF: $0.78600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AUDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AUDUSD: $0.71000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USDCAD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USDCAD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USDCAD: $1.37000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NZDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NZDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NZDUSD: $0.58600, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURGBP
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURGBP: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURGBP: $0.86400, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for EURJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para EURJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for EURJPY: $183.33000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GBPJPY
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GBPJPY: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GBPJPY: $212.19000, change: 0.25%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAUUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAUUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAUUSD: $2658.98783, change: -0.06%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XAGUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XAGUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XAGUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPTUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPTUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPTUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for XPDUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para XPDUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for XPDUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for UKOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para UKOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for UKOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for USOUSD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para USOUSD: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for USOUSD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NGAS
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NGAS: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NGAS: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AAPL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AAPL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AAPL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for MSFT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para MSFT: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for MSFT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for GOOGL
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para GOOGL: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for GOOGL: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMZN
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMZN: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMZN: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NVDA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NVDA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NVDA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for TSLA
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para TSLA: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for TSLA: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for META
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para META: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for META: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for NFLX
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para NFLX: Object
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for NFLX: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for AMD
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para AMD: {last: 0.9944939128943758, bid: 0.9944939128943758, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866162329811276, …}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for AMD: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for INTC
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para INTC: {last: 0.9944939128943758, bid: 0.9944939128943758, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866162329811276, …}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for INTC: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for COPPER
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para COPPER: {last: 0.9944939128943758, bid: 0.9944939128943758, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866162329811276, …}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for COPPER: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for WHEAT
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para WHEAT: {last: 0.9944939128943758, bid: 0.9944939128943758, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866162329811276, …}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for WHEAT: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for Coffee
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para Coffee: {last: 0.9944939128943758, bid: 0.9944939128943758, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866162329811276, …}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for Coffee: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32550 [MetaApi] 🌐 Fetching market data for SUGAR
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32560 🔍 [MetaApi] RAW API RESPONSE para SUGAR: {last: 0.9944939128943758, bid: 0.9944939128943758, price: undefined, change: -0.0008621399176954592, changePercent: -0.0866162329811276, …}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:32569 [MetaApi] ✅ Got data from server for SUGAR: $0.99449, change: -0.09%
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ EURUSD: {price: 1.0415227686495885, change: 0.024275034293561128, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ GBPUSD: {price: 1.2248772672149522, change: 0.02427503429356654, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ USDJPY: {price: 156.28192828458162, change: 0.024275034293556805, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUDUSD: {price: 0.623639178376629, change: 0.030343792866952896, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SPX500: {price: 6029.133481652949, change: 0.15171896433469817, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ NAS100: {price: 20180.571371313443, change: 0.1517189643347037, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ US30: {price: 49575.100887345674, change: 0.15171896433469492, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ AUS200: {price: 8236.498507904664, change: 0.03034379286693844, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAUUSD: {price: 2680.8882299601337, change: 0.09103137860082762, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ XAGUSD: {price: 31.278447305812758, change: 0.09103137860082597, source: 'generated'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado {compact: false, timestamp: 1773793014758}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ ETHUSDT: {price: 2318.69, change: -2.33, source: 'binance'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ BTCUSDT: {price: 73925.4, change: -2.072, source: 'binance'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13406 [MarketContext] ✅ SOLUSDT: {price: 94.58, change: -2.071, source: 'binance'}
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:13897 [Market Data] ⚠️ MT5 não conectado - aguardando conexão...
+f391ee2eb8763215cdedff98286b515c6e1687fa.js:77568 [AI_TRADER] 🤖 v3.1 - AI Trader carregado {compact: false, timestamp: 1773793019756}

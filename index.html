@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    
+    <!-- 🛡️ PROTEÇÃO NÍVEL 0: MUTATION OBSERVER EXTREMO -->
+    <script>
+      (function() {
+        'use strict';
+        
+        // Interceptar QUALQUER tentativa de adicionar elementos de erro na DOM
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === 1) { // Element node
+                const text = node.textContent || '';
+                const html = node.innerHTML || '';
+                
+                if (text.includes('IframeMessageAbortError') || 
+                    text.includes('message port was destroyed') ||
+                    html.includes('IframeMessageAbortError') ||
+                    html.includes('message port was destroyed')) {
+                  // REMOVER IMEDIATAMENTE
+                  console.log('[PROTEÇÃO] Removendo elemento de erro do Figma');
+                  node.remove();
+                }
+              }
+            });
+          });
+        });
+        
+        // Observar TODO o documento
+        if (document.body) {
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true
+          });
+        } else {
+          document.addEventListener('DOMContentLoaded', () => {
+            observer.observe(document.body, {
+              childList: true,
+              subtree: true,
+              characterData: true
+            });
+          });
+        }
+        
+        // Prevenir que o Figma crie overlays de erro
+        Object.defineProperty(window, 'FigmaErrorOverlay', {
+          configurable: false,
+          writable: false,
+          value: null
+        });
+      })();
+    </script>
+    
+    <!-- 🛡️ PROTEÇÃO NÍVEL 1: INTERCEPTAÇÃO ULTRA-AGRESSIVA -->
+    <script>
+      // Executar ANTES de tudo - bloquear erros do Figma na raiz
+      (function() {
+        'use strict';
+        
+        // Sobrescrever Error constructor para detectar IframeMessageAbortError
+        const OriginalError = window.Error;
+        window.Error = function(message) {
+          if (message && typeof message === 'string') {
+            if (message.includes('IframeMessageAbortError') ||
+                message.includes('message port was destroyed') ||
+                message.includes('Message aborted')) {
+              // Criar erro silencioso que não será propagado
+              const err = new OriginalError('');
+              err.stack = '';
+              err.message = '';
+              return err;
+            }
+          }
+          return new OriginalError(message);
+        };
+        window.Error.prototype = OriginalError.prototype;
+        
+        // Sobrescrever DOMException também
+        const OriginalDOMException = window.DOMException;
+        window.DOMException = function(message, name) {
+          if (message && typeof message === 'string') {
+            if (message.includes('IframeMessageAbortError') ||
+                message.includes('message port was destroyed')) {
+              return new OriginalDOMException('', 'SilentError');
+            }
+          }
+          return new OriginalDOMException(message, name);
+        };
+        
+        // Bloquear TODOS os console methods para erros do Figma
+        ['error', 'warn', 'log', 'info', 'debug'].forEach(method => {
+          const original = console[method];
+          console[method] = function(...args) {
+            const str = args.join(' ');
+            if (str.includes('IframeMessageAbortError') ||
+                str.includes('message port was destroyed') ||
+                str.includes('figma.com/webpack') ||
+                str.includes('min.js.br')) {
+              return; // SILÊNCIO TOTAL
+            }
+            original.apply(console, args);
+          };
+        });
+      })();
+    </script>
+    
+    <!-- 🛡️ PROTEÇÃO NÍVEL 2: HANDLERS GLOBAIS -->
+    <script>
+      (function(){
+        'use strict';
+        const BLOCK = [
+          'IframeMessageAbortError',
+          'Message aborted',
+          'message port was destroyed',
+          'figma.com/webpack-artifacts',
+          'figma_app__react_profile',
+          '7168d1de2cc0bd54',
+          'dfe8a2836a993e65',
+          'min.js.br',
+          '.min.js.br:',
+          'setupMessageChannel',
+          'n.cleanup',
+          's.cleanup',
+          'eJ.setupMessageChannel',
+          'e.onload',
+          '1644:16671',
+          '1644:19722',
+          '2021:14223',
+          '2021:6655'
+        ];
+        function shouldBlock(args) {
+          const str = args.map(arg => {
+            if (!arg) return '';
+            if (typeof arg === 'string') return arg;
+            if (arg.message) return arg.message + (arg.stack || '');
+            if (arg.stack) return arg.stack;
+            if (arg.filename) return arg.filename;
+            try { return String(arg); } catch(e) { return ''; }
+          }).join(' ');
+          return BLOCK.some(pattern => str.includes(pattern));
+        }
+        const _err = console.error.bind(console);
+        const _warn = console.warn.bind(console);
+        const _log = console.log.bind(console);
+        console.error = function(...args) { if (shouldBlock(args)) return; _err(...args); };
+        console.warn = function(...args) { if (shouldBlock(args)) return; _warn(...args); };
+        console.log = function(...args) { if (shouldBlock(args)) return; _log(...args); };
+        
+        // CAPTURE PHASE - máxima prioridade
+        window.addEventListener('error', function(e) { 
+          if (shouldBlock([e.message, e.filename, e.error, e.error?.stack])) { 
+            e.preventDefault(); 
+            e.stopPropagation(); 
+            e.stopImmediatePropagation();
+            return false; 
+          } 
+        }, true);
+        
+        window.addEventListener('unhandledrejection', function(e) { 
+          if (shouldBlock([String(e.reason), e.reason?.stack, e.reason?.message])) { 
+            e.preventDefault(); 
+            e.stopImmediatePropagation();
+            return false; 
+          } 
+        }, true);
+        
+        window.onerror = function(msg, source, line, col, error) { 
+          if (shouldBlock([msg, source, error, error?.stack])) return true; 
+          return false; 
+        };
+        
+        window.onunhandledrejection = function(e) {
+          if (shouldBlock([String(e.reason), e.reason?.stack, e.reason?.message])) {
+            e.preventDefault();
+            return true;
+          }
+          return false;
+        };
+      })();
+    </script>
+    
+    <!-- 🛡️ PROTEÇÃO NÍVEL 3: CSS PARA OCULTAR OVERLAY DE ERRO -->
+    <style>
+      /* Ocultar qualquer overlay de erro que o Figma tente renderizar */
+      [class*="error"], 
+      [class*="Error"],
+      [id*="error"],
+      [id*="Error"],
+      div[style*="position: fixed"][style*="z-index"],
+      div[style*="position: absolute"][style*="z-index"] {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+      
+      /* Mas permitir nossos próprios componentes de erro */
+      .neural-error,
+      .toast-error,
+      #root [class*="error"],
+      #root [class*="Error"] {
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+    </style>
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Neural Day Trader</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

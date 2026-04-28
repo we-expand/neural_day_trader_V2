@@ -1,0 +1,548 @@
+[Hydrated]
+inject.bundle.js:216 [ChromePolyfill] Chrome API support enabled for web context
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:45905 [SymbolMappingService] ✅ 29 mapeamentos carregados
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:46437 [ChartView] ✅ Point Marker overlay registrado
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:46501 [ChartView] ✅ Fibonacci Extension overlay registrado
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101147 [APP] 🚀 Neural Day Trader Platform - AppContent montado
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101147 [APP] 👤 User: Não autenticado
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101147 [APP] ⏳ Loading: true
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101147 [APP] 📍 View atual: dashboard
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101149 [APP] 🔄 Navegação: dashboard
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101151 [APP] 👤 User mudou: null
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101151 [APP] ⏳ Loading mudou: true
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:12225 🚀 [USE APEX LOGIC] Hook inicializado - 21 JAN 2026 Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:12235 [useApexLogic] 💾 Modo de execução salvo: DEMO
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11668 [MarketContext] 🚀 Iniciando RealMarketDataService...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11536 [RealMarketData] 📡 Subscribing to 13 symbols (interval: 10000ms)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11114 [AUTH] 🚀 AuthProvider montado
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11155 [AUTH] 👤 USER STATE MUDOU: NULL
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ EURUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ GBPUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ USDJPY: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ AUDUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ SPX500: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ NAS100: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ US30: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ AUS200: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ XAUUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ XAGUSD: Object
+(índice):1 Unchecked runtime.lastError: The message port closed before a response was received.Entenda o erro
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11118 [AUTH] 🔍 Verificando sessionStorage: VAZIO
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11130 [AUTH] 🔐 Verificando sessão Supabase...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11131 [AUTH] ✅ Sessão Supabase encontrada
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101160 [APP] 🎯 Renderizando: dashboard
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101165 [APP] ✅ Renderizando Dashboard (REAL)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:35560 [DASHBOARD] 📊 Dashboard Principal - v2.0
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:22126 [TENDENCY ENGINE] 🧠 Calculando tendência para: SPX500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21359 [useMarketPrice] 📡 Subscribing to REAL data: SPX500 → SPX500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21255 [UnifiedMarketData] 📡 Símbolo normalizado: SPX500 → SPX500USDT
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21162 [BinancePolling] 🔄 SUBSCRIBE: SPX500USDT
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21172 [BinancePolling] 🆕 Nova subscription criada para SPX500USDT
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21186 [BinancePolling] ▶️ Iniciando polling para SPX500USDT (1000ms)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30376 [MarketScoreBoard] 🚀 INICIANDO fetchData para: SPX500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29935 [isMarketOpen] 🕐 Checking market hours: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29935 [isMarketOpen] 🕐 Checking market hours: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30378 [MarketScoreBoard] 📊 Market Info: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30393 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29295 [MarketData] 📊 Buscando dados para SPX500...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29239 [Finnhub] 🌐 Buscando SPX500...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30498 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30504 [MarketScoreBoard] ⚠️ NÃO É CRYPTO - WebSocket NÃO será iniciado Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31035 🔄 [AGENDA] Iniciando carregamento de eventos...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31052 📡 [AGENDA ECONÔMICA] Chamando API multi-fonte...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31052 📡 [AGENDA ECONÔMICA] URL: https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31025 🕐 [AGENDA] Próxima atualização automática em: 8.24 horas (meia-noite)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for BTCUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching BTC (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101151 [APP] 👤 User mudou: clbrcouto@gmail.com
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101151 [APP] ⏳ Loading mudou: false
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11155 [AUTH] 👤 USER STATE MUDOU: clbrcouto@gmail.com (ID: fce889e7-bdfe-42b6-b02f-0e96e04ba23c)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21378 [useMarketPrice] ✅ Initial data loaded: SPX500 @ $100.57
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:22172 [TENDENCY ENGINE] ✅ Tendência calculada: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11136 [AUTH] 🔄 onAuthStateChange: INITIAL_SESSION sessão ativa
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101160 [APP] 🎯 Renderizando: dashboard
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101165 [APP] ✅ Renderizando Dashboard (REAL)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:35560 [DASHBOARD] 📊 Dashboard Principal - v2.0
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101151 [APP] 👤 User mudou: clbrcouto@gmail.com
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101151 [APP] ⏳ Loading mudou: false
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11155 [AUTH] 👤 USER STATE MUDOU: clbrcouto@gmail.com (ID: fce889e7-bdfe-42b6-b02f-0e96e04ba23c)
+finnhub.io/api/v1/quote?symbol=^GSPC&token=ctde0c9r01qnlf1qc6k0ctde0c9r01qnlf1qc6kg:1  Failed to load resource: the server responded with a status of 401 ()Entenda o erro
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29259 [Finnhub] ❌ Falha ao buscar SPX500: Error: HTTP 401
+    at kfe (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29241:22)
+    at async IH (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29296:11)
+    at async at (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30416:22)
+kfe @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29259Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29297 [MarketData] 🔄 Finnhub falhou, tentando TwelveData...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29272 [TwelveData] 🌐 Buscando SPX500...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for BTCUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ BTC: $69436.25 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching ETH (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29291 [TwelveData] ❌ Falha ao buscar SPX500: Error: Dados inválidos
+    at Pfe (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29289:11)
+    at async IH (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29297:91)
+    at async at (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30416:22)
+Pfe @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29291Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29297 [MarketData] 🛡️ Usando fallback para SPX500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30420 [S&P500] ✅ SPX500: $6020.00 (-0.25%) [Fallback (18/Fev/2026 - MT5 Verified)]
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para BTCUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for BTCUSD: $104049.86283, change: -0.17%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for ETHUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ ETHUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ SOLUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ BTCUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31063 📡 [AGENDA ECONÔMICA] Response status: 200
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31063 📡 [AGENDA ECONÔMICA] Response ok: true
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31068 📊 [AGENDA ECONÔMICA] ✅ RESPOSTA DA API COMPLETA: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31068 📊 [AGENDA ECONÔMICA] RESPOSTA DA API: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31079 ✅ [AGENDA ECONÔMICA] 39 eventos carregados da fonte: Investing.com (Fallback Português)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:31038 ✅ [AGENDA] Dados reais recebidos: Investing.com (Fallback Português)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for ETHUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ ETH: $2061.93 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching SOL (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para ETHUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for ETHUSD: $3204.98628, change: -0.54%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for XRPUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30376 [MarketScoreBoard] 🚀 INICIANDO fetchData para: SPX500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29935 [isMarketOpen] 🕐 Checking market hours: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29935 [isMarketOpen] 🕐 Checking market hours: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30378 [MarketScoreBoard] 📊 Market Info: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30393 [MarketScoreBoard] 🔍 Detecção de tipo: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29295 [MarketData] 📊 Buscando dados para SPX500...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29239 [Finnhub] 🌐 Buscando SPX500...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30498 [MarketScoreBoard] ⚡ Intervalo de atualização: 900000ms
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101160 [APP] 🎯 Renderizando: dashboard
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101165 [APP] ✅ Renderizando Dashboard (REAL)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:35560 [DASHBOARD] 📊 Dashboard Principal - v2.0
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for SOLUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ SOL: $88.81 (binance)
+finnhub.io/api/v1/quote?symbol=^GSPC&token=ctde0c9r01qnlf1qc6k0ctde0c9r01qnlf1qc6kg:1  Failed to load resource: the server responded with a status of 401 ()Entenda o erro
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29259 [Finnhub] ❌ Falha ao buscar SPX500: Error: HTTP 401
+    at kfe (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29241:22)
+    at async IH (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29296:11)
+    at async at (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30416:22)
+kfe @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29259Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29297 [MarketData] 🔄 Finnhub falhou, tentando TwelveData...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29272 [TwelveData] 🌐 Buscando SPX500...
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching XRP (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para XRPUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for XRPUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for BNBUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29291 [TwelveData] ❌ Falha ao buscar SPX500: Error: Dados inválidos
+    at Pfe (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29289:11)
+    at async IH (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29297:91)
+    at async at (9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30416:22)
+Pfe @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29291Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:29297 [MarketData] 🛡️ Usando fallback para SPX500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30420 [S&P500] ✅ SPX500: $6020.00 (-0.25%) [Fallback (18/Fev/2026 - MT5 Verified)]
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for XRPUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ XRP: $1.41 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching BNB (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para BNBUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for BNBUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for SOLUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101160 [APP] 🎯 Renderizando: system
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101201 [APP] ⚠️ View desconhecida, redirecionando para Dashboard
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:35560 [DASHBOARD] 📊 Dashboard Principal - v2.0
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:101149 [APP] 🔄 Navegação: system
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for BNBUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ BNB: $649.38 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching ADA (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para SOLUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for SOLUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for ADAUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for ADAUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ ADA: $0.29 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching DOGE (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para ADAUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for ADAUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for DOGUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for DOGEUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ DOGE: $0.10 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599 [UnifiedMarketData] Unknown symbol: POL
+getPrice @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para DOGUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for DOGUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for AVAUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599 [UnifiedMarketData] Unknown symbol: DOT
+getPrice @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100600 [UnifiedMarketData] Fetching AVAX (crypto)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para AVAUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for AVAUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for DOTUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100488 [Binance] 📊 RAW DATA for AVAXUSDT: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100602 [UnifiedMarketData] ✅ AVAX: $9.38 (binance)
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599 [UnifiedMarketData] Unknown symbol: LINK
+getPrice @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599 [UnifiedMarketData] Unknown symbol: UNI
+getPrice @ 9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:100599Entenda o aviso
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para DOTUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for DOTUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for MATUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para MATUSD: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for MATUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for US500
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para US500: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for US500: $5920.49863, change: -0.03%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for NAS100
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para NAS100: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for NAS100: $21302.49314, change: -0.04%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for US30
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para US30: Object
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for US30: $43804.98628, change: -0.04%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for DE40
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para DE40: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for DE40: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for UK100
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:30.984Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para UK100: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for UK100: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for JPN225
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para JPN225: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for JPN225: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for HKG33
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:32.549Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ EURUSD: {price: 1.0405605508967077, change: -0.06813305898491086, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ GBPUSD: {price: 1.2237456561862825, change: -0.06813305898491706, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ USDJPY: {price: 156.1375461833196, change: -0.06813305898491186, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ AUDUSD: {price: 0.6229190305546982, change: -0.08516632373113035, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ SPX500: {price: 5994.364936556927, change: -0.42583161865569424, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ NAS100: {price: 20064.19492884088, change: -0.4258316186556844, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ US30: {price: 49289.213348765436, change: -0.42583161865568586, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ AUS200: {price: 8226.987404903979, change: -0.08516632373112654, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ XAUUSD: {price: 2671.60658780607, change: -0.2554989711934107, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ XAGUSD: {price: 31.17015657150206, change: -0.2554989711934127, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para HKG33: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for HKG33: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for EURUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ BTCUSDT: {price: 69421.86, change: 3.346, source: 'binance'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ ETHUSDT: {price: 2059.67, change: 2.331, source: 'binance'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ SOLUSDT: {price: 88.71, change: 2.626, source: 'binance'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:33.829Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para EURUSD: {last: 1.18, bid: 1.18, price: undefined, change: -0.0045532280265738745, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for EURUSD: $1.18000, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for GBPUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+Ctrl + Shift + R (Windows/Linux)
+ou
+Cmd + Shift + R (Mac)
+VM60:1 Uncaught ReferenceError: Ctrl is not defined
+    at <anonymous>:1:1
+(anônimo) @ VM60:1Entenda o erro
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para GBPUSD: {last: 1.34, bid: 1.34, price: undefined, change: -0.005170614877634705, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for GBPUSD: $1.34000, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for USDJPY
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:35.672Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para USDJPY: {last: 156.3, bid: 156.3, price: undefined, change: -0.6031097801300689, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for USDJPY: $156.30000, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for USDCHF
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:36.911Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para USDCHF: {last: 0.769, bid: 0.769, price: undefined, change: -0.0029673155529112982, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for USDCHF: $0.76900, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for AUDUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:38.429Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para AUDUSD: {last: 0.707, bid: 0.707, price: undefined, change: -0.002728078148125146, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for AUDUSD: $0.70700, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for USDCAD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para USDCAD: {last: 1.37, bid: 1.37, price: undefined, change: -0.0052863749122085135, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for USDCAD: $1.37000, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for NZDUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:40.183Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para NZDUSD: {last: 0.597, bid: 0.597, price: undefined, change: -0.002303624688020811, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for NZDUSD: $0.59700, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for EURGBP
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:41.432Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para EURGBP: {last: 0.877, bid: 0.877, price: undefined, change: -0.00338405167737732, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for EURGBP: $0.87700, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for EURJPY
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ EURUSD: {price: 1.0405605508967077, change: -0.06813305898491086, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ GBPUSD: {price: 1.2237456561862825, change: -0.06813305898491706, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ USDJPY: {price: 156.1375461833196, change: -0.06813305898491186, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ AUDUSD: {price: 0.6229190305546982, change: -0.08516632373113035, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ SPX500: {price: 5994.364936556927, change: -0.42583161865569424, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ NAS100: {price: 20064.19492884088, change: -0.4258316186556844, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ US30: {price: 49289.213348765436, change: -0.42583161865568586, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ AUS200: {price: 8226.987404903979, change: -0.08516632373112654, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ XAUUSD: {price: 2671.60658780607, change: -0.2554989711934107, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ XAGUSD: {price: 31.17015657150206, change: -0.2554989711934127, source: 'generated'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:42.823Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para EURJPY: {last: 184.01, bid: 184.01, price: undefined, change: -0.710033465398169, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for EURJPY: $184.01000, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for GBPJPY
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ SOLUSDT: {price: 88.68, change: 2.639, source: 'binance'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ BTCUSDT: {price: 69416.37, change: 3.35, source: 'binance'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:11690 [MarketContext] ✅ ETHUSDT: {price: 2059.74, change: 2.415, source: 'binance'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para GBPJPY: {last: 209.83, bid: 209.83, price: undefined, change: -0.8096642684881203, changePercent: -0.384383573388203, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for GBPJPY: $209.83000, change: -0.38%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for XAUUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:44.601Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para XAUUSD: {last: 2670.4986282578875, bid: 2670.4986282578875, price: undefined, change: -1.7242798353909166, changePercent: -0.06452604796436119, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for XAUUSD: $2670.49863, change: -0.06%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for XAGUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para XAGUSD: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for XAGUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for XPTUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:45.807Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para XPTUSD: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for XPTUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for XPDUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para XPDUSD: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for XPDUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for UKOUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para UKOUSD: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for UKOUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for USOUSD
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:47.462Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para USOUSD: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for USOUSD: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for NGAS
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para NGAS: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for NGAS: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for AAPL
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para AAPL: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for AAPL: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for MSFT
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:49.019Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para MSFT: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for MSFT: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for GOOGL
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para GOOGL: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for GOOGL: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for AMZN
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para AMZN: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for AMZN: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for NVDA
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32148 [VIX ENHANCED] 📊 Resultado backend: {value: 18.71, change: 0.26, changePercent: 1.41, timestamp: '2026-03-02T15:45:50.520Z', source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32151 [VIX ENHANCED] ✅ Usando Backend: {value: 18.71, change: 0.26, changePercent: 1.41, source: 'Fallback (Estimativa)'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para NVDA: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for NVDA: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for TSLA
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] 📊 Dados recebidos: {symbol: 'SPX500USDT', price: '98.30', change: '-1.67', changePercent: '-1.70%', callbacks: 1}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21257 [UnifiedMarketData] 🔄 RECEBIDO DO POLLING: {🔴 tickerData.price: 98.29667353, 🔴 tickerData.change: -1.67431326, 🔴 tickerData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21271 [UnifiedMarketData] 📤 ENVIANDO PARA COMPONENTES: {✅ unifiedData.price: 98.29667353, ✅ unifiedData.change: -1.67431326, ✅ unifiedData.changePercent: -1.7}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21389 [useMarketPrice] 🔄 REAL-TIME UPDATE: {symbol: 'SPX500USDT', price: 98.29667353, changePercent: '-1.70%', source: 'websocket'}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:21144 [BinancePolling] ✅ Callbacks executados: 1/1
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 🔥 [VIX ENHANCED] === BUSCANDO TODAS AS FONTES ===
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:32141 ═══════════════════════════════════════════════════════
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30134 🔍 [MetaApi] RAW API RESPONSE para TSLA: {last: 1.0002493141289437, bid: 1.0002493141289437, price: undefined, change: -0.0008621399176955702, changePercent: -0.08611827526402523, …}
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30143 [MetaApi] ✅ Got data from server for TSLA: $1.00025, change: -0.09%
+9b5dbdb5d3f23481420afd89fdf2a10dc958756b.js:30124 [MetaApi] 🌐 Fetching market data for META
