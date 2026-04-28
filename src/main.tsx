@@ -1,5 +1,5 @@
 import React from 'react';
-import ReactDOM from 'react-dom/root';
+import ReactDOM from 'react-dom/client';
 
 // 🛡️ PROTEÇÃO GLOBAL #0: MESSAGE PORT SHIELD (MAIS CEDO POSSÍVEL)
 import { initFigmaMessagePortShield } from './app/config/figmaMessagePortShield';
