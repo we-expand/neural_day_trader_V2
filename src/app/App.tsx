@@ -30,7 +30,6 @@ import PyramidingExample from '@/app/components/examples/InfinoxExamples';
 import { CompetitiveAnalysis } from '@/app/components/CompetitiveAnalysis';
 import { LandingPage } from '@/app/components/landing/LandingPage';
 import { AuthOverlay } from '@/app/components/auth/AuthOverlay';
-import { LocalAuthTest } from '@/app/components/auth/LocalAuthTest';
 import { MarketTicker } from '@/app/components/MarketTicker';
 import { FloatingAssistantButton } from '@/app/components/FloatingAssistantButton';
 // import { LiveTradingTest } from '@/app/components/LiveTradingTest';
@@ -373,9 +372,6 @@ function AppContent() {
           <UnifiedDataTester />
           {/* <BinanceDirectComparison /> */}
           <DebugToolbar />
-
-          {/* 🧪 DEBUG: LocalAuth Test Component */}
-          {process.env.NODE_ENV === 'development' && <LocalAuthTest />}
         </div>
       )}
     </div>

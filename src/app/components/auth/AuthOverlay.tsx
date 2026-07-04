@@ -19,7 +19,6 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '../../../lib/supabaseClient';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
-import * as LocalAuth from '../../services/LocalAuthService';
 
 interface AuthOverlayProps {
   onAuthenticated: (user: any) => void;
@@ -90,52 +89,18 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
           });
 
           if (error) {
-              // 🔥 FALLBACK: Tentar autenticação local
-              console.warn('[Auth] Supabase falhou, tentando autenticação local...', error.message);
-
-              let localResult = await LocalAuth.signInLocal(email, password);
-
-              // 🆕 SE NÃO ENCONTROU USUÁRIO LOCAL, CRIAR AUTOMATICAMENTE!
-              if (!localResult.user && localResult.error === 'Usuário não encontrado') {
-                  console.log('[Auth] 🔄 Usuário não existe localmente, criando conta local automaticamente...');
-
-                  const signUpResult = await LocalAuth.signUpLocal(email, password, userName || email.split('@')[0]);
-
-                  if (signUpResult.user && !signUpResult.error) {
-                      console.log('[Auth] ✅ Conta local criada! Fazendo login...');
-                      localResult = await LocalAuth.signInLocal(email, password);
-                  }
-              }
-
-              if (localResult.user) {
-                  setLoading(false);
-                  toast.success("Autenticado Localmente!", {
-                      description: "Conta local sincronizada",
-                      duration: 3000
-                  });
-
-                  setTimeout(() => {
-                      onAuthenticated({
-                          email: localResult.user!.email,
-                          name: localResult.user!.name
-                      });
-                  }, 500);
-                  return true;
-              }
-
-              // Se autenticação local também falhou
               setLoading(false);
               setHasError(true);
 
               // Verificar se é erro 402 (Payment Required) ou rede
               if (error.status === 402 || error.message?.includes('402') || error.message?.includes('fetch') || error.message?.includes('quota')) {
-                  setErrorMessage("Senha Incorreta");
-                  toast.warning("Supabase Offline", {
-                    description: "Tentando criar conta local com suas credenciais...",
+                  setErrorMessage("Sistema Indisponível");
+                  toast.error("Erro de Conexão", {
+                    description: "Não foi possível conectar ao servidor de autenticação. Tente novamente em instantes.",
                     duration: 4000
                   });
               } else if (error.message.includes("Invalid login credentials")) {
-                  setErrorMessage(localResult.error || "Senha Incorreta");
+                  setErrorMessage("Senha Incorreta");
                   toast.error("Senha Inválida", { description: "Verifique suas credenciais ou crie uma nova conta." });
               } else if (error.message.includes("Email not confirmed")) {
                   setErrorMessage("Conta Pendente");
@@ -166,47 +131,18 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
       } catch (err: any) {
           console.error('[Auth] Erro crítico no login:', err);
 
-          // Tentar local auth como último recurso
-          let localResult = await LocalAuth.signInLocal(email, password);
-
-          // 🆕 SE NÃO ENCONTROU, CRIAR CONTA LOCAL AUTOMATICAMENTE
-          if (!localResult.user && localResult.error === 'Usuário não encontrado') {
-              console.log('[Auth] 🔄 Auto-criando conta local de emergência...');
-              const signUpResult = await LocalAuth.signUpLocal(email, password, userName || email.split('@')[0]);
-
-              if (signUpResult.user && !signUpResult.error) {
-                  localResult = await LocalAuth.signInLocal(email, password);
-              }
-          }
-
-          if (localResult.user) {
-              setLoading(false);
-              toast.success("Modo Offline Ativado!", {
-                  description: "Sua conta foi sincronizada localmente",
-                  duration: 3000
-              });
-              setTimeout(() => {
-                  onAuthenticated({
-                      email: localResult.user!.email,
-                      name: localResult.user!.name
-                  });
-              }, 500);
-              return true;
-          }
-
           setLoading(false);
           setHasError(true);
           setErrorMessage("Erro Fatal");
           toast.error("Sistema Indisponível", {
-              description: "Tente criar uma conta local.",
+              description: "Não foi possível autenticar agora. Tente novamente em instantes.",
               duration: 5000
           });
-          setShowSignUpHint(true);
           return false;
       }
   };
 
-  // NEW: Force Activation via Backend (with Local Fallback)
+  // Force Activation via Backend
   const handleForceActivation = async () => {
     if (!email || !password) return;
     setActivating(true);
@@ -236,50 +172,34 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
         toast.success("Conta Ativada!", { description: "Entrando..." });
         await performLogin();
     } catch (err: any) {
-        console.warn('[Auth] Erro na ativação via backend, criando conta local...', err.message);
-
-        // 🔥 FALLBACK: Criar conta localmente
-        const localResult = await LocalAuth.signUpLocal(email, password, userName || 'Trader');
-
-        if (localResult.user && !localResult.error) {
-            toast.success("Conta Local Criada!", { description: "Você pode trabalhar offline." });
-            await performLogin();
-        } else {
-            toast.error("Erro ao Criar Conta", { description: localResult.error });
-            setHasError(true);
-            setErrorMessage(localResult.error || "Erro Desconhecido");
-        }
+        console.error('[Auth] Erro na ativação via backend:', err.message);
+        toast.error("Erro ao Criar Conta", { description: err.message || "Tente novamente em instantes." });
+        setHasError(true);
+        setErrorMessage(err.message || "Erro Desconhecido");
     } finally {
         setActivating(false);
     }
   };
 
-  // NEW: Delete User (Hard Reset - Local + Remote)
+  // Delete User (Hard Reset - remoto)
   const handleDeleteUser = async () => {
       if (!email) return;
       setDeleting(true);
 
       try {
-        // Tentar deletar remotamente
-        try {
-            const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/delete-user`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-                body: JSON.stringify({ email })
-            });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/delete-user`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+            body: JSON.stringify({ email })
+        });
 
-            if (!response.ok) {
-                console.warn('[Auth] Falha ao deletar remotamente, deletando localmente...');
-            }
-        } catch (remoteErr) {
-            console.warn('[Auth] Erro ao deletar remotamente:', remoteErr);
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || "Falha ao excluir conta");
         }
 
-        // SEMPRE deletar localmente (para garantir limpeza)
-        const localResult = await LocalAuth.deleteUserLocal(email);
-
         toast.success("Conta Excluída", {
-            description: localResult.success ? "Você pode criar uma nova conta agora." : "Conta local removida."
+            description: "Você pode criar uma nova conta agora."
         });
 
         // Reset State for clean Signup
@@ -338,61 +258,13 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
 
     } catch (e: any) {
         console.error('[AuthOverlay] ❌ Erro crítico em submitAuth:', e);
-
-        // 🔥 ÚLTIMO RECURSO: Autenticação local
-        console.log('[AuthOverlay] 🆘 Tentando autenticação local de emergência...');
-
-        if (isSignUp) {
-            console.log('[AuthOverlay] 📝 SignUp local...');
-            const localResult = await LocalAuth.signUpLocal(email, password, userName || 'Trader');
-
-            console.log('[AuthOverlay] Resultado do signUpLocal:', localResult);
-
-            if (localResult.user && !localResult.error) {
-                toast.success("Conta Local Criada!", { description: "Trabalhando em modo offline." });
-                setLoading(false);
-                console.log('[AuthOverlay] ✅ Autenticando usuário local criado...');
-                setTimeout(() => {
-                    onAuthenticated({
-                        email: localResult.user!.email,
-                        name: localResult.user!.name
-                    });
-                }, 500);
-            } else {
-                console.error('[AuthOverlay] ❌ Falha ao criar conta local:', localResult.error);
-                setLoading(false);
-                setHasError(true);
-                setErrorMessage(localResult.error || "Erro ao Criar Conta");
-                toast.error("Erro", { description: localResult.error || "Falha ao criar conta local" });
-            }
-        } else {
-            console.log('[AuthOverlay] 🔐 Login local...');
-            const localResult = await LocalAuth.signInLocal(email, password);
-
-            console.log('[AuthOverlay] Resultado do signInLocal:', localResult);
-
-            if (localResult.user) {
-                toast.success("Autenticado Localmente!", { description: "Modo offline ativo." });
-                setLoading(false);
-                console.log('[AuthOverlay] ✅ Autenticando usuário local...');
-                setTimeout(() => {
-                    onAuthenticated({
-                        email: localResult.user!.email,
-                        name: localResult.user!.name
-                    });
-                }, 500);
-            } else {
-                console.error('[AuthOverlay] ❌ Falha no login local:', localResult.error);
-                setLoading(false);
-                setHasError(true);
-                setErrorMessage("Sistema Indisponível");
-                toast.error("Erro Fatal", {
-                    description: "Não foi possível autenticar. Tente criar uma conta local.",
-                    duration: 5000
-                });
-                setShowSignUpHint(true);
-            }
-        }
+        setLoading(false);
+        setHasError(true);
+        setErrorMessage("Sistema Indisponível");
+        toast.error("Erro Fatal", {
+            description: e.message || "Não foi possível autenticar agora. Tente novamente em instantes.",
+            duration: 5000
+        });
     }
   };
 
