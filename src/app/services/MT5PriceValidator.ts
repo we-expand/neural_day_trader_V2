@@ -4,7 +4,7 @@
  * Garante sincronização com dados reais do mercado
  */
 
-import { getMetaAPIClient, DirectPriceData } from './MetaAPIDirectClient';
+import { getBrokerCredentialsStatus, getPrices as getBrokerPrices } from './BrokerClient';
 
 export interface ValidatedPrice {
   symbol: string;
@@ -62,29 +62,29 @@ export class MT5PriceValidator {
   };
 
   constructor(token: string, accountId: string) {
+    // 🔒 Fase 1: o token não é mais usado aqui — credenciais MetaAPI vivem
+    // criptografadas no backend, resolvidas pelo usuário autenticado (JWT).
+    // Parâmetros mantidos só por compatibilidade com chamadores existentes.
     this.token = token;
     this.accountId = accountId;
-    
-    // 🛡️ FIX: NÃO auto-conectar no construtor (evita código assíncrono no top-level)
-    // A conexão deve ser iniciada manualmente via connect()
+
     console.log('[MT5 Validator] 📦 Validador criado (use connect() para conectar)');
   }
 
   /**
-   * Conecta ao MT5 via MetaAPI
+   * Verifica se o backend tem credenciais MetaAPI configuradas para este usuário
    */
   async connect(): Promise<boolean> {
     try {
-      console.log('[MT5 Validator] 🔌 Iniciando conexão...');
-      
-      const client = getMetaAPIClient(this.token);
-      const connected = await client.connect(this.accountId);
-      
-      if (connected) {
+      console.log('[MT5 Validator] 🔌 Verificando credenciais no backend...');
+
+      const status = await getBrokerCredentialsStatus();
+
+      if (status.configured) {
         this.isConnected = true;
         localStorage.setItem('mt5_connected', 'true');
-        console.log('[MT5 Validator] ✅ Conectado ao MT5!');
-        
+        console.log('[MT5 Validator] ✅ Credenciais configuradas!');
+
         // 🔥 ATIVAR RECONEXÃO AUTOMÁTICA E KEEP-ALIVE quando conectar manualmente
         if (!this.reconnectInterval) {
           this.startAutoReconnect();
@@ -92,11 +92,11 @@ export class MT5PriceValidator {
         if (!this.keepAliveInterval) {
           this.startKeepAlive();
         }
-        
+
         return true;
       }
-      
-      console.error('[MT5 Validator] ❌ Falha na conexão');
+
+      console.error('[MT5 Validator] ❌ Nenhuma credencial configurada');
       localStorage.setItem('mt5_connected', 'false');
       return false;
 
@@ -139,8 +139,7 @@ export class MT5PriceValidator {
       }
 
       const mt5Symbol = this.getMT5Symbol(symbol);
-      const client = getMetaAPIClient(this.token);
-      const prices = await client.getPrices([mt5Symbol]);
+      const prices = await getBrokerPrices([mt5Symbol]);
 
       if (prices.length === 0) {
         console.warn(`[MT5 Validator] ⚠️ Sem dados do MT5 para ${symbol}`);
@@ -367,10 +366,8 @@ export class MT5PriceValidator {
   async disconnect() {
     // Parar reconexão automática
     this.stopAutoReconnect();
-    
+
     if (this.isConnected) {
-      const client = getMetaAPIClient(this.token);
-      await client.disconnect();
       this.isConnected = false;
       localStorage.setItem('mt5_connected', 'false');
       console.log('[MT5 Validator] 🔌 Desconectado do MT5');

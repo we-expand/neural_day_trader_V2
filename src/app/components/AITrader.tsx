@@ -82,14 +82,12 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
   useEffect(() => {
     const syncMT5Balance = async () => {
-      if (marketData.isConnected && metaApiToken && metaApiAccountId) {
+      if (marketData.isConnected && metaApiAccountId) {
         try {
           console.log('[AITrader] 🔄 MT5 Conectado! Sincronizando saldo automaticamente...');
-          const { getMetaAPIClient } = await import('../services/MetaAPIDirectClient');
-          const client = getMetaAPIClient(metaApiToken);
-          await client.connect(metaApiAccountId);
-          const accountInfo = await client.getAccountInfo();
-          
+          const { getAccountInfo } = await import('../services/BrokerClient');
+          const accountInfo = await getAccountInfo();
+
           if (accountInfo) {
             console.log('[AITrader] 💰 Saldo MT5 obtido:', accountInfo);
             updatePortfolioFromMT5({
@@ -105,7 +103,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
     };
 
     syncMT5Balance();
-  }, [marketData.isConnected, metaApiToken, metaApiAccountId, updatePortfolioFromMT5]);
+  }, [marketData.isConnected, metaApiAccountId, updatePortfolioFromMT5]);
 
   const handleLoadWorkspace = (ws: Workspace) => {
       setConfig(ws.config);
@@ -141,37 +139,33 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
     // Assets are auto-registered in global context now
   }, [config.activeAssets]);
 
-  // 🔥 NOVO: Carregar Login, Servidor e Token do localStorage ao montar o componente
+  // 🔒 Fase 1: o token MetaAPI não é mais lido do localStorage (nunca mais fica no
+  // client). Login/servidor/accountId (não são segredo) continuam vindo do
+  // localStorage só pra pré-preencher o formulário; o token em si vem do status
+  // do backend (que nunca devolve o valor, só se está configurado ou não).
   useEffect(() => {
     try {
       const savedLogin = localStorage.getItem('mt5_login');
       const savedServer = localStorage.getItem('mt5_server');
-      const savedToken = localStorage.getItem('metaapi_token');
-      
-      if (savedLogin) {
-        setMt5Login(savedLogin);
-        console.log('[MT5] ✅ Login carregado do localStorage:', savedLogin);
-      }
-      
-      if (savedServer) {
-        setMt5Server(savedServer);
-        console.log('[MT5] ✅ Servidor carregado do localStorage:', savedServer);
-      }
-
-      if (savedToken) {
-        setMetaApiToken(savedToken);
-        console.log('[MT5] ✅ Token MetaAPI carregado do localStorage:', savedToken.substring(0, 30) + '...');
-      }
-
-      // 🆕 Carregar MetaAPI Account ID
       const savedAccountId = localStorage.getItem('metaapi_account_id');
-      if (savedAccountId) {
-        setMetaApiAccountId(savedAccountId);
-        console.log('[MT5] ✅ MetaAPI Account ID carregado:', savedAccountId);
-      }
+
+      if (savedLogin) setMt5Login(savedLogin);
+      if (savedServer) setMt5Server(savedServer);
+      if (savedAccountId) setMetaApiAccountId(savedAccountId);
     } catch (error) {
-      console.warn('[MT5] ⚠️ Não foi possível carregar credenciais do localStorage:', error);
+      console.warn('[MT5] ⚠️ Não foi possível carregar dados do localStorage:', error);
     }
+
+    import('../services/BrokerClient').then(({ getBrokerCredentialsStatus }) => {
+      getBrokerCredentialsStatus().then((status) => {
+        if (status.configured) {
+          console.log('[MT5] ✅ Credenciais MetaAPI já configuradas no backend');
+          if (status.accountId) setMetaApiAccountId(status.accountId);
+          if (status.mt5Login) setMt5Login(status.mt5Login);
+          if (status.mt5Server) setMt5Server(status.mt5Server);
+        }
+      });
+    });
   }, []); // Executa apenas uma vez ao montar
 
   // 🔌 MT5 Connection Handlers
@@ -225,21 +219,24 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
       console.log('[MT5] 🆔 MetaAPI Account ID:', metaApiAccountId);
       console.log('[MT5] 🔑 Token length:', metaApiToken.length);
       
-      // 💾 SALVAR IMEDIATAMENTE (antes de tentar conectar)
+      // 💾 SALVAR (login/servidor/accountId não são segredo, ficam locais pra
+      // pré-preencher o formulário; o TOKEN vai criptografado pro backend e nunca
+      // mais toca o localStorage)
       try {
         localStorage.setItem('mt5_login', mt5Login);
         localStorage.setItem('mt5_server', mt5Server);
-        localStorage.setItem('metaapi_token', metaApiToken);
         localStorage.setItem('metaapi_account_id', metaApiAccountId);
-        console.log('[MT5] ✅💾 SALVAMENTO IMEDIATO:');
-        console.log('[MT5] 💾 Login salvo:', mt5Login);
-        console.log('[MT5] 💾 Servidor salvo:', mt5Server);
-        console.log('[MT5] 💾 Account ID salvo:', metaApiAccountId);
-        console.log('[MT5] 💾 Token salvo (length):', metaApiToken.length);
       } catch (e) {
         console.warn('[MT5] ⚠️ Não foi possível salvar no localStorage:', e);
       }
-      
+
+      const { saveBrokerCredentials } = await import('../services/BrokerClient');
+      const saveResult = await saveBrokerCredentials(metaApiToken, metaApiAccountId, mt5Login, mt5Server);
+      if (!saveResult.success) {
+        throw new Error('Falha ao salvar credenciais MetaAPI no backend');
+      }
+      console.log('[MT5] ✅ Credenciais salvas com segurança no backend');
+
       // 🌐 CONECTAR AO MARKET DATA CONTEXT (GLOBAL)
       console.log('[MT5] 🌐 Conectando ao Market Data Context...');
       toast.info('🌐 Conectando ao MetaAPI...', {
@@ -267,11 +264,9 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
           duration: 5000
         });
         
-        const { getMetaAPIClient } = await import('../services/MetaAPIDirectClient');
-        const client = getMetaAPIClient(metaApiToken);
-        await client.connect(metaApiAccountId);
-        const accountInfo = await client.getAccountInfo();
-        
+        const { getAccountInfo } = await import('../services/BrokerClient');
+        const accountInfo = await getAccountInfo();
+
         if (accountInfo) {
           console.log('[MT5] ✅ Saldo obtido:', accountInfo);
           console.log('[MT5] 💵 Balance:', accountInfo.balance);
@@ -288,7 +283,8 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
         
         // 📊 BUSCAR POSIÇÕES ABERTAS
         console.log('[MT5] 📊 Buscando posições abertas...');
-        const positions = await client.getPositions();
+        const { getPositions } = await import('../services/BrokerClient');
+        const positions = await getPositions();
         
         if (positions && positions.length > 0) {
           console.log('[MT5] ✅ Posições encontradas:', positions.length);

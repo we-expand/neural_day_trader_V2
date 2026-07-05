@@ -6,7 +6,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { getMetaAPIClient, TradeResult } from '@/app/services/MetaAPIDirectClient';
+import {
+  getBrokerCredentialsStatus,
+  getAccountInfo,
+  getPrices,
+  getPositions,
+  createMarketBuyOrder,
+  createMarketSellOrder,
+  closePosition as closeBrokerPosition,
+  closeAllPositions,
+} from '@/app/services/BrokerClient';
 import { 
   AlertTriangle, 
   TrendingUp, 
@@ -62,38 +71,31 @@ export function LiveTradingTest() {
   const [loading, setLoading] = useState(false);
   const [executingTrade, setExecutingTrade] = useState(false);
 
-  // Check connection status
+  // Check connection status (credenciais salvas no backend para este usuário?)
   useEffect(() => {
-    const client = getMetaAPIClient();
-    setIsConnected(client.isConnected());
+    getBrokerCredentialsStatus().then((status) => setIsConnected(status.configured));
   }, []);
 
   // Refresh account info
   const refreshAccountInfo = async () => {
     try {
-      const client = getMetaAPIClient();
-      if (!client.isConnected()) {
-        toast.error('MT5 não conectado!');
-        return;
-      }
-
       setLoading(true);
-      
-      const accountInfo = await client.getAccountInfo();
+
+      const accountInfo = await getAccountInfo();
       if (accountInfo) {
         setBalance(accountInfo.balance);
         setEquity(accountInfo.equity);
         setFreeMargin(accountInfo.freeMargin);
       }
 
-      const prices = await client.getPrices([symbol]);
+      const prices = await getPrices([symbol]);
       if (prices.length > 0) {
         setBid(prices[0].bid);
         setAsk(prices[0].ask);
         setCurrentPrice(prices[0].bid);
       }
 
-      const openPositions = await client.getPositions();
+      const openPositions = await getPositions();
       setPositions(openPositions || []);
 
       setLoading(false);
@@ -122,10 +124,8 @@ export function LiveTradingTest() {
 
     try {
       setExecutingTrade(true);
-      
-      const client = getMetaAPIClient();
-      
-      const result = await client.createMarketBuyOrder({
+
+      const result = await createMarketBuyOrder({
         symbol,
         volume,
         stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
@@ -166,10 +166,8 @@ export function LiveTradingTest() {
 
     try {
       setExecutingTrade(true);
-      
-      const client = getMetaAPIClient();
-      
-      const result = await client.createMarketSellOrder({
+
+      const result = await createMarketSellOrder({
         symbol,
         volume,
         stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
@@ -209,9 +207,7 @@ export function LiveTradingTest() {
     }
 
     try {
-      const client = getMetaAPIClient();
-      
-      const result = await client.closePosition(positionId);
+      const result = await closeBrokerPosition(positionId);
 
       if (result.success) {
         toast.success('✅ POSIÇÃO FECHADA!', {
@@ -251,9 +247,7 @@ export function LiveTradingTest() {
     if (!confirmed) return;
 
     try {
-      const client = getMetaAPIClient();
-      
-      const result = await client.closeAllPositions();
+      const result = await closeAllPositions();
 
       if (result.success) {
         toast.success('🚨 EMERGÊNCIA: TODAS POSIÇÕES FECHADAS!', {

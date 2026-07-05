@@ -1,0 +1,11 @@
+import { Hono } from 'npm:hono@4';
+export default new Hono();
+export const translateEvent = (x: any) => x;
+export const createInvestingEvents = (x: any) => [];
+export const translateEconomicEvents = (x: any) => [];
+export const synthesizeSpeech = async () => null;
+export const validateGoogleTTSKey = () => false;
+export const transcribeAudio = async () => null;
+export const validateGoogleSTTKey = () => false;
+export const processUserQuestion = async () => "Error";
+export const generateAlertResponse = async () => "Error";

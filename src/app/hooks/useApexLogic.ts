@@ -1293,27 +1293,24 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
       setMT5Credentials(credentials);
       mt5CredentialsRef.current = credentials;
 
-      // 🔥 BUSCAR SALDO REAL DO METAAPI
+      // 🔥 BUSCAR SALDO REAL VIA BACKEND (Fase 1: credenciais nunca mais no client)
       const result = await wrapMT5Connection(async () => {
         try {
-          console.log('[useApexLogic] 🌐 Buscando saldo real do MetaAPI...');
-          
-          // Importar e usar MetaAPI Direct Client
-          const { getMetaAPIClient } = await import('../services/MetaAPIDirectClient');
-          const client = getMetaAPIClient(credentials.token);
-          
-          // Conectar à conta
-          const connected = await client.connect(credentials.login);
-          if (!connected) {
-            throw new Error('Falha ao conectar ao MetaAPI');
+          console.log('[useApexLogic] 🌐 Buscando saldo real via backend...');
+
+          const { getBrokerCredentialsStatus, getAccountInfo } = await import('../services/BrokerClient');
+
+          const status = await getBrokerCredentialsStatus();
+          if (!status.configured) {
+            throw new Error('Nenhuma credencial MetaAPI configurada para este usuário (configure em Configurações)');
           }
-          
+
           // Buscar informações da conta
-          const accountInfo = await client.getAccountInfo();
+          const accountInfo = await getAccountInfo();
           if (!accountInfo) {
             throw new Error('Não foi possível obter informações da conta');
           }
-          
+
           console.log('[useApexLogic] ✅ Saldo real obtido:', accountInfo);
           
           return {

@@ -11,7 +11,7 @@ import { synthesizeSpeech, validateGoogleTTSKey } from './tts-google.ts';
 import { transcribeAudio, validateGoogleSTTKey } from './stt-google.ts';
 import { processUserQuestion, generateAlertResponse } from './neural-assistant.ts';
 
-const app = new Hono();
+const app = new Hono().basePath('/server');
 
 // 🔍 HELPER: Get MetaAPI Token with detailed logging
 async function getMetaApiToken(bodyToken?: string): Promise<string | null> {
@@ -56,6 +56,82 @@ async function getMetaApiToken(bodyToken?: string): Promise<string | null> {
     return finalToken;
 }
 
+// ========================================
+// 🔒 BROKER CREDENTIALS: auth + criptografia (Fase 1 de segurança)
+// ========================================
+// Verifica o JWT do usuário logado (enviado pelo client via supabase.functions.invoke,
+// que já inclui "Authorization: Bearer <access_token>" automaticamente) e retorna o
+// user_id verificado. Nunca confiar em um userId vindo do body/query do client sozinho.
+async function getAuthenticatedUserId(c: any): Promise<string | null> {
+    try {
+        const authHeader = c.req.header('Authorization');
+        if (!authHeader?.startsWith('Bearer ')) return null;
+        const jwt = authHeader.slice(7);
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !supabaseServiceKey) return null;
+
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const { data, error } = await supabaseAdmin.auth.getUser(jwt);
+        if (error || !data?.user) return null;
+
+        return data.user.id;
+    } catch (e) {
+        console.error('[AUTH] Erro ao verificar JWT:', e);
+        return null;
+    }
+}
+
+// Criptografia simétrica (AES-GCM) do token MetaAPI em repouso.
+// Chave vive só como secret da Edge Function (BROKER_CREDENTIALS_ENCRYPTION_KEY),
+// nunca no banco. Gerar com: openssl rand -base64 32
+async function getBrokerEncryptionKey(): Promise<CryptoKey> {
+    const keyB64 = Deno.env.get('BROKER_CREDENTIALS_ENCRYPTION_KEY');
+    if (!keyB64) throw new Error('BROKER_CREDENTIALS_ENCRYPTION_KEY não configurada nos secrets da function');
+    const keyBytes = Uint8Array.from(atob(keyB64), (ch) => ch.charCodeAt(0));
+    return crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+async function encryptBrokerSecret(plaintext: string): Promise<{ ciphertext: string; iv: string }> {
+    const key = await getBrokerEncryptionKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(plaintext);
+    const encryptedBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+    return {
+        ciphertext: btoa(String.fromCharCode(...new Uint8Array(encryptedBuf))),
+        iv: btoa(String.fromCharCode(...iv)),
+    };
+}
+
+async function decryptBrokerSecret(ciphertextB64: string, ivB64: string): Promise<string> {
+    const key = await getBrokerEncryptionKey();
+    const iv = Uint8Array.from(atob(ivB64), (ch) => ch.charCodeAt(0));
+    const ciphertext = Uint8Array.from(atob(ciphertextB64), (ch) => ch.charCodeAt(0));
+    const decryptedBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    return new TextDecoder().decode(decryptedBuf);
+}
+
+const METAAPI_CLIENT_API_BASE = 'https://mt-client-api-v1.new-york.agiliumtrade.ai';
+
+async function loadDecryptedBrokerCredentials(userId: string): Promise<{ token: string; accountId: string } | null> {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseServiceKey) return null;
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    const { data, error } = await supabaseAdmin
+        .from('broker_credentials')
+        .select('account_id, token_ciphertext, token_iv')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error || !data) return null;
+
+    const token = await decryptBrokerSecret(data.token_ciphertext, data.token_iv);
+    return { token, accountId: data.account_id };
+}
+
 // Enable logger
 app.use('*', logger(console.log));
 
@@ -72,7 +148,7 @@ app.use(
 );
 
 // Auto-Confirm Sign Up Route
-app.post("/make-server-1dbacac6/signup", async (c) => {
+app.post("/signup", async (c) => {
     try {
         const { email, password, name, firstName, lastName } = await c.req.json();
         
@@ -147,7 +223,7 @@ app.post("/make-server-1dbacac6/signup", async (c) => {
 });
 
 // DELETE USER ROUTE (Hard Reset)
-app.post("/make-server-1dbacac6/delete-user", async (c) => {
+app.post("/delete-user", async (c) => {
     try {
         const { email } = await c.req.json();
         
@@ -182,7 +258,7 @@ app.post("/make-server-1dbacac6/delete-user", async (c) => {
 });
 
 // List Users Route (Admin Only)
-app.get("/make-server-1dbacac6/list-users", async (c) => {
+app.get("/list-users", async (c) => {
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -214,7 +290,7 @@ app.get("/make-server-1dbacac6/list-users", async (c) => {
 });
 
 // Deposit Checkout Route (One-time Payment)
-app.post("/make-server-1dbacac6/deposit", async (c) => {
+app.post("/deposit", async (c) => {
     try {
         const body = await c.req.json();
         const { amount, currency = 'usd', userId, email } = body;
@@ -296,7 +372,7 @@ app.post("/make-server-1dbacac6/deposit", async (c) => {
 });
 
 // Payment Checkout Route (Subscriptions)
-app.post("/make-server-1dbacac6/checkout", async (c) => {
+app.post("/checkout", async (c) => {
     try {
         const body = await c.req.json();
         const { planId, email, userId } = body;
@@ -371,7 +447,7 @@ app.post("/make-server-1dbacac6/checkout", async (c) => {
 });
 
 // Verify Payment Route (For client-side confirmation when webhooks are not possible)
-app.post("/make-server-1dbacac6/verify-payment", async (c) => {
+app.post("/verify-payment", async (c) => {
     try {
         const { sessionId, simulated, amount, currency = 'USD', userId: manualUserId } = await c.req.json();
         
@@ -471,7 +547,7 @@ app.post("/make-server-1dbacac6/verify-payment", async (c) => {
 // --- NEW ENDPOINTS FOR KV-BASED WALLET SYSTEM ---
 
 // Get Wallet Balance
-app.get("/make-server-1dbacac6/wallet", async (c) => {
+app.get("/wallet", async (c) => {
     try {
         const userId = c.req.query('userId');
         if (!userId) return c.json({ error: "userId required" }, 400);
@@ -484,7 +560,7 @@ app.get("/make-server-1dbacac6/wallet", async (c) => {
 });
 
 // Get Transaction History
-app.get("/make-server-1dbacac6/transactions", async (c) => {
+app.get("/transactions", async (c) => {
     try {
         const userId = c.req.query('userId');
         if (!userId) return c.json({ error: "userId required" }, 400);
@@ -504,7 +580,7 @@ app.get("/make-server-1dbacac6/transactions", async (c) => {
 });
 
 // Record Manual Transaction (for Crypto/Pix/Manual requests from frontend)
-app.post("/make-server-1dbacac6/transaction", async (c) => {
+app.post("/transaction", async (c) => {
     try {
         const body = await c.req.json();
         const { userId, type, amount, method, status = 'pending', metadata } = body;
@@ -546,7 +622,7 @@ app.post("/make-server-1dbacac6/transaction", async (c) => {
 });
 
 // Telemetry Track Route
-app.post("/make-server-1dbacac6/telemetry/track", async (c) => {
+app.post("/telemetry/track", async (c) => {
     try {
         const body = await c.req.json();
         const { fingerprint } = body;
@@ -567,13 +643,25 @@ app.post("/make-server-1dbacac6/telemetry/track", async (c) => {
 });
 
 // MT5 Token Management Routes
-app.post("/make-server-1dbacac6/mt5-token/save", async (c) => {
+// 🔒 PATCH DE SEGURANÇA (Fase 1): antes aceitava qualquer userId no body/query sem checar
+// quem estava chamando (IDOR — dava pra ler/sobrescrever o token de qualquer usuário).
+// Agora exige JWT válido e o userId tem que ser o do dono do token autenticado.
+app.post("/mt5-token/save", async (c) => {
     try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) {
+            return c.json({ error: "Não autenticado" }, 401);
+        }
+
         const body = await c.req.json();
         const { userId, token } = body;
-        
+
         if (!userId || !token) {
             return c.json({ error: "userId and token required" }, 400);
+        }
+
+        if (userId !== authenticatedUserId) {
+            return c.json({ error: "Não autorizado a salvar token de outro usuário" }, 403);
         }
 
         // Save token with user ID
@@ -591,11 +679,20 @@ app.post("/make-server-1dbacac6/mt5-token/save", async (c) => {
     }
 });
 
-app.get("/make-server-1dbacac6/mt5-token/load", async (c) => {
+app.get("/mt5-token/load", async (c) => {
     try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) {
+            return c.json({ error: "Não autenticado" }, 401);
+        }
+
         const userId = c.req.query('userId');
         if (!userId) {
             return c.json({ error: "userId required" }, 400);
+        }
+
+        if (userId !== authenticatedUserId) {
+            return c.json({ error: "Não autorizado a ler token de outro usuário" }, 403);
         }
 
         const key = `mt5_token:${userId}`;
@@ -613,13 +710,266 @@ app.get("/make-server-1dbacac6/mt5-token/load", async (c) => {
     }
 });
 
+// ========================================
+// 🔐 BROKER CREDENTIALS (Fase 1 — item crítico fechado aqui)
+// Token MetaAPI do usuário nunca mais vive no client. Fica criptografado nesta
+// tabela (broker_credentials), e só esta Edge Function (service_role) consegue
+// decriptar pra executar ordens. O client só chama estas rotas autenticado.
+// ========================================
+
+app.post('/broker/credentials', async (c) => {
+    try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) {
+            return c.json({ error: 'Não autenticado' }, 401);
+        }
+
+        const { token, accountId, mt5Login, mt5Server } = await c.req.json();
+
+        if (!token || token.trim().length < 100) {
+            return c.json({ error: 'Token inválido - muito curto (mínimo 100 caracteres)' }, 400);
+        }
+        if (!token.trim().startsWith('eyJ')) {
+            return c.json({ error: 'Token inválido - deve ser um JWT MetaAPI (começa com "eyJ")' }, 400);
+        }
+        if (!accountId || String(accountId).trim().length < 5) {
+            return c.json({ error: 'accountId inválido' }, 400);
+        }
+
+        const { ciphertext, iv } = await encryptBrokerSecret(token.trim());
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
+
+        const { error } = await supabaseAdmin.from('broker_credentials').upsert({
+            user_id: authenticatedUserId,
+            account_id: String(accountId).trim(),
+            token_ciphertext: ciphertext,
+            token_iv: iv,
+            mt5_login: mt5Login || null,
+            mt5_server: mt5Server || null,
+        }, { onConflict: 'user_id' });
+
+        if (error) {
+            console.error('[BROKER] Erro ao salvar credenciais:', error);
+            return c.json({ error: 'Erro ao salvar credenciais' }, 500);
+        }
+
+        return c.json({ success: true, message: 'Credenciais salvas com segurança' });
+    } catch (e: any) {
+        console.error('[BROKER] Erro em /broker/credentials POST:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+app.get('/broker/credentials/status', async (c) => {
+    try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) {
+            return c.json({ error: 'Não autenticado' }, 401);
+        }
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
+
+        const { data, error } = await supabaseAdmin
+            .from('broker_credentials')
+            .select('account_id, mt5_login, mt5_server, updated_at')
+            .eq('user_id', authenticatedUserId)
+            .maybeSingle();
+
+        if (error) {
+            console.error('[BROKER] Erro ao ler status:', error);
+            return c.json({ error: 'Erro ao ler status das credenciais' }, 500);
+        }
+
+        if (!data) {
+            return c.json({ configured: false });
+        }
+
+        // Nunca devolver o token, nem mascarado — só o suficiente pra UI confirmar a conexão.
+        return c.json({
+            configured: true,
+            accountId: data.account_id,
+            mt5Login: data.mt5_login,
+            mt5Server: data.mt5_server,
+            updatedAt: data.updated_at,
+        });
+    } catch (e: any) {
+        console.error('[BROKER] Erro em /broker/credentials/status:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+app.delete('/broker/credentials', async (c) => {
+    try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) {
+            return c.json({ error: 'Não autenticado' }, 401);
+        }
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
+
+        const { error } = await supabaseAdmin
+            .from('broker_credentials')
+            .delete()
+            .eq('user_id', authenticatedUserId);
+
+        if (error) {
+            console.error('[BROKER] Erro ao remover credenciais:', error);
+            return c.json({ error: 'Erro ao remover credenciais' }, 500);
+        }
+
+        return c.json({ success: true, message: 'Credenciais removidas' });
+    } catch (e: any) {
+        console.error('[BROKER] Erro em /broker/credentials DELETE:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// Executa leituras (preços/conta/posições) e ordens reais (compra/venda/fechar/modificar)
+// na conta MT5 do usuário autenticado, chamando a REST Client API do MetaAPI server-side.
+// O token nunca trafega de volta pro client.
+app.post('/broker/execute', async (c) => {
+    try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) {
+            return c.json({ error: 'Não autenticado' }, 401);
+        }
+
+        const credentials = await loadDecryptedBrokerCredentials(authenticatedUserId);
+        if (!credentials) {
+            return c.json({ error: 'Nenhuma credencial MetaAPI configurada para este usuário' }, 400);
+        }
+        const { token, accountId } = credentials;
+
+        const body = await c.req.json();
+        const { action } = body;
+
+        const metaApiHeaders = {
+            'auth-token': token,
+            'Content-Type': 'application/json',
+        };
+
+        // --- Leituras ---
+        if (action === 'getAccountInfo') {
+            const res = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/account-information`, {
+                headers: metaApiHeaders,
+            });
+            if (!res.ok) return c.json({ error: `MetaApi HTTP ${res.status}` }, 502);
+            return c.json({ success: true, accountInfo: await res.json() });
+        }
+
+        if (action === 'getPositions') {
+            const res = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/positions`, {
+                headers: metaApiHeaders,
+            });
+            if (!res.ok) return c.json({ error: `MetaApi HTTP ${res.status}` }, 502);
+            return c.json({ success: true, positions: await res.json() });
+        }
+
+        if (action === 'getPrices') {
+            const { symbols } = body;
+            if (!Array.isArray(symbols)) return c.json({ error: 'symbols deve ser um array' }, 400);
+            const prices = [];
+            for (const symbol of symbols) {
+                try {
+                    const res = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick`, {
+                        headers: metaApiHeaders,
+                    });
+                    if (!res.ok) continue;
+                    const tick = await res.json();
+                    prices.push({
+                        symbol,
+                        bid: tick.bid || 0,
+                        ask: tick.ask || 0,
+                        last: tick.bid || 0,
+                        spread: (tick.ask || 0) - (tick.bid || 0),
+                        timestamp: Date.now(),
+                    });
+                } catch (_e) {
+                    // símbolo individual falhou, segue pros próximos
+                }
+            }
+            return c.json({ success: true, prices });
+        }
+
+        // --- Execução de ordens reais ---
+        const tradeActionMap: Record<string, (b: any) => any> = {
+            createMarketBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY', symbol: b.symbol, volume: b.volume, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createMarketSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL', symbol: b.symbol, volume: b.volume, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            closePosition: (b) => ({ actionType: 'POSITION_CLOSE_ID', positionId: b.positionId }),
+            closePositionPartially: (b) => ({ actionType: 'POSITION_PARTIAL', positionId: b.positionId, volume: b.volume }),
+            modifyPosition: (b) => ({ actionType: 'POSITION_MODIFY', positionId: b.positionId, stopLoss: b.stopLoss, takeProfit: b.takeProfit }),
+            closeAllPositionsBySymbol: (b) => ({ actionType: 'POSITIONS_CLOSE_SYMBOL', symbol: b.symbol }),
+        };
+
+        if (action === 'closeAllPositions') {
+            const posRes = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/positions`, {
+                headers: metaApiHeaders,
+            });
+            if (!posRes.ok) return c.json({ error: `MetaApi HTTP ${posRes.status}` }, 502);
+            const positions = await posRes.json();
+
+            let closedCount = 0;
+            let failedCount = 0;
+            for (const position of positions) {
+                const closeRes = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/trade`, {
+                    method: 'POST',
+                    headers: metaApiHeaders,
+                    body: JSON.stringify({ actionType: 'POSITION_CLOSE_ID', positionId: position.id }),
+                });
+                if (closeRes.ok) closedCount++; else failedCount++;
+            }
+            return c.json({
+                success: failedCount === 0,
+                message: `${closedCount} posições fechadas (${failedCount} falharam)`,
+            });
+        }
+
+        const buildTradeBody = tradeActionMap[action];
+        if (!buildTradeBody) {
+            return c.json({ error: `Ação desconhecida: ${action}` }, 400);
+        }
+
+        const tradeRes = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/trade`, {
+            method: 'POST',
+            headers: metaApiHeaders,
+            body: JSON.stringify(buildTradeBody(body)),
+        });
+
+        const tradeResult = await tradeRes.json().catch(() => ({}));
+
+        if (!tradeRes.ok) {
+            return c.json({
+                success: false,
+                error: tradeResult.message || `MetaApi HTTP ${tradeRes.status}`,
+            }, 502);
+        }
+
+        return c.json({
+            success: true,
+            orderId: tradeResult.orderId,
+            positionId: tradeResult.positionId,
+            message: tradeResult.message,
+        });
+    } catch (e: any) {
+        console.error('[BROKER] Erro em /broker/execute:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
 // Health check endpoint
-app.get("/make-server-1dbacac6/health", (c) => {
+app.get("/health", (c) => {
   return c.json({ status: "ok" });
 });
 
 // User Profile Endpoints
-app.get("/make-server-1dbacac6/user-profile", async (c) => {
+app.get("/user-profile", async (c) => {
     try {
         const userId = c.req.query('userId');
         if (!userId) return c.json({ error: "userId required" }, 400);
@@ -634,7 +984,7 @@ app.get("/make-server-1dbacac6/user-profile", async (c) => {
     }
 });
 
-app.post("/make-server-1dbacac6/user-profile", async (c) => {
+app.post("/user-profile", async (c) => {
     try {
         const { userId, profile } = await c.req.json();
         if (!userId || !profile) return c.json({ error: "userId and profile required" }, 400);
@@ -767,7 +1117,7 @@ async function fetchInvestingCalendarFromNextData(): Promise<any[]> {
 // ==================== USER DATA COLLECTION ROUTES ====================
 
 // Save User Data (from Onboarding)
-app.post("/make-server-1dbacac6/user-data", async (c) => {
+app.post("/user-data", async (c) => {
     try {
         const body = await c.req.json();
         const { userData, timestamp } = body;
@@ -803,7 +1153,7 @@ app.post("/make-server-1dbacac6/user-data", async (c) => {
 });
 
 // Get All User Data (Admin)
-app.get("/make-server-1dbacac6/user-data", async (c) => {
+app.get("/user-data", async (c) => {
     try {
         // Get index of all user IDs
         const userIndex = await kv.get('user-data-index') || [];
@@ -830,7 +1180,7 @@ app.get("/make-server-1dbacac6/user-data", async (c) => {
 });
 
 // Get Single User Data by ID
-app.get("/make-server-1dbacac6/user-data/:id", async (c) => {
+app.get("/user-data/:id", async (c) => {
     try {
         const userId = c.req.param('id');
         const userData = await kv.get(`user-data:${userId}`);
@@ -848,7 +1198,7 @@ app.get("/make-server-1dbacac6/user-data/:id", async (c) => {
 });
 
 // Delete User Data (Admin - GDPR Compliance)
-app.delete("/make-server-1dbacac6/user-data/:id", async (c) => {
+app.delete("/user-data/:id", async (c) => {
     try {
         const userId = c.req.param('id');
 
@@ -874,7 +1224,7 @@ app.delete("/make-server-1dbacac6/user-data/:id", async (c) => {
 });
 
 // Export User Data as CSV (Admin)
-app.get("/make-server-1dbacac6/user-data/export/csv", async (c) => {
+app.get("/user-data/export/csv", async (c) => {
     try {
         const userIndex = await kv.get('user-data-index') || [];
         
@@ -940,7 +1290,7 @@ app.get("/make-server-1dbacac6/user-data/export/csv", async (c) => {
 // ==================== END USER DATA ROUTES ====================
 
 // 🔧 DEBUG: Ver estrutura RAW dos eventos
-app.get("/make-server-1dbacac6/debug-raw-events", async (c) => {
+app.get("/debug-raw-events", async (c) => {
     try {
         console.log('[DEBUG-RAW] Iniciando...');
         
@@ -995,7 +1345,7 @@ app.get("/make-server-1dbacac6/debug-raw-events", async (c) => {
 });
 
 // 🔧 DEBUG: Testar APIs da agenda econômica
-app.get("/make-server-1dbacac6/debug-economic-calendar", async (c) => {
+app.get("/debug-economic-calendar", async (c) => {
     const logs: string[] = [];
     const results: any = {};
     
@@ -1057,7 +1407,7 @@ app.get("/make-server-1dbacac6/debug-economic-calendar", async (c) => {
 });
 
 // 🔧 DEBUG: Ver HTML completo do Investing.com
-app.get("/make-server-1dbacac6/debug-investing-html", async (c) => {
+app.get("/debug-investing-html", async (c) => {
     try {
         const response = await fetch('https://www.investing.com/economic-calendar/', {
             headers: {
@@ -1138,7 +1488,7 @@ app.get("/make-server-1dbacac6/debug-investing-html", async (c) => {
 });
 
 // 🔧 DEBUG: Analisar economicCalendarStore do Investing.com
-app.get("/make-server-1dbacac6/debug-calendar-store", async (c) => {
+app.get("/debug-calendar-store", async (c) => {
     try {
         const response = await fetch('https://www.investing.com/economic-calendar/', {
             headers: {
@@ -1211,7 +1561,7 @@ app.get("/make-server-1dbacac6/debug-calendar-store", async (c) => {
 });
 
 // ✅ NOVO: Economic Calendar - Trading Economics API
-app.get("/make-server-1dbacac6/economic-calendar", async (c) => {
+app.get("/economic-calendar", async (c) => {
     try {
         console.log('🔍 [AGENDA] === VERSÃO HARDCODED 2026-01-21 16:47 UTC ===');
         console.log('🔍 [AGENDA] Iniciando busca de eventos econômicos...');
@@ -2510,7 +2860,7 @@ async function fetchYahooFinanceCalendarDebug() {
 }
 
 // ✅ NOVO: VIX Index - Buscar dados REAIS do S&P 500 VIX
-app.get("/make-server-1dbacac6/vix", async (c) => {
+app.get("/vix", async (c) => {
     try {
         console.log('🔍 [VIX API] === BUSCANDO VIX REAL ===');
         console.log('🔍 [VIX API] Timestamp:', new Date().toISOString());
@@ -2732,8 +3082,8 @@ app.get("/make-server-1dbacac6/vix", async (c) => {
 
 // 🔥 S&P GLOBAL API PROXY (Market Data para Índices)
 // ⚠️ DESABILITADO: API não está disponível publicamente
-// Endpoint: /make-server-1dbacac6/spglobal/:symbol
-app.get("/make-server-1dbacac6/spglobal/:symbol", async (c) => {
+// Endpoint: /spglobal/:symbol
+app.get("/spglobal/:symbol", async (c) => {
     try {
         const symbol = c.req.param('symbol');
         
@@ -2755,7 +3105,7 @@ app.get("/make-server-1dbacac6/spglobal/:symbol", async (c) => {
 // ========================================
 // 💾 ROTA: SALVAR TOKEN METAAPI
 // ========================================
-app.post('/make-server-1dbacac6/save-metaapi-token', async (c) => {
+app.post('/save-metaapi-token', async (c) => {
     try {
         const { token } = await c.req.json();
         
@@ -2807,7 +3157,7 @@ app.post('/make-server-1dbacac6/save-metaapi-token', async (c) => {
 // ========================================
 // 🗑️ ROTA: LIMPAR TOKEN METAAPI DO KV STORE
 // ========================================
-app.delete('/make-server-1dbacac6/clear-metaapi-token', async (c) => {
+app.delete('/clear-metaapi-token', async (c) => {
     try {
         console.log('[CLEAR TOKEN] 🗑️ Limpando token do KV store...');
         
@@ -2830,7 +3180,7 @@ app.delete('/make-server-1dbacac6/clear-metaapi-token', async (c) => {
 // ========================================
 // 📊 ROTA: MT5 REAL-TIME PRICES (METAAPI)
 // ========================================
-app.post('/make-server-1dbacac6/mt5-prices', async (c) => {
+app.post('/mt5-prices', async (c) => {
     try {
         const { symbols, token, accountId } = await c.req.json();
         
@@ -3098,7 +3448,7 @@ function generateSimulatedCandles(symbol: string, timeframe: string, count: numb
 // ========================================
 // 📈 ROTA: MT5 CANDLES (METAAPI)
 // ========================================
-app.post('/make-server-1dbacac6/mt5-candles', async (c) => {
+app.post('/mt5-candles', async (c) => {
     try {
         const { symbol, timeframe, limit, token, accountId } = await c.req.json();
         
@@ -3285,7 +3635,7 @@ app.post('/make-server-1dbacac6/mt5-candles', async (c) => {
 // ========================================
 // 🔍 DIAGNÓSTICO: Verificar Credenciais MetaApi
 // ========================================
-app.get('/make-server-1dbacac6/mt5-check', async (c) => {
+app.get('/mt5-check', async (c) => {
     try {
         const envToken = Deno.env.get('METAAPI_TOKEN');
         const envAccountId = Deno.env.get('METAAPI_ACCOUNT_ID');
@@ -3364,7 +3714,7 @@ app.get('/make-server-1dbacac6/mt5-check', async (c) => {
 // ========================================
 // 🔓 ENDPOINT PÚBLICO: Diagnóstico MetaApi (Sem Autenticação)
 // ========================================
-app.get('/make-server-1dbacac6/public/mt5-status', async (c) => {
+app.get('/public/mt5-status', async (c) => {
     try {
         // Buscar de ENV e KV Store
         const envToken = Deno.env.get('METAAPI_TOKEN');
@@ -3444,18 +3794,18 @@ app.get('/make-server-1dbacac6/public/mt5-status', async (c) => {
 // ========================================
 // 🌐 OPTIONS HANDLERS - Necessários para CORS preflight
 // ========================================
-app.options('/make-server-1dbacac6/*', (c) => {
+app.options('/*', (c) => {
     return c.text('', 204);
 });
 
-app.options('/make-server-1dbacac6/public/*', (c) => {
+app.options('/public/*', (c) => {
     return c.text('', 204);
 });
 
 // ========================================
 // 🏥 HEALTH CHECK SIMPLIFICADO (fallback sem auth)
 // ========================================
-app.all('/make-server-1dbacac6/health-simple', (c) => {
+app.all('/health-simple', (c) => {
     return c.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
@@ -3467,7 +3817,7 @@ app.all('/make-server-1dbacac6/health-simple', (c) => {
 // ========================================
 // 🔑 CONFIGURAÇÃO DE CREDENCIAIS METAAPI (Via Interface Web)
 // ========================================
-app.post('/make-server-1dbacac6/config/metaapi', async (c) => {
+app.post('/config/metaapi', async (c) => {
     try {
         const { token, accountId } = await c.req.json();
         
@@ -3532,42 +3882,42 @@ app.post('/make-server-1dbacac6/config/metaapi', async (c) => {
 // 📊 MARKET DATA API (MetaApi Integration)
 // ========================================
 import marketDataRoutes from './market-data.tsx';
-app.route('/make-server-1dbacac6/market-data', marketDataRoutes);
+app.route('/market-data', marketDataRoutes);
 
 // ========================================
 // 🔍 ASSET DISCOVERY SYSTEM (Auto-detect broker symbols)
 // ========================================
 import assetDiscoveryRoutes from './asset-discovery.tsx';
-app.route('/make-server-1dbacac6/asset-discovery', assetDiscoveryRoutes);
+app.route('/asset-discovery', assetDiscoveryRoutes);
 
 // ========================================
 // 🎯 MARKET DATA REAL (Binance, Yahoo, Twelve Data - FREE)
 // ========================================
 import marketDataRealRoutes from './market-data-real.tsx';
-app.route('/make-server-1dbacac6/real', marketDataRealRoutes);
+app.route('/real', marketDataRealRoutes);
 
 // ========================================
 // 🔍 API DIAGNOSTICS (Teste de credenciais)
 // ========================================
 import apiDiagnosticsRoutes from './api-diagnostics.ts';
-app.route('/make-server-1dbacac6/diagnostics', apiDiagnosticsRoutes);
+app.route('/diagnostics', apiDiagnosticsRoutes);
 
 // ========================================
 // 🔄 BINANCE API PROXY (Contorna CORS/CSP)
 // ========================================
 import binanceProxyRoutes from './binance-proxy.ts';
-app.route('/make-server-1dbacac6/binance-proxy', binanceProxyRoutes);
+app.route('/binance-proxy', binanceProxyRoutes);
 
 // ========================================
 // 📊 VIX PROXY (Contorna CORS do CBOE)
 // ========================================
 import vixProxyRoutes from './vix-proxy.ts';
-app.route('/make-server-1dbacac6/vix-proxy', vixProxyRoutes);
+app.route('/vix-proxy', vixProxyRoutes);
 
 // ========================================
 // 📰 NEWS RSS FEED PROXY (Evita CORS)
 // ========================================
-app.get('/make-server-1dbacac6/news/rss', async (c) => {
+app.get('/news/rss', async (c) => {
   try {
     const feedUrl = c.req.query('url');
     
@@ -3718,7 +4068,7 @@ app.get('/make-server-1dbacac6/news/rss', async (c) => {
 // ========================================
 
 // Health Check - Verifica se o servidor está rodando
-app.get('/make-server-1dbacac6/health', (c) => {
+app.get('/health', (c) => {
   return c.json({ 
     status: 'ok', 
     timestamp: Date.now(),
@@ -3727,7 +4077,7 @@ app.get('/make-server-1dbacac6/health', (c) => {
 });
 
 // Binance Crypto Data - REAL API Integration (v3.0 - LIVE DATA)
-app.get('/make-server-1dbacac6/real/binance/:symbol', async (c) => {
+app.get('/real/binance/:symbol', async (c) => {
   try {
     const symbol = c.req.param('symbol');
     console.log(`[BINANCE-v3] 🌐 Fetching REAL data from Binance API for ${symbol}...`);
@@ -3843,7 +4193,7 @@ app.get('/make-server-1dbacac6/real/binance/:symbol', async (c) => {
 });
 
 // Yahoo Finance Data (Forex, Indices, Commodities)
-app.get('/make-server-1dbacac6/real/yahoo/:symbol', async (c) => {
+app.get('/real/yahoo/:symbol', async (c) => {
   try {
     const symbol = c.req.param('symbol');
     console.log(`[YAHOO] Fetching data for ${symbol}...`);
@@ -3921,7 +4271,7 @@ app.get('/make-server-1dbacac6/real/yahoo/:symbol', async (c) => {
 // ========================================
 // 🔍 MT5 TOKEN VALIDATION ROUTE
 // ========================================
-app.get("/make-server-1dbacac6/mt5/validate-token", async (c) => {
+app.get("/mt5/validate-token", async (c) => {
   console.log('[MT5] 🔍 Validando configuração do token...');
   
   const metaapiToken = Deno.env.get('METAAPI_TOKEN');
@@ -3963,7 +4313,7 @@ app.get("/make-server-1dbacac6/mt5/validate-token", async (c) => {
 // ========================================
 // 🔌 MT5 CONNECTION ROUTE
 // ========================================
-app.post("/make-server-1dbacac6/mt5/connect", async (c) => {
+app.post("/mt5/connect", async (c) => {
   try {
     const { login, password, server, metaapiToken: bodyToken } = await c.req.json();
     
@@ -4176,7 +4526,7 @@ app.post("/make-server-1dbacac6/mt5/connect", async (c) => {
 // ========================================
 
 // Endpoint: Sintetizar voz ultra-realista (mesma tech do Gemini Live)
-app.post("/make-server-1dbacac6/tts/synthesize", async (c) => {
+app.post("/tts/synthesize", async (c) => {
   try {
     const { text, voiceGender = 'female' } = await c.req.json();
     
@@ -4230,7 +4580,7 @@ app.post("/make-server-1dbacac6/tts/synthesize", async (c) => {
 });
 
 // Endpoint: Validar API key do Google Cloud TTS
-app.post("/make-server-1dbacac6/tts/validate-key", async (c) => {
+app.post("/tts/validate-key", async (c) => {
   try {
     const { apiKey } = await c.req.json();
     
@@ -4263,7 +4613,7 @@ app.post("/make-server-1dbacac6/tts/validate-key", async (c) => {
 // ========================================
 
 // Endpoint: Transcrever áudio em texto (reconhecimento de voz pt-BR)
-app.post("/make-server-1dbacac6/stt/transcribe", async (c) => {
+app.post("/stt/transcribe", async (c) => {
   try {
     const { audioBase64 } = await c.req.json();
     
@@ -4324,7 +4674,7 @@ app.post("/make-server-1dbacac6/stt/transcribe", async (c) => {
 // ========================================
 
 // Endpoint: Processar pergunta do usuário e gerar resposta contextual
-app.post("/make-server-1dbacac6/assistant/chat", async (c) => {
+app.post("/assistant/chat", async (c) => {
   try {
     const { question, context } = await c.req.json();
     
@@ -4369,7 +4719,7 @@ app.post("/make-server-1dbacac6/assistant/chat", async (c) => {
 // ========================================
 // 🔑 SAVE GOOGLE API KEY
 // ========================================
-app.post('/make-server-1dbacac6/save-google-key', async (c) => {
+app.post('/save-google-key', async (c) => {
   try {
     const { apiKey } = await c.req.json();
     
@@ -4464,11 +4814,11 @@ app.post('/make-server-1dbacac6/save-google-key', async (c) => {
 // ==================== CRYPTO NEWS API ====================
 
 /**
- * 📰 GET /make-server-1dbacac6/crypto-news
+ * 📰 GET /crypto-news
  * Busca notícias sobre criptomoedas em tempo real
  * Usa CryptoCompare API (grátis, sem chave necessária)
  */
-app.get("/make-server-1dbacac6/crypto-news", async (c) => {
+app.get("/crypto-news", async (c) => {
   try {
     const query = c.req.query('query') || 'bitcoin'; // Default: Bitcoin
     const limit = c.req.query('limit') || '50';
@@ -4530,10 +4880,10 @@ app.get("/make-server-1dbacac6/crypto-news", async (c) => {
 });
 
 /**
- * 📊 GET /make-server-1dbacac6/crypto-market-alert
+ * 📊 GET /crypto-market-alert
  * Detecta quedas/altas significativas e busca razões
  */
-app.get("/make-server-1dbacac6/crypto-market-alert", async (c) => {
+app.get("/crypto-market-alert", async (c) => {
   try {
     const symbol = c.req.query('symbol')?.toUpperCase() || 'BTC';
     
