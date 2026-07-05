@@ -150,7 +150,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
     setErrorMessage("");
 
     try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/signup`, {
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
             body: JSON.stringify({
@@ -187,7 +187,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
       setDeleting(true);
 
       try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/delete-user`, {
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/delete-user`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
             body: JSON.stringify({ email })

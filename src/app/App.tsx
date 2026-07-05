@@ -140,13 +140,13 @@ if (typeof window !== 'undefined') {
     console.log('%c═══════════════════════════════════════════════════════', 'color: #ef4444; font-weight: bold');
 
     // Limpar localStorage (mas manter credenciais)
-    const supabaseSession = localStorage.getItem('sb-bgarakvnuppzkugzptsr-auth-token');
+    const supabaseSession = localStorage.getItem('sb-wyvdsxtcmizettljxtbg-auth-token');
     const emergencyOffline = localStorage.getItem('neural_emergency_offline');
 
     localStorage.clear();
 
     if (supabaseSession) {
-      localStorage.setItem('sb-bgarakvnuppzkugzptsr-auth-token', supabaseSession);
+      localStorage.setItem('sb-wyvdsxtcmizettljxtbg-auth-token', supabaseSession);
     }
     if (emergencyOffline) {
       localStorage.setItem('neural_emergency_offline', emergencyOffline);

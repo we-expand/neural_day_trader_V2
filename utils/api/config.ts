@@ -15,8 +15,8 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ||
 
 // Legacy Supabase URL (mantido como fallback)
 export const SUPABASE_FUNCTIONS_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-  ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/make-server-1dbacac6`
-  : 'https://bgarakvnuppzkugzptsr.supabase.co/functions/v1/make-server-1dbacac6';
+  ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/server`
+  : 'https://wyvdsxtcmizettljxtbg.supabase.co/functions/v1/server';
 
 // Preferir Vercel sobre Supabase (para economizar quota)
 // ✅ ATIVADO para migrar do Supabase 402 error
