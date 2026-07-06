@@ -824,10 +824,25 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           }
           
           // 🔄 FALLBACK: Se WebSocket falhou, usar REST API
+          // 🔧 FIX: `fetchRealPrice` (singular) foi removido de realPriceProvider.ts
+          // num refactor anterior (só sobrou `fetchRealPricesBatch`, desabilitado) e
+          // nunca foi atualizado aqui — toda chamada disparava
+          // "TypeError: fetchRealPrice is not a function", travando a análise pra
+          // TODO símbolo sem preço em cache do WebSocket e bloqueando qualquer
+          // entrada de trade. `getRealMarketData` é a função real usada com sucesso
+          // em outros lugares do app (dashboard, BinanceWebSocketManager).
           if (!priceData) {
-            const { fetchRealPrice } = await import('@/app/utils/realPriceProvider');
-            priceData = await fetchRealPrice(selectedSymbol);
-            console.log(`[REST API] 📡 ${selectedSymbol}: Preço obtido via REST (latência ~500ms)`);
+            const { getRealMarketData } = await import('@/app/services/RealMarketDataService');
+            const marketData = await getRealMarketData(selectedSymbol);
+            priceData = {
+              price: marketData.price,
+              changePercent24h: marketData.changePercent || 0,
+              change24h: marketData.change || 0,
+              volume: marketData.volume || 0,
+              source: marketData.source as any,
+              timestamp: marketData.timestamp
+            };
+            console.log(`[REST API] 📡 ${selectedSymbol}: Preço obtido via ${marketData.source} (${marketData.isRealData ? 'real' : 'fallback'})`);
           }
           
           if (!priceData) {
