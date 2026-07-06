@@ -61,11 +61,9 @@ export default defineConfig({
             if (id.includes('metaapi')) {
               return 'metaapi';
             }
-            // React core
-            if (id.includes('react') || id.includes('react-dom')) {
-              return 'react-vendor';
-            }
-            // Other vendors
+            // React core + other vendors share a chunk: splitting them caused a
+            // real circular chunk dependency (vendor -> react-vendor -> vendor),
+            // which surfaced in production as "Cannot access 'X' before initialization".
             return 'vendor';
           }
           
