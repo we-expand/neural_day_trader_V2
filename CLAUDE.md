@@ -1,4 +1,4 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-04)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-06)
 
 ## O que é
 SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5). Baixado do Figma Make, já publicado em produção: `https://www.neuraldaytrader.com` (Vercel, projeto `neural-day-trader-v2`) + Supabase próprio (projeto "Neural DayTrader", id `wyvdsxtcmizettljxtbg`, org "We Expand" plano Pro).
@@ -20,10 +20,13 @@ SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5). Ba
 - Fallback de auth local (`LocalAuthService.ts`) com hash de senha caseiro em localStorage, auto-promove a admin se o email contém "admin" — mascara falhas do Supabase Auth
 - Fallback de preço `Math.random()` em `marketDataService.ts`/`UnifiedMarketDataService.ts` quando provedores externos falham (forex/índices/ações via Frankfurter/exchangerate-api/Finnhub/Twelve Data reais, mas sem trava clara pro usuário saber que virou dado sintético)
 
-### Riscos críticos ainda não corrigidos
-1. **Token MetaAPI (poder de mover dinheiro real) em texto puro no `localStorage`** — exposto a XSS/devtools/extensões. `MetaAPIDirectClient.ts` não tem trava técnica contra conta live, só existe modal de confirmação de UI (`LiveTradingTest.tsx`/`AITrader.tsx`).
-2. **9 tabelas Supabase com RLS desabilitado**: `asset_prices, ohlcv_data, liquidity_events, ai_signals, news_articles, social_sentiment, system_logs, api_metrics, kv_store_1dbacac6` — expostas à chave anon.
-3. Credencial de teste hardcoded em `LocalAuthTest.tsx` (`teste@local.com`/`123456`).
+### Riscos críticos — status em 2026-07-05
+1. **Token MetaAPI**: código resolvido no fluxo principal (`AITrader.tsx`, `LiveTradingTest.tsx`, `useApexLogic.ts`, `MT5PriceValidator.ts`) — token não fica mais em `localStorage`, `MetaAPIDirectClient.ts` foi **deletado**. Passa a ser salvo criptografado (AES-GCM) na tabela `broker_credentials` (RLS sem nenhuma política — só a Edge Function com `service_role` acessa) e toda execução de ordem passa pela rota server-side `/broker/execute`. ✅ **Migration `003_broker_credentials_backend.sql` rodada em produção pelo Cleber em 2026-07-06** — confirmado via MCP do Supabase (`list_tables` mostra `broker_credentials` com RLS habilitado). Fase 1 considerada realmente ativa em produção agora.
+   - ⚠️ **Ainda pendente** (fora do escopo "core" fechado agora): `Settings.tsx`, `MT5TokenValidator.tsx`, `MT5ConfigPanel.tsx` continuam chamando `mt5-token/save|load` com a **anon key** em vez do token de sessão do usuário — como essa rota agora exige JWT (ver patch abaixo), essas 3 telas ficam quebradas até serem migradas para a rota nova `/broker/credentials`.
+   - ⚠️ 4 arquivos ainda leem um token separado direto do `localStorage` sob a chave `mt5_token` (terceira variação, nunca usada pelo fluxo de execução real): `MarketDataContext.tsx`, `MT5DirectCheck.tsx`, `DataSourceIndicator.tsx`, `useMT5Prices.ts`.
+2. **9 tabelas Supabase com RLS desabilitado**: ✅ corrigido em 2026-07-04 (migration `002_fix_rls_security_gaps.sql`, aplicada pelo Cleber).
+3. Credencial de teste hardcoded em `LocalAuthTest.tsx`: ✅ corrigido em 2026-07-04 (arquivo deletado).
+4. **Novo achado (2026-07-05)**: as rotas `mt5-token/save` e `mt5-token/load` (`supabase/functions/server/index.ts`) salvavam/liam o token MetaAPI em texto puro num KV store **sem checar autenticação** — recebiam `userId` cru por parâmetro e confiavam nele, então qualquer um que soubesse o UUID de outro usuário podia ler ou sobrescrever o token dele. ✅ Patchado: agora exigem JWT e batem o `userId` contra o usuário autenticado.
 
 ## Modelo de negócio decidido
 
@@ -53,7 +56,7 @@ Break-even ≈ 29 contratos/mês por usuário (~1,5 trade/dia) se conta ficar se
 
 ## Prioridades (ordem definida com o Cleber)
 
-1. **Fase 1 — Segurança** (em andamento): habilitar RLS com políticas corretas nas 9 tabelas expostas, remover `LocalAuthService`/credencial de teste hardcoded, mover token MetaAPI pra um backend (nunca no client).
+1. **Fase 1 — Segurança**: ✅ **fechada e ativa em produção desde 2026-07-06** (habilitar RLS ✅ aplicado, remover `LocalAuthService`/credencial de teste hardcoded ✅ aplicado, mover token MetaAPI pra backend ✅ código no `origin/main` + migration `003_broker_credentials_backend.sql` rodada em produção ✅). Sobrou dívida técnica conhecida e documentada (3 telas de configuração + 4 arquivos de leitura de preço ainda não migrados — ver "Riscos críticos" acima, e ~28 arquivos com prefixo de rota errado). Detalhes no log de 2026-07-05/06.
 2. **Fase 2 — Motor de Demo persistido**: saldo/posições virtuais reais no Supabase (não mock), preços reais alimentando o "paper trading", sem depender de `generateMockTrades()`.
 3. **Fase 3 — Execução real seguro**: proxy de backend pro MetaAPI (Edge Function) + deploy/undeploy automático de conta por inatividade (economia de custo).
 4. **Fase 4 — Cobrança**: carteira pré-paga + tabela de comissão acima (aguardando Cleber criar conta Stripe).
@@ -79,13 +82,9 @@ Claude **nunca** faz commit/push sozinho neste projeto. Sempre entregar o códig
   - **Falta ainda**: mover o token MetaAPI para um backend (item mais crítico, ainda não iniciado).
   - **Incidente de histórico do Git resolvido**: o clone local estava numa linhagem de commits diferente (e mais antiga, terminando em 21/04) da que estava de fato no GitHub/`origin/main` (uma recriação do histórico feita em 22/04, "Neural Day Trader V2 - versao final para producao", sem relação de commit ancestral com o histórico local — não é perda de dado, o conteúdo dos arquivos era idêntico onde comparei). Resolvido adotando `origin/main` como base (`git reset --hard origin/main`) e reaplicando por `cherry-pick` os 2 commits de hoje (docs + correção de segurança) por cima. Histórico local antigo preservado na branch `backup-local-pre-sync-2026-07-04` caso precise no futuro. Push confirmado: `a7a23cb2..1825b7de`. **Lição**: a partir de agora, sempre `git fetch && git log origin/main..HEAD` antes de commitar nesta pasta, pra pegar esse tipo de divergência cedo.
 
-### Próximo item (mover token MetaAPI pro backend) — plano proposto, ainda NÃO implementado
-1. Nova Supabase Edge Function (ex: `metaapi-trade`) recebe só `{ action, symbol, volume, stopLoss, takeProfit, positionId }` do usuário autenticado — token MetaAPI vira secret no Supabase, nunca no client.
-2. A function valida o JWT do usuário (Supabase Auth) antes de executar qualquer ordem — hoje não existe essa validação.
-3. Client (`AITrader.tsx`, `LiveTradingTest.tsx`, `useApexLogic.ts`) passa a chamar a function via `supabase.functions.invoke`, em vez de instanciar `MetaAPIDirectClient` (`src/app/services/MetaAPIDirectClient.ts`) direto no navegador.
-4. Implementar junto o deploy/undeploy automático da conta MetaAPI (economia de custo — ver seção de custo do MetaAPI acima).
-5. **Decisão pendente do Cleber**: token MetaAPI único e compartilhado (Cleber paga uma assinatura, todo mundo usa o mesmo) OU cada usuário cola o próprio token (muda a arquitetura pra tabela de tokens por usuário, criptografados)? Também pendente: implementar tudo de uma vez vs. só o fluxo de compra/venda primeiro.
-- **Risco assumido**: essa mudança não pode ser testada contra conta MT5 real por mim (sem credenciais/acesso a corretora) — validação real só acontece quando o Cleber conectar uma conta demo depois do deploy.
+### Mover token MetaAPI pro backend — ✅ implementado em 2026-07-05 (ver log completo abaixo)
+Ainda pendente, não fechado nesta sessão: deploy/undeploy automático da conta MetaAPI por inatividade (economia de custo — ver seção de custo do MetaAPI acima). Isso continua sendo trabalho da **Fase 3 — Execução real seguro**.
+- **Risco assumido, ainda válido**: a mudança não pôde ser testada contra conta MT5 real (sem credenciais/acesso a corretora) — validação real só acontece quando o Cleber conectar uma conta demo depois do deploy.
 
 ### Incidente: repositório errado + login quebrado (resolvido 2026-07-05)
 - Descoberto que o repositório realmente conectado à Vercel é **`https://github.com/we-expand/neural_day_trader_V2`** (não `we-expand/Neural-Day-Trader`, onde a Fase 1 tinha sido aplicada). Confirmado batendo o hash do commit `d7d1a27c` com o deploy mais recente visto no painel da Vercel. Os remotes locais foram reorganizados: `origin` agora aponta pro repo certo, o antigo virou `old-neural-day-trader`. Histórico local antigo preservado na branch `backup-before-v2-switch-2026-07-05`.
@@ -94,3 +93,27 @@ Claude **nunca** faz commit/push sozinho neste projeto. Sempre entregar o códig
 - Testado ao vivo no preview local: signup + login funcionando de ponta a ponta, dashboard carrega com preço de BTC real (Binance) e UI de "Nenhum broker conectado" (modo demo).
 - **node_modules tinha que ser reinstalado** (era pnpm, ficou npm depois do switch de repositório) — build voltou a funcionar depois de `rm -rf node_modules && npm install`.
 - **Achado de higiene**: este repositório não tem `.gitignore` — `node_modules/` está rastreado pelo Git. Isso não foi corrigido ainda (fora de escopo desta sessão), só contornado não commitando as mudanças de `node_modules/` no reinstall.
+
+### Fechamento da Fase 1 — token MetaAPI movido pro backend (2026-07-05, continuação)
+
+**Achado que expandiu o escopo antes de codar**: além de `MetaAPIDirectClient.ts` (o alvo original, 4 arquivos), existia uma **segunda rota de armazenamento de token já em produção e sem autenticação**: `mt5-token/save` e `mt5-token/load` (`supabase/functions/server/index.ts`, então nas linhas ~570-614) salvavam/liam o token MetaAPI em texto puro num KV store recebendo `userId` cru por parâmetro, sem checar quem estava chamando — qualquer pessoa com o UUID de outro usuário podia ler (GET) ou sobrescrever (POST) o token MetaAPI dele. Usada por `Settings.tsx`, `MT5TokenValidator.tsx`, `MT5ConfigPanel.tsx`. Havia ainda uma **terceira variação**: `MarketDataContext.tsx`, `MT5DirectCheck.tsx`, `DataSourceIndicator.tsx`, `useMT5Prices.ts` liam um token direto do `localStorage` sob a chave `mt5_token` (diferente de `metaapi_token`, usada em `AITrader.tsx`). Ou seja, o app tinha 3 mecanismos paralelos e inconsistentes pro mesmo token.
+
+**Decisão de escopo tomada com o Cleber**: consolidar tudo (11+ arquivos) numa única rota seria o certo, mas é trabalho bem maior que o mapeado originalmente (4 arquivos) e não dá pra testar execução real de trade sem credenciais de corretora. Optou-se por **"Core + patch rápido"**: corrigir os 4 call sites principais de execução + fechar o buraco de autenticação nas rotas antigas, deixando a consolidação total (3 telas de config + 4 leitores de preço) documentada como dívida técnica (ver "Riscos críticos" acima).
+
+**O que foi feito:**
+- **Migration `supabase/migrations/003_broker_credentials_backend.sql`**: tabela `broker_credentials` (token cifrado AES-GCM: `token_ciphertext`/`token_iv`, mais `account_id`/`mt5_login`/`mt5_server`), RLS ligado **sem nenhuma política** — só a Edge Function via `service_role` acessa.
+  - ⚠️ **CONFIRMADO via MCP do Supabase em 2026-07-05: essa migration ainda NÃO foi aplicada em produção** (`list_tables` no projeto `wyvdsxtcmizettljxtbg` não mostra `broker_credentials` entre as tabelas existentes — só as 17 de sempre). Ou seja, o backend novo (`/broker/credentials`, `/broker/execute`) está deployado mas vai **falhar em runtime** até essa migration rodar, porque a tabela não existe. **Isso é bloqueante** — o Cleber precisa rodar o conteúdo de `supabase/migrations/003_broker_credentials_backend.sql` no SQL Editor do projeto Supabase "Neural DayTrader" antes de considerar a Fase 1 realmente ativa em produção (mesma regra de sempre: Claude não aplica migration sozinho).
+- **`supabase/functions/server/index.ts`**: adicionados helpers de criptografia/auth logo após `getMetaApiToken`; rotas `mt5-token/save`/`mt5-token/load` patchadas para exigir JWT e validar `userId` contra o usuário autenticado; novas rotas autenticadas `POST/GET/DELETE /broker/credentials` (salvar, checar status, remover) e `POST /broker/execute` (preços, saldo, posições, compra/venda/fechar/modificar — chama a MetaAPI REST API só no servidor, token nunca volta pro client).
+- **Achado colateral corrigido**: a função implantada em produção **não usa** o prefixo `/make-server-1dbacac6/` que o código-fonte todo esperava (confirmado via curl direto). O prefixo foi removido de **todas as ~59 rotas** de `index.ts` (na sessão anterior, mais cedo em 2026-07-05, só 2 rotas de auth tinham sido corrigidas). Isso evita quebrar login de novo no deploy e deve destravar a maioria das ~30 telas que dependiam dessas rotas (carteira, admin, diagnósticos MT5, billing). **Ainda faltam ~28 arquivos em `src`/`utils`** com esse prefixo errado (rodar `grep -rln "make-server-1dbacac6" src utils` pra achar) — não são bloqueantes (features secundárias), não corrigidos nesta sessão.
+- **Client rewired**: `AITrader.tsx`, `LiveTradingTest.tsx`, `useApexLogic.ts`, `MT5PriceValidator.ts` não usam mais `MetaAPIDirectClient` — chamam as rotas novas. Token não é mais salvo em `localStorage`; some da tela depois de enviado ao backend. `src/app/services/MetaAPIDirectClient.ts` foi **deletado** (confirmado sem referências restantes).
+- Build de produção (`npm run build`) rodou limpo depois de todas as mudanças.
+- Commit criado localmente: `3ef04ddd0` ("security: move MetaAPI token off client, encrypt at rest in backend; fix broken function entrypoint"). **Já está em `origin/main`** (`origin` = `github.com/we-expand/neural_day_trader_V2`, o repo real conectado à Vercel desde o incidente de troca de repositório mais cedo em 2026-07-05) — confirmado por `git fetch` + comparação de hash, então o deploy na Vercel já deve ter dessa versão.
+
+**Pendências que ficaram claras ao fechar a Fase 1** (candidatas a virarem tarefa própria, não fazem parte da Fase 2/3 como planejadas antes):
+1. Migrar `Settings.tsx`, `MT5TokenValidator.tsx`, `MT5ConfigPanel.tsx` de `mt5-token/save|load` (que agora exige JWT) pra `/broker/credentials` — hoje essas 3 telas devem estar quebradas porque chamam com anon key.
+2. Unificar os 4 arquivos que ainda leem `mt5_token` do `localStorage` (`MarketDataContext.tsx`, `MT5DirectCheck.tsx`, `DataSourceIndicator.tsx`, `useMT5Prices.ts`) pra também usar o backend.
+3. ~~Confirmar que a migration `003_broker_credentials_backend.sql` foi rodada~~ — ✅ **rodada em produção pelo Cleber em 2026-07-06**, confirmado via MCP do Supabase.
+4. Terminar de remover o prefixo `/make-server-1dbacac6/` dos ~28 arquivos restantes.
+
+### 2026-07-06
+- Migration `003_broker_credentials_backend.sql` rodada em produção pelo Cleber. Confirmado via MCP do Supabase (`list_tables`, projeto `wyvdsxtcmizettljxtbg`): tabela `broker_credentials` existe, RLS habilitado. Fase 1 — Segurança fica oficialmente fechada e ativa. Próximo foco: Fase 2 (Motor de Demo persistido) ou fechar a dívida técnica pendente (3 telas quebradas + prefixo de rota errado).
