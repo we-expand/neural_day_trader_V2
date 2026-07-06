@@ -1923,7 +1923,19 @@ export function ChartView() {
       } catch (e) {
         console.log('[ChartView] ℹ️ No existing chart to dispose');
       }
-      
+
+      // 🔧 FIX: dispose() do klinecharts nem sempre remove os <div> internos de
+      // cada painel do DOM antes do próximo init() reusar o MESMO container
+      // (ex: remount do React em StrictMode, troca de aba ida-e-volta). Isso
+      // deixava os widgets internos presos com display:none/0x0 mesmo com o
+      // container pai medindo certo — canvas nunca ganhava dimensão real e o
+      // gráfico ficava em branco pra sempre, mesmo depois de dados carregarem.
+      // Limpar o container manualmente garante que o init() sempre monta os
+      // painéis do zero.
+      if (chartContainerRef.current) {
+        chartContainerRef.current.innerHTML = '';
+      }
+
       console.log('[ChartView] 📊 Calling init() with ID:', chartId);
       
       // ✅ CORREÇÃO: Garantir que estamos passando o ID correto
@@ -2531,9 +2543,27 @@ export function ChartView() {
 
       window.addEventListener('resize', handleResize);
 
+      // 🔧 FIX: window 'resize' não dispara quando o CONTAINER muda de tamanho
+      // por causa do layout flex (ex: painel lateral montando depois, fonte
+      // carregando, troca de aba) — só quando a JANELA do navegador muda.
+      // Isso deixava o canvas com width/height=0 permanentemente se o container
+      // ainda estivesse em 0x0 no momento do resize() inicial. ResizeObserver
+      // reage a qualquer mudança real de tamanho do container.
+      let resizeObserver: ResizeObserver | null = null;
+      if (chartContainerRef.current && typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver((entries) => {
+          const entry = entries[0];
+          if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+            handleResize();
+          }
+        });
+        resizeObserver.observe(chartContainerRef.current);
+      }
+
       return () => {
         console.log('[ChartView] 🧹 Cleaning up chart...');
         window.removeEventListener('resize', handleResize);
+        resizeObserver?.disconnect();
         clearInterval(refreshInterval); // 🔄 Limpar intervalo de refresh
         try {
           dispose(chartId);

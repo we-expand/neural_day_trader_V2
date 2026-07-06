@@ -1,5 +1,7 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-06)
 
+**Status do deploy**: Fase 2 (parte 1) em produção e funcionando em `neuraldaytrader.com` (confirmado pelo Cleber). Ver incidente de tela preta + fix abaixo.
+
 ## O que é
 SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5). Baixado do Figma Make, já publicado em produção: `https://www.neuraldaytrader.com` (Vercel, projeto `neural-day-trader-v2`) + Supabase próprio (projeto "Neural DayTrader", id `wyvdsxtcmizettljxtbg`, org "We Expand" plano Pro).
 
@@ -134,3 +136,40 @@ Ainda pendente, não fechado nesta sessão: deploy/undeploy automático da conta
 - Testado no preview local: build limpo (`npm run build`), app carrega, login funciona, clicar "Iniciar AI" liga o motor normalmente. Confirmado via Network tab que as chamadas `GET/POST .../ai_sessions` disparam nos momentos certos (mount e start) e retornam 404 hoje (tabela ainda não existe em produção) sem quebrar nada — app continua funcionando 100% enquanto a migration não roda.
 
 **Pendente pra fechar de vez**: Cleber rodar `supabase/migrations/004_ai_trading_persistence.sql` no SQL Editor do Supabase. Depois disso, testar abrir uma posição, dar reload, e confirmar que ela continua aparecendo (hoje só dá pra confirmar que as chamadas disparam certo, não que os dados persistem, já que a tabela não existe ainda no ambiente de teste).
+
+### Incidente: deploy da Fase 2 subiu com tela preta em produção (2026-07-06, resolvido)
+
+**Sintoma**: depois do push da Fase 2 (parte 1), `neuraldaytrader.com` carregava 100% preto, sem nada na tela. Build na Vercel terminou com "Build Completed"/"Deployment completed" (ou seja, não foi falha de build).
+
+**Investigação**: build de produção local (`npm run build`) também passou limpo, então não era erro de compilação. Pedido ao Cleber o console do DevTools (`Cmd+Option+J`) revelou o erro real: `Uncaught ReferenceError: Cannot access 't' before initialization` em `vendor-CortnTKY.js`.
+
+**Causa raiz**: o `vite.config.ts` já tinha uma dependência circular entre chunks conhecida — o build sempre avisava `Circular chunk: vendor -> react-vendor -> vendor` (confirmado que esse warning já existia antes desta sessão, não foi introduzido pela Fase 2). O `manualChunks` separava `react`/`react-dom` num chunk `react-vendor` e todo o resto de `node_modules` num chunk `vendor` — só que os dois chunks acabavam se importando um ao outro. Isso nunca tinha quebrado de verdade em produção até a Fase 2 mudar o grafo de imports (novos `import` de `AuthContext`/`useAIPersistence` dentro de `useApexLogic.ts`), o que bastou pra transformar o warning inofensivo numa dependência circular real — o JS minificado tentava acessar uma variável (`t`) antes dela ser inicializada (TDZ), um erro que acontece fora do ciclo de render do React, então nem o `ErrorBoundary` (`src/app/components/ErrorBoundary.tsx`) conseguia capturar — resultado: tela preta pura, sem a caixa de erro vermelha que o ErrorBoundary mostraria.
+
+**Correção**: `vite.config.ts` — removida a separação `react-vendor`/`vendor`, os dois agora caem no mesmo chunk `vendor`, eliminando o ciclo. Testado localmente com `npm run preview` (build de produção real, não o dev server) — confirmado via preview automatizado que a landing page carrega normal e sem erro no console depois do fix. Commit e push feitos pelo Cleber, novo deploy na Vercel confirmado funcionando.
+
+**Lição**: `manualChunks` baseado só no nome do pacote (`id.includes('react')` vs "resto") é frágil a ciclos de chunk quando o grafo de imports muda — qualquer PR que adicione novos imports pode reativar esse tipo de bug. Testar `npm run preview` (build real) localmente antes de shippar mudanças que alteram bastante o grafo de imports, não só `npm run dev` (que não passa pelo bundling/chunking de produção e por isso nunca teria mostrado esse erro).
+
+**Achado à parte, não corrigido ainda**: `@vercel/node` e `@types/node` sumiram das dependências na troca pnpm→npm (2026-07-05) — as funções `api/binance.ts`, `api/health.ts`, `api/signup.ts` dão erro de tipagem no log de build da Vercel (`Cannot find module '@vercel/node'`). Não trava o deploy hoje porque são só `import type` (removidos em runtime), mas é uma dependência real faltando — considerar adicionar de volta como devDependency numa próxima sessão.
+
+### Fechamento da Fase 2 (parte 1) + dois bugs novos encontrados (2026-07-06)
+
+**Migration 004 aplicada em produção pelo Cleber** (SQL Editor do Supabase, projeto `wyvdsxtcmizettljxtbg`). Confirmado via MCP: tabelas `ai_sessions`, `ai_trades`, `ai_portfolio_snapshots` existem com RLS habilitado, e já existe 1 registro real em `ai_sessions` — persistência da Fase 2 (parte 1) está funcionando de fato em produção. **Fase 2 (parte 1) fica fechada.**
+
+Durante o teste em produção, o Cleber reportou dois problemas novos (não são regressão da Fase 2 — reproduzidos também em `npm run dev` local, então são pré-existentes, só ficaram mais visíveis agora que se testou o fluxo ponta a ponta):
+
+**1. Gráfico sempre em branco (tela do Gráfico e do AI Trader)**
+- Sintoma: `[ChartView] ❌❌❌ MAIN CANVAS HAS ZERO DIMENSIONS!` no console, candles nunca aparecem visualmente mesmo com dados carregados certo (log confirma "200 candles" recebidos).
+- Causa raiz isolada: o container do nosso componente (`ChartView.tsx`) sempre mede certo (confirmado via `getBoundingClientRect`, ex: 318x906px). O problema é **dentro da biblioteca `klinecharts` v9.8.10** — os `<div>` internos que ela cria pra cada painel (candle, indicadores) ficam presos com `display:none` desde o mount, e o `canvas.width`/`canvas.height` (buffer real de desenho, diferente do `style.width`/`style.height` que fica correto) nunca sai de 0. Sem esse buffer, nada é desenhado — é por isso que a tela fica preta mesmo com o layout "correto".
+- Tentativas que **não resolveram** (todas testadas e descartadas nesta sessão):
+  - Adicionar `ResizeObserver` no container pra chamar `chart.resize()` quando o layout mudar (ficou no código, [ChartView.tsx](src/app/components/ChartView.tsx:1930) — é defensivo/inofensivo mas não é a correção completa).
+  - Limpar `innerHTML` do container antes de recriar o chart (`dispose()`+`init()`) pra evitar DOM órfão de remounts.
+  - Atualizar `klinecharts` de 9.8.10 pra 9.8.12 (última patch da mesma minor) — testado e revertido, não mudou nada.
+- **Não resolvido.** Próximos passos sugeridos pra quem pegar essa investigação: (a) checar issues abertas no GitHub do `klinecharts` sobre pane/canvas com `display:none` travado; (b) tentar reproduzir num projeto React mínimo isolado pra descartar interferência do resto do app e, se confirmar, abrir issue upstream; (c) considerar migrar pra outra lib de gráfico (o projeto já tem `lightweight-charts` como dependência, não usada ainda) se não houver fix rápido.
+
+**2. IA liga mas nunca dá entradas** (`useApexLogic.ts`)
+- Sintoma: console mostra `[TRADING] ❌ Erro crítico na análise: TypeError: e is not a function`, todo ciclo de análise (a cada 5s) cai no catch e nenhuma posição abre.
+- Investigação parcial: descartei a hipótese óbvia (`onTradeOpen` existe certo tanto no hook quanto na chamada em `useApexLogic.ts:1082`). O stack trace em produção aponta pro chunk minificado `admin-K-YImq1t.js`, então o nome real da variável por trás de `e` se perdeu na minificação — não dá pra confirmar a causa exata sem rodar com sourcemap ou isolar o ponto de falha no dev server sem minificação.
+- Contexto que pode ou não ser relacionado: em paralelo, a busca de preço real (`fetchRealPrice`) está caindo em fallback pra quase todo símbolo por causa de CORS bloqueando os proxies (`corsproxy.io` 403, `api.allorigins.win` bloqueado, chamada direta a `api.binance.com` bloqueada por CORS do próprio navegador) — isso é sintoma de uma cadeia de fallback de preço frágil, não necessariamente a causa do TypeError, mas vale investigar junto.
+- **Não resolvido.** Próximo passo: reproduzir com `npm run dev` (sem minificação) e forçar o ciclo de análise pra pegar o stack trace real com nomes de variável preservados.
+
+**Achado de higiene, sem relação com os bugs acima**: rodar `npm install`/`npm uninstall` neste repo gera uma quantidade grande de arquivos alterados/deletados em `git status` porque `node_modules` está rastreado pelo Git (problema já documentado, sem `.gitignore` no repo). Nenhuma mudança de dependência foi commitada nesta sessão — `package.json`/`package-lock.json` foram conferidos e estão de volta ao estado original.
