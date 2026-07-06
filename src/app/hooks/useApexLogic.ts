@@ -323,6 +323,7 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
   const cycleIntervalRef = useRef(INITIAL_STATE.cycleInterval);
 
   // === REFS FOR PNL LOOP ===
+  const activeOrdersRef = useRef<TradeVisual[]>([]);
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
@@ -404,6 +405,10 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
   useEffect(() => {
     isSafeModeRef.current = isSafeMode;
   }, [isSafeMode]);
+
+  useEffect(() => {
+    activeOrdersRef.current = activeOrders;
+  }, [activeOrders]);
 
   useEffect(() => {
     candleCounterRef.current = candlesSinceLastTrade;
@@ -1130,7 +1135,26 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
   // === UNREALIZED PNL LOOP (Price Updates & P&L Calculation) ===
   useEffect(() => {
     const pnlInterval = setInterval(() => {
-        if (activeOrders.length === 0) return;
+        if (activeOrdersRef.current.length === 0) return;
+
+        (async () => {
+        // 🆕 FASE 2 (parte 2): buscar preço REAL de mercado em vez de random walk.
+        // Um fetch por símbolo único (não por posição) — getRealMarketData já tem
+        // cache interno de 2s, então múltiplas posições no mesmo ativo não geram
+        // chamadas duplicadas. Crypto = preço real da Binance; forex/índices sem
+        // corretora conectada = fallback determinístico (varia por minuto, não
+        // mais um random puro a cada segundo).
+        const { getRealMarketData } = await import('@/app/services/RealMarketDataService');
+        const uniqueSymbols = Array.from(new Set(activeOrdersRef.current.map(o => o.symbol)));
+        const priceMap = new Map<string, number>();
+        await Promise.all(uniqueSymbols.map(async (symbol) => {
+          try {
+            const data = await getRealMarketData(symbol);
+            priceMap.set(symbol, data.price);
+          } catch (error) {
+            console.warn(`[PNL LOOP] ⚠️ Falha ao buscar preço real de ${symbol}, mantendo preço anterior`, error);
+          }
+        }));
 
         // Reset refs
         pnlLoopRef.current = { realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 };
@@ -1146,28 +1170,10 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
             let totalExposure = 0;
 
             prevOrders.forEach(order => {
-                // 🆕 CORREÇÃO CRÍTICA: Movimento de preço MUITO MAIS REALISTA
-                // Em vez de ±0.5% por segundo (muito volátil), usar movimentos micro
-                
-                // Determinar volatilidade baseada no ativo
-                let baseVolatility = 0.0001; // 0.01% por segundo (padrão)
-                
-                if (order.symbol.includes('BTC') || order.symbol.includes('ETH')) {
-                  baseVolatility = 0.0002; // Crypto: 0.02% por segundo
-                } else if (order.symbol.includes('US500') || order.symbol.includes('NAS100')) {
-                  baseVolatility = 0.00015; // Índices: 0.015% por segundo
-                } else if (order.symbol.includes('EUR') || order.symbol.includes('GBP')) {
-                  baseVolatility = 0.00005; // Forex: 0.005% por segundo (muito menor!)
-                } else if (order.symbol.includes('XAU') || order.symbol.includes('GOLD')) {
-                  baseVolatility = 0.0001; // Ouro: 0.01% por segundo
-                }
-                
-                // Movimento aleatório: -volatilidade a +volatilidade
-                const priceChange = (Math.random() - 0.5) * 2 * baseVolatility;
-                
                 const currentPrice = order.currentPrice || order.price;
-                const nextPrice = currentPrice * (1 + priceChange);
-                
+                // Se o fetch falhou pra esse símbolo, mantém o preço anterior (não simula movimento)
+                const nextPrice = priceMap.get(order.symbol) ?? currentPrice;
+
                 // ✅ LOG DE DEBUG (apenas para primeira iteração)
                 if (!order.hasTakenPartial) {
                   const distanceToTP = Math.abs(order.tp - currentPrice);
@@ -1264,10 +1270,11 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
             });
           }
         }
+        })();
     }, 1000); // Update every 1 second
 
     return () => clearInterval(pnlInterval);
-  }, [activeOrders.length]);
+  }, []);
 
   // === START/STOP/PAUSE ===
   const startLogic = useCallback(() => {

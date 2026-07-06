@@ -1,6 +1,6 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-06)
 
-**Status do deploy**: Fase 2 (parte 1) em produção e funcionando em `neuraldaytrader.com` (confirmado pelo Cleber). Ver incidente de tela preta + fix abaixo.
+**Status do deploy**: Fase 2 (parte 1: persistência) em produção e funcionando em `neuraldaytrader.com` (confirmado pelo Cleber). Fase 2 (parte 2: preço real no P&L) corrigida localmente em 2026-07-06, aguardando push/deploy — ver seção "Fechamento da Fase 2" no fim do arquivo. Ver também incidente de tela preta + fix abaixo.
 
 ## O que é
 SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5). Baixado do Figma Make, já publicado em produção: `https://www.neuraldaytrader.com` (Vercel, projeto `neural-day-trader-v2`) + Supabase próprio (projeto "Neural DayTrader", id `wyvdsxtcmizettljxtbg`, org "We Expand" plano Pro).
@@ -174,3 +174,19 @@ Durante o teste em produção, o Cleber reportou dois problemas novos (não são
 - **Verificado end-to-end**: rodei `npm run dev`, cliquei "Iniciar AI", e confirmei via Supabase (`select * from ai_trades order by created_at desc`) 6 trades novos abertos/fechados em tempo real (BTCUSDT, ETHUSDT, SPX500) nos minutos seguintes ao fix, zero erros no console.
 
 **Achado de higiene, sem relação com os bugs acima**: rodar `npm install`/`npm uninstall` neste repo gera uma quantidade grande de arquivos alterados/deletados em `git status` porque `node_modules` está rastreado pelo Git (problema já documentado, sem `.gitignore` no repo). Nenhuma mudança de dependência foi commitada nesta sessão — `package.json`/`package-lock.json` foram conferidos e estão de volta ao estado original.
+
+### Fase 2 (parte 2) — P&L ligado a preço real (2026-07-06, continuação)
+
+**Contexto**: o Cleber perguntou se as entradas e o P&L usam dados reais de mercado. Resposta antes do fix: entrada de crypto usava preço real (Binance), mas **o P&L enquanto a posição ficava aberta era 100% simulado** — um "random walk" (`Math.random()`) rodando a cada 1s em `useApexLogic.ts`, sem nenhuma relação com o preço real do ativo. TP/SL batiam contra esse preço fake, não contra o mercado. Isso era a "parte 2" da Fase 2, deixada de fora de propósito na primeira rodada (só persistência).
+
+Também ficou claro nessa conversa que o painel "Detector de Liquidez"/"Market Score" (zonas de suporte/resistência, RSI, médias móveis) que aparece na tela do Gráfico é um cálculo real feito em `ChartView.tsx` (`detectLiquidityZones`, `generateTradingSignal`) — mas é **puramente visual, desconectado da decisão de entrada da IA**. A lógica de entrada em `useApexLogic.ts` usa uma fórmula própria mais simples (RSI aproximado por `50 + variação% × 5`, não o RSI real dos candles) e sorteio ponderado de ativo por tier. Isso não foi alterado nesta sessão — só documentado como está.
+
+**O que foi feito:**
+- `useApexLogic.ts`: adicionado `activeOrdersRef` (padrão igual aos outros refs do hook) sincronizado via `useEffect`, pra ler a lista de posições abertas dentro do loop de P&L sem precisar recriar o `setInterval` a cada mudança.
+- O loop de P&L (antes síncrono, rodando a cada 1s) virou assíncrono: a cada tick, busca `getRealMarketData(symbol)` uma vez por símbolo único entre as posições abertas (não uma vez por posição — evita chamadas duplicadas quando há 2+ posições no mesmo ativo; a função já tem cache interno de 2s de qualquer forma), monta um mapa símbolo→preço, e só então roda o cálculo de P&L/TP/SL com esse preço real. Removido o bloco inteiro de `Math.random()`/`baseVolatility` que simulava o movimento.
+- Se o fetch falhar pra algum símbolo específico (ex: rede caiu), a posição simplesmente mantém o último preço conhecido naquele tick (não trava, não simula, só não atualiza até o próximo tick funcionar).
+- Efeito do loop de P&L teve a dependência trocada de `[activeOrders.length]` pra `[]` (agora lê tudo via ref, não precisa recriar o interval).
+- **Resultado pra cada classe de ativo**: cripto (BTC, ETH, etc.) = preço real da Binance ao vivo (`source: "binance"`, `isRealData: true`). Forex/índices (SPX500, EURUSD, etc., sem corretora MT5 conectada) = fallback determinístico de `RealMarketDataService.ts` que muda a cada minuto (seed baseado em `Date.now()`), bem mais realista que o random puro por segundo de antes, mas ainda não é preço de mercado de verdade (`source: "generated"`, `isRealData: false`) — só fica real de verdade quando uma corretora MT5 for conectada.
+- **Verificado end-to-end** rodando `npm run dev`: confirmei via `eval` direto no browser que `getRealMarketData('BTCUSDT')` retorna preço real da Binance (`source: "binance"`) e `getRealMarketData('SPX500')` retorna fallback (`source: "generated"`); confirmei no Supabase (`select * from ai_trades order by created_at desc`) trades novos com `entry_price`/`exit_price` batendo com os preços reais observados (ex: BTC entrando e saindo na faixa de $64.238-64.434, igual ao preço real do momento) — antes do fix, esses preços eram puro ruído aleatório sem relação com o mercado. Zero erros no console durante o teste.
+
+**Pendente pra fechar 100%**: nenhuma migration nova é necessária (a estrutura de `ai_trades`/`ai_sessions` já suporta preços reais, não precisou mudar). O código está pronto localmente, falta o Cleber rodar os comandos de commit/push abaixo pra ir pra produção.
