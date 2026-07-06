@@ -15,18 +15,55 @@ export interface TickerData {
   low: number;
 }
 
+// Shape consumida por useApexLogic.ts/useBinanceWebSocket.ts (nomes espelham a API da Binance)
+export interface PriceUpdate {
+  symbol: string;
+  price: number;
+  priceChange: number;
+  priceChangePercent: number;
+  volume: number;
+  timestamp: number;
+}
+
 type TickerCallback = (data: TickerData) => void;
+type PriceUpdateCallback = (data: PriceUpdate) => void;
 
 class BinanceWebSocketManager {
   private callbacks: Map<string, TickerCallback[]> = new Map();
+  private priceUpdateCallbacks: PriceUpdateCallback[] = [];
+  private priceCache: Map<string, PriceUpdate> = new Map();
   private isActive = false;
   private updateIntervals: Map<string, any> = new Map();
+  private reconnectAttempts = 0;
 
   connect(symbols: string[]) {
     if (this.isActive) return;
 
     console.log('[BinanceWS] 🎯 Starting REAL DATA mode (via RealMarketDataService)...');
     this.startRealDataPolling(symbols);
+  }
+
+  isConnected(): boolean {
+    return this.isActive;
+  }
+
+  getPrice(symbol: string): PriceUpdate | null {
+    return this.priceCache.get(symbol.toUpperCase()) || null;
+  }
+
+  onPriceUpdate(callback: PriceUpdateCallback): () => void {
+    this.priceUpdateCallbacks.push(callback);
+    return () => {
+      this.priceUpdateCallbacks = this.priceUpdateCallbacks.filter(cb => cb !== callback);
+    };
+  }
+
+  getStats() {
+    return {
+      cachedSymbols: this.priceCache.size,
+      monitoredSymbols: this.updateIntervals.size,
+      reconnectAttempts: this.reconnectAttempts
+    };
   }
 
   private startRealDataPolling(symbols: string[]) {
@@ -54,14 +91,25 @@ class BinanceWebSocketManager {
       
       const data: TickerData = {
         symbol: displaySymbol,
-        price: marketData.price,
         change24h: marketData.change || 0,
         changePercent: marketData.changePercent || 0,
         volume: marketData.volume || 0,
         high: marketData.high || marketData.price,
         low: marketData.low || marketData.price,
+        price: marketData.price,
       };
-      
+
+      const priceUpdate: PriceUpdate = {
+        symbol: displaySymbol,
+        price: marketData.price,
+        priceChange: marketData.change || 0,
+        priceChangePercent: marketData.changePercent || 0,
+        volume: marketData.volume || 0,
+        timestamp: Date.now(),
+      };
+      this.priceCache.set(displaySymbol.toUpperCase(), priceUpdate);
+      this.priceUpdateCallbacks.forEach(cb => cb(priceUpdate));
+
       console.log(`[BinanceWS] ✅ ${displaySymbol}: $${data.price.toFixed(2)} (${data.changePercent.toFixed(2)}%)`);
       this.notifyCallbacks(displaySymbol, data);
     } catch (error) {
@@ -106,3 +154,7 @@ class BinanceWebSocketManager {
 }
 
 export const binanceWS = new BinanceWebSocketManager();
+
+export function getBinanceWebSocketManager(): BinanceWebSocketManager {
+  return binanceWS;
+}
