@@ -139,12 +139,16 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       if (activeSession) {
         sessionIdRef.current = activeSession.id || null;
         console.log(`${LOG_PREFIX} 🔄 Sessão ativa restaurada:`, activeSession.id);
-        
-        // Restaurar trades abertos
+
+        // Restaurar trades abertos + último snapshot (para saldo/equity)
         if (activeSession.id) {
-          const openTrades = await aiPersistence.getOpenTrades(activeSession.id);
+          const [openTrades, snapshots] = await Promise.all([
+            aiPersistence.getOpenTrades(activeSession.id),
+            aiPersistence.getSessionSnapshots(activeSession.id),
+          ]);
           console.log(`${LOG_PREFIX} 📊 Trades abertos restaurados:`, openTrades.length);
-          return { session: activeSession, openTrades };
+          const lastSnapshot = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+          return { session: activeSession, openTrades, lastSnapshot };
         }
       }
 
@@ -209,11 +213,9 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   ) => {
     if (!options.enabled) return;
 
-    const dbTradeId = tradeDbIdsRef.current.get(tradeId);
-    if (!dbTradeId) {
-      console.warn(`${LOG_PREFIX} ⚠️ Trade ID não encontrado no mapeamento:`, tradeId);
-      return;
-    }
+    // Se não há mapeamento local (ex: posição restaurada do Supabase após reload,
+    // onde o id local já É o id do banco), usa o próprio tradeId como fallback.
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
 
     try {
       const exitTime = new Date().toISOString();

@@ -5,7 +5,7 @@
  * ╚═══════════════════════════════════════════════════════════════════╝
  */
 
-import { supabase } from '@/app/config/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 
 // ============================================================================
 // TYPES & INTERFACES

@@ -58,13 +58,45 @@ import {
   groupTradesByMonth,
   formatCurrency,
   formatPercent,
-  generateMockTrades,
 } from './utils';
+import { aiPersistence, AITrade } from '@/app/services/AITradingPersistenceService';
+import { useAuth } from '@/app/contexts/AuthContext';
+
+// Fase 2: trades reais persistidos no Supabase (ai_trades), não mais generateMockTrades()
+function mapAITradeToTradeHistory(t: AITrade): TradeHistory {
+  return {
+    id: t.id!,
+    asset_symbol: t.symbol,
+    type: t.type,
+    entry_price: t.entry_price,
+    exit_price: t.exit_price,
+    quantity: t.quantity,
+    profit_loss: t.pnl,
+    profit_loss_percent: t.pnl_percentage,
+    opened_at: t.entry_time,
+    closed_at: t.exit_time,
+    status: t.status === 'CANCELLED' ? 'CLOSED' : t.status,
+    strategy: t.ai_reasoning,
+  };
+}
+
+async function loadRealTrades(userId: string): Promise<TradeHistory[]> {
+  const sessions = await aiPersistence.getUserSessions(userId, 20);
+  if (sessions.length === 0) return [];
+
+  const tradesBySessions = await Promise.all(
+    sessions.map(s => aiPersistence.getSessionTrades(s.id!))
+  );
+
+  return tradesBySessions.flat().map(mapAITradeToTradeHistory);
+}
 
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'];
 
 export const PerformanceView = () => {
   console.log('[PERFORMANCE] 🚀 Performance View mounted');
+
+  const { user } = useAuth();
 
   // State
   const [trades, setTrades] = useState<TradeHistory[]>([]);
@@ -72,19 +104,23 @@ export const PerformanceView = () => {
   const [selectedAsset, setSelectedAsset] = useState<string>('ALL');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load trades (mock data for now)
+  // Fase 2: carrega trades reais (DEMO) do Supabase em vez de generateMockTrades()
   useEffect(() => {
+    if (!user?.id) return;
     console.log('[PERFORMANCE] 📥 Loading trades...');
     setIsLoading(true);
 
-    // Simular delay de API
-    setTimeout(() => {
-      const mockTrades = generateMockTrades(100);
-      setTrades(mockTrades);
-      setIsLoading(false);
-      console.log('[PERFORMANCE] ✅ Trades loaded:', mockTrades.length);
-    }, 500);
-  }, []);
+    loadRealTrades(user.id)
+      .then(realTrades => {
+        setTrades(realTrades);
+        console.log('[PERFORMANCE] ✅ Trades loaded:', realTrades.length);
+      })
+      .catch(error => {
+        console.error('[PERFORMANCE] ❌ Erro ao carregar trades:', error);
+        setTrades([]);
+      })
+      .finally(() => setIsLoading(false));
+  }, [user?.id]);
 
   // Filter trades by timeframe
   const filteredTrades = useMemo(() => {
@@ -145,13 +181,13 @@ export const PerformanceView = () => {
   }, [trades]);
 
   const handleRefresh = () => {
+    if (!user?.id) return;
     console.log('[PERFORMANCE] 🔄 Refreshing data...');
     setIsLoading(true);
-    setTimeout(() => {
-      const mockTrades = generateMockTrades(100);
-      setTrades(mockTrades);
-      setIsLoading(false);
-    }, 500);
+    loadRealTrades(user.id)
+      .then(setTrades)
+      .catch(error => console.error('[PERFORMANCE] ❌ Erro ao atualizar trades:', error))
+      .finally(() => setIsLoading(false));
   };
 
   const handleExport = () => {

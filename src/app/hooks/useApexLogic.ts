@@ -47,6 +47,8 @@ import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { ApexScoreEngine } from '../services/ApexScoreEngine'; // Added Import
 import { getLiquiditySignal } from '../logic/liquiditySignals'; // Shared Liquidity Logic
 import { logMT5AccountInfo, extractBalance } from '../utils/mt5Debug'; // MT5 Debug
+import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
+import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 import { wrapMT5Connection } from '../utils/mt5ConnectionWrapper'; // MT5 Wrapper
 
 // Definition of types for visual state
@@ -323,6 +325,19 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
   // === REFS FOR PNL LOOP ===
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
+  const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
+  const lastSnapshotAtRef = useRef(0);
+  const hasHydratedFromSupabaseRef = useRef(false);
+
+  // === FASE 2: PERSISTÊNCIA DEMO NO SUPABASE ===
+  const { user } = useAuth();
+  const persistence = useAIPersistence({ enabled: executionMode === 'DEMO', autoSnapshot: false });
+  // Ref sempre atualizado p/ ser lido dentro de intervals/callbacks sem precisar
+  // adicionar `persistence` (objeto novo a cada render) nas dependências dos efeitos.
+  const persistenceRef = useRef(persistence);
+  useEffect(() => {
+    persistenceRef.current = persistence;
+  });
 
   // === APEX LOGIC CORE ===
   const apexLogicCoreRef = useRef(new ApexLogicCore());
@@ -444,6 +459,60 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
       console.warn('Failed to load state:', e);
     }
   }, []);
+
+  // === FASE 2: HIDRATAÇÃO A PARTIR DO SUPABASE (fonte de verdade, sobrepõe o localStorage) ===
+  // localStorage acima é só um cache rápido pro primeiro paint; assim que o usuário loga,
+  // busca a sessão DEMO ativa no Supabase (se existir) e usa ela como estado real.
+  useEffect(() => {
+    if (!user?.id || hasHydratedFromSupabaseRef.current || executionMode !== 'DEMO') return;
+    hasHydratedFromSupabaseRef.current = true;
+
+    (async () => {
+      try {
+        const restored = await persistenceRef.current.restoreActiveSession();
+        if (!restored?.session) return;
+
+        const { session, openTrades, lastSnapshot } = restored;
+
+        if (openTrades.length > 0) {
+          setActiveOrders(openTrades.map((t): TradeVisual => ({
+            id: t.id!, // id do banco vira o id local (onTradeClose cai no fallback e usa o mesmo id)
+            symbol: t.symbol,
+            side: t.side,
+            amount: t.quantity,
+            price: t.entry_price,
+            currentPrice: t.entry_price,
+            tp: t.take_profit ?? t.entry_price,
+            sl: t.stop_loss ?? t.entry_price,
+            leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
+            ai_confidence: t.ai_confidence ?? 50,
+            timestamp: new Date(t.entry_time).getTime(),
+            reasoning: t.ai_reasoning || '',
+            indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+          })));
+        }
+
+        if (lastSnapshot) {
+          setPortfolio(prev => ({
+            ...prev,
+            balance: lastSnapshot.balance,
+            equity: lastSnapshot.equity,
+            currentDrawdown: lastSnapshot.drawdown || 0,
+          }));
+        } else if (session.initial_balance) {
+          setPortfolio(prev => ({
+            ...prev,
+            balance: session.initial_balance!,
+            equity: session.initial_equity ?? session.initial_balance!,
+          }));
+        }
+
+        console.log(`[useApexLogic] ☁️ Sessão DEMO restaurada do Supabase: ${session.id} (${openTrades.length} posições abertas)`);
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar sessão DEMO do Supabase (mantendo localStorage):', e);
+      }
+    })();
+  }, [user, executionMode]);
 
   useEffect(() => {
     const state: ApexLogicState = {
@@ -1007,6 +1076,24 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           
           setActiveOrders(prev => [...prev, newTrade]);
           addLog(`✅ ENTRADA ${side}: ${selectedSymbol} @ $${currentPrice.toFixed(2)} - Alvo: ${targetPointsValue}pts (Confiança: ${confidenceScore}%)`);
+
+          // Fase 2: persiste a abertura da posição (fire-and-forget, nunca bloqueia o loop)
+          if (configRef.current.executionMode === 'DEMO') {
+            persistenceRef.current.onTradeOpen({
+              id: newTrade.id,
+              symbol: newTrade.symbol,
+              side: newTrade.side,
+              amount: newTrade.amount,
+              price: newTrade.price,
+              tp: newTrade.tp,
+              sl: newTrade.sl,
+              leverage: newTrade.leverage,
+              ai_confidence: newTrade.ai_confidence,
+              timestamp: newTrade.timestamp,
+              reasoning: newTrade.reasoning,
+              indicators: newTrade.indicators,
+            });
+          }
           
           // 🔔 Toast de notificação para o usuário
           toastOriginal.success(`${side === 'LONG' ? '🟢' : '🔴'} ENTRADA ${side}`, {
@@ -1033,6 +1120,7 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
         // Reset refs
         pnlLoopRef.current = { realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 };
         pnlLogsRef.current = [];
+        closedForPersistenceRef.current = [];
 
         // Update prices and calculate P&L
         setActiveOrders(prevOrders => {
@@ -1094,11 +1182,13 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
                     logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnl.toFixed(2)}`);
                     // Close position
                     setOrderHistory(prev => [...prev, { ...order, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
+                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'TP' });
                 } else if (hitSL) {
                     realizedPnL += pnl;
                     logsToAdd.push(`🛡️ STOP ATINGIDO: ${order.symbol} ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
                     // Close position
                     setOrderHistory(prev => [...prev, { ...order, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
+                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'SL' });
                 } else {
                     // Keep position open WITH UPDATED PROFIT
                     nextActiveOrders.push({
@@ -1136,6 +1226,29 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
               openPositionsValue: totalExposure,
            };
         });
+
+        // Fase 2: persiste fechamentos por TP/SL deste tick (fire-and-forget)
+        if (configRef.current.executionMode === 'DEMO' && closedForPersistenceRef.current.length > 0) {
+          closedForPersistenceRef.current.forEach(closed => {
+            persistenceRef.current.onTradeClose(closed.id, closed.exitPrice, closed.pnl, 0, closed.reason);
+          });
+          closedForPersistenceRef.current = [];
+        }
+
+        // Fase 2: snapshot periódico do portfólio (throttle de 60s)
+        if (configRef.current.executionMode === 'DEMO') {
+          const now = Date.now();
+          if (now - lastSnapshotAtRef.current > 60000) {
+            lastSnapshotAtRef.current = now;
+            const p = portfolioRef.current;
+            persistenceRef.current.savePortfolioSnapshot({
+              balance: p.balance,
+              equity: p.equity,
+              openPositionsValue: p.openPositionsValue,
+              currentDrawdown: p.currentDrawdown,
+            });
+          }
+        }
     }, 1000); // Update every 1 second
 
     return () => clearInterval(pnlInterval);
@@ -1156,6 +1269,18 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
     setIsPaused(false);
     addLog('🚀 Sistema APEX Iniciado');
     toast.success('AI Trading Iniciada', { description: 'Sistema rodando em modo automático' });
+
+    // Fase 2: garante uma sessão DEMO no Supabase (reaproveita a restaurada no mount, se houver)
+    if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      persistenceRef.current.startSession({
+        strategyName: 'Apex AI',
+        symbols: configRef.current.activeAssets || [],
+        timeframe: configRef.current.timeframe || '1m',
+        initialBalance: portfolioRef.current.balance,
+        initialEquity: portfolioRef.current.equity,
+        config: configRef.current,
+      });
+    }
   }, [addLog]);
 
   const stopLogic = useCallback(() => {
@@ -1177,8 +1302,12 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           order.leverage
         );
         totalRealizedPnL += tradePnL;
-        
+
         console.log(`[FORCE CLOSE] 🚨 Fechando ${order.symbol} ${order.side}: P&L = $${tradePnL.toFixed(2)}`);
+
+        if (configRef.current.executionMode === 'DEMO') {
+          persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+        }
       });
 
       setPortfolio(prev => ({
@@ -1226,6 +1355,11 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
 
   // === RESET ===
   const resetLogic = useCallback(() => {
+    // Fase 2: encerra a sessão DEMO no Supabase (próximo start cria uma nova, zerada)
+    if (persistenceRef.current.currentSessionId) {
+      persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
+    }
+
     setIsActive(false);
     setIsPaused(false);
     setActiveOrders([]);
@@ -1267,6 +1401,10 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
         order.leverage
       );
       totalRealizedPnL += tradePnL;
+
+      if (configRef.current.executionMode === 'DEMO') {
+        persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+      }
     });
 
     setPortfolio(prev => ({
