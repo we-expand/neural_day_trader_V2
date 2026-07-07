@@ -76,10 +76,12 @@ interface BacktestProgress {
 interface BacktestState {
   isRunning: boolean;
   isPaused: boolean;
+  isCompleted: boolean;
   error: string | null;
   progress: BacktestProgress;
   metrics: BacktestMetrics;
   recentTrades: Trade[];
+  allTrades: Trade[];
   equityCurve: Array<{ time: number; equity: number }>;
 }
 
@@ -265,10 +267,12 @@ export function useBacktestLiveProgress(initialCapitalDefault: number = 10000) {
   const [state, setState] = useState<BacktestState>({
     isRunning: false,
     isPaused: false,
+    isCompleted: false,
     error: null,
     progress: { currentCandle: 0, totalCandles: 0, progress: 0, elapsedTime: 0, estimatedTimeRemaining: 0, candlesPerSecond: 0 },
     metrics: emptyMetrics(initialCapitalDefault),
     recentTrades: [],
+    allTrades: [],
     equityCurve: [{ time: 0, equity: initialCapitalDefault }],
   });
 
@@ -280,7 +284,13 @@ export function useBacktestLiveProgress(initialCapitalDefault: number = 10000) {
       clearInterval(revealIntervalRef.current);
       revealIntervalRef.current = null;
     }
-    setState(prev => ({ ...prev, isRunning: false, isPaused: false }));
+    // Parada manual (cancelamento) não é a mesma coisa que terminar o backtest —
+    // não abre a tela de resultados, só encerra.
+    setState(prev => ({ ...prev, isRunning: false, isPaused: false, isCompleted: false }));
+  }, []);
+
+  const dismissResults = useCallback(() => {
+    setState(prev => ({ ...prev, isCompleted: false }));
   }, []);
 
   const pause = useCallback(() => {
@@ -300,10 +310,12 @@ export function useBacktestLiveProgress(initialCapitalDefault: number = 10000) {
       ...prev,
       isRunning: true,
       isPaused: false,
+      isCompleted: false,
       error: null,
       progress: { currentCandle: 0, totalCandles: 0, progress: 0, elapsedTime: 0, estimatedTimeRemaining: 0, candlesPerSecond: 0 },
       metrics: emptyMetrics(config.initialCapital),
       recentTrades: [],
+      allTrades: [],
       equityCurve: [{ time: 0, equity: config.initialCapital }],
     }));
 
@@ -362,10 +374,15 @@ export function useBacktestLiveProgress(initialCapitalDefault: number = 10000) {
       if (revealIndex >= totalCandles) {
         if (revealIntervalRef.current) clearInterval(revealIntervalRef.current);
         revealIntervalRef.current = null;
-        setState(prev => ({ ...prev, isRunning: false }));
+        setState(prev => ({
+          ...prev,
+          isRunning: false,
+          isCompleted: true,
+          allTrades: [...trades].reverse(),
+        }));
       }
     }, 30);
   }, []);
 
-  return { ...state, start, pause, resume, stop };
+  return { ...state, start, pause, resume, stop, dismissResults };
 }

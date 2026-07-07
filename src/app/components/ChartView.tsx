@@ -49,6 +49,7 @@ import { BacktestReplayBar } from '@/app/components/backtest/BacktestReplayBar';
 import { BacktestConfigModal } from '@/app/components/backtest/BacktestConfigModal';
 import { StrategyBuilderPro } from '@/app/components/backtest/StrategyBuilderPro';
 import { BacktestLiveProgress } from '@/app/components/backtest/BacktestLiveProgress';
+import { BacktestResultsModal } from '@/app/components/backtest/BacktestResultsModal';
 import { BacktestDecisionsPanel } from '@/app/components/backtest/BacktestDecisionsPanel';
 import { AIvsTraderMode } from '@/app/components/backtest/AIvsTraderMode';
 import { BacktestErrorBoundary } from '@/app/components/backtest/BacktestErrorBoundary';
@@ -489,7 +490,7 @@ export function ChartView() {
   const backtestProgress = useBacktestLiveProgress(10000);
   const { strategies, saveStrategy } = useStrategies();
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
-  const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string } | null>(null);
+  const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string; symbol: string } | null>(null);
   const [showAIvsTrader, setShowAIvsTrader] = useState(false);
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
   const [priceLinePosition, setPriceLinePosition] = useState<number | null>(null);
@@ -3904,7 +3905,7 @@ export function ChartView() {
           toast.success(`Backtest "${strategy.name}" iniciado — buscando dados históricos reais...`);
 
           const resolvedTimeframe = (config.timeframe === '30m' ? '15m' : config.timeframe) as any; // 30m não existe em BacktestDataService; cai pro timeframe real mais próximo suportado
-          setLastBacktestRun({ strategy, timeframe: resolvedTimeframe });
+          setLastBacktestRun({ strategy, timeframe: resolvedTimeframe, symbol: config.asset });
           backtestProgress.start({
             strategy,
             symbol: config.asset,
@@ -3941,6 +3942,23 @@ export function ChartView() {
           onShowDecisions={() => setShowDecisionsPanel(true)}
         />
       )}
+
+      {/* 🏁 BACKTEST RESULTS - Tela de resultado final, some antes disso não existia nenhuma */}
+      <BacktestResultsModal
+        isOpen={backtestProgress.isCompleted}
+        onClose={backtestProgress.dismissResults}
+        strategyName={lastBacktestRun?.strategy.name || 'Estratégia'}
+        symbol={lastBacktestRun?.symbol || ''}
+        timeframe={lastBacktestRun?.timeframe || ''}
+        metrics={backtestProgress.metrics}
+        trades={backtestProgress.allTrades}
+        equityCurve={backtestProgress.equityCurve}
+        onShowDecisions={() => setShowDecisionsPanel(true)}
+        onRunAnother={() => {
+          backtestProgress.dismissResults();
+          setShowBacktestConfig(true);
+        }}
+      />
 
       {/* 🧠 STRATEGY BUILDER - Construtor de estratégias */}
       <StrategyBuilderPro
@@ -3980,7 +3998,7 @@ export function ChartView() {
         <BacktestDecisionsPanel
           isOpen={showDecisionsPanel}
           onClose={() => setShowDecisionsPanel(false)}
-          decisions={backtestProgress.recentTrades.map(trade => ({
+          decisions={(backtestProgress.isCompleted ? backtestProgress.allTrades : backtestProgress.recentTrades).map(trade => ({
             ...trade,
             aiAnalysis: trade.aiAnalysis || {
               confidence: 0,
