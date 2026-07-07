@@ -84,14 +84,21 @@ export class DataSourceRouter {
       });
     });
 
-    // === INDICES → YAHOO (primário) / METAAPI (fallback) ===
+    // === INDICES → METAAPI (primário) / YAHOO (fallback) ===
+    // ✅ CORRIGIDO 2026-07-07: era Yahoo primário — a variação % do Yahoo usa o
+    // fechamento da bolsa à vista (NYSE, 21:00 UTC) como referência, que NÃO
+    // bate com a variação que o MetaTrader/corretora mostra pro CFD do índice
+    // (referência é a abertura do candle diário do próprio broker). Preço e
+    // %/dia agora vêm da mesma fonte (MetaAPI) usada por forex/commodities,
+    // pra bater com o terminal real do usuário. Yahoo continua como fallback
+    // se a MetaAPI falhar.
     const indexAssets = symbolMappingService.getSymbolsByType('index');
     indexAssets.forEach(asset => {
       this.sourceConfigs.set(asset.unified, {
-        primary: 'yahoo',
-        fallback: ['metaapi', 'fallback'],
+        primary: 'metaapi',
+        fallback: ['yahoo', 'fallback'],
         priority: 2,
-        requiresAuth: false,
+        requiresAuth: true,
         cost: 'free',
         availability: 'trading_hours'
       });
