@@ -185,19 +185,26 @@
     
     <!-- 🛡️ PROTEÇÃO NÍVEL 3: CSS PARA OCULTAR OVERLAY DE ERRO -->
     <style>
-      /* Ocultar qualquer overlay de erro que o Figma tente renderizar */
-      [class*="error"], 
-      [class*="Error"],
-      [id*="error"],
-      [id*="Error"],
-      div[style*="position: fixed"][style*="z-index"],
-      div[style*="position: absolute"][style*="z-index"] {
+      /* Ocultar qualquer overlay de erro que o Figma tente renderizar
+         FORA da nossa aplicação (fora de #root). As duas regras baseadas em
+         position+z-index eram globais (sem escopo pro #root) e por isso
+         escondiam QUALQUER div interno do app com position:absolute+z-index
+         inline — inclusive os painéis internos do klinecharts (ChartView),
+         deixando o canvas do gráfico preso em 0x0 pra sempre. Bug corrigido
+         em 2026-07-07: escopo restrito a `body > *:not(#root)` (só pega
+         overlays injetados direto no body pelo Figma, nunca conteúdo do app). */
+      body > [class*="error"]:not(#root *),
+      body > [class*="Error"]:not(#root *),
+      body > [id*="error"]:not(#root *),
+      body > [id*="Error"]:not(#root *),
+      body > div[style*="position: fixed"][style*="z-index"]:not(#root *),
+      body > div[style*="position: absolute"][style*="z-index"]:not(#root *) {
         display: none !important;
         opacity: 0 !important;
         visibility: hidden !important;
         pointer-events: none !important;
       }
-      
+
       /* Mas permitir nossos próprios componentes de erro */
       .neural-error,
       .toast-error,
