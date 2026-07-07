@@ -2208,10 +2208,19 @@ export function ChartView() {
       // Fetch real data
       const fetchData = async () => {
         console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe);
-        
+
         try {
+          // 🚀 PERF: candles e marketData (preço/variação do dia) vêm de fontes
+          // independentes (candles pode ser Binance direto; marketData passa por
+          // roteamento + Edge Function) — disparar em paralelo em vez de sequencial
+          // corta o tempo de carregamento do gráfico quase pela metade (cada um
+          // podia levar segundos sozinho, principalmente cold start de Edge Function).
+          const marketDataPromise = dataSourceRouter.getMarketData(selectedSymbol).catch(error => {
+            console.warn('[ChartView] ⚠️ Erro ao buscar dados via router, usando candles:', error);
+            return null;
+          });
           const candles = await fetchCandles(selectedSymbol, timeframe);
-          
+
           console.log('[ChartView] 📦 Received data:', {
             candles: candles?.length || 0,
             isArray: Array.isArray(candles),
@@ -2247,27 +2256,22 @@ export function ChartView() {
           // 🎯 BUSCAR PREÇO ATUAL DA BINANCE (ticker mais recente)
           let currentPriceFromTicker = 0;
           const lastCandle = candles[candles.length - 1];
-          
+
           // 🎯 BUSCAR DADOS COM ROTEAMENTO INTELIGENTE (funciona para TODOS os ativos)
-          console.log('[ChartView] ✅ CHECKPOINT 2: Starting market data fetch via DataSourceRouter');
+          // Já disparado em paralelo com fetchCandles acima — só aguarda aqui.
+          console.log('[ChartView] ✅ CHECKPOINT 2: Awaiting market data fetch via DataSourceRouter');
           let marketData = null;
-          try {
-            console.log('[ChartView] 🔄 Fetching market data for:', selectedSymbol);
-            const routedData = await dataSourceRouter.getMarketData(selectedSymbol);
-            
-            if (routedData && routedData.price > 0) {
-              marketData = routedData;
-              currentPriceFromTicker = marketData.price;
-              console.log('[ChartView] 🎯 Dados obtidos via', marketData.source.toUpperCase() + ':', {
-                price: marketData.price,
-                change: marketData.change,
-                changePercent: marketData.changePercent,
-                source: marketData.source,
-                quality: marketData.quality
-              });
-            }
-          } catch (error) {
-            console.warn('[ChartView] ⚠️ Erro ao buscar dados via router, usando candles:', error);
+          const routedData = await marketDataPromise;
+          if (routedData && routedData.price > 0) {
+            marketData = routedData;
+            currentPriceFromTicker = marketData.price;
+            console.log('[ChartView] 🎯 Dados obtidos via', marketData.source.toUpperCase() + ':', {
+              price: marketData.price,
+              change: marketData.change,
+              changePercent: marketData.changePercent,
+              source: marketData.source,
+              quality: marketData.quality
+            });
           }
           console.log('[ChartView] ✅ CHECKPOINT 3: marketData fetch complete');
           

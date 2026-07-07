@@ -28,36 +28,30 @@ const CORS_PROXIES = [
   (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ];
 
+async function fetchOne(url: string): Promise<any> {
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function fetchWithFallback(path: string): Promise<any | null> {
   const directUrl = `${BINANCE_BASE}${path}`;
 
-  // 1️⃣ Tentativa direta (funciona em produção / sem sandbox)
+  // 🚀 PERF: direto + proxies CORS disparados EM PARALELO (Promise.any) em vez de
+  // sequencial — antes, se a chamada direta falhasse (comum: bloqueio de rede/CORS),
+  // esperava o timeout de 5s dela e só então tentava o próximo, podendo somar até
+  // ~15s por símbolo. Agora usa a primeira resposta que chegar.
+  const urls = [directUrl, ...CORS_PROXIES.map(build => build(directUrl))];
+
   try {
-    const res = await fetch(directUrl, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.ok) return await res.json();
+    return await Promise.any(urls.map(fetchOne));
   } catch {
-    // falha silenciosa — tenta proxy
+    return null; // Todas as tentativas falharam — retorna null sem lançar erro
   }
-
-  // 2️⃣ Proxies CORS em sequência
-  for (const buildProxy of CORS_PROXIES) {
-    try {
-      const res = await fetch(buildProxy(directUrl), {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) return await res.json();
-    } catch {
-      // próximo proxy
-    }
-  }
-
-  return null; // Tudo falhou — retorna null sem lançar erro
 }
 
 /**
