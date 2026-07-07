@@ -1,8 +1,8 @@
-import { getMetaApiCandles, type MetaApiCandle } from './MetaApiService';
 import { symbolMappingService } from './SymbolMappingService';
+import { supabase } from '@/lib/supabaseClient';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 
-// ✅ API_BASE do Supabase removido — não utilizado neste arquivo (evita import desnecessário de projectId)
-// const API_BASE = `https://${projectId}.supabase.co/functions/v1/server/market-data`;
+const MT5_CANDLES_HISTORY_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`;
 
 export interface CandleData {
   timestamp: number;
@@ -142,53 +142,85 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
 
 /**
  * 📡 Buscar candles do MetaAPI (forex, índices, commodities)
+ *
+ * Usa /mt5-candles-history (a mesma rota já usada pelo Backtest/Replay) em vez
+ * da antiga /mt5-candles — aquela cai silenciosamente em candles SIMULADOS
+ * (preço-base desatualizado) em qualquer falha, o que fazia o corpo do gráfico
+ * mostrar um histórico falso mesmo quando o preço atual no topo (via
+ * DataSourceRouter/mt5-prices) era real — os dois nunca combinavam.
+ * /mt5-candles-history nunca mente: se não tiver dado real, retorna erro
+ * explícito e aqui tratamos como "sem candles" (fallback local assume por
+ * cima, mas pelo menos não finge ser real).
  */
 async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
   try {
-    // Mapear timeframe para formato MT5
+    // Mapear timeframe pro formato aceito por /mt5-candles-history
     const mt5TimeframeMap: Record<string, string> = {
-      '1m': 'M1',
-      '5m': 'M5',
-      '15m': 'M15',
-      '30m': 'M30',
-      '1H': 'H1',
-      '2H': 'H2',
-      '4H': 'H4',
-      '1D': 'D1',
-      '1W': 'W1',
-      '1M': 'MN1',
+      '1m': '1m',
+      '5m': '5m',
+      '15m': '15m',
+      '30m': '30m',
+      '1H': '1H',
+      '2H': '1H',
+      '4H': '4H',
+      '1D': '1D',
+      '1W': '1W',
+      '1M': '1D',
     };
-    
-    const mt5Timeframe = mt5TimeframeMap[timeframe] || 'H1';
-    
+    const mt5Timeframe = mt5TimeframeMap[timeframe] || '1H';
+
+    const msPerCandle: Record<string, number> = {
+      '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
+      '1H': 3_600_000, '4H': 4 * 3_600_000, '1D': 86_400_000, '1W': 7 * 86_400_000,
+    };
+
     // Obter símbolo mapeado para MetaAPI (Infinox)
     const mapping = symbolMappingService.findMapping(symbol);
     const mt5Symbol = mapping?.infinox || symbol;
-    
-    console.log(`[MarketService] 🟢 Fetching from METAAPI: ${mt5Symbol} ${mt5Timeframe}`);
-    
-    const metaCandles = await getMetaApiCandles(mt5Symbol, mt5Timeframe, limit);
-    
-    if (!metaCandles || metaCandles.length === 0) {
-      console.warn(`[MarketService] ⚠️ No candles from MetaAPI for ${mt5Symbol}`);
+
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - limit * (msPerCandle[mt5Timeframe] || 3_600_000));
+
+    console.log(`[MarketService] 🟢 Fetching from METAAPI HISTORY: ${mt5Symbol} ${mt5Timeframe}`);
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    const response = await fetch(MT5_CANDLES_HISTORY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken || publicAnonKey}`,
+      },
+      body: JSON.stringify({
+        symbol: mt5Symbol,
+        timeframe: mt5Timeframe,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success || !Array.isArray(result.candles) || result.candles.length === 0) {
+      console.warn(`[MarketService] ⚠️ /mt5-candles-history sem dado real para ${mt5Symbol}:`, result?.message || result?.error);
       return [];
     }
-    
-    // Converter formato MetaAPI para nosso formato
-    const candles: CandleData[] = metaCandles.map((candle: MetaApiCandle) => ({
-      timestamp: new Date(candle.time).getTime(),
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-      volume: candle.tickVolume,
+
+    const candles: CandleData[] = result.candles.map((c: any) => ({
+      timestamp: c.timestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume || 0,
     }));
-    
-    console.log(`[MarketService] ✅ Got ${candles.length} METAAPI candles for ${symbol}`);
-    
+
+    console.log(`[MarketService] ✅ Got ${candles.length} METAAPI candles REAIS para ${symbol}`);
+
     return candles;
   } catch (error) {
-    console.error('[MarketService] ❌ Error fetching from MetaAPI:', error);
+    console.error('[MarketService] ❌ Error fetching from MetaAPI history:', error);
     return [];
   }
 }
