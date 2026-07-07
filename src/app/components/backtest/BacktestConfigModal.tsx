@@ -11,7 +11,7 @@
  */
 
 import React, { useState } from 'react';
-import { X, Play, Calendar, TrendingUp, Settings, Zap, Clock, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { X, Play, Calendar, TrendingUp, Settings, Zap, Clock, ArrowUp, ArrowDown, ArrowUpDown, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type PeriodPreset = '1M' | '3M' | '6M' | '1Y' | 'custom';
@@ -42,6 +42,7 @@ interface StrategySummary {
   id: string;
   name: string;
   description: string;
+  isPreset?: boolean;
 }
 
 interface BacktestConfigModalProps {
@@ -51,6 +52,8 @@ interface BacktestConfigModalProps {
   onCreateStrategy: () => void;
   /** Estratégias reais (prontas + customizadas pelo usuário) — vem de useStrategies(). */
   strategies?: StrategySummary[];
+  /** Apaga uma estratégia customizada do usuário (nunca chamado para presets). */
+  onDeleteStrategy?: (id: string) => void;
 }
 
 export function BacktestConfigModal({
@@ -59,6 +62,7 @@ export function BacktestConfigModal({
   onStart,
   onCreateStrategy,
   strategies: strategiesProp,
+  onDeleteStrategy,
 }: BacktestConfigModalProps) {
   const [config, setConfig] = useState<BacktestConfig>({
     asset: 'BTCUSD',
@@ -453,27 +457,45 @@ export function BacktestConfigModal({
                   
                   <div className="bg-zinc-800/50 rounded border border-zinc-700 p-3 max-h-[200px] overflow-y-auto space-y-2">
                     {savedStrategies.map((strategy) => (
-                      <button
+                      <div
                         key={strategy.id}
-                        onClick={() => setConfig({ ...config, strategyId: strategy.id })}
-                        className={`w-full text-left px-3 py-2.5 rounded transition-all ${
+                        className={`w-full flex items-center gap-2 rounded transition-all ${
                           config.strategyId === strategy.id
                             ? 'bg-blue-600/20 border border-blue-500/50'
                             : 'bg-zinc-800 hover:bg-zinc-700 border border-transparent'
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={`w-2 h-2 rounded-full ${
-                            config.strategyId === strategy.id ? 'bg-blue-500' : 'bg-slate-600'
-                          }`} />
-                          <span className={`text-sm font-medium ${
-                            config.strategyId === strategy.id ? 'text-blue-400' : 'text-white'
-                          }`}>
-                            {strategy.name}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 pl-4">{strategy.description}</p>
-                      </button>
+                        <button
+                          onClick={() => setConfig({ ...config, strategyId: strategy.id })}
+                          className="flex-1 text-left px-3 py-2.5 min-w-0"
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className={`w-2 h-2 rounded-full ${
+                              config.strategyId === strategy.id ? 'bg-blue-500' : 'bg-slate-600'
+                            }`} />
+                            <span className={`text-sm font-medium ${
+                              config.strategyId === strategy.id ? 'text-blue-400' : 'text-white'
+                            }`}>
+                              {strategy.name}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 pl-4 truncate">{strategy.description}</p>
+                        </button>
+                        {!strategy.isPreset && onDeleteStrategy && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Apagar a estratégia "${strategy.name}"? Essa ação não pode ser desfeita.`)) {
+                                onDeleteStrategy(strategy.id);
+                              }
+                            }}
+                            className="mr-2 p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                            title="Apagar estratégia"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

@@ -7,7 +7,7 @@
  * IA: Sugestões inteligentes, otimização automática
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { 
   X, Plus, Trash2, Save, Sparkles, Eye, Play, Code2, Layers, Settings,
   TrendingUp, TrendingDown, Shield, Zap, Copy, Download, Upload, Share2,
@@ -157,21 +157,31 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
   const [showAI, setShowAI] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false); // 🆕 Feedback visual de drag
   
-  const [strategy, setStrategy] = useState<Strategy>(
-    editingStrategy || {
-      id: Date.now().toString(),
-      name: '',
-      description: '',
-      entryBlocks: [],
-      exitBlocks: [],
-      filterBlocks: [],
-      stopLoss: 2,
-      takeProfit: 4,
-      trailingStop: false,
-      maxConcurrentTrades: 3,
-      timeframe: '1H'
+  const blankStrategy = useCallback((): Strategy => ({
+    id: Date.now().toString(),
+    name: '',
+    description: '',
+    entryBlocks: [],
+    exitBlocks: [],
+    filterBlocks: [],
+    stopLoss: 2,
+    takeProfit: 4,
+    trailingStop: false,
+    maxConcurrentTrades: 3,
+    timeframe: '1H'
+  }), []);
+
+  const [strategy, setStrategy] = useState<Strategy>(editingStrategy || blankStrategy());
+
+  // Este componente fica montado o tempo todo (isOpen só alterna a renderização
+  // interna) — sem isso, reabrir pra criar uma NOVA estratégia reaproveitava o
+  // rascunho da anterior (nome/blocos antigos ainda no state).
+  useEffect(() => {
+    if (isOpen) {
+      setStrategy(editingStrategy || blankStrategy());
     }
-  );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editingStrategy]);
 
   const [aiMessages, setAiMessages] = useState([
     {

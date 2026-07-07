@@ -488,7 +488,7 @@ export function ChartView() {
   
   // 🎯 BACKTEST LIVE PROGRESS (motor real: estratégia + candles históricos reais)
   const backtestProgress = useBacktestLiveProgress(10000);
-  const { strategies, saveStrategy } = useStrategies();
+  const { strategies, saveStrategy, deleteStrategy, error: strategiesError } = useStrategies();
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
   const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string; symbol: string } | null>(null);
   const [showAIvsTrader, setShowAIvsTrader] = useState(false);
@@ -3920,6 +3920,14 @@ export function ChartView() {
           setShowBacktestConfig(false);
           setShowStrategyBuilder(true);
         }}
+        onDeleteStrategy={async (id) => {
+          const ok = await deleteStrategy(id);
+          if (ok) {
+            toast.success('Estratégia apagada.');
+          } else {
+            toast.error('Não foi possível apagar a estratégia (faça login e tente de novo).');
+          }
+        }}
       />
 
       {backtestProgress.error && (
@@ -3963,7 +3971,11 @@ export function ChartView() {
       {/* 🧠 STRATEGY BUILDER - Construtor de estratégias */}
       <StrategyBuilderPro
         isOpen={showStrategyBuilder}
-        onClose={() => setShowStrategyBuilder(false)}
+        onClose={() => {
+          // Voltar pra tela de estratégias salvas, não pro gráfico por baixo.
+          setShowStrategyBuilder(false);
+          setShowBacktestConfig(true);
+        }}
         onSave={async (strategy) => {
           const unified: StrategyDef = {
             id: `draft-${strategy.id}`,
@@ -3984,11 +3996,18 @@ export function ChartView() {
           };
 
           const saved = await saveStrategy(unified);
-          setShowStrategyBuilder(false);
           if (saved) {
+            // Só volta pra tela de estratégias salvas quando o salvamento deu certo de verdade —
+            // se falhar, o usuário fica no builder pra não perder o que desenhou.
+            setShowStrategyBuilder(false);
+            setShowBacktestConfig(true);
             toast.success(`Estratégia "${strategy.name}" salva — já disponível no Backtest e na IA.`);
           } else {
-            toast.error('Não foi possível salvar a estratégia (faça login e tente de novo).');
+            toast.error(
+              strategiesError
+                ? `Não foi possível salvar a estratégia: ${strategiesError}`
+                : 'Não foi possível salvar a estratégia (faça login e tente de novo).'
+            );
           }
         }}
       />
