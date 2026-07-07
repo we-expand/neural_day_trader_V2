@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bot, Brain, Play, Pause, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, BrainCircuit, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
+import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatNumber } from '@/app/utils/formatters';
@@ -78,6 +79,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
 
   // Use the Global Context for Logic
   const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode } = useTradingContext();
+  const { strategies } = useStrategies();
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
   useEffect(() => {
@@ -1103,6 +1105,21 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            {/* 🆕 Estratégia ativa — mesma estratégia (pronta ou customizada) usada no Backtest */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
+                                <select
+                                    value={config.activeStrategyId || ''}
+                                    onChange={(e) => setConfig({ ...config, activeStrategyId: e.target.value || null })}
+                                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="" disabled>Selecione uma estratégia</option>
+                                    {strategies.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}{s.isPreset ? '' : ' (personalizada)'}</option>
+                                    ))}
+                                </select>
                             </div>
 
                             {/* Market Mode (Trend vs Counter) */}

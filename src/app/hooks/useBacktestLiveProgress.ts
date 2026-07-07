@@ -1,11 +1,22 @@
 /**
  * 🎯 HOOK: BACKTEST LIVE PROGRESS
- * 
- * Gerencia estado e dados do backtest em tempo real
- * Simula execução de backtest com métricas ao vivo
+ *
+ * Backtest REAL: roda a estratégia escolhida (pronta ou customizada) sobre
+ * candles históricos reais (Binance/MetaAPI via BacktestDataService), usando
+ * o mesmo motor de avaliação (StrategyEvaluator) e o mesmo cálculo de
+ * posição/TP/SL (TradeSizing) que a IA ao vivo usa. Determinístico: mesma
+ * estratégia + mesmo período + mesmos dados = mesmo resultado, sempre —
+ * nenhum Math.random() em qualquer ponto do cálculo de trades/métricas.
+ * A "animação" de progresso é só apresentação: os trades já foram todos
+ * calculados de antemão, e o loop de UI apenas revela o resultado aos poucos.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { Candle } from '../services/indicators/TechnicalIndicators';
+import { IndicatorCache, evaluateStrategyAt, evaluateExitAt } from '../services/strategy/StrategyEvaluator';
+import { calculatePositionSize, getPointValue, trailStopLoss } from '../services/strategy/TradeSizing';
+import { Strategy } from '../types/strategy';
+import { backtestDataService, Timeframe as DataTimeframe } from '../services/BacktestDataService';
 
 interface Trade {
   id: string;
@@ -17,20 +28,13 @@ interface Trade {
   timestamp: number;
   status: 'win' | 'loss';
   candleIndex: number;
-  
-  // Análise da IA
   aiAnalysis: {
     confidence: number;
     mainReason: string;
     supportingFactors: string[];
-    indicators: {
-      name: string;
-      value: string;
-      signal: 'bullish' | 'bearish' | 'neutral';
-    }[];
+    indicators: { name: string; value: string; signal: 'bullish' | 'bearish' | 'neutral' }[];
     marketContext: string;
   };
-  
   result?: {
     exitPrice: number;
     profit: number;
@@ -71,398 +75,295 @@ interface BacktestProgress {
 interface BacktestState {
   isRunning: boolean;
   isPaused: boolean;
+  error: string | null;
   progress: BacktestProgress;
   metrics: BacktestMetrics;
   recentTrades: Trade[];
   equityCurve: Array<{ time: number; equity: number }>;
 }
 
-export function useBacktestLiveProgress(initialCapital: number = 10000) {
-  const [state, setState] = useState<BacktestState>({
-    isRunning: false,
-    isPaused: false,
-    progress: {
-      currentCandle: 0,
-      totalCandles: 1000,
-      progress: 0,
-      elapsedTime: 0,
-      estimatedTimeRemaining: 0,
-      candlesPerSecond: 0
-    },
-    metrics: {
-      totalTrades: 0,
-      winningTrades: 0,
-      losingTrades: 0,
-      winRate: 0,
-      totalProfit: 0,
-      totalProfitPercent: 0,
-      maxDrawdown: 0,
-      maxDrawdownPercent: 0,
-      averageWin: 0,
-      averageLoss: 0,
-      profitFactor: 0,
-      sharpeRatio: 0,
-      currentEquity: initialCapital,
-      initialCapital
-    },
-    recentTrades: [],
-    equityCurve: [{ time: 0, equity: initialCapital }]
-  });
+export interface BacktestRunConfig {
+  strategy: Strategy;
+  symbol: string;
+  startDate: Date;
+  endDate: Date;
+  timeframe: DataTimeframe;
+  tradeDirection: 'long' | 'short' | 'both';
+  initialCapital: number;
+}
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const tradesRef = useRef<Trade[]>([]);
-  const equityCurveRef = useRef<Array<{ time: number; equity: number }>>([{ time: 0, equity: initialCapital }]);
-  const peakEquityRef = useRef<number>(initialCapital);
+function emptyMetrics(initialCapital: number): BacktestMetrics {
+  return {
+    totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0,
+    totalProfit: 0, totalProfitPercent: 0, maxDrawdown: 0, maxDrawdownPercent: 0,
+    averageWin: 0, averageLoss: 0, profitFactor: 0, sharpeRatio: 0,
+    currentEquity: initialCapital, initialCapital,
+  };
+}
 
-  // Simular trade
-  const simulateTrade = useCallback((currentCandle: number, currentEquity: number): Trade | null => {
-    // Simular trade aleatório (30% de chance)
-    if (Math.random() > 0.7) {
-      const type = Math.random() > 0.5 ? 'BUY' : 'SELL';
-      const entryPrice = 50000 + Math.random() * 10000;
-      
-      // Win rate de ~55%
-      const isWin = Math.random() > 0.45;
-      const profitPercent = isWin 
-        ? (Math.random() * 3 + 0.5) // 0.5% a 3.5% profit
-        : -(Math.random() * 2 + 0.3); // -0.3% a -2.3% loss
-      
-      const profit = (currentEquity * profitPercent) / 100;
-      const exitPrice = entryPrice * (1 + profitPercent / 100);
-      
-      // Gerar análise da IA realista
-      const confidence = isWin ? 60 + Math.random() * 35 : 40 + Math.random() * 30;
-      
-      const buyReasons = [
-        'RSI indicando sobrevendido (< 30), sugerindo possível reversão de alta',
-        'Cruzamento de alta da EMA 12 sobre EMA 26, sinalizando início de tendência bullish',
-        'MACD histograma virando positivo com momentum crescente',
-        'Preço rompendo resistência importante com volume acima da média',
-        'Formação de padrão bullish engulfing em suporte chave',
-        'Divergência bullish entre preço e RSI detectada',
-        'Preço testando banda inferior de Bollinger com RSI baixo',
-        'ADX acima de 25 confirmando força da tendência de alta'
-      ];
-      
-      const sellReasons = [
-        'RSI indicando sobrecomprado (> 70), sugerindo possível correção',
-        'Cruzamento de baixa da EMA 12 sob EMA 26, sinalizando reversão de tendência',
-        'MACD histograma virando negativo com perda de momentum',
-        'Preço rompendo suporte crítico com aumento de volume',
-        'Formação de padrão bearish engulfing em resistência importante',
-        'Divergência bearish entre preço e RSI identificada',
-        'Preço testando banda superior de Bollinger com RSI elevado',
-        'ADX acima de 25 confirmando força da tendência de baixa'
-      ];
-      
-      const mainReasons = type === 'BUY' ? buyReasons : sellReasons;
-      const mainReason = mainReasons[Math.floor(Math.random() * mainReasons.length)];
-      
-      const supportingFactors = [];
-      if (isWin) {
-        const winFactors = [
-          'Volume de compra 35% acima da média móvel de 20 períodos',
-          'Preço respeitando linha de tendência ascendente de longo prazo',
-          'Suporte em EMA 50 mantido com rejeição clara',
-          'Confluência entre Fibonacci 61.8% e zona de demanda',
-          'Order flow mostrando absorção agressiva de vendas',
-          'Correlação positiva com S&P 500 fortalecendo movimento',
-          'Spread bid-ask reduzido indicando liquidez saudável'
-        ];
-        const count = 1 + Math.floor(Math.random() * 3);
-        for (let i = 0; i < count; i++) {
-          const factor = winFactors[Math.floor(Math.random() * winFactors.length)];
-          if (!supportingFactors.includes(factor)) supportingFactors.push(factor);
-        }
-      } else {
-        const lossFactors = [
-          'Volume de venda 28% acima da média, sinalizando pressão vendedora',
-          'Falha em romper resistência após 3 tentativas',
-          'Divergência negativa entre preço e indicador de momentum',
-          'Rejeição em zona de oferta previamente identificada',
-          'Aumento de volatilidade com candles de indecisão',
-          'Correlação inversa temporária com índices principais',
-          'Spread bid-ask ampliado sugerindo baixa liquidez momentânea'
-        ];
-        const count = 1 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < count; i++) {
-          const factor = lossFactors[Math.floor(Math.random() * lossFactors.length)];
-          if (!supportingFactors.includes(factor)) supportingFactors.push(factor);
-        }
+function calculateMetrics(trades: Trade[], currentEquity: number, initialCapital: number, peakEquity: number): BacktestMetrics {
+  const winningTrades = trades.filter(t => t.status === 'win');
+  const losingTrades = trades.filter(t => t.status === 'loss');
+
+  const totalProfit = trades.reduce((sum, t) => sum + t.profit, 0);
+  const totalWins = winningTrades.reduce((sum, t) => sum + t.profit, 0);
+  const totalLosses = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
+
+  const avgWin = winningTrades.length > 0 ? totalWins / winningTrades.length : 0;
+  const avgLoss = losingTrades.length > 0 ? totalLosses / losingTrades.length : 0;
+  const profitFactor = totalLosses > 0 ? totalWins / totalLosses : (totalWins > 0 ? 999 : 0);
+  const winRate = trades.length > 0 ? (winningTrades.length / trades.length) * 100 : 0;
+
+  const maxDrawdown = peakEquity - currentEquity;
+  const maxDrawdownPercent = peakEquity > 0 ? (maxDrawdown / peakEquity) * 100 : 0;
+
+  const returns = trades.map(t => t.profitPercent);
+  const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+  const stdDev = returns.length > 1
+    ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length)
+    : 1;
+  const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
+
+  return {
+    totalTrades: trades.length,
+    winningTrades: winningTrades.length,
+    losingTrades: losingTrades.length,
+    winRate,
+    totalProfit,
+    totalProfitPercent: (totalProfit / initialCapital) * 100,
+    maxDrawdown,
+    maxDrawdownPercent,
+    averageWin: avgWin,
+    averageLoss: avgLoss,
+    profitFactor,
+    sharpeRatio,
+    currentEquity,
+    initialCapital,
+  };
+}
+
+function indicatorSnapshot(cache: IndicatorCache, i: number) {
+  const rsi = cache.get('RSI', 14)[i];
+  const macd = cache.get('MACD')[i];
+  const ema = cache.get('EMA', 21)[i];
+  return [
+    { name: 'RSI(14)', value: rsi !== null ? rsi.toFixed(1) : 'n/d', signal: (rsi !== null ? (rsi < 40 ? 'bullish' : rsi > 60 ? 'bearish' : 'neutral') : 'neutral') as 'bullish' | 'bearish' | 'neutral' },
+    { name: 'MACD', value: macd !== null ? macd.toFixed(4) : 'n/d', signal: (macd !== null ? (macd > 0 ? 'bullish' : 'bearish') : 'neutral') as 'bullish' | 'bearish' | 'neutral' },
+    { name: 'EMA(21)', value: ema !== null ? `$${ema.toFixed(2)}` : 'n/d', signal: 'neutral' as const },
+  ];
+}
+
+/**
+ * Roda a estratégia sobre a série de candles inteira e retorna os trades
+ * (cálculo 100% determinístico — sem aleatoriedade em nenhum passo).
+ */
+function runBacktest(candles: Candle[], strategy: Strategy, symbol: string, direction: 'long' | 'short' | 'both', initialCapital: number) {
+  const cache = new IndicatorCache(candles);
+  const trades: Trade[] = [];
+  const equityCurve: Array<{ time: number; equity: number }> = [{ time: 0, equity: initialCapital }];
+
+  let equity = initialCapital;
+  let openPosition: null | {
+    side: 'LONG' | 'SHORT';
+    entryPrice: number;
+    entryIndex: number;
+    tp: number;
+    sl: number;
+    originalSl: number;
+    tradeCapital: number;
+    reasons: string[];
+    confidence: number;
+  } = null;
+
+  const pointValue = getPointValue(symbol);
+  const warmup = 60; // candles mínimos pra indicadores lentos (EMA200 etc.) estabilizarem
+
+  for (let i = warmup; i < candles.length; i++) {
+    if (openPosition) {
+      const candle = candles[i];
+
+      if (strategy.trailingStop) {
+        openPosition.sl = trailStopLoss(openPosition.side, openPosition.entryPrice, openPosition.originalSl, openPosition.sl, candle.close);
       }
-      
-      const rsiValue = type === 'BUY' ? 25 + Math.random() * 40 : 60 + Math.random() * 35;
-      const macdValue = type === 'BUY' ? (Math.random() * 2).toFixed(2) : (-Math.random() * 2).toFixed(2);
-      const emaValue = entryPrice * (type === 'BUY' ? 0.97 + Math.random() * 0.02 : 1.01 + Math.random() * 0.02);
-      
-      const indicators = [
-        { 
-          name: 'RSI(14)', 
-          value: rsiValue.toFixed(1), 
-          signal: (rsiValue < 40 ? 'bullish' : rsiValue > 60 ? 'bearish' : 'neutral') as 'bullish' | 'bearish' | 'neutral'
-        },
-        { 
-          name: 'MACD', 
-          value: macdValue, 
-          signal: (parseFloat(macdValue) > 0 ? 'bullish' : 'bearish') as 'bullish' | 'bearish'
-        },
-        { 
-          name: 'EMA(50)', 
-          value: `$${emaValue.toFixed(0)}`, 
-          signal: (type === 'BUY' ? 'bullish' : 'bearish') as 'bullish' | 'bearish'
-        }
-      ];
-      
-      const marketContexts = [
-        'Mercado em tendência de alta com correções saudáveis',
-        'Fase de consolidação após movimento forte, aguardando definição',
-        'Mercado lateral com oportunidades de swing trade',
-        'Tendência de baixa com tentativas de reversão',
-        'Alta volatilidade devido a notícias macroeconômicas',
-        'Mercado em acumulação, buscando direção clara'
-      ];
-      
-      const marketContext = marketContexts[Math.floor(Math.random() * marketContexts.length)];
-      
-      const exitReasons = isWin ? [
-        'Take profit atingido conforme estratégia',
-        'Sinal de reversão identificado pela IA',
-        'Trailing stop acionado preservando lucro',
-        'Alvo de Fibonacci 1.618 alcançado'
-      ] : [
-        'Stop loss acionado para proteção de capital',
-        'Invalidação do setup original',
-        'Rompimento de estrutura contrária à posição',
-        'Gerenciamento de risco preventivo'
-      ];
-      
-      const exitReason = exitReasons[Math.floor(Math.random() * exitReasons.length)];
-      
-      return {
-        id: `trade-${Date.now()}-${Math.random()}`,
-        type,
-        entryPrice,
-        exitPrice,
-        profit,
-        profitPercent,
-        timestamp: currentCandle,
-        status: isWin ? 'win' : 'loss',
-        candleIndex: currentCandle,
-        aiAnalysis: {
-          confidence: Math.round(confidence),
-          mainReason,
-          supportingFactors,
-          indicators,
-          marketContext
-        },
-        result: {
+
+      const hitTp = openPosition.side === 'LONG' ? candle.high >= openPosition.tp : candle.low <= openPosition.tp;
+      const hitSl = openPosition.side === 'LONG' ? candle.low <= openPosition.sl : candle.high >= openPosition.sl;
+      const ruleExit = evaluateExitAt(strategy, candles, i, cache);
+
+      if (hitTp || hitSl || ruleExit) {
+        const exitPrice = hitTp ? openPosition.tp : hitSl ? openPosition.sl : candle.close;
+        const priceDiff = openPosition.side === 'LONG' ? exitPrice - openPosition.entryPrice : openPosition.entryPrice - exitPrice;
+        const profitPercent = (priceDiff / openPosition.entryPrice) * 100;
+        const profit = (openPosition.tradeCapital * profitPercent) / 100;
+        const isWin = profit >= 0;
+        equity += profit;
+
+        trades.push({
+          id: `bt-${openPosition.entryIndex}-${i}`,
+          type: openPosition.side === 'LONG' ? 'BUY' : 'SELL',
+          entryPrice: openPosition.entryPrice,
           exitPrice,
           profit,
           profitPercent,
+          timestamp: candle.time,
           status: isWin ? 'win' : 'loss',
-          exitReason
-        }
-      };
-    }
-    return null;
-  }, []);
+          candleIndex: i,
+          aiAnalysis: {
+            confidence: openPosition.confidence,
+            mainReason: openPosition.reasons[0] || `${strategy.name}: sinal de ${openPosition.side === 'LONG' ? 'compra' : 'venda'}`,
+            supportingFactors: openPosition.reasons.slice(1),
+            indicators: indicatorSnapshot(cache, openPosition.entryIndex),
+            marketContext: `Estratégia "${strategy.name}" em ${symbol}`,
+          },
+          result: {
+            exitPrice,
+            profit,
+            profitPercent,
+            status: isWin ? 'win' : 'loss',
+            exitReason: hitTp ? 'Take profit atingido' : hitSl ? 'Stop loss acionado' : 'Regra de saída da estratégia satisfeita',
+          },
+        });
 
-  // Calcular métricas
-  const calculateMetrics = useCallback((trades: Trade[], currentEquity: number): BacktestMetrics => {
-    const winningTrades = trades.filter(t => t.status === 'win');
-    const losingTrades = trades.filter(t => t.status === 'loss');
-    
-    const totalProfit = trades.reduce((sum, t) => sum + t.profit, 0);
-    const totalWins = winningTrades.reduce((sum, t) => sum + t.profit, 0);
-    const totalLosses = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
-    
-    const avgWin = winningTrades.length > 0 
-      ? totalWins / winningTrades.length 
-      : 0;
-    
-    const avgLoss = losingTrades.length > 0 
-      ? totalLosses / losingTrades.length 
-      : 0;
-    
-    const profitFactor = totalLosses > 0 
-      ? totalWins / totalLosses 
-      : totalWins > 0 ? 999 : 0;
-    
-    const winRate = trades.length > 0 
-      ? (winningTrades.length / trades.length) * 100 
-      : 0;
-    
-    // Calcular drawdown
-    const maxDrawdown = peakEquityRef.current - currentEquity;
-    const maxDrawdownPercent = peakEquityRef.current > 0 
-      ? (maxDrawdown / peakEquityRef.current) * 100 
-      : 0;
-    
-    // Update peak
-    if (currentEquity > peakEquityRef.current) {
-      peakEquityRef.current = currentEquity;
+        equityCurve.push({ time: i, equity });
+        openPosition = null;
+      }
+      continue;
     }
-    
-    // Calcular Sharpe Ratio simplificado
-    const returns = trades.map(t => t.profitPercent);
-    const avgReturn = returns.length > 0 
-      ? returns.reduce((a, b) => a + b, 0) / returns.length 
-      : 0;
-    const stdDev = returns.length > 1
-      ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length)
-      : 1;
-    const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) : 0;
-    
-    return {
-      totalTrades: trades.length,
-      winningTrades: winningTrades.length,
-      losingTrades: losingTrades.length,
-      winRate,
-      totalProfit,
-      totalProfitPercent: (totalProfit / initialCapital) * 100,
-      maxDrawdown,
-      maxDrawdownPercent,
-      averageWin: avgWin,
-      averageLoss: avgLoss,
-      profitFactor,
-      sharpeRatio,
-      currentEquity,
-      initialCapital
+
+    const result = evaluateStrategyAt(strategy, candles, i, cache);
+    if (!result.signal) continue;
+
+    const side: 'LONG' | 'SHORT' = result.signal === 'BUY' ? 'LONG' : 'SHORT';
+    if (direction === 'long' && side !== 'LONG') continue;
+    if (direction === 'short' && side !== 'SHORT') continue;
+
+    const entryPrice = candles[i].close;
+    const tpDistance = strategy.takeProfit * pointValue;
+    const slDistance = strategy.stopLoss * pointValue;
+    const tp = side === 'LONG' ? entryPrice + tpDistance : entryPrice - tpDistance;
+    const sl = side === 'LONG' ? entryPrice - slDistance : entryPrice + slDistance;
+
+    const tradeCapital = calculatePositionSize({
+      currentBalance: equity,
+      allocatedCapital: equity,
+      riskPerTradePercent: strategy.positionSizePercent,
+      riskProfile: strategy.riskProfile,
+    });
+
+    openPosition = {
+      side, entryPrice, entryIndex: i, tp, sl, originalSl: sl,
+      tradeCapital, reasons: result.reasons, confidence: result.confidence,
     };
-  }, [initialCapital]);
+  }
 
-  // Iniciar backtest
-  const start = useCallback((totalCandles: number = 1000, speed: number = 50) => {
-    console.log('[BACKTEST] 🚀 Iniciando backtest...');
-    
-    // Reset state
-    tradesRef.current = [];
-    equityCurveRef.current = [{ time: 0, equity: initialCapital }];
-    peakEquityRef.current = initialCapital;
-    startTimeRef.current = Date.now();
-    
-    setState(prev => ({
-      ...prev,
-      isRunning: true,
-      isPaused: false,
-      progress: {
-        currentCandle: 0,
-        totalCandles,
-        progress: 0,
-        elapsedTime: 0,
-        estimatedTimeRemaining: 0,
-        candlesPerSecond: 0
-      },
-      metrics: {
-        ...prev.metrics,
-        currentEquity: initialCapital,
-        totalTrades: 0,
-        winningTrades: 0,
-        losingTrades: 0,
-        winRate: 0,
-        totalProfit: 0,
-        totalProfitPercent: 0,
-        maxDrawdown: 0,
-        maxDrawdownPercent: 0,
-        averageWin: 0,
-        averageLoss: 0,
-        profitFactor: 0,
-        sharpeRatio: 0
-      },
-      recentTrades: [],
-      equityCurve: [{ time: 0, equity: initialCapital }]
-    }));
+  return { trades, equityCurve, finalEquity: equity };
+}
 
-    let currentCandle = 0;
-    let currentEquity = initialCapital;
+export function useBacktestLiveProgress(initialCapitalDefault: number = 10000) {
+  const [state, setState] = useState<BacktestState>({
+    isRunning: false,
+    isPaused: false,
+    error: null,
+    progress: { currentCandle: 0, totalCandles: 0, progress: 0, elapsedTime: 0, estimatedTimeRemaining: 0, candlesPerSecond: 0 },
+    metrics: emptyMetrics(initialCapitalDefault),
+    recentTrades: [],
+    equityCurve: [{ time: 0, equity: initialCapitalDefault }],
+  });
 
-    // Simular backtest
-    intervalRef.current = setInterval(() => {
-      currentCandle++;
-      
-      // Simular trade
-      const trade = simulateTrade(currentCandle, currentEquity);
-      if (trade) {
-        tradesRef.current.push(trade);
-        currentEquity += trade.profit;
-        equityCurveRef.current.push({ time: currentCandle, equity: currentEquity });
-      }
-      
-      // Calcular progresso
-      const progress = (currentCandle / totalCandles) * 100;
-      const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
-      const candlesPerSecond = currentCandle / elapsedTime;
-      const estimatedTimeRemaining = (totalCandles - currentCandle) / candlesPerSecond;
-      
-      // Calcular métricas
-      const metrics = calculateMetrics(tradesRef.current, currentEquity);
-      
-      // Update state
-      setState(prev => ({
-        ...prev,
-        progress: {
-          currentCandle,
-          totalCandles,
-          progress,
-          elapsedTime,
-          estimatedTimeRemaining,
-          candlesPerSecond
-        },
-        metrics,
-        recentTrades: [...tradesRef.current].reverse().slice(0, 10),
-        equityCurve: [...equityCurveRef.current]
-      }));
-      
-      // Finalizar
-      if (currentCandle >= totalCandles) {
-        console.log('[BACKTEST] ✅ Backtest finalizado!');
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
-        setState(prev => ({ ...prev, isRunning: false }));
-      }
-    }, speed);
-  }, [initialCapital, simulateTrade, calculateMetrics]);
+  const revealIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<number>(0);
 
-  // Pausar backtest
-  const pause = useCallback(() => {
-    console.log('[BACKTEST] ⏸️ Pausando backtest...');
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    setState(prev => ({ ...prev, isPaused: true, isRunning: false }));
-  }, []);
-
-  // Retomar backtest
-  const resume = useCallback(() => {
-    console.log('[BACKTEST] ▶️ Retomando backtest...');
-    // TODO: Implementar resumo
-  }, []);
-
-  // Parar backtest
   const stop = useCallback(() => {
-    console.log('[BACKTEST] 🛑 Parando backtest...');
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+    if (revealIntervalRef.current) {
+      clearInterval(revealIntervalRef.current);
+      revealIntervalRef.current = null;
     }
     setState(prev => ({ ...prev, isRunning: false, isPaused: false }));
   }, []);
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
+  const pause = useCallback(() => {
+    if (revealIntervalRef.current) {
+      clearInterval(revealIntervalRef.current);
+      revealIntervalRef.current = null;
+    }
+    setState(prev => ({ ...prev, isPaused: true, isRunning: false }));
   }, []);
 
-  return {
-    ...state,
-    start,
-    pause,
-    resume,
-    stop
-  };
+  const resume = useCallback(() => {
+    setState(prev => ({ ...prev, isPaused: false, isRunning: true }));
+  }, []);
+
+  const start = useCallback(async (config: BacktestRunConfig) => {
+    setState(prev => ({
+      ...prev,
+      isRunning: true,
+      isPaused: false,
+      error: null,
+      progress: { currentCandle: 0, totalCandles: 0, progress: 0, elapsedTime: 0, estimatedTimeRemaining: 0, candlesPerSecond: 0 },
+      metrics: emptyMetrics(config.initialCapital),
+      recentTrades: [],
+      equityCurve: [{ time: 0, equity: config.initialCapital }],
+    }));
+
+    let candles: Candle[];
+    try {
+      const result = await backtestDataService.fetchHistoricalData(config.symbol, config.startDate, config.endDate, config.timeframe);
+      candles = result.candles;
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        isRunning: false,
+        error: err?.message || `Sem dado histórico real disponível para ${config.symbol}. Backtest cancelado — nunca roda sobre dado sintético.`,
+      }));
+      return;
+    }
+
+    if (candles.length < 70) {
+      setState(prev => ({
+        ...prev,
+        isRunning: false,
+        error: `Período/timeframe escolhido retornou só ${candles.length} candles reais — insuficiente para indicadores estáveis (mínimo ~70). Escolha um período maior.`,
+      }));
+      return;
+    }
+
+    const { trades, equityCurve } = runBacktest(candles, config.strategy, config.symbol, config.tradeDirection, config.initialCapital);
+
+    // Revela os trades já calculados aos poucos, só para dar sensação de execução ao vivo —
+    // os números finais já estão 100% definidos aqui, a animação não afeta o resultado.
+    startTimeRef.current = Date.now();
+    let revealIndex = 0;
+    const totalCandles = candles.length;
+    const stepCandles = Math.max(1, Math.floor(totalCandles / 200));
+
+    revealIntervalRef.current = setInterval(() => {
+      revealIndex = Math.min(revealIndex + stepCandles, totalCandles);
+
+      const visibleTrades = trades.filter(t => t.candleIndex <= revealIndex);
+      const visibleEquityPoints = equityCurve.filter(p => p.time <= revealIndex);
+      const currentEquity = visibleEquityPoints.length > 0 ? visibleEquityPoints[visibleEquityPoints.length - 1].equity : config.initialCapital;
+      const peakEquity = visibleEquityPoints.reduce((max, p) => Math.max(max, p.equity), config.initialCapital);
+
+      const elapsedTime = (Date.now() - startTimeRef.current) / 1000;
+      const progressPercent = (revealIndex / totalCandles) * 100;
+      const candlesPerSecond = elapsedTime > 0 ? revealIndex / elapsedTime : 0;
+      const estimatedTimeRemaining = candlesPerSecond > 0 ? (totalCandles - revealIndex) / candlesPerSecond : 0;
+
+      setState(prev => ({
+        ...prev,
+        progress: { currentCandle: revealIndex, totalCandles, progress: progressPercent, elapsedTime, estimatedTimeRemaining, candlesPerSecond },
+        metrics: calculateMetrics(visibleTrades, currentEquity, config.initialCapital, peakEquity),
+        recentTrades: [...visibleTrades].reverse().slice(0, 10),
+        equityCurve: visibleEquityPoints,
+      }));
+
+      if (revealIndex >= totalCandles) {
+        if (revealIntervalRef.current) clearInterval(revealIntervalRef.current);
+        revealIntervalRef.current = null;
+        setState(prev => ({ ...prev, isRunning: false }));
+      }
+    }, 30);
+  }, []);
+
+  return { ...state, start, pause, resume, stop };
 }

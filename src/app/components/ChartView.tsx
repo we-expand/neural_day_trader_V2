@@ -53,6 +53,8 @@ import { BacktestDecisionsPanel } from '@/app/components/backtest/BacktestDecisi
 import { AIvsTraderMode } from '@/app/components/backtest/AIvsTraderMode';
 import { BacktestErrorBoundary } from '@/app/components/backtest/BacktestErrorBoundary';
 import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
+import { useStrategies } from '@/app/hooks/useStrategies';
+import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
 import { fetchCandles, fetchQuote, calculateDailyChange } from '@/app/services/market-service';
@@ -483,8 +485,9 @@ export function ChartView() {
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
   const [isReplayMode, setIsReplayMode] = useState(false); // 🆕 Flag para modo replay (efeito visual)
   
-  // 🎯 BACKTEST LIVE PROGRESS
+  // 🎯 BACKTEST LIVE PROGRESS (motor real: estratégia + candles históricos reais)
   const backtestProgress = useBacktestLiveProgress(10000);
+  const { strategies, saveStrategy } = useStrategies();
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
   const [showAIvsTrader, setShowAIvsTrader] = useState(false);
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
@@ -3863,7 +3866,7 @@ export function ChartView() {
         }}
       />
 
-      {/* 🎬 BACKTEST / REPLAY BAR - Barra de controle no rodapé */}
+      {/* 🎬 BACKTEST / REPLAY BAR - Barra de controle no rodapé (cobre o catálogo inteiro de ativos) */}
       {showBacktestReplay && (
         <BacktestReplayBar
           onClose={() => {
@@ -3883,22 +3886,43 @@ export function ChartView() {
         />
       )}
 
-      {/* ⚙️ BACKTEST CONFIG MODAL - Configuração de backtest */}
+      {/* ⚙️ BACKTEST CONFIG MODAL - Configuração de backtest real */}
       <BacktestConfigModal
         isOpen={showBacktestConfig}
         onClose={() => setShowBacktestConfig(false)}
+        strategies={strategies}
         onStart={(config) => {
-          console.log('[ChartView] 🚀 Iniciando backtest:', config);
+          const strategy = strategies.find(s => s.id === config.strategyId);
+          if (!strategy) {
+            toast.error('Selecione uma estratégia (pronta ou customizada) antes de iniciar o backtest.');
+            return;
+          }
+
+          console.log('[ChartView] 🚀 Iniciando backtest real:', { config, strategy: strategy.name });
           setShowBacktestConfig(false);
-          toast.success('Backtest iniciado com sucesso!');
-          // 🚀 Iniciar backtest com progresso ao vivo
-          backtestProgress.start(1000, 50); // 1000 candles, 50ms por candle
+          toast.success(`Backtest "${strategy.name}" iniciado — buscando dados históricos reais...`);
+
+          backtestProgress.start({
+            strategy,
+            symbol: config.asset,
+            startDate: new Date(config.startDate),
+            endDate: new Date(config.endDate),
+            timeframe: (config.timeframe === '30m' ? '15m' : config.timeframe) as any, // 30m não existe em BacktestDataService; cai pro timeframe real mais próximo suportado
+            tradeDirection: config.tradeDirection,
+            initialCapital: 10000,
+          });
         }}
         onCreateStrategy={() => {
           setShowBacktestConfig(false);
           setShowStrategyBuilder(true);
         }}
       />
+
+      {backtestProgress.error && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] bg-red-950/95 border border-red-600 text-red-200 px-4 py-3 rounded-lg shadow-xl max-w-md text-sm">
+          ⚠️ {backtestProgress.error}
+        </div>
+      )}
 
       {/* 📊 BACKTEST LIVE PROGRESS - Visualização em tempo real */}
       {backtestProgress.isRunning && (
@@ -3919,11 +3943,32 @@ export function ChartView() {
       <StrategyBuilderPro
         isOpen={showStrategyBuilder}
         onClose={() => setShowStrategyBuilder(false)}
-        onSave={(strategy) => {
-          console.log('[ChartView] 💾 Estratégia salva:', strategy);
+        onSave={async (strategy) => {
+          const unified: StrategyDef = {
+            id: `draft-${strategy.id}`,
+            name: strategy.name,
+            description: strategy.description || '',
+            isPreset: false,
+            entryBlocks: strategy.entryBlocks as any,
+            exitBlocks: strategy.exitBlocks as any,
+            filterBlocks: strategy.filterBlocks as any,
+            direction: 'AUTO',
+            stopLoss: strategy.stopLoss,
+            takeProfit: strategy.takeProfit,
+            trailingStop: strategy.trailingStop,
+            riskProfile: 'MODERATE',
+            positionSizePercent: 2,
+            timeframe: (strategy.timeframe as any) || '15m',
+            maxConcurrentTrades: strategy.maxConcurrentTrades,
+          };
+
+          const saved = await saveStrategy(unified);
           setShowStrategyBuilder(false);
-          toast.success(`Estratégia "${strategy.name}" salva com sucesso!`);
-          // TODO: Salvar estratégia no Supabase
+          if (saved) {
+            toast.success(`Estratégia "${strategy.name}" salva — já disponível no Backtest e na IA.`);
+          } else {
+            toast.error('Não foi possível salvar a estratégia (faça login e tente de novo).');
+          }
         }}
       />
 

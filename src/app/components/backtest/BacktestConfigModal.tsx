@@ -38,18 +38,27 @@ interface BacktestConfig {
   strategyId: string | null;
 }
 
+interface StrategySummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
 interface BacktestConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   onStart: (config: BacktestConfig) => void;
   onCreateStrategy: () => void;
+  /** Estratégias reais (prontas + customizadas pelo usuário) — vem de useStrategies(). */
+  strategies?: StrategySummary[];
 }
 
-export function BacktestConfigModal({ 
-  isOpen, 
-  onClose, 
+export function BacktestConfigModal({
+  isOpen,
+  onClose,
   onStart,
-  onCreateStrategy 
+  onCreateStrategy,
+  strategies: strategiesProp,
 }: BacktestConfigModalProps) {
   const [config, setConfig] = useState<BacktestConfig>({
     asset: 'BTCUSD',
@@ -96,8 +105,9 @@ export function BacktestConfigModal({
     { value: '1d', label: '1 dia' }
   ];
 
-  // Estratégias salvas
-  const savedStrategies = [
+  // Estratégias reais (prontas + customizadas pelo usuário), passadas pelo pai via useStrategies().
+  // Fallback local só pra o modal continuar renderizando algo se for usado sem o provider (ex: storybook).
+  const savedStrategies: StrategySummary[] = strategiesProp ?? [
     { id: '1', name: 'Rompimento', description: 'Estratégia de rompimento de suporte/resistência' },
     { id: '2', name: 'TDSM_98', description: 'Tendência + RSI divergência' },
     { id: '3', name: 'Indicador de Retrocessos', description: 'Fibonacci + EMA' },

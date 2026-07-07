@@ -1,5 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect } from 'react';
 import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats } from '../hooks/useApexLogic';
+import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { useMarketContext } from './MarketContext';
 
@@ -91,12 +92,16 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
   
+  // 🆕 Estratégias reais (prontas + customizadas) — a IA ao vivo roda exatamente
+  // a estratégia selecionada em aiConfig.activeStrategyId, mesma lógica do Backtest
+  const { strategies } = useStrategies();
+
   // Initialize the hook once here, so it persists across page navigations
   // ✅ SEMPRE chamar hooks na mesma ordem (Rules of Hooks)
   const logic = useApexLogic({
     prices: marketContext?.marketState?.prices || {}, // ✅ Fallback seguro
     mt5Offset: 0
-  });
+  }, strategies);
   
   // Legacy functions mapped to new logic - memoized to prevent infinite loops
   const toggleAI = useCallback(() => {

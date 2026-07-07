@@ -28,10 +28,11 @@ interface UseBacktestReplayReturn {
   speed: ReplaySpeed;
   selectedDate: Date;
   timeframe: Timeframe;
+  symbol: string;
   progress: number; // 0-100
-  
+
   // Ações
-  startReplay: (date: Date, timeframe: Timeframe) => Promise<void>;
+  startReplay: (date: Date, timeframe: Timeframe, symbol?: string) => Promise<void>;
   stopReplay: () => void;
   togglePlayPause: () => void;
   setSpeed: (speed: ReplaySpeed) => void;
@@ -53,6 +54,7 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
   const [speed, setSpeed] = useState<ReplaySpeed>(1);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [timeframe, setTimeframe] = useState<Timeframe>('1m');
+  const [symbol, setSymbol] = useState<string>('BTCUSD');
   const [error, setError] = useState<string | null>(null);
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -84,28 +86,31 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
   /**
    * Inicia o replay
    */
-  const startReplay = useCallback(async (date: Date, tf: Timeframe) => {
-    console.log('[BACKTEST_REPLAY] 🚀 Iniciando replay:', { date, timeframe: tf });
-    
+  const startReplay = useCallback(async (date: Date, tf: Timeframe, sym: string = 'BTCUSD') => {
+    console.log('[BACKTEST_REPLAY] 🚀 Iniciando replay:', { date, timeframe: tf, symbol: sym });
+
     setState('loading');
     setError(null);
     setSelectedDate(date);
     setTimeframe(tf);
+    setSymbol(sym);
 
     try {
       // Buscar dados do dia inteiro
       const startOfDay = new Date(date);
       startOfDay.setHours(0, 0, 0, 0);
-      
+
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
       console.log('[BACKTEST_REPLAY] 📊 Buscando dados:', {
+        symbol: sym,
         start: startOfDay.toISOString(),
         end: endOfDay.toISOString()
       });
 
       const result = await backtestDataService.fetchHistoricalData(
+        sym,
         startOfDay,
         endOfDay,
         tf
@@ -268,8 +273,9 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
     speed,
     selectedDate,
     timeframe,
+    symbol,
     progress,
-    
+
     // Ações
     startReplay,
     stopReplay,

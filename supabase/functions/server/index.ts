@@ -3784,10 +3784,155 @@ app.post('/mt5-candles', async (c) => {
         
     } catch (error: any) {
         console.error('[MT5 CANDLES] ❌ Erro crítico:', error.message);
-        return c.json({ 
+        return c.json({
             error: error.message,
-            stack: error.stack 
+            stack: error.stack
         }, 500);
+    }
+});
+
+// 🕰️ MT5 CANDLES HISTORY — histórico de candles num intervalo arbitrário
+// (startTime/endTime), para o Backtest e o Replay de Mercado multi-ativo.
+// Diferença deliberada de /mt5-candles: essa rota NUNCA cai em dados
+// SIMULADOS silenciosamente. Se o token/conta/símbolo não tiver dado real
+// disponível, retorna erro explícito — precisão do backtest/replay depende
+// de nunca disfarçar dado sintético como se fosse real.
+app.post('/mt5-candles-history', async (c) => {
+    try {
+        const { symbol, timeframe, startTime, endTime, token, accountId } = await c.req.json();
+
+        if (!symbol || !timeframe || !startTime || !endTime) {
+            return c.json({
+                success: false,
+                error: 'Parâmetros obrigatórios ausentes (symbol, timeframe, startTime, endTime)'
+            }, 400);
+        }
+
+        const metaapiToken = await getMetaApiToken(token);
+        const isInvalidToken = !metaapiToken ||
+                              metaapiToken === 'your-token' ||
+                              metaapiToken.length < 20 ||
+                              !metaapiToken.startsWith('eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9');
+
+        if (isInvalidToken) {
+            return c.json({
+                success: false,
+                error: 'TOKEN_INVALID',
+                message: 'Nenhum token MetaAPI válido configurado — sem fonte de dado real disponível para este ativo.'
+            }, 422);
+        }
+
+        let metaapiAccountId = accountId || Deno.env.get('METAAPI_ACCOUNT_ID');
+        if (!metaapiAccountId || metaapiAccountId.length < 10) {
+            try {
+                const accountsRes = await fetch('https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts', {
+                    headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }
+                });
+                if (accountsRes.ok) {
+                    const accounts = await accountsRes.json();
+                    if (accounts && accounts.length > 0) metaapiAccountId = accounts[0].id;
+                }
+            } catch (err) {
+                console.warn('[MT5 CANDLES HISTORY] ⚠️ Falha ao buscar Account ID:', err);
+            }
+        }
+
+        if (!metaapiAccountId || metaapiAccountId.length < 10) {
+            return c.json({
+                success: false,
+                error: 'NO_ACCOUNT',
+                message: 'Nenhuma conta MT5 configurada — sem fonte de dado real disponível para este ativo.'
+            }, 422);
+        }
+
+        const timeframeMap: Record<string, string> = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1H': '1h', '1h': '1h', '4H': '4h', '4h': '4h', '1D': '1d', '1d': '1d', '1W': '1w'
+        };
+        const mt5Timeframe = timeframeMap[timeframe] || '1h';
+        const msPerCandle: Record<string, number> = {
+            '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
+            '1h': 3_600_000, '4h': 4 * 3_600_000, '1d': 86_400_000, '1w': 7 * 86_400_000
+        };
+        const chunkMs = 1000 * (msPerCandle[mt5Timeframe] || 3_600_000); // ~1000 candles por chamada
+
+        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
+        const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
+
+        const requestedStart = new Date(startTime).getTime();
+        const requestedEnd = new Date(endTime).getTime();
+
+        const allCandles: any[] = [];
+        let currentEnd = requestedEnd;
+        let iterations = 0;
+        const MAX_ITERATIONS = 60; // trava de segurança (não bate a corretora indefinidamente)
+
+        while (currentEnd > requestedStart && iterations < MAX_ITERATIONS) {
+            iterations++;
+            const currentStart = Math.max(currentEnd - chunkMs, requestedStart);
+
+            const response = await fetch(
+                `${candlesUrl}?startTime=${new Date(currentStart).toISOString()}&endTime=${new Date(currentEnd).toISOString()}&timeframe=${mt5Timeframe}`,
+                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } }
+            );
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                return c.json({
+                    success: false,
+                    error: 'METAAPI_ERROR',
+                    message: `MetaAPI retornou HTTP ${response.status} — não há dado real disponível para ${symbol} nesse intervalo.`,
+                    detail: errorText
+                }, 502);
+            }
+
+            const chunk = await response.json();
+            if (!Array.isArray(chunk) || chunk.length === 0) break;
+
+            allCandles.push(...chunk);
+            const earliestInChunk = Math.min(...chunk.map((c: any) => new Date(c.time).getTime()));
+            if (earliestInChunk >= currentEnd) break; // sem progresso, evita loop infinito
+            currentEnd = earliestInChunk - 1;
+
+            // Delay leve para não estourar rate limit da corretora
+            await new Promise(resolve => setTimeout(resolve, 150));
+        }
+
+        if (allCandles.length === 0) {
+            return c.json({
+                success: false,
+                error: 'NO_DATA',
+                message: `Sem histórico real disponível para ${symbol} no intervalo solicitado.`
+            }, 404);
+        }
+
+        const dedup = new Map<number, any>();
+        for (const c2 of allCandles) dedup.set(new Date(c2.time).getTime(), c2);
+
+        const formattedCandles = Array.from(dedup.values())
+            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+            .map((cd: any) => ({
+                timestamp: new Date(cd.time).getTime(),
+                open: cd.open || 0,
+                high: cd.high || 0,
+                low: cd.low || 0,
+                close: cd.close || 0,
+                volume: cd.tickVolume || cd.realVolume || 0,
+            }));
+
+        return c.json({
+            success: true,
+            source: 'metaapi',
+            symbol,
+            timeframe: mt5Timeframe,
+            count: formattedCandles.length,
+            candles: formattedCandles,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error: any) {
+        console.error('[MT5 CANDLES HISTORY] ❌ Erro crítico:', error.message);
+        return c.json({ success: false, error: error.message }, 500);
     }
 });
 

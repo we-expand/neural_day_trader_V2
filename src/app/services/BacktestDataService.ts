@@ -1,17 +1,20 @@
 /**
  * 🔄 BACKTEST DATA SERVICE
- * 
- * Serviço isolado para buscar dados históricos de candles
- * para o sistema de Replay de Mercado
- * 
- * FEATURES:
- * - Busca dados históricos de Bitcoin (Binance)
- * - Suporta múltiplos timeframes (1m, 5m, 15m, 1h, 4h, 1d)
- * - Cache de dados para performance
- * - Máximo de candles: 1000 por requisição (limite Binance)
+ *
+ * Busca dados históricos REAIS de candles para Backtest e Replay de Mercado,
+ * cobrindo o catálogo inteiro de ativos (não só BTCUSDT como antes):
+ * - Cripto listada na Binance: klines direto da API pública da Binance.
+ * - Forex/índices/commodities/ações: rota /mt5-candles-history (MetaAPI, conta
+ *   de plataforma), que pagina o intervalo pedido e NUNCA cai em dado sintético
+ *   silencioso — erro explícito quando não há fonte real disponível.
+ *
+ * Ativos sem fonte real mapeável (não estão na Binance nem são oferecidos pela
+ * corretora via MetaAPI) devem ser marcados como indisponíveis pela UI, nunca
+ * preenchidos com dado fake.
  */
+import { supabase } from '@/lib/supabaseClient';
 
-interface CandleData {
+export interface CandleData {
   time: number; // timestamp em ms
   open: number;
   high: number;
@@ -20,192 +23,225 @@ interface CandleData {
   volume: number;
 }
 
-interface HistoricalDataResponse {
+export interface HistoricalDataResponse {
   candles: CandleData[];
   startTime: number;
   endTime: number;
   totalCandles: number;
+  source: 'binance' | 'metaapi';
 }
 
-type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
+
+export class BacktestDataUnavailableError extends Error {
+  constructor(public symbol: string, message: string) {
+    super(message);
+    this.name = 'BacktestDataUnavailableError';
+  }
+}
+
+// Prefixos/códigos do catálogo (AssetUniverse.tsx) que não batem 1:1 com o
+// código base usado pela Binance — mapeamento manual dos casos conhecidos.
+const CRYPTO_CATALOG_TO_BINANCE_BASE: Record<string, string> = {
+  XBNUSD: 'BTC', BTCUSD: 'BTC',
+  XETUSD: 'ETH', XETEUR: 'ETH', XETLC: 'ETC',
+  ETCUSD: 'ETC',
+};
+
+let binanceSymbolsCache: Set<string> | null = null;
+async function getBinanceListedSymbols(): Promise<Set<string>> {
+  if (binanceSymbolsCache) return binanceSymbolsCache;
+  try {
+    const res = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+    if (!res.ok) throw new Error(`Binance exchangeInfo HTTP ${res.status}`);
+    const data = await res.json();
+    binanceSymbolsCache = new Set((data.symbols || []).map((s: any) => s.symbol as string));
+  } catch (error) {
+    console.warn('[BACKTEST_DATA] ⚠️ Falha ao carregar exchangeInfo da Binance', error);
+    binanceSymbolsCache = new Set();
+  }
+  return binanceSymbolsCache;
+}
+
+/** Resolve o ticker da Binance para um símbolo do catálogo, ou null se não houver correspondência real. */
+export async function resolveBinanceTicker(catalogSymbol: string): Promise<string | null> {
+  const symbols = await getBinanceListedSymbols();
+
+  const mapped = CRYPTO_CATALOG_TO_BINANCE_BASE[catalogSymbol];
+  const base = mapped ?? (catalogSymbol.endsWith('USD') ? catalogSymbol.slice(0, -3) : null);
+  if (!base) return null;
+
+  const candidate = `${base}USDT`;
+  return symbols.has(candidate) ? candidate : null;
+}
 
 class BacktestDataService {
   private cache: Map<string, CandleData[]> = new Map();
-  private baseUrl = 'https://api.binance.com/api/v3';
+  private binanceBaseUrl = 'https://api.binance.com/api/v3';
 
-  /**
-   * Converte timeframe para formato Binance
-   */
   private getIntervalFromTimeframe(timeframe: Timeframe): string {
     const map: Record<Timeframe, string> = {
-      '1m': '1m',
-      '5m': '5m',
-      '15m': '15m',
-      '1h': '1h',
-      '4h': '4h',
-      '1d': '1d'
+      '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d',
     };
     return map[timeframe];
   }
 
+  private cacheKey(symbol: string, timeframe: Timeframe, startDate: Date, endDate: Date): string {
+    return `${symbol}_${timeframe}_${startDate.getTime()}_${endDate.getTime()}`;
+  }
+
   /**
-   * Busca dados históricos do Bitcoin
-   * @param startDate Data inicial
-   * @param endDate Data final
-   * @param timeframe Timeframe dos candles
+   * Busca dados históricos reais para qualquer símbolo do catálogo.
+   * Lança `BacktestDataUnavailableError` se não houver fonte real disponível
+   * — nunca retorna dado sintético disfarçado de real.
    */
   async fetchHistoricalData(
+    catalogSymbol: string,
     startDate: Date,
     endDate: Date,
-    timeframe: Timeframe = '1m'
+    timeframe: Timeframe = '1h'
   ): Promise<HistoricalDataResponse> {
-    const cacheKey = `BTCUSDT_${timeframe}_${startDate.getTime()}_${endDate.getTime()}`;
-
-    console.log('[BACKTEST_DATA] 📊 Buscando dados históricos:', {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      timeframe
-    });
-
-    // Verificar cache
+    const cacheKey = this.cacheKey(catalogSymbol, timeframe, startDate, endDate);
     if (this.cache.has(cacheKey)) {
-      console.log('[BACKTEST_DATA] ✅ Dados encontrados no cache');
       const candles = this.cache.get(cacheKey)!;
       return {
         candles,
         startTime: candles[0].time,
         endTime: candles[candles.length - 1].time,
-        totalCandles: candles.length
-      };
-    }
-
-    try {
-      const interval = this.getIntervalFromTimeframe(timeframe);
-      const startTime = startDate.getTime();
-      const endTime = endDate.getTime();
-
-      // Binance API: https://api.binance.com/api/v3/klines
-      const url = `${this.baseUrl}/klines?symbol=BTCUSDT&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=1000`;
-
-      console.log('[BACKTEST_DATA] 🌐 Chamando Binance API:', url);
-
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`Binance API error: ${response.status}`);
-      }
-
-      const rawData: any[] = await response.json();
-
-      // Converter para formato interno
-      const candles: CandleData[] = rawData.map((item: any) => ({
-        time: item[0], // timestamp
-        open: parseFloat(item[1]),
-        high: parseFloat(item[2]),
-        low: parseFloat(item[3]),
-        close: parseFloat(item[4]),
-        volume: parseFloat(item[5])
-      }));
-
-      console.log('[BACKTEST_DATA] ✅ Dados recebidos:', {
         totalCandles: candles.length,
-        firstCandle: new Date(candles[0].time).toISOString(),
-        lastCandle: new Date(candles[candles.length - 1].time).toISOString()
-      });
-
-      // Salvar no cache
-      this.cache.set(cacheKey, candles);
-
-      return {
-        candles,
-        startTime: candles[0].time,
-        endTime: candles[candles.length - 1].time,
-        totalCandles: candles.length
+        source: 'binance',
       };
-
-    } catch (error) {
-      console.error('[BACKTEST_DATA] ❌ Erro ao buscar dados:', error);
-      throw error;
     }
+
+    const binanceTicker = await resolveBinanceTicker(catalogSymbol);
+    const result = binanceTicker
+      ? await this.fetchFromBinance(binanceTicker, startDate, endDate, timeframe)
+      : await this.fetchFromMetaApiHistory(catalogSymbol, startDate, endDate, timeframe);
+
+    this.cache.set(cacheKey, result.candles);
+    return result;
   }
 
-  /**
-   * Busca múltiplos intervalos (para períodos muito longos)
-   * Binance tem limite de 1000 candles por requisição
-   */
-  async fetchHistoricalDataChunked(
+  private async fetchFromBinance(
+    binanceTicker: string,
     startDate: Date,
     endDate: Date,
-    timeframe: Timeframe = '1m'
+    timeframe: Timeframe
   ): Promise<HistoricalDataResponse> {
-    console.log('[BACKTEST_DATA] 📦 Buscando dados em chunks...');
+    const interval = this.getIntervalFromTimeframe(timeframe);
+    const msPerCandle: Record<Timeframe, number> = {
+      '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '1h': 3_600_000, '4h': 4 * 3_600_000, '1d': 86_400_000,
+    };
+    const chunkMs = 1000 * msPerCandle[timeframe];
 
     const allCandles: CandleData[] = [];
-    const chunkSize = this.getChunkSizeInMs(timeframe);
     let currentStart = startDate.getTime();
     const finalEnd = endDate.getTime();
 
     while (currentStart < finalEnd) {
-      const currentEnd = Math.min(currentStart + chunkSize, finalEnd);
-      
-      const chunk = await this.fetchHistoricalData(
-        new Date(currentStart),
-        new Date(currentEnd),
-        timeframe
-      );
-
-      allCandles.push(...chunk.candles);
+      const currentEnd = Math.min(currentStart + chunkMs, finalEnd);
+      const url = `${this.binanceBaseUrl}/klines?symbol=${binanceTicker}&interval=${interval}&startTime=${currentStart}&endTime=${currentEnd}&limit=1000`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new BacktestDataUnavailableError(binanceTicker, `Binance API HTTP ${response.status}`);
+      }
+      const rawData: any[] = await response.json();
+      allCandles.push(...rawData.map((item: any) => ({
+        time: item[0],
+        open: parseFloat(item[1]),
+        high: parseFloat(item[2]),
+        low: parseFloat(item[3]),
+        close: parseFloat(item[4]),
+        volume: parseFloat(item[5]),
+      })));
       currentStart = currentEnd;
-
-      // Delay para não exceder rate limit
-      await new Promise(resolve => setTimeout(resolve, 200));
+      if (finalEnd - currentStart > 0) await new Promise(resolve => setTimeout(resolve, 150));
     }
 
-    console.log('[BACKTEST_DATA] ✅ Total de candles carregados:', allCandles.length);
+    if (allCandles.length === 0) {
+      throw new BacktestDataUnavailableError(binanceTicker, 'Binance retornou 0 candles para o intervalo pedido');
+    }
 
     return {
       candles: allCandles,
       startTime: allCandles[0].time,
       endTime: allCandles[allCandles.length - 1].time,
-      totalCandles: allCandles.length
+      totalCandles: allCandles.length,
+      source: 'binance',
     };
   }
 
-  /**
-   * Calcula tamanho do chunk baseado no timeframe
-   * Para não exceder 1000 candles por requisição
-   */
-  private getChunkSizeInMs(timeframe: Timeframe): number {
-    const msPerCandle: Record<Timeframe, number> = {
-      '1m': 60 * 1000,
-      '5m': 5 * 60 * 1000,
-      '15m': 15 * 60 * 1000,
-      '1h': 60 * 60 * 1000,
-      '4h': 4 * 60 * 60 * 1000,
-      '1d': 24 * 60 * 60 * 1000
+  private async fetchFromMetaApiHistory(
+    catalogSymbol: string,
+    startDate: Date,
+    endDate: Date,
+    timeframe: Timeframe
+  ): Promise<HistoricalDataResponse> {
+    const timeframeMap: Record<Timeframe, string> = {
+      '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D',
     };
 
-    // 1000 candles por chunk (limite Binance)
-    return 1000 * msPerCandle[timeframe];
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/server/mt5-candles-history`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify({
+        symbol: catalogSymbol,
+        timeframe: timeframeMap[timeframe],
+        startTime: startDate.toISOString(),
+        endTime: endDate.toISOString(),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new BacktestDataUnavailableError(
+        catalogSymbol,
+        data?.message || `Sem dado histórico real disponível para ${catalogSymbol}`
+      );
+    }
+
+    const candles: CandleData[] = data.candles.map((c: any) => ({
+      time: c.timestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+    }));
+
+    return {
+      candles,
+      startTime: candles[0].time,
+      endTime: candles[candles.length - 1].time,
+      totalCandles: candles.length,
+      source: 'metaapi',
+    };
   }
 
-  /**
-   * Limpa o cache
-   */
+  /** Checa (sem buscar histórico completo) se um símbolo do catálogo tem fonte real disponível. */
+  async hasRealDataSource(catalogSymbol: string): Promise<boolean> {
+    const binanceTicker = await resolveBinanceTicker(catalogSymbol);
+    if (binanceTicker) return true;
+    // Para MetaAPI não dá pra confirmar sem uma chamada real; assume disponível
+    // (a UI trata o erro explícito da rota se não for o caso) para os símbolos
+    // que a IA já opera de fato hoje.
+    return true;
+  }
+
   clearCache(): void {
-    console.log('[BACKTEST_DATA] 🗑️ Cache limpo');
     this.cache.clear();
   }
 
-  /**
-   * Obtém dados do cache (se existir)
-   */
-  getCachedData(startDate: Date, endDate: Date, timeframe: Timeframe): CandleData[] | null {
-    const cacheKey = `BTCUSDT_${timeframe}_${startDate.getTime()}_${endDate.getTime()}`;
-    return this.cache.get(cacheKey) || null;
+  getCachedData(catalogSymbol: string, startDate: Date, endDate: Date, timeframe: Timeframe): CandleData[] | null {
+    return this.cache.get(this.cacheKey(catalogSymbol, timeframe, startDate, endDate)) || null;
   }
 }
 
-// Singleton
 export const backtestDataService = new BacktestDataService();
-export type { CandleData, HistoricalDataResponse, Timeframe };

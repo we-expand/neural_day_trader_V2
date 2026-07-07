@@ -23,6 +23,17 @@ import {
 } from 'lucide-react';
 import { useBacktestReplay, ReplaySpeed } from '../../hooks/useBacktestReplay';
 import { Timeframe } from '../../services/BacktestDataService';
+import { ASSET_DATABASE } from '../config/AssetUniverse';
+
+// Catálogo inteiro (341 ativos) achatado para o seletor — cobertura real
+// depende do BacktestDataService (Binance pra cripto listada lá, MetaAPI pro
+// resto); se um símbolo não tiver fonte real, o Start retorna erro explícito
+// em vez de mostrar dado sintético.
+const FLAT_ASSETS = ASSET_DATABASE.flatMap(category =>
+  category.assets.flatMap(group =>
+    group.items.map(item => ({ symbol: item.symbol, display: item.display, category: category.label }))
+  )
+);
 
 interface BacktestReplayBarProps {
   onClose: () => void;
@@ -31,13 +42,14 @@ interface BacktestReplayBarProps {
 
 export function BacktestReplayBar({ onClose, onCandleChange }: BacktestReplayBarProps) {
   const replay = useBacktestReplay();
-  
+
+  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
   const [selectedDate, setSelectedDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 1);
     return date.toISOString().split('T')[0];
   });
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1m');
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1h');
 
   // Formatar tempo (MM:SS)
   const formatTime = (seconds: number): string => {
@@ -48,7 +60,7 @@ export function BacktestReplayBar({ onClose, onCandleChange }: BacktestReplayBar
 
   const handleStartReplay = async () => {
     const date = new Date(selectedDate);
-    await replay.startReplay(date, selectedTimeframe);
+    await replay.startReplay(date, selectedTimeframe, selectedSymbol);
   };
 
   const handleSpeedChange = () => {
@@ -78,13 +90,26 @@ export function BacktestReplayBar({ onClose, onCandleChange }: BacktestReplayBar
             <RotateCcw className="w-3.5 h-3.5 text-white" />
           </div>
 
-          {/* Asset Badge */}
-          <div className="flex items-center gap-1.5 bg-zinc-800 rounded px-2 py-1">
-            <div className="w-4 h-4 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center">
-              <span className="text-[9px] font-bold text-white">₿</span>
-            </div>
-            <span className="text-xs text-slate-300 font-medium">BTCUSD</span>
-          </div>
+          {/* Asset Picker — catálogo inteiro */}
+          <select
+            value={selectedSymbol}
+            onChange={(e) => setSelectedSymbol(e.target.value)}
+            disabled={isActive}
+            className="bg-zinc-800 text-slate-300 text-xs rounded px-2 py-1 border border-zinc-700 focus:border-orange-500 focus:outline-none disabled:opacity-50 max-w-[160px]"
+          >
+            {Object.entries(
+              FLAT_ASSETS.reduce<Record<string, typeof FLAT_ASSETS>>((acc, asset) => {
+                (acc[asset.category] ||= []).push(asset);
+                return acc;
+              }, {})
+            ).map(([category, assets]) => (
+              <optgroup key={category} label={category}>
+                {assets.map(asset => (
+                  <option key={asset.symbol} value={asset.symbol}>{asset.display}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
 
           {/* Date Picker */}
           <div className="relative">
@@ -216,6 +241,13 @@ export function BacktestReplayBar({ onClose, onCandleChange }: BacktestReplayBar
               </span>
             </div>
           </>
+        )}
+
+        {/* Erro explícito — nunca mostramos dado sintético como se fosse real */}
+        {replay.error && (
+          <div className="text-xs text-red-400 max-w-[260px] truncate" title={replay.error}>
+            ⚠️ {replay.error}
+          </div>
         )}
 
         {/* RIGHT: Close */}

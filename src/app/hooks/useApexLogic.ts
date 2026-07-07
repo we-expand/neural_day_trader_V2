@@ -5,6 +5,11 @@ import { ApexLogicCore } from '../../lib/modules/ApexLogicCore';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
 import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
 import { analyzeMarketStructure, makeSmartTradingDecision } from '@/app/services/KeyLevelsEngine'; // 🎯 KEY LEVELS ENGINE
+import { Strategy as StrategyDef } from '@/app/types/strategy';
+import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
+import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
+import { calculateRSI } from '@/app/services/indicators/TechnicalIndicators';
+import { backtestDataService } from '@/app/services/BacktestDataService';
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -130,6 +135,10 @@ export interface AIConfig {
   newsFilter: boolean; // Filtro de notícias econômicas
   dailyLossLimit: number; // Limite de perda diária (%)
   metaApiToken?: string; // 🔑 Token do MetaApi para integração MT5
+  // 🆕 Estratégia ativa (pronta ou customizada) — o motor de decisão passa a
+  // rodar exatamente essa estratégia via evaluateStrategyAt, a mesma função
+  // usada pelo Backtest. null = nenhuma selecionada (ciclo é pulado).
+  activeStrategyId: string | null;
 }
 
 export interface MarketContext {
@@ -262,6 +271,7 @@ const INITIAL_STATE: ApexLogicState = {
     newsFilter: true, // Filtro de notícias econômicas
     dailyLossLimit: 5, // Limite de perda diária (%)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
+    activeStrategyId: '2', // Padrão: "TDSM_98" (tendência + RSI), mesma estratégia disponível no Backtest
   },
   mt5Credentials: null,
   executionMode: 'DEMO',
@@ -281,7 +291,15 @@ const INITIAL_STATE: ApexLogicState = {
   maxCandlesBeforeForceEntry: 5, // Default: force entry after 5 candles
 };
 
-export function useApexLogic(initialMarketContext?: MarketContext) {
+export function useApexLogic(initialMarketContext?: MarketContext, strategies: StrategyDef[] = PRESET_STRATEGIES) {
+  // Ref pra sempre ler a lista de estratégias mais atual dentro do setInterval sem recriar o loop
+  const strategiesRef = useRef<StrategyDef[]>(strategies);
+  useEffect(() => { strategiesRef.current = strategies; }, [strategies]);
+
+  // Buffer de candles reais por ativo, usado pelo evaluateStrategyAt (indicadores
+  // precisam de histórico, não só do preço tick a tick). Renovado a cada 60s por
+  // símbolo pra não bater a API a cada ciclo de 5s.
+  const candleBufferRef = useRef<Map<string, { candles: import('../services/indicators/TechnicalIndicators').Candle[]; fetchedAt: number }>>(new Map());
   // === STATE MANAGEMENT ===
   const [isActive, setIsActive] = useState(INITIAL_STATE.isActive);
   const [isPaused, setIsPaused] = useState(INITIAL_STATE.isPaused);
@@ -1039,83 +1057,55 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           }
           
           console.log(`[QUALIDADE] ✅ Setup aprovado: ${selectedSymbol} - Score ${confidenceScore}% (volatilidade: ${absChange.toFixed(2)}%)`);
-          
-          // 🆕 ESTRATÉGIA PROFISSIONAL - MÚLTIPLAS CONFIRMAÇÕES
-          // Em vez de seguir cegamente o momentum, vamos usar uma estratégia inteligente
-          
-          // 1. DETECÇÃO DE TENDÊNCIA COM RSI SIMULADO
-          const rsiValue = 50 + (priceChangePercent * 5); // RSI aproximado baseado em variação
-          const isOverbought = rsiValue > 70; // Zona de sobrecompra
-          const isOversold = rsiValue < 30; // Zona de sobrevenda
-          
-          // 2. MOMENTUM E FORÇA DA TENDÊNCIA
-          const strongUptrend = priceChangePercent > 2 && !isOverbought; // Forte alta sem sobrecompra
-          const strongDowntrend = priceChangePercent < -2 && !isOversold; // Forte baixa sem sobrevenda
-          
-          // 3. REVERSÃO MEAN REVERSION (contra-tendência em extremos)
-          const bullishReversal = isOversold && priceChangePercent > -1; // RSI baixo + começa a subir
-          const bearishReversal = isOverbought && priceChangePercent < 1; // RSI alto + começa a cair
-          
-          // 4. DECISÃO INTELIGENTE
-          let side: 'LONG' | 'SHORT';
-          let strategyName: string;
 
-          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode ('TREND' | 'RANGE' | 'SCALP' | 'COUNTER').
-          // Antes esse campo era salvo mas nunca lido - todo modo tinha exatamente o
-          // mesmo comportamento (reversão > tendência > momentum, sempre). Agora cada
-          // modo restringe quais sinais a estratégia pode usar:
-          // - RANGE/COUNTER: só reversão em extremos (mean-reversion) - sem tendência/momentum
-          // - TREND: só tendência forte + momentum de fallback - sem reversão
-          // - SCALP: aceita qualquer sinal (igual ao comportamento anterior), mas
-          //   com TP/SL sempre curto (ver ajuste logo abaixo, na seção de pontos)
-          const marketMode = aiConfig.marketMode;
-          const reversalAllowed = marketMode !== 'TREND';
-          const trendFollowingAllowed = marketMode !== 'RANGE' && marketMode !== 'COUNTER';
-          const momentumFallbackAllowed = marketMode !== 'RANGE' && marketMode !== 'COUNTER';
-
-          // ✅ PRIORIDADE 1: REVERSÃO EM EXTREMOS (Alta probabilidade)
-          if (reversalAllowed && bullishReversal) {
-            side = 'LONG';
-            strategyName = 'REVERSÃO DE SOBREVENDA';
-            confidenceScore += 15; // Boost de confiança
-            console.log(`[ESTRATÉGIA] 🎯 REVERSÃO BULLISH detectada! RSI: ${rsiValue.toFixed(0)} (Oversold)`);
-          } else if (reversalAllowed && bearishReversal) {
-            side = 'SHORT';
-            strategyName = 'REVERSÃO DE SOBRECOMPRA';
-            confidenceScore += 15;
-            console.log(`[ESTRATÉGIA] 🎯 REVERSÃO BEARISH detectada! RSI: ${rsiValue.toFixed(0)} (Overbought)`);
-          }
-          // ✅ PRIORIDADE 2: TENDÊNCIA FORTE COM CONFIRMAÇÃO
-          else if (trendFollowingAllowed && strongUptrend) {
-            side = 'LONG';
-            strategyName = 'TREND FOLLOWING ALTA';
-            confidenceScore += 10;
-            console.log(`[ESTRATÉGIA] 📈 TENDÊNCIA DE ALTA forte! Variação: +${priceChangePercent.toFixed(2)}%`);
-          } else if (trendFollowingAllowed && strongDowntrend) {
-            side = 'SHORT';
-            strategyName = 'TREND FOLLOWING BAIXA';
-            confidenceScore += 10;
-            console.log(`[ESTRATÉGIA] 📉 TENDÊNCIA DE BAIXA forte! Variaão: ${priceChangePercent.toFixed(2)}%`);
-          }
-          // ⚠️ PRIORIDADE 3: MOMENTUM SIMPLES (apenas se não temos melhor setup, e só se o modo permite)
-          else if (momentumFallbackAllowed) {
-            // Se não há setup claro, seguir direção do movimento mas com cautela
-            if (Math.abs(priceChangePercent) < 0.15) {
-              // Mercado muito lateral - SKIP (reduzido de 0.5% para 0.15%)
-              console.log(`[ESTRATÉGIA] ⏸️ Mercado muito lateral (${priceChangePercent.toFixed(2)}%) - AGUARDANDO SETUP MELHOR`);
-              return;
-            }
-            side = priceChangePercent > 0 ? 'LONG' : 'SHORT';
-            strategyName = 'MOMENTUM CONSERVADOR';
-            confidenceScore -= 10; // Penalidade por setup menos confiável
-            console.log(`[ESTRATÉGIA] ⚠️ Usando momentum conservador (setup secundário)`);
-          }
-          // Nenhum sinal compatível com o modo travado pelo usuário (ex: RANGE/COUNTER sem reversão detectada)
-          else {
-            console.log(`[MARKET MODE] 🚫 Nenhum sinal compatível com o modo "${marketMode}" - pulando ciclo`);
+          // 🆕 ESTRATÉGIA REAL: mesma função (evaluateStrategyAt) e mesmos indicadores
+          // reais (RSI/MACD/EMA/etc.) usados pelo Backtest — a IA ao vivo roda
+          // exatamente a estratégia escolhida pelo usuário, não mais uma lógica
+          // hardcoded própria. Antes disso existia RSI aproximado por
+          // `50 + variação%×5` e uma cascata fixa reversão→tendência→momentum,
+          // ignorando qualquer configuração de estratégia.
+          const activeStrategy = strategiesRef.current.find(s => s.id === aiConfig.activeStrategyId);
+          if (!activeStrategy) {
+            console.log(`[ESTRATÉGIA] 🚫 Nenhuma estratégia ativa selecionada - pulando ciclo`);
             return;
           }
-          
+
+          // Buffer de candles reais do ativo (renovado a cada 60s por símbolo)
+          let bufferEntry = candleBufferRef.current.get(selectedSymbol);
+          if (!bufferEntry || Date.now() - bufferEntry.fetchedAt > 60_000) {
+            try {
+              const end = new Date();
+              const start = new Date(end.getTime() - 100 * 5 * 60_000); // ~100 candles de 5m
+              const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, '5m');
+              bufferEntry = { candles: history.candles, fetchedAt: Date.now() };
+              candleBufferRef.current.set(selectedSymbol, bufferEntry);
+            } catch (error) {
+              console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} agora, pulando ciclo`, error);
+              return;
+            }
+          }
+
+          const candles = bufferEntry.candles;
+          if (candles.length < 30) {
+            console.log(`[ESTRATÉGIA] ⏸️ Histórico insuficiente de ${selectedSymbol} (${candles.length} candles) - pulando ciclo`);
+            return;
+          }
+
+          const strategySignal = evaluateStrategyAt(activeStrategy, candles, candles.length - 1);
+          if (!strategySignal.signal) {
+            console.log(`[ESTRATÉGIA] ⏸️ "${activeStrategy.name}" sem sinal em ${selectedSymbol} agora`);
+            return;
+          }
+
+          const side: 'LONG' | 'SHORT' = strategySignal.signal === 'BUY' ? 'LONG' : 'SHORT';
+          const strategyName = activeStrategy.name;
+          confidenceScore = strategySignal.confidence;
+          const rsiSeries = calculateRSI(candles, 14);
+          const rsiValue = rsiSeries[rsiSeries.length - 1] ?? 50; // RSI real do ativo, mesmo cálculo usado no evaluator
+
+          // 🔒 marketMode continua influenciando o preset de TP/SL (ver seção de pontos abaixo);
+          // a decisão de entrada em si agora vem 100% da estratégia escolhida.
+
           // VALIDAÇÃO FINAL DE CONFIANÇA
           if (confidenceScore < MIN_CONFIDENCE) {
             console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
