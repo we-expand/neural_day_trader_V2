@@ -144,6 +144,38 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
     return METAAPI_CLIENT_API_BASE;
 }
 
+// 🕯️ Candles históricos (OHLCV) vivem numa API **separada** da de tick/execução
+// (mt-market-data-client-api-v1, não mt-client-api-v1) e num formato de rota
+// diferente: /historical-market-data/symbols/:symbol/timeframes/:timeframe/candles
+// — startTime é o ponto MAIS RECENTE e os candles vêm PRA TRÁS a partir dele
+// (não um range startTime→endTime). Usar a URL/host de tick pra candles dá 404
+// pra QUALQUER símbolo (bug real encontrado em 2026-07-07: a rota
+// /mt5-candles-history sempre 404ava, mascarado até então porque o gráfico
+// caía num fallback sintético local sem avisar).
+async function getMetaApiMarketDataApiBase(token: string, accountId: string): Promise<string> {
+    const cached = metaApiRegionCache.get(`md:${accountId}`);
+    if (cached) return cached;
+
+    try {
+        const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
+            headers: { 'auth-token': token, 'Accept': 'application/json' },
+        });
+        if (res.ok) {
+            const account = await res.json();
+            const region = account?.region || (Array.isArray(account?.regions) ? account.regions[0] : null);
+            if (region) {
+                const base = `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
+                metaApiRegionCache.set(`md:${accountId}`, base);
+                return base;
+            }
+        }
+    } catch (err) {
+        console.warn('[METAAPI] ⚠️ Falha ao detectar região (market-data) da conta, usando new-york como padrão:', err);
+    }
+
+    return 'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai';
+}
+
 // Fase 3: deploy/undeploy automático por inatividade (evita pagar hospedagem MetaAPI
 // de conta ociosa — ~US$8,64/mês por conta sempre ativa). Antes de qualquer execução,
 // garante que a conta esteja com state=DEPLOYED e conectada; o cron (/broker/undeploy-inactive)
@@ -3854,25 +3886,26 @@ app.post('/mt5-candles-history', async (c) => {
             '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
             '1h': 3_600_000, '4h': 4 * 3_600_000, '1d': 86_400_000, '1w': 7 * 86_400_000
         };
-        const chunkMs = 1000 * (msPerCandle[mt5Timeframe] || 3_600_000); // ~1000 candles por chamada
-
-        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
-        const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
+        // API de candles é separada da de tick/execução (host diferente) e o
+        // endpoint carrega PRA TRÁS a partir de `startTime` (não um range) —
+        // ver getMetaApiMarketDataApiBase acima.
+        const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
+        const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
 
         const requestedStart = new Date(startTime).getTime();
         const requestedEnd = new Date(endTime).getTime();
+        const intervalMs = msPerCandle[mt5Timeframe] || 3_600_000;
 
         const allCandles: any[] = [];
-        let currentEnd = requestedEnd;
+        let cursor = requestedEnd; // ponto mais recente; anda pra trás a cada chamada
         let iterations = 0;
         const MAX_ITERATIONS = 60; // trava de segurança (não bate a corretora indefinidamente)
 
-        while (currentEnd > requestedStart && iterations < MAX_ITERATIONS) {
+        while (cursor > requestedStart && iterations < MAX_ITERATIONS) {
             iterations++;
-            const currentStart = Math.max(currentEnd - chunkMs, requestedStart);
 
             const response = await fetch(
-                `${candlesUrl}?startTime=${new Date(currentStart).toISOString()}&endTime=${new Date(currentEnd).toISOString()}&timeframe=${mt5Timeframe}`,
+                `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
                 { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } }
             );
 
@@ -3890,9 +3923,10 @@ app.post('/mt5-candles-history', async (c) => {
             if (!Array.isArray(chunk) || chunk.length === 0) break;
 
             allCandles.push(...chunk);
-            const earliestInChunk = Math.min(...chunk.map((c: any) => new Date(c.time).getTime()));
-            if (earliestInChunk >= currentEnd) break; // sem progresso, evita loop infinito
-            currentEnd = earliestInChunk - 1;
+            const times = chunk.map((c: any) => new Date(c.time).getTime());
+            const earliestInChunk = Math.min(...times);
+            if (earliestInChunk >= cursor) break; // sem progresso, evita loop infinito
+            cursor = earliestInChunk - intervalMs; // próxima página: pra trás a partir daqui
 
             // Delay leve para não estourar rate limit da corretora
             await new Promise(resolve => setTimeout(resolve, 150));
