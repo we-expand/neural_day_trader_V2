@@ -3245,9 +3245,9 @@ app.post('/mt5-prices', async (c) => {
         console.log(`[MT5 PRICES] 📊 Buscando preços de ${symbols.length} ativos...`);
         console.log(`[MT5 PRICES] 🔑 Token válido detectado (${metaapiToken.length} chars)`);
         
-        // Buscar lista de contas do usuário via MetaAPI
-        let metaapiAccountId = accountId; // Tentar usar o accountId passado primeiro
-        
+        // Buscar Account ID: body > ENV (conta de plataforma) > auto-discovery
+        let metaapiAccountId = accountId || Deno.env.get('METAAPI_ACCOUNT_ID');
+
         if (!metaapiAccountId || metaapiAccountId.length < 10) {
             console.log('[MT5 PRICES] 🔍 Buscando Account ID automaticamente...');
             try {
@@ -3492,9 +3492,9 @@ app.post('/mt5-candles', async (c) => {
         console.log(`[MT5 CANDLES] 📈 Buscando ${limit || 1000} candles de ${symbol} (${timeframe})...`);
         console.log(`[MT5 CANDLES] 🔑 Token válido detectado (${metaapiToken.length} chars)`);
         
-        // Buscar lista de contas do usuário via MetaAPI
-        let metaapiAccountId = accountId; // Tentar usar o accountId passado primeiro
-        
+        // Buscar Account ID: body > ENV (conta de plataforma) > auto-discovery
+        let metaapiAccountId = accountId || Deno.env.get('METAAPI_ACCOUNT_ID');
+
         if (!metaapiAccountId || metaapiAccountId.length < 10) {
             console.log('[MT5 CANDLES] 🔍 Buscando Account ID automaticamente...');
             try {

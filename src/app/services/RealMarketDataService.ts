@@ -3,15 +3,17 @@
  *
  * Sistema robusto e estável para 300+ ativos:
  * ✅ Crypto (Binance API DIRETA) - Sem quota limits!
- * ✅ Forex/Índices/Commodities (Fallback) - Dados simulados realistas
+ * ✅ Forex/Índices/Commodities/Ações - MetaAPI (conta de plataforma), com fallback simulado se indisponível
  * ✅ Auto-recovery 24/7
  * ✅ Health check automático
  * ✅ Logs estruturados para monitoramento
  */
 
-// ✅ Removido import de projectId/publicAnonKey — API_BASE do Supabase não é utilizado aqui
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { PriceValidator } from './PriceValidator';
 import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
+
+const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
 
 export interface RealMarketData {
   symbol: string;
@@ -61,9 +63,9 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
     if (isCryptoSymbol(normalizedSymbol)) {
       data = await fetchBinanceDataWithRetry(normalizedSymbol);
     }
-    // 2. FOREX/ÍNDICES/COMMODITIES: Fallback realista
+    // 2. FOREX/ÍNDICES/COMMODITIES/AÇÕES: MetaAPI (conta de plataforma), com fallback simulado
     else {
-      data = getFallbackData(normalizedSymbol);
+      data = await fetchMT5Data(normalizedSymbol);
     }
     
     // Armazenar no cache
@@ -191,6 +193,55 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
   } catch (error: any) {
     console.warn(`[Binance] ⚠️ ${symbol}: usando dados simulados.`);
     throw error;
+  }
+}
+
+/**
+ * 📊 MT5 (MetaAPI) - Forex/índices/commodities/ações via conta de plataforma
+ *
+ * Usa a rota /mt5-prices do backend, que autentica com METAAPI_TOKEN (conta única
+ * de plataforma, configurada como secret no Supabase — não é a credencial do usuário).
+ * Se o token não estiver configurado ou a chamada falhar, a própria rota já responde
+ * com preços simulados (source: 'SIMULATED'), e aqui tratamos isso como fallback local.
+ */
+async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
+  try {
+    const res = await fetch(MT5_PRICES_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${publicAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ symbols: [symbol] }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol}, usando fallback local.`);
+      return getFallbackData(symbol);
+    }
+
+    const result = await res.json();
+    const tick = Array.isArray(result?.prices) ? result.prices[0] : null;
+
+    if (!tick || !isValidPrice(tick.price) || result.source === 'SIMULATED') {
+      return getFallbackData(symbol);
+    }
+
+    return {
+      symbol,
+      price: tick.price,
+      bid: tick.bid ?? tick.price,
+      ask: tick.ask ?? tick.price,
+      change: tick.change || 0,
+      changePercent: tick.changePercent || 0,
+      previousClose: tick.price - (tick.change || 0),
+      timestamp: tick.timestamp ? new Date(tick.timestamp).getTime() : Date.now(),
+      source: 'metaapi',
+      isRealData: true,
+    };
+  } catch (error: any) {
+    console.warn(`[MT5] ⚠️ Falha ao buscar ${symbol} via MetaAPI, usando fallback local.`, error?.message);
+    return getFallbackData(symbol);
   }
 }
 
