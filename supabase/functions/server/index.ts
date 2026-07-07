@@ -144,6 +144,62 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
     return METAAPI_CLIENT_API_BASE;
 }
 
+// Fase 3: deploy/undeploy automático por inatividade (evita pagar hospedagem MetaAPI
+// de conta ociosa — ~US$8,64/mês por conta sempre ativa). Antes de qualquer execução,
+// garante que a conta esteja com state=DEPLOYED e conectada; o cron (/broker/undeploy-inactive)
+// derruba contas sem atividade recente.
+async function ensureAccountDeployed(token: string, accountId: string): Promise<void> {
+    const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
+        headers: { 'auth-token': token, 'Accept': 'application/json' },
+    });
+    if (!res.ok) return; // deixa a chamada seguinte (ex: account-information) falhar com erro mais específico
+
+    const account = await res.json();
+    if (account.state === 'DEPLOYED') return;
+
+    console.log(`[METAAPI] 🚀 Conta ${accountId} com state=${account.state}, fazendo deploy...`);
+    await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}/deploy`, {
+        method: 'POST',
+        headers: { 'auth-token': token, 'Accept': 'application/json' },
+    });
+
+    // Mesmo padrão de espera usado em /mt5/connect: até 30s pela conexão real.
+    for (let attempt = 0; attempt < 15; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const statusRes = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
+            headers: { 'auth-token': token, 'Accept': 'application/json' },
+        });
+        if (statusRes.ok) {
+            const status = await statusRes.json();
+            if (status.connectionStatus === 'CONNECTED') return;
+        }
+    }
+    console.warn(`[METAAPI] ⚠️ Timeout aguardando conexão da conta ${accountId} depois do deploy`);
+}
+
+async function undeployBrokerAccount(token: string, accountId: string): Promise<boolean> {
+    try {
+        const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}/undeploy`, {
+            method: 'POST',
+            headers: { 'auth-token': token, 'Accept': 'application/json' },
+        });
+        return res.ok;
+    } catch (_e) {
+        return false;
+    }
+}
+
+async function touchBrokerAccountActivity(userId: string, deployed: boolean): Promise<void> {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseServiceKey) return;
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    await supabaseAdmin
+        .from('broker_credentials')
+        .update({ last_active_at: new Date().toISOString(), deployed })
+        .eq('user_id', userId);
+}
+
 async function loadDecryptedBrokerCredentials(userId: string): Promise<{ token: string; accountId: string } | null> {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -844,6 +900,13 @@ app.delete('/broker/credentials', async (c) => {
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
         const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
 
+        // Derruba a conta na MetaAPI antes de apagar a credencial, pra não deixá-la
+        // hospedada (e sendo cobrada) órfã sem ninguém pra desligar depois.
+        const existing = await loadDecryptedBrokerCredentials(authenticatedUserId);
+        if (existing) {
+            await undeployBrokerAccount(existing.token, existing.accountId);
+        }
+
         const { error } = await supabaseAdmin
             .from('broker_credentials')
             .delete()
@@ -857,6 +920,64 @@ app.delete('/broker/credentials', async (c) => {
         return c.json({ success: true, message: 'Credenciais removidas' });
     } catch (e: any) {
         console.error('[BROKER] Erro em /broker/credentials DELETE:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// Chamada só pelo pg_cron (via pg_net), nunca pelo client — protegida por um secret
+// compartilhado (CRON_SECRET) que só existe nos secrets da Edge Function e na migration
+// que agenda o job. Varre broker_credentials por contas deployed=true sem atividade
+// recente e faz undeploy delas (ver migration 005_broker_account_lifecycle.sql).
+const BROKER_INACTIVITY_MINUTES = 15;
+
+app.post('/broker/undeploy-inactive', async (c) => {
+    try {
+        const cronSecret = Deno.env.get('CRON_SECRET');
+        if (!cronSecret || c.req.header('x-cron-secret') !== cronSecret) {
+            return c.json({ error: 'Não autorizado' }, 401);
+        }
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: 'Configuração de servidor incompleta' }, 500);
+        }
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        const cutoff = new Date(Date.now() - BROKER_INACTIVITY_MINUTES * 60 * 1000).toISOString();
+        const { data: staleAccounts, error } = await supabaseAdmin
+            .from('broker_credentials')
+            .select('user_id, account_id, token_ciphertext, token_iv')
+            .eq('deployed', true)
+            .lt('last_active_at', cutoff);
+
+        if (error) {
+            console.error('[BROKER-CRON] Erro ao buscar contas inativas:', error);
+            return c.json({ error: error.message }, 500);
+        }
+
+        let undeployedCount = 0;
+        let failedCount = 0;
+        for (const row of staleAccounts || []) {
+            try {
+                const token = await decryptBrokerSecret(row.token_ciphertext, row.token_iv);
+                const ok = await undeployBrokerAccount(token, row.account_id);
+                if (ok) {
+                    await supabaseAdmin.from('broker_credentials').update({ deployed: false }).eq('user_id', row.user_id);
+                    undeployedCount++;
+                } else {
+                    failedCount++;
+                }
+            } catch (e) {
+                console.error(`[BROKER-CRON] Falha ao processar conta ${row.account_id}:`, e);
+                failedCount++;
+            }
+        }
+
+        console.log(`[BROKER-CRON] Checadas ${staleAccounts?.length || 0} contas inativas, ${undeployedCount} undeploy, ${failedCount} falhas`);
+        return c.json({ success: true, checked: staleAccounts?.length || 0, undeployed: undeployedCount, failed: failedCount });
+    } catch (e: any) {
+        console.error('[BROKER-CRON] Erro em /broker/undeploy-inactive:', e);
         return c.json({ error: e.message }, 500);
     }
 });
@@ -876,6 +997,8 @@ app.post('/broker/execute', async (c) => {
             return c.json({ error: 'Nenhuma credencial MetaAPI configurada para este usuário' }, 400);
         }
         const { token, accountId } = credentials;
+        await ensureAccountDeployed(token, accountId);
+        touchBrokerAccountActivity(authenticatedUserId, true).catch((e) => console.warn('[BROKER] Falha ao atualizar last_active_at:', e));
         const clientApiBase = await getMetaApiClientApiBase(token, accountId);
 
         const body = await c.req.json();

@@ -2,7 +2,7 @@
 
 ## Dívida técnica fechada nesta sessão (2026-07-07, continuação)
 
-Todos os 6 itens da lista de dívida técnica consolidada (ver seção "Pendências gerais" mais abaixo) foram corrigidos. **Ainda não commitado/pushado** — código pronto localmente, comandos no fim desta seção.
+Todos os 6 itens da lista de dívida técnica consolidada (ver seção "Pendências gerais" mais abaixo) foram corrigidos. ✅ **Confirmado commitado e pushado** (commit `c25e452fb`, branch `main` local em dia com `origin/main` — nota anterior dizendo "ainda não commitado" ficou desatualizada e foi corrigida aqui em 2026-07-07, sessão seguinte).
 
 1. **3 telas quebradas por anon key vs JWT** (`Settings.tsx`, `MT5TokenValidator.tsx`, `MT5ConfigPanel.tsx`): as três chamavam `mt5-token/load`/`mt5-token/save` mandando `Authorization: Bearer ${publicAnonKey}` — a rota exige o JWT do usuário desde que ganhou a checagem de auth (ver Fase 1), então sempre batia 401. Fix: as três agora buscam `supabase.auth.getSession()` e mandam `session.access_token` no lugar da anon key.
 2. **4 arquivos lendo `mt5_token` do `localStorage`** (mecanismo paralelo antigo, nunca migrado):
@@ -111,6 +111,8 @@ Meta do Cleber: **gerar receita o quanto antes**, com usuários ilimitados opera
 
 ## Workflow de deploy (regra fixa)
 Claude **nunca** faz commit/push sozinho neste projeto. Sempre entregar o código pronto + os comandos exatos de `git add/commit/push` pro Cleber rodar no terminal dele. O deploy na Vercel dispara sozinho a partir do push (já configurado).
+
+**Regra confirmada em 2026-07-07**: os comandos de commit/push devem sempre ser colados **diretamente na resposta do chat** (não só deixados dentro do CLAUDE.md) — o Cleber quer poder copiar direto da conversa sem precisar abrir o arquivo. Vale pra toda entrega de código pronto pra produção daqui pra frente.
 
 ## Log de sessões
 
@@ -299,9 +301,35 @@ Isso escondia **qualquer** `<div>` da aplicação inteira que tivesse essas duas
 
 **Pendente**: ✅ commitado e pushado (commit `52f179ca1`, confirmado em `origin/main` em 2026-07-07). Falta confirmar em produção que o gráfico renderiza (tela do Gráfico e do AI Trader).
 
+### Checagem de status da Fase 3 (2026-07-07, sessão seguinte)
+
+Cleber pediu status da Fase 3. Confirmado via `git log`/`git branch -vv` que o fix de região dinâmica (`getMetaApiClientApiBase`) em `/broker/execute`, `/mt5-check`, `/mt5/connect` **já está em produção** (fazia parte do commit `c25e452fb`, item 6 da lista de dívida técnica — só a nota do topo do arquivo estava desatualizada, corrigida agora). Fase 3 continua **não iniciada como trabalho dedicado** — falta: (1) deploy/undeploy automático de conta MetaAPI por inatividade (economia de custo, nada implementado ainda), (2) teste end-to-end de execução real via `/broker/execute` (nunca feito).
+
+**Correção conceitual importante (Cleber, 2026-07-07)**: não existe (nem vai existir) uma "conta demo fornecida pela corretora" pro usuário da plataforma. A Fase Demo (Fase 2, já pronta) é 100% simulação nossa (saldo/posições virtuais, preço de mercado real, sem nenhuma corretora envolvida). A Fase 3 (execução real) é sempre o usuário conectando a **própria conta real numa corretora** via MetaAPI — nós nunca fornecemos conta de corretora pra ninguém. Pra testar `/broker/execute` de ponta a ponta, o que falta é qualquer conta MT5 real conectada via MetaAPI (pode ser a mesma conta MetaAPI que o Cleber já tem hoje, hoje usada só como feed de dados de mercado, ou uma conta demo que ele mesmo abra numa corretora só pra fins de teste) — não é algo que a plataforma precisa "providenciar" para os usuários finais.
+
+### Deploy/undeploy automático de conta MetaAPI por inatividade (2026-07-07, implementado)
+
+**O que foi feito:**
+- Migration nova `supabase/migrations/005_broker_account_lifecycle.sql`: adiciona `last_active_at`/`deployed` em `broker_credentials`, habilita `pg_cron`/`pg_net`, agenda um job (`cron.schedule`, a cada 10 min) que chama a rota nova `/broker/undeploy-inactive` via `net.http_post`.
+- `supabase/functions/server/index.ts`: 3 funções novas (`ensureAccountDeployed`, `undeployBrokerAccount`, `touchBrokerAccountActivity`) + 1 rota nova (`POST /broker/undeploy-inactive`, protegida por `CRON_SECRET` no header `x-cron-secret`, só deve ser chamada pelo cron).
+  - `/broker/execute` agora chama `ensureAccountDeployed` antes de qualquer ação (deploya sob demanda se a conta não estiver `state=DEPLOYED`, espera até 30s pela conexão — mesmo padrão já usado em `/mt5/connect`) e atualiza `last_active_at`/`deployed=true` a cada chamada.
+  - `DELETE /broker/credentials` agora derruba (`undeploy`) a conta na MetaAPI antes de apagar a linha, pra não deixar conta órfã hospedada sendo cobrada sem ninguém pra desligar.
+  - `/broker/undeploy-inactive`: varre `broker_credentials` por contas `deployed=true` com `last_active_at` mais velho que 15 min e faz undeploy de cada uma.
+
+✅ **Deploy confirmado em produção em 2026-07-07**:
+- `CRON_SECRET` configurado no painel de Secrets da Edge Function (via UI web, já que o Cleber não tem CLI logada).
+- Código novo (`index.ts`) colado e deployado no editor web da function `server` (conteúdo levado via `pbcopy`/clipboard, arquivo grande demais — 5195 linhas — pra colar em texto de chat).
+- Migration `005` rodada com sucesso no SQL Editor: confirmado via MCP do Supabase que `broker_credentials` tem as colunas `last_active_at` (timestamptz, default `now()`) e `deployed` (boolean, default `false`), e que `cron.job` tem o job `undeploy-inactive-broker-accounts` ativo (`active: true`, schedule `*/10 * * * *`).
+- **Código local ainda não commitado/pushado** (só o que está na Edge Function via editor web e no banco via SQL Editor está em produção agora — o repositório Git ainda não reflete isso).
+
+**Pendente pra fechar de vez:**
+1. ⚠️ Commitar e pushar `supabase/functions/server/index.ts` + `supabase/migrations/005_broker_account_lifecycle.sql` (comandos passados ao Cleber no chat, ainda não confirmado se rodou).
+2. Testar de fato o ciclo completo: conectar uma conta MetaAPI real (ex: a mesma conta paga do Cleber) via `/broker/credentials`, chamar `/broker/execute` (ex: `getAccountInfo`) e confirmar que a conta é deployada sob demanda; esperar >15 min sem chamadas e confirmar que o próximo tick do cron derruba a conta (`deployed` vira `false` na tabela `broker_credentials`, e a conta aparece como não-deployed no painel MetaAPI).
+3. Ainda falta o teste de execução real de ordem (compra/venda) que já estava pendente antes — isso não muda com esta implementação, só resolve a parte de custo/lifecycle.
+
 ## Pendências gerais (2026-07-07, consolidado)
 
-Tudo o que foi feito até aqui já está commitado e pushado pro `origin/main` — nenhum código pendente de push. O que falta agora:
+Tudo o que foi feito até aqui já está commitado e pushado pro `origin/main` — nenhum código pendente de push, **exceto o trabalho de deploy/undeploy automático desta seção**, ainda não commitado. O que falta agora:
 
 1. **Validar em produção** (`neuraldaytrader.com`) que os deploys recentes renderizaram certo: gráfico não fica mais em branco, forex/índices mostram `source: "metaapi"`, P&L acompanha preço real, config da IA ("só cripto" + direção travada) é respeitada.
 2. **Dívida técnica conhecida, não resolvida**:
@@ -310,6 +338,6 @@ Tudo o que foi feito até aqui já está commitado e pushado pro `origin/main` �
    - ~28 arquivos ainda com o prefixo de rota errado `/make-server-1dbacac6/`.
    - `newsFilter` não tem efeito real — backend (`translate-events.ts`) sempre retorna array vazio.
    - `@vercel/node`/`@types/node` faltando como devDependency (erro de tipagem no log de build da Vercel, não bloqueia deploy hoje).
-   - Hardcode de região `new-york` + não usar `METAAPI_ACCOUNT_ID` do ENV ainda presente em `/broker/execute`, `/mt5-check`, `/mt5-connect` (só as rotas de dados de mercado foram corrigidas).
+   - ~~Hardcode de região `new-york` em `/broker/execute`, `/mt5-check`, `/mt5-connect`~~ — ✅ corrigido e confirmado em produção (commit `c25e452fb`, ver "Checagem de status da Fase 3" acima).
    - Repositório sem `.gitignore` — `node_modules/` rastreado pelo Git, polui `git status` a cada `npm install`.
 3. **Próximas fases do roadmap**: Fase 3 (execução real por usuário + deploy/undeploy automático MetaAPI por inatividade), Fase 4 (cobrança — aguardando Cleber criar conta Stripe), Fase 5 (testes com usuários reais).
