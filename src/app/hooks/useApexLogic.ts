@@ -51,6 +51,23 @@ import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 import { wrapMT5Connection } from '../utils/mt5ConnectionWrapper'; // MT5 Wrapper
 
+// 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
+// lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
+// mesmo tamanho de posição e mesma barra de confiança mínima. Cobre tanto os valores
+// oficiais de RiskProfileType (NeuralRiskGuardian.ts) quanto os legados já em uso na
+// UI (EQUILIBRADO/DEGEN, ver MarketScore.tsx e o default de INITIAL_STATE), pra não
+// quebrar configs já salvas no localStorage de quem já usa o app.
+const RISK_PROFILE_ADJUSTMENTS: Record<string, { confidenceAdjust: number; sizeMultiplier: number }> = {
+  CONSERVATIVE: { confidenceAdjust: 15, sizeMultiplier: 0.7 },
+  MODERATE: { confidenceAdjust: 0, sizeMultiplier: 1.0 },
+  EQUILIBRADO: { confidenceAdjust: 0, sizeMultiplier: 1.0 }, // legado, equivalente a MODERATE
+  AGGRESSIVE: { confidenceAdjust: -10, sizeMultiplier: 1.3 },
+  DEGEN: { confidenceAdjust: -10, sizeMultiplier: 1.3 }, // legado, equivalente a AGGRESSIVE
+  INSTITUTIONAL: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
+  INSTITUTIONAL_SMC: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
+};
+const DEFAULT_RISK_ADJUSTMENT = { confidenceAdjust: 0, sizeMultiplier: 1.0 };
+
 // Definition of types for visual state
 export interface TradeVisual {
   id: string;
@@ -300,6 +317,11 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
   const lastVIXFetchRef = useRef(0);
   const VIX_CACHE_DURATION = 60000; // 60 segundos de cache
 
+  // === NEWS FILTER CACHE CONFIG (aiConfig.newsFilter) ===
+  const cachedNewsEventsRef = useRef<Array<{ time: number; impact: string; currency: string }>>([]);
+  const lastNewsFetchRef = useRef(0);
+  const NEWS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutos de cache
+
   // === REFS FOR REAL-TIME ACCESS ===
   const configRef = useRef<AIConfig & { executionMode: 'DEMO' | 'LIVE' }>({
     ...INITIAL_STATE.aiConfig,
@@ -324,6 +346,7 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
 
   // === REFS FOR PNL LOOP ===
   const activeOrdersRef = useRef<TradeVisual[]>([]);
+  const orderHistoryRef = useRef<TradeVisual[]>([]); // 🔒 leitura pro Health Check Guardian (dailyLossLimit/minWinRate)
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
@@ -409,6 +432,10 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
   useEffect(() => {
     activeOrdersRef.current = activeOrders;
   }, [activeOrders]);
+
+  useEffect(() => {
+    orderHistoryRef.current = orderHistory;
+  }, [orderHistory]);
 
   useEffect(() => {
     candleCounterRef.current = candlesSinceLastTrade;
@@ -630,6 +657,37 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
         console.log('[SAFE MODE] ⚠️ MT5 desconectado em modo LIVE');
       }
 
+      // 🔒 RESPEITAR CONFIG DO USUÁRIO: dailyLossLimit (%). Antes esse campo era
+      // salvo mas nunca lido - a IA podia perder além do limite diário sem parar
+      // (só existia o maxDrawdown, que é acumulado desde o início, não resetado por dia).
+      const nowDate = new Date();
+      const startOfUtcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
+      const closedToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= startOfUtcDay);
+      const dailyPnL = closedToday.reduce((acc, t) => acc + (t.currentProfit || 0), 0);
+      const dailyBase = portfolioRef.current.initialBalance || configRef.current.allocatedCapital || 100;
+      const dailyLossPercent = dailyPnL < 0 ? (Math.abs(dailyPnL) / dailyBase) * 100 : 0;
+
+      if (dailyLossPercent > configRef.current.dailyLossLimit) {
+        issues.push(`Limite de perda diária excedido: -${dailyLossPercent.toFixed(2)}% (limite ${configRef.current.dailyLossLimit}%)`);
+        console.log('[HEALTH CHECK] ⚠️ Limite de perda diária excedido:', dailyLossPercent.toFixed(2), '%');
+      }
+
+      // 🔒 RESPEITAR CONFIG DO USUÁRIO: minWinRate (%). Antes esse campo era salvo
+      // mas nunca lido - a IA continuava abrindo posições mesmo com taxa de acerto
+      // consistentemente abaixo do mínimo que o usuário definiu como aceitável.
+      // Só avalia com uma amostra mínima de trades fechados, pra não pausar a IA
+      // logo nos primeiros trades por puro acaso estatístico.
+      const MIN_SAMPLE_FOR_WIN_RATE_CHECK = 10;
+      const allClosedTrades = orderHistoryRef.current.filter(t => t.closedAt);
+      if (allClosedTrades.length >= MIN_SAMPLE_FOR_WIN_RATE_CHECK) {
+        const wins = allClosedTrades.filter(t => (t.currentProfit || 0) > 0).length;
+        const currentWinRate = (wins / allClosedTrades.length) * 100;
+        if (currentWinRate < configRef.current.minWinRate) {
+          issues.push(`Taxa de acerto abaixo do mínimo: ${currentWinRate.toFixed(1)}% (mínimo ${configRef.current.minWinRate}%)`);
+          console.log('[HEALTH CHECK] ⚠️ Taxa de acerto abaixo do mínimo:', currentWinRate.toFixed(1), '%');
+        }
+      }
+
       setHealthStatus({
         isHealthy: issues.length === 0,
         lastCheckTimestamp: Date.now(),
@@ -700,13 +758,66 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
       }
     };
 
+    // 🔒 RESPEITAR CONFIG DO USUÁRIO: newsFilter (pausar entradas perto de notícias
+    // econômicas de alto impacto). Antes esse campo era salvo mas nunca lido.
+    // ⚠️ LIMITAÇÃO CONHECIDA: o backend `/economic-calendar` (Edge Function) tem uma
+    // dependência (`translate-events.ts`) que hoje é um STUB — `translateEconomicEvents()`
+    // e `createInvestingEvents()` sempre retornam array vazio, então o endpoint nunca
+    // retorna eventos reais, mesmo quando o scraping (MQL5/Investing/Yahoo) funciona
+    // internamente. Isso é um bug pré-existente e separado, fora do escopo desta
+    // correção - deixei o fetch já pronto e chamando a rota certa, pra funcionar
+    // automaticamente assim que esse stub for corrigido. Até lá, newsFilter=true
+    // efetivamente não vai encontrar eventos pra filtrar (fail-safe: não bloqueia
+    // negociação, mas também não protege de notícias de verdade ainda).
+    const fetchNewsCached = async () => {
+      const now = Date.now();
+      if (now - lastNewsFetchRef.current < NEWS_CACHE_DURATION) {
+        return cachedNewsEventsRef.current;
+      }
+      try {
+        const { supabase } = await import('@/lib/supabaseClient');
+        const { data, error } = await supabase.functions.invoke('server/economic-calendar');
+        if (error) throw error;
+        const events = (data?.events || []).map((e: any) => ({
+          time: new Date(e.time || e.event_time || e.Date || e.date).getTime(),
+          impact: String(e.impact || e.importance || '').toLowerCase(),
+          currency: String(e.currency || '').toUpperCase(),
+        })).filter((e: any) => !isNaN(e.time));
+        cachedNewsEventsRef.current = events;
+        lastNewsFetchRef.current = now;
+        if (events.length === 0) {
+          console.log('[NEWS FILTER] ℹ️ Nenhum evento retornado pelo calendário econômico (ver limitação conhecida no código)');
+        }
+        return events;
+      } catch (error) {
+        console.warn('[NEWS FILTER] ⚠️ Erro ao buscar calendário econômico, seguindo sem filtro neste ciclo:', error);
+        return cachedNewsEventsRef.current;
+      }
+    };
+
     const tradingInterval = setInterval(() => {
       console.log(`[AI LOOP] 🔄 Verificando oportunidades... (Posições: ${activeOrders.length}/${aiConfig.maxPositions})`);
-      
+
       // Check if we can trade
       if (activeOrders.length >= aiConfig.maxPositions) {
         console.log(`[AI LOOP] ⏸️ Máximo de posições atingido (${aiConfig.maxPositions})`);
         return; // Max positions reached
+      }
+
+      // 🔒 Gate de notícias: pula o ciclo se houver evento de alto impacto na janela de ±15min.
+      // O fetch é assíncrono (dispara em background e atualiza o cache), mas o gate em si
+      // precisa ser síncrono pra realmente bloquear o ciclo - por isso lê o cache já
+      // atualizado por uma chamada anterior, em vez de esperar o `.then()` (que só resolveria
+      // depois que o resto do ciclo síncrono já teria rodado).
+      if (aiConfig.newsFilter) {
+        fetchNewsCached(); // fire-and-forget: mantém o cache atualizado pros próximos ciclos
+        const NEWS_WINDOW_MS = 15 * 60 * 1000;
+        const nowTs = Date.now();
+        const highImpactNearby = cachedNewsEventsRef.current.some(e => e.impact === 'high' && Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS);
+        if (highImpactNearby) {
+          console.log('[NEWS FILTER] 🚫 Evento de alto impacto próximo - pulando ciclo');
+          return;
+        }
       }
 
       // 🚀 ANÁLISE DE VOLATILIDADE GLOBAL (VIX + principais ativos)
@@ -742,27 +853,60 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
       // === ASSET SELECTION WITH PRIORITY SYSTEM ===
       // 🎯 TIER 1: High volatility, high profit assets (70% probability)
       const tier1Assets = ['BTCUSDT', 'SPX500']; // BTC & S&P500 (Nomenclatura Infinox)
-      
+
       // 🔸 TIER 2: Medium volatility assets (25% probability)
       const tier2Assets = ['ETHUSDT', 'NAS100', 'XAUUSD'];
-      
+
       // 🔹 TIER 3: Low volatility assets (5% probability)
       const tier3Assets = ['EURUSD', 'GBPUSD', 'US30'];
 
-      // Weighted random selection
+      // 🔒 RESPEITAR CONFIG DO USUÁRIO: symbols internos do motor (Binance/CFD) →
+      // símbolos do catálogo que o usuário marca em "Universo de Ativos" (AssetUniverse.tsx,
+      // nomenclatura Infinox). Sem esse mapa, os 3 tiers acima ignoravam completamente
+      // aiConfig.activeAssets e o sorteio podia cair em Ouro/Forex/Índices mesmo com
+      // o usuário tendo selecionado só criptomoedas.
+      const TRADING_SYMBOL_TO_CATALOG: Record<string, string[]> = {
+        BTCUSDT: ['BTCUSD', 'XBNUSD'],
+        ETHUSDT: ['XETUSD'],
+        SPX500: ['SPX500', 'SPX500R'],
+        NAS100: ['NAS100', 'NAS100R'],
+        XAUUSD: ['XAUUSD'],
+        EURUSD: ['EURUSD'],
+        GBPUSD: ['GBPUSD'],
+        US30: ['US30'],
+      };
+
+      const userAssets = aiConfig.activeAssets || [];
+      const isAllowedByUser = (symbol: string) =>
+        (TRADING_SYMBOL_TO_CATALOG[symbol] || []).some(catalogSymbol => userAssets.includes(catalogSymbol));
+
+      const allowedTier1 = tier1Assets.filter(isAllowedByUser);
+      const allowedTier2 = tier2Assets.filter(isAllowedByUser);
+      const allowedTier3 = tier3Assets.filter(isAllowedByUser);
+
+      if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
+        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário está disponível no motor agora (config: ${userAssets.join(', ') || 'vazia'}) - pulando ciclo`);
+        return;
+      }
+
+      // Weighted random selection (mesmos pesos de antes, só que restrito ao que o usuário permitiu)
       const rand = Math.random();
       let selectedAssets: string[];
       let tierName = '';
-      
-      if (rand < 0.70) {
-        selectedAssets = tier1Assets; // 70% chance - BTC & S&P
+
+      if (rand < 0.70 && allowedTier1.length > 0) {
+        selectedAssets = allowedTier1; // 70% chance - BTC & S&P
         tierName = 'TIER 1 (Alta Volatilidade)';
-      } else if (rand < 0.95) {
-        selectedAssets = tier2Assets; // 25% chance - ETH, NAS, Gold
+      } else if (rand < 0.95 && allowedTier2.length > 0) {
+        selectedAssets = allowedTier2; // 25% chance - ETH, NAS, Gold
         tierName = 'TIER 2 (Média Volatilidade)';
-      } else {
-        selectedAssets = tier3Assets; // 5% chance - Forex & Dow
+      } else if (allowedTier3.length > 0) {
+        selectedAssets = allowedTier3; // 5% chance - Forex & Dow
         tierName = 'TIER 3 (Baixa Volatilidade)';
+      } else {
+        // Tier sorteada ficou vazia após o filtro do usuário - cai pra qualquer tier não-vazia
+        selectedAssets = allowedTier1.length > 0 ? allowedTier1 : allowedTier2.length > 0 ? allowedTier2 : allowedTier3;
+        tierName = 'FALLBACK (restrito à config do usuário)';
       }
 
       const selectedSymbol = selectedAssets[Math.floor(Math.random() * selectedAssets.length)];
@@ -886,7 +1030,9 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           }
           
           // ✅ FILTRO DE QUALIDADE: Apenas trades com confiança razoável
-          const MIN_CONFIDENCE = 45; // 🚀 REDUZIDO DE 60% PARA 45% - Muito mais oportunidades!
+          // 🔒 Ajustado pelo riskProfile do usuário (conservador exige mais confiança, agressivo exige menos)
+          const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
+          const MIN_CONFIDENCE = 45 + riskAdjustment.confidenceAdjust; // 🚀 BASE REDUZIDA DE 60% PARA 45% - Muito mais oportunidades!
           
           if (confidenceScore < MIN_CONFIDENCE) {
             console.log(`[QUALIDADE] ❌ Setup rejeitado: ${selectedSymbol} - Score ${confidenceScore}% (mínimo ${MIN_CONFIDENCE}%)`);
@@ -922,33 +1068,46 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           // 4. DECISÃO INTELIGENTE
           let side: 'LONG' | 'SHORT';
           let strategyName: string;
-          
+
+          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode ('TREND' | 'RANGE' | 'SCALP' | 'COUNTER').
+          // Antes esse campo era salvo mas nunca lido - todo modo tinha exatamente o
+          // mesmo comportamento (reversão > tendência > momentum, sempre). Agora cada
+          // modo restringe quais sinais a estratégia pode usar:
+          // - RANGE/COUNTER: só reversão em extremos (mean-reversion) - sem tendência/momentum
+          // - TREND: só tendência forte + momentum de fallback - sem reversão
+          // - SCALP: aceita qualquer sinal (igual ao comportamento anterior), mas
+          //   com TP/SL sempre curto (ver ajuste logo abaixo, na seção de pontos)
+          const marketMode = aiConfig.marketMode;
+          const reversalAllowed = marketMode !== 'TREND';
+          const trendFollowingAllowed = marketMode !== 'RANGE' && marketMode !== 'COUNTER';
+          const momentumFallbackAllowed = marketMode !== 'RANGE' && marketMode !== 'COUNTER';
+
           // ✅ PRIORIDADE 1: REVERSÃO EM EXTREMOS (Alta probabilidade)
-          if (bullishReversal) {
+          if (reversalAllowed && bullishReversal) {
             side = 'LONG';
             strategyName = 'REVERSÃO DE SOBREVENDA';
             confidenceScore += 15; // Boost de confiança
             console.log(`[ESTRATÉGIA] 🎯 REVERSÃO BULLISH detectada! RSI: ${rsiValue.toFixed(0)} (Oversold)`);
-          } else if (bearishReversal) {
+          } else if (reversalAllowed && bearishReversal) {
             side = 'SHORT';
             strategyName = 'REVERSÃO DE SOBRECOMPRA';
             confidenceScore += 15;
             console.log(`[ESTRATÉGIA] 🎯 REVERSÃO BEARISH detectada! RSI: ${rsiValue.toFixed(0)} (Overbought)`);
           }
           // ✅ PRIORIDADE 2: TENDÊNCIA FORTE COM CONFIRMAÇÃO
-          else if (strongUptrend) {
+          else if (trendFollowingAllowed && strongUptrend) {
             side = 'LONG';
             strategyName = 'TREND FOLLOWING ALTA';
             confidenceScore += 10;
             console.log(`[ESTRATÉGIA] 📈 TENDÊNCIA DE ALTA forte! Variação: +${priceChangePercent.toFixed(2)}%`);
-          } else if (strongDowntrend) {
+          } else if (trendFollowingAllowed && strongDowntrend) {
             side = 'SHORT';
             strategyName = 'TREND FOLLOWING BAIXA';
             confidenceScore += 10;
             console.log(`[ESTRATÉGIA] 📉 TENDÊNCIA DE BAIXA forte! Variaão: ${priceChangePercent.toFixed(2)}%`);
           }
-          // ⚠️ PRIORIDADE 3: MOMENTUM SIMPLES (apenas se não temos melhor setup)
-          else {
+          // ⚠️ PRIORIDADE 3: MOMENTUM SIMPLES (apenas se não temos melhor setup, e só se o modo permite)
+          else if (momentumFallbackAllowed) {
             // Se não há setup claro, seguir direção do movimento mas com cautela
             if (Math.abs(priceChangePercent) < 0.15) {
               // Mercado muito lateral - SKIP (reduzido de 0.5% para 0.15%)
@@ -960,10 +1119,26 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
             confidenceScore -= 10; // Penalidade por setup menos confiável
             console.log(`[ESTRATÉGIA] ⚠️ Usando momentum conservador (setup secundário)`);
           }
+          // Nenhum sinal compatível com o modo travado pelo usuário (ex: RANGE/COUNTER sem reversão detectada)
+          else {
+            console.log(`[MARKET MODE] 🚫 Nenhum sinal compatível com o modo "${marketMode}" - pulando ciclo`);
+            return;
+          }
           
           // VALIDAÇÃO FINAL DE CONFIANÇA
           if (confidenceScore < MIN_CONFIDENCE) {
             console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
+            return;
+          }
+
+          // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção (aiConfig.direction = 'AUTO' | 'LONG' | 'SHORT')
+          // Antes, o lado do trade vinha só da estratégia (RSI/momentum), ignorando
+          // completamente essa config - se o usuário travasse "somente compra", o bot
+          // podia vender do mesmo jeito. Em vez de forçar o lado (o que inventaria uma
+          // entrada sem sinal real da estratégia), descartamos o setup quando ele não
+          // bate com a direção permitida - mais seguro e ainda respeita 100% a config.
+          if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
+            console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
             return;
           }
           
@@ -993,7 +1168,16 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
             targetPointsValue = 800;  // ✅ Aumentado de 500 para 800
             stopLossPointsValue = 200; // ✅ Aumentado de 80 para 200
           }
-          
+
+          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode === 'SCALP' implica trades curtos
+          // por definição - trava o alvo/stop no teto do preset "CURTO" (80/35 pontos),
+          // não importa o que o usuário tenha configurado em targetPoints. Só aperta
+          // (Math.min), nunca alarga - respeita um targetPoints já mais curto que isso.
+          if (aiConfig.marketMode === 'SCALP') {
+            targetPointsValue = Math.min(targetPointsValue, 80);
+            stopLossPointsValue = Math.min(stopLossPointsValue, 35);
+          }
+
           // 🎯 CONVERTER PONTOS EM PREÇO (Baseado no ativo)
           // Para índices e ações: 1 ponto = $1
           // Para Forex: 1 ponto = 0.0001 (pip)
@@ -1051,16 +1235,18 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
           const riskPercentage = aiConfig.riskPerTrade / 100; // Ex: 2% = 0.02
           
           // Capital para este trade (% do capital alocado)
-          const tradeCapital = allocatedCapital * riskPercentage;
-          
+          // 🔒 Ajustado pelo riskProfile do usuário (mesmo sizeMultiplier usado na confiança acima)
+          const tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+
           // Garantir valor mínimo para evitar P&L zerado
           const minTradeCapital = 10; // Mínimo $10 por trade
           const finalTradeCapital = Math.max(tradeCapital, minTradeCapital);
-          
+
           console.log(`[POSITION SIZING] 💰 ${selectedSymbol}:`, {
             currentBalance: `$${currentBalance.toFixed(2)}`,
             allocatedCapital: `$${allocatedCapital.toFixed(2)}`,
             riskPerTrade: `${aiConfig.riskPerTrade}%`,
+            riskProfile: `${aiConfig.riskProfile} (x${riskAdjustment.sizeMultiplier})`,
             calculatedTradeCapital: `$${tradeCapital.toFixed(2)}`,
             finalTradeCapital: `$${finalTradeCapital.toFixed(2)}`,
             reason: tradeCapital < minTradeCapital ? `⬆️ Aumentado para mínimo de $${minTradeCapital}` : '✅ Valor adequado'
@@ -1174,11 +1360,29 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
                 // Se o fetch falhou pra esse símbolo, mantém o preço anterior (não simula movimento)
                 const nextPrice = priceMap.get(order.symbol) ?? currentPrice;
 
+                // 🔒 RESPEITAR CONFIG DO USUÁRIO: stopLossMode ('DINAMICO' | 'FIXO').
+                // Antes, o SL era calculado uma vez na entrada e nunca se mexia -
+                // "DINAMICO" e "FIXO" tinham exatamente o mesmo comportamento.
+                // Agora, em modo DINAMICO, o SL "anda" a favor do trade (trailing stop):
+                // preserva a mesma distância de risco original, mas só sobe (LONG) ou
+                // só desce (SHORT) - nunca piora o stop em relação ao que já estava setado.
+                let effectiveSl = order.sl;
+                if (configRef.current.stopLossMode === 'DINAMICO') {
+                  const originalSlDistance = Math.abs(order.price - order.sl);
+                  const trailedSl = order.side === 'LONG'
+                    ? nextPrice - originalSlDistance
+                    : nextPrice + originalSlDistance;
+
+                  effectiveSl = order.side === 'LONG'
+                    ? Math.max(order.sl, trailedSl)
+                    : Math.min(order.sl, trailedSl);
+                }
+
                 // ✅ LOG DE DEBUG (apenas para primeira iteração)
                 if (!order.hasTakenPartial) {
                   const distanceToTP = Math.abs(order.tp - currentPrice);
-                  const distanceToSL = Math.abs(currentPrice - order.sl);
-                  console.log(`[PNL LOOP] ${order.symbol} ${order.side}: Preço $${currentPrice.toFixed(2)} | TP: $${order.tp.toFixed(2)} (${distanceToTP.toFixed(2)} de distância) | SL: $${order.sl.toFixed(2)} (${distanceToSL.toFixed(2)} de distância)`);
+                  const distanceToSL = Math.abs(currentPrice - effectiveSl);
+                  console.log(`[PNL LOOP] ${order.symbol} ${order.side}: Preço $${currentPrice.toFixed(2)} | TP: $${order.tp.toFixed(2)} (${distanceToTP.toFixed(2)} de distância) | SL: $${effectiveSl.toFixed(2)} (${distanceToSL.toFixed(2)} de distância)${configRef.current.stopLossMode === 'DINAMICO' && effectiveSl !== order.sl ? ' [trailing]' : ''}`);
                 }
 
                 // Calculate P&L
@@ -1196,24 +1400,25 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
 
                 // Check TP/SL
                 const hitTP = order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp;
-                const hitSL = order.side === 'LONG' ? nextPrice <= order.sl : nextPrice >= order.sl;
+                const hitSL = order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl;
 
                 if (hitTP) {
                     realizedPnL += pnl;
                     logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnl.toFixed(2)}`);
                     // Close position
-                    setOrderHistory(prev => [...prev, { ...order, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
+                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
                     closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'TP' });
                 } else if (hitSL) {
                     realizedPnL += pnl;
                     logsToAdd.push(`🛡️ STOP ATINGIDO: ${order.symbol} ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
                     // Close position
-                    setOrderHistory(prev => [...prev, { ...order, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
+                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
                     closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'SL' });
                 } else {
-                    // Keep position open WITH UPDATED PROFIT
+                    // Keep position open WITH UPDATED PROFIT (e SL "andado" se DINAMICO)
                     nextActiveOrders.push({
                         ...order,
+                        sl: effectiveSl,
                         currentPrice: nextPrice,
                         currentProfit: pnl, // ✅ CRITICAL: Update profit for UI display
                     });
