@@ -38,12 +38,21 @@ interface StrategyBlock {
   operator?: OperatorType;
   value?: number;
   value2?: number;
+  /** Segundo indicador, usado por CROSS_ABOVE/CROSS_BELOW pra comparar indicador vs indicador (ex: EMA9 cruza EMA21) em vez de indicador vs número fixo. */
+  compareIndicator?: IndicatorType;
+  comparePeriod?: number;
   label: string;
   description: string;
   color: string;
   icon: string;
   enabled: boolean;
 }
+
+/** Indicadores que o StrategyEvaluator (backend do backtest/IA ao vivo) realmente sabe calcular — usado só para a comparação indicador-vs-indicador do cruzamento, pra não oferecer opções (ICHIMOKU/MFI) que a lib de indicadores não implementa. */
+const CROSSABLE_INDICATORS: { id: IndicatorType; label: string }[] = [
+  { id: 'SMA', label: 'SMA' },
+  { id: 'EMA', label: 'EMA' },
+];
 
 interface Strategy {
   id: string;
@@ -919,6 +928,54 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
                                       />
                                     </div>
                                   </div>
+
+                                  {(block.operator === 'CROSS_ABOVE' || block.operator === 'CROSS_BELOW') && (
+                                    <div className="grid grid-cols-2 gap-3 mt-3">
+                                      <div>
+                                        <label className="text-xs text-slate-500 mb-1 block">Comparar com (deixe vazio pra comparar com "Valor")</label>
+                                        <select
+                                          value={block.compareIndicator || ''}
+                                          onChange={(e) => {
+                                            const listKey = activeTab === 'entry' ? 'entryBlocks' : activeTab === 'exit' ? 'exitBlocks' : 'filterBlocks';
+                                            const compareIndicator = (e.target.value || undefined) as IndicatorType | undefined;
+                                            setStrategy(prev => ({
+                                              ...prev,
+                                              [listKey]: prev[listKey].map(b =>
+                                                b.id === block.id
+                                                  ? { ...b, compareIndicator, comparePeriod: compareIndicator ? (b.comparePeriod || 21) : undefined }
+                                                  : b
+                                              )
+                                            }));
+                                          }}
+                                          className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-purple-500/50"
+                                        >
+                                          <option value="">— número fixo —</option>
+                                          {CROSSABLE_INDICATORS.map(ind => (
+                                            <option key={ind.id} value={ind.id}>{ind.label}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      {block.compareIndicator && (
+                                        <div>
+                                          <label className="text-xs text-slate-500 mb-1 block">Período do {block.compareIndicator}</label>
+                                          <input
+                                            type="number"
+                                            value={block.comparePeriod || 21}
+                                            onChange={(e) => {
+                                              const listKey = activeTab === 'entry' ? 'entryBlocks' : activeTab === 'exit' ? 'exitBlocks' : 'filterBlocks';
+                                              setStrategy(prev => ({
+                                                ...prev,
+                                                [listKey]: prev[listKey].map(b =>
+                                                  b.id === block.id ? { ...b, comparePeriod: parseInt(e.target.value) || 21 } : b
+                                                )
+                                              }));
+                                            }}
+                                            className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-purple-500/50"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   <div className="mt-3">
                                     <input
