@@ -1,5 +1,24 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-07, sessão seguinte)
 
+## Sessão nova, continuação 5 (2026-07-07): índices usavam Yahoo como fonte primária, não MetaAPI — causa real do S&P ainda errado
+
+Depois do fix do D1 (seção abaixo), Cleber testou de novo: SPX500 ainda -0.40% no app vs -0.70% no MetaTrader. Testei o backend direto via curl e ele já dava **-0.72%** (correto!) — ou seja, o fix anterior estava certo, mas o frontend não estava usando esse valor.
+
+**Causa raiz**: [DataSourceRouter.ts:87](src/app/services/DataSourceRouter.ts:87) — a config de fonte de dados pra **índices** (SPX500, NAS100, US30, UK100, DAX...) tinha `primary: 'yahoo'`, `fallback: ['metaapi', ...]`. Forex e commodities já usavam `primary: 'metaapi'`, só índices estavam diferentes. O Yahoo Finance tem dado real (não é fake), só que calcula a variação % com base no **fechamento da bolsa à vista** (NYSE às 21:00 UTC) — uma referência diferente da que o MetaTrader/corretora usa pro CFD do índice (abertura do candle diário do próprio broker). Por isso o app pegava o Yahoo primeiro e nunca chegava a usar o `/mt5-prices` corrigido.
+
+**Fix**: invertido pra `primary: 'metaapi'`, `fallback: ['yahoo', 'fallback']` — mesmo padrão de forex/commodities, preço e %/dia vindo da mesma fonte (MetaAPI/Infinox) que o usuário vê no terminal real. Yahoo continua como rede de segurança se a MetaAPI falhar.
+
+**Não é preciso redeploy da Edge Function desta vez** — mudança é só frontend (`DataSourceRouter.ts`), vai pela Vercel no próximo push.
+
+Comando pendente pro Cleber (inclui os fixes anteriores desta sessão que ainda não foram commitados):
+```bash
+git commit -m "fix: índices (SPX500, NAS100, US30, UK100...) usavam Yahoo como fonte primária de preço/variação — trocado pra MetaAPI (mesma fonte de forex/commodities), pra bater com o MetaTrader real em vez do fechamento da bolsa à vista"
+git push origin main
+```
+
+**Pendente**: confirmar com o Cleber, depois do deploy da Vercel, se o SPX500 (e os outros índices) batem com o MetaTrader agora.
+
+
 ## Sessão nova, continuação 4 (2026-07-07): variação % calibrada contra o MetaTrader real
 
 Cleber mandou print comparando MetaTrader vs Neural Day Trader lado a lado pro SPX500/NAS100/UK100: variação % bem diferente (SPX500: MT `-0.62%` vs app `-0.33%`).
