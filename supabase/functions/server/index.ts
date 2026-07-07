@@ -114,6 +114,36 @@ async function decryptBrokerSecret(ciphertextB64: string, ivB64: string): Promis
 
 const METAAPI_CLIENT_API_BASE = 'https://mt-client-api-v1.new-york.agiliumtrade.ai';
 
+// Cada conta MetaAPI é hospedada numa região específica (new-york, london, singapore, vint-hill...).
+// Chamar o client-api com a região errada trava/retorna 504. Descobrimos a região certa consultando
+// a provisioning API (que devolve o campo "region" da conta) e cacheamos por accountId.
+const metaApiRegionCache = new Map<string, string>();
+
+async function getMetaApiClientApiBase(token: string, accountId: string): Promise<string> {
+    const cached = metaApiRegionCache.get(accountId);
+    if (cached) return cached;
+
+    try {
+        const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
+            headers: { 'auth-token': token, 'Accept': 'application/json' },
+        });
+        if (res.ok) {
+            const account = await res.json();
+            const region = account?.region || (Array.isArray(account?.regions) ? account.regions[0] : null);
+            if (region) {
+                const base = `https://mt-client-api-v1.${region}.agiliumtrade.ai`;
+                metaApiRegionCache.set(accountId, base);
+                console.log(`[METAAPI] 🌍 Região detectada para conta ${accountId}: ${region}`);
+                return base;
+            }
+        }
+    } catch (err) {
+        console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta, usando new-york como padrão:', err);
+    }
+
+    return METAAPI_CLIENT_API_BASE;
+}
+
 async function loadDecryptedBrokerCredentials(userId: string): Promise<{ token: string; accountId: string } | null> {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -3279,13 +3309,16 @@ app.post('/mt5-prices', async (c) => {
         }
         
         console.log(`[MT5 PRICES] Símbolos:`, symbols.join(', '));
-        
+
+        // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
+        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
+
         // Buscar preços de todos os símbolos em paralelo
         const results = await Promise.all(
             symbols.map(async (symbol: string) => {
                 try {
                     // 1️⃣ Buscar TICKER (preço atual)
-                    const tickerUrl = `https://mt-client-api-v1.new-york.agiliumtrade.ai/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick`;
+                    const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick`;
                     const tickerRes = await fetch(tickerUrl, {
                         headers: {
                             'auth-token': metaapiToken,
@@ -3311,7 +3344,7 @@ app.post('/mt5-prices', async (c) => {
                     const now = new Date();
                     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
                     
-                    const candlesUrl = `https://mt-client-api-v1.new-york.agiliumtrade.ai/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
+                    const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
                     const candlesRes = await fetch(
                         `${candlesUrl}?startTime=${yesterday.toISOString()}&endTime=${now.toISOString()}&timeframe=1h`,
                         {
@@ -3552,8 +3585,10 @@ app.post('/mt5-candles', async (c) => {
         const endTime = new Date();
         const startTime = new Date(endTime.getTime() - (candleLimit * 60 * 60 * 1000)); // Aproximação
         
-        const candlesUrl = `https://mt-client-api-v1.new-york.agiliumtrade.ai/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
-        
+        // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
+        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
+        const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
+
         console.log(`[MT5 CANDLES] URL: ${candlesUrl}`);
         console.log(`[MT5 CANDLES] Timeframe: ${mt5Timeframe}, Limit: ${candleLimit}`);
         
