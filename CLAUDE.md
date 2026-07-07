@@ -1,6 +1,6 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-07)
 
-**Status do deploy**: Fase 2 (parte 1: persistência) em produção e funcionando em `neuraldaytrader.com` (confirmado pelo Cleber). Fase 2 (parte 2: preço real no P&L) corrigida localmente em 2026-07-06, ainda aguardando push/deploy. Em 2026-07-07: correção de conformidade da config da IA (`activeAssets`, `direction`, `riskProfile`, `marketMode`, `stopLossMode`, `dailyLossLimit`, `minWinRate`) feita localmente, **também aguardando push/deploy** — ver seção "Conformidade da config da IA" no fim do arquivo. Ver também incidente de tela preta + fix abaixo. Em 2026-07-07 (continuação): forex/índices/commodities passaram a usar dados reais da conta MetaAPI de plataforma do Cleber (antes eram só simulados) — **Edge Function já deployada em produção pelo Cleber e testada funcionando**; falta só o push do código do front-end (`RealMarketDataService.ts`) — ver seção "Forex/índices via MetaAPI (conta de plataforma)" no fim do arquivo.
+**Status do deploy**: ✅ **Tudo commitado e pushado pro `origin/main`** (`we-expand/neural_day_trader_V2`, o repo conectado à Vercel) — confirmado em 2026-07-07 via `git log`/`git merge-base --is-ancestor`, branch local 100% em dia com o remoto. Isso inclui: Fase 2 parte 1 (persistência, em produção e confirmada funcionando por Cleber), Fase 2 parte 2 (P&L com preço real, commit `1af2cbc5d` e vizinhos), conformidade da config da IA (`activeAssets`, `direction`, `riskProfile`, `marketMode`, `stopLossMode`, `dailyLossLimit`, `minWinRate` — commit `1af2cbc5d`), forex/índices/commodities via MetaAPI de plataforma (commits `3df186641`/`8586ab886`, Edge Function já testada em produção), fix do `getBinanceWebSocketManager` (commit `b481f3eab`), e o fix do bug do gráfico sempre em branco (commit `52f179ca1`, causa raiz real era CSS herdado do Figma Make, não a lib `klinecharts`). Detalhes de cada um nas seções abaixo. **Pendente agora**: confirmar em produção (`neuraldaytrader.com`) que esses deploys renderizaram certo — ainda não testado ao vivo depois do push.
 
 ## O que é
 SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5). Baixado do Figma Make, já publicado em produção: `https://www.neuraldaytrader.com` (Vercel, projeto `neural-day-trader-v2`) + Supabase próprio (projeto "Neural DayTrader", id `wyvdsxtcmizettljxtbg`, org "We Expand" plano Pro).
@@ -157,14 +157,13 @@ Ainda pendente, não fechado nesta sessão: deploy/undeploy automático da conta
 
 Durante o teste em produção, o Cleber reportou dois problemas novos (não são regressão da Fase 2 — reproduzidos também em `npm run dev` local, então são pré-existentes, só ficaram mais visíveis agora que se testou o fluxo ponta a ponta):
 
-**1. Gráfico sempre em branco (tela do Gráfico e do AI Trader)**
+**1. Gráfico sempre em branco (tela do Gráfico e do AI Trader)** — ✅ **RESOLVIDO em 2026-07-07, ver seção "Gráfico sempre em branco — causa raiz real encontrada e corrigida" no fim do arquivo.** (Resumo da investigação original mantido abaixo por histórico; a causa raiz descrita aqui — "bug dentro do `klinecharts`" — estava **errada**, era CSS do próprio app.)
 - Sintoma: `[ChartView] ❌❌❌ MAIN CANVAS HAS ZERO DIMENSIONS!` no console, candles nunca aparecem visualmente mesmo com dados carregados certo (log confirma "200 candles" recebidos).
-- Causa raiz isolada: o container do nosso componente (`ChartView.tsx`) sempre mede certo (confirmado via `getBoundingClientRect`, ex: 318x906px). O problema é **dentro da biblioteca `klinecharts` v9.8.10** — os `<div>` internos que ela cria pra cada painel (candle, indicadores) ficam presos com `display:none` desde o mount, e o `canvas.width`/`canvas.height` (buffer real de desenho, diferente do `style.width`/`style.height` que fica correto) nunca sai de 0. Sem esse buffer, nada é desenhado — é por isso que a tela fica preta mesmo com o layout "correto".
+- Causa raiz isolada (nesta sessão, **depois corrigida como incorreta**): o container do nosso componente (`ChartView.tsx`) sempre mede certo (confirmado via `getBoundingClientRect`, ex: 318x906px). Concluiu-se então que o problema seria **dentro da biblioteca `klinecharts` v9.8.10** — os `<div>` internos que ela cria pra cada painel (candle, indicadores) ficariam presos com `display:none` desde o mount, e o `canvas.width`/`canvas.height` (buffer real de desenho, diferente do `style.width`/`style.height` que fica correto) nunca sairia de 0.
 - Tentativas que **não resolveram** (todas testadas e descartadas nesta sessão):
   - Adicionar `ResizeObserver` no container pra chamar `chart.resize()` quando o layout mudar (ficou no código, [ChartView.tsx](src/app/components/ChartView.tsx:1930) — é defensivo/inofensivo mas não é a correção completa).
   - Limpar `innerHTML` do container antes de recriar o chart (`dispose()`+`init()`) pra evitar DOM órfão de remounts.
   - Atualizar `klinecharts` de 9.8.10 pra 9.8.12 (última patch da mesma minor) — testado e revertido, não mudou nada.
-- **Não resolvido.** Próximos passos sugeridos pra quem pegar essa investigação: (a) checar issues abertas no GitHub do `klinecharts` sobre pane/canvas com `display:none` travado; (b) tentar reproduzir num projeto React mínimo isolado pra descartar interferência do resto do app e, se confirmar, abrir issue upstream; (c) considerar migrar pra outra lib de gráfico (o projeto já tem `lightweight-charts` como dependência, não usada ainda) se não houver fix rápido.
 
 **2. IA liga mas nunca dava entradas** (`useApexLogic.ts`) — ✅ **RESOLVIDO em 2026-07-06 (continuação)**
 - Sintoma: console mostrava `[TRADING] ❌ Erro crítico na análise: TypeError: e is not a function`, todo ciclo de análise (a cada 5s) caía no catch e nenhuma posição abria.
@@ -189,7 +188,7 @@ Também ficou claro nessa conversa que o painel "Detector de Liquidez"/"Market S
 - **Resultado pra cada classe de ativo**: cripto (BTC, ETH, etc.) = preço real da Binance ao vivo (`source: "binance"`, `isRealData: true`). Forex/índices (SPX500, EURUSD, etc., sem corretora MT5 conectada) = fallback determinístico de `RealMarketDataService.ts` que muda a cada minuto (seed baseado em `Date.now()`), bem mais realista que o random puro por segundo de antes, mas ainda não é preço de mercado de verdade (`source: "generated"`, `isRealData: false`) — só fica real de verdade quando uma corretora MT5 for conectada.
 - **Verificado end-to-end** rodando `npm run dev`: confirmei via `eval` direto no browser que `getRealMarketData('BTCUSDT')` retorna preço real da Binance (`source: "binance"`) e `getRealMarketData('SPX500')` retorna fallback (`source: "generated"`); confirmei no Supabase (`select * from ai_trades order by created_at desc`) trades novos com `entry_price`/`exit_price` batendo com os preços reais observados (ex: BTC entrando e saindo na faixa de $64.238-64.434, igual ao preço real do momento) — antes do fix, esses preços eram puro ruído aleatório sem relação com o mercado. Zero erros no console durante o teste.
 
-**Pendente pra fechar 100%**: nenhuma migration nova é necessária (a estrutura de `ai_trades`/`ai_sessions` já suporta preços reais, não precisou mudar). O código está pronto localmente, falta o Cleber rodar os comandos de commit/push abaixo pra ir pra produção.
+**Pendente pra fechar 100%**: nenhuma migration nova é necessária (a estrutura de `ai_trades`/`ai_sessions` já suporta preços reais, não precisou mudar). ✅ Código commitado e pushado (confirmado em 2026-07-07, ver nota de status no topo do arquivo) — falta só validar em produção que o P&L reflete preço real.
 
 ### `getBinanceWebSocketManager` implementado (2026-07-06/07)
 
@@ -218,7 +217,7 @@ Também ficou claro nessa conversa que o painel "Detector de Liquidez"/"Market S
 
 **Verificação**: build de produção (`npm run build`) limpo. Todas as 6 correções foram validadas com testes unitários isolados em Node (simulando 20 mil ciclos de sorteio de ativo, cálculo de trailing stop, gate de daily loss e win rate) — sem tocar no ambiente de demo real do Cleber. Durante a checagem ao vivo no preview, uma tentativa de simular o cenário via `localStorage` foi bloqueada corretamente pelo harness (ação destrutiva não autorizada) e um clique acidental abriu o modal de "Reinicialização Total" da plataforma — cancelado sem confirmar, nenhum dado real do Cleber foi afetado (a posição SPX500 aberta e o histórico continuam intactos).
 
-**Pendente**: código pronto localmente em `src/app/hooks/useApexLogic.ts` e `src/app/services/BinanceWebSocketManager.ts`, falta o Cleber rodar commit/push (comandos já entregues na conversa) pra ir pra produção. Depois do deploy, vale um teste real: configurar "só cripto" + direção travada e confirmar em produção que a IA respeita.
+**Pendente**: ✅ `src/app/hooks/useApexLogic.ts` e `src/app/services/BinanceWebSocketManager.ts` commitados e pushados (confirmado em 2026-07-07). Falta um teste real em produção: configurar "só cripto" + direção travada e confirmar que a IA respeita.
 
 ### Forex/índices via MetaAPI (conta de plataforma) — 2026-07-07
 
@@ -234,4 +233,40 @@ Também ficou claro nessa conversa que o painel "Detector de Liquidez"/"Market S
 
 **Deploy**: como o Cleber não tinha acesso ao Supabase CLI (login pedia senha que ele não lembrava), o deploy da Edge Function foi feito manualmente colando os trechos corrigidos no editor web do painel do Supabase (`supabase.com/dashboard/project/wyvdsxtcmizettljxtbg/functions/server/code`), sem precisar de CLI/senha. **Já deployado e testado funcionando em produção**: `EURUSD`, `XAUUSD`, `SPX500` retornando preço real da conta MetaAPI do Cleber (corretora Infinox), confirmado via chamada direta à Edge Function e via `RealMarketDataService.getRealMarketData()` no preview local (`source: "metaapi"`, `isRealData: true`).
 
-**Pendente**: só falta o push do front-end (`src/app/services/RealMarketDataService.ts`) e do `supabase/functions/server/index.ts` (pra manter o repositório em sincronia com o que já está deployado manualmente na Edge Function) — comandos de commit/push já entregues ao Cleber na conversa.
+**Pendente**: ✅ front-end (`src/app/services/RealMarketDataService.ts`) e `supabase/functions/server/index.ts` commitados e pushados (confirmado em 2026-07-07) — repositório em sincronia com o que já está deployado manualmente na Edge Function. Falta validar em produção que forex/índices exibem `source: "metaapi"`.
+
+### Gráfico sempre em branco — causa raiz real encontrada e corrigida (2026-07-07)
+
+**Contexto**: o Cleber pediu pra investigar de novo o bug "gráfico sempre em branco" que tinha ficado documentado como não resolvido (sessão anterior, ver seção "Incidente: dois bugs novos" acima) com hipótese de ser um bug interno da lib `klinecharts` v9.8.10.
+
+**Investigação**: rodei `npm run dev`, abri a tela do Gráfico via preview automatizado e inspecionei o DOM ao vivo. Confirmei que o container do React media certo (318x906px) e que os `<div>` de cada painel do `klinecharts` (candle, volume, eixo X) também mediam certo (ex: 318x883px, com `width`/`height` inline corretos). O problema real estava um nível abaixo: os `<div>` internos do `DrawWidget` (wrapper de cada canvas, `position: absolute` + `z-index` inline) tinham `computed display: none`, mesmo com `width`/`height` inline corretos e sem nenhum `display:none` no `style` attribute deles. Rastreei isso até a CSSOM (`document.styleSheets`) e encontrei a regra real batendo: uma folha de estilo **inline no `<head>`, sem `href`** (ou seja, não é um arquivo importado, é `<style>` direto no HTML).
+
+**Causa raiz real**: [index.html:186-199](index.html:186) tinha um bloco `<style>` chamado "PROTEÇÃO NÍVEL 3: CSS PARA OCULTAR OVERLAY DE ERRO" — resíduo do export do Figma Make, pensado pra esconder overlays de erro que o Figma injeta fora da aplicação. Duas das seis regras eram genéricas demais e **sem escopo pro `#root`**:
+```css
+div[style*="position: fixed"][style*="z-index"],
+div[style*="position: absolute"][style*="z-index"] {
+  display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important;
+}
+```
+Isso escondia **qualquer** `<div>` da aplicação inteira que tivesse essas duas propriedades inline juntas — sem exceção. Os wrappers de canvas do `klinecharts` (`DrawWidget.createContainer()`, biblioteca real, código correto) usam exatamente `position: absolute` + `z-index` inline, então batiam na regra e ficavam `display:none` desde o mount. Com o wrapper escondido, o canvas nunca ganhava buffer de desenho real (`canvas.width`/`height` ficavam 0 pra sempre, mesmo com `style.width`/`height` corretos) — tela sempre preta. As outras 4 regras (baseadas em `class`/`id` contendo "error") tinham um override pra `#root [class*="error"]`, mas as duas baseadas em `position`+`z-index` não tinham override nenhum, então hoje qualquer elemento legítimo do app com esse padrão (não só o gráfico) ficaria quebrado — o gráfico só foi o primeiro a expor o problema.
+
+**Fix aplicado**: [index.html:186-210](index.html:186) — as duas regras genéricas passaram a ter escopo restrito a `body > *:not(#root *)` (só afeta elementos que o Figma injeta direto no `<body>`, nunca conteúdo real do `#root`/app). As 4 regras baseadas em class/id "error" continuam como estavam (já tinham override pro `#root`). Nenhuma mudança em `ChartView.tsx` ou no `klinecharts` foi necessária — a hipótese de bug na lib da sessão anterior estava errada; ficou documentada acima só por histórico.
+
+**Verificado end-to-end**: `npm run dev`, reload completo (mudança em `index.html` exige isso, não é hot-reloadable), login mantido (sessão persistida), cliquei em "Gráfico" — candles do BTCUSDT renderizando de verdade (`canvas.width`/`height` saíram de 0 pra valores reais, ex: 486x1766), painel "Detector de Liquidez" calculando zonas de suporte/resistência normalmente. Confirmado via screenshot.
+
+**Pendente**: ✅ commitado e pushado (commit `52f179ca1`, confirmado em `origin/main` em 2026-07-07). Falta confirmar em produção que o gráfico renderiza (tela do Gráfico e do AI Trader).
+
+## Pendências gerais (2026-07-07, consolidado)
+
+Tudo o que foi feito até aqui já está commitado e pushado pro `origin/main` — nenhum código pendente de push. O que falta agora:
+
+1. **Validar em produção** (`neuraldaytrader.com`) que os deploys recentes renderizaram certo: gráfico não fica mais em branco, forex/índices mostram `source: "metaapi"`, P&L acompanha preço real, config da IA ("só cripto" + direção travada) é respeitada.
+2. **Dívida técnica conhecida, não resolvida**:
+   - 3 telas (`Settings.tsx`, `MT5TokenValidator.tsx`, `MT5ConfigPanel.tsx`) devem estar quebradas — ainda chamam `mt5-token/save|load` com anon key em vez do JWT que a rota agora exige.
+   - 4 arquivos ainda leem o token MT5 direto de `localStorage` (`mt5_token`): `MarketDataContext.tsx`, `MT5DirectCheck.tsx`, `DataSourceIndicator.tsx`, `useMT5Prices.ts`.
+   - ~28 arquivos ainda com o prefixo de rota errado `/make-server-1dbacac6/`.
+   - `newsFilter` não tem efeito real — backend (`translate-events.ts`) sempre retorna array vazio.
+   - `@vercel/node`/`@types/node` faltando como devDependency (erro de tipagem no log de build da Vercel, não bloqueia deploy hoje).
+   - Hardcode de região `new-york` + não usar `METAAPI_ACCOUNT_ID` do ENV ainda presente em `/broker/execute`, `/mt5-check`, `/mt5-connect` (só as rotas de dados de mercado foram corrigidas).
+   - Repositório sem `.gitignore` — `node_modules/` rastreado pelo Git, polui `git status` a cada `npm install`.
+3. **Próximas fases do roadmap**: Fase 3 (execução real por usuário + deploy/undeploy automático MetaAPI por inatividade), Fase 4 (cobrança — aguardando Cleber criar conta Stripe), Fase 5 (testes com usuários reais).
