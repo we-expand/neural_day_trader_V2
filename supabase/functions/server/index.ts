@@ -3496,13 +3496,18 @@ app.post('/mt5-prices', async (c) => {
                     const tickerData = await tickerRes.json();
                     const currentPrice = tickerData.bid || tickerData.ask || tickerData.last || 0;
                     
-                    // 2️⃣ Buscar CANDLES 24H (para calcular variação)
+                    // 2️⃣ Buscar CANDLES 24H (para calcular variação) — API separada da de
+                    // tick (mt-market-data-client-api-v1, não mt-client-api-v1), endpoint
+                    // /historical-market-data/.../candles, carrega PRA TRÁS a partir de
+                    // `startTime` (aqui: agora, últimas 24 candles de 1h). Ver
+                    // getMetaApiMarketDataApiBase — antes essa chamada usava o host/rota
+                    // de tick, que 404ava sempre, deixando change/changePercent zerados
+                    // pra QUALQUER ativo (bug real, não só de símbolo mapeado errado).
                     const now = new Date();
-                    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                    
-                    const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
+                    const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
+                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1h/candles`;
                     const candlesRes = await fetch(
-                        `${candlesUrl}?startTime=${yesterday.toISOString()}&endTime=${now.toISOString()}&timeframe=1h`,
+                        `${candlesUrl}?startTime=${now.toISOString()}&limit=24`,
                         {
                             headers: {
                                 'auth-token': metaapiToken,
@@ -3510,21 +3515,24 @@ app.post('/mt5-prices', async (c) => {
                             }
                         }
                     );
-                    
+
                     let change = 0;
                     let changePercent = 0;
-                    
+
                     if (candlesRes.ok) {
                         const candles = await candlesRes.json();
                         if (candles && candles.length > 0) {
-                            const firstCandle = candles[0];
-                            const openPrice24h = firstCandle.open || 0;
-                            
+                            // Candles vêm em ordem crescente de tempo — o primeiro é o mais antigo (~24h atrás)
+                            const oldestCandle = candles[0];
+                            const openPrice24h = oldestCandle.open || 0;
+
                             if (openPrice24h > 0 && currentPrice > 0) {
                                 change = currentPrice - openPrice24h;
                                 changePercent = (change / openPrice24h) * 100;
                             }
                         }
+                    } else {
+                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles HTTP ${candlesRes.status}, change ficará 0`);
                     }
                     
                     console.log(`[MT5 PRICES] ✅ ${symbol}: $${currentPrice.toFixed(5)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);

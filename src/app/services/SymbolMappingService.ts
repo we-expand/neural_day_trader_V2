@@ -150,7 +150,7 @@ export class SymbolMappingService {
       // === INDICES ===
       {
         unified: 'US30',
-        infinox: 'DJI',        // ✅ CORRIGIDO: MetaAPI usa "DJI" não "US30"
+        infinox: 'US30',       // ✅ CORRIGIDO 2026-07-07: "DJI" 404 na MetaAPI/Infinox — símbolo real é "US30" (confirmado via /mt5-prices)
         binance: undefined,
         yahoo: '^DJI',
         tradingview: 'DJ:DJI',
@@ -159,7 +159,7 @@ export class SymbolMappingService {
       },
       {
         unified: 'SPX500',
-        infinox: 'US500',      // ✅ CORRIGIDO: MetaAPI usa "US500" não "SPX500"
+        infinox: 'SPX500',     // ✅ CORRIGIDO 2026-07-07: "US500" 404 na MetaAPI/Infinox — símbolo real é "SPX500" (confirmado via /mt5-prices; era a causa do preço/variação errados do S&P)
         binance: undefined,
         yahoo: '^GSPC',
         tradingview: 'SP:SPX',
@@ -177,7 +177,7 @@ export class SymbolMappingService {
       },
       {
         unified: 'NAS100',
-        infinox: 'NQ',         // ✅ CORRIGIDO: MetaAPI usa "NQ" não "NAS100"
+        infinox: 'NAS100',     // ✅ CORRIGIDO 2026-07-07: "NQ" 404 na MetaAPI/Infinox — símbolo real é "NAS100" (confirmado via /mt5-prices)
         binance: undefined,
         yahoo: '^IXIC',
         tradingview: 'NASDAQ:NDX',
@@ -222,7 +222,7 @@ export class SymbolMappingService {
       },
       {
         unified: 'HK50',
-        infinox: 'HK50f',
+        infinox: 'HKG33',      // ✅ CORRIGIDO 2026-07-07: "HK50f"/"HK50"/"HSI" 404am na MetaAPI/Infinox — símbolo real é "HKG33" (confirmado via /mt5-prices)
         binance: undefined,
         yahoo: '^HSI',
         tradingview: 'HSI',
