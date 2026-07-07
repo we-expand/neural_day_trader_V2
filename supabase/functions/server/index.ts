@@ -3496,18 +3496,20 @@ app.post('/mt5-prices', async (c) => {
                     const tickerData = await tickerRes.json();
                     const currentPrice = tickerData.bid || tickerData.ask || tickerData.last || 0;
                     
-                    // 2️⃣ Buscar CANDLES 24H (para calcular variação) — API separada da de
-                    // tick (mt-market-data-client-api-v1, não mt-client-api-v1), endpoint
-                    // /historical-market-data/.../candles, carrega PRA TRÁS a partir de
-                    // `startTime` (aqui: agora, últimas 24 candles de 1h). Ver
-                    // getMetaApiMarketDataApiBase — antes essa chamada usava o host/rota
-                    // de tick, que 404ava sempre, deixando change/changePercent zerados
-                    // pra QUALQUER ativo (bug real, não só de símbolo mapeado errado).
+                    // 2️⃣ Buscar candle DIÁRIO (D1) pra calcular a variação — mesma
+                    // convenção do MetaTrader/Market Watch: variação = preço atual vs.
+                    // abertura do candle diário em curso, não uma janela rolante de 24h.
+                    // Testado contra o terminal real do Cleber (2026-07-07): rolar 24
+                    // candles de 1h dava -0.33% pro SPX500 enquanto o MT5 mostrava -0.62%
+                    // — a referência certa é o open do D1, que bate com o terminal.
+                    // API separada da de tick (mt-market-data-client-api-v1, não
+                    // mt-client-api-v1), endpoint /historical-market-data/.../candles,
+                    // carrega PRA TRÁS a partir de `startTime`. Ver getMetaApiMarketDataApiBase.
                     const now = new Date();
                     const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
-                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1h/candles`;
+                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1d/candles`;
                     const candlesRes = await fetch(
-                        `${candlesUrl}?startTime=${now.toISOString()}&limit=24`,
+                        `${candlesUrl}?startTime=${now.toISOString()}&limit=1`,
                         {
                             headers: {
                                 'auth-token': metaapiToken,
@@ -3522,13 +3524,13 @@ app.post('/mt5-prices', async (c) => {
                     if (candlesRes.ok) {
                         const candles = await candlesRes.json();
                         if (candles && candles.length > 0) {
-                            // Candles vêm em ordem crescente de tempo — o primeiro é o mais antigo (~24h atrás)
-                            const oldestCandle = candles[0];
-                            const openPrice24h = oldestCandle.open || 0;
+                            // Único candle retornado (limit=1) = o D1 em curso (hoje)
+                            const todayCandle = candles[candles.length - 1];
+                            const todayOpen = todayCandle.open || 0;
 
-                            if (openPrice24h > 0 && currentPrice > 0) {
-                                change = currentPrice - openPrice24h;
-                                changePercent = (change / openPrice24h) * 100;
+                            if (todayOpen > 0 && currentPrice > 0) {
+                                change = currentPrice - todayOpen;
+                                changePercent = (change / todayOpen) * 100;
                             }
                         }
                     } else {
