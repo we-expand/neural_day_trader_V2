@@ -876,6 +876,7 @@ app.post('/broker/execute', async (c) => {
             return c.json({ error: 'Nenhuma credencial MetaAPI configurada para este usuário' }, 400);
         }
         const { token, accountId } = credentials;
+        const clientApiBase = await getMetaApiClientApiBase(token, accountId);
 
         const body = await c.req.json();
         const { action } = body;
@@ -887,7 +888,7 @@ app.post('/broker/execute', async (c) => {
 
         // --- Leituras ---
         if (action === 'getAccountInfo') {
-            const res = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/account-information`, {
+            const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/account-information`, {
                 headers: metaApiHeaders,
             });
             if (!res.ok) return c.json({ error: `MetaApi HTTP ${res.status}` }, 502);
@@ -895,7 +896,7 @@ app.post('/broker/execute', async (c) => {
         }
 
         if (action === 'getPositions') {
-            const res = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/positions`, {
+            const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/positions`, {
                 headers: metaApiHeaders,
             });
             if (!res.ok) return c.json({ error: `MetaApi HTTP ${res.status}` }, 502);
@@ -908,7 +909,7 @@ app.post('/broker/execute', async (c) => {
             const prices = [];
             for (const symbol of symbols) {
                 try {
-                    const res = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick`, {
+                    const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick`, {
                         headers: metaApiHeaders,
                     });
                     if (!res.ok) continue;
@@ -939,7 +940,7 @@ app.post('/broker/execute', async (c) => {
         };
 
         if (action === 'closeAllPositions') {
-            const posRes = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/positions`, {
+            const posRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/positions`, {
                 headers: metaApiHeaders,
             });
             if (!posRes.ok) return c.json({ error: `MetaApi HTTP ${posRes.status}` }, 502);
@@ -948,7 +949,7 @@ app.post('/broker/execute', async (c) => {
             let closedCount = 0;
             let failedCount = 0;
             for (const position of positions) {
-                const closeRes = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/trade`, {
+                const closeRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/trade`, {
                     method: 'POST',
                     headers: metaApiHeaders,
                     body: JSON.stringify({ actionType: 'POSITION_CLOSE_ID', positionId: position.id }),
@@ -966,7 +967,7 @@ app.post('/broker/execute', async (c) => {
             return c.json({ error: `Ação desconhecida: ${action}` }, 400);
         }
 
-        const tradeRes = await fetch(`${METAAPI_CLIENT_API_BASE}/users/current/accounts/${accountId}/trade`, {
+        const tradeRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/trade`, {
             method: 'POST',
             headers: metaApiHeaders,
             body: JSON.stringify(buildTradeBody(body)),
@@ -3685,7 +3686,8 @@ app.get('/mt5-check', async (c) => {
         // Tentar fazer uma requisição de teste para o MetaApi
         if (envToken && envAccountId) {
             try {
-                const testUrl = `https://mt-client-api-v1.new-york.agiliumtrade.ai/users/current/accounts/${envAccountId}`;
+                const clientApiBase = await getMetaApiClientApiBase(envToken, envAccountId);
+                const testUrl = `${clientApiBase}/users/current/accounts/${envAccountId}`;
                 console.log('[MT5 CHECK] Testing URL:', testUrl);
                 
                 const testResponse = await fetch(testUrl, {
@@ -4521,7 +4523,8 @@ app.post("/mt5/connect", async (c) => {
     // 5. Buscar informações da conta (saldo, equity, etc)
     console.log('[MT5] 💰 Buscando informações da conta...');
     
-    const accountInfoResponse = await fetch(`https://mt-client-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${account.id}/account-information`, {
+    const connectClientApiBase = await getMetaApiClientApiBase(metaapiToken, account.id);
+    const accountInfoResponse = await fetch(`${connectClientApiBase}/users/current/accounts/${account.id}/account-information`, {
       method: 'GET',
       headers: {
         'auth-token': metaapiToken,

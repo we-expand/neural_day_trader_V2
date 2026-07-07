@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/market-data`;
-const REAL_API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/real`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/server/market-data`;
+const REAL_API_BASE = `https://${projectId}.supabase.co/functions/v1/server/real`;
 
 export function MarketDataDebug() {
   const [testResults, setTestResults] = useState<any[]>([]);

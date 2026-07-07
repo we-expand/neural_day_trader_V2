@@ -41,7 +41,7 @@ export function EconomicCalendar() {
       // 🔥 ADICIONAR CACHE BUSTER PARA FORÇAR ATUALIZAÇÃO!
       const cacheBuster = `?t=${Date.now()}`;
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/economic-calendar${cacheBuster}`,
+        `https://${projectId}.supabase.co/functions/v1/server/economic-calendar${cacheBuster}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

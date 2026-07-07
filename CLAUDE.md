@@ -1,5 +1,48 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-07)
 
+## Dívida técnica fechada nesta sessão (2026-07-07, continuação)
+
+Todos os 6 itens da lista de dívida técnica consolidada (ver seção "Pendências gerais" mais abaixo) foram corrigidos. **Ainda não commitado/pushado** — código pronto localmente, comandos no fim desta seção.
+
+1. **3 telas quebradas por anon key vs JWT** (`Settings.tsx`, `MT5TokenValidator.tsx`, `MT5ConfigPanel.tsx`): as três chamavam `mt5-token/load`/`mt5-token/save` mandando `Authorization: Bearer ${publicAnonKey}` — a rota exige o JWT do usuário desde que ganhou a checagem de auth (ver Fase 1), então sempre batia 401. Fix: as três agora buscam `supabase.auth.getSession()` e mandam `session.access_token` no lugar da anon key.
+2. **4 arquivos lendo `mt5_token` do `localStorage`** (mecanismo paralelo antigo, nunca migrado):
+   - `useMT5Prices.ts`: a checagem de `mt5_token`/`mt5_accountId` no localStorage virou um bloqueio artificial — a rota `/mt5-prices` já usa a conta MetaAPI de plataforma via `METAAPI_ACCOUNT_ID`/env quando não recebe credenciais no body (ver seção "Forex/índices via MetaAPI" abaixo). Removida a checagem; o hook chama a rota direto.
+   - `MarketDataContext.tsx`: `tryAutoReconnect` lia `mt5_token`/`mt5_account_id` do localStorage pra decidir se chamava `connect(token, accountId)` — mas `MT5PriceValidator.connect()` já ignora esses parâmetros e verifica credenciais via `getBrokerCredentialsStatus()` (backend, JWT) desde a Fase 1. Fix: chama `connect('', '')` sempre, deixando o backend decidir.
+   - `DataSourceIndicator.tsx`: media "dados reais" checando presença de `mt5_token` no localStorage — hoje isso não reflete mais a arquitetura (forex/índices já são reais via conta de plataforma, independente de token local). Simplificado pra sempre mostrar "Dados Reais" (com uma chamada opcional a `/broker/credentials/status` pra diferenciar conta própria vs plataforma, sem bloquear a UI).
+   - `MT5DirectCheck.tsx`: **deletado**. Era um componente órfão (não importado em lugar nenhum) que pedia o token MetaAPI em texto puro num form, salvava em `localStorage` e chamava a API da MetaAPI **direto do browser** — exatamente o anti-padrão de exposição de token que a Fase 1 eliminou em `MetaAPIDirectClient.ts`. Mesmo tratamento dado a `LocalAuthTest.tsx` na época (deletar, não migrar).
+3. **~28 (na prática 32) arquivos com prefixo de rota errado `/make-server-1dbacac6/`**: substituído por `/server/` (o slug real da function em produção) em todos os arquivos de código encontrados via `grep -rl "make-server-1dbacac6" src utils` (os `.txt` em `src/imports/pasted_text/` são logs colados, não código — não tocados).
+4. **`newsFilter` era stub**: `translate-events.ts` tinha `translateEconomicEvents()`/`createInvestingEvents()` sempre retornando `[]`, descartando os eventos reais já raspados pelo MQL5/Investing.com/Yahoo Finance em `index.ts`. Fix: `translateEconomicEvents()` agora traduz de verdade (país pra português, importância número 1-3 + string `impact` "high"/"medium"/"low"), no mesmo formato que `EconomicCalendar.tsx` e o gate de notícias em `useApexLogic.ts` já esperavam. `createInvestingEvents()` continua stub de propósito (é só o último fallback, já coberto por `investing-events-pt.ts`). Removido também um comentário desatualizado em `useApexLogic.ts` que documentava essa limitação como não corrigida.
+5. **`@vercel/node`/`@types/node` faltando**: adicionados como `devDependencies` no `package.json` (`@types/node@^22.10.2`, `@vercel/node@^3.2.24` — o `npm install --package-lock-only` resolveu pra `^22.20.0`/`^3.2.29`, versões mais novas dentro do range). `package-lock.json` atualizado.
+6. **Hardcode de região `new-york` + não usar `METAAPI_ACCOUNT_ID` do ENV** em `/broker/execute`, `/mt5-check`, `/mt5/connect`: as três agora chamam `getMetaApiClientApiBase(token, accountId)` (a mesma função com auto-detecção de região + cache já usada em `/mt5-prices`/`/mt5-candles`) em vez da constante fixa `METAAPI_CLIENT_API_BASE` ou de URLs hardcoded com `new-york`/sem região.
+
+**Achado de segurança fora do escopo pedido, flagueado como tarefa separada (não corrigido aqui)**: as rotas `POST /save-metaapi-token` e `DELETE /clear-metaapi-token` (`index.ts` ~linha 3139/3191) não têm **nenhuma** checagem de autenticação — qualquer chamador com a anon key pública consegue sobrescrever ou apagar o token MetaAPI de plataforma (usado por todos os usuários no feed de forex/índices). Não há hoje um helper de "é admin" no código desta Edge Function; implementar isso é maior que o escopo desta correção.
+
+**Build**: `npm run build` limpo depois de todas as mudanças (só os warnings de chunk size que já existiam antes, não relacionados).
+
+**Pendente**: rodar os comandos abaixo pra levar tudo pra produção.
+```bash
+git add package.json package-lock.json supabase/functions/server/index.ts supabase/functions/server/translate-events.ts \
+  src/app/hooks/useApexLogic.ts src/app/hooks/useMT5Prices.ts src/app/hooks/useUserProfile.ts src/app/hooks/useVoiceChat.tsx \
+  src/app/contexts/MarketDataContext.tsx src/app/services/MetaApiService.ts src/app/services/market-service.ts \
+  src/app/components/Settings.tsx src/app/components/MT5TokenValidator.tsx src/app/components/dashboard/MT5ConfigPanel.tsx \
+  src/app/components/DataSourceIndicator.tsx "src/app/components/MT5DirectCheck.tsx" \
+  src/app/components/ApiTester.tsx src/app/components/Funds.tsx src/app/components/MT5Diagnostics.tsx \
+  src/app/components/MarketDataDebug.tsx src/app/components/MetaApiTokenAlert.tsx src/app/components/TokenConfigModal.tsx \
+  src/app/components/UserProfile.tsx src/app/components/admin/AdminGodMode.tsx src/app/components/admin/UserDataDashboard.tsx \
+  src/app/components/admin/UserIntelligence.tsx src/app/components/admin/UserTracker.tsx \
+  src/app/components/alerts/BitcoinNewsAlert.tsx src/app/components/dashboard/AssetDiscoveryPanel.tsx \
+  src/app/components/dashboard/LocalMarketNews.tsx src/app/components/dashboard/MarketIntelligence.tsx \
+  src/app/components/dashboard/MiniCharts.tsx src/app/components/debug/PriceCalculationDebug.tsx \
+  src/app/components/market/EconomicCalendar.tsx src/app/components/onboarding/ExpandedOnboarding.tsx \
+  src/app/components/settings/BillingSettings.tsx src/app/components/system/AlertSystemPanel.tsx \
+  src/app/components/system/AssetHealthMonitor.tsx src/app/components/system/MassAssetDiagnostics.tsx \
+  src/app/components/tools/VIXWidget.tsx src/app/components/tools/VIXWidgetEnhanced.tsx \
+  src/app/components/wallet/DepositModal.tsx
+git commit -m "fix: quita dívida técnica pendente (rotas mt5-token com JWT, prefixo de rota, newsFilter real, região MetaAPI dinâmica, devDeps do vercel/node)"
+git push origin main
+```
+Depois do deploy, revisar as rotas `mt5-token/save|load` chamadas por essas 3 telas em produção (login real) e testar o filtro de notícias com `newsFilter=true` num horário de evento de alto impacto conhecido.
+
 **Status do deploy**: ✅ **Tudo commitado e pushado pro `origin/main`** (`we-expand/neural_day_trader_V2`, o repo conectado à Vercel) — confirmado em 2026-07-07 via `git log`/`git merge-base --is-ancestor`, branch local 100% em dia com o remoto. Isso inclui: Fase 2 parte 1 (persistência, em produção e confirmada funcionando por Cleber), Fase 2 parte 2 (P&L com preço real, commit `1af2cbc5d` e vizinhos), conformidade da config da IA (`activeAssets`, `direction`, `riskProfile`, `marketMode`, `stopLossMode`, `dailyLossLimit`, `minWinRate` — commit `1af2cbc5d`), forex/índices/commodities via MetaAPI de plataforma (commits `3df186641`/`8586ab886`, Edge Function já testada em produção), fix do `getBinanceWebSocketManager` (commit `b481f3eab`), e o fix do bug do gráfico sempre em branco (commit `52f179ca1`, causa raiz real era CSS herdado do Figma Make, não a lib `klinecharts`). Detalhes de cada um nas seções abaixo. **Pendente agora**: confirmar em produção (`neuraldaytrader.com`) que esses deploys renderizaram certo — ainda não testado ao vivo depois do push.
 
 ## O que é

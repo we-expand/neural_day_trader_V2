@@ -33,7 +33,7 @@ export function MetaApiTokenAlert() {
   const checkTokenStatus = async () => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/public/mt5-status`,
+        `https://${projectId}.supabase.co/functions/v1/server/public/mt5-status`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`

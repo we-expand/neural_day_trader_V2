@@ -105,7 +105,7 @@ export function Funds() {
     // MODO LIVE: Buscar do backend (KV Store)
     try {
       // 1. Get Wallet from KV Store via Server
-      const walletRes = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/wallet?userId=${user.id}`, {
+      const walletRes = await fetch(`https://${projectId}.supabase.co/functions/v1/server/wallet?userId=${user.id}`, {
           headers: { 'Authorization': `Bearer ${publicAnonKey}` }
       });
       const walletData = await walletRes.json();
@@ -120,7 +120,7 @@ export function Funds() {
       }
 
       // 2. Get Transactions from KV Store via Server
-      const txRes = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/transactions?userId=${user.id}`, {
+      const txRes = await fetch(`https://${projectId}.supabase.co/functions/v1/server/transactions?userId=${user.id}`, {
           headers: { 'Authorization': `Bearer ${publicAnonKey}` }
       });
       const txData = await txRes.json();
@@ -207,7 +207,7 @@ export function Funds() {
       // STRIPE INTEGRATION FOR DEPOSITS
       if (transactionType === 'deposit' && selectedMethod === 'card') {
           try {
-             const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/deposit`, {
+             const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/deposit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
                 body: JSON.stringify({ 
@@ -296,7 +296,7 @@ export function Funds() {
       // NOTE: For Pix, we are auto-completing for testing purposes since we lack real webhooks.
       const status = selectedMethod === 'pix' && transactionType === 'deposit' ? 'completed' : 'pending';
       
-      const txResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/transaction`, {
+      const txResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/server/transaction`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
           body: JSON.stringify({

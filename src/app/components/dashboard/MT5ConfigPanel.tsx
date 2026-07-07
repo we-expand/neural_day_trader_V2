@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Lock, Unlock, RefreshCw, DollarSign, Settings, WifiOff, Wifi, AlertCircle, Terminal, AlertTriangle, ShieldCheck, LogOut, Key, Server, User, RotateCcw, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { supabase } from '@/lib/supabaseClient';
 
 // UI Components
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/app/components/ui/card';
@@ -53,9 +54,11 @@ export const MT5ConfigPanel = ({ isOpen, onClose }: Props) => {
     const loadToken = async () => {
       if (user?.id && !metaApiToken) {
         try {
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/mt5-token/load?userId=${user.id}`, {
+          // 🔒 A rota exige o JWT da sessão do usuário, não a anon key.
+          const { data: { session } } = await supabase.auth.getSession();
+          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/mt5-token/load?userId=${user.id}`, {
             headers: {
-              'Authorization': `Bearer ${publicAnonKey}`
+              'Authorization': `Bearer ${session?.access_token || publicAnonKey}`
             }
           });
           const data = await response.json();
@@ -179,11 +182,13 @@ export const MT5ConfigPanel = ({ isOpen, onClose }: Props) => {
         // NOVO: Salvar token MT5 no backend para persistência permanente
         if (mode === 'LIVE' && metaApiToken && user?.id) {
             try {
-                await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/mt5-token/save`, {
+                // 🔒 A rota exige o JWT da sessão do usuário, não a anon key.
+                const { data: { session } } = await supabase.auth.getSession();
+                await fetch(`https://${projectId}.supabase.co/functions/v1/server/mt5-token/save`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${publicAnonKey}`
+                        'Authorization': `Bearer ${session?.access_token || publicAnonKey}`
                     },
                     body: JSON.stringify({
                         userId: user.id,

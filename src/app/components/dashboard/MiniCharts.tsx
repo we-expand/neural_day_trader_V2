@@ -36,7 +36,7 @@ export function MiniCharts() {
       const symbols = DEFAULT_SYMBOLS.map(s => s.symbol);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/mt5-prices`,
+        `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`,
         {
           method: 'POST',
           headers: {

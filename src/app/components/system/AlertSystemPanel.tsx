@@ -105,7 +105,7 @@ export function AlertSystemPanel() {
       for (const symbol of criticalAssets) {
         try {
           const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/market-data/${symbol}`,
+            `https://${projectId}.supabase.co/functions/v1/server/market-data/${symbol}`,
             {
               headers: {
                 'Authorization': `Bearer ${publicAnonKey}`,

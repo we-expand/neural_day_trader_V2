@@ -48,7 +48,7 @@ export function TokenConfigModal({ isOpen, onClose, currentTokenPrefix }: TokenC
     try {
       // Salvar no backend (KV Store)
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/config/metaapi`,
+        `https://${projectId}.supabase.co/functions/v1/server/config/metaapi`,
         {
           method: 'POST',
           headers: {

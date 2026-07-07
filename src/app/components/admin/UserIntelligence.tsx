@@ -41,7 +41,7 @@ export function UserIntelligence() {
       setLoading(true);
       try {
           // Fetch from our new Edge Function
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/list-users`, {
+          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/list-users`, {
              method: 'GET',
              headers: { 
                  'Authorization': `Bearer ${publicAnonKey}`,

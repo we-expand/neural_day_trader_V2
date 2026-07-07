@@ -31,7 +31,7 @@ export function PriceCalculationDebug() {
       setResults([...diagnosticResults]);
 
       const candlesResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/market-data/candles?symbol=${symbol}&timeframe=1H&limit=50`,
+        `https://${projectId}.supabase.co/functions/v1/server/market-data/candles?symbol=${symbol}&timeframe=1H&limit=50`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -86,7 +86,7 @@ export function PriceCalculationDebug() {
       setResults([...diagnosticResults]);
 
       const priceResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/market-data/prices?symbols=${symbol}`,
+        `https://${projectId}.supabase.co/functions/v1/server/market-data/prices?symbols=${symbol}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -116,7 +116,7 @@ export function PriceCalculationDebug() {
       setResults([...diagnosticResults]);
 
       const validateResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/asset-discovery/validate/${symbol}`,
+        `https://${projectId}.supabase.co/functions/v1/server/asset-discovery/validate/${symbol}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

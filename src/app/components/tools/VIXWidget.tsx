@@ -69,7 +69,7 @@ export function VIXWidget({ className = '' }: VIXWidgetProps) {
           console.log('[VIX] 🥇 PRIORIDADE #1: Backend Proxy (agregador)...');
           
           const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/vix`,
+            `https://${projectId}.supabase.co/functions/v1/server/vix`,
             {
               headers: {
                 'Authorization': `Bearer ${publicAnonKey}`,

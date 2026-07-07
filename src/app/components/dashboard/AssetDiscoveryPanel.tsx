@@ -27,7 +27,7 @@ export function AssetDiscoveryPanel() {
 
       // Se forceRefresh, chamar o endpoint de refresh primeiro
       if (forceRefresh) {
-        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/asset-discovery/refresh`, {
+        await fetch(`https://${projectId}.supabase.co/functions/v1/server/asset-discovery/refresh`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -37,7 +37,7 @@ export function AssetDiscoveryPanel() {
 
       // Buscar categorias
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/asset-discovery/categories`,
+        `https://${projectId}.supabase.co/functions/v1/server/asset-discovery/categories`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

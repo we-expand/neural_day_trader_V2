@@ -19,19 +19,19 @@ export const MT5Diagnostics: React.FC = () => {
       const endpoints = [
         {
           name: 'Health Check',
-          url: `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/health`,
+          url: `https://${projectId}.supabase.co/functions/v1/server/health`,
           method: 'GET',
           needsAuth: false
         },
         {
           name: 'Public MT5 Status',
-          url: `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/public/mt5-status`,
+          url: `https://${projectId}.supabase.co/functions/v1/server/public/mt5-status`,
           method: 'GET',
           needsAuth: false
         },
         {
           name: 'MT5 Check (Autenticado)',
-          url: `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/mt5-check`,
+          url: `https://${projectId}.supabase.co/functions/v1/server/mt5-check`,
           method: 'GET',
           needsAuth: true
         }

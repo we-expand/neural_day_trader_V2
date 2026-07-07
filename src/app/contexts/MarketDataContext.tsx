@@ -135,27 +135,22 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
     }
     
     try {
-      const savedToken = localStorage.getItem('mt5_token');
-      const savedAccountId = localStorage.getItem('mt5_account_id');
-      
-      if (savedToken && savedAccountId) {
-        console.log('[Market Data] 🔄 Credenciais encontradas, tentando reconectar...');
-        const success = await connect(savedToken, savedAccountId);
-        
-        if (success) {
-          console.log('[Market Data] ✅ Reconexão automática bem-sucedida!');
-          // 🛡️ PROTEÇÃO: Envolver toast em try-catch para prevenir iframe errors
-          try {
-            toast.success('MT5 reconectado automaticamente');
-          } catch (toastError) {
-            console.warn('[Market Data] ⚠️ Erro ao exibir toast:', toastError);
-          }
-        } else {
-          console.warn('[Market Data] ⚠️ Reconexão automática falhou');
-          // ⚠️ NÃO MOSTRAR TOAST DE WARNING NA INICIALIZAÇÃO (evita poluição visual)
+      // 🔒 Fase 1: credenciais MetaAPI vivem no backend (JWT), não em localStorage.
+      // `connect()` já verifica isso via `getBrokerCredentialsStatus()` (BrokerClient) —
+      // os parâmetros token/accountId são só compatibilidade legada, ignorados.
+      console.log('[Market Data] 🔄 Verificando credenciais no backend...');
+      const success = await connect('', '');
+
+      if (success) {
+        console.log('[Market Data] ✅ Reconexão automática bem-sucedida!');
+        // 🛡️ PROTEÇÃO: Envolver toast em try-catch para prevenir iframe errors
+        try {
+          toast.success('MT5 reconectado automaticamente');
+        } catch (toastError) {
+          console.warn('[Market Data] ⚠️ Erro ao exibir toast:', toastError);
         }
       } else {
-        console.log('[Market Data] ℹ️ Nenhuma credencial salva encontrada');
+        console.log('[Market Data] ℹ️ Nenhuma credencial configurada no backend');
       }
     } catch (error) {
       console.error('[Market Data] ❌ Erro na reconexão automática:', error);

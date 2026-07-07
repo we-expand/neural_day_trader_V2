@@ -157,7 +157,7 @@ export function useVoiceChat(options: VoiceChatOptions = {}) {
       // 1️⃣ TRANSCREVER ÁUDIO (STT)
       console.log('[VOICE CHAT] 📝 Transcrevendo...');
       const transcriptResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/stt/transcribe`,
+        `https://${projectId}.supabase.co/functions/v1/server/stt/transcribe`,
         {
           method: 'POST',
           headers: {
@@ -195,7 +195,7 @@ export function useVoiceChat(options: VoiceChatOptions = {}) {
       // 2️⃣ PROCESSAR PERGUNTA (Chat)
       console.log('[VOICE CHAT] 🤖 Processando pergunta...');
       const chatResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/assistant/chat`,
+        `https://${projectId}.supabase.co/functions/v1/server/assistant/chat`,
         {
           method: 'POST',
           headers: {
@@ -266,7 +266,7 @@ export function useVoiceChat(options: VoiceChatOptions = {}) {
       console.log('[VOICE CHAT] 🔊 Sintetizando voz...');
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/tts/synthesize`,
+        `https://${projectId}.supabase.co/functions/v1/server/tts/synthesize`,
         {
           method: 'POST',
           headers: {
@@ -338,7 +338,7 @@ export function useVoiceChat(options: VoiceChatOptions = {}) {
     try {
       // Processar pergunta
       const chatResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/assistant/chat`,
+        `https://${projectId}.supabase.co/functions/v1/server/assistant/chat`,
         {
           method: 'POST',
           headers: {

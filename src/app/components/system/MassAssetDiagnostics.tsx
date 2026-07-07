@@ -148,7 +148,7 @@ export function MassAssetDiagnostics() {
     try {
       // Buscar dados REAIS da API (✅ CORRIGIDO: path parameter)
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/market-data/${asset.symbol}`,
+        `https://${projectId}.supabase.co/functions/v1/server/market-data/${asset.symbol}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

@@ -79,7 +79,7 @@ export function UserProfile() {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/user-profile?userId=${user.id}`,
+        `https://${projectId}.supabase.co/functions/v1/server/user-profile?userId=${user.id}`,
         {
           headers: { 'Authorization': `Bearer ${publicAnonKey}` }
         }
@@ -100,7 +100,7 @@ export function UserProfile() {
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/user-profile`,
+        `https://${projectId}.supabase.co/functions/v1/server/user-profile`,
         {
           method: 'POST',
           headers: {

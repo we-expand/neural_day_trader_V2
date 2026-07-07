@@ -760,15 +760,6 @@ export function useApexLogic(initialMarketContext?: MarketContext) {
 
     // 🔒 RESPEITAR CONFIG DO USUÁRIO: newsFilter (pausar entradas perto de notícias
     // econômicas de alto impacto). Antes esse campo era salvo mas nunca lido.
-    // ⚠️ LIMITAÇÃO CONHECIDA: o backend `/economic-calendar` (Edge Function) tem uma
-    // dependência (`translate-events.ts`) que hoje é um STUB — `translateEconomicEvents()`
-    // e `createInvestingEvents()` sempre retornam array vazio, então o endpoint nunca
-    // retorna eventos reais, mesmo quando o scraping (MQL5/Investing/Yahoo) funciona
-    // internamente. Isso é um bug pré-existente e separado, fora do escopo desta
-    // correção - deixei o fetch já pronto e chamando a rota certa, pra funcionar
-    // automaticamente assim que esse stub for corrigido. Até lá, newsFilter=true
-    // efetivamente não vai encontrar eventos pra filtrar (fail-safe: não bloqueia
-    // negociação, mas também não protege de notícias de verdade ainda).
     const fetchNewsCached = async () => {
       const now = Date.now();
       if (now - lastNewsFetchRef.current < NEWS_CACHE_DURATION) {

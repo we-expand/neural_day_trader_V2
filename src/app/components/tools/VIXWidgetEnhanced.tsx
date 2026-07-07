@@ -76,7 +76,7 @@ export function VIXWidgetEnhanced() {
 
       /* DESATIVADO - Quota excedida
       // 🔥 USAR APENAS BACKEND - ZERO CHAMADAS CORS DIRETAS!
-      const backendData = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/vix`, {
+      const backendData = await fetch(`https://${projectId}.supabase.co/functions/v1/server/vix`, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
           'Content-Type': 'application/json'

@@ -29,7 +29,7 @@ export function AdminGodMode({ onClose }: { onClose: () => void }) {
         const fetchLogs = async () => {
             try {
                 // Busca logs via Server API
-                const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/telemetry/logs`);
+                const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/telemetry/logs`);
                 const { logs: data } = await response.json();
                 
                 if (Array.isArray(data)) {

@@ -7,7 +7,7 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getRealMarketData, isValidPrice, normalizePrice } from './RealMarketDataService';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
 
 export interface MetaApiTick {
   symbol: string;

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle, XCircle, AlertCircle, ExternalLink } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useTradingContext } from '@/app/contexts/TradingContext';
 
@@ -29,9 +30,11 @@ export function MT5TokenValidator() {
       // 🎯 ESTRATÉGIA 1: Tentar buscar do backend (se usuário logado)
       if (user?.id) {
         try {
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/mt5-token/load?userId=${user.id}`, {
+          // 🔒 A rota exige o JWT da sessão do usuário, não a anon key.
+          const { data: { session } } = await supabase.auth.getSession();
+          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/mt5-token/load?userId=${user.id}`, {
             headers: {
-              'Authorization': `Bearer ${publicAnonKey}`
+              'Authorization': `Bearer ${session?.access_token || publicAnonKey}`
             }
           });
           const data = await response.json();

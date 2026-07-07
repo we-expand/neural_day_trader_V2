@@ -5,7 +5,7 @@ import { EconomicCalendar } from '../market/EconomicCalendar';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 // ✅ USAR BACKEND (sem CORS)
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
 
 // Fallback Data in case RSS fails (Varied sources)
 const FALLBACK_NEWS = [

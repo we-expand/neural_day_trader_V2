@@ -47,16 +47,6 @@ export function useMT5Prices(symbols: string[], enabled = true) {
     const currentSymbols = symbolsRef.current;
     if (!enabled || currentSymbols.length === 0) return;
 
-    // Buscar credenciais MT5 do localStorage
-    const mt5Token = localStorage.getItem('mt5_token');
-    const mt5AccountId = localStorage.getItem('mt5_accountId');
-
-    if (!mt5Token || !mt5AccountId) {
-      console.warn('[useMT5Prices] ⚠️ Credenciais MT5 não configuradas');
-      setError('MT5 não configurado');
-      return;
-    }
-
     if (isEmergencyOfflineMode()) {
       console.log('[useMT5Prices] 🚫 Modo offline ativado - pulando fetch');
       setLoading(false);
@@ -78,8 +68,6 @@ export function useMT5Prices(symbols: string[], enabled = true) {
           },
           body: JSON.stringify({
             symbols: currentSymbols,
-            token: mt5Token,
-            accountId: mt5AccountId,
           }),
         }
       );

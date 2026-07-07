@@ -2,7 +2,7 @@ import { getMetaApiCandles, type MetaApiCandle } from './MetaApiService';
 import { symbolMappingService } from './SymbolMappingService';
 
 // ✅ API_BASE do Supabase removido — não utilizado neste arquivo (evita import desnecessário de projectId)
-// const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/market-data`;
+// const API_BASE = `https://${projectId}.supabase.co/functions/v1/server/market-data`;
 
 export interface CandleData {
   timestamp: number;

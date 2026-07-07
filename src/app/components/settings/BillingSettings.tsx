@@ -18,7 +18,7 @@ export function BillingSettings() {
     toast.loading(`Iniciando checkout do plano ${plan.toUpperCase()}...`);
 
     try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/checkout`, {
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
             body: JSON.stringify({ 

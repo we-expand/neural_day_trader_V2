@@ -146,7 +146,7 @@ export function ExpandedOnboarding({ onComplete, onSkip }: ExpandedOnboardingPro
   const handleSubmit = async () => {
     try {
       // Send to backend
-      const response = await fetch(`https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/make-server-1dbacac6/user-data`, {
+      const response = await fetch(`https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/server/user-data`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

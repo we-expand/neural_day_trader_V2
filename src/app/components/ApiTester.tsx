@@ -121,7 +121,7 @@ export function ApiTester() {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/real/twelve/${symbol}`,
+        `https://${projectId}.supabase.co/functions/v1/server/real/twelve/${symbol}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -154,7 +154,7 @@ export function ApiTester() {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/real/binance/${symbol}`,
+        `https://${projectId}.supabase.co/functions/v1/server/real/binance/${symbol}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -187,7 +187,7 @@ export function ApiTester() {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/real/yahoo/${symbol}`,
+        `https://${projectId}.supabase.co/functions/v1/server/real/yahoo/${symbol}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -227,7 +227,7 @@ export function ApiTester() {
   const testServerDiagnostics = async () => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/diagnostics/test-all`,
+        `https://${projectId}.supabase.co/functions/v1/server/diagnostics/test-all`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

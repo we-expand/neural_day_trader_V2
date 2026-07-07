@@ -48,7 +48,7 @@ export function UserTracker() {
         };
 
         // 4. Envia para o Servidor (Telemetria)
-        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/telemetry/track`, {
+        await fetch(`https://${projectId}.supabase.co/functions/v1/server/telemetry/track`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

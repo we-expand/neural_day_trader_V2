@@ -29,6 +29,7 @@ import {
   Monitor
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { supabase } from '@/lib/supabaseClient';
 import { VoiceSettings } from '@/app/components/settings/VoiceSettings';
 import { BrokerConnections } from '@/app/components/settings/BrokerConnections';
 import { AssetHealthMonitor } from '@/app/components/system/AssetHealthMonitor';
@@ -82,12 +83,16 @@ export function Settings() {
       
       try {
         console.log('[Settings] 🔄 Carregando token do backend...');
-        
+
+        // 🔒 A rota exige o JWT da sessão do usuário (não a anon key) desde que
+        // ganhou a checagem de autenticação — sem isso, dava 401 e a tela ficava
+        // sempre vazia.
+        const { data: { session } } = await supabase.auth.getSession();
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/mt5-token/load?userId=${user.id}`,
+          `https://${projectId}.supabase.co/functions/v1/server/mt5-token/load?userId=${user.id}`,
           {
             headers: {
-              'Authorization': `Bearer ${publicAnonKey}`
+              'Authorization': `Bearer ${session?.access_token || publicAnonKey}`
             }
           }
         );
@@ -121,7 +126,7 @@ export function Settings() {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/save-metaapi-token`,
+        `https://${projectId}.supabase.co/functions/v1/server/save-metaapi-token`,
         {
           method: 'POST',
           headers: {
@@ -173,7 +178,7 @@ export function Settings() {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/clear-metaapi-token`,
+        `https://${projectId}.supabase.co/functions/v1/server/clear-metaapi-token`,
         {
           method: 'DELETE',
           headers: {

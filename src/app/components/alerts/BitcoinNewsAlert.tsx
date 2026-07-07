@@ -49,7 +49,7 @@ export function BitcoinNewsAlert() {
   const [isDismissed, setIsDismissed] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6`;
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
 
   const fetchMarketAlert = async () => {
     try {

@@ -39,7 +39,7 @@ export function DepositModal({ isOpen, onClose }: DepositModalProps) {
         return;
       }
 
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-1dbacac6/deposit`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
