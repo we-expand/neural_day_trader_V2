@@ -24,6 +24,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TradeDecision } from './BacktestTradeMarker';
+import { Strategy } from '@/app/types/strategy';
+import { verifyTrade, TradeVerificationResult } from '@/app/services/strategy/TradeVerification';
+import { Timeframe as DataTimeframe } from '@/app/services/BacktestDataService';
+import { ShieldCheck, Loader2, ExternalLink } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════
 // TIPOS
@@ -35,6 +39,8 @@ interface BacktestDecisionsPanelProps {
   decisions: TradeDecision[];
   onDecisionClick?: (decision: TradeDecision) => void;
   onJumpToCandle?: (candleIndex: number) => void;
+  /** Estratégia + timeframe do último backtest rodado — necessário pra reconfirmar um trade de forma independente. */
+  verificationContext?: { strategy: Strategy; timeframe: string } | null;
 }
 
 type FilterType = 'all' | 'buy' | 'sell' | 'win' | 'loss';
@@ -48,11 +54,29 @@ export function BacktestDecisionsPanel({
   onClose,
   decisions,
   onDecisionClick,
-  onJumpToCandle
+  onJumpToCandle,
+  verificationContext
 }: BacktestDecisionsPanelProps) {
   const [filter, setFilter] = useState<FilterType>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, TradeVerificationResult>>({});
+
+  const handleVerify = async (decision: TradeDecision) => {
+    if (!verificationContext || !decision.symbol) return;
+    setVerifyingId(decision.id);
+    try {
+      const result = await verifyTrade(
+        { symbol: decision.symbol, type: decision.type, entryPrice: decision.price, timestamp: decision.timestamp },
+        verificationContext.strategy,
+        verificationContext.timeframe as DataTimeframe
+      );
+      setVerifyResults(prev => ({ ...prev, [decision.id]: result }));
+    } finally {
+      setVerifyingId(null);
+    }
+  };
 
   // Filtrar decisões
   const filteredDecisions = decisions.filter(decision => {
@@ -342,6 +366,46 @@ export function BacktestDecisionsPanel({
                                 </button>
                               )}
                             </div>
+
+                            {/* Verificação independente — refaz o fetch e reavalia a condição do zero */}
+                            {verificationContext && decision.symbol && (
+                              <div className="pt-1">
+                                <button
+                                  onClick={() => handleVerify(decision)}
+                                  disabled={verifyingId === decision.id}
+                                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-slate-200 rounded-lg text-xs font-medium transition-colors disabled:opacity-60"
+                                >
+                                  {verifyingId === decision.id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="w-3 h-3" />
+                                  )}
+                                  Verificar este trade (dado + condição, de novo, do zero)
+                                </button>
+
+                                {verifyResults[decision.id] && (
+                                  <div className={`mt-2 p-3 rounded-lg border text-xs leading-relaxed ${
+                                    verifyResults[decision.id].ok
+                                      ? 'bg-emerald-900/20 border-emerald-700/30 text-emerald-300'
+                                      : 'bg-orange-900/20 border-orange-700/30 text-orange-300'
+                                  }`}>
+                                    <div className="font-bold mb-1">
+                                      {verifyResults[decision.id].ok ? '✅ Reconfirmado' : '⚠️ Não reconfirmado'}
+                                    </div>
+                                    <p>{verifyResults[decision.id].message}</p>
+                                    <a
+                                      href={verifyResults[decision.id].tradingViewUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 mt-2 text-slate-400 hover:text-white underline"
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                      Conferir {decision.symbol} no TradingView
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </motion.div>
                       )}

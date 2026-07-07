@@ -20,6 +20,7 @@ import { backtestDataService, Timeframe as DataTimeframe } from '../services/Bac
 
 interface Trade {
   id: string;
+  symbol: string;
   type: 'BUY' | 'SELL';
   entryPrice: number;
   exitPrice: number;
@@ -200,6 +201,7 @@ function runBacktest(candles: Candle[], strategy: Strategy, symbol: string, dire
 
         trades.push({
           id: `bt-${openPosition.entryIndex}-${i}`,
+          symbol,
           type: openPosition.side === 'LONG' ? 'BUY' : 'SELL',
           entryPrice: openPosition.entryPrice,
           exitPrice,

@@ -360,3 +360,19 @@ Tudo o que foi feito até aqui já está commitado e pushado pro `origin/main` �
 **Não verificado ainda** (sem acesso a login real neste ambiente): rodar um backtest de ponta a ponta contra um ativo real e conferir os trades batendo com o gráfico; testar o Replay em cada classe de ativo (cripto/forex/índice/ouro/ação); confirmar em produção que a IA ao vivo com uma estratégia selecionada realmente opera diferente do comportamento antigo. **Pendente**: Cleber rodar a migration `006_strategies.sql` no SQL Editor do Supabase e testar os três fluxos (Backtest, Replay, IA ao vivo com estratégia) depois do deploy.
 
 **Achado de escopo, não implementado**: o "R/R" e alguns campos de `StrategyBuilderPro` (`aiScore`, `aiSuggestions`) são só decorativos na UI — a persistência salva a estratégia, mas esses campos específicos não são gerados/usados por nenhuma lógica real ainda.
+
+### Validação de correção + verificação independente de trade (2026-07-07, continuação)
+
+**Contexto**: Cleber testou o backtest na Vercel mas não tinha como medir se o resultado estava certo. Build/type-check limpos provam que o código roda, não que a matemática está certa — faltava essa camada.
+
+**O que foi feito:**
+1. **Suite de validação matemática**: [src/app/services/indicators/__validate__.ts](src/app/services/indicators/__validate__.ts) — 14 checagens automáticas comparando os indicadores contra valores calculáveis à mão (preço constante → SMA/EMA/Bollinger convergem pro preço e ATR/MACD=0; subida/queda monotônica pura → RSI=100/0; `SMA([1,2,3,4,5],5)=3`; uma série desenhada de propósito pra cruzar duas EMAs gera exatamente 1 cruzamento detectado) + prova de determinismo (mesma estratégia + mesmos candles, 2 rodadas, resultado idêntico). Todas as 14 passam. Roda com:
+   ```bash
+   npx esbuild src/app/services/indicators/__validate__.ts --bundle --platform=node --outfile=/tmp/validate.js && node /tmp/validate.js
+   ```
+2. **Verificação independente por trade, embutida na própria UI**: novo [TradeVerification.ts](src/app/services/strategy/TradeVerification.ts) — botão "Verificar este trade" no painel de Decisões da IA (`BacktestDecisionsPanel.tsx`) que, pra um trade específico do resultado do backtest, faz um **fetch novo e independente** (não usa o cache do backtest) do candle real daquele horário exato e reavalia a condição de entrada da estratégia do zero. Reporta se o preço bate com o que o backtest usou e se a condição de entrada realmente se confirma de forma independente, além de um link direto pro TradingView do ativo pra conferência visual manual.
+3. `Trade` (em `useBacktestLiveProgress.ts`) ganhou o campo `symbol` (faltava pra saber o que re-buscar na verificação).
+
+**Verificado nesta sessão**: `npm run build` limpo, `npx tsc --noEmit` sem erros nos arquivos novos/tocados, os 14 testes de indicadores passam.
+
+**Não verificado ainda**: rodar a verificação de trade de ponta a ponta em produção contra o backtest real (precisa de login).

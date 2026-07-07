@@ -22,6 +22,7 @@ export interface TradeDecision {
   price: number;
   timestamp: number;
   candleIndex: number;
+  symbol?: string;
   
   // Análise da IA
   aiAnalysis: {

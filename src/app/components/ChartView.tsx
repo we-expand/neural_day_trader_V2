@@ -489,6 +489,7 @@ export function ChartView() {
   const backtestProgress = useBacktestLiveProgress(10000);
   const { strategies, saveStrategy } = useStrategies();
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
+  const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string } | null>(null);
   const [showAIvsTrader, setShowAIvsTrader] = useState(false);
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
   const [priceLinePosition, setPriceLinePosition] = useState<number | null>(null);
@@ -3902,12 +3903,14 @@ export function ChartView() {
           setShowBacktestConfig(false);
           toast.success(`Backtest "${strategy.name}" iniciado — buscando dados históricos reais...`);
 
+          const resolvedTimeframe = (config.timeframe === '30m' ? '15m' : config.timeframe) as any; // 30m não existe em BacktestDataService; cai pro timeframe real mais próximo suportado
+          setLastBacktestRun({ strategy, timeframe: resolvedTimeframe });
           backtestProgress.start({
             strategy,
             symbol: config.asset,
             startDate: new Date(config.startDate),
             endDate: new Date(config.endDate),
-            timeframe: (config.timeframe === '30m' ? '15m' : config.timeframe) as any, // 30m não existe em BacktestDataService; cai pro timeframe real mais próximo suportado
+            timeframe: resolvedTimeframe,
             tradeDirection: config.tradeDirection,
             initialCapital: 10000,
           });
@@ -3991,6 +3994,7 @@ export function ChartView() {
             console.log('[ChartView] 📍 Navegando para candle:', candleIndex);
             toast.info(`Navegando para candle #${candleIndex}`);
           }}
+          verificationContext={lastBacktestRun}
         />
       </BacktestErrorBoundary>
 
