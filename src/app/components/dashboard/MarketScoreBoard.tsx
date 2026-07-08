@@ -290,8 +290,18 @@ export const MarketScoreBoard = () => {
   }, []); // Roda continuamente
 
   useEffect(() => {
+    // ✅ CORRIGIDO 2026-07-08: trava contra corrida de requisições — sem isso,
+    // se DUAS chamadas de fetchData ficarem em voo ao mesmo tempo pro mesmo
+    // ativo (ver motivo abaixo, no array de dependências), a que demorar mais
+    // pra responder "ganha" e sobrescreve o preço certo com um valor pior
+    // (inclusive zero, se aquela chamada específica falhar) — mesmo que ela
+    // tenha sido disparada por engano e o usuário já esteja vendo o preço
+    // certo. `requestId` garante que só a ÚLTIMA chamada iniciada aplica seu
+    // resultado.
+    let isStale = false;
+
     const fetchData = async () => {
-        
+
         console.log(`[MarketScoreBoard] 🚀 INICIANDO fetchData para: ${activeSymbol}`);
         
         // ✅ USO DO NOVO SISTEMA DE DETECÇÃO DE MERCADO
@@ -305,6 +315,7 @@ export const MarketScoreBoard = () => {
             statusMessage
         });
         
+        if (isStale) return; // resposta de uma chamada antiga — ignorar
         setMarketStatus(marketInfo.isOpen ? 'OPEN' : 'CLOSED');
 
         if (!marketInfo.isOpen) {
@@ -331,7 +342,8 @@ export const MarketScoreBoard = () => {
             try {
                 console.log(`[DEBUG] Fetching MetaApi data for ${activeSymbol}...`);
                 const metaData = await getMarketData(activeSymbol);
-                
+                if (isStale) return; // resposta de uma chamada antiga — ignorar
+
                 console.log(`[DEBUG] MetaApi response:`, {
                     symbol: metaData.symbol,
                     price: metaData.price,
@@ -371,7 +383,8 @@ export const MarketScoreBoard = () => {
                 
                 // 🎯 USAR SERVIÇO UNIFICADO - Garante sincronização com ChartView
                 const pureData = await getUnifiedMarketData(activeSymbol);
-                
+                if (isStale) return; // resposta de uma chamada antiga — ignorar
+
                 console.log(`[MarketScoreBoard] 📊 Valores PUROS recebidos:`, pureData);
                 
                 if (pureData) {
@@ -456,23 +469,38 @@ export const MarketScoreBoard = () => {
             bias: finalScoreCalc > 50 ? 'BULLISH' : 'BEARISH'
         };
         
+        if (isStale) return; // resposta de uma chamada antiga — ignorar
         setMarketSignal(newSignal);
     };
 
     // 🔥 Fetch inicial
-    fetchData(); 
-    
+    fetchData();
+
     // 📊 Polling para atualização periódica (OTIMIZADO - intervalos longos)
     const updateInterval = (timeframe === '1m' ? 300000 : // 5 minutos (otimizado)
                             timeframe === '5m' ? 600000 : // 10 minutos
                             timeframe === '15m' ? 900000 : // 15 minutos
                             3600000); // 1 hora
-    
+
     console.log(`[MarketScoreBoard] ⚡ Intervalo de atualização: ${updateInterval}ms`);
-    
-    const interval = setInterval(fetchData, updateInterval); 
-    return () => clearInterval(interval);
-  }, [activeSymbol, scanner?.bestAsset, scanner?.insight, timeframe]); // ✅ Adicionado timeframe nas dependências
+
+    const interval = setInterval(fetchData, updateInterval);
+    return () => {
+      isStale = true; // marca essa "geração" do efeito como obsoleta
+      clearInterval(interval);
+    };
+    // ✅ CORRIGIDO 2026-07-08: removido `scanner?.bestAsset`/`scanner?.insight`
+    // das dependências — causa raiz do "entra e alguns segundos depois zera
+    // pra qualquer ativo". `useMarketScanner` é 100% simulado (Math.random(),
+    // com delay artificial de 1,5s de "varredura"); quando esse delay
+    // terminava, `bestAsset`/`insight` mudavam e disparavam uma SEGUNDA
+    // chamada de fetchData ainda com a PRIMEIRA em voo — se a segunda demorar
+    // mais (rede) e falhar, ela sobrescrevia o preço certo com zero, mesmo
+    // sem nenhuma mudança real de ativo. A leitura de `scanner.bestAsset`/
+    // `scanner.score`/`scanner.insight` dentro do fetchData continua usando o
+    // valor mais recente via closure — só não precisa mais RE-DISPARAR o
+    // fetch inteiro sempre que o scanner (que nem busca preço real) mudar.
+  }, [activeSymbol, timeframe]);
 
   // 🚀 WEBSOCKET: Efeito SEPARADO para crypto streaming (tempo real)
   useEffect(() => {

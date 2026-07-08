@@ -490,8 +490,6 @@ export const marketAssets: MarketAsset[] = [
   // ========== COMMODITIES (Commodities) ==========
   { symbol: 'CL-OIL', name: 'WTI Crude Oil', bid: 59.509, ask: 59.566, change: -0.10, changePercent: -0.10, category: 'Commodities' },
   { symbol: 'UKOUSDft', name: 'Brent Crude Oil', bid: 64.372, ask: 64.460, change: 0.07, changePercent: 0.07, category: 'Commodities' },
-  { symbol: 'GOLDft', name: 'Gold Futures', bid: 493.00, ask: 493.00, change: -0.00, changePercent: -0.00, category: 'Commodities' },
-  { symbol: 'SILVERft', name: 'Silver Futures', bid: 96.490, ask: 96.537, change: 0.34, changePercent: 0.34, category: 'Commodities' },
 
   // ========== CRYPTO (Cryptocurrencies) ==========
   { symbol: 'BTCUSD', name: 'Bitcoin USD', bid: 893.00, ask: 893.00, change: 0.18, changePercent: 0.18, category: 'Crypto' },
