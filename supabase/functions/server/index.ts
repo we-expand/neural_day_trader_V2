@@ -3496,12 +3496,13 @@ app.post('/mt5-prices', async (c) => {
                     const tickerData = await tickerRes.json();
                     const currentPrice = tickerData.bid || tickerData.ask || tickerData.last || 0;
                     
-                    // 2️⃣ Buscar candle DIÁRIO (D1) pra calcular a variação — mesma
-                    // convenção do MetaTrader/Market Watch: variação = preço atual vs.
-                    // abertura do candle diário em curso, não uma janela rolante de 24h.
-                    // Testado contra o terminal real do Cleber (2026-07-07): rolar 24
-                    // candles de 1h dava -0.33% pro SPX500 enquanto o MT5 mostrava -0.62%
-                    // — a referência certa é o open do D1, que bate com o terminal.
+                    // 2️⃣ Buscar candle DIÁRIO (D1) pra calcular a variação — convenção
+                    // do MetaTrader/Market Watch: variação = preço atual vs. FECHAMENTO
+                    // do candle D1 de ONTEM (dia anterior já fechado), não a abertura do
+                    // candle de hoje. Corrigido em 2026-07-08: usar o open de hoje deixava
+                    // uma discrepância pequena e consistente (~0.20%) em todo ativo não-
+                    // cripto sempre que houvesse gap entre o fechamento de ontem e a
+                    // abertura de hoje (comum em CFD que só pausa ~1h/dia).
                     // API separada da de tick (mt-market-data-client-api-v1, não
                     // mt-client-api-v1), endpoint /historical-market-data/.../candles,
                     // carrega PRA TRÁS a partir de `startTime`. Ver getMetaApiMarketDataApiBase.
@@ -3509,7 +3510,7 @@ app.post('/mt5-prices', async (c) => {
                     const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
                     const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1d/candles`;
                     const candlesRes = await fetch(
-                        `${candlesUrl}?startTime=${now.toISOString()}&limit=1`,
+                        `${candlesUrl}?startTime=${now.toISOString()}&limit=2`,
                         {
                             headers: {
                                 'auth-token': metaapiToken,
@@ -3524,13 +3525,17 @@ app.post('/mt5-prices', async (c) => {
                     if (candlesRes.ok) {
                         const candles = await candlesRes.json();
                         if (candles && candles.length > 0) {
-                            // Único candle retornado (limit=1) = o D1 em curso (hoje)
-                            const todayCandle = candles[candles.length - 1];
-                            const todayOpen = todayCandle.open || 0;
+                            // Carregado pra trás a partir de agora: o último elemento é o
+                            // D1 em curso (hoje, ainda aberto); o penúltimo é o D1 de ontem,
+                            // já fechado — é esse fechamento que o MetaTrader usa como base.
+                            const previousCandle = candles.length >= 2
+                                ? candles[candles.length - 2]
+                                : candles[candles.length - 1];
+                            const referencePrice = previousCandle.close || previousCandle.open || 0;
 
-                            if (todayOpen > 0 && currentPrice > 0) {
-                                change = currentPrice - todayOpen;
-                                changePercent = (change / todayOpen) * 100;
+                            if (referencePrice > 0 && currentPrice > 0) {
+                                change = currentPrice - referencePrice;
+                                changePercent = (change / referencePrice) * 100;
                             }
                         }
                     } else {
