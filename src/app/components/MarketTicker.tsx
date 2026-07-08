@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react';
-import { getMarketData } from '@/app/services/MetaApiService';
+import { getUnifiedMarketData } from '@/app/services/UnifiedMarketDataService';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
+
+const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
 
 interface TickerAsset {
   symbol: string;
@@ -77,104 +80,127 @@ export function MarketTicker() {
   ]);
 
   useEffect(() => {
+    // ✅ CORRIGIDO 2026-07-08: a versão anterior fazia 45 chamadas HTTP
+    // SEQUENCIAIS (um await por vez, ~3-18s cada) a cada 30s. Como um
+    // ciclo nunca terminava antes do próximo começar, isso empilhava
+    // centenas de requisições concorrentes na conta MetaAPI compartilhada
+    // (visto nos logs de produção) — causa raiz do Dashboard/ticker
+    // zerando pra TODOS os ativos, não só os de MT5. Também tinha símbolos
+    // errados hardcoded (US500 em vez de SPX500, DE40 em vez de GER40,
+    // DOGUSD/AVAUSD/MATUSD truncados, OIL/BRENT trocados) que sempre
+    // falhavam. Agora: cripto via Binance em paralelo (rápido, sem MT5),
+    // e o resto num ÚNICO POST em lote pro /mt5-prices.
+    const cryptoAssets = [
+      { symbol: 'BTCUSDT', display: 'BTC' },
+      { symbol: 'ETHUSDT', display: 'ETH' },
+      { symbol: 'XRPUSDT', display: 'XRP' },
+      { symbol: 'BNBUSDT', display: 'BNB' },
+      { symbol: 'SOLUSDT', display: 'SOL' },
+      { symbol: 'ADAUSDT', display: 'ADA' },
+      { symbol: 'DOGEUSDT', display: 'DOGE' },
+      { symbol: 'AVAXUSDT', display: 'AVAX' },
+      { symbol: 'DOTUSDT', display: 'DOT' },
+      { symbol: 'POLUSDT', display: 'POL' }, // Polygon (rebrandado de MATIC)
+    ];
+
+    const mt5Assets = [
+      // Índices
+      { mt5Symbol: 'SPX500', display: 'S&P 500' },
+      { mt5Symbol: 'NAS100', display: 'NASDAQ' },
+      { mt5Symbol: 'US30', display: 'DOW' },
+      { mt5Symbol: 'GER40', display: 'DAX' },
+      { mt5Symbol: 'UK100', display: 'FTSE' },
+      { mt5Symbol: 'JPN225', display: 'NIKKEI' },
+      { mt5Symbol: 'HKG33', display: 'HANG SENG' },
+
+      // Forex
+      { mt5Symbol: 'EURUSD', display: 'EUR/USD' },
+      { mt5Symbol: 'GBPUSD', display: 'GBP/USD' },
+      { mt5Symbol: 'USDJPY', display: 'USD/JPY' },
+      { mt5Symbol: 'USDCHF', display: 'USD/CHF' },
+      { mt5Symbol: 'AUDUSD', display: 'AUD/USD' },
+      { mt5Symbol: 'USDCAD', display: 'USD/CAD' },
+      { mt5Symbol: 'NZDUSD', display: 'NZD/USD' },
+      { mt5Symbol: 'EURGBP', display: 'EUR/GBP' },
+      { mt5Symbol: 'EURJPY', display: 'EUR/JPY' },
+      { mt5Symbol: 'GBPJPY', display: 'GBP/JPY' },
+
+      // Metais
+      { mt5Symbol: 'XAUUSD', display: 'GOLD' },
+      { mt5Symbol: 'XAGUSD', display: 'SILVER' },
+      { mt5Symbol: 'XPTUSD', display: 'PLATINUM' },
+      { mt5Symbol: 'XPDUSD', display: 'PALLADIUM' },
+
+      // Energia — USOUSD = WTI, UKOUSD = Brent (estavam trocados)
+      { mt5Symbol: 'USOUSD', display: 'OIL' },
+      { mt5Symbol: 'UKOUSD', display: 'BRENT' },
+
+      // Ações
+      { mt5Symbol: 'AAPL', display: 'AAPL' },
+      { mt5Symbol: 'MSFT', display: 'MSFT' },
+      { mt5Symbol: 'GOOGL', display: 'GOOGL' },
+      { mt5Symbol: 'AMZN', display: 'AMZN' },
+      { mt5Symbol: 'NVDA', display: 'NVDA' },
+      { mt5Symbol: 'TSLA', display: 'TSLA' },
+      { mt5Symbol: 'META', display: 'META' },
+      { mt5Symbol: 'NFLX', display: 'NFLX' },
+      { mt5Symbol: 'AMD', display: 'AMD' },
+      { mt5Symbol: 'INTC', display: 'INTC' },
+    ];
+
     const fetchTickers = async () => {
       try {
-        // ✅ Lista completa de 50+ ativos com mapeamento MT5
-        const assetsToFetch = [
-          // Criptos
-          { symbol: 'BTCUSDT', display: 'BTC', mt5Symbol: 'BTCUSD' },
-          { symbol: 'ETHUSDT', display: 'ETH', mt5Symbol: 'ETHUSD' },
-          { symbol: 'XRPUSDT', display: 'XRP', mt5Symbol: 'XRPUSD' },
-          { symbol: 'BNBUSDT', display: 'BNB', mt5Symbol: 'BNBUSD' },
-          { symbol: 'SOLUSDT', display: 'SOL', mt5Symbol: 'SOLUSD' },
-          { symbol: 'ADAUSDT', display: 'ADA', mt5Symbol: 'ADAUSD' },
-          { symbol: 'DOGEUSDT', display: 'DOGE', mt5Symbol: 'DOGUSD' },
-          { symbol: 'AVAXUSDT', display: 'AVAX', mt5Symbol: 'AVAUSD' },
-          { symbol: 'DOTUSDT', display: 'DOT', mt5Symbol: 'DOTUSD' },
-          { symbol: 'MATICUSDT', display: 'POL', mt5Symbol: 'MATUSD' }, // Polygon (rebrandado de MATIC)
-          
-          // Índices
-          { symbol: 'US500', display: 'S&P 500', mt5Symbol: 'US500' },
-          { symbol: 'NAS100', display: 'NASDAQ', mt5Symbol: 'NAS100' },
-          { symbol: 'US30', display: 'DOW', mt5Symbol: 'US30' },
-          { symbol: 'DE40', display: 'DAX', mt5Symbol: 'DE40' },
-          { symbol: 'UK100', display: 'FTSE', mt5Symbol: 'UK100' },
-          { symbol: 'JPN225', display: 'NIKKEI', mt5Symbol: 'JPN225' },
-          { symbol: 'HKG33', display: 'HANG SENG', mt5Symbol: 'HKG33' },
-          
-          // Forex
-          { symbol: 'EURUSD', display: 'EUR/USD', mt5Symbol: 'EURUSD' },
-          { symbol: 'GBPUSD', display: 'GBP/USD', mt5Symbol: 'GBPUSD' },
-          { symbol: 'USDJPY', display: 'USD/JPY', mt5Symbol: 'USDJPY' },
-          { symbol: 'USDCHF', display: 'USD/CHF', mt5Symbol: 'USDCHF' },
-          { symbol: 'AUDUSD', display: 'AUD/USD', mt5Symbol: 'AUDUSD' },
-          { symbol: 'USDCAD', display: 'USD/CAD', mt5Symbol: 'USDCAD' },
-          { symbol: 'NZDUSD', display: 'NZD/USD', mt5Symbol: 'NZDUSD' },
-          { symbol: 'EURGBP', display: 'EUR/GBP', mt5Symbol: 'EURGBP' },
-          { symbol: 'EURJPY', display: 'EUR/JPY', mt5Symbol: 'EURJPY' },
-          { symbol: 'GBPJPY', display: 'GBP/JPY', mt5Symbol: 'GBPJPY' },
-          
-          // Metais
-          { symbol: 'XAUUSD', display: 'GOLD', mt5Symbol: 'XAUUSD' },
-          { symbol: 'XAGUSD', display: 'SILVER', mt5Symbol: 'XAGUSD' },
-          { symbol: 'XPTUSD', display: 'PLATINUM', mt5Symbol: 'XPTUSD' },
-          { symbol: 'XPDUSD', display: 'PALLADIUM', mt5Symbol: 'XPDUSD' },
-          
-          // Energia
-          { symbol: 'UKOUSD', display: 'OIL', mt5Symbol: 'UKOUSD' },
-          { symbol: 'USOUSD', display: 'BRENT', mt5Symbol: 'USOUSD' },
-          { symbol: 'NGAS', display: 'NAT GAS', mt5Symbol: 'NGAS' },
-          
-          // Ações
-          { symbol: 'AAPL', display: 'AAPL', mt5Symbol: 'AAPL' },
-          { symbol: 'MSFT', display: 'MSFT', mt5Symbol: 'MSFT' },
-          { symbol: 'GOOGL', display: 'GOOGL', mt5Symbol: 'GOOGL' },
-          { symbol: 'AMZN', display: 'AMZN', mt5Symbol: 'AMZN' },
-          { symbol: 'NVDA', display: 'NVDA', mt5Symbol: 'NVDA' },
-          { symbol: 'TSLA', display: 'TSLA', mt5Symbol: 'TSLA' },
-          { symbol: 'META', display: 'META', mt5Symbol: 'META' },
-          { symbol: 'NFLX', display: 'NFLX', mt5Symbol: 'NFLX' },
-          { symbol: 'AMD', display: 'AMD', mt5Symbol: 'AMD' },
-          { symbol: 'INTC', display: 'INTC', mt5Symbol: 'INTC' },
-          
-          // Commodities
-          { symbol: 'COPPER', display: 'COPPER', mt5Symbol: 'COPPER' },
-          { symbol: 'WHEAT', display: 'WHEAT', mt5Symbol: 'WHEAT' },
-          { symbol: 'COFFEE', display: 'COFFEE', mt5Symbol: 'Coffee' },
-          { symbol: 'SUGAR', display: 'SUGAR', mt5Symbol: 'SUGAR' },
-        ];
-
         const formatted: TickerAsset[] = [];
 
-        // ✅ Buscar dados reais do MetaApi
-        for (const asset of assetsToFetch) {
-          try {
-            const metaData = await getMarketData(asset.mt5Symbol);
-            
-            if (metaData) {
-              formatted.push({
-                symbol: asset.display,
-                price: metaData.price,
-                change: metaData.changePercent
-              });
-            } else {
-              // ✅ REMOVIDO: Fallback Binance (apenas MT5 agora)
-              // Se não conseguir do MT5, manter valor anterior
-              const existing = assets.find(a => a.symbol === asset.display);
-              if (existing && existing.price > 0) {
-                formatted.push(existing);
-              }
-            }
-          } catch (e) {
-            const existing = assets.find(a => a.symbol === asset.display);
-            if (existing && existing.price > 0) {
-              formatted.push(existing);
-            }
+        // ✅ Cripto: Binance em paralelo (rápido, não passa por MT5)
+        const cryptoResults = await Promise.allSettled(
+          cryptoAssets.map(asset => getUnifiedMarketData(asset.symbol))
+        );
+        cryptoResults.forEach((result, i) => {
+          if (result.status === 'fulfilled' && result.value) {
+            formatted.push({
+              symbol: cryptoAssets[i].display,
+              price: result.value.price,
+              change: result.value.changePercent
+            });
           }
+        });
+
+        // ✅ MT5: UM ÚNICO POST em lote pra todos os símbolos
+        try {
+          const res = await fetch(MT5_PRICES_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ symbols: mt5Assets.map(a => a.mt5Symbol) }),
+          });
+
+          if (res.ok) {
+            const result = await res.json();
+            const prices: any[] = Array.isArray(result?.prices) ? result.prices : [];
+            mt5Assets.forEach(asset => {
+              const tick = prices.find(p => p.symbol === asset.mt5Symbol);
+              if (tick && tick.price > 0) {
+                formatted.push({
+                  symbol: asset.display,
+                  price: tick.price,
+                  change: tick.changePercent || 0
+                });
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('[MarketTicker] Erro ao buscar lote MT5:', e);
         }
 
         if (formatted.length > 0) {
-          setAssets(formatted);
+          setAssets(prev => {
+            // Mantém posições com dado anterior caso o novo fetch não tenha trazido nada pra elas
+            const byDisplay = new Map(formatted.map(a => [a.symbol, a]));
+            return prev.map(p => byDisplay.get(p.symbol) || p);
+          });
         }
       } catch (e) {
         console.warn('[MarketTicker] Erro ao buscar dados:', e);
