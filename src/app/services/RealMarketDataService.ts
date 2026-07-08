@@ -14,6 +14,7 @@ import { PriceValidator } from './PriceValidator';
 import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
 
 const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
 
 export interface RealMarketData {
   symbol: string;
@@ -216,15 +217,22 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
     });
 
     if (!res.ok) {
-      console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol}, usando fallback local.`);
-      return getFallbackData(symbol);
+      console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol}, tentando Yahoo Finance.`);
+      return await fetchYahooData(symbol);
     }
 
     const result = await res.json();
     const tick = Array.isArray(result?.prices) ? result.prices[0] : null;
 
+    // ✅ CORRIGIDO 2026-07-08: alguns ativos (Cocoa, Coffee, Wheat, ações
+    // americanas) simplesmente não existem na conta MetaAPI/broker atual —
+    // a rota responde HTTP 200 mas com esse símbolo específico em erro
+    // (`price: null`, `error: "HTTP 404"`), não `!res.ok`. Antes disso caía
+    // direto no gerador sintético local; agora tenta o Yahoo Finance (fonte
+    // real) primeiro, só cai pro sintético se o Yahoo também falhar.
     if (!tick || !isValidPrice(tick.price) || result.source === 'SIMULATED') {
-      return getFallbackData(symbol);
+      console.warn(`[MT5] ⚠️ ${symbol} indisponível na MetaAPI/broker, tentando Yahoo Finance.`);
+      return await fetchYahooData(symbol);
     }
 
     return {
@@ -240,7 +248,51 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
       isRealData: true,
     };
   } catch (error: any) {
-    console.warn(`[MT5] ⚠️ Falha ao buscar ${symbol} via MetaAPI, usando fallback local.`, error?.message);
+    console.warn(`[MT5] ⚠️ Falha ao buscar ${symbol} via MetaAPI, tentando Yahoo Finance.`, error?.message);
+    return await fetchYahooData(symbol);
+  }
+}
+
+/**
+ * 📊 YAHOO FINANCE - Fallback real (não sintético) para ativos que a
+ * MetaAPI/broker atual não oferece (Cocoa, Coffee, Wheat, ações americanas...).
+ * Rota `/real/yahoo/:symbol` já existente no backend (dados reais, sem chave).
+ * Só cai no gerador sintético local se o Yahoo também não tiver o símbolo.
+ */
+async function fetchYahooData(symbol: string): Promise<RealMarketData> {
+  try {
+    const res = await fetch(`${API_BASE}/real/yahoo/${encodeURIComponent(symbol)}`, {
+      headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+    });
+
+    if (!res.ok) {
+      console.warn(`[Yahoo] ⚠️ HTTP ${res.status} para ${symbol}, usando fallback local.`);
+      return getFallbackData(symbol);
+    }
+
+    const data = await res.json();
+
+    if (!isValidPrice(data.price)) {
+      return getFallbackData(symbol);
+    }
+
+    return {
+      symbol,
+      price: data.price,
+      bid: data.bid ?? data.price,
+      ask: data.ask ?? data.price,
+      high: data.high,
+      low: data.low,
+      change: data.change || 0,
+      changePercent: data.changePercent || 0,
+      previousClose: data.previousClose,
+      volume: data.volume || 0,
+      timestamp: data.timestamp || Date.now(),
+      source: 'yahoo',
+      isRealData: true,
+    };
+  } catch (error: any) {
+    console.warn(`[Yahoo] ⚠️ Falha ao buscar ${symbol}, usando fallback local.`, error?.message);
     return getFallbackData(symbol);
   }
 }
