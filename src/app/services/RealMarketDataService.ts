@@ -502,12 +502,22 @@ export function subscribeToSymbol(
 
 /**
  * 🔍 GET MULTIPLE - Busca dados de múltiplos símbolos
+ *
+ * ⚠️ Cada chamada aqui dentro ainda bate individualmente em `/mt5-prices`
+ * (uma requisição HTTP por símbolo não-cripto). Pra qualquer chamador que
+ * precise de VÁRIOS símbolos de forex/índice/commodity ao mesmo tempo (ex: o
+ * loop de P&L do AITradingEngine, que roda a cada 5s em background em
+ * qualquer tela do app), usar `getBatchedMT5Data()` em vez desta função —
+ * agrupa tudo numa ÚNICA requisição, em vez de N requisições concorrentes na
+ * mesma conta MetaAPI compartilhada (confirmado em produção 2026-07-08:
+ * várias chamadas concorrentes de 3-8s cada degradavam a conta e deixavam o
+ * preço do Dashboard instável/zerado).
  */
 export async function getMultipleMarketData(
   symbols: string[]
 ): Promise<Record<string, RealMarketData>> {
   const results: Record<string, RealMarketData> = {};
-  
+
   const promises = symbols.map(async (symbol) => {
     try {
       results[symbol] = await getRealMarketData(symbol);
@@ -516,9 +526,102 @@ export async function getMultipleMarketData(
       results[symbol] = getFallbackData(symbol);
     }
   });
-  
+
   await Promise.all(promises);
-  
+
+  return results;
+}
+
+/**
+ * 📦 BATCH REAL — busca vários símbolos NUMA ÚNICA requisição a `/mt5-prices`
+ *
+ * ✅ ADICIONADO 2026-07-08: causa raiz de instabilidade generalizada de preço
+ * (inclusive o Dashboard mostrando preço zerado) — o loop de P&L do AI
+ * Trading Engine (`useApexLogic.ts`) roda globalmente em toda tela a cada 5s
+ * e buscava o preço de cada posição aberta com uma chamada HTTP SEPARADA por
+ * símbolo. Com resposta levando 3-8s cada (latência normal da MetaAPI),
+ * múltiplas chamadas ficavam concorrentes na mesma conta compartilhada,
+ * degradando TODAS as chamadas simultâneas — inclusive a do Dashboard pro
+ * ativo selecionado. Esta função agrupa cripto (via Binance, em paralelo,
+ * barato) e forex/índice/commodity/ação (numa única chamada a `/mt5-prices`,
+ * já traduzindo pro nome real de cada símbolo na corretora).
+ */
+export async function getBatchedMT5Data(symbols: string[]): Promise<Record<string, RealMarketData>> {
+  const results: Record<string, RealMarketData> = {};
+  if (symbols.length === 0) return results;
+
+  const normalizedSymbols = symbols.map(s => s.toUpperCase().replace('/', '').replace(' ', ''));
+  const cryptoSymbols = normalizedSymbols.filter(isCryptoSymbol);
+  const brokerSymbols = normalizedSymbols.filter(s => !isCryptoSymbol(s));
+
+  // Cripto: Binance direto, em paralelo (barato, não usa a conta MetaAPI)
+  await Promise.all(cryptoSymbols.map(async (symbol) => {
+    try {
+      results[symbol] = await fetchBinanceDataWithRetry(symbol);
+    } catch {
+      results[symbol] = getFallbackData(symbol);
+    }
+  }));
+
+  if (brokerSymbols.length === 0) return results;
+
+  // Forex/índices/commodities/ações: UMA chamada só, com todos os símbolos
+  // disponíveis na corretora; os indisponíveis (confirmados via brokerRegistry)
+  // vão direto pro Yahoo em paralelo, sem entrar nessa chamada em lote.
+  const availableSymbols = brokerSymbols.filter(s => isAvailableOnBroker(s, 'infinox'));
+  const unavailableSymbols = brokerSymbols.filter(s => !isAvailableOnBroker(s, 'infinox'));
+
+  await Promise.all(unavailableSymbols.map(async (symbol) => {
+    results[symbol] = await fetchYahooData(symbol);
+  }));
+
+  if (availableSymbols.length > 0) {
+    const brokerNameToUnified = new Map(availableSymbols.map(s => [getBrokerSymbol(s, 'infinox'), s]));
+
+    try {
+      const res = await fetch(MT5_PRICES_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ symbols: Array.from(brokerNameToUnified.keys()) }),
+      });
+
+      const body = res.ok ? await res.json() : null;
+      const prices = Array.isArray(body?.prices) ? body.prices : [];
+      const priceByBrokerName = new Map(prices.map((p: any) => [p.symbol, p]));
+
+      await Promise.all(availableSymbols.map(async (unified) => {
+        const brokerName = getBrokerSymbol(unified, 'infinox');
+        const tick: any = priceByBrokerName.get(brokerName);
+
+        if (!tick || !isValidPrice(tick.price) || body?.source === 'SIMULATED') {
+          results[unified] = await fetchYahooData(unified);
+          return;
+        }
+
+        results[unified] = {
+          symbol: unified,
+          price: tick.price,
+          bid: tick.bid ?? tick.price,
+          ask: tick.ask ?? tick.price,
+          change: tick.change || 0,
+          changePercent: tick.changePercent || 0,
+          previousClose: tick.price - (tick.change || 0),
+          timestamp: tick.timestamp ? new Date(tick.timestamp).getTime() : Date.now(),
+          source: 'metaapi',
+          isRealData: true,
+        };
+      }));
+    } catch (error: any) {
+      console.warn('[RealMarketData] ⚠️ Falha na chamada em lote a /mt5-prices, usando Yahoo por símbolo.', error?.message);
+      await Promise.all(availableSymbols.map(async (unified) => {
+        results[unified] = await fetchYahooData(unified);
+      }));
+    }
+  }
+
   return results;
 }
 

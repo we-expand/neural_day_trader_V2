@@ -1306,22 +1306,29 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
 
         (async () => {
         // 🆕 FASE 2 (parte 2): buscar preço REAL de mercado em vez de random walk.
-        // Um fetch por símbolo único (não por posição) — getRealMarketData já tem
-        // cache interno de 2s, então múltiplas posições no mesmo ativo não geram
-        // chamadas duplicadas. Crypto = preço real da Binance; forex/índices sem
-        // corretora conectada = fallback determinístico (varia por minuto, não
-        // mais um random puro a cada segundo).
-        const { getRealMarketData } = await import('@/app/services/RealMarketDataService');
+        // ✅ CORRIGIDO 2026-07-08: antes fazia UMA chamada HTTP separada por
+        // símbolo único (via `Promise.all` + `getRealMarketData` individual).
+        // Esse loop roda a cada 5s em background em QUALQUER tela do app (mora
+        // no `TradingContext`, que envolve o app inteiro) — com várias posições
+        // em ativos diferentes, isso virava várias chamadas concorrentes a
+        // `/mt5-prices` na mesma conta MetaAPI compartilhada, cada uma levando
+        // 3-8s (confirmado em produção via aba Rede) — degradando a conta pra
+        // TODAS as chamadas simultâneas, inclusive a do Dashboard pro ativo
+        // selecionado (causa raiz de preço instável/zerado reportada 2026-07-08).
+        // Agora usa `getBatchedMT5Data`, que agrupa todos os símbolos
+        // não-cripto numa ÚNICA chamada a `/mt5-prices`.
+        const { getBatchedMT5Data } = await import('@/app/services/RealMarketDataService');
         const uniqueSymbols = Array.from(new Set(activeOrdersRef.current.map(o => o.symbol)));
         const priceMap = new Map<string, number>();
-        await Promise.all(uniqueSymbols.map(async (symbol) => {
-          try {
-            const data = await getRealMarketData(symbol);
-            priceMap.set(symbol, data.price);
-          } catch (error) {
-            console.warn(`[PNL LOOP] ⚠️ Falha ao buscar preço real de ${symbol}, mantendo preço anterior`, error);
+        try {
+          const batchResult = await getBatchedMT5Data(uniqueSymbols);
+          for (const symbol of uniqueSymbols) {
+            const data = batchResult[symbol];
+            if (data) priceMap.set(symbol, data.price);
           }
-        }));
+        } catch (error) {
+          console.warn(`[PNL LOOP] ⚠️ Falha ao buscar preços em lote, mantendo preços anteriores`, error);
+        }
 
         // Reset refs
         pnlLoopRef.current = { realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 };
