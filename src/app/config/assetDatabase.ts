@@ -12,7 +12,7 @@ export type AssetSubCategory =
   | 'Bitcoin' | 'Altcoins' | 'DeFi' | 'Meme Coins'
   | 'US Indices' | 'European Indices' | 'Asian Indices'
   | 'Precious Metals' | 'Energy' | 'Agriculture'
-  | 'UK Stocks' | 'French Stocks' | 'German Stocks' | 'Spanish Stocks' | 'Portuguese Stocks' | 'Dutch Stocks' | 'Scandinavian Stocks'
+  | 'UK Stocks' | 'French Stocks' | 'German Stocks' | 'Spanish Stocks' | 'Portuguese Stocks' | 'Dutch Stocks' | 'Scandinavian Stocks' | 'US Stocks'
   | 'European Bonds' | 'US Bonds';
 
 export interface Asset {
@@ -151,7 +151,8 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'XAGUSD', name: 'Silver', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥈', precision: 3, lotSize: 5000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Silver' },
   { symbol: 'XPTUSD', name: 'Platinum', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '⚪', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Platinum' },
   { symbol: 'XPDUSD', name: 'Palladium', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '⚪', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Palladium' },
-  
+  { symbol: 'XAUEUR', name: 'Gold vs Euro', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Euro' },
+
   // ENERGY
   { symbol: 'USOUSD', name: 'Crude Oil WTI', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 2, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'WTI Crude Oil' },
   { symbol: 'UKOUSD', name: 'Brent Oil', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 2, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Brent Crude Oil' },
@@ -304,7 +305,108 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'SAP.DE', name: 'SAP SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Software' },
   { symbol: 'SIE.DE', name: 'Siemens AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Conglomerate' },
   { symbol: 'VOW3.DE', name: 'Volkswagen AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
-  
+
+  // ============================================================================
+  // 🇺🇸 US STOCKS — não negociáveis via Infinox/MetaAPI (confirmado 404 em
+  // auditoria, ver scripts/audit-broker-symbols.mjs); exibidos com dado real
+  // via Yahoo Finance (rota /real/yahoo/:symbol) em vez de removidos da lista.
+  // ============================================================================
+  { symbol: 'AAPL', name: 'Apple', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Apple' },
+  { symbol: 'ABBV', name: 'AbbVie', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'AbbVie' },
+  { symbol: 'ABNB', name: 'Airbnb', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Airbnb' },
+  { symbol: 'ACN', name: 'Accenture', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Accenture' },
+  { symbol: 'ADBE', name: 'Adobe', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Adobe' },
+  { symbol: 'ADI', name: 'Analog Devices', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Analog Devices' },
+  { symbol: 'ADP', name: 'Automatic Data Processing', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Automatic Data Processing' },
+  { symbol: 'AMGN', name: 'Amgen', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Amgen' },
+  { symbol: 'AMT', name: 'American Tower', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'American Tower' },
+  { symbol: 'AMZN', name: 'Amazon', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Amazon' },
+  { symbol: 'ASML', name: 'ASML', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'ASML' },
+  { symbol: 'AVGO', name: 'Broadcom', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Broadcom' },
+  { symbol: 'AXP', name: 'American Express', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'American Express' },
+  { symbol: 'BA', name: 'Boeing', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Boeing' },
+  { symbol: 'BABA', name: 'Alibaba', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Alibaba' },
+  { symbol: 'BAC', name: 'Bank of America', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Bank of America' },
+  { symbol: 'BLK', name: 'BlackRock', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'BlackRock' },
+  { symbol: 'BMY', name: 'Bristol-Myers Squibb', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Bristol-Myers Squibb' },
+  { symbol: 'BRK.B', name: 'Berkshire Hathaway B', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Berkshire Hathaway B' },
+  { symbol: 'C', name: 'Citigroup', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Citigroup' },
+  { symbol: 'CAT', name: 'Caterpillar', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Caterpillar' },
+  { symbol: 'CHTR', name: 'Charter Communications', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Charter Communications' },
+  { symbol: 'CL', name: 'Colgate-Palmolive', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Colgate-Palmolive' },
+  { symbol: 'CMCSA', name: 'Comcast', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Comcast' },
+  { symbol: 'COST', name: 'Costco', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Costco' },
+  { symbol: 'CRM', name: 'Salesforce', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Salesforce' },
+  { symbol: 'CSCO', name: 'Cisco', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Cisco' },
+  { symbol: 'CVS', name: 'CVS Health', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'CVS Health' },
+  { symbol: 'CVX', name: 'Chevron', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Chevron' },
+  { symbol: 'DHR', name: 'Danaher', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Danaher' },
+  { symbol: 'DIS', name: 'Disney', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Disney' },
+  { symbol: 'EBAY', name: 'eBay', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'eBay' },
+  { symbol: 'F', name: 'Ford', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Ford' },
+  { symbol: 'FB', name: 'Meta (Facebook)', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Meta (Facebook)' },
+  { symbol: 'FDX', name: 'FedEx', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'FedEx' },
+  { symbol: 'GE', name: 'General Electric', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'General Electric' },
+  { symbol: 'GILD', name: 'Gilead Sciences', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Gilead Sciences' },
+  { symbol: 'GM', name: 'General Motors', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'General Motors' },
+  { symbol: 'GOOG', name: 'Alphabet (Google) C', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Alphabet (Google) C' },
+  { symbol: 'GOOGL', name: 'Alphabet (Google) A', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Alphabet (Google) A' },
+  { symbol: 'GS', name: 'Goldman Sachs', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Goldman Sachs' },
+  { symbol: 'HD', name: 'Home Depot', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Home Depot' },
+  { symbol: 'HON', name: 'Honeywell', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Honeywell' },
+  { symbol: 'IBM', name: 'IBM', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'IBM' },
+  { symbol: 'INTC', name: 'Intel', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Intel' },
+  { symbol: 'INTU', name: 'Intuit', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Intuit' },
+  { symbol: 'JNJ', name: 'Johnson & Johnson', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Johnson & Johnson' },
+  { symbol: 'JPM', name: 'JPMorgan Chase', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'JPMorgan Chase' },
+  { symbol: 'KO', name: 'Coca-Cola', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Coca-Cola' },
+  { symbol: 'LIN', name: 'Linde', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Linde' },
+  { symbol: 'LLY', name: 'Eli Lilly', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Eli Lilly' },
+  { symbol: 'LMT', name: 'Lockheed Martin', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Lockheed Martin' },
+  { symbol: 'LOW', name: 'Lowe\'s', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Lowe\'s' },
+  { symbol: 'MA', name: 'Mastercard', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Mastercard' },
+  { symbol: 'MCD', name: 'McDonald\'s', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'McDonald\'s' },
+  { symbol: 'MDLZ', name: 'Mondelez', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Mondelez' },
+  { symbol: 'MDT', name: 'Medtronic', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Medtronic' },
+  { symbol: 'META', name: 'Meta Platforms', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Meta Platforms' },
+  { symbol: 'MO', name: 'Altria', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Altria' },
+  { symbol: 'MRK', name: 'Merck', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Merck' },
+  { symbol: 'MS', name: 'Morgan Stanley', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Morgan Stanley' },
+  { symbol: 'MSFT', name: 'Microsoft', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Microsoft' },
+  { symbol: 'NFLX', name: 'Netflix', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Netflix' },
+  { symbol: 'NKE', name: 'Nike', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Nike' },
+  { symbol: 'NVDA', name: 'NVIDIA', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'NVIDIA' },
+  { symbol: 'ORCL', name: 'Oracle', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Oracle' },
+  { symbol: 'PEP', name: 'PepsiCo', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'PepsiCo' },
+  { symbol: 'PFE', name: 'Pfizer', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Pfizer' },
+  { symbol: 'PG', name: 'Procter & Gamble', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Procter & Gamble' },
+  { symbol: 'PM', name: 'Philip Morris', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Philip Morris' },
+  { symbol: 'PYPL', name: 'PayPal', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'PayPal' },
+  { symbol: 'QCOM', name: 'Qualcomm', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Qualcomm' },
+  { symbol: 'RTX', name: 'Raytheon Technologies', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Raytheon Technologies' },
+  { symbol: 'SBUX', name: 'Starbucks', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Starbucks' },
+  { symbol: 'SHOP', name: 'Shopify', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Shopify' },
+  { symbol: 'SLB', name: 'Schlumberger', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Schlumberger' },
+  { symbol: 'SO', name: 'Southern Company', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Southern Company' },
+  { symbol: 'SPG', name: 'Simon Property Group', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Simon Property Group' },
+  { symbol: 'SQ', name: 'Block (Square)', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Block (Square)' },
+  { symbol: 'T', name: 'AT&T', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'AT&T' },
+  { symbol: 'TGT', name: 'Target', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Target' },
+  { symbol: 'TMO', name: 'Thermo Fisher Scientific', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Thermo Fisher Scientific' },
+  { symbol: 'TMUS', name: 'T-Mobile', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'T-Mobile' },
+  { symbol: 'TSLA', name: 'Tesla', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Tesla' },
+  { symbol: 'TXN', name: 'Texas Instruments', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Texas Instruments' },
+  { symbol: 'UNH', name: 'UnitedHealth', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'UnitedHealth' },
+  { symbol: 'UNP', name: 'Union Pacific', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Union Pacific' },
+  { symbol: 'UPS', name: 'UPS', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'UPS' },
+  { symbol: 'USB', name: 'U.S. Bancorp', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'U.S. Bancorp' },
+  { symbol: 'V', name: 'Visa', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Visa' },
+  { symbol: 'VZ', name: 'Verizon', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Verizon' },
+  { symbol: 'WFC', name: 'Wells Fargo', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Wells Fargo' },
+  { symbol: 'WMT', name: 'Walmart', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Walmart' },
+  { symbol: 'XOM', name: 'Exxon Mobil', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Exxon Mobil' },
+  { symbol: 'ZM', name: 'Zoom', category: 'STOCKS', subCategory: 'US Stocks', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:30-16:00 ET', description: 'Zoom' },
+
   // ============================================================================
   // 📜 BONDS - TÍTULOS EUROPEUS E AMERICANOS (6 TÍTULOS)
   // ============================================================================

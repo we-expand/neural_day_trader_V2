@@ -12,6 +12,8 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { PriceValidator } from './PriceValidator';
 import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { getBrokerSymbol, isAvailableOnBroker } from '@/app/config/brokerRegistry';
 
 const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
@@ -93,23 +95,36 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
 }
 
 /**
- * 🔍 Verifica se é símbolo de criptomoeda (MELHORADO)
+ * 🔍 Verifica se é símbolo de criptomoeda
+ *
+ * ✅ REESCRITO 2026-07-08: a versão anterior classificava por substring
+ * (`symbol.includes('TUSD')` etc.) — bug real confirmado: `XPTUSD` (Platina)
+ * virava "cripto" por conter a substring "TUSD" (do stablecoin TrueUSD) no
+ * meio do nome, mandando Platina pra Binance (que não tem esse ativo) em vez
+ * da MetaAPI/corretora. Agora consulta primeiro o catálogo canônico
+ * (`assetDatabase.ts`, categoria real do ativo) — só cai na heurística por
+ * substring como último recurso, pra símbolos que ainda não estão cadastrados
+ * no catálogo (evita quebrar símbolos exóticos não mapeados ainda).
  */
 function isCryptoSymbol(symbol: string): boolean {
   const normalized = symbol.toUpperCase();
-  
-  // Binance Cryptos conhecidos
+
+  const asset = getAssetBySymbol(normalized);
+  if (asset) {
+    return asset.category === 'CRYPTO';
+  }
+
+  // Símbolo fora do catálogo — fallback heurístico (não deveria acontecer pra
+  // ativos que a UI já lista, mas protege contra símbolos digitados à mão).
   const exactCryptos = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'DOTUSDT', 'AVAXUSDT', 'LINKUSDT', 'MATICUSDT', 'POLUSDT'];
   if (exactCryptos.includes(normalized)) return true;
 
-  // Padrões de Crypto
   const cryptoPatterns = [
-    'USDT', 'BUSD', 'TUSD', 
+    'USDT', 'BUSD',
     'BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'POL', 'DOT', 'AVAX',
     'LINK', 'UNI', 'ATOM', 'LTC', 'BCH', 'XLM', 'ALGO', 'VET', 'FIL', 'TRX'
   ];
-  
-  // EXCLUSÕES: Pares de Forex que podem colidir (ex: USDCAD contém USDC)
+
   const forexExclusions = ['USDCAD', 'EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDJPY', 'USDCHF'];
   if (forexExclusions.includes(normalized)) return false;
 
@@ -206,6 +221,18 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
  * com preços simulados (source: 'SIMULATED'), e aqui tratamos isso como fallback local.
  */
 async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
+  // ✅ 2026-07-08: checar disponibilidade ANTES de chamar a corretora — pra
+  // ativos já confirmados indisponíveis (auditoria em `brokerRegistry.ts`),
+  // evita um round-trip que sempre vai dar 404 e vai direto pro Yahoo real.
+  if (!isAvailableOnBroker(symbol, 'infinox')) {
+    console.warn(`[MT5] ⚠️ ${symbol} não é ofertado pela Infinox (confirmado em auditoria), usando Yahoo Finance.`);
+    return await fetchYahooData(symbol);
+  }
+
+  // Nome real do ativo na corretora — pode ser diferente do símbolo unificado
+  // que o resto do app usa (ex: JP225 unificado -> 'JPN225' na Infinox).
+  const brokerSymbol = getBrokerSymbol(symbol, 'infinox');
+
   try {
     const res = await fetch(MT5_PRICES_URL, {
       method: 'POST',
@@ -213,11 +240,11 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
         'Authorization': `Bearer ${publicAnonKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ symbols: [symbol] }),
+      body: JSON.stringify({ symbols: [brokerSymbol] }),
     });
 
     if (!res.ok) {
-      console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol}, tentando Yahoo Finance.`);
+      console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol} (${brokerSymbol}), tentando Yahoo Finance.`);
       return await fetchYahooData(symbol);
     }
 

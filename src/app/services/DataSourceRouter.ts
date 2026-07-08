@@ -18,6 +18,9 @@ import { symbolMappingService, type SymbolMapping } from './SymbolMappingService
 import { getUnifiedMarketData } from './UnifiedMarketDataService';
 import { getMarketData as getMetaApiData, getMetaApiCandles } from './MetaApiService';
 import { debugLog, debugError } from '@/app/config/debug';
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { getBrokerSymbol, isAvailableOnBroker } from '@/app/config/brokerRegistry';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 export type DataSource = 'binance' | 'metaapi' | 'yahoo' | 'trading_economics' | 'fallback';
 
@@ -265,8 +268,19 @@ export class DataSourceRouter {
    * 📡 Buscar do MetaAPI (MT5)
    */
   private async fetchFromMetaApi(symbol: string, mapping?: SymbolMapping): Promise<Partial<SourcedMarketData> | null> {
+    // ✅ CORRIGIDO 2026-07-08: `mapping?.infinox` vinha de `SymbolMappingService`,
+    // uma lista manual incompleta (só ~70 ativos cadastrados) — pra qualquer coisa
+    // fora dela, o nome usado era o símbolo unificado cru, o que já causou bugs
+    // reais (ex: XPDUSD/JP225/HK50 com nome errado na corretora). Agora usa
+    // `brokerRegistry.ts`, auditado contra a API real — se o ativo já é sabido
+    // como indisponível nessa corretora, nem tenta a chamada.
+    if (!isAvailableOnBroker(symbol, 'infinox')) {
+      debugLog('ROUTER', `⏭️ ${symbol} não é ofertado pela Infinox (confirmado em auditoria)`);
+      return null;
+    }
+
     try {
-      const mt5Symbol = mapping?.infinox || symbol;
+      const brokerSymbol = getBrokerSymbol(symbol, 'infinox');
 
       // ✅ CORRIGIDO 2026-07-08: removido o caminho que passava pelo MT5PriceValidator
       // + candle D1 via getMetaApiCandles (rota legada /mt5-candles, com o mesmo bug de
@@ -277,30 +291,32 @@ export class DataSourceRouter {
       // mostrarem o mesmo "+0.09%"/"+0.10%" sem relação nenhuma com o preço real.
       // Agora usa direto a Edge Function /mt5-prices, que já calcula price/change/
       // changePercent corretos no servidor (mesma fonte que o Dashboard usa).
-      const data = await getMetaApiData(mt5Symbol);
-      
-      if (!data) {
+      const data = await getMetaApiData(brokerSymbol);
+
+      if (!data || !data.isRealData) {
         return null;
       }
 
-      // 🎯 PRINCÍPIO FUNDAMENTAL: 
+      // 🎯 PRINCÍPIO FUNDAMENTAL:
       // Se os dados vêm do MT5, eles JÁ estão corretos!
       // O tick JÁ traz change e changePercent calculados pelo servidor.
-      
+
       const finalPrice = data.price || data.bid || 0;
       const finalChange = data.change || 0;
       const finalChangePercent = data.changePercent || 0;
-      
-      console.log(`[ROUTER] 🎯 Dados MT5 para ${mt5Symbol}:`, {
+
+      console.log(`[ROUTER] 🎯 Dados MT5 para ${symbol} (${brokerSymbol}):`, {
         price: finalPrice.toFixed(5),
         change: finalChange > 0 ? `+${finalChange.toFixed(5)}` : finalChange.toFixed(5),
         changePercent: finalChangePercent > 0 ? `+${finalChangePercent.toFixed(2)}%` : `${finalChangePercent.toFixed(2)}%`,
         source: 'MetaAPI - Usando dados do TICK (change já calculado pelo servidor)'
       });
 
-      // ✅ Usar dados DIRETOS do tick (sem buscar candles!)
+      // ✅ Usar dados DIRETOS do tick (sem buscar candles!). Retorna sempre o
+      // símbolo UNIFICADO (não o nome interno da corretora) — o resto do app
+      // (Dashboard, Gráfico, AITradingEngine) só conhece o símbolo unificado.
       return {
-        symbol: mt5Symbol,
+        symbol,
         price: finalPrice,
         change: finalChange,
         changePercent: finalChangePercent,
@@ -313,16 +329,39 @@ export class DataSourceRouter {
   }
 
   /**
-   * 📡 Buscar do Yahoo Finance
+   * 📡 Buscar do Yahoo Finance (dado real, não sintético)
+   *
+   * ✅ REESCRITO 2026-07-08: essa função era um stub morto que sempre
+   * retornava `null` (nunca implementado de verdade, apesar do comentário
+   * dizer "Yahoo Finance: GRÁTIS" na config de fonte de várias categorias).
+   * Agora chama a mesma rota real do backend (`/real/yahoo/:symbol`) que o
+   * Dashboard já usa via `RealMarketDataService.fetchYahooData` — mesma
+   * fonte, sem duplicar lógica de tradução de ticker (o backend já sabe
+   * traduzir XAUUSD->GC=F, COCUSD->CC=F etc.).
    */
   private async fetchFromYahoo(symbol: string, mapping?: SymbolMapping): Promise<Partial<SourcedMarketData> | null> {
     try {
-      const yahooSymbol = mapping?.yahoo || symbol;
-      
-      // TODO: Implementar integração com Yahoo Finance API
-      // Por enquanto, retornar null para forçar uso de outras fontes
-      debugLog('ROUTER', `⏭️ Yahoo Finance não implementado ainda para ${yahooSymbol}`);
-      return null;
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/server/real/yahoo/${encodeURIComponent(symbol)}`, {
+        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+      });
+
+      if (!res.ok) {
+        debugLog('ROUTER', `⏭️ Yahoo Finance sem dado pra ${symbol} (HTTP ${res.status})`);
+        return null;
+      }
+
+      const data = await res.json();
+      if (typeof data.price !== 'number' || data.price <= 0) {
+        return null;
+      }
+
+      return {
+        symbol,
+        price: data.price,
+        change: data.change || 0,
+        changePercent: data.changePercent || 0,
+        timestamp: data.timestamp || Date.now()
+      };
     } catch (error) {
       debugError('ROUTER', 'Erro ao buscar do Yahoo:', error);
       return null;
@@ -365,31 +404,39 @@ export class DataSourceRouter {
    */
   private getSourceConfig(symbol: string): DataSourceConfig {
     const mapping = symbolMappingService.findMapping(symbol);
-    
+
     if (mapping) {
       const config = this.sourceConfigs.get(mapping.unified);
       if (config) return config;
     }
 
-    // Fallback: tentar detectar tipo pelo símbolo
-    if (symbol.includes('USD') && !symbol.includes('EUR') && !symbol.includes('GBP')) {
-      // Provavelmente cripto
-      return {
-        primary: 'binance',
-        fallback: ['yahoo', 'fallback'],
-        priority: 1,
-        requiresAuth: false,
-        cost: 'free',
-        availability: 'always'
-      };
+    // ✅ CORRIGIDO 2026-07-08: a heurística antiga ("contém 'USD' e não contém
+    // 'EUR'/'GBP' => provavelmente cripto") classificava qualquer commodity/
+    // índice fora do `SymbolMappingService` (incompleto, ~70 de ~330 ativos)
+    // como cripto por engano — ex. XPDUSD (Paládio) virava Binance. Agora
+    // consulta a categoria real do catálogo canônico primeiro.
+    const asset = getAssetBySymbol(symbol);
+    if (asset) {
+      switch (asset.category) {
+        case 'CRYPTO':
+          return { primary: 'binance', fallback: ['yahoo', 'fallback'], priority: 1, requiresAuth: false, cost: 'free', availability: 'always' };
+        case 'STOCKS':
+          return { primary: 'yahoo', fallback: ['trading_economics', 'fallback'], priority: 2, requiresAuth: false, cost: 'free', availability: 'trading_hours' };
+        case 'FOREX':
+        case 'INDICES':
+        case 'COMMODITIES':
+        default:
+          return { primary: 'metaapi', fallback: ['yahoo', 'fallback'], priority: 2, requiresAuth: true, cost: 'free', availability: 'trading_hours' };
+      }
     }
 
-    // Default: usar Yahoo
+    // Símbolo fora do catálogo — não temos como saber o tipo, tenta MetaAPI
+    // primeiro (mais completo hoje) com Yahoo como rede de segurança.
     return {
-      primary: 'yahoo',
-      fallback: ['metaapi', 'fallback'],
+      primary: 'metaapi',
+      fallback: ['yahoo', 'fallback'],
       priority: 3,
-      requiresAuth: false,
+      requiresAuth: true,
       cost: 'free',
       availability: 'trading_hours'
     };
