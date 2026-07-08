@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useMarketContext } from '../../contexts/MarketContext';
 import { useMarketScanner } from '../../hooks/useMarketScanner'; 
-import { useMarketPrice } from '../../hooks/useMarketPrice'; // 🆕 NOVO: Hook centralizado
 import { motion } from 'motion/react';
 import { VUMeterGauge } from './VUMeterGauge';
 import { ModernScoreGauge } from './ModernScoreGauge';
@@ -139,8 +138,6 @@ export const MarketScoreBoard = () => {
   // 🔥 USAR O ATIVO GLOBAL DO TradingContext (sincronizado entre todas as páginas)
   const activeSymbol = selectedAsset;
   
-  // 🔥 FIX: Passar activeSymbol para buscar dados REAIS do polling!
-  const marketPrice = useMarketPrice(activeSymbol);
   const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'>('15m');
   const [candleTimeLeft, setCandleTimeLeft] = useState('00:00');
   const [marketSignal, setMarketSignal] = useState<any>(null);

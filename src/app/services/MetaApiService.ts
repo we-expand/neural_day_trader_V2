@@ -32,6 +32,7 @@ export interface MarketData {
   bid: number;
   ask: number;
   last: number;
+  price: number; // ✅ alias de `last` — vários chamadores (MarketScoreBoard, MarketTicker) leem `.price`, que nunca existia aqui e ficava `undefined` (causa raiz do preço zerado/crash "Cannot read properties of undefined (reading 'toFixed')")
   high: number;
   low: number;
   volume: number;
@@ -66,6 +67,7 @@ export async function getMarketData(symbol: string): Promise<MarketData> {
         bid: realData.bid || realData.price,
         ask: realData.ask || realData.price,
         last: realData.price,
+        price: realData.price,
         high: realData.high || realData.price,
         low: realData.low || realData.price,
         volume: realData.volume || 0,
@@ -180,6 +182,7 @@ function getDefaultMarketData(symbol: string): MarketData {
     bid: 0,
     ask: 0,
     last: 0,
+    price: 0,
     high: 0,
     low: 0,
     volume: 0,
