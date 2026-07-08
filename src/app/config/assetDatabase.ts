@@ -123,7 +123,7 @@ export const ALL_ASSETS: Asset[] = [
   // US INDICES
   { symbol: 'SPX500', name: 'S&P 500', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'S&P 500' },
   { symbol: 'NAS100', name: 'NASDAQ 100', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'NASDAQ 100' },
-  { symbol: 'DJI30', name: 'Dow Jones Industrial Average', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Dow Jones' },
+  { symbol: 'US30', name: 'Dow Jones Industrial Average', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Dow Jones' },
   { symbol: 'US2000', name: 'Russell 2000', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Russell 2000' },
   
   // EUROPEAN INDICES

@@ -146,6 +146,42 @@ export class SymbolMappingService {
         displayName: 'US Dollar vs Swiss Franc',
         type: 'forex'
       },
+      {
+        unified: 'NZDUSD',
+        infinox: 'NZDUSD',
+        binance: undefined,
+        yahoo: 'NZDUSD=X',
+        tradingview: 'NZDUSD',
+        displayName: 'New Zealand Dollar vs US Dollar',
+        type: 'forex'
+      },
+
+      // === FOREX MINOR/EXOTIC PAIRS ===
+      // ✅ ADICIONADO 2026-07-08: nomes confirmados 1:1 contra o watch list real
+      // da Infinox (print do Cleber) — sem essas entradas, DataSourceRouter.ts
+      // não achava mapping (findMapping retornava undefined) e o roteamento
+      // caía no heurístico padrão de getSourceConfig(), que usa Yahoo como
+      // fonte primária em vez de MetaAPI (causa da discrepância grande vs.
+      // MetaTrader em quase todo par além dos 6 majors).
+      ...([
+        'EURGBP', 'EURJPY', 'EURCHF', 'EURAUD', 'EURCAD', 'EURNZD',
+        'GBPJPY', 'GBPCHF', 'GBPAUD', 'GBPCAD', 'GBPNZD',
+        'AUDCAD', 'AUDCHF', 'AUDJPY', 'AUDNZD',
+        'NZDCAD', 'NZDCHF', 'NZDJPY',
+        'CADCHF', 'CADJPY', 'CHFJPY',
+        'USDMXN', 'USDZAR', 'USDTRY', 'USDSEK', 'USDNOK',
+        'EURHUF', 'USDHUF', 'USDRUB', 'EURTRY', 'USDINR', 'USDBRL',
+        'GBPNOK', 'USDTHB', 'USDCLP', 'USDCOP', 'USDIDR', 'USDKRW',
+        'USDTWD', 'USDSGD', 'USDHKD', 'EURMXN', 'EURNOK', 'EURSEK', 'EURSGD', 'EURZAR'
+      ].map((sym): SymbolMapping => ({
+        unified: sym,
+        infinox: sym,
+        binance: undefined,
+        yahoo: `${sym}=X`,
+        tradingview: sym,
+        displayName: sym,
+        type: 'forex'
+      }))),
 
       // === INDICES ===
       {
@@ -227,6 +263,42 @@ export class SymbolMappingService {
         yahoo: '^HSI',
         tradingview: 'HSI',
         displayName: 'Hang Seng Index',
+        type: 'index'
+      },
+      {
+        unified: 'AUS200',
+        infinox: 'AUS200',     // ✅ ADICIONADO 2026-07-08: confirmado no watch list real da Infinox
+        binance: undefined,
+        yahoo: '^AXJO',
+        tradingview: 'ASX:XJO',
+        displayName: 'ASX 200',
+        type: 'index'
+      },
+      {
+        unified: 'CHINA50',
+        infinox: 'CHINA50',    // ✅ ADICIONADO 2026-07-08: confirmado no watch list real da Infinox
+        binance: undefined,
+        yahoo: undefined,
+        tradingview: 'CHINA50',
+        displayName: 'FTSE China A50',
+        type: 'index'
+      },
+      {
+        unified: 'ESP35',
+        infinox: 'ESP35',      // ✅ ADICIONADO 2026-07-08: confirmado no watch list real da Infinox
+        binance: undefined,
+        yahoo: '^IBEX',
+        tradingview: 'BME:IBEX',
+        displayName: 'IBEX 35',
+        type: 'index'
+      },
+      {
+        unified: 'EUSTX50',
+        infinox: 'EUSTX50',    // ✅ ADICIONADO 2026-07-08: confirmado no watch list real da Infinox
+        binance: undefined,
+        yahoo: '^STOXX50E',
+        tradingview: 'EUSTX50',
+        displayName: 'Euro Stoxx 50',
         type: 'index'
       },
 
