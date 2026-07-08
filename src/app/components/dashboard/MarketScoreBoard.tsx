@@ -130,18 +130,30 @@ const ScoreGauge = React.memo(({ score, marketStatus = 'OPEN' }: { score: number
   );
 });
  
+// ✅ CORRIGIDO 2026-07-08 (2ª parte): a 1ª correção usava `useState(selectedAsset)`,
+// mas o `Dashboard`/`MarketScoreBoard` DESMONTA e REMONTA toda vez que o usuário
+// troca de tela em `App.tsx` (`switch (currentView)` renderiza o componente do
+// zero). Resultado: ao voltar pro Dashboard depois de trocar o ativo no Gráfico
+// (que ainda escreve no `selectedAsset` global), o `useState` reinicializava a
+// partir do valor global já mudado — parecia que o Gráfico "replicava" pro
+// Dashboard, mesmo com o Dashboard não escrevendo mais no global. Fix: guardar
+// o último ativo escolhido no Dashboard numa variável de módulo (sobrevive a
+// remontagens, dura a sessão do navegador), em vez de reler o contexto global
+// toda vez que o componente monta.
+let lastDashboardSymbol: string | null = null;
+
 export const MarketScoreBoard = () => {
   const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
-  // ✅ CORRIGIDO 2026-07-08: o Dashboard tinha seu próprio ativo lido/escrito
-  // direto no `selectedAsset` global do TradingContext — o mesmo estado que o
-  // Gráfico (ChartView) usa. Resultado: trocar o ativo aqui no Dashboard também
-  // trocava o ativo aberto no Gráfico, e vice-versa. Agora o Dashboard tem seu
-  // próprio estado local, só inicializado a partir do ativo global na primeira
-  // renderização — as duas telas navegam ativos de forma independente.
-  const [activeSymbol, setActiveSymbol] = useState(selectedAsset || 'BTCUSD');
+  const [activeSymbol, setActiveSymbolState] = useState(
+    lastDashboardSymbol || selectedAsset || 'BTCUSD'
+  );
+  const setActiveSymbol = (symbol: string) => {
+    lastDashboardSymbol = symbol;
+    setActiveSymbolState(symbol);
+  };
 
   const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'>('15m');
   const [candleTimeLeft, setCandleTimeLeft] = useState('00:00');
