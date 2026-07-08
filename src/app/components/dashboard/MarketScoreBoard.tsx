@@ -38,7 +38,6 @@ import { QuickSettings } from './QuickSettings'; // ⚙️ NOVO: Configuração 
 import { MT5QuickConnect } from './MT5QuickConnect'; // 🚀 NOVO: Conexão rápida MT5
 import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status MT5
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
-import { fetchSPXData } from '@/app/utils/spxRealDataProvider'; // ✅ NOVO: S&P500 REAL
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getMarketData } from '@/app/services/MetaApiService'; // 🔥 NOVO: MetaApi Integration
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
@@ -307,16 +306,14 @@ export const MarketScoreBoard = () => {
 
         let isRealData = false;
         const isCrypto = activeSymbol.endsWith('USDT') || ['BTC','ETH','SOL'].some(c => activeSymbol.includes(c));
-        const isSPX = ['SPX500', 'US500', 'SP500'].includes(activeSymbol);
-        
+
         console.log(`[MarketScoreBoard] 🔍 Detecção de tipo:`, {
             symbol: activeSymbol,
-            isCrypto,
-            isSPX
+            isCrypto
         });
-        
-        // 🥇 PRIORIDADE 1: MetaApi (Forex, Índices, Commodities)
-        if (!isCrypto && !isSPX) {
+
+        // 🥇 PRIORIDADE 1: MetaApi (Forex, Índices, Commodities — inclui SPX500/US500/SP500)
+        if (!isCrypto) {
             try {
                 console.log(`[DEBUG] Fetching MetaApi data for ${activeSymbol}...`);
                 const metaData = await getMarketData(activeSymbol);
@@ -352,48 +349,7 @@ export const MarketScoreBoard = () => {
             }
         }
         
-        // 🥈 PRIORIDADE 2: S&P500 COM API REAL
-        if (isSPX) {
-            try {
-                const spxData = await fetchSPXData();
-                if (spxData) {
-                    targetPriceRef.current = spxData.value;
-                    let realTrend = spxData.changePercent;
-                    
-                    // ✅ Usar variação absoluta direta
-                    targetChangeRef.current = spxData.change;
-                    
-                    // Limitar range para evitar scores extremos
-                    if (realTrend > 10) realTrend = 10;
-                    if (realTrend < -10) realTrend = -10;
-                    if (isNaN(realTrend)) realTrend = 0;
-                    
-                    targetTrendRef.current = realTrend;
-                    isRealData = true;
-                    console.log(`[S&P500] ✅ ${activeSymbol}: $${spxData.value.toFixed(2)} (${realTrend > 0 ? '+' : ''}${realTrend.toFixed(2)}%) [${spxData.source}]`);
-                    setDataSource(spxData.source === 'Fallback (Simulado)' ? 'Fallback' : spxData.source);
-                } else {
-                    console.warn('[S&P500] ⚠️ Usando fallback de emergência');
-                    const baseValue = 5800;
-                    const trend = (Math.random() - 0.5) * 0.02;
-                    targetPriceRef.current = baseValue;
-                    targetChangeRef.current = baseValue * trend;
-                    targetTrendRef.current = trend * 100;
-                    isRealData = true;
-                    setDataSource('Fallback');
-                }
-            } catch (e) {
-                console.error('[S&P500] ❌ Error:', e);
-                const baseValue = 5800;
-                const trend = (Math.random() - 0.5) * 0.02;
-                targetPriceRef.current = baseValue;
-                targetChangeRef.current = baseValue * trend;
-                targetTrendRef.current = trend * 100;
-                isRealData = true;
-                setDataSource('Fallback');
-            }
-        }
-        // 🥉 PRIORIDADE 3: CRYPTO COM BINANCE - VALORES UNIFICADOS
+        // 🥈 PRIORIDADE 2: CRYPTO COM BINANCE - VALORES UNIFICADOS
         if (isCrypto) {
              console.log(`[MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: ${activeSymbol}`);
              try {
