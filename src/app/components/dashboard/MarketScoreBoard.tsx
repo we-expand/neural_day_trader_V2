@@ -131,13 +131,18 @@ const ScoreGauge = React.memo(({ score, marketStatus = 'OPEN' }: { score: number
 });
  
 export const MarketScoreBoard = () => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setSelectedAsset } = useTradingContext();
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
-  
-  // 🔥 USAR O ATIVO GLOBAL DO TradingContext (sincronizado entre todas as páginas)
-  const activeSymbol = selectedAsset;
-  
+
+  // ✅ CORRIGIDO 2026-07-08: o Dashboard tinha seu próprio ativo lido/escrito
+  // direto no `selectedAsset` global do TradingContext — o mesmo estado que o
+  // Gráfico (ChartView) usa. Resultado: trocar o ativo aqui no Dashboard também
+  // trocava o ativo aberto no Gráfico, e vice-versa. Agora o Dashboard tem seu
+  // próprio estado local, só inicializado a partir do ativo global na primeira
+  // renderização — as duas telas navegam ativos de forma independente.
+  const [activeSymbol, setActiveSymbol] = useState(selectedAsset || 'BTCUSD');
+
   const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'>('15m');
   const [candleTimeLeft, setCandleTimeLeft] = useState('00:00');
   const [marketSignal, setMarketSignal] = useState<any>(null);
@@ -1267,7 +1272,7 @@ export const MarketScoreBoard = () => {
         onClose={() => setIsAssetsBrowserOpen(false)}
         selectedAsset={activeSymbol}
         onSelectAsset={(symbol) => {
-          setSelectedAsset(symbol); // 🔥 Usar setSelectedAsset do TradingContext (persiste globalmente!)
+          setActiveSymbol(symbol); // Só o Dashboard muda — não afeta o Gráfico
           setIsAssetsBrowserOpen(false);
           toast.success(`Ativo alterado para ${symbol}`);
         }}

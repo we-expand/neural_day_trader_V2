@@ -267,78 +267,16 @@ export class DataSourceRouter {
   private async fetchFromMetaApi(symbol: string, mapping?: SymbolMapping): Promise<Partial<SourcedMarketData> | null> {
     try {
       const mt5Symbol = mapping?.infinox || symbol;
-      
-      // 🔥 NOVO: Usar MT5 Validator para dados REAIS
-      try {
-        const { getMT5Validator } = await import('./MT5PriceValidator');
-        const validator = getMT5Validator();
-        
-        if (validator.getConnectionStatus()) {
-          console.log(`[ROUTER] 🎯 Usando MT5 Validator REAL para ${mt5Symbol}`);
-          const validatedPrice = await validator.getPrice(mt5Symbol);
-          
-          if (validatedPrice && validatedPrice.isValid && validatedPrice.source === 'mt5') {
-            // 🔥 BUSCAR CANDLE DIÁRIO para calcular change REAL
-            let realChange = 0;
-            let realChangePercent = 0;
-            
-            try {
-              // Buscar último candle diário (D1) para obter open price do dia
-              const { getMetaApiCandles } = await import('./MetaApiService');
-              const dailyCandles = await getMetaApiCandles(mt5Symbol, 'D1', 2); // Últimos 2 dias
-              
-              if (dailyCandles && dailyCandles.length > 0) {
-                const todayCandle = dailyCandles[dailyCandles.length - 1];
-                const openPrice = todayCandle.open;
-                
-                realChange = validatedPrice.price - openPrice;
-                realChangePercent = (realChange / openPrice) * 100;
-                
-                console.log(`[ROUTER] 📊 Change REAL calculado para ${mt5Symbol}:`, {
-                  currentPrice: validatedPrice.price.toFixed(5),
-                  openPrice: openPrice.toFixed(5),
-                  change: realChange.toFixed(5),
-                  changePercent: realChangePercent.toFixed(2) + '%'
-                });
-              } else {
-                console.log(`[ROUTER] ⚠️ Não conseguiu buscar candle diário, usando estimativa`);
-                realChange = validatedPrice.price * 0.001;
-                realChangePercent = 0.1;
-              }
-            } catch (candleError) {
-              console.log(`[ROUTER] ⚠️ Erro ao buscar candle diário:`, candleError);
-              realChange = validatedPrice.price * 0.001;
-              realChangePercent = 0.1;
-            }
-            
-            console.log(`[ROUTER] ✅ Dados MT5 REAIS para ${mt5Symbol}:`, {
-              price: validatedPrice.price.toFixed(5),
-              bid: validatedPrice.bid.toFixed(5),
-              ask: validatedPrice.ask.toFixed(5),
-              spread: validatedPrice.spread.toFixed(5),
-              change: realChange.toFixed(5),
-              changePercent: realChangePercent.toFixed(2) + '%',
-              source: 'MT5 REAL'
-            });
-            
-            return {
-              symbol: mt5Symbol,
-              price: validatedPrice.price,
-              change: realChange,
-              changePercent: realChangePercent,
-              timestamp: validatedPrice.timestamp
-            };
-          } else {
-            console.log(`[ROUTER] ⚠️ MT5 Validator retornou fallback para ${mt5Symbol}, tentando Edge Function`);
-          }
-        } else {
-          console.log(`[ROUTER] ⚠️ MT5 Validator não conectado, usando Edge Function`);
-        }
-      } catch (validatorError) {
-        console.log(`[ROUTER] ⚠️ MT5 Validator não disponível:`, validatorError);
-      }
-      
-      // FALLBACK: Usar Edge Function como backup
+
+      // ✅ CORRIGIDO 2026-07-08: removido o caminho que passava pelo MT5PriceValidator
+      // + candle D1 via getMetaApiCandles (rota legada /mt5-candles, com o mesmo bug de
+      // host/endpoint documentado como nunca corrigido). Sempre que o candle falhava
+      // (o que acontecia quase sempre, já que a rota é 404/errada), o código caía num
+      // "estimativa" HARDCODED: changePercent = 0.1% pra QUALQUER ativo — essa era a
+      // causa raiz de ativos completamente diferentes (prata, café, outros commodities)
+      // mostrarem o mesmo "+0.09%"/"+0.10%" sem relação nenhuma com o preço real.
+      // Agora usa direto a Edge Function /mt5-prices, que já calcula price/change/
+      // changePercent corretos no servidor (mesma fonte que o Dashboard usa).
       const data = await getMetaApiData(mt5Symbol);
       
       if (!data) {
