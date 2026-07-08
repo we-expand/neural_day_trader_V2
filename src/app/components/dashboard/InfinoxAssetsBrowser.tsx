@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getInfinoxAssetsByCategory, INFINOX_CATEGORY_NAMES } from '@/config/infinoxAssets';
@@ -28,7 +28,11 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
   const [selectedAutocompleteIndex, setSelectedAutocompleteIndex] = useState(-1);
 
   // Obter todos os ativos por categoria (300+)
-  const allAssets = getInfinoxAssetsByCategory();
+  // ✅ CORRIGIDO 2026-07-08: useMemo — sem isso, getInfinoxAssetsByCategory()
+  // criava um objeto novo a cada render, entrava como dependência do
+  // useEffect abaixo (que seta estado), e causava loop infinito de render
+  // ("Maximum update depth exceeded") toda vez que o Dashboard abria.
+  const allAssets = useMemo(() => getInfinoxAssetsByCategory(), []);
   
   // 🆕 AUTOCOMPLETE INTELIGENTE
   useEffect(() => {

@@ -1,7 +1,36 @@
 /**
  * 🔥 MARKET HOURS UTILITY
- * Detecta horários de mercado para diferentes ativos
- * Suporta: Crypto (24/7), Forex, US Stocks, EU Stocks, Asia Stocks, Commodities, B3
+ *
+ * Detecta horários de mercado para diferentes classes de ativos.
+ *
+ * ⚠️ CONCEITO CENTRAL (ler antes de mexer aqui):
+ * Este app negocia CFDs via MetaAPI/Infinox — NÃO o pregão à vista da bolsa.
+ * O CFD de um índice (SPX500, NAS100, US30, GER40, UK100...) segue o horário
+ * do MERCADO FUTURO/CFD do broker, que é quase 24h por dia, 5 dias por
+ * semana, com uma pausa diária curta de manutenção — NÃO o horário estreito
+ * do pregão à vista (ex: NYSE 9:30-16:00 ET).
+ *
+ * Exemplo confirmado pelo Cleber (S&P 500 E-mini / CFD, horário de Brasília):
+ *   Abre:  Domingo 20:00 BRT
+ *   Fecha: Sexta   19:00 BRT
+ *   Pausa diária: 19:00-20:00 BRT (manutenção do sistema)
+ * Em UTC (BRT = UTC-3, sem horário de verão no Brasil desde 2019):
+ *   Abre:  Domingo 23:00 UTC
+ *   Fecha: Sexta   22:00 UTC
+ *   Pausa diária: 22:00-23:00 UTC
+ *
+ * Esse é o MESMO padrão que forex e commodities (ouro, petróleo) já
+ * seguem — faz sentido, todos são CFDs do mesmo broker. Por isso índices,
+ * forex e commodities agora usam a mesma função `isCfdMarketOpen()`.
+ *
+ * Ações individuais (AAPL, MSFT...) SÃO negociadas no pregão à vista real
+ * (a Infinox não oferece CFD 24h pra ações), então essas continuam usando
+ * o horário estreito da bolsa local — com ajuste de horário de verão (DST),
+ * que a versão anterior deste arquivo não tinha (causava 1h de erro no
+ * status "aberto/fechado" durante ~8 meses por ano nos EUA/Europa).
+ *
+ * Se algum dia formos operar em outra plataforma (ex: pregão à vista puro,
+ * sem CFD), reavaliar `isCfdMarketOpen()` pros índices.
  */
 
 export interface MarketStatus {
@@ -12,75 +41,77 @@ export interface MarketStatus {
   timezone: string;
 }
 
+type MarketType = 'CRYPTO' | 'FOREX' | 'US_STOCKS' | 'EU_STOCKS' | 'ASIA_STOCKS' | 'COMMODITIES' | 'B3' | 'STOCK';
+
 /**
  * Detecta o tipo de mercado baseado no símbolo
  */
-function detectMarketType(symbol: string): 'CRYPTO' | 'FOREX' | 'US_STOCKS' | 'EU_STOCKS' | 'ASIA_STOCKS' | 'COMMODITIES' | 'B3' {
+function detectMarketType(symbol: string): MarketType {
   const upperSymbol = symbol.toUpperCase();
-  
+
   // CRYPTO - terminam com USDT ou são símbolos de crypto conhecidos
   if (upperSymbol.endsWith('USDT') || ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'].some(c => upperSymbol.includes(c))) {
     return 'CRYPTO';
   }
-  
+
   // FOREX - pares de moedas (6 caracteres, formato XXXYYY)
-  if (upperSymbol.length === 6 && 
+  if (upperSymbol.length === 6 &&
       ['EUR', 'USD', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD'].some(curr => upperSymbol.includes(curr))) {
     return 'FOREX';
   }
-  
+
   // COMMODITIES - Ouro, Prata, Petróleo
-  if (['XAU', 'XAG', 'WTI', 'BRENT', 'OIL', 'GOLD', 'SILVER'].some(comm => upperSymbol.includes(comm))) {
+  if (['XAU', 'XAG', 'XPT', 'XPD', 'WTI', 'BRENT', 'OIL', 'GOLD', 'SILVER', 'USOUSD', 'UKOUSD'].some(comm => upperSymbol.includes(comm))) {
     return 'COMMODITIES';
   }
-  
-  // INDICES AMERICANOS
-  if (['SPX', 'SP500', 'US500', 'NQ100', 'NASDAQ', 'US30', 'DOW'].some(idx => upperSymbol.includes(idx))) {
+
+  // ÍNDICES AMERICANOS (CFD — near 24/5, ver isCfdMarketOpen)
+  if (['SPX', 'SP500', 'US500', 'NQ100', 'NASDAQ', 'NAS100', 'US30', 'DOW', 'US2000', 'VIX'].some(idx => upperSymbol.includes(idx))) {
     return 'US_STOCKS';
   }
-  
-  // INDICES EUROPEUS
-  if (['DAX', 'GER', 'FTSE', 'UK100', 'CAC', 'FRA', 'STOXX', 'ESP'].some(idx => upperSymbol.includes(idx))) {
+
+  // ÍNDICES EUROPEUS (CFD — near 24/5)
+  if (['DAX', 'GER40', 'GER', 'FTSE', 'UK100', 'CAC', 'FRA40', 'FRA', 'STOXX', 'EUSTX', 'ESP35', 'ESP', 'ITA40', 'NETH25'].some(idx => upperSymbol.includes(idx))) {
     return 'EU_STOCKS';
   }
-  
-  // INDICES ASIÁTICOS
-  if (['NIKKEI', 'JPN', 'HSI', 'HK', 'ASX', 'AUS'].some(idx => upperSymbol.includes(idx))) {
+
+  // ÍNDICES ASIÁTICOS (CFD — near 24/5)
+  if (['NIKKEI', 'JPN225', 'JPN', 'HSI', 'HKG', 'HK50', 'HK', 'ASX', 'AUS200', 'AUS', 'CHINA50'].some(idx => upperSymbol.includes(idx))) {
     return 'ASIA_STOCKS';
   }
-  
+
   // B3 - Bolsa Brasileira
   if (['WIN', 'WDO', 'PETR', 'VALE', 'IBOV', 'B3SA'].some(b3 => upperSymbol.includes(b3))) {
     return 'B3';
   }
-  
-  // Fallback: assumir US_STOCKS
+
+  // AÇÕES INDIVIDUAIS — pregão à vista real (sem CFD 24h), com DST
+  if (upperSymbol.length <= 5 && /^[A-Z.]+$/.test(upperSymbol)) {
+    return 'STOCK';
+  }
+
+  // Fallback: assumir US_STOCKS (CFD near 24/5)
   return 'US_STOCKS';
 }
 
 /**
- * 🔥 NOVO: Retorna nome formatado do mercado
+ * 🔥 Retorna nome formatado do mercado
  */
 function getMarketDisplayName(symbol: string): string {
   const upperSymbol = symbol.toUpperCase();
-  
-  // S&P 500
+
   if (['SPX', 'SP500', 'US500'].some(idx => upperSymbol.includes(idx))) {
     return 'S&P 500';
   }
-  
-  // Bitcoin
   if (upperSymbol.includes('BTC')) {
     return 'Bitcoin';
   }
-  
-  // Ethereum
   if (upperSymbol.includes('ETH')) {
     return 'Ethereum';
   }
-  
+
   const marketType = detectMarketType(symbol);
-  
+
   switch (marketType) {
     case 'CRYPTO':
       return 'Cripto';
@@ -96,290 +127,155 @@ function getMarketDisplayName(symbol: string): string {
       return 'Commodities';
     case 'B3':
       return 'B3';
+    case 'STOCK':
+      return 'Ação';
     default:
       return 'Mercado';
   }
 }
 
+/**
+ * 🌍 CFD near-24/5 (índices, forex, commodities via MetaAPI/Infinox)
+ *
+ * Abre:  Domingo 23:00 UTC
+ * Fecha: Sexta   22:00 UTC
+ * Pausa diária:  22:00-23:00 UTC (manutenção), todo dia de segunda a quinta
+ *
+ * Isso é o horário real do broker (confirmado contra E-mini S&P / MetaTrader
+ * do Cleber, 2026-07-08) — reaproveitar esta função pra qualquer CFD novo
+ * que a plataforma passar a oferecer, em vez de reinventar o cálculo.
+ */
+function isCfdMarketOpen(now: Date): MarketStatus {
+  const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
+  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const dailyBreakStart = 22 * 60; // 22:00 UTC
+  const dailyBreakEnd = 23 * 60;   // 23:00 UTC
+
+  // Sábado inteiro: fechado
+  if (utcDay === 6) {
+    return { isOpen: false, status: 'CLOSED', nextOpen: 'Domingo 23:00 UTC (20:00 BRT)', timezone: 'UTC' };
+  }
+
+  // Domingo antes das 23:00 UTC: ainda fechado (fim de semana)
+  if (utcDay === 0 && totalMinutes < dailyBreakEnd) {
+    return { isOpen: false, status: 'CLOSED', nextOpen: 'Hoje 23:00 UTC (20:00 BRT)', timezone: 'UTC' };
+  }
+
+  // Sexta após 22:00 UTC: fechado até domingo
+  if (utcDay === 5 && totalMinutes >= dailyBreakStart) {
+    return { isOpen: false, status: 'CLOSED', nextOpen: 'Domingo 23:00 UTC (20:00 BRT)', timezone: 'UTC' };
+  }
+
+  // Pausa diária de manutenção (Dom-Qui): 22:00-23:00 UTC
+  if (totalMinutes >= dailyBreakStart && totalMinutes < dailyBreakEnd) {
+    return { isOpen: false, status: 'CLOSED', nextOpen: 'Hoje 23:00 UTC (20:00 BRT) — pausa de manutenção', timezone: 'UTC' };
+  }
+
+  return { isOpen: true, status: 'OPEN', nextClose: 'Sexta 22:00 UTC (19:00 BRT)', timezone: 'UTC' };
+}
+
+/**
+ * 🕐 Calcula o offset de fuso (em minutos, relativo a UTC) de Nova Iorque
+ * pra uma data específica, considerando horário de verão (EDT/EST).
+ * DST nos EUA: 2ª domingo de março às 2h → 1º domingo de novembro às 2h.
+ * EST = UTC-5 (inverno) | EDT = UTC-4 (verão)
+ */
+function getNyOffsetMinutes(now: Date): number {
+  const year = now.getUTCFullYear();
+
+  const nthSunday = (month: number, n: number): Date => {
+    const d = new Date(Date.UTC(year, month, 1));
+    const firstSundayOffset = (7 - d.getUTCDay()) % 7;
+    d.setUTCDate(1 + firstSundayOffset + (n - 1) * 7);
+    return d;
+  };
+
+  const dstStart = nthSunday(2, 2);  // 2ª domingo de março
+  const dstEnd = nthSunday(10, 1);   // 1º domingo de novembro
+
+  const isDst = now.getTime() >= dstStart.getTime() && now.getTime() < dstEnd.getTime();
+  return isDst ? -4 * 60 : -5 * 60; // EDT ou EST, em minutos
+}
+
+/**
+ * 🕐 Offset de Londres (UK) em minutos, considerando BST/GMT.
+ * DST no Reino Unido: último domingo de março às 1h UTC → último domingo
+ * de outubro às 1h UTC. BST = UTC+1 (verão) | GMT = UTC+0 (inverno).
+ */
+function getLondonOffsetMinutes(now: Date): number {
+  const year = now.getUTCFullYear();
+
+  const lastSunday = (month: number): Date => {
+    const d = new Date(Date.UTC(year, month + 1, 0)); // último dia do mês
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+    return d;
+  };
+
+  const dstStart = lastSunday(2);  // último domingo de março
+  const dstEnd = lastSunday(9);    // último domingo de outubro
+
+  const isDst = now.getTime() >= dstStart.getTime() && now.getTime() < dstEnd.getTime();
+  return isDst ? 60 : 0; // BST ou GMT, em minutos
+}
+
 export function isMarketOpen(symbol: string): MarketStatus {
   const marketType = detectMarketType(symbol);
   const now = new Date();
-  const utcHours = now.getUTCHours();
-  const utcDay = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
-  const utcMinutes = now.getUTCMinutes();
-  const totalMinutes = utcHours * 60 + utcMinutes;
-  
-  console.log('[isMarketOpen] 🕐 Checking market hours:', {
-    symbol,
-    marketType,
-    utcDay,
-    utcHours,
-    utcMinutes,
-    totalMinutes
-  });
+  const utcDay = now.getUTCDay();
+  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
 
   // CRYPTO - Sempre aberto (24/7)
   if (marketType === 'CRYPTO') {
-    return {
-      isOpen: true,
-      status: 'OPEN',
-      timezone: 'UTC',
-    };
+    return { isOpen: true, status: 'OPEN', timezone: 'UTC' };
   }
 
-  // FOREX
-  // Abre: Domingo 22:00 UTC (abertura de Sydney)
-  // Fecha: Sexta 22:00 UTC (fechamento de NY)
-  if (marketType === 'FOREX') {
-    const isWeekend = utcDay === 6; // Apenas Sábado é realmente fechado
-    const isSunday = utcDay === 0;
-    const isFriday = utcDay === 5;
-    
-    if (isWeekend) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Domingo 22:00 UTC',
-        timezone: 'UTC',
-      };
-    }
-    
-    // Domingo: abre 22:00 UTC
-    if (isSunday && totalMinutes < 22 * 60) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Domingo 22:00 UTC',
-        timezone: 'UTC',
-      };
-    }
-    
-    // Sexta: fecha 22:00 UTC
-    if (isFriday && totalMinutes >= 22 * 60) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Domingo 22:00 UTC',
-        timezone: 'UTC',
-      };
-    }
-    
-    // Segunda a Sexta durante horário comercial
-    return {
-      isOpen: true,
-      status: 'OPEN',
-      nextOpen: !isOpen ? 'Domingo 22:00 UTC' : undefined,
-      nextClose: isOpen ? 'Sexta 22:00 UTC' : undefined,
-      timezone: 'UTC',
-    };
+  // ÍNDICES (US/EU/Ásia) + FOREX + COMMODITIES → CFD near-24/5 (ver isCfdMarketOpen)
+  if (marketType === 'US_STOCKS' || marketType === 'EU_STOCKS' || marketType === 'ASIA_STOCKS' ||
+      marketType === 'FOREX' || marketType === 'COMMODITIES') {
+    return isCfdMarketOpen(now);
   }
 
-  // US STOCKS & INDICES (NYSE/NASDAQ)
-  // Horário: 9:30 AM - 4:00 PM ET (Eastern Time)
-  // ET = UTC-5 (Standard) ou UTC-4 (Daylight)
-  // Para simplificar, vamos usar UTC-5 (14:30 - 21:00 UTC)
-  if (marketType === 'US_STOCKS') {
-    // 🔥 CRÍTICO: 0 = Domingo, 6 = Sábado
-    // Semana = Segunda(1) a Sexta(5)
-    const isWeekend = utcDay === 0 || utcDay === 6; // Domingo ou Sábado
-    const isWeekday = utcDay >= 1 && utcDay <= 5; // Segunda a Sexta
-    
-    // Pre-market: 9:00-9:30 ET = 14:00-14:30 UTC
-    // Regular: 9:30-16:00 ET = 14:30-21:00 UTC  
-    // After-hours: 16:00-20:00 ET = 21:00-01:00 UTC (next day)
-    
-    const preMarketStart = 14 * 60; // 14:00 UTC
-    const regularOpen = 14 * 60 + 30; // 14:30 UTC
-    const regularClose = 21 * 60; // 21:00 UTC
-    const afterHoursClose = 25 * 60; // 01:00 UTC (next day, so 1 AM)
-    
-    // 🔥 FIM DE SEMANA: SEMPRE FECHADO
-    if (isWeekend) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Segunda 14:30 UTC (9:30 AM ET)',
-        timezone: 'ET (UTC-5)',
-      };
-    }
-    
-    // Check Pre-Market
-    if (totalMinutes >= preMarketStart && totalMinutes < regularOpen) {
-      return {
-        isOpen: false,
-        status: 'PRE_MARKET',
-        nextOpen: '14:30 UTC (9:30 AM ET)',
-        timezone: 'ET (UTC-5)',
-      };
-    }
-    
-    // Check Regular Hours
-    if (totalMinutes >= regularOpen && totalMinutes < regularClose) {
-      return {
-        isOpen: true,
-        status: 'OPEN',
-        nextClose: '21:00 UTC (4:00 PM ET)',
-        timezone: 'ET (UTC-5)',
-      };
-    }
-    
-    // Check After-Hours (only if not Friday late)
-    // After-hours vai até 01:00 UTC do dia seguinte
-    // Se for Sexta após 21:00 ou antes Segunda 01:00, está fechado
-    const isFriday = utcDay === 5;
-    const isMonday = utcDay === 1;
-    
-    if (totalMinutes >= regularClose && totalMinutes < 24 * 60) {
-      // Após 21:00 hoje
-      if (isFriday) {
-        return {
-          isOpen: false,
-          status: 'CLOSED',
-          nextOpen: 'Segunda 14:30 UTC (9:30 AM ET)',
-          timezone: 'ET (UTC-5)',
-        };
-      }
-      return {
-        isOpen: false,
-        status: 'AFTER_HOURS',
-        nextOpen: 'Amanhã 14:30 UTC (9:30 AM ET)',
-        timezone: 'ET (UTC-5)',
-      };
-    }
-    
-    // Antes de 14:00
-    if (totalMinutes < preMarketStart) {
-      // Se for Segunda de madrugada (antes de 01:00), ainda é fim de semana
-      if (isMonday && totalMinutes < 60) {
-        return {
-          isOpen: false,
-          status: 'CLOSED',
-          nextOpen: 'Hoje 14:30 UTC (9:30 AM ET)',
-          timezone: 'ET (UTC-5)',
-        };
-      }
-      
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Hoje 14:30 UTC (9:30 AM ET)',
-        timezone: 'ET (UTC-5)',
-      };
-    }
-    
-    // Fallback: fechado
-    return {
-      isOpen: false,
-      status: 'CLOSED',
-      nextOpen: 'Segunda 14:30 UTC (9:30 AM ET)',
-      timezone: 'ET (UTC-5)',
-    };
-  }
-
-  // EU STOCKS
-  // Horário: 8:00 - 16:30 CET (7:00 - 15:30 UTC no inverno)
-  if (marketType === 'EU_STOCKS') {
+  // AÇÕES INDIVIDUAIS (pregão à vista real, com DST) — NYSE/NASDAQ
+  // Regular: 9:30-16:00 ET (ajustado por DST)
+  if (marketType === 'STOCK') {
     const isWeekend = utcDay === 0 || utcDay === 6;
-    const marketOpen = 7 * 60; // 07:00 UTC
-    const marketClose = 15 * 60 + 30; // 15:30 UTC
-    
     if (isWeekend) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Segunda 07:00 UTC',
-        timezone: 'CET (UTC+1)',
-      };
+      return { isOpen: false, status: 'CLOSED', nextOpen: 'Segunda 9:30 AM ET', timezone: 'ET (DST-aware)' };
     }
-    
-    const isOpen = totalMinutes >= marketOpen && totalMinutes < marketClose;
-    
-    return {
-      isOpen,
-      status: isOpen ? 'OPEN' : 'CLOSED',
-      nextOpen: !isOpen ? 'Amanhã 07:00 UTC' : undefined,
-      nextClose: isOpen ? '15:30 UTC' : undefined,
-      timezone: 'CET (UTC+1)',
-    };
+
+    const nyOffset = getNyOffsetMinutes(now); // -240 (EDT) ou -300 (EST)
+    const nyMinutesOfDay = ((totalMinutes + nyOffset) % 1440 + 1440) % 1440;
+
+    const preMarketStart = 9 * 60;      // 9:00 ET
+    const regularOpen = 9 * 60 + 30;    // 9:30 ET
+    const regularClose = 16 * 60;       // 16:00 ET
+    const afterHoursEnd = 20 * 60;      // 20:00 ET
+
+    const tzLabel = nyOffset === -240 ? 'EDT (UTC-4)' : 'EST (UTC-5)';
+
+    if (nyMinutesOfDay >= preMarketStart && nyMinutesOfDay < regularOpen) {
+      return { isOpen: false, status: 'PRE_MARKET', nextOpen: '9:30 AM ET', timezone: tzLabel };
+    }
+    if (nyMinutesOfDay >= regularOpen && nyMinutesOfDay < regularClose) {
+      return { isOpen: true, status: 'OPEN', nextClose: '4:00 PM ET', timezone: tzLabel };
+    }
+    if (nyMinutesOfDay >= regularClose && nyMinutesOfDay < afterHoursEnd) {
+      return { isOpen: false, status: 'AFTER_HOURS', nextOpen: 'Amanhã 9:30 AM ET', timezone: tzLabel };
+    }
+    return { isOpen: false, status: 'CLOSED', nextOpen: 'Amanhã 9:30 AM ET', timezone: tzLabel };
   }
 
-  // ASIA STOCKS
-  // Horário varia por mercado, usando Tokyo como referência: 00:00 - 06:00 UTC
-  if (marketType === 'ASIA_STOCKS') {
-    const isWeekend = utcDay === 0 || utcDay === 6;
-    const marketOpen = 0; // 00:00 UTC
-    const marketClose = 6 * 60; // 06:00 UTC
-    
-    if (isWeekend) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Segunda 00:00 UTC',
-        timezone: 'JST (UTC+9)',
-      };
-    }
-    
-    const isOpen = totalMinutes >= marketOpen && totalMinutes < marketClose;
-    
-    return {
-      isOpen,
-      status: isOpen ? 'OPEN' : 'CLOSED',
-      nextOpen: !isOpen ? 'Amanhã 00:00 UTC' : undefined,
-      nextClose: isOpen ? '06:00 UTC' : undefined,
-      timezone: 'JST (UTC+9)',
-    };
-  }
-
-  // COMMODITIES (usando horário do ouro como referência)
-  // Ouro: 23:00 Domingo - 22:00 Sexta UTC
-  if (marketType === 'COMMODITIES') {
-    const isWeekend = utcDay === 6 || (utcDay === 0 && totalMinutes < 23 * 60);
-    const isFriday = utcDay === 5;
-    
-    if (isWeekend) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Domingo 23:00 UTC',
-        timezone: 'UTC',
-      };
-    }
-    
-    if (isFriday && totalMinutes >= 22 * 60) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Domingo 23:00 UTC',
-        timezone: 'UTC',
-      };
-    }
-    
-    return {
-      isOpen: true,
-      status: 'OPEN',
-      nextClose: 'Sexta 22:00 UTC',
-      timezone: 'UTC',
-    };
-  }
-
-  // B3 - Bolsa do Brasil
-  // Horário: 10:00 - 18:00 BRT (13:00 - 21:00 UTC)
+  // B3 - Bolsa do Brasil (BRT, sem DST desde 2019)
   if (marketType === 'B3') {
     const isWeekend = utcDay === 0 || utcDay === 6;
-    const marketOpen = 13 * 60; // 13:00 UTC
-    const marketClose = 21 * 60; // 21:00 UTC
-    
+    const marketOpen = 13 * 60; // 13:00 UTC = 10:00 BRT
+    const marketClose = 21 * 60; // 21:00 UTC = 18:00 BRT
+
     if (isWeekend) {
-      return {
-        isOpen: false,
-        status: 'CLOSED',
-        nextOpen: 'Segunda 13:00 UTC (10:00 BRT)',
-        timezone: 'BRT (UTC-3)',
-      };
+      return { isOpen: false, status: 'CLOSED', nextOpen: 'Segunda 13:00 UTC (10:00 BRT)', timezone: 'BRT (UTC-3)' };
     }
-    
+
     const isOpen = totalMinutes >= marketOpen && totalMinutes < marketClose;
-    
     return {
       isOpen,
       status: isOpen ? 'OPEN' : 'CLOSED',
@@ -390,11 +286,7 @@ export function isMarketOpen(symbol: string): MarketStatus {
   }
 
   // Fallback
-  return {
-    isOpen: false,
-    status: 'CLOSED',
-    timezone: 'UTC',
-  };
+  return { isOpen: false, status: 'CLOSED', timezone: 'UTC' };
 }
 
 /**
@@ -422,11 +314,10 @@ export function getMarketStatusMessage(symbol: string): string {
   const status = isMarketOpen(symbol);
   const icon = getMarketStatusIcon(status);
   const marketName = getMarketDisplayName(symbol);
-  
+
   if (status.isOpen) {
     return `${icon} ${marketName} ABERTO ${status.nextClose ? `· Fecha ${status.nextClose}` : ''}`;
   } else {
-    // Formatação melhorada para mercado fechado
     if (status.nextOpen) {
       return `${icon} ${marketName} FECHADO · Abre ${status.nextOpen}`;
     }
