@@ -219,9 +219,23 @@ export const MarketScoreBoard = () => {
   // Refs for smooth animation
   const simTrendRef = useRef(2.5);
   const simCycleRef = useRef(0);
-  const targetTrendRef = useRef(2.5); 
+  const targetTrendRef = useRef(2.5);
   const targetPriceRef = useRef(0); // 🔥 Inicializar com 0
   const targetChangeRef = useRef(0); // ✅ NOVO: Ref para variação absoluta
+
+  // ✅ CORRIGIDO 2026-07-10: targetPriceRef/targetChangeRef/targetTrendRef são
+  // ÚNICOS (não têm chave por símbolo) e são escritos por 3 mecanismos
+  // diferentes (fetchData polling MetaAPI, fetchData polling cripto, WebSocket
+  // cripto) — sem trava, uma resposta atrasada ou de um símbolo antigo (ex:
+  // BTC ainda com polling ativo) sobrescreve o preço do símbolo atualmente
+  // selecionado. Baixar o intervalo de cripto de 120s pra 1.5s tornou essa
+  // corrida praticamente constante. `activeSymbolRef` sempre reflete o símbolo
+  // REALMENTE selecionado agora; cada escrita nos refs acima deve checar
+  // contra ele antes de aplicar.
+  const activeSymbolRef = useRef(activeSymbol);
+  useEffect(() => {
+    activeSymbolRef.current = activeSymbol;
+  }, [activeSymbol]);
   
   // 🎬 ANIMAÇÃO FLUIDA: Valores animados que se interpolam até o alvo
   const [animatedPrice, setAnimatedPrice] = useState(0);
@@ -342,7 +356,7 @@ export const MarketScoreBoard = () => {
             try {
                 console.log(`[DEBUG] Fetching MetaApi data for ${activeSymbol}...`);
                 const metaData = await getMarketData(activeSymbol);
-                if (isStale) return; // resposta de uma chamada antiga — ignorar
+                if (isStale || activeSymbolRef.current !== activeSymbol) return; // resposta de uma chamada antiga — ignorar
 
                 console.log(`[DEBUG] MetaApi response:`, {
                     symbol: metaData.symbol,
@@ -383,7 +397,7 @@ export const MarketScoreBoard = () => {
                 
                 // 🎯 USAR SERVIÇO UNIFICADO - Garante sincronização com ChartView
                 const pureData = await getUnifiedMarketData(activeSymbol);
-                if (isStale) return; // resposta de uma chamada antiga — ignorar
+                if (isStale || activeSymbolRef.current !== activeSymbol) return; // resposta de uma chamada antiga — ignorar
 
                 console.log(`[MarketScoreBoard] 📊 Valores PUROS recebidos:`, pureData);
                 
@@ -535,7 +549,17 @@ export const MarketScoreBoard = () => {
         '⏰ Timestamp': new Date().toISOString(),
         '🔢 marketData recebido': marketData
       });
-      
+
+      // ✅ CORRIGIDO 2026-07-10: essa subscription pertence ao símbolo capturado
+      // no momento em que este efeito rodou (`activeSymbol` do closure). Se o
+      // usuário já trocou de ativo antes desse callback chegar, `activeSymbolRef`
+      // (sempre atual) não bate mais com ele — descarta em vez de sobrescrever
+      // o preço do ativo que está na tela agora com o de um símbolo antigo.
+      if (activeSymbolRef.current !== activeSymbol) {
+        console.log(`[🎯 DASHBOARD] ⏭️ Ignorando resposta atrasada de ${activeSymbol} (ativo atual: ${activeSymbolRef.current})`);
+        return;
+      }
+
       // Atualizar refs diretamente com dados do WebSocket
       targetPriceRef.current = marketData.price;
       targetChangeRef.current = marketData.change;
