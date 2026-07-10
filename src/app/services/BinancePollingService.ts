@@ -30,7 +30,15 @@ interface PollingSubscription {
 
 class BinancePollingService {
   private subscriptions: Map<string, PollingSubscription> = new Map();
-  private readonly POLL_INTERVAL = 1500; // 1,5s — preço "vivo" a pedido do Cleber (estava em 120s, o que fazia cripto parecer travado)
+  // ⚠️ ESTABILIZAÇÃO DE EMERGÊNCIA 2026-07-10: voltado pra 15s (não os 120s
+  // originais, nem os 1.5s que causaram o incidente). As 3 fontes de preço de
+  // cripto (API própria via Vercel, corsproxy.io, allorigins.win) estão TODAS
+  // falhando agora (CORS/403) — a 1.5s isso gerava uma tentativa falha atrás
+  // da outra sem parar, e o acúmulo disso quebrou a tela inteira (preços
+  // zerados em todos os ativos, não só cripto). A causa real não é o
+  // intervalo em si, é as 3 fontes de dado estarem mortas — precisa arrumar
+  // isso antes de voltar a baixar esse número.
+  private readonly POLL_INTERVAL = 15000;
 
   /**
    * Subscreve a um símbolo e recebe atualizações via polling
