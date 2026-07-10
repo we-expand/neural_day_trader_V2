@@ -460,18 +460,8 @@ function detectZones(data: KLineData[], currentPrice: number): LiquidityZone[] {
 // ============================================================
 
 function formatPrice(price: number, symbol: string): string {
-  if (symbol.includes('JPY')) return price.toFixed(3);
-  if (
-    symbol.includes('BTC') || symbol.includes('ETH') ||
-    symbol.includes('XAU') || symbol.includes('US30') ||
-    symbol.includes('NAS') || symbol.includes('SPX') ||
-    symbol.includes('GER') || symbol.includes('JPN') ||
-    symbol.includes('HK')  || symbol.includes('AUS') ||
-    symbol.includes('INDIA')|| symbol.includes('BRA') ||
-    price > 1000
-  ) return price.toFixed(2);
-  if (price > 1) return price.toFixed(5);
-  return price.toFixed(6);
+  // Todos os ativos: sempre 2 casas decimais (padrão único, a pedido do Cleber)
+  return price.toFixed(2);
 }
 
 function formatCountdown(ms: number): string {
@@ -1383,7 +1373,7 @@ export default function StandaloneChartPage() {
             </button>
             <div className="h-px bg-gray-700 my-1" />
             <button
-              onClick={() => { if (currentPrice !== null) { navigator.clipboard.writeText(currentPrice.toFixed(5)); toast.success('Preço copiado'); } setContextMenu(null); }}
+              onClick={() => { if (currentPrice !== null) { navigator.clipboard.writeText(currentPrice.toFixed(2)); toast.success('Preço copiado'); } setContextMenu(null); }}
               className="w-full px-4 py-2 text-left text-white hover:bg-gray-700/50"
               disabled={currentPrice === null}
             >

@@ -3748,7 +3748,7 @@ export function ChartView() {
           <button 
             onClick={() => {
               if (currentPrice !== null) {
-                navigator.clipboard.writeText(currentPrice.toFixed(5));
+                navigator.clipboard.writeText(currentPrice.toFixed(2));
                 toast.success('Preço copiado para área de transferência');
                 setContextMenu(null);
               }
@@ -3756,7 +3756,7 @@ export function ChartView() {
             className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors"
             disabled={currentPrice === null}
           >
-            Copiar preço {currentPrice !== null ? currentPrice.toFixed(selectedSymbol.includes('JPY') ? 3 : 5) : '...'}
+            Copiar preço {currentPrice !== null ? currentPrice.toFixed(2) : '...'}
           </button>
           
           {/* Colar */}
@@ -3770,27 +3770,27 @@ export function ChartView() {
           {/* Adicionar alerta */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3" disabled={currentPrice === null}>
             <Clock className="w-4 h-4 text-gray-400" />
-            <span>Adicionar alerta a {selectedSymbol} em {currentPrice !== null ? currentPrice.toFixed(5) : '...'}...</span>
+            <span>Adicionar alerta a {selectedSymbol} em {currentPrice !== null ? currentPrice.toFixed(2) : '...'}...</span>
             <span className="ml-auto text-xs text-gray-500">⌘ A</span>
           </button>
           
           {/* Comprar limite */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3" disabled={currentPrice === null}>
             <TrendingUp className="w-4 h-4 text-green-500" />
-            <span>Comprar 1 {selectedSymbol} @ {currentPrice !== null ? currentPrice.toFixed(5) : '...'} limite</span>
+            <span>Comprar 1 {selectedSymbol} @ {currentPrice !== null ? currentPrice.toFixed(2) : '...'} limite</span>
             <span className="ml-auto text-xs text-gray-500">⌘ ⇧ B</span>
           </button>
           
           {/* Vender stop */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3" disabled={currentPrice === null}>
             <TrendingDown className="w-4 h-4 text-red-500" />
-            <span>Vender 1 {selectedSymbol} @ {currentPrice !== null ? currentPrice.toFixed(5) : '...'} stop</span>
+            <span>Vender 1 {selectedSymbol} @ {currentPrice !== null ? currentPrice.toFixed(2) : '...'} stop</span>
           </button>
           
           {/* Adicionar ordem */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3" disabled={currentPrice === null}>
             <Activity className="w-4 h-4 text-gray-400" />
-            <span>Adicionar ordem em {selectedSymbol} a {currentPrice !== null ? currentPrice.toFixed(5) : '...'}...</span>
+            <span>Adicionar ordem em {selectedSymbol} a {currentPrice !== null ? currentPrice.toFixed(2) : '...'}...</span>
             <span className="ml-auto text-xs text-gray-500">⇧ T</span>
           </button>
           

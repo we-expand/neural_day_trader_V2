@@ -54,6 +54,13 @@ const UNAVAILABLE: Record<BrokerId, Set<string>> = {
     // Títulos — nomenclatura de bond da Infinox não confirmada além de
     // 'USNote10Y' (achado da auditoria, sem mapeamento unificado ainda)
     'BUND10Y', 'UK10Y', 'FR10Y', 'US10Y', 'US30Y', 'US2Y',
+    // Forex exótico sem contrato na Infinox — confirmado HTTP 404 direto via
+    // /mt5-prices em 2026-07-10 (reaudição completa do catálogo, 254/329
+    // símbolos sem resposta — a grande maioria já coberta por outras regras
+    // deste arquivo: US Stocks, sufixo de bolsa europeu, cripto via Binance
+    // por design, títulos e agrícolas acima. Estes 3 pares eram a única
+    // lacuna real ainda não classificada).
+    'USDPLN', 'USDCZK', 'USDMYR',
   ]),
 };
 

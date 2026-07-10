@@ -683,32 +683,12 @@ export const MarketScoreBoard = () => {
 
   const formatPrice = (p: number) => {
       if (!Number.isFinite(p)) return "0.00";
-      
-      // 🏆 S&P500 e ÍNDICES: 2 casas decimais com separador de milhar
-      if (activeSymbol.includes('SPX') || activeSymbol.includes('US500') || 
-          activeSymbol.includes('NAS100') || activeSymbol.includes('DJI') || 
-          activeSymbol.includes('DAX') || activeSymbol.includes('FTSE')) {
-        return new Intl.NumberFormat('en-US', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        }).format(p);
-      }
-      
-      // BTC e ETH: formato com casas decimais e separador de milhar
-      if (activeSymbol.includes('BTC') || activeSymbol.includes('ETH')) {
-        return new Intl.NumberFormat('en-US', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        }).format(p);
-      }
-      
-      // JPY: 2 casas decimais
-      if (activeSymbol.includes('JPY')) {
-        return p.toFixed(2);
-      }
-      
-      // Forex: 5 casas decimais
-      return p.toFixed(5);
+
+      // Todos os ativos: sempre 2 casas decimais (padrão único, a pedido do Cleber)
+      return new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(p);
   };
 
   const formatMoney = (val: number) => {
@@ -862,7 +842,7 @@ export const MarketScoreBoard = () => {
                             {/* 🔥 EXIBIR: Variação absoluta ($) + Percentual (%) */}
                             <div className="flex items-center gap-2">
                                 <span className={`text-xs font-bold font-mono ${displayChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {displayChange >= 0 ? '+' : ''}{displayChange.toFixed(2)}
+                                    {displayChange > 0 ? '+' : ''}{(displayChange || 0).toFixed(2)}
                                 </span>
                                 <span className={`text-xs font-medium ${displayTrend >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
                                     ({displayTrend > 0 ? '+' : ''}{(displayTrend || 0).toFixed(2)}% hoje)
