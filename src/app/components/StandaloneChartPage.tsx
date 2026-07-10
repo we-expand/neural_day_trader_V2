@@ -850,7 +850,7 @@ export default function StandaloneChartPage() {
     };
 
     loadData();
-    const refreshId = setInterval(loadData, 30000);
+    const refreshId = setInterval(loadData, 5000); // preço "vivo" a pedido do Cleber (era 30s)
 
     return () => {
       window.removeEventListener('resize', onResize);

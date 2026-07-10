@@ -476,11 +476,11 @@ export const MarketScoreBoard = () => {
     // 🔥 Fetch inicial
     fetchData();
 
-    // 📊 Polling para atualização periódica (OTIMIZADO - intervalos longos)
-    const updateInterval = (timeframe === '1m' ? 300000 : // 5 minutos (otimizado)
-                            timeframe === '5m' ? 600000 : // 10 minutos
-                            timeframe === '15m' ? 900000 : // 15 minutos
-                            3600000); // 1 hora
+    // 📊 Polling para atualização periódica — preço "vivo" a pedido do Cleber
+    // (estava em 5min-1h, ativo parecia travado). 5s dá folga sobre a latência
+    // real de 3-8s da conta MetaAPI compartilhada (documentada em sessões
+    // anteriores) sem empilhar chamadas concorrentes.
+    const updateInterval = 5000;
 
     console.log(`[MarketScoreBoard] ⚡ Intervalo de atualização: ${updateInterval}ms`);
 

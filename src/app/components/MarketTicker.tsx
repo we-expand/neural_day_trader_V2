@@ -208,7 +208,9 @@ export function MarketTicker() {
     };
 
     fetchTickers();
-    const interval = setInterval(fetchTickers, 30000);
+    // 10s (ajustado a pedido do Cleber) — preço "vivo" (era 30s); já usa batch/
+    // Promise.allSettled (ver histórico do arquivo), não empilha chamada por símbolo
+    const interval = setInterval(fetchTickers, 10000);
     return () => clearInterval(interval);
   }, []);
 

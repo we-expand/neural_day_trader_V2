@@ -889,8 +889,11 @@ export function ChartView() {
     // Buscar na primeira vez
     updateLivePrices();
     
-    // Atualizar a cada 30 segundos
-    const interval = setInterval(updateLivePrices, 30000);
+    // 5s (ajustado a pedido do Cleber, ciente do risco): este painel busca até
+    // 50 ativos EM PARALELO (Promise.all abaixo, um símbolo por chamada) contra
+    // a conta MetaAPI compartilhada — se notar lentidão geral, subir de novo
+    // (já houve sobrecarga real nesse padrão antes, ver CLAUDE.md)
+    const interval = setInterval(updateLivePrices, 5000);
     
     return () => clearInterval(interval);
   }, []); // Executar apenas uma vez ao montar

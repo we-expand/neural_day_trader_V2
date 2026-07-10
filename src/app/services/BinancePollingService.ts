@@ -30,7 +30,7 @@ interface PollingSubscription {
 
 class BinancePollingService {
   private subscriptions: Map<string, PollingSubscription> = new Map();
-  private readonly POLL_INTERVAL = 120000; // 120 segundos (2 minutos) - OTIMIZADO para economizar quota
+  private readonly POLL_INTERVAL = 1500; // 1,5s — preço "vivo" a pedido do Cleber (estava em 120s, o que fazia cripto parecer travado)
 
   /**
    * Subscreve a um símbolo e recebe atualizações via polling
