@@ -61,9 +61,17 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
   
   try {
     let data: RealMarketData;
-    
+
+    // ✅ 2026-07-10 (incidente): as 3 fontes de preço de cripto via Binance
+    // direto estão mortas em produção (CORS/403 — ver BinancePollingService.ts).
+    // BTCUSD é confirmado disponível como CFD próprio na Infinox (auditoria em
+    // brokerRegistry.ts) — roteado pela MetaAPI/MT5 (pipeline saudável) em vez
+    // de Binance, até as fontes externas serem restauradas ou substituídas.
+    if (normalizedSymbol === 'BTCUSD' || normalizedSymbol === 'BTCUSDT') {
+      data = await fetchMT5Data('BTCUSD');
+    }
     // 1. CRYPTO: Binance direto com validação
-    if (isCryptoSymbol(normalizedSymbol)) {
+    else if (isCryptoSymbol(normalizedSymbol)) {
       data = await fetchBinanceDataWithRetry(normalizedSymbol);
     }
     // 2. FOREX/ÍNDICES/COMMODITIES/AÇÕES: MetaAPI (conta de plataforma), com fallback simulado

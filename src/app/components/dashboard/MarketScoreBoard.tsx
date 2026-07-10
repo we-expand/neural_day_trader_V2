@@ -142,6 +142,21 @@ const ScoreGauge = React.memo(({ score, marketStatus = 'OPEN' }: { score: number
 // toda vez que o componente monta.
 let lastDashboardSymbol: string | null = null;
 
+// ✅ 2026-07-10 (incidente): as 3 fontes de preço de cripto via Binance direto
+// (API própria/Vercel, corsproxy.io, allorigins.win) estão TODAS mortas em
+// produção — não é bug de intervalo, é infraestrutura externa bloqueada (ver
+// BinancePollingService.ts). BTCUSD é confirmado disponível como CFD próprio
+// na Infinox (auditoria `brokerRegistry.ts`) e o pipeline `/mt5-prices`
+// (MetaAPI) está comprovadamente saudável — por isso BTCUSD sai do balde
+// "cripto via Binance" e passa a usar o mesmo caminho MetaApi/MT5 que
+// forex/índices já usam. ETH/SOL continuam em Binance (CFD não confirmado na
+// corretora) até serem auditados também.
+function isBinanceCryptoSymbol(symbol: string): boolean {
+  const normalized = symbol.toUpperCase();
+  if (normalized === 'BTCUSD' || normalized === 'BTCUSDT') return false;
+  return normalized.endsWith('USDT') || ['BTC', 'ETH', 'SOL'].some(c => normalized.includes(c));
+}
+
 export const MarketScoreBoard = () => {
   const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset } = useTradingContext();
   const { marketState } = useMarketContext();
@@ -236,14 +251,32 @@ export const MarketScoreBoard = () => {
   useEffect(() => {
     activeSymbolRef.current = activeSymbol;
   }, [activeSymbol]);
-  
+
   // 🎬 ANIMAÇÃO FLUIDA: Valores animados que se interpolam até o alvo
   const [animatedPrice, setAnimatedPrice] = useState(0);
   const [animatedTrend, setAnimatedTrend] = useState(0);
   const [animatedChange, setAnimatedChange] = useState(0);
-  
+
+  // ✅ CORRIGIDO 2026-07-10 (2ª parte): a trava contra corrida acima impede que
+  // uma resposta ATRASADA sobrescreva o ativo atual, mas não existia nenhum
+  // RESET dos refs ao trocar de ativo — se a busca de preço do ativo novo
+  // demorar ou falhar (fontes de cripto mortas, MetaAPI lenta), a tela
+  // continuava mostrando o valor do ativo ANTERIOR (ex: BTC) porque nada o
+  // apagava. Sintoma relatado: "todos os ativos aparecem congelados com o
+  // mesmo preço do BTC". Fix: zera os refs/estados de preço imediatamente ao
+  // trocar de ativo, antes de qualquer fetch novo — o ativo novo começa em
+  // "carregando" (0) em vez de herdar visualmente o valor de outro símbolo.
+  useEffect(() => {
+    targetPriceRef.current = 0;
+    targetChangeRef.current = 0;
+    targetTrendRef.current = 0;
+    setAnimatedPrice(0);
+    setAnimatedChange(0);
+    setAnimatedTrend(0);
+  }, [activeSymbol]);
+
   // 🔥 CRYPTO: Usar valores DIRETOS das refs (SEM animação - ZERO latência!)
-  const isCryptoSymbol = activeSymbol.endsWith('USDT') || ['BTC','ETH','SOL'].some(c => activeSymbol.includes(c));
+  const isCryptoSymbol = isBinanceCryptoSymbol(activeSymbol);
   
   const displayPrice = isCryptoSymbol ? targetPriceRef.current : animatedPrice;
   const displayTrend = isCryptoSymbol ? targetTrendRef.current : animatedTrend;
@@ -344,7 +377,7 @@ export const MarketScoreBoard = () => {
         }
 
         let isRealData = false;
-        const isCrypto = activeSymbol.endsWith('USDT') || ['BTC','ETH','SOL'].some(c => activeSymbol.includes(c));
+        const isCrypto = isBinanceCryptoSymbol(activeSymbol);
 
         console.log(`[MarketScoreBoard] 🔍 Detecção de tipo:`, {
             symbol: activeSymbol,
@@ -518,7 +551,7 @@ export const MarketScoreBoard = () => {
 
   // 🚀 WEBSOCKET: Efeito SEPARADO para crypto streaming (tempo real)
   useEffect(() => {
-    const isCrypto = activeSymbol.endsWith('USDT') || ['BTC','ETH','SOL'].some(c => activeSymbol.includes(c));
+    const isCrypto = isBinanceCryptoSymbol(activeSymbol);
     
     // 🚀 CRYPTO: Usar WebSocket para tempo real (ZERO latência)
     if (!isCrypto) {
@@ -611,7 +644,7 @@ export const MarketScoreBoard = () => {
   // Animation Loop - 🔥 DESATIVADO PARA CRYPTO (valores exatos)
   useEffect(() => {
     // 🔥 SE FOR CRYPTO, NÃO ANIMAR (usar valores exatos da API)
-    const isCrypto = activeSymbol.endsWith('USDT') || ['BTC','ETH','SOL'].some(c => activeSymbol.includes(c));
+    const isCrypto = isBinanceCryptoSymbol(activeSymbol);
     
     if (isCrypto) {
       // Para crypto, não animar - usar valores diretos
