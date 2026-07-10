@@ -366,13 +366,39 @@ export const MarketScoreBoard = () => {
         setMarketStatus(marketInfo.isOpen ? 'OPEN' : 'CLOSED');
 
         if (!marketInfo.isOpen) {
-             console.log(`[MarketScoreBoard] ⚠️ MERCADO FECHADO - Retornando sem buscar dados`);
-             targetTrendRef.current = 0; 
+             console.log(`[MarketScoreBoard] ⚠️ MERCADO FECHADO - buscando último preço real (sem polling)`);
              setMarketSignal({
                  insight: `${getMarketStatusIcon(marketInfo)} ${statusMessage}`,
                  strength: 0,
                  bias: 'NEUTRAL'
              });
+
+             // ✅ CORRIGIDO 2026-07-10 (3ª parte): antes, com o mercado fechado
+             // (CFD near-24/5 — ex: fim de semana), a função retornava aqui SEM
+             // nunca buscar preço nenhum pro ativo. Antes do reset-ao-trocar-de-
+             // ativo (fix anterior desta sessão) isso não aparecia, porque o
+             // ref ainda guardava o valor de qualquer ativo visto antes (podia
+             // ser o de outro ativo, errado, mas não era zero). Depois do reset,
+             // isso virou "todo ativo aparece zerado" sempre que o mercado está
+             // fechado. Fix real: buscar o último preço real UMA VEZ mesmo com
+             // o mercado fechado (não entra no loop de polling — sem sentido
+             // com o mercado parado), pra mostrar o último fechamento real em
+             // vez de 0.
+             if (!isBinanceCryptoSymbol(activeSymbol)) {
+                 try {
+                     const metaData = await getMarketData(activeSymbol);
+                     if (isStale || activeSymbolRef.current !== activeSymbol) return;
+                     targetPriceRef.current = metaData.price;
+                     targetChangeRef.current = metaData.change;
+                     targetTrendRef.current = metaData.changePercent;
+                     setDataSource(metaData.source);
+                 } catch (e: any) {
+                     console.error('[MetaApi] ❌ Erro buscando último preço (mercado fechado):', e.message);
+                     targetTrendRef.current = 0;
+                 }
+             } else {
+                 targetTrendRef.current = 0;
+             }
              return;
         }
 
