@@ -23,7 +23,7 @@ export function formatPrice(price: number, symbol: string): string {
   return price.toFixed(precision);
 }
 
-function getPrecisionForSymbol(symbol: string, price: number): number {
+export function getPrecisionForSymbol(symbol: string, price: number): number {
   const normalized = symbol.toUpperCase().replace('/', '').replace(' ', '');
   const asset = getAssetBySymbol(normalized) ?? getAssetBySymbol(normalized.replace(/T$/, ''));
   if (asset) return asset.precision;

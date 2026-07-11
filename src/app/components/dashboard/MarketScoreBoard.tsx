@@ -948,7 +948,7 @@ export const MarketScoreBoard = () => {
                             {/* 🔥 EXIBIR: Variação absoluta ($) + Percentual (%) */}
                             <div className="flex items-center gap-2">
                                 <span className={`text-xs font-bold font-mono ${displayChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {displayChange > 0 ? '+' : ''}{(displayChange || 0).toFixed(2)}
+                                    {displayChange > 0 ? '+' : ''}{formatPrice(displayChange || 0)}
                                 </span>
                                 <span className={`text-xs font-medium ${displayTrend >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
                                     ({displayTrend > 0 ? '+' : ''}{(displayTrend || 0).toFixed(2)}% hoje)

@@ -258,7 +258,7 @@ app.use(
   "/*",
   cors({
     origin: "*",
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "apikey", "x-client-info"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -4567,34 +4567,51 @@ app.get('/real/yahoo/:symbol', async (c) => {
       'US30': '^DJI',    // Dow Jones
       'NAS100': '^IXIC', // NASDAQ
       'SPX': '^GSPC',
-      'SPX500': '^GSPC'
+      'SPX500': '^GSPC',
+      // ✅ ADICIONADO 2026-07-08: commodities agrícolas que a MetaAPI/broker atual
+      // não oferece (confirmado HTTP 404 em /mt5-prices) — futuros contínuos do
+      // Yahoo como fonte real alternativa, em vez do gerador sintético local.
+      'COCUSD': 'CC=F',  // Cocoa
+      'COFUSD': 'KC=F',  // Coffee
+      'WHEUSD': 'ZW=F',  // Wheat
+      // Ações americanas já usam o próprio símbolo como ticker do Yahoo (AAPL,
+      // MSFT, GOOGL...) — não precisam de entrada no map, caem no `|| symbol`.
     };
-    
+
     const yahooSymbol = yahooSymbolMap[symbol] || symbol;
-    
+
     const response = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=2d`,
       {
         method: 'GET',
-        headers: { 
+        headers: {
           'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0'
         }
       }
     );
-    
+
     if (!response.ok) {
       throw new Error(`Yahoo API error: ${response.status}`);
     }
-    
+
     const data = await response.json();
     const quote = data.chart.result[0];
     const meta = quote.meta;
     const current = meta.regularMarketPrice;
-    const previousClose = meta.previousClose;
-    
-    const change = current - previousClose;
-    const changePercent = (change / previousClose) * 100;
+    // ✅ CORRIGIDO 2026-07-08: `meta.previousClose` vem ausente/undefined pra
+    // vários tickers (confirmado testando AAPL e CC=F direto em produção — os
+    // dois retornavam price real mas change/changePercent como `null`, porque
+    // `current - undefined` = NaN, serializado como null no JSON). O Yahoo
+    // também expõe `chartPreviousClose` como equivalente pra esses casos.
+    const previousClose = meta.previousClose ?? meta.chartPreviousClose;
+
+    const change = (typeof previousClose === 'number' && previousClose > 0)
+      ? current - previousClose
+      : 0;
+    const changePercent = (typeof previousClose === 'number' && previousClose > 0)
+      ? (change / previousClose) * 100
+      : 0;
     
     const result = {
       symbol,
