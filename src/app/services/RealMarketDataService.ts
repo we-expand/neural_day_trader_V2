@@ -611,50 +611,76 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
   }));
 
   if (availableSymbols.length > 0) {
-    const brokerNameToUnified = new Map(availableSymbols.map(s => [getBrokerSymbol(s, 'infinox'), s]));
+    // ✅ 2026-07-11: mandar TODOS os símbolos disponíveis (podem passar de 200,
+    // ex. lista completa do InfinoxAssetsBrowser) numa única requisição rate-
+    // limitava a conta MetaAPI compartilhada — confirmado via teste direto:
+    // 207 símbolos numa chamada só, só 48 respondem com preço real, 139 vêm
+    // HTTP 429. O resto caía no Yahoo por símbolo (Promise.all de ~190
+    // chamadas em paralelo) e, sem mapeamento pra maioria dos pares/ações,
+    // acabava tudo no gerador sintético local — o "preço fake repetido"
+    // (~$99.90) em dezenas de ativos sem relação nenhuma entre si. Fix:
+    // mesmo padrão de lotes pequenos que `scripts/audit-broker-symbols.mjs`
+    // já usa (chunks de 40, com pausa entre eles) pra não sobrecarregar a
+    // conta compartilhada.
+    const CHUNK_SIZE = 40;
+    const DELAY_BETWEEN_CHUNKS_MS = 500;
 
-    try {
-      const res = await fetch(MT5_PRICES_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ symbols: Array.from(brokerNameToUnified.keys()) }),
-      });
+    const brokerNames = availableSymbols.map(s => getBrokerSymbol(s, 'infinox'));
+    const priceByBrokerName = new Map<string, any>();
+    let anyChunkSucceeded = false;
 
-      const body = res.ok ? await res.json() : null;
-      const prices = Array.isArray(body?.prices) ? body.prices : [];
-      const priceByBrokerName = new Map(prices.map((p: any) => [p.symbol, p]));
+    for (let i = 0; i < brokerNames.length; i += CHUNK_SIZE) {
+      const chunk = brokerNames.slice(i, i + CHUNK_SIZE);
 
-      await Promise.all(availableSymbols.map(async (unified) => {
-        const brokerName = getBrokerSymbol(unified, 'infinox');
-        const tick: any = priceByBrokerName.get(brokerName);
+      try {
+        const res = await fetch(MT5_PRICES_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ symbols: chunk }),
+        });
 
-        if (!tick || !isValidPrice(tick.price) || body?.source === 'SIMULATED') {
-          results[unified] = await fetchYahooData(unified);
-          return;
-        }
+        const body = res.ok ? await res.json() : null;
+        const prices = Array.isArray(body?.prices) ? body.prices : [];
+        prices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
+        if (prices.length > 0) anyChunkSucceeded = true;
+      } catch (error: any) {
+        console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices, símbolos desse lote vão pro Yahoo.', error?.message);
+      }
 
-        results[unified] = {
-          symbol: unified,
-          price: tick.price,
-          bid: tick.bid ?? tick.price,
-          ask: tick.ask ?? tick.price,
-          change: tick.change || 0,
-          changePercent: tick.changePercent || 0,
-          previousClose: tick.price - (tick.change || 0),
-          timestamp: tick.timestamp ? new Date(tick.timestamp).getTime() : Date.now(),
-          source: 'metaapi',
-          isRealData: true,
-        };
-      }));
-    } catch (error: any) {
-      console.warn('[RealMarketData] ⚠️ Falha na chamada em lote a /mt5-prices, usando Yahoo por símbolo.', error?.message);
-      await Promise.all(availableSymbols.map(async (unified) => {
-        results[unified] = await fetchYahooData(unified);
-      }));
+      if (i + CHUNK_SIZE < brokerNames.length) {
+        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS_MS));
+      }
     }
+
+    if (!anyChunkSucceeded) {
+      console.warn('[RealMarketData] ⚠️ Nenhum lote de /mt5-prices respondeu, usando Yahoo por símbolo.');
+    }
+
+    await Promise.all(availableSymbols.map(async (unified) => {
+      const brokerName = getBrokerSymbol(unified, 'infinox');
+      const tick = priceByBrokerName.get(brokerName);
+
+      if (!tick || !isValidPrice(tick.price)) {
+        results[unified] = await fetchYahooData(unified);
+        return;
+      }
+
+      results[unified] = {
+        symbol: unified,
+        price: tick.price,
+        bid: tick.bid ?? tick.price,
+        ask: tick.ask ?? tick.price,
+        change: tick.change || 0,
+        changePercent: tick.changePercent || 0,
+        previousClose: tick.price - (tick.change || 0),
+        timestamp: tick.timestamp ? new Date(tick.timestamp).getTime() : Date.now(),
+        source: 'metaapi',
+        isRealData: true,
+      };
+    }));
   }
 
   return results;
