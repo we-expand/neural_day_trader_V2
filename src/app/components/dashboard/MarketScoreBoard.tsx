@@ -39,6 +39,8 @@ import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getMarketData } from '@/app/services/MetaApiService'; // 🔥 NOVO: MetaApi Integration
+import { getLastKnownRealPrice } from '@/app/services/RealMarketDataService';
+import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
 import { BtcPriceDebug } from '../debug/BtcPriceDebug'; // 🐛 DEBUG: BTC Price Debug
 import { getBinancePureValues } from '@/app/utils/binanceValidator'; // 🔥 VALORES PUROS: Sem transformações
@@ -266,13 +268,23 @@ export const MarketScoreBoard = () => {
   // mesmo preço do BTC". Fix: zera os refs/estados de preço imediatamente ao
   // trocar de ativo, antes de qualquer fetch novo — o ativo novo começa em
   // "carregando" (0) em vez de herdar visualmente o valor de outro símbolo.
+  // ✅ 2026-07-11: Cleber reportou troca de ativo "demorando ~4s" — a causa
+  // era zerar sempre aqui e esperar o round-trip de rede (MetaAPI/corretora
+  // pode levar vários segundos sob carga da conta compartilhada) antes de
+  // mostrar qualquer número. Agora, se esse símbolo já teve um preço REAL
+  // nesta sessão (`getLastKnownRealPrice`, ver RealMarketDataService.ts),
+  // a tela mostra esse valor imediatamente — troca percebida como instantânea
+  // pra ativos já vistos — e o fetch novo abaixo ainda roda e atualiza assim
+  // que responder. Só zera (mostra "carregando") na primeira vez que esse
+  // símbolo é selecionado nesta sessão.
   useEffect(() => {
-    targetPriceRef.current = 0;
-    targetChangeRef.current = 0;
-    targetTrendRef.current = 0;
-    setAnimatedPrice(0);
-    setAnimatedChange(0);
-    setAnimatedTrend(0);
+    const known = getLastKnownRealPrice(activeSymbol);
+    targetPriceRef.current = known?.price ?? 0;
+    targetChangeRef.current = known?.change ?? 0;
+    targetTrendRef.current = known?.changePercent ?? 0;
+    setAnimatedPrice(known?.price ?? 0);
+    setAnimatedChange(known?.change ?? 0);
+    setAnimatedTrend(known?.changePercent ?? 0);
   }, [activeSymbol]);
 
   // 🔥 CRYPTO: Usar valores DIRETOS das refs (SEM animação - ZERO latência!)
@@ -758,10 +770,12 @@ export const MarketScoreBoard = () => {
   const formatPrice = (p: number) => {
       if (!Number.isFinite(p)) return "0.00";
 
-      // Todos os ativos: sempre 2 casas decimais (padrão único, a pedido do Cleber)
+      // ✅ 2026-07-11: precisão por ativo de novo (Cleber pediu de volta —
+      // "AUDCAD 0.9838 | XAUUSD 4119.72"), com separador de milhar.
+      const decimals = formatPriceByAsset(p, activeSymbol).split('.')[1]?.length ?? 2;
       return new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
       }).format(p);
   };
 

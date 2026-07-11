@@ -48,6 +48,52 @@ const priceCache = new Map<string, { data: RealMarketData; timestamp: number }>(
 const CACHE_TTL = 2000; // 2 segundos
 
 /**
+ * 🕐 ÚLTIMO PREÇO REAL CONHECIDO — não expira (dura a sessão do navegador).
+ *
+ * ✅ 2026-07-11: Cleber reportou ativos "oscilando de correto pra errado"
+ * (ex: EURJPY) — causa raiz: qualquer falha transitória (rate limit da
+ * conta MetaAPI compartilhada, timeout) fazia o preço cair DIRETO pro
+ * gerador sintético local, então a UI ficava alternando entre o preço real
+ * (quando a chamada tinha sucesso) e um valor fake plausível mas errado
+ * (quando falhava) — a cada ciclo de polling. Esse cache guarda o último
+ * preço REAL (`isRealData: true`) de cada símbolo; em caso de falha, usamos
+ * esse valor em vez do sintético — o preço fica "parado" no último real
+ * conhecido (correto, só desatualizado) em vez de errado. Também deixa a
+ * troca de ativo mais rápida percebida: ao selecionar um símbolo já visto
+ * nesta sessão, a tela pode mostrar esse valor imediatamente em vez de
+ * zerar e esperar o round-trip da rede.
+ */
+const lastRealPriceCache = new Map<string, RealMarketData>();
+
+function rememberIfReal(data: RealMarketData): RealMarketData {
+  if (data.isRealData) {
+    lastRealPriceCache.set(data.symbol, data);
+  }
+  return data;
+}
+
+/**
+ * Fallback em caso de falha: usa o último preço REAL conhecido desse símbolo
+ * (ainda que desatualizado) em vez de cair direto pro gerador sintético —
+ * evita a oscilação "correto -> fake -> correto -> fake" a cada polling.
+ * Só usa o gerador sintético se este símbolo nunca teve um preço real nesta
+ * sessão (ex: primeira carga, ativo nunca disponível).
+ */
+function getFallbackOrLastKnown(symbol: string): RealMarketData {
+  const lastKnown = lastRealPriceCache.get(symbol);
+  if (lastKnown) return lastKnown;
+  return getFallbackData(symbol);
+}
+
+/**
+ * Pra troca instantânea de ativo: último preço real conhecido desse símbolo
+ * nesta sessão, se houver (usado pra popular a tela sem esperar o fetch).
+ */
+export function getLastKnownRealPrice(symbol: string): RealMarketData | undefined {
+  return lastRealPriceCache.get(symbol.toUpperCase().replace('/', '').replace(' ', ''));
+}
+
+/**
  * 🎯 FUNÇÃO PRINCIPAL - Busca dados de mercado com roteamento inteligente
  */
 export async function getRealMarketData(symbol: string): Promise<RealMarketData> {
@@ -81,23 +127,24 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
     }
     
     // Armazenar no cache
+    rememberIfReal(data);
     priceCache.set(normalizedSymbol, { data, timestamp: Date.now() });
-    
+
     // Reset consecutive failures
     consecutiveFailures = 0;
     lastHealthCheck = Date.now();
-    
+
     return data;
-    
+
   } catch (error: any) {
     consecutiveFailures++;
-    
+
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       console.error(`[RealMarketData] 🚨 CRITICAL: ${consecutiveFailures} consecutive failures. System degraded.`);
     }
-    
-    // Fallback: retornar dados simulados realistas
-    const fallbackData = getFallbackData(normalizedSymbol);
+
+    // Fallback: último preço real conhecido, se houver; senão, sintético
+    const fallbackData = getFallbackOrLastKnown(normalizedSymbol);
     priceCache.set(normalizedSymbol, { data: fallbackData, timestamp: Date.now() });
     return fallbackData;
   }
@@ -212,7 +259,7 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
       const directData = await fetchDirectBinance(binanceSymbol);
 
       if (directData) {
-        return {
+        return rememberIfReal({
           symbol: binanceSymbol,
           price: directData.price,
           bid: directData.price * 0.9999, // Simula bid/ask
@@ -227,13 +274,13 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
           timestamp: directData.timestamp,
           source: 'binance',
           isRealData: true
-        };
+        });
       }
     }
 
     // 🔄 Se Binance direta falhou, usar fallback silencioso (sem lançar erro)
     console.warn(`[Binance] ⚠️ Binance indisponível para ${symbol}, usando fallback.`);
-    return getFallbackData(binanceSymbol);
+    return getFallbackOrLastKnown(binanceSymbol);
 
   } catch (error: any) {
     console.warn(`[Binance] ⚠️ ${symbol}: usando dados simulados.`);
@@ -291,7 +338,7 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
       return await fetchYahooData(symbol);
     }
 
-    return {
+    return rememberIfReal({
       symbol,
       price: tick.price,
       bid: tick.bid ?? tick.price,
@@ -302,7 +349,7 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
       timestamp: tick.timestamp ? new Date(tick.timestamp).getTime() : Date.now(),
       source: 'metaapi',
       isRealData: true,
-    };
+    });
   } catch (error: any) {
     console.warn(`[MT5] ⚠️ Falha ao buscar ${symbol} via MetaAPI, tentando Yahoo Finance.`, error?.message);
     return await fetchYahooData(symbol);
@@ -323,16 +370,16 @@ async function fetchYahooData(symbol: string): Promise<RealMarketData> {
 
     if (!res.ok) {
       console.warn(`[Yahoo] ⚠️ HTTP ${res.status} para ${symbol}, usando fallback local.`);
-      return getFallbackData(symbol);
+      return getFallbackOrLastKnown(symbol);
     }
 
     const data = await res.json();
 
     if (!isValidPrice(data.price)) {
-      return getFallbackData(symbol);
+      return getFallbackOrLastKnown(symbol);
     }
 
-    return {
+    return rememberIfReal({
       symbol,
       price: data.price,
       bid: data.bid ?? data.price,
@@ -346,10 +393,10 @@ async function fetchYahooData(symbol: string): Promise<RealMarketData> {
       timestamp: data.timestamp || Date.now(),
       source: 'yahoo',
       isRealData: true,
-    };
+    });
   } catch (error: any) {
     console.warn(`[Yahoo] ⚠️ Falha ao buscar ${symbol}, usando fallback local.`, error?.message);
-    return getFallbackData(symbol);
+    return getFallbackOrLastKnown(symbol);
   }
 }
 
@@ -552,7 +599,7 @@ export async function getMultipleMarketData(
       results[symbol] = await getRealMarketData(symbol);
     } catch (error) {
       console.error(`[RealMarketData] Error fetching ${symbol}:`, error);
-      results[symbol] = getFallbackData(symbol);
+      results[symbol] = getFallbackOrLastKnown(symbol);
     }
   });
 
@@ -594,7 +641,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
     try {
       results[symbol] = await fetchBinanceDataWithRetry(symbol);
     } catch {
-      results[symbol] = getFallbackData(symbol);
+      results[symbol] = getFallbackOrLastKnown(symbol);
     }
   }));
 
@@ -668,7 +715,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
         return;
       }
 
-      results[unified] = {
+      results[unified] = rememberIfReal({
         symbol: unified,
         price: tick.price,
         bid: tick.bid ?? tick.price,
@@ -679,7 +726,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
         timestamp: tick.timestamp ? new Date(tick.timestamp).getTime() : Date.now(),
         source: 'metaapi',
         isRealData: true,
-      };
+      });
     }));
   }
 
