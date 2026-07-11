@@ -100,6 +100,30 @@ function isEuropeanStock(unified: string): boolean {
 }
 
 /**
+ * Cripto confirmada como CFD próprio na Infinox (auditado via
+ * `scripts/audit-broker-symbols.mjs` em 2026-07-11, direto contra
+ * `/mt5-prices` em produção). Por design, cripto normalmente vai pela Binance
+ * (spot, sem quota/rate-limit da conta MetaAPI compartilhada) — mas as 3
+ * fontes de Binance direta estão mortas em produção desde o incidente de
+ * 2026-07-10 (CORS/403 bloqueado no domínio de produção). Pra essas cripto
+ * específicas, existe uma alternativa real: o próprio CFD da corretora,
+ * mesmo pipeline saudável que forex/índices usam. As demais (ETHUSD, DOGEUSD,
+ * POLUSD, AVAXUSD, LTCUSD — confirmado HTTP 404 na auditoria) continuam só
+ * na Binance, sem alternativa até a corretora oferecer o contrato.
+ */
+const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD']),
+};
+
+/**
+ * Essa cripto tem CFD confirmado nessa corretora? Usado pra decidir se uma
+ * cripto deve rotear pela MetaAPI (`/mt5-prices`) em vez da Binance direta.
+ */
+export function isCryptoCfdAvailable(unified: string, broker: BrokerId): boolean {
+  return CRYPTO_CFD_AVAILABLE[broker].has(unified);
+}
+
+/**
  * Nome real do ativo na corretora. Sempre chamar isso antes de bater na API
  * da corretora — nunca usar o símbolo unificado direto pra ações europeias.
  */

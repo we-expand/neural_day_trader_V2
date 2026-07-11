@@ -1,9 +1,16 @@
 /**
- * 🌐 REAL PRICE PROVIDER - DESABILITADO
- * 
- * REMOVIDO: Agora usamos os candles do gráfico como fonte única da verdade
- * Isso garante que preço mostrado = preço no gráfico (100% alinhado)
+ * 🌐 REAL PRICE PROVIDER
+ *
+ * ✅ REATIVADO 2026-07-11: esta função ficava desabilitada (sempre retornava
+ * `{}`), mas continuava sendo chamada por `InfinoxAssetsBrowser.tsx` pra
+ * popular o preço de TODOS os ~220 ativos do catálogo — resultado: a lista de
+ * ativos sempre aparecia zerada, pra qualquer ativo, independente de mercado
+ * aberto ou fechado. Delega pra `getBatchedMT5Data()` (RealMarketDataService.ts),
+ * já usado e comprovadamente saudável em produção (loop de P&L do AI Trading
+ * Engine) — uma única chamada em lote pro backend em vez de N requisições.
  */
+
+import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 
 export interface RealPrice {
   symbol: string;
@@ -20,15 +27,22 @@ export interface BatchPriceResult {
   source: string;
 }
 
-/**
- * ✅ DESABILITADO - Não usar mais preços externos
- * Usar candles do gráfico ao invés disso
- */
 export async function fetchRealPricesBatch(symbols: string[]): Promise<Record<string, BatchPriceResult>> {
-  console.log('[realPriceProvider] ⚠️ DESABILITADO - Use os candles do gráfico');
-  
+  if (symbols.length === 0) return {};
+
+  const data = await getBatchedMT5Data(symbols);
   const result: Record<string, BatchPriceResult> = {};
-  
-  // Retornar objeto vazio - forçar uso dos candles
+
+  Object.entries(data).forEach(([symbol, marketData]) => {
+    result[symbol] = {
+      symbol,
+      price: marketData.price,
+      change24h: marketData.change ?? 0,
+      changePercent: marketData.changePercent ?? 0,
+      timestamp: marketData.timestamp,
+      source: marketData.isRealData ? marketData.source : 'FALLBACK',
+    };
+  });
+
   return result;
 }

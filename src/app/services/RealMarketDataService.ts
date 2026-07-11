@@ -13,7 +13,7 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { PriceValidator } from './PriceValidator';
 import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
-import { getBrokerSymbol, isAvailableOnBroker } from '@/app/config/brokerRegistry';
+import { getBrokerSymbol, isAvailableOnBroker, isCryptoCfdAvailable } from '@/app/config/brokerRegistry';
 
 const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
@@ -62,13 +62,14 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
   try {
     let data: RealMarketData;
 
-    // ✅ 2026-07-10 (incidente): as 3 fontes de preço de cripto via Binance
-    // direto estão mortas em produção (CORS/403 — ver BinancePollingService.ts).
-    // BTCUSD é confirmado disponível como CFD próprio na Infinox (auditoria em
-    // brokerRegistry.ts) — roteado pela MetaAPI/MT5 (pipeline saudável) em vez
-    // de Binance, até as fontes externas serem restauradas ou substituídas.
-    if (normalizedSymbol === 'BTCUSD' || normalizedSymbol === 'BTCUSDT') {
-      data = await fetchMT5Data('BTCUSD');
+    // ✅ 2026-07-10 (incidente), estendido 2026-07-11: as 3 fontes de preço de
+    // cripto via Binance direto estão mortas em produção (CORS/403 — ver
+    // BinancePollingService.ts). Cripto com CFD confirmado na Infinox
+    // (auditoria em brokerRegistry.ts: BTC, SOL, BNB, XRP, ADA, DOT) roteia
+    // pela MetaAPI/MT5 (pipeline saudável) em vez de Binance, até as fontes
+    // externas serem restauradas ou substituídas.
+    if (isCryptoSymbol(normalizedSymbol) && shouldRouteCryptoViaBroker(normalizedSymbol)) {
+      data = await fetchMT5Data(toUnifiedCryptoSymbol(normalizedSymbol));
     }
     // 1. CRYPTO: Binance direto com validação
     else if (isCryptoSymbol(normalizedSymbol)) {
@@ -114,6 +115,26 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
  * substring como último recurso, pra símbolos que ainda não estão cadastrados
  * no catálogo (evita quebrar símbolos exóticos não mapeados ainda).
  */
+/**
+ * Normaliza uma cripto pro formato unificado USD (BTCUSDT/BTC/BTCUSD -> BTCUSD)
+ * pra checar contra `isCryptoCfdAvailable`, que guarda os símbolos auditados
+ * no formato do catálogo canônico.
+ */
+function toUnifiedCryptoSymbol(symbol: string): string {
+  if (symbol.endsWith('USDT')) return symbol.slice(0, -1); // USDT -> USD
+  if (symbol.endsWith('USD')) return symbol;
+  return `${symbol}USD`;
+}
+
+/**
+ * Essa cripto deve rotear pela MetaAPI/corretora (CFD auditado, pipeline
+ * saudável) em vez da Binance direta (as 3 fontes estão mortas em produção
+ * desde 2026-07-10, ver `brokerRegistry.ts`)?
+ */
+function shouldRouteCryptoViaBroker(symbol: string): boolean {
+  return isCryptoCfdAvailable(toUnifiedCryptoSymbol(symbol), 'infinox');
+}
+
 function isCryptoSymbol(symbol: string): boolean {
   const normalized = symbol.toUpperCase();
 
@@ -559,10 +580,16 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
   if (symbols.length === 0) return results;
 
   const normalizedSymbols = symbols.map(s => s.toUpperCase().replace('/', '').replace(' ', ''));
-  const cryptoSymbols = normalizedSymbols.filter(isCryptoSymbol);
-  const brokerSymbols = normalizedSymbols.filter(s => !isCryptoSymbol(s));
+  // Cripto com CFD confirmado na Infinox (BTC/SOL/BNB/XRP/ADA/DOT) entra no
+  // lote da corretora, igual forex/índices — as 3 fontes de Binance direta
+  // estão mortas em produção (ver brokerRegistry.ts). As demais cripto
+  // continuam na Binance (sem alternativa confirmada ainda).
+  const cryptoSymbols = normalizedSymbols.filter(s => isCryptoSymbol(s) && !shouldRouteCryptoViaBroker(s));
+  const brokerSymbols = normalizedSymbols
+    .filter(s => !isCryptoSymbol(s) || shouldRouteCryptoViaBroker(s))
+    .map(s => isCryptoSymbol(s) ? toUnifiedCryptoSymbol(s) : s);
 
-  // Cripto: Binance direto, em paralelo (barato, não usa a conta MetaAPI)
+  // Cripto sem CFD na corretora: Binance direto, em paralelo (barato, não usa a conta MetaAPI)
   await Promise.all(cryptoSymbols.map(async (symbol) => {
     try {
       results[symbol] = await fetchBinanceDataWithRetry(symbol);
@@ -573,9 +600,9 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
 
   if (brokerSymbols.length === 0) return results;
 
-  // Forex/índices/commodities/ações: UMA chamada só, com todos os símbolos
-  // disponíveis na corretora; os indisponíveis (confirmados via brokerRegistry)
-  // vão direto pro Yahoo em paralelo, sem entrar nessa chamada em lote.
+  // Forex/índices/commodities/ações/cripto-com-CFD: UMA chamada só, com todos
+  // os símbolos disponíveis na corretora; os indisponíveis (confirmados via
+  // brokerRegistry) vão direto pro Yahoo em paralelo, sem entrar no lote.
   const availableSymbols = brokerSymbols.filter(s => isAvailableOnBroker(s, 'infinox'));
   const unavailableSymbols = brokerSymbols.filter(s => !isAvailableOnBroker(s, 'infinox'));
 

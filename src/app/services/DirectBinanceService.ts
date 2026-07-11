@@ -63,11 +63,26 @@ export async function fetchDirectBinance(symbol: string): Promise<BinanceTickerD
   const data = await fetchWithFallback(`/ticker/24hr?symbol=${normalizedSymbol}`);
   if (!data) return null;
 
+  const price = parseFloat(data.lastPrice);
+  const change = parseFloat(data.priceChange);
+  const changePercent = parseFloat(data.priceChangePercent);
+
+  // ✅ 2026-07-11: os proxies CORS (allorigins/corsproxy) às vezes respondem
+  // HTTP 200 com um corpo válido em JSON mas sem os campos esperados (ex:
+  // página de erro do proxy encapsulada) — como corre em paralelo com a
+  // chamada direta via `Promise.any`, um proxy assim podia "vencer" a corrida
+  // e virar preço `NaN` na tela (visto com ETHUSD/DOGEUSD/etc), sem cair no
+  // fallback sintético porque tecnicamente não lançava erro nenhum. Validar
+  // os números antes de aceitar a resposta.
+  if (!isFinite(price) || !isFinite(change) || !isFinite(changePercent)) {
+    return null;
+  }
+
   return {
     symbol: normalizedSymbol,
-    price: parseFloat(data.lastPrice),
-    change: parseFloat(data.priceChange),
-    changePercent: parseFloat(data.priceChangePercent),
+    price,
+    change,
+    changePercent,
     volume: parseFloat(data.volume),
     high: parseFloat(data.highPrice),
     low: parseFloat(data.lowPrice),
