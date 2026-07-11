@@ -105,14 +105,26 @@ function isEuropeanStock(unified: string): boolean {
  * `/mt5-prices` em produção). Por design, cripto normalmente vai pela Binance
  * (spot, sem quota/rate-limit da conta MetaAPI compartilhada) — mas as 3
  * fontes de Binance direta estão mortas em produção desde o incidente de
- * 2026-07-10 (CORS/403 bloqueado no domínio de produção). Pra essas cripto
- * específicas, existe uma alternativa real: o próprio CFD da corretora,
- * mesmo pipeline saudável que forex/índices usam. As demais (ETHUSD, DOGEUSD,
- * POLUSD, AVAXUSD, LTCUSD — confirmado HTTP 404 na auditoria) continuam só
- * na Binance, sem alternativa até a corretora oferecer o contrato.
+ * 2026-07-10 (CORS/403 bloqueado no domínio de produção).
+ *
+ * ✅ 2026-07-11 (2ª parte): Cleber pediu pra verificar TODA cripto contra a
+ * Binance e reportou variação diária "totalmente errada" (ex: BNBUSD). Causa
+ * raiz confirmada: o candle diário (D1) da MetaAPI fecha às 21:00 UTC (fuso
+ * do broker), não numa janela rolante de 24h como a Binance — pra forex isso
+ * já dava uma diferença pequena (~0,2%) aceita antes, mas cripto é volátil
+ * o bastante pra essa diferença de METODOLOGIA inverter até o sinal da
+ * variação (confirmado: SOL/BNB/XRP/ADA com sinal ou magnitude bem diferente
+ * da Binance). Não é bug de preço errado, é referência de mercado diferente
+ * — mas Cleber decidiu que bater com a Binance importa mais que a
+ * disponibilidade extra do CFD pra essas 5. Revertidas pra Binance direta
+ * (o fix de validação `isFinite` em `DirectBinanceService.ts`, mesma sessão,
+ * reduz o risco do incidente de dado inválido se algum proxy CORS responder
+ * mal). BTCUSD é a EXCEÇÃO deliberada: continua na MetaAPI (decisão explícita
+ * do Cleber) — é o ativo padrão do Dashboard, prioriza disponibilidade sobre
+ * bater exatamente com a Binance.
  */
 const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD']),
+  infinox: new Set(['BTCUSD']),
 };
 
 /**
