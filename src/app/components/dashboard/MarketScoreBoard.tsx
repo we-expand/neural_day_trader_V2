@@ -363,44 +363,24 @@ export const MarketScoreBoard = () => {
         });
         
         if (isStale) return; // resposta de uma chamada antiga — ignorar
-        setMarketStatus(marketInfo.isOpen ? 'OPEN' : 'CLOSED');
 
-        if (!marketInfo.isOpen) {
-             console.log(`[MarketScoreBoard] ⚠️ MERCADO FECHADO - buscando último preço real (sem polling)`);
-             setMarketSignal({
-                 insight: `${getMarketStatusIcon(marketInfo)} ${statusMessage}`,
-                 strength: 0,
-                 bias: 'NEUTRAL'
-             });
-
-             // ✅ CORRIGIDO 2026-07-10 (3ª parte): antes, com o mercado fechado
-             // (CFD near-24/5 — ex: fim de semana), a função retornava aqui SEM
-             // nunca buscar preço nenhum pro ativo. Antes do reset-ao-trocar-de-
-             // ativo (fix anterior desta sessão) isso não aparecia, porque o
-             // ref ainda guardava o valor de qualquer ativo visto antes (podia
-             // ser o de outro ativo, errado, mas não era zero). Depois do reset,
-             // isso virou "todo ativo aparece zerado" sempre que o mercado está
-             // fechado. Fix real: buscar o último preço real UMA VEZ mesmo com
-             // o mercado fechado (não entra no loop de polling — sem sentido
-             // com o mercado parado), pra mostrar o último fechamento real em
-             // vez de 0.
-             if (!isBinanceCryptoSymbol(activeSymbol)) {
-                 try {
-                     const metaData = await getMarketData(activeSymbol);
-                     if (isStale || activeSymbolRef.current !== activeSymbol) return;
-                     targetPriceRef.current = metaData.price;
-                     targetChangeRef.current = metaData.change;
-                     targetTrendRef.current = metaData.changePercent;
-                     setDataSource(metaData.source);
-                 } catch (e: any) {
-                     console.error('[MetaApi] ❌ Erro buscando último preço (mercado fechado):', e.message);
-                     targetTrendRef.current = 0;
-                 }
-             } else {
-                 targetTrendRef.current = 0;
-             }
-             return;
-        }
+        // ✅ CORRIGIDO 2026-07-10 (4ª parte): o relógio estático (`isMarketOpen`)
+        // trata TODOS os índices/forex/commodities com o mesmo horário único —
+        // na prática, ativos diferentes abrem/fecham em momentos diferentes de
+        // verdade na corretora (confirmado pelo Cleber: "existem ativos
+        // fechados e ativos abertos" ao mesmo tempo). Usar o relógio pra
+        // DECIDIR se busca dado ou não (como era antes) causava dois bugs:
+        // ou pulava a busca de ativos que na verdade estavam abertos, ou
+        // buscava só uma vez ativos que na verdade estavam fechados. Agora
+        // SEMPRE busca o dado ao vivo pra qualquer ativo — o status
+        // aberto/fechado exibido na tela passa a vir da RESPOSTA REAL da
+        // corretora (fonte 'metaapi'/'binance'/'yahoo' = mercado respondendo
+        // de verdade = aberto; fonte 'fallback'/'generated'/'default' =
+        // corretora não tem cotação agora = fechado), por símbolo — não mais
+        // de um relógio genérico que assume o mesmo horário pra tudo.
+        // `marketInfo`/`statusMessage` continuam servindo só pra dar uma
+        // estimativa amigável de "abre às/fecha às" (já no fuso do usuário,
+        // ver formatInUserTimezone em marketHours.ts), nunca pra pular a busca.
 
         let isRealData = false;
         const isCrypto = isBinanceCryptoSymbol(activeSymbol);
@@ -440,7 +420,14 @@ export const MarketScoreBoard = () => {
                 
                 targetTrendRef.current = realTrend;
                 isRealData = true; // ✅ Marcar como real mesmo se fallback (melhor que simulação)
-                
+
+                // ✅ 2026-07-10: status aberto/fechado passa a vir da RESPOSTA
+                // REAL da corretora por símbolo (metaData.isRealData só é true
+                // quando a fonte é de verdade — metaapi/yahoo — não quando caiu
+                // no gerador sintético local), não mais de um relógio genérico
+                // que trata todo ativo igual.
+                setMarketStatus(metaData.isRealData ? 'OPEN' : 'CLOSED');
+
                 console.log(`[MetaApi] ${metaData.isRealData ? '✅' : '⚠️'} ${activeSymbol}: $${metaData.price.toFixed(5)} (${realTrend > 0 ? '+' : ''}${realTrend.toFixed(2)}%) | Change: ${metaData.change > 0 ? '+' : ''}${metaData.change.toFixed(5)} [${metaData.source}]`);
                 setDataSource(metaData.source);
             } catch (e: any) {
@@ -466,8 +453,9 @@ export const MarketScoreBoard = () => {
                     targetChangeRef.current = pureData.change;
                     targetTrendRef.current = pureData.changePercent;
                     
-                    isRealData = true;
-                    
+                    isRealData = pureData.source !== 'fallback';
+                    setMarketStatus(isRealData ? 'OPEN' : 'CLOSED');
+
                     console.log(`[🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS:`, {
                         symbol: activeSymbol,
                         'PREÇO exibido': pureData.price.toFixed(2),
@@ -536,8 +524,11 @@ export const MarketScoreBoard = () => {
         }
         
         // 4. FINAL: Set market signal with CORRECT bias based on score
+        // ✅ 2026-07-10: `isRealData` reflete a resposta REAL da corretora pra
+        // ESTE símbolo agora, não mais um relógio genérico — cada ativo pode
+        // estar aberto ou fechado de forma independente dos outros.
         const newSignal = {
-            insight: marketInfo.isOpen ? insight : "Aguardando abertura do mercado mundial.",
+            insight: isRealData ? insight : `${getMarketStatusIcon(marketInfo)} ${statusMessage}`,
             strength: Math.min(Math.round(Math.abs(finalScoreCalc - 50) * 1.6) + 30, 98),
             bias: finalScoreCalc > 50 ? 'BULLISH' : 'BEARISH'
         };

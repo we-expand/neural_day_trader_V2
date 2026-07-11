@@ -41,6 +41,20 @@ export interface MarketStatus {
   timezone: string;
 }
 
+/**
+ * ✅ 2026-07-10: formata um horário no FUSO LOCAL DE QUEM ESTÁ VENDO A TELA
+ * (não Brasília fixo — o app tem usuários fora do Brasil). `toLocaleString`
+ * sem `timeZone` explícito usa o fuso do navegador automaticamente.
+ */
+export function formatInUserTimezone(date: Date): string {
+  return date.toLocaleString(undefined, {
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
 type MarketType = 'CRYPTO' | 'FOREX' | 'US_STOCKS' | 'EU_STOCKS' | 'ASIA_STOCKS' | 'COMMODITIES' | 'B3' | 'STOCK';
 
 /**
@@ -145,33 +159,44 @@ function getMarketDisplayName(symbol: string): string {
  * do Cleber, 2026-07-08) — reaproveitar esta função pra qualquer CFD novo
  * que a plataforma passar a oferecer, em vez de reinventar o cálculo.
  */
+/** Próxima ocorrência de um dia-da-semana+hora UTC, a partir de `now` (pode ser hoje). */
+function nextUtcOccurrence(now: Date, targetDay: number, hourUtc: number): Date {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hourUtc, 0, 0, 0));
+  let dayDiff = (targetDay - d.getUTCDay() + 7) % 7;
+  d.setUTCDate(d.getUTCDate() + dayDiff);
+  if (d.getTime() <= now.getTime()) d.setUTCDate(d.getUTCDate() + 7);
+  return d;
+}
+
 function isCfdMarketOpen(now: Date): MarketStatus {
   const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
   const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   const dailyBreakStart = 22 * 60; // 22:00 UTC
   const dailyBreakEnd = 23 * 60;   // 23:00 UTC
+  const nextSundayOpen = () => formatInUserTimezone(nextUtcOccurrence(now, 0, 23));
 
   // Sábado inteiro: fechado
   if (utcDay === 6) {
-    return { isOpen: false, status: 'CLOSED', nextOpen: 'Domingo 23:00 UTC (20:00 BRT)', timezone: 'UTC' };
+    return { isOpen: false, status: 'CLOSED', nextOpen: nextSundayOpen(), timezone: 'UTC' };
   }
 
   // Domingo antes das 23:00 UTC: ainda fechado (fim de semana)
   if (utcDay === 0 && totalMinutes < dailyBreakEnd) {
-    return { isOpen: false, status: 'CLOSED', nextOpen: 'Hoje 23:00 UTC (20:00 BRT)', timezone: 'UTC' };
+    return { isOpen: false, status: 'CLOSED', nextOpen: nextSundayOpen(), timezone: 'UTC' };
   }
 
   // Sexta após 22:00 UTC: fechado até domingo
   if (utcDay === 5 && totalMinutes >= dailyBreakStart) {
-    return { isOpen: false, status: 'CLOSED', nextOpen: 'Domingo 23:00 UTC (20:00 BRT)', timezone: 'UTC' };
+    return { isOpen: false, status: 'CLOSED', nextOpen: nextSundayOpen(), timezone: 'UTC' };
   }
 
   // Pausa diária de manutenção (Dom-Qui): 22:00-23:00 UTC
   if (totalMinutes >= dailyBreakStart && totalMinutes < dailyBreakEnd) {
-    return { isOpen: false, status: 'CLOSED', nextOpen: 'Hoje 23:00 UTC (20:00 BRT) — pausa de manutenção', timezone: 'UTC' };
+    const todayReopen = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 0, 0, 0));
+    return { isOpen: false, status: 'CLOSED', nextOpen: `${formatInUserTimezone(todayReopen)} — pausa de manutenção`, timezone: 'UTC' };
   }
 
-  return { isOpen: true, status: 'OPEN', nextClose: 'Sexta 22:00 UTC (19:00 BRT)', timezone: 'UTC' };
+  return { isOpen: true, status: 'OPEN', nextClose: formatInUserTimezone(nextUtcOccurrence(now, 5, 22)), timezone: 'UTC' };
 }
 
 /**
