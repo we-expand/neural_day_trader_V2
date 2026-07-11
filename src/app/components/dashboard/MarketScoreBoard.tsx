@@ -358,8 +358,11 @@ export const MarketScoreBoard = () => {
     // certo. `requestId` garante que só a ÚLTIMA chamada iniciada aplica seu
     // resultado.
     let isStale = false;
+    let isFetching = false; // ✅ 2026-07-11: evita empilhar fetch do mesmo símbolo (ver updateInterval abaixo)
 
     const fetchData = async () => {
+        isFetching = true;
+        try {
 
         console.log(`[MarketScoreBoard] 🚀 INICIANDO fetchData para: ${activeSymbol}`);
         
@@ -547,20 +550,35 @@ export const MarketScoreBoard = () => {
         
         if (isStale) return; // resposta de uma chamada antiga — ignorar
         setMarketSignal(newSignal);
+        } finally {
+            isFetching = false;
+        }
     };
 
     // 🔥 Fetch inicial
     fetchData();
 
-    // 📊 Polling para atualização periódica — preço "vivo" a pedido do Cleber
-    // (estava em 5min-1h, ativo parecia travado). 5s dá folga sobre a latência
-    // real de 3-8s da conta MetaAPI compartilhada (documentada em sessões
-    // anteriores) sem empilhar chamadas concorrentes.
-    const updateInterval = 5000;
+    // 📊 Polling para atualização periódica — preço "vivo" a pedido do Cleber.
+    // ✅ 2026-07-11: 5s fixo fazia o preço parecer "estático" entre uma
+    // atualização e outra (a variação real de um ciclo pro outro costuma ser
+    // pequena — ex: $64144.33 -> $64144.32 -- e só aparecia a cada 5s
+    // completos). Baixar o intervalo fixo pra menos de 5s SEM proteção
+    // empilharia chamadas concorrentes pro mesmo símbolo sempre que a
+    // resposta da conta MetaAPI compartilhada demorar mais que o intervalo
+    // (documentado 3-8s em sessões anteriores) — mesma causa raiz do
+    // incidente de sobrecarga de 2026-07-08/10. Fix: `isFetchingRef` pula o
+    // próximo tick se o anterior ainda não respondeu, então o intervalo abaixo
+    // é só um MÁXIMO de espera — na prática atualiza assim que a resposta
+    // anterior chega, nunca mais rápido que a rede real permite, nunca dois
+    // fetches do mesmo símbolo em voo ao mesmo tempo.
+    const updateInterval = 2000;
 
-    console.log(`[MarketScoreBoard] ⚡ Intervalo de atualização: ${updateInterval}ms`);
+    console.log(`[MarketScoreBoard] ⚡ Intervalo de atualização: ${updateInterval}ms (máximo — adapta à latência real)`);
 
-    const interval = setInterval(fetchData, updateInterval);
+    const interval = setInterval(() => {
+      if (isFetching) return; // resposta anterior ainda em voo — não empilhar
+      fetchData();
+    }, updateInterval);
     return () => {
       isStale = true; // marca essa "geração" do efeito como obsoleta
       clearInterval(interval);
