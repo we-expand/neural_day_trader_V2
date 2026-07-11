@@ -254,10 +254,9 @@ export const MarketScoreBoard = () => {
     activeSymbolRef.current = activeSymbol;
   }, [activeSymbol]);
 
-  // 🎬 ANIMAÇÃO FLUIDA: Valores animados que se interpolam até o alvo
+  // 🎬 ANIMAÇÃO FLUIDA: só o preço se interpola visualmente até o alvo —
+  // variação ($) e % são sempre lidos direto do ref (ver displayChange/displayTrend).
   const [animatedPrice, setAnimatedPrice] = useState(0);
-  const [animatedTrend, setAnimatedTrend] = useState(0);
-  const [animatedChange, setAnimatedChange] = useState(0);
 
   // ✅ CORRIGIDO 2026-07-10 (2ª parte): a trava contra corrida acima impede que
   // uma resposta ATRASADA sobrescreva o ativo atual, mas não existia nenhum
@@ -283,16 +282,25 @@ export const MarketScoreBoard = () => {
     targetChangeRef.current = known?.change ?? 0;
     targetTrendRef.current = known?.changePercent ?? 0;
     setAnimatedPrice(known?.price ?? 0);
-    setAnimatedChange(known?.change ?? 0);
-    setAnimatedTrend(known?.changePercent ?? 0);
   }, [activeSymbol]);
 
   // 🔥 CRYPTO: Usar valores DIRETOS das refs (SEM animação - ZERO latência!)
   const isCryptoSymbol = isBinanceCryptoSymbol(activeSymbol);
-  
+
+  // ✅ CORRIGIDO 2026-07-11 (3ª parte): variação ($) e % NUNCA mais passam por
+  // interpolação própria (animatedChange/animatedTrend) — só o preço é
+  // suavizado visualmente. Variação/% vêm direto do ref no instante em que
+  // fetchData/WebSocket escreve, sempre os TRÊS valores da MESMA resposta —
+  // antes, cada um interpolava a um ritmo próprio (lerp independente),
+  // causando dois sintomas juntos: (1) "demora uma eternidade pra entrar" —
+  // ao trocar de ativo nunca visto, change/trend começavam do zero e subiam
+  // aos poucos até o valor real em vez de aparecer junto com o preço; (2)
+  // oscilação visual — preço, variação e % convergindo em velocidades
+  // diferentes pareciam "descombinar" entre si por um instante a cada
+  // atualização. Preço continua animado (não desincroniza contra si mesmo).
   const displayPrice = isCryptoSymbol ? targetPriceRef.current : animatedPrice;
-  const displayTrend = isCryptoSymbol ? targetTrendRef.current : animatedTrend;
-  const displayChange = isCryptoSymbol ? targetChangeRef.current : animatedChange;
+  const displayTrend = targetTrendRef.current;
+  const displayChange = targetChangeRef.current;
   
   // 🔍 LOG: Mostrar valores que estão sendo renderizados (depende do wsUpdateCounter para re-executar)
   useEffect(() => {
@@ -321,21 +329,13 @@ export const MarketScoreBoard = () => {
     const ANIMATION_SPEED = 0.08; // Velocidade de interpolação (0.05 = mais suave, 0.2 = mais rápido)
     
     const animate = () => {
+      // ✅ Só o preço é interpolado (efeito visual). Variação/% são lidos
+      // direto do ref em `displayChange`/`displayTrend` — ver comentário ali.
       setAnimatedPrice(prev => {
         const diff = targetPriceRef.current - prev;
         return Math.abs(diff) < 0.01 ? targetPriceRef.current : prev + diff * ANIMATION_SPEED;
       });
-      
-      setAnimatedTrend(prev => {
-        const diff = targetTrendRef.current - prev;
-        return Math.abs(diff) < 0.001 ? targetTrendRef.current : prev + diff * ANIMATION_SPEED;
-      });
-      
-      setAnimatedChange(prev => {
-        const diff = targetChangeRef.current - prev;
-        return Math.abs(diff) < 0.01 ? targetChangeRef.current : prev + diff * ANIMATION_SPEED;
-      });
-      
+
       animationFrameId = requestAnimationFrame(animate);
     };
     
