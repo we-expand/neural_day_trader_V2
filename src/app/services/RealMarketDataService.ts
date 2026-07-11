@@ -65,10 +65,36 @@ const CACHE_TTL = 2000; // 2 segundos
  */
 const lastRealPriceCache = new Map<string, RealMarketData>();
 
+/**
+ * ✅ 2026-07-11 (2ª parte): Cleber reportou NZDUSD/GBPNZD (e confirmou que
+ * deveria acontecer com outros) oscilando a variação diária entre 0% e o
+ * valor correto a cada polling — causa raiz diferente da anterior: aqui o
+ * PREÇO chega certo (`/mt5-prices` responde HTTP 200 com `price` válido),
+ * mas a busca do candle D1 (usada só pra calcular `change`/`changePercent`,
+ * uma chamada separada no backend) falha nesse ciclo específico (mesmo
+ * congestionamento da conta MetaAPI compartilhada) — o backend já cai pra
+ * `change: 0, changePercent: 0` como default nesse caso (ver
+ * `supabase/functions/server/index.ts`, rota `/mt5-prices`), indistinguível
+ * de um dia genuinamente parado. Sem sinal explícito do backend, a defesa
+ * possível no frontend: se a variação chegar EXATAMENTE zerada mas já
+ * tínhamos uma variação real (não-zero) recente pra esse símbolo, mantém a
+ * variação anterior (o preço novo ainda é usado) em vez de piscar pra 0% —
+ * evita a oscilação visual. Não é infalível (um ativo genuinamente parado
+ * também teria os dois zerados), mas 0.00000% exato é raro o bastante pra
+ * ser um sinal melhor de "falha no candle" do que de "mercado parado".
+ */
 function rememberIfReal(data: RealMarketData): RealMarketData {
-  if (data.isRealData) {
-    lastRealPriceCache.set(data.symbol, data);
+  if (!data.isRealData) return data;
+
+  const suspiciousZeroChange = data.change === 0 && data.changePercent === 0;
+  if (suspiciousZeroChange) {
+    const previous = lastRealPriceCache.get(data.symbol);
+    if (previous && (previous.change !== 0 || previous.changePercent !== 0)) {
+      data = { ...data, change: previous.change, changePercent: previous.changePercent };
+    }
   }
+
+  lastRealPriceCache.set(data.symbol, data);
   return data;
 }
 

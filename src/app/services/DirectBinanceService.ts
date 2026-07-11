@@ -29,13 +29,36 @@ const CORS_PROXIES = [
 ];
 
 async function fetchOne(url: string): Promise<any> {
+  // ✅ 2026-07-11: 4s bastava pra 1 símbolo isolado, mas `getBatchedMT5Data`
+  // dispara todas as cripto sem CFD (ETH/DOGE/POL/AVAX/LTC/BNB...) em
+  // paralelo (Promise.all) — cada uma correndo direto + 2 proxies (Promise.
+  // any) ao mesmo tempo, o navegador enfileira parte das conexões pro mesmo
+  // host, e algumas estouravam os 4s antes mesmo de terminar, caindo pro
+  // sintético mesmo com a Binance disponível (confirmado: BNBUSD/LTCUSD
+  // "corretos" só quando testados isolados, errados junto com o resto).
   const res = await fetch(url, {
     method: 'GET',
     headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(4000),
+    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json();
+
+  // ✅ 2026-07-11: os proxies CORS às vezes respondem HTTP 200 (ok) mas com o
+  // corpo de ERRO da própria Binance repassado por dentro (confirmado:
+  // allorigins.win devolvendo `{"code":0,"msg":"Service unavailable from a
+  // restricted location..."}`) — tecnicamente "sucesso" pro fetch, mas sem
+  // `lastPrice` nenhum. Como corre em paralelo com a chamada direta via
+  // `Promise.any` (primeiro que RESOLVER ganha, não o melhor), essa resposta
+  // lixo podia vencer a corrida contra a chamada direta real se chegasse
+  // primeiro sob carga concorrente (várias cripto buscadas ao mesmo tempo).
+  // Rejeitar aqui, dentro da tentativa individual, garante que `Promise.any`
+  // pule pra próxima tentativa em vez de aceitar isso como resposta boa.
+  if (typeof data?.lastPrice === 'undefined') {
+    throw new Error(`Resposta sem lastPrice (provável erro da Binance repassado pelo proxy): ${JSON.stringify(data).slice(0, 120)}`);
+  }
+
+  return data;
 }
 
 async function fetchWithFallback(path: string): Promise<any | null> {
