@@ -1014,3 +1014,43 @@ Tudo o que foi feito até aqui já está commitado e pushado pro `origin/main` �
 ✅ **Deploy confirmado pelo Cleber**: código commitado, pushado e deployado na Vercel (`neuraldaytrader.com`). Todo o trabalho de Backtest real + Replay multi-ativo + verificação independente de trade (esta seção e a anterior) está em produção.
 
 **Pendente pra fechar de vez**: Cleber ainda precisa rodar a migration `supabase/migrations/006_strategies.sql` no SQL Editor do Supabase (projeto `wyvdsxtcmizettljxtbg`), se ainda não rodou — sem ela, a tabela `strategies` não existe e `useStrategies()` cai no fallback local (as 6 prontas continuam funcionando via `PRESET_STRATEGIES` em memória, mas estratégias customizadas do StrategyBuilder não persistem entre sessões). Depois disso, testar em produção: rodar um backtest real, abrir "Decisões da IA" e clicar em "Verificar este trade" pra confirmar ✅ Reconfirmado; testar o Replay em pelo menos um ativo de cada classe (cripto/forex/índice/ouro); ligar a IA com uma estratégia selecionada e confirmar que ela opera de acordo.
+
+## Consolidação de fonte de preço + rate-limit no `/mt5-prices` (2026-07-12)
+
+**Contexto**: depois de 3 dias "calibrando ativo a ativo" (cada fix resolvia um símbolo e quebrava outro), Cleber pediu pra investigar a causa sistêmica em vez de mais um patch pontual. Depois, relatou um requisito de produto que muda a prioridade: a maioria dos usuários vai usar a plataforma só como **demo/treino, sem nunca conectar corretora própria** — isso precisa funcionar "impecável".
+
+### Parte 1 — Fragmentação de fonte de preço no Dashboard
+
+**Causa raiz**: `MarketScoreBoard.tsx` dividia o preço/variação por classe de ativo em **3 caminhos de código independentes**: `MetaApiService.getMarketData()` (tinha um `throw` morto sempre executado, mascarado por um catch que funcionava por acidente) pra forex/índice/commodity, e `UnifiedMarketDataService.ts` — com um **gerador de preço fake próprio** ($100 fixo + `Math.random()`, o mesmo tipo de bug já deletado do `RealMarketDataService` numa sessão anterior, só que ninguém tinha visto esse aqui ainda) — pra cripto, rodando em paralelo via WebSocket e sobrescrevendo os valores corretos do polling. Por isso corrigir EURCAD nunca corrigia SOL: eram literalmente arquivos diferentes com bugs diferentes.
+
+**Fix**: [MarketScoreBoard.tsx](src/app/components/dashboard/MarketScoreBoard.tsx) consolidado pra usar só `RealMarketDataService.getRealMarketData()` (já roteava cripto vs MT5 internamente e nunca inventava preço — `getFallbackOrLastKnown` retorna `isRealData:false` explícito). `MetaApiService`/`UnifiedMarketDataService` removidos do Dashboard.
+
+### Parte 2 — Modo demo (sem broker pessoal) ficava vazio ou mock em outras telas
+
+Duas fontes adicionais alimentavam o resto do app (Gráfico, AI Trader, tickers globais) e não serviam o requisito "funciona sem conectar corretora":
+
+1. **[marketDataService.ts](src/app/services/marketDataService.ts)** — serviço legado, nunca conectado à MetaAPI: forex usava `exchangerate-api.com` (sem histórico — `previousClose` era `rate × jitter aleatório`, ou seja, a variação % **sempre** foi fabricada mesmo no "caminho real"), Yahoo nunca implementado (`TODO`, retornava `null` sempre), índices sem rota real nenhuma, qualquer falha caía em `generateMockMarketData()` (tabela hardcoded + `Math.random()`). Consumido por `ChartView`, `AITrader`, `MarketScore`, `AssetPriceTag`, `MarketDataControlPanel`. **Reescrito como adapter fino sobre `RealMarketDataService`** (mesma assinatura exportada `getMarketData`/`getMultipleMarketData`/`subscribeToRealTimeUpdates`, zero mudança nos consumidores) — mock deletado.
+2. **[MarketDataContext.tsx](src/app/contexts/MarketDataContext.tsx)** — contexto global (ticker inferior, S&P 500) com `refreshPrices` **gated em `isConnected`/credencial MT5 pessoal do usuário** (comentário no código: "MT5 OBRIGATÓRIO: sem conexão = sem dados") — sem broker próprio, `prices`/`sp500` ficavam vazios pra sempre. Adicionado `refreshPricesFromPlatform()`: quando não há corretora pessoal conectada, busca via `getBatchedMT5Data` (conta MetaAPI da **plataforma**, a mesma do Dashboard) em vez de ficar vazio. `connect`/`disconnect`/`isConnected` continuam existindo (uso futuro: saber se há corretora pessoal pra fins de execução real de ordem), mas a exibição de preço não depende mais disso.
+
+**Verificado nesta sessão**: `npx tsc --noEmit` limpo nos arquivos tocados (só ruído pré-existente em `src/imports/pasted_text/` e `SmartDataExample.tsx`, não relacionados). `npm run dev` + preview no browser: sem nenhuma corretora conectada, Dashboard mostrou BTC com preço real (fonte "DATA", não FALLBACK) e o ticker inferior mostrou S&P 500/NASDAQ/DOW/DAX/FTSE/Nikkei reais — confirmado via log `[Market Data] 📊 Preços atualizados (conta de plataforma)`.
+
+✅ Commitado e pushado por Cleber.
+
+### Parte 3 — Report detalhado de discrepância por classe de ativo (mesma sessão, continuação)
+
+Cleber testou contra o MT5 real e reportou um padrão específico por classe:
+- **Índices**: perfeitos.
+- **Forex**: preço errado, variação sempre zerada — quase todos.
+- **USDCAD** especificamente: preço certo, variação zerada.
+- **Cripto (ex: ADAUSD)**: preço e variação errados vs MT5, mas com discrepância pequena e consistente — "ocorre pra todas as moedas".
+- **COCUSD**: aparece no nosso sistema mas Cleber não encontra esse símbolo no MT5 dele pra comparar.
+
+**Causa raiz encontrada (forex/USDCAD)**: `/mt5-prices` ([index.ts](supabase/functions/server/index.ts)) já tinha chunking de 40 símbolos por chamada (mitigação de uma sessão anterior), mas **dentro de cada chunk** processava todos os símbolos com `Promise.all` sem limite — cada símbolo dispara 2 chamadas à MetaAPI (ticker + candle D1, hosts diferentes), então um chunk de 40 virava até **80 requisições simultâneas** pra mesma conta compartilhada. Índices (~7 símbolos) raramente esbarram no limite; forex (dezenas de pares no mesmo chunk) frequentemente tem o candle rate-limitado (`changePercent` cai pro default `0`, código já tratava esse caso) ou até o ticker falha (preço cai pro último real conhecido, desatualizado — parece "errado" comparado ao MT5 ao vivo). Bate exatamente com o padrão relatado.
+
+**Fix aplicado**: `mapWithConcurrency` ([index.ts:179](supabase/functions/server/index.ts:179)) — limita a 8 símbolos com ticker+candle em voo por vez dentro do `/mt5-prices`, em vez de todos de uma vez. ✅ Commitado por Cleber (aguardando deploy + reteste).
+
+**Cripto — não é bug, é decisão de arquitetura anterior documentada**: confirmado em [brokerRegistry.ts:126](src/app/config/brokerRegistry.ts:126) — só `BTCUSD` roteia pela MetaAPI/MT5; todo o resto da cripto (ADA, SOL, BNB, XRP, DOT...) foi revertido pra Binance direta numa sessão anterior (2026-07-11, ver comentário no arquivo). Duas fontes = duas verdades: Binance é spot, Infinox é CFD (spread pequeno esperado); Binance usa janela rolante 24h, MT5 fecha D1 às 21h UTC (fuso do broker) — diferença de metodologia, não dado errado. **Decisão pendente do Cleber**: manter Binance pra cripto (mais estável, sem risco de rate-limit da conta compartilhada) ou reverter pra MetaAPI também (bate exato com MT5, mesmo padrão do BTC hoje) — nenhuma mudança de código feita ainda, aguardando resposta.
+
+**COCUSD — não investigado a fundo, pendente confirmação do Cleber**: o mapeamento `COCUSD → 'Cocoa'` foi validado numa auditoria anterior contra uma conta demo compartilhada, não a conta real do Cleber — corretoras costumam esconder símbolos agrícolas/exóticos do Market Watch por padrão. Pedido a ele pra checar "Mostrar Todos" (Ctrl+U) no MT5 antes de tratar como bug — resposta ainda pendente.
+
+**Pendente pra fechar de vez**: deploy do fix de concorrência e reteste de forex/USDCAD pelo Cleber; decisão sobre roteamento de cripto (Binance vs MetaAPI); resultado da checagem "Mostrar Todos" pro COCUSD no MT5 do Cleber.
