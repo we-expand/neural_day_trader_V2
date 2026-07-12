@@ -38,13 +38,11 @@ import { MT5QuickConnect } from './MT5QuickConnect'; // 🚀 NOVO: Conexão ráp
 import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status MT5
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
-import { getMarketData } from '@/app/services/MetaApiService'; // 🔥 NOVO: MetaApi Integration
-import { getLastKnownRealPrice } from '@/app/services/RealMarketDataService';
+import { getRealMarketData, getLastKnownRealPrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard)
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
 import { BtcPriceDebug } from '../debug/BtcPriceDebug'; // 🐛 DEBUG: BTC Price Debug
 import { getBinancePureValues } from '@/app/utils/binanceValidator'; // 🔥 VALORES PUROS: Sem transformações
-import { getUnifiedMarketData, subscribeToRealtimeData } from '@/app/services/UnifiedMarketDataService'; // 🎯 WebSocket streaming
 import { binanceWebSocket } from '@/app/services/BinanceWebSocketService'; // 🔥 NOVO: Para debug de conexão
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 
@@ -398,104 +396,45 @@ export const MarketScoreBoard = () => {
         // ver formatInUserTimezone em marketHours.ts), nunca pra pular a busca.
 
         let isRealData = false;
-        const isCrypto = isBinanceCryptoSymbol(activeSymbol);
 
-        console.log(`[MarketScoreBoard] 🔍 Detecção de tipo:`, {
-            symbol: activeSymbol,
-            isCrypto
-        });
+        // ✅ 2026-07-12: fonte ÚNICA de preço/variação pra qualquer classe de
+        // ativo (antes: MetaApiService pra forex/índices/commodities e
+        // UnifiedMarketDataService — com gerador de preço fake próprio — pra
+        // cripto, dois caminhos com bugs independentes; corrigir um ativo
+        // nunca corrigia o outro). getRealMarketData já roteia cripto vs
+        // MT5/broker internamente e nunca retorna preço inventado (ver
+        // getFallbackOrLastKnown em RealMarketDataService.ts).
+        try {
+            const marketData = await getRealMarketData(activeSymbol);
+            if (isStale || activeSymbolRef.current !== activeSymbol) return; // resposta de uma chamada antiga — ignorar
 
-        // 🥇 PRIORIDADE 1: MetaApi (Forex, Índices, Commodities — inclui SPX500/US500/SP500)
-        if (!isCrypto) {
-            try {
-                console.log(`[DEBUG] Fetching MetaApi data for ${activeSymbol}...`);
-                const metaData = await getMarketData(activeSymbol);
-                if (isStale || activeSymbolRef.current !== activeSymbol) return; // resposta de uma chamada antiga — ignorar
+            console.log(`[MarketScoreBoard] 📊 Dados recebidos:`, {
+                symbol: marketData.symbol,
+                price: marketData.price,
+                change: marketData.change,
+                changePercent: marketData.changePercent,
+                source: marketData.source,
+                isRealData: marketData.isRealData
+            });
 
-                console.log(`[DEBUG] MetaApi response:`, {
-                    symbol: metaData.symbol,
-                    price: metaData.price,
-                    change: metaData.change,
-                    changePercent: metaData.changePercent,
-                    source: metaData.source,
-                    isRealData: metaData.isRealData
-                });
-                
-                // ✅ USAR DADOS MESMO SE FALLBACK (evitar simulação Math.sin)
-                targetPriceRef.current = metaData.price;
-                let realTrend = metaData.changePercent;
-                
-                // ✅ USAR VARIAÇÃO ABSOLUTA DIRETA DA API (não recalcular!)
-                targetChangeRef.current = metaData.change;
-                
-                // Limitar range para evitar scores extremos
-                if (realTrend > 10) realTrend = 10;
-                if (realTrend < -10) realTrend = -10;
-                if (isNaN(realTrend)) realTrend = 0;
-                
-                targetTrendRef.current = realTrend;
-                isRealData = true; // ✅ Marcar como real mesmo se fallback (melhor que simulação)
+            targetPriceRef.current = marketData.price;
+            targetChangeRef.current = marketData.change ?? 0;
 
-                // ✅ 2026-07-10: status aberto/fechado passa a vir da RESPOSTA
-                // REAL da corretora por símbolo (metaData.isRealData só é true
-                // quando a fonte é de verdade — metaapi/yahoo — não quando caiu
-                // no gerador sintético local), não mais de um relógio genérico
-                // que trata todo ativo igual.
-                setMarketStatus(metaData.isRealData ? 'OPEN' : 'CLOSED');
+            let realTrend = marketData.changePercent ?? 0;
+            // Limitar range para evitar scores extremos
+            if (realTrend > 10) realTrend = 10;
+            if (realTrend < -10) realTrend = -10;
+            if (isNaN(realTrend)) realTrend = 0;
 
-                console.log(`[MetaApi] ${metaData.isRealData ? '✅' : '⚠️'} ${activeSymbol}: $${metaData.price.toFixed(5)} (${realTrend > 0 ? '+' : ''}${realTrend.toFixed(2)}%) | Change: ${metaData.change > 0 ? '+' : ''}${metaData.change.toFixed(5)} [${metaData.source}]`);
-                setDataSource(metaData.source);
-            } catch (e: any) {
-                console.error('[MetaApi] ❌ Error:', e.message);
-            }
+            targetTrendRef.current = realTrend;
+            isRealData = marketData.isRealData;
+            setMarketStatus(isRealData ? 'OPEN' : 'CLOSED');
+            setDataSource(marketData.source);
+
+            console.log(`[MarketScoreBoard] ${isRealData ? '✅' : '⚠️'} ${activeSymbol}: $${marketData.price} (${realTrend > 0 ? '+' : ''}${realTrend.toFixed(2)}%) [${marketData.source}]`);
+        } catch (e: any) {
+            console.error('[MarketScoreBoard] ❌ Error:', e.message);
         }
-        
-        // 🥈 PRIORIDADE 2: CRYPTO COM BINANCE - VALORES UNIFICADOS
-        if (isCrypto) {
-             console.log(`[MarketScoreBoard] ✅ ENTRANDO NO BLOCO CRYPTO para: ${activeSymbol}`);
-             try {
-                console.log(`[MarketScoreBoard] 🔍 Buscando dados UNIFICADOS da Binance para: ${activeSymbol}`);
-                
-                // 🎯 USAR SERVIÇO UNIFICADO - Garante sincronização com ChartView
-                const pureData = await getUnifiedMarketData(activeSymbol);
-                if (isStale || activeSymbolRef.current !== activeSymbol) return; // resposta de uma chamada antiga — ignorar
-
-                console.log(`[MarketScoreBoard] 📊 Valores PUROS recebidos:`, pureData);
-                
-                if (pureData) {
-                    // 🎬 ATUALIZA AS REFS - A ANIMAÇÃO SE ENCARREGA DE INTERPOLAR
-                    targetPriceRef.current = pureData.price;
-                    targetChangeRef.current = pureData.change;
-                    targetTrendRef.current = pureData.changePercent;
-                    
-                    isRealData = pureData.source !== 'fallback';
-                    setMarketStatus(isRealData ? 'OPEN' : 'CLOSED');
-
-                    console.log(`[🎯 DASHBOARD] ✅ VALORES QUE SERÃO EXIBIDOS:`, {
-                        symbol: activeSymbol,
-                        'PREÇO exibido': pureData.price.toFixed(2),
-                        'CHANGE exibido': pureData.change.toFixed(2),
-                        '% HOJE exibido': pureData.changePercent.toFixed(2) + '%',
-                        '📊 RAW changePercent': pureData.changePercent
-                    });
-                    
-                    console.log(`[Crypto] 🔍 COMPARAÇÃO COM BINANCE:`, {
-                        'Price esperado': 'Verifique: https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT',
-                        'Price recebido': pureData.price,
-                        'Change esperado': 'priceChange da API',
-                        'Change recebido': pureData.change,
-                        'ChangePercent esperado': 'priceChangePercent da API',
-                        'ChangePercent recebido': pureData.changePercent
-                    });
-                    
-                    setDataSource('Binance');
-                } else {
-                    console.log(`[MarketScoreBoard] ⚠️ pureData é null`);
-                }
-             } catch (e) {
-                console.error('[Crypto] ❌ Error:', e);
-             }
-        } 
 
         // Scanner Integration & Consistency Check
         let insight = "Monitorando volatilidade...";
@@ -596,97 +535,13 @@ export const MarketScoreBoard = () => {
     // fetch inteiro sempre que o scanner (que nem busca preço real) mudar.
   }, [activeSymbol, timeframe]);
 
-  // 🚀 WEBSOCKET: Efeito SEPARADO para crypto streaming (tempo real)
-  useEffect(() => {
-    const isCrypto = isBinanceCryptoSymbol(activeSymbol);
-    
-    // 🚀 CRYPTO: Usar WebSocket para tempo real (ZERO latência)
-    if (!isCrypto) {
-      console.log(`[MarketScoreBoard] ⚠️ NÃO É CRYPTO - WebSocket NÃO será iniciado`, {
-        activeSymbol,
-        isCrypto,
-        'vai usar': 'polling'
-      });
-      return;
-    }
-
-    console.log(`[MarketScoreBoard] 🚀 CRYPTO DETECTADO! Iniciando WebSocket...`, {
-      activeSymbol,
-      isCrypto,
-      'vai chamar': 'subscribeToRealtimeData()'
-    });
-    
-    const unsubscribe = subscribeToRealtimeData(activeSymbol, (marketData) => {
-      // 🔥 LOG FORÇADO (não depende de DEBUG)
-      console.log(`[🎯 DASHBOARD] 🚨🚨🚨 CALLBACK EXECUTADO!`, {
-        timestamp: new Date().toISOString(),
-        price: marketData.price,
-        change: marketData.change,
-        changePercent: marketData.changePercent
-      });
-      
-      debugLog('DASHBOARD', `[🎯 DASHBOARD WebSocket] 🚨 CALLBACK EXECUTADO!`, {
-        '⏰ Timestamp': new Date().toISOString(),
-        '🔢 marketData recebido': marketData
-      });
-
-      // ✅ CORRIGIDO 2026-07-10: essa subscription pertence ao símbolo capturado
-      // no momento em que este efeito rodou (`activeSymbol` do closure). Se o
-      // usuário já trocou de ativo antes desse callback chegar, `activeSymbolRef`
-      // (sempre atual) não bate mais com ele — descarta em vez de sobrescrever
-      // o preço do ativo que está na tela agora com o de um símbolo antigo.
-      if (activeSymbolRef.current !== activeSymbol) {
-        console.log(`[🎯 DASHBOARD] ⏭️ Ignorando resposta atrasada de ${activeSymbol} (ativo atual: ${activeSymbolRef.current})`);
-        return;
-      }
-
-      // Atualizar refs diretamente com dados do WebSocket
-      targetPriceRef.current = marketData.price;
-      targetChangeRef.current = marketData.change;
-      targetTrendRef.current = marketData.changePercent;
-      
-      console.log(`[🎯 DASHBOARD] 📌 REFS ATUALIZADAS:`, {
-        targetPriceRef: targetPriceRef.current,
-        targetChangeRef: targetChangeRef.current,
-        targetTrendRef: targetTrendRef.current
-      });
-      
-      // 🔥 FORÇAR RE-RENDER para crypto (valores devem aparecer INSTANTANEAMENTE!)
-      setWsUpdateCounter(prev => {
-        const newValue = prev + 1;
-        debugLog('DASHBOARD', `[🎯 DASHBOARD WebSocket] 🔥 RE-RENDER FORÇADO! Counter: ${prev} → ${newValue}`);
-        return newValue;
-      });
-      
-      debugLog('DASHBOARD', `[🎯 DASHBOARD WebSocket] ✅ STREAMING:`, {
-        '📥 RECEBIDO do UnifiedService': {
-          price: marketData.price,
-          change: marketData.change,
-          changePercent: marketData.changePercent,
-          source: marketData.source
-        },
-        '---': '---',
-        '🎨 VALORES DIRETOS (SEM ANIMAÇÃO)': {
-          'displayPrice': marketData.price.toFixed(2),
-          'displayChange': marketData.change.toFixed(2),
-          'displayTrend': marketData.changePercent.toFixed(2) + '%'
-        },
-        '📊 REFS ATUALIZADAS': {
-          'targetPriceRef.current': targetPriceRef.current,
-          'targetChangeRef.current': targetChangeRef.current,
-          'targetTrendRef.current': targetTrendRef.current
-        }
-      });
-      
-      setDataSource('Binance (WebSocket)');
-    });
-    
-    // Cleanup ao desmontar
-    return () => {
-      console.log(`[MarketScoreBoard] 🔌 Desconectando WebSocket: ${activeSymbol}`);
-      unsubscribe();
-    };
-  }, [activeSymbol]); // Apenas depende do símbolo
+  // ✅ 2026-07-12: removido o efeito de WebSocket separado que assinava
+  // `UnifiedMarketDataService.subscribeToRealtimeData` — era uma SEGUNDA fonte
+  // de dado pra cripto, concorrente com o polling de `getRealMarketData`
+  // acima, que sobrescrevia os refs com valores vindos do serviço que ainda
+  // tinha um gerador de preço fake ($100 fixo + Math.random()) embutido. O
+  // polling de 2s via getRealMarketData (fonte única, já sem fallback
+  // inventado) agora cobre cripto também.
 
   // Animation Loop - 🔥 DESATIVADO PARA CRYPTO (valores exatos)
   useEffect(() => {
