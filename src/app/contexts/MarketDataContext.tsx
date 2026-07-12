@@ -2,10 +2,23 @@
  * 🌐 MARKET DATA CONTEXT - DADOS GLOBAIS DE MERCADO
  * Provê preços validados em tempo real para TODA a plataforma
  * Integração com MT5 Validator para dados 100% reais
+ *
+ * ✅ CORRIGIDO 2026-07-12: antes, `refreshPrices` exigia `isConnected` (broker
+ * PESSOAL do usuário, via MT5PriceValidator com token/accountId próprios) —
+ * sem isso, `prices`/`sp500` ficavam permanentemente vazios ("MT5 OBRIGATÓRIO:
+ * Sem conexão = sem dados"). Requisito de produto: a maioria dos usuários vai
+ * usar a plataforma só como demo/treino, sem nunca conectar corretora própria
+ * — pra esses, o app tem que mostrar preço real de qualquer forma. A conta
+ * MetaAPI usada por `RealMarketDataService`/`getBatchedMT5Data` é da
+ * PLATAFORMA (backend), não do usuário — não depende de `connect()`. Agora
+ * `connect`/`disconnect`/`isConnected` continuam existindo (usados por telas
+ * que precisam saber se HÁ corretora pessoal pra fins de execução de ordem
+ * real), mas a EXIBIÇÃO de preço nunca mais fica vazia por causa disso.
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { getMT5Validator, ValidatedPrice } from '@/app/services/MT5PriceValidator';
+import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 import { toast } from 'sonner';
 
 interface MarketDataContextType {
@@ -196,77 +209,102 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
       await validator.disconnect();
       setIsConnected(false);
       setMt5Credentials(null); // 🔑 Limpar credenciais
-      setPrices(new Map());
-      setSp500(null);
-      console.log('[Market Data] 🔌 Desconectado');
+      console.log('[Market Data] 🔌 Desconectado (corretora pessoal) — voltando pra conta de plataforma');
+      await refreshPricesFromPlatform(); // não deixar a tela vazia após desconectar
     } catch (error) {
       console.error('[Market Data] ❌ Erro ao desconectar:', error);
     }
   }, [isConnected, mt5Credentials]);
 
   /**
-   * Atualiza preços (interno)
+   * Atualiza preços (interno) — corretora PESSOAL do usuário (quando conectada)
    */
   const refreshPricesInternal = async (validator: ReturnType<typeof getMT5Validator>) => {
     try {
-      // Apenas buscar se conectado
       if (!validator.getConnectionStatus()) {
         console.warn('[Market Data] ⚠️ Não conectado - preços não disponíveis');
-        setPrices(new Map());
-        setSp500(null);
         return;
       }
 
       // Buscar preços dos símbolos monitorados
       const validatedPrices = await validator.getValidatedPrices(watchedSymbols);
-      
+
       const pricesMap = new Map<string, ValidatedPrice>();
       validatedPrices.forEach(price => {
         pricesMap.set(normalizeSymbol(price.symbol), price);
       });
-      
+
       setPrices(pricesMap);
 
       // Buscar S&P 500 específico
       const sp500Data = await validator.getSP500Data();
       setSp500(sp500Data);
 
-      console.log('[Market Data] 📊 Preços atualizados:', {
+      console.log('[Market Data] 📊 Preços atualizados (corretora pessoal):', {
         total: pricesMap.size,
         sp500: sp500Data.price,
         source: sp500Data.source
       });
 
     } catch (error) {
-      console.error('[Market Data] ❌ Erro ao atualizar preços:', error);
-      // Limpar dados se erro
-      setPrices(new Map());
-      setSp500(null);
+      console.error('[Market Data] ❌ Erro ao atualizar preços (corretora pessoal):', error);
     }
   };
 
   /**
-   * Atualiza preços (público)
+   * Atualiza preços (interno) — conta de PLATAFORMA, usada quando o usuário
+   * não tem corretora própria conectada (demo/treino). Mesma fonte real do
+   * Dashboard (RealMarketDataService), nunca inventa preço.
+   */
+  const refreshPricesFromPlatform = async () => {
+    try {
+      const batched = await getBatchedMT5Data(watchedSymbols);
+
+      const pricesMap = new Map<string, ValidatedPrice>();
+      for (const symbol of watchedSymbols) {
+        const data = batched[symbol.toUpperCase().replace('/', '').replace(' ', '')] ?? batched[symbol];
+        if (!data || !data.isRealData) continue; // sem dado real ainda — não exibir número inventado
+        pricesMap.set(normalizeSymbol(symbol), {
+          symbol,
+          price: data.price,
+          bid: data.bid ?? data.price,
+          ask: data.ask ?? data.price,
+          spread: (data.ask ?? data.price) - (data.bid ?? data.price),
+          timestamp: data.timestamp,
+          source: 'mt5',
+          isValid: true,
+        });
+      }
+      setPrices(pricesMap);
+
+      const spx = pricesMap.get('SPX');
+      setSp500(spx ? {
+        price: spx.price,
+        change: batched['SPX']?.change ?? batched['SPX500']?.change ?? 0,
+        changePercent: batched['SPX']?.changePercent ?? batched['SPX500']?.changePercent ?? 0,
+        timestamp: spx.timestamp,
+        source: 'mt5',
+      } : null);
+
+      console.log('[Market Data] 📊 Preços atualizados (conta de plataforma):', { total: pricesMap.size });
+    } catch (error) {
+      console.error('[Market Data] ❌ Erro ao atualizar preços (conta de plataforma):', error);
+    }
+  };
+
+  /**
+   * Atualiza preços (público) — usa a corretora pessoal quando conectada;
+   * senão cai pra conta de plataforma (nunca fica vazio por falta de
+   * credencial pessoal).
    */
   const refreshPrices = useCallback(async () => {
-    // 🔒 MT5 OBRIGATÓRIO: Sem conexão = sem dados
-    if (!isConnected || !mt5Credentials) {
-      console.log('[Market Data] ⚠️ MT5 não conectado - aguardando conexão...');
-      // Não buscar dados, não usar fallback
-      setPrices(new Map());
-      setSp500(null);
+    if (isConnected && mt5Credentials) {
+      const validator = getMT5Validator(mt5Credentials.token, mt5Credentials.accountId);
+      await refreshPricesInternal(validator);
       return;
     }
 
-    try {
-      const validator = getMT5Validator(mt5Credentials.token, mt5Credentials.accountId);
-      await refreshPricesInternal(validator);
-    } catch (error) {
-      console.error('[Market Data] ❌ Erro ao atualizar:', error);
-      // Em caso de erro, limpar dados (não usar fallback)
-      setPrices(new Map());
-      setSp500(null);
-    }
+    await refreshPricesFromPlatform();
   }, [isConnected, mt5Credentials, watchedSymbols]);
 
   /**
@@ -295,11 +333,13 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
   /**
    * Auto-atualização a cada 5 segundos
+   *
+   * ✅ 2026-07-12: não depende mais de `isConnected` — sem corretora pessoal,
+   * `refreshPrices` já cai pra conta de plataforma (ver refreshPricesFromPlatform).
    */
   useEffect(() => {
-    // 🛡️ PROTEÇÃO: Só iniciar auto-refresh se conectado E inicializado
-    if (!isConnected || !isInitialized) {
-      console.log('[Market Data] ⏸️ Auto-refresh pausado (aguardando conexão)');
+    if (!isInitialized) {
+      console.log('[Market Data] ⏸️ Auto-refresh pausado (aguardando inicialização)');
       return;
     }
 
