@@ -1,4 +1,90 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-11, sessão seguinte)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-11, continuação 4)
+
+## Sessão nova (2026-07-11, continuação 4): fim dos fallbacks fake silenciosos no Dashboard + DECISÃO ESTRATÉGICA — auditoria de mock em lote (o projeto veio do Figma Make, cheio de casca simulada)
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF. O Cleber vai continuar numa JANELA NOVA a partir daqui.** Leia esta seção inteira antes de qualquer coisa. O próximo passo combinado é a **Fase 1** (construir o auditor de mock em lote) — ver "Plano de 4 fases" no fim desta seção.
+
+### Contexto emocional/estratégico (importante pra conduzir a próxima sessão)
+
+O Cleber está frustrado e preocupado — com razão. O projeto foi originalmente construído no **Figma Make** (ferramenta de prototipagem por IA, não desenvolvimento real), que gera código que *parece* completo preenchendo **dado mock/simulado em todo canto** pra a tela parecer funcional. Ele migrou pra máquina local + Claude Code justamente pra transformar isso numa plataforma de verdade. A sensação dele de "apanhar sem sair do lugar / será que o que vejo é real ou mock?" **NÃO é paranoia — é o estado real do código.** Ele pediu sinceridade explícita várias vezes. A postura correta: honestidade com evidência, recomendação firme (não survey), e nunca reescrever tudo do zero por impulso — mas reconstruir módulos específicos quando eles são comprovadamente casca vazia.
+
+### Trabalho técnico concluído nesta sessão (tudo no Dashboard/pipeline de preços)
+
+**1. Fix de CORS na Edge Function (JÁ DEPLOYADO em produção, com autorização do Cleber).** A tela de conectar corretora (`BrokerConnections.tsx` → agora usa `/broker/credentials` do backend, via SDK do Supabase) estava sendo bloqueada por CORS: o middleware `cors()` em `supabase/functions/server/index.ts` (~linha 259) só liberava headers `Content-Type` e `Authorization`, mas o SDK do Supabase sempre manda `apikey` e `x-client-info` também → navegador bloqueava no preflight. Fix: adicionados `apikey` e `x-client-info` ao `allowHeaders`. Confirmado via curl OPTIONS que o preflight agora responde 204 com os headers liberados. **Já rodei `supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg` — está em produção.** (O arquivo ainda aparece como modificado no git só pra sincronizar o histórico; o deploy já foi feito.)
+
+**2. Variação em `$` arredondava pra `0.00` em ativos de preço baixo.** No card grande do Dashboard (`MarketScoreBoard.tsx`), o número da variação absoluta em `$` ao lado do `%` usava `.toFixed(2)` fixo. Pra forex de preço baixo (ex: EURCAD ~0.57, variação real ~0.0013), 2 casas arredondava pra `0.00` — mesmo com o `%` correto. Fix: exportei `getPrecisionForSymbol` de `priceFormatter.ts` e o `displayChange` agora usa a mesma precisão por ativo já usada no preço grande (via a função local `formatPrice` do componente, linha ~951).
+
+**3. Variação e % "demoravam uma eternidade pra entrar" e "oscilavam".** Causa raiz: pra ativos não-cripto, `displayChange`/`displayTrend` vinham de `animatedChange`/`animatedTrend` — estados interpolados a cada frame por um `requestAnimationFrame` SEPARADO do preço, cada um a seu próprio ritmo (lerp independente). Sintomas juntos: (a) ao trocar pra um ativo nunca visto, variação/% começavam do ZERO e subiam devagar até o valor real, em vez de aparecer junto com o preço; (b) preço/variação/% convergindo em velocidades diferentes pareciam "descombinar" a cada atualização = oscilação visual. Fix (`MarketScoreBoard.tsx` ~linha 293): `displayTrend`/`displayChange` agora leem DIRETO do `targetTrendRef`/`targetChangeRef` (valor real no instante em que a resposta chega), sem interpolação. Só o PREÇO continua animado (não desincroniza contra si mesmo). Removidos `animatedTrend`/`animatedChange`/`setAnimatedTrend`/`setAnimatedChange` e suas interpolações no loop de animação.
+
+**4. BUG REAL E GRAVE — fallback sintético mascarando falha como dado real (o "EURCAD errado que se corrigiu sozinho").** O Cleber abriu EURCAD e viu preço + variação "totalmente errados"; ~2s depois corrigiu sozinho. Causa raiz: `getFallbackOrLastKnown()` em `RealMarketDataService.ts`, quando um símbolo NUNCA teve preço real na sessão (primeira seleção) e a busca real falhava transitoriamente (comum logo após reconectar a conta), caía em `getFallbackData()` — um **gerador de preço INVENTADO** (tabela `basePrices` hardcoded + `Math.random()`). EURCAD nem estava na tabela → virava **$100.00 fixo** com variação aleatória, exibido com a MESMA aparência de dado real, sem aviso. "Se corrigiu sozinho" = no ciclo de polling seguinte a busca real teve sucesso e sobrescreveu o fake. **Fix**: `getFallbackOrLastKnown` agora, sem preço real conhecido, retorna estado explícito "sem dado ainda" (`price: 0, isRealData: false, source: 'generated'`) em vez de número fabricado. **`getFallbackData()` inteiro (o gerador sintético) foi DELETADO** — virou código morto e não deve voltar. `tsc --noEmit` limpo.
+
+**Verificação**: `tsc --noEmit` limpo em todos os arquivos tocados; dev server (`neural-day-trader-dev`) sobe sem erro de build. NÃO testado visualmente logado (sem credenciais reais neste ambiente) — o Cleber precisa confirmar no app: EURCAD e outros ativos do Dashboard não devem mais mostrar preço/variação fabricados na primeira carga; preço, `$` e `%` devem aparecer JUNTOS ao trocar de ativo, sem atraso e sem piscar.
+
+### AUDITORIA DE MOCK — evidência encontrada nesta sessão (a prova de que a preocupação do Cleber é real)
+
+Varredura por assinaturas de dado fake (`basePrices`, `generateMock`, `getFallbackData`, `getEmergencyFallback`, `Math.random()`, `source: 'mock'/'generated'/'fallback'`, `SIMULATED`) no `src/app` inteiro:
+
+- **13 arquivos** têm geradores de dado fake. Os críticos (ativos, no caminho ao vivo):
+  - **`market-service.ts`** — usado direto por `ChartView.tsx` (tela de Gráfico). `fetchQuote()` só trata BTC/ETH como reais (Binance); TODO o resto (forex, índices, commodities) cai numa tabela de 6 preços fake, e o que não está nela vira **$100.00 fixo**. `fetchCandles()` gera candles INVENTADOS se a MetaAPI falhar. **O Gráfico pode estar mostrando candles/preços fabricados agora.**
+  - **`marketDataService.ts`** (função `getMarketData` própria, DIFERENTE da do `MetaApiService`) — via hook `useMarketData`, usado por `ChartView`, `AITrader`, `MarketDataContext` (global no `App.tsx`), `AssetPriceTag`, `MarketScore`. Tem `generateMockMarketData()` chamada silenciosamente em qualquer falha.
+  - **`MT5PriceValidator.ts`** e **`PriceValidator.ts`** — geradores de preço fake, mas ao menos marcam `isValid: false`/`source: 'fallback'`. Falta confirmar se algum componente checa a flag antes de exibir.
+  - **`unifiedMarketData.ts`** — só usado por debug (`UnifiedDataTester`, montado global no `App.tsx` como overlay de teste). Baixo risco.
+  - **`NeuralBridge.ts`** — CÓDIGO MORTO (zero imports). Seguro deletar.
+- **O "cérebro de AI" (`ApexScoreEngine.ts`, motor do Apex Score que o usuário vê) usa `Math.random()` literal** nas linhas ~244-245: `sentimentComponent` e `institutionalComponent` são parcialmente ALEATÓRIOS. O score "institucional/sentimento" exibido como análise é, em parte, número random do Figma. **Prova cabal de que há mock disfarçado de funcionalidade.**
+- **`RiskThermometer.tsx`** tem só 112 linhas — é um termômetro VISUAL, não um motor de risco real (sem position sizing, Kelly, drawdown de verdade). O Cleber quer o módulo de gerenciamento de risco "impecável, com uso de AI" — provavelmente é reconstrução do zero (é casca, não há lógica real a preservar).
+
+### Decisão estratégica (alinhada com o Cleber ao fim da sessão)
+
+Reescrever TUDO do zero = errado (joga fora ~15 correções reais já testadas no pipeline de preços — roteamento por corretora, região MetaAPI, metodologia D1-close-de-ontem, chunking anti-rate-limit, fallback Yahoo). Mas **reconstruir MÓDULOS ESPECÍFICOS a partir de briefing do Cleber = certo**, com o critério: **reconstruir quando o módulo é majoritariamente mock** (risco, cérebro de AI — casca, nada valioso a perder); **corrigir no lugar quando há lógica real suada** (pipeline de preços). A diferença é "quanto de real existe pra perder".
+
+O Cleber acertou o remédio contra a paranoia: **verificação em LOTE, não manual ativo-por-ativo.** A solução é técnica, não força bruta.
+
+### PLANO DE 4 FASES (o rumo combinado)
+
+```
+Fase 0  Matar fallbacks fake dos caminhos ao vivo.
+        Dashboard ✅ FEITO nesta sessão. Gráfico (market-service.ts + marketDataService.ts) = PRÓXIMO alvo.
+        → "sem dado" nunca mais vira número inventado. Fim da classe pior: o fake silencioso.
+
+Fase 1  ★ PRÓXIMA SESSÃO (a que o Cleber vai abrir agora) ★
+        Construir SCRIPT DE AUDITORIA DE MOCK EM LOTE — mesmo espírito do scripts/audit-broker-symbols.mjs
+        (que já existe pros preços). Varre o código inteiro atrás das assinaturas de mock e cospe um mapa:
+        cada módulo classificado REAL / MOCK / MISTO. Roda em segundos, repetível.
+        Entregável: mapa objetivo do que é real vs casca no projeto todo → decisão de reconstruir vs corrigir
+        deixa de ser achismo.
+
+Fase 2  Selo de proveniência em tempo real. O dado já carrega source/isRealData (esqueleto existe).
+        Expor: indicador que fica VERMELHO na tela sempre que algo exibido não vem de fonte real.
+        → paranoia resolvida de vez; a plataforma se autodenuncia. É a verificação ativo-por-ativo do
+        gráfico, mas AUTOMÁTICA — o app avisa, o Cleber não confere 300 na mão.
+
+Fase 3  Módulo a módulo, com briefing do Cleber: reconstruir as cascas (gerenciamento de risco com AI,
+        cérebro de AI/ApexScoreEngine sem Math.random) e corrigir os reais-porém-bugados.
+```
+
+**Ação imediata da próxima janela: começar a Fase 1 — construir o auditor de mock em lote e rodar no projeto inteiro pra trazer o mapa REAL/MOCK/MISTO.** O Cleber confirmou "sim" pra isso.
+
+### Pendente de git (Claude nunca commita sozinho — passar os comandos ao Cleber)
+
+Arquivos modificados nesta sessão a commitar:
+```bash
+git add src/app/components/dashboard/MarketScoreBoard.tsx \
+  src/app/utils/priceFormatter.ts \
+  src/app/services/RealMarketDataService.ts \
+  supabase/functions/server/index.ts \
+  CLAUDE.md
+git commit -m "fix: elimina fallback sintético que mascarava falha como dado real no Dashboard (EURCAD virava \$100 fixo); variação \$ e % agora sincronizadas com o preço (sem animação separada) e com precisão por ativo; CORS da Edge Function libera apikey/x-client-info (destrava conexão da corretora, já deployado)"
+git push origin main
+```
+- `supabase/functions/server/index.ts`: o fix de CORS JÁ ESTÁ EM PRODUÇÃO (deploy feito nesta sessão). Incluir no commit é só pra sincronizar o git com o que já roda.
+- O push dispara deploy automático na Vercel do frontend (Dashboard).
+- NOTA: `git status` mostra muitos arquivos em `node_modules/` como modificados/deletados — NÃO faz parte do nosso trabalho, não tocar. Investigar `.gitignore` de node_modules noutro momento (não urgente).
+
+### Segurança
+Token MetaAPI do Cleber foi colado em texto puro no chat desta sessão (2x). Ele foi avisado que pode gerar novo token no painel da MetaAPI e revogar o antigo se quiser.
+
+### Chip pendente (tarefa spawnada, rodando em janela separada)
+`task_1044351f` — "Corrigir InfinoxAdapter.ts: URL da MetaAPI sem região + token em localStorage". O `InfinoxAdapter.ts` (fluxo client-side antigo de conexão) usa host MetaAPI SEM região (`mt-client-api-v1.agiliumtrade.agiliumtrade.ai`) que dá 404 pra qualquer conta — decidir se corrige a URL ou aposenta esse caminho em favor do backend `/broker/credentials` (que já criptografa e persiste, e cujo CORS acabou de ser corrigido). O fluxo real da tela hoje já usa o backend.
 
 ## Sessão nova (2026-07-11, continuação 3): conta MetaAPI real do Cleber conectada — bug real era placeholder não substituído no secret, nomenclatura de commodities/índices já estava correta
 

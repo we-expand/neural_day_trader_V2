@@ -102,13 +102,34 @@ function rememberIfReal(data: RealMarketData): RealMarketData {
  * Fallback em caso de falha: usa o último preço REAL conhecido desse símbolo
  * (ainda que desatualizado) em vez de cair direto pro gerador sintético —
  * evita a oscilação "correto -> fake -> correto -> fake" a cada polling.
- * Só usa o gerador sintético se este símbolo nunca teve um preço real nesta
- * sessão (ex: primeira carga, ativo nunca disponível).
+ *
+ * ✅ CORRIGIDO 2026-07-11 (4ª parte): quando este símbolo NUNCA teve um preço
+ * real nesta sessão (primeira vez que é selecionado), o código antigo caía no
+ * gerador sintético (`getFallbackData`) — um preço INVENTADO (ex: EURCAD, que
+ * não tem entrada na tabela de preços-base, virava $100.00 fixo com variação
+ * aleatória) exibido na tela com a MESMA aparência de um preço real, sem
+ * nenhum aviso. Cleber reportou exatamente isso: abriu EURCAD, viu preço e
+ * variação "totalmente errados", e no ciclo de polling seguinte (2s depois)
+ * corrigiu sozinho — sintoma clássico de fallback sintético mascarando uma
+ * falha transitória (comum logo após reconectar a conta real, primeira
+ * chamada ainda "aquecendo"). Pra dado financeiro, nunca é aceitável mostrar
+ * um número inventado com a mesma confiança visual de um número real — agora,
+ * sem preço real conhecido, retorna um estado explícito "sem dado ainda"
+ * (price: 0, isRealData: false) — a tela deve tratar isso como "carregando",
+ * nunca como um preço válido.
  */
 function getFallbackOrLastKnown(symbol: string): RealMarketData {
   const lastKnown = lastRealPriceCache.get(symbol);
   if (lastKnown) return lastKnown;
-  return getFallbackData(symbol);
+  return {
+    symbol,
+    price: 0,
+    change: 0,
+    changePercent: 0,
+    timestamp: Date.now(),
+    source: 'generated',
+    isRealData: false,
+  };
 }
 
 /**
@@ -424,116 +445,6 @@ async function fetchYahooData(symbol: string): Promise<RealMarketData> {
     console.warn(`[Yahoo] ⚠️ Falha ao buscar ${symbol}, usando fallback local.`, error?.message);
     return getFallbackOrLastKnown(symbol);
   }
-}
-
-/**
- * 🔄 FALLBACK - Dados simulados realistas para 300+ ativos
- */
-function getFallbackData(symbol: string): RealMarketData {
-  // Preços base ULTRA REALISTAS (atualizado 27/01/2025)
-  const basePrices: Record<string, number> = {
-    // === CRYPTO (Top 50) ===
-    'BTCUSDT': 87900, 'BTCUSD': 87900, 'BTC': 87900,
-    'ETHUSDT': 3256.78, 'ETHUSD': 3256.78, 'ETH': 3256.78,
-    'BNBUSDT': 645.23, 'BNBUSD': 645.23,
-    'SOLUSDT': 235.67, 'SOLUSD': 235.67,
-    'XRPUSDT': 2.87, 'XRPUSD': 2.87,
-    'ADAUSDT': 1.15, 'ADAUSD': 1.15,
-    'DOGEUSDT': 0.38, 'DOGEUSD': 0.38,
-    'POLUSDT': 1.09, 'POLUSD': 1.09, // POL = Polygon (rebrandado de MATIC)
-    'DOTUSDT': 9.45, 'DOTUSD': 9.45,
-    'AVAXUSDT': 42.67, 'AVAXUSD': 42.67,
-    'LINKUSDT': 23.45, 'TRXUSDT': 0.245,
-    'UNIUSDT': 15.67, 'ATOMUSDT': 12.34,
-    'LTCUSDT': 145.67, 'BCHUSDT': 389.23,
-    'XLMUSDT': 0.145, 'ALGOUSDT': 0.456,
-    'VETUSDT': 0.067, 'FILUSDT': 8.92,
-    
-    // === FOREX (Major + Minor Pairs) ===
-    'EURUSD': 1.04127, 'GBPUSD': 1.22458, 'USDJPY': 156.244,
-    'AUDUSD': 0.62345, 'USDCAD': 1.43256, 'NZDUSD': 0.56789,
-    'USDCHF': 0.90123, 'EURGBP': 0.85123, 'EURJPY': 162.789,
-    'GBPJPY': 191.234, 'AUDJPY': 97.456, 'EURAUD': 1.67234,
-    'EURCHF': 0.93789, 'GBPCHF': 1.10234, 'AUDCAD': 0.89123,
-    
-    // === COMMODITIES ===
-    'XAUUSD': 2678.45, // Gold
-    'XAGUSD': 31.25,   // Silver
-    'WTIUSD': 82.45,   // Oil WTI
-    'BCOUSD': 86.78,   // Oil Brent
-    'NATGASUSD': 3.45, // Natural Gas
-    'COPPER': 4.23,    // Copper
-    
-    // === US INDICES ===
-    'US30': 49500,   // Dow Jones (CORRIGIDO - 18 FEV 2026)
-    'DJI': 49500,
-    'NAS100': 20150, // Nasdaq 100
-    'NQ': 20150,
-    'SPX500': 6020,  // S&P 500 (CORRIGIDO - 18 FEV 2026)
-    'US500': 6020,
-    'SPX': 6020,
-    'VIX': 13.45,    // Volatility Index
-    'RUSSELL2000': 2234,
-    
-    // === GLOBAL INDICES ===
-    'AUS200': 8234,  // ASX 200
-    'UK100': 8456,   // FTSE 100
-    'GER40': 20123,  // DAX 40
-    'FRA40': 7856,   // CAC 40
-    'ESP35': 11234,  // IBEX 35
-    'ITA40': 34567,  // FTSE MIB
-    'JPN225': 38945, // Nikkei 225
-    'HKG50': 17234,  // Hang Seng
-    'CHN50': 3456,   // China A50
-    
-    // === STOCKS (Popular) ===
-    'AAPL': 234.56, 'MSFT': 421.89, 'GOOGL': 178.34,
-    'AMZN': 185.67, 'TSLA': 234.12, 'NVDA': 789.45,
-    'META': 523.78, 'NFLX': 678.90, 'AMD': 234.56,
-  };
-  
-  const basePrice = basePrices[symbol] || 100.0;
-  
-  // Gerar variação realista baseada no tipo de ativo
-  let volatilityPercent = 0.001; // 0.1% padrão
-  
-  if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('SOL')) {
-    volatilityPercent = 0.015; // 1.5% para crypto major
-  } else if (symbol.includes('USDT') || isCryptoSymbol(symbol)) {
-    volatilityPercent = 0.025; // 2.5% para altcoins
-  } else if (symbol.includes('XAU') || symbol.includes('XAG')) {
-    volatilityPercent = 0.003; // 0.3% para metais preciosos
-  } else if (symbol.includes('US30') || symbol.includes('NAS') || symbol.includes('SPX')) {
-    volatilityPercent = 0.005; // 0.5% para índices US
-  } else if (symbol.includes('JPY') || symbol.includes('EUR') || symbol.includes('GBP')) {
-    volatilityPercent = 0.0008; // 0.08% para forex majors
-  }
-  
-  // Usar timestamp para seed (varia a cada minuto)
-  const seed = Math.floor(Date.now() / 60000);
-  const pseudoRandom = ((seed * 9301 + 49297) % 233280) / 233280;
-  
-  const randomVariation = (pseudoRandom - 0.5) * 2 * volatilityPercent;
-  const price = basePrice * (1 + randomVariation);
-  const change = price - basePrice;
-  const changePercent = (change / basePrice) * 100;
-  
-  return {
-    symbol,
-    price,
-    bid: price - (price * 0.0001),
-    ask: price + (price * 0.0001),
-    high: price * 1.005,
-    low: price * 0.995,
-    open: basePrice,
-    volume: 1000000,
-    change,
-    changePercent,
-    previousClose: basePrice,
-    timestamp: Date.now(),
-    source: 'generated',
-    isRealData: false
-  };
 }
 
 /**
