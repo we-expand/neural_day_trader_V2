@@ -176,6 +176,35 @@ async function getMetaApiMarketDataApiBase(token: string, accountId: string): Pr
     return 'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai';
 }
 
+/**
+ * ✅ 2026-07-12: `/mt5-prices` processava TODOS os símbolos de um chunk com
+ * `Promise.all` puro — cada símbolo dispara 2 chamadas à MetaAPI (ticker +
+ * candle D1, hosts diferentes), então um chunk de 40 símbolos (já o tamanho
+ * reduzido especificamente pra não sobrecarregar a conta, ver
+ * RealMarketDataService.getBatchedMT5Data) na prática virava até 80
+ * requisições SIMULTÂNEAS pra mesma conta MetaAPI compartilhada. Isso bate
+ * exatamente com o padrão reportado pelo Cleber: symbol sets pequenos
+ * (índices, ~7 símbolos) sempre saem perfeitos; forex (dezenas de pares no
+ * mesmo chunk) frequentemente tem `changePercent: 0` (candle 429 mas ticker
+ * passou — ex: USDCAD) ou preço "errado" (ticker TAMBÉM 429, caindo no
+ * último preço real conhecido, desatualizado). Fix: limitar quantos símbolos
+ * do MESMO chunk têm ticker+candle em voo ao mesmo tempo.
+ */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let nextIndex = 0;
+
+    async function worker() {
+        while (nextIndex < items.length) {
+            const i = nextIndex++;
+            results[i] = await fn(items[i]);
+        }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
+}
+
 // Fase 3: deploy/undeploy automático por inatividade (evita pagar hospedagem MetaAPI
 // de conta ociosa — ~US$8,64/mês por conta sempre ativa). Antes de qualquer execução,
 // garante que a conta esteja com state=DEPLOYED e conectada; o cron (/broker/undeploy-inactive)
@@ -3469,9 +3498,10 @@ app.post('/mt5-prices', async (c) => {
         // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
         const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
 
-        // Buscar preços de todos os símbolos em paralelo
-        const results = await Promise.all(
-            symbols.map(async (symbol: string) => {
+        // Buscar preços de todos os símbolos, com concorrência limitada (ver
+        // mapWithConcurrency acima — evita rate-limit por excesso de chamadas
+        // simultâneas à mesma conta MetaAPI compartilhada dentro de um chunk).
+        const results = await mapWithConcurrency(symbols, 8, async (symbol: string) => {
                 try {
                     // 1️⃣ Buscar TICKER (preço atual)
                     const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick`;
@@ -3564,9 +3594,8 @@ app.post('/mt5-prices', async (c) => {
                         error: error.message
                     };
                 }
-            })
-        );
-        
+        });
+
         const successCount = results.filter(r => r.price !== null).length;
         console.log(`[MT5 PRICES] 📊 Resultado: ${successCount}/${symbols.length} ativos obtidos`);
         
