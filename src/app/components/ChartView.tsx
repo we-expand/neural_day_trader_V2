@@ -58,10 +58,8 @@ import { useStrategies } from '@/app/hooks/useStrategies';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
-import { fetchCandles, fetchQuote, calculateDailyChange } from '@/app/services/market-service';
-import { getRealMarketData } from '@/app/services/RealMarketDataService';
-import { dataSourceRouter } from '@/app/services/DataSourceRouter'; // 🎯 Roteamento inteligente de fontes
-import { getUnifiedMarketData, subscribeToRealtimeData } from '@/app/services/UnifiedMarketDataService'; // 🎯 WebSocket streaming
+import { fetchCandles } from '@/app/services/market-service';
+import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
 import { toast } from 'sonner';
@@ -851,37 +849,35 @@ export function ChartView() {
       
       // Principais símbolos para atualizar (primeiros 50)
       const prioritySymbols = staticAssetsBase.slice(0, 50).map(a => a.symbol);
-      
-      const updatedAssets = await Promise.all(
-        staticAssetsBase.map(async (asset) => {
-          // Só buscar preços dos prioritários (evitar rate limit)
-          if (!prioritySymbols.includes(asset.symbol)) {
-            return asset;
-          }
-          
-          try {
-            const data = await dataSourceRouter.getMarketData(asset.symbol);
-            
-            if (data && data.price > 0 && !data.fallbackUsed) {
-              console.log(`[ChartView] ✅ Preço atualizado ${asset.symbol}:`, data.price);
-              
-              const spread = data.price * 0.0002; // 0.02% spread típico
-              return {
-                ...asset,
-                bid: data.price,
-                ask: data.price + spread,
-                change: data.change,
-                changePercent: data.changePercent
-              };
-            }
-          } catch (error) {
-            console.warn(`[ChartView] ⚠️ Falha ao buscar ${asset.symbol}:`, error);
-          }
-          
-          return asset; // Manter valor original se falhar
-        })
-      );
-      
+
+      // 🎯 Uma única chamada em lote (getBatchedMT5Data) em vez de N chamadas
+      // individuais concorrentes — mesma proteção já aplicada ao loop de P&L
+      // do AI Trading Engine (useApexLogic.ts) contra sobrecarga da conta
+      // MetaAPI compartilhada.
+      const batched: Record<string, RealMarketData> = await getBatchedMT5Data(prioritySymbols).catch((error) => {
+        console.warn('[ChartView] ⚠️ Falha ao buscar preços em lote:', error);
+        return {};
+      });
+
+      const updatedAssets = staticAssetsBase.map((asset) => {
+        const data = batched[asset.symbol];
+
+        if (data && data.isRealData && data.price > 0) {
+          console.log(`[ChartView] ✅ Preço atualizado ${asset.symbol}:`, data.price);
+
+          const spread = data.price * 0.0002; // 0.02% spread típico
+          return {
+            ...asset,
+            bid: data.price,
+            ask: data.price + spread,
+            change: data.change ?? asset.change,
+            changePercent: data.changePercent ?? asset.changePercent
+          };
+        }
+
+        return asset; // Manter valor original se falhar
+      });
+
       setLiveAssets(updatedAssets);
       console.log('[ChartView] ✅ Demonstrativo atualizado com preços REAIS');
     };
@@ -2218,8 +2214,8 @@ export function ChartView() {
           // roteamento + Edge Function) — disparar em paralelo em vez de sequencial
           // corta o tempo de carregamento do gráfico quase pela metade (cada um
           // podia levar segundos sozinho, principalmente cold start de Edge Function).
-          const marketDataPromise = dataSourceRouter.getMarketData(selectedSymbol).catch(error => {
-            console.warn('[ChartView] ⚠️ Erro ao buscar dados via router, usando candles:', error);
+          const marketDataPromise = getRealMarketData(selectedSymbol).catch(error => {
+            console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
             return null;
           });
           const candles = await fetchCandles(selectedSymbol, timeframe);
@@ -2262,8 +2258,8 @@ export function ChartView() {
 
           // 🎯 BUSCAR DADOS COM ROTEAMENTO INTELIGENTE (funciona para TODOS os ativos)
           // Já disparado em paralelo com fetchCandles acima — só aguarda aqui.
-          console.log('[ChartView] ✅ CHECKPOINT 2: Awaiting market data fetch via DataSourceRouter');
-          let marketData = null;
+          console.log('[ChartView] ✅ CHECKPOINT 2: Awaiting market data fetch via RealMarketDataService');
+          let marketData: RealMarketData | null = null;
           const routedData = await marketDataPromise;
           if (routedData && routedData.price > 0) {
             marketData = routedData;
@@ -2273,25 +2269,25 @@ export function ChartView() {
               change: marketData.change,
               changePercent: marketData.changePercent,
               source: marketData.source,
-              quality: marketData.quality
+              isRealData: marketData.isRealData
             });
           }
           console.log('[ChartView] ✅ CHECKPOINT 3: marketData fetch complete');
-          
+
           // 🔥 SE TEMOS DADOS DA API, USAR ELES (não calcular manualmente!)
-          if (marketData && marketData.price > 0 && !marketData.fallbackUsed) {
+          if (marketData && marketData.price > 0 && marketData.isRealData && typeof marketData.change === 'number' && typeof marketData.changePercent === 'number') {
             setCurrentPrice(marketData.price);
             const estimatedOpenPrice = marketData.price - marketData.change;
             setOpenPrice(estimatedOpenPrice);
             setDailyChange(marketData.change);
             setDailyChangePercent(marketData.changePercent);
             setIsPositive(marketData.changePercent >= 0);
-            
+
             console.log(`[ChartView] ✅ Usando valores DIRETOS da ${marketData.source.toUpperCase()}:`, {
               price: marketData.price.toFixed(2),
               change: marketData.change.toFixed(2),
               changePercent: marketData.changePercent.toFixed(2) + '%',
-              quality: marketData.quality
+              isRealData: marketData.isRealData
             });
           } else {
             // Fallback: calcular manualmente dos candles
@@ -2621,21 +2617,16 @@ export function ChartView() {
     return () => clearInterval(cleanupInterval);
   }, []);
 
-  // 🚀 WEBSOCKET: Streaming em tempo real (ZERO latência)
+  // 🚀 Streaming de preço (via pipeline único RealMarketDataService, com cache de 2s)
   useEffect(() => {
     if (!selectedSymbol.includes('BTC') && !selectedSymbol.includes('ETH') && !selectedSymbol.includes('SOL')) {
-      return; // Só usa WebSocket para crypto
+      return; // Só usa esse polling rápido para crypto
     }
 
-    // 🔥 FIX: Não adicionar 'T' se já termina com 'USDT'
-    const apiSymbol = selectedSymbol.endsWith('USDT') 
-      ? selectedSymbol 
-      : selectedSymbol.replace('USD', 'USDT');
-    
-    console.log(`[ChartView] 📡 Iniciando WebSocket para ${selectedSymbol} → ${apiSymbol}`);
-    
-    // Subscribe ao stream em tempo real
-    const unsubscribe = subscribeToRealtimeData(apiSymbol, (marketData) => {
+    console.log(`[ChartView] 📡 Iniciando polling de preço para ${selectedSymbol}`);
+
+    // Subscribe ao preço em tempo real (mesmo pipeline real usado no resto do app)
+    const unsubscribe = subscribeToSymbol(selectedSymbol, (marketData) => {
       const newPrice = marketData.price;
       const change = marketData.change || 0;
       const changePercent = marketData.changePercent || 0;
@@ -2643,7 +2634,7 @@ export function ChartView() {
       // 🔥 LOG FORÇADO (não depende de DEBUG)
       console.log(`[🎯 CHARTVIEW] 🚨🚨🚨 CALLBACK EXECUTADO!`, {
         timestamp: new Date().toISOString(),
-        symbol: apiSymbol,
+        symbol: selectedSymbol,
         price: newPrice,
         change: change,
         changePercent: changePercent
@@ -2661,7 +2652,7 @@ export function ChartView() {
       });
       
       debugLog('CHARTVIEW', '[🎯 CHART WebSocket] ✅ STREAMING:', {
-        '📥 RECEBIDO do UnifiedService': {
+        '📥 RECEBIDO do RealMarketDataService': {
           price: marketData.price,
           change: marketData.change,
           changePercent: marketData.changePercent,
@@ -2673,7 +2664,7 @@ export function ChartView() {
           'CHANGE': change.toFixed(2),
           '% HOJE': changePercent.toFixed(2) + '%'
         },
-        '🔗 Comparar com': `https://api.binance.com/api/v3/ticker/24hr?symbol=${apiSymbol}`
+        '🔗 Comparar com': `https://api.binance.com/api/v3/ticker/24hr?symbol=${selectedSymbol.replace('USD', 'USDT')}`
       });
       
       // 🚀 Atualizar último candle do gráfico em tempo real
@@ -2709,7 +2700,7 @@ export function ChartView() {
 
     // Cleanup ao desmontar
     return () => {
-      console.log(`[ChartView] 🔌 Desconectando WebSocket: ${apiSymbol}`);
+      console.log(`[ChartView] 🔌 Desconectando polling: ${selectedSymbol}`);
       unsubscribe();
     };
   }, [selectedSymbol]);

@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react';
-import { getUnifiedMarketData } from '@/app/services/UnifiedMarketDataService';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
-
-const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
+import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 
 interface TickerAsset {
   symbol: string;
@@ -80,120 +77,54 @@ export function MarketTicker() {
   ]);
 
   useEffect(() => {
-    // ✅ CORRIGIDO 2026-07-08: a versão anterior fazia 45 chamadas HTTP
-    // SEQUENCIAIS (um await por vez, ~3-18s cada) a cada 30s. Como um
-    // ciclo nunca terminava antes do próximo começar, isso empilhava
-    // centenas de requisições concorrentes na conta MetaAPI compartilhada
-    // (visto nos logs de produção) — causa raiz do Dashboard/ticker
-    // zerando pra TODOS os ativos, não só os de MT5. Também tinha símbolos
-    // errados hardcoded (US500 em vez de SPX500, DE40 em vez de GER40,
-    // DOGUSD/AVAUSD/MATUSD truncados, OIL/BRENT trocados) que sempre
-    // falhavam. Agora: cripto via Binance em paralelo (rápido, sem MT5),
-    // e o resto num ÚNICO POST em lote pro /mt5-prices.
-    const cryptoAssets = [
-      { symbol: 'BTCUSDT', display: 'BTC' },
-      { symbol: 'ETHUSDT', display: 'ETH' },
-      { symbol: 'XRPUSDT', display: 'XRP' },
-      { symbol: 'BNBUSDT', display: 'BNB' },
-      { symbol: 'SOLUSDT', display: 'SOL' },
-      { symbol: 'ADAUSDT', display: 'ADA' },
-      { symbol: 'DOGEUSDT', display: 'DOGE' },
-      { symbol: 'AVAXUSDT', display: 'AVAX' },
-      { symbol: 'DOTUSDT', display: 'DOT' },
-      { symbol: 'POLUSDT', display: 'POL' }, // Polygon (rebrandado de MATIC)
-    ];
+    // ✅ 2026-07-13: migrado pro pipeline único getBatchedMT5Data
+    // (RealMarketDataService.ts) — antes o rodapé buscava cripto via
+    // UnifiedMarketDataService (tinha fallback com Math.random()) e o resto
+    // via fetch direto duplicado do mesmo /mt5-prices que getBatchedMT5Data
+    // já encapsula (chunking anti-rate-limit, roteamento de cripto CFD vs
+    // Binance, fallback Yahoo real pro que não está na corretora). Também
+    // corrige 4 ativos que apareciam na lista mas NUNCA eram buscados
+    // (NAT GAS, WHEAT, COFFEE, SUGAR — esquecidos do array antigo).
+    const symbolMap: Record<string, string> = {
+      // Cripto
+      BTCUSD: 'BTC', ETHUSD: 'ETH', XRPUSD: 'XRP', BNBUSD: 'BNB', SOLUSD: 'SOL',
+      ADAUSD: 'ADA', DOGEUSD: 'DOGE', AVAXUSD: 'AVAX', DOTUSD: 'DOT', POLUSD: 'POL',
 
-    const mt5Assets = [
       // Índices
-      { mt5Symbol: 'SPX500', display: 'S&P 500' },
-      { mt5Symbol: 'NAS100', display: 'NASDAQ' },
-      { mt5Symbol: 'US30', display: 'DOW' },
-      { mt5Symbol: 'GER40', display: 'DAX' },
-      { mt5Symbol: 'UK100', display: 'FTSE' },
-      { mt5Symbol: 'JPN225', display: 'NIKKEI' },
-      { mt5Symbol: 'HKG33', display: 'HANG SENG' },
+      SPX500: 'S&P 500', NAS100: 'NASDAQ', US30: 'DOW', GER40: 'DAX',
+      UK100: 'FTSE', JPN225: 'NIKKEI', HKG33: 'HANG SENG',
 
       // Forex
-      { mt5Symbol: 'EURUSD', display: 'EUR/USD' },
-      { mt5Symbol: 'GBPUSD', display: 'GBP/USD' },
-      { mt5Symbol: 'USDJPY', display: 'USD/JPY' },
-      { mt5Symbol: 'USDCHF', display: 'USD/CHF' },
-      { mt5Symbol: 'AUDUSD', display: 'AUD/USD' },
-      { mt5Symbol: 'USDCAD', display: 'USD/CAD' },
-      { mt5Symbol: 'NZDUSD', display: 'NZD/USD' },
-      { mt5Symbol: 'EURGBP', display: 'EUR/GBP' },
-      { mt5Symbol: 'EURJPY', display: 'EUR/JPY' },
-      { mt5Symbol: 'GBPJPY', display: 'GBP/JPY' },
+      EURUSD: 'EUR/USD', GBPUSD: 'GBP/USD', USDJPY: 'USD/JPY', USDCHF: 'USD/CHF',
+      AUDUSD: 'AUD/USD', USDCAD: 'USD/CAD', NZDUSD: 'NZD/USD',
+      EURGBP: 'EUR/GBP', EURJPY: 'EUR/JPY', GBPJPY: 'GBP/JPY',
 
       // Metais
-      { mt5Symbol: 'XAUUSD', display: 'GOLD' },
-      { mt5Symbol: 'XAGUSD', display: 'SILVER' },
-      { mt5Symbol: 'XPTUSD', display: 'PLATINUM' },
-      { mt5Symbol: 'XPDUSD', display: 'PALLADIUM' },
+      XAUUSD: 'GOLD', XAGUSD: 'SILVER', XPTUSD: 'PLATINUM', XPDUSD: 'PALLADIUM',
 
-      // Energia — USOUSD = WTI, UKOUSD = Brent (estavam trocados)
-      { mt5Symbol: 'USOUSD', display: 'OIL' },
-      { mt5Symbol: 'UKOUSD', display: 'BRENT' },
+      // Energia — USOUSD = WTI, UKOUSD = Brent
+      USOUSD: 'OIL', UKOUSD: 'BRENT', XNGUSD: 'NAT GAS',
 
       // Ações
-      { mt5Symbol: 'AAPL', display: 'AAPL' },
-      { mt5Symbol: 'MSFT', display: 'MSFT' },
-      { mt5Symbol: 'GOOGL', display: 'GOOGL' },
-      { mt5Symbol: 'AMZN', display: 'AMZN' },
-      { mt5Symbol: 'NVDA', display: 'NVDA' },
-      { mt5Symbol: 'TSLA', display: 'TSLA' },
-      { mt5Symbol: 'META', display: 'META' },
-      { mt5Symbol: 'NFLX', display: 'NFLX' },
-      { mt5Symbol: 'AMD', display: 'AMD' },
-      { mt5Symbol: 'INTC', display: 'INTC' },
-    ];
+      AAPL: 'AAPL', MSFT: 'MSFT', GOOGL: 'GOOGL', AMZN: 'AMZN', NVDA: 'NVDA',
+      TSLA: 'TSLA', META: 'META', NFLX: 'NFLX', AMD: 'AMD', INTC: 'INTC',
+
+      // Agrícolas — WHEUSD/COFUSD confirmados na corretora; SUGUSD cai no
+      // fallback Yahoo real dentro de getBatchedMT5Data (não está na Infinox)
+      WHEUSD: 'WHEAT', COFUSD: 'COFFEE', SUGUSD: 'SUGAR',
+    };
 
     const fetchTickers = async () => {
       try {
-        const formatted: TickerAsset[] = [];
+        const data = await getBatchedMT5Data(Object.keys(symbolMap));
 
-        // ✅ Cripto: Binance em paralelo (rápido, não passa por MT5)
-        const cryptoResults = await Promise.allSettled(
-          cryptoAssets.map(asset => getUnifiedMarketData(asset.symbol))
-        );
-        cryptoResults.forEach((result, i) => {
-          if (result.status === 'fulfilled' && result.value) {
-            formatted.push({
-              symbol: cryptoAssets[i].display,
-              price: result.value.price,
-              change: result.value.changePercent
-            });
-          }
-        });
-
-        // ✅ MT5: UM ÚNICO POST em lote pra todos os símbolos
-        try {
-          const res = await fetch(MT5_PRICES_URL, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ symbols: mt5Assets.map(a => a.mt5Symbol) }),
-          });
-
-          if (res.ok) {
-            const result = await res.json();
-            const prices: any[] = Array.isArray(result?.prices) ? result.prices : [];
-            mt5Assets.forEach(asset => {
-              const tick = prices.find(p => p.symbol === asset.mt5Symbol);
-              if (tick && tick.price > 0) {
-                formatted.push({
-                  symbol: asset.display,
-                  price: tick.price,
-                  change: tick.changePercent || 0
-                });
-              }
-            });
-          }
-        } catch (e) {
-          console.warn('[MarketTicker] Erro ao buscar lote MT5:', e);
-        }
+        const formatted: TickerAsset[] = Object.entries(symbolMap)
+          .filter(([unifiedSymbol]) => data[unifiedSymbol]?.isRealData && data[unifiedSymbol].price > 0)
+          .map(([unifiedSymbol, display]) => ({
+            symbol: display,
+            price: data[unifiedSymbol].price,
+            change: data[unifiedSymbol].changePercent ?? 0,
+          }));
 
         if (formatted.length > 0) {
           setAssets(prev => {
@@ -208,8 +139,8 @@ export function MarketTicker() {
     };
 
     fetchTickers();
-    // 10s (ajustado a pedido do Cleber) — preço "vivo" (era 30s); já usa batch/
-    // Promise.allSettled (ver histórico do arquivo), não empilha chamada por símbolo
+    // 10s (ajustado a pedido do Cleber) — preço "vivo" (era 30s); getBatchedMT5Data
+    // já faz uma única chamada em lote, não empilha chamada por símbolo
     const interval = setInterval(fetchTickers, 10000);
     return () => clearInterval(interval);
   }, []);

@@ -41,12 +41,12 @@ export async function fetchCandles(symbol: string, timeframe: string, limit: num
     if (metaCandlesAttempt.length > 0) {
       return metaCandlesAttempt;
     }
-    console.warn(`[MarketService] ⚠️ MetaAPI failed for ${symbol}, usando fallback`);
-    return generateFallbackCandles(symbol, timeframe, limit);
+    console.warn(`[MarketService] ⚠️ Sem candles reais para ${symbol} (MetaAPI indisponível)`);
+    return [];
   } else {
-    // Stock ou desconhecido: fallback
-    console.warn(`[MarketService] ⚠️ ${symbol} asset type ${assetType}, usando fallback`);
-    return generateFallbackCandles(symbol, timeframe, limit);
+    // Stock ou desconhecido: sem fonte real de candles
+    console.warn(`[MarketService] ⚠️ ${symbol} asset type ${assetType} sem fonte de candles real`);
+    return [];
   }
 }
 
@@ -223,93 +223,6 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     console.error('[MarketService] ❌ Error fetching from MetaAPI history:', error);
     return [];
   }
-}
-
-/**
- * 🎭 FALLBACK: Candles simulados para forex/índices/commodities
- */
-function generateFallbackCandles(symbol: string, timeframe: string, limit: number): CandleData[] {
-  console.log(`[MarketService] 🎭 Generating ${limit} fallback candles for ${symbol} ${timeframe}`);
-  
-  const candles: CandleData[] = [];
-  const now = Date.now();
-  
-  // Timeframe to milliseconds
-  const timeframeMs: Record<string, number> = {
-    '1m': 60000,
-    '5m': 300000,
-    '15m': 900000,
-    '30m': 1800000,
-    '1H': 3600000,
-    '2H': 7200000,
-    '4H': 14400000,
-    '1D': 86400000,
-    '1W': 604800000,
-    '1M': 2592000000,
-  };
-  
-  const interval = timeframeMs[timeframe] || timeframeMs['1H'];
-  
-  // Preços base realistas (Janeiro 2025)
-  const basePrices: Record<string, number> = {
-    // Forex
-    'EURUSD': 1.0415,
-    'GBPUSD': 1.2245,
-    'USDJPY': 156.24,
-    'USDCHF': 0.9145,
-    'AUDUSD': 0.6245,
-    'USDCAD': 1.4425,
-    
-    // Commodities
-    'XAUUSD': 2678,
-    'XAGUSD': 30.45,
-    
-    // Índices
-    'US500': 5932,
-    'NAS100': 21345,
-    'US30': 43875,
-  };
-  
-  let basePrice = basePrices[symbol] || 100;
-  
-  // Volatilidade pequena e realista
-  const volatilityPercent = 0.001; // 0.1%
-  
-  // SEED baseada no símbolo para gerar mesmos valores sempre
-  const symbolSeed = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  let seedValue = symbolSeed;
-  
-  // Função pseudo-aleatória determinística
-  const seededRandom = () => {
-    seedValue = (seedValue * 9301 + 49297) % 233280;
-    return seedValue / 233280;
-  };
-  
-  // Generate candles backwards from now
-  for (let i = limit - 1; i >= 0; i--) {
-    const timestamp = now - (i * interval);
-    
-    const change = (seededRandom() - 0.5) * 2 * volatilityPercent;
-    
-    const open = basePrice;
-    const close = basePrice * (1 + change);
-    const high = Math.max(open, close) * (1 + seededRandom() * volatilityPercent * 0.5);
-    const low = Math.min(open, close) * (1 - seededRandom() * volatilityPercent * 0.5);
-    const volume = seededRandom() * 1000000 + 500000;
-    
-    candles.push({
-      timestamp,
-      open,
-      high,
-      low,
-      close,
-      volume
-    });
-    
-    basePrice = close;
-  }
-  
-  return candles;
 }
 
 /**
