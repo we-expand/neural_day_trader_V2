@@ -4592,6 +4592,14 @@ app.get('/real/yahoo/:symbol', async (c) => {
       'NZDUSD': 'NZDUSD=X',
       'XAUUSD': 'GC=F',  // Gold futures
       'XAGUSD': 'SI=F',  // Silver futures
+      // ✅ 2026-07-13: Platina/Paládio caíam no `|| symbol` (linha abaixo), ou
+      // seja, chamavam o Yahoo com o ticker literal "XPTUSD"/"XPDUSD" — que não
+      // existe no Yahoo. Isso só aparecia quando o broker (MetaAPI) falhava
+      // transitoriamente e o preço caía pra esse fallback: dava erro ou, pior,
+      // dado de um ticker errado — sintoma relatado como "oscila entre preço
+      // certo e completamente errado" nos metais.
+      'XPTUSD': 'PL=F',  // Platinum futures
+      'XPDUSD': 'PA=F',  // Palladium futures
       'US500': '^GSPC',  // S&P 500
       'US30': '^DJI',    // Dow Jones
       'NAS100': '^IXIC', // NASDAQ

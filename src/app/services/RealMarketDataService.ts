@@ -426,6 +426,24 @@ async function fetchYahooData(symbol: string): Promise<RealMarketData> {
       return getFallbackOrLastKnown(symbol);
     }
 
+    // ✅ 2026-07-13: rede de segurança contra ticker do Yahoo errado/ausente no
+    // mapa do backend (achado real: XPTUSD/XPDUSD caíam no ticker literal
+    // "XPTUSD"/"XPDUSD", que não existe no Yahoo — quando não dava erro
+    // limpo, podia devolver preço de outro instrumento, sintoma relatado como
+    // "oscila entre preço certo e completamente errado"). Se o preço desviar
+    // mais de 20% do último preço REAL conhecido desse símbolo, é mais
+    // provável ser ticker errado do que um movimento real — descarta e usa o
+    // último preço real conhecido em vez de arriscar mostrar dado de outro
+    // ativo com a mesma confiança visual de um preço real.
+    const lastKnown = lastRealPriceCache.get(symbol);
+    if (lastKnown && lastKnown.isRealData && lastKnown.price > 0) {
+      const deviation = Math.abs(data.price - lastKnown.price) / lastKnown.price;
+      if (deviation > 0.20) {
+        console.warn(`[Yahoo] ⚠️ Preço de ${symbol} desviou ${(deviation * 100).toFixed(1)}% do último real conhecido (possível ticker errado) — mantendo último preço real.`, { recebido: data.price, ultimoReal: lastKnown.price });
+        return lastKnown;
+      }
+    }
+
     return rememberIfReal({
       symbol,
       price: data.price,
