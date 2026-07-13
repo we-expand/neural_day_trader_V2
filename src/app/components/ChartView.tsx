@@ -59,6 +59,7 @@ import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
 import { fetchCandles } from '@/app/services/market-service';
+import { getPrecisionForSymbol } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
@@ -617,32 +618,24 @@ export function ChartView() {
     { symbol: 'EURNZD', name: 'Euro / New Zealand Dollar', bid: 1.8334, ask: 1.8335, change: 0.0045, changePercent: 0.25, category: 'Forex' },
     { symbol: 'GBPNZD', name: 'British Pound / New Zealand Dollar', bid: 2.1567, ask: 2.1568, change: -0.0078, changePercent: -0.36, category: 'Forex' },
 
-    // COMMODITIES (25 ativos)
+    // COMMODITIES (10 ativos)
     { symbol: 'XAUUSD', name: 'Gold', bid: 2678, ask: 2679, change: 12, changePercent: 0.45, category: 'Commodities' },
     { symbol: 'XAGUSD', name: 'Silver', bid: 31.45, ask: 31.46, change: -0.34, changePercent: -1.07, category: 'Commodities' },
     { symbol: 'XPTUSD', name: 'Platinum', bid: 945.20, ask: 945.40, change: 8.5, changePercent: 0.91, category: 'Commodities' },
     { symbol: 'XPDUSD', name: 'Palladium', bid: 1034.50, ask: 1034.70, change: -12.3, changePercent: -1.18, category: 'Commodities' },
-    { symbol: 'XCUUSD', name: 'Copper', bid: 4.12, ask: 4.13, change: 0.05, changePercent: 1.23, category: 'Commodities' },
-    { symbol: 'WTIUSD', name: 'WTI Crude Oil', bid: 68.45, ask: 68.47, change: -0.89, changePercent: -1.28, category: 'Commodities' },
-    { symbol: 'BRENTUSD', name: 'Brent Crude Oil', bid: 72.34, ask: 72.36, change: -1.12, changePercent: -1.52, category: 'Commodities' },
-    { symbol: 'NGAS', name: 'Natural Gas', bid: 3.234, ask: 3.236, change: 0.089, changePercent: 2.83, category: 'Commodities' },
-    { symbol: 'UKOIL', name: 'UK Brent Oil', bid: 72.56, ask: 72.58, change: -0.98, changePercent: -1.33, category: 'Commodities' },
-    { symbol: 'USOIL', name: 'US Crude Oil', bid: 68.67, ask: 68.69, change: -0.76, changePercent: -1.10, category: 'Commodities' },
-    { symbol: 'CORN', name: 'Corn Futures', bid: 445.25, ask: 445.50, change: 3.25, changePercent: 0.73, category: 'Commodities' },
-    { symbol: 'WHEAT', name: 'Wheat Futures', bid: 578.75, ask: 579.00, change: -5.50, changePercent: -0.94, category: 'Commodities' },
-    { symbol: 'SOYBEAN', name: 'Soybean Futures', bid: 1234.50, ask: 1234.75, change: 12.25, changePercent: 1.00, category: 'Commodities' },
-    { symbol: 'SUGAR', name: 'Sugar Futures', bid: 19.45, ask: 19.47, change: -0.23, changePercent: -1.17, category: 'Commodities' },
-    { symbol: 'COFFEE', name: 'Coffee Futures', bid: 234.50, ask: 234.60, change: 4.30, changePercent: 1.87, category: 'Commodities' },
-    { symbol: 'COCOA', name: 'Cocoa Futures', bid: 8945.00, ask: 8950.00, change: -78.00, changePercent: -0.86, category: 'Commodities' },
-    { symbol: 'COTTON', name: 'Cotton Futures', bid: 78.45, ask: 78.50, change: 1.12, changePercent: 1.45, category: 'Commodities' },
-    { symbol: 'LUMBER', name: 'Lumber Futures', bid: 456.75, ask: 457.00, change: -8.50, changePercent: -1.83, category: 'Commodities' },
-    { symbol: 'HEATING_OIL', name: 'Heating Oil', bid: 2.345, ask: 2.347, change: -0.034, changePercent: -1.43, category: 'Commodities' },
-    { symbol: 'RBOB_GAS', name: 'RBOB Gasoline', bid: 2.012, ask: 2.014, change: -0.023, changePercent: -1.13, category: 'Commodities' },
-    { symbol: 'LEAN_HOGS', name: 'Lean Hogs', bid: 89.45, ask: 89.50, change: 2.15, changePercent: 2.46, category: 'Commodities' },
-    { symbol: 'LIVE_CATTLE', name: 'Live Cattle', bid: 178.50, ask: 178.60, change: -1.25, changePercent: -0.70, category: 'Commodities' },
-    { symbol: 'FEEDER_CATTLE', name: 'Feeder Cattle', bid: 256.75, ask: 256.85, change: 3.50, changePercent: 1.38, category: 'Commodities' },
-    { symbol: 'OJ', name: 'Orange Juice', bid: 345.60, ask: 345.80, change: -4.20, changePercent: -1.20, category: 'Commodities' },
-    { symbol: 'RICE', name: 'Rice Futures', bid: 16.78, ask: 16.80, change: 0.34, changePercent: 2.07, category: 'Commodities' },
+    // ✅ 2026-07-13: nomes corrigidos pros reais da Infinox (brokerRegistry.ts/
+    // assetDatabase.ts) — a maioria aqui eram símbolos inventados (WTIUSD,
+    // BRENTUSD, NGAS, CORN, COCOA...) que nunca existiram na corretora, então
+    // nunca recebiam preço real e ficavam parados no valor fake do seed pra
+    // sempre. Removidos os que não têm contrato equivalente confirmado na
+    // Infinox (Copper, Corn, Soybean, Cocoa, Cotton, Lumber, Heating Oil,
+    // RBOB, Lean Hogs, Live Cattle, Feeder Cattle, Orange Juice, Rice).
+    { symbol: 'USOUSD', name: 'WTI Crude Oil', bid: 68.45, ask: 68.47, change: -0.89, changePercent: -1.28, category: 'Commodities' },
+    { symbol: 'UKOUSD', name: 'Brent Crude Oil', bid: 72.34, ask: 72.36, change: -1.12, changePercent: -1.52, category: 'Commodities' },
+    { symbol: 'XNGUSD', name: 'Natural Gas', bid: 3.234, ask: 3.236, change: 0.089, changePercent: 2.83, category: 'Commodities' },
+    { symbol: 'WHEUSD', name: 'Wheat', bid: 578.75, ask: 579.00, change: -5.50, changePercent: -0.94, category: 'Commodities' },
+    { symbol: 'SUGUSD', name: 'Sugar', bid: 19.45, ask: 19.47, change: -0.23, changePercent: -1.17, category: 'Commodities' },
+    { symbol: 'COFUSD', name: 'Coffee', bid: 234.50, ask: 234.60, change: 4.30, changePercent: 1.87, category: 'Commodities' },
 
     // ÍNDICES (40 ativos)
     { symbol: 'US30', name: 'Dow Jones', bid: 43875, ask: 43877, change: 53, changePercent: 0.12, category: 'Índices' },
@@ -847,14 +840,19 @@ export function ChartView() {
     const updateLivePrices = async () => {
       console.log('[ChartView] 💰 Buscando preços REAIS para demonstrativo...');
       
-      // Principais símbolos para atualizar (primeiros 50)
-      const prioritySymbols = staticAssetsBase.slice(0, 50).map(a => a.symbol);
+      // ✅ 2026-07-13: buscar TODOS os símbolos, não só os primeiros 50 — o
+      // array começa com ~40 cripto + 28 forex, então o limite antigo nunca
+      // alcançava Índices/Commodities (ficavam parados no valor fake do seed
+      // inicial pra sempre). getBatchedMT5Data já faz chunking interno (lotes
+      // de 40, com pausa) contra a conta MetaAPI compartilhada, então é seguro
+      // mandar a lista inteira de uma vez.
+      const allSymbols = staticAssetsBase.map(a => a.symbol);
 
       // 🎯 Uma única chamada em lote (getBatchedMT5Data) em vez de N chamadas
       // individuais concorrentes — mesma proteção já aplicada ao loop de P&L
       // do AI Trading Engine (useApexLogic.ts) contra sobrecarga da conta
       // MetaAPI compartilhada.
-      const batched: Record<string, RealMarketData> = await getBatchedMT5Data(prioritySymbols).catch((error) => {
+      const batched: Record<string, RealMarketData> = await getBatchedMT5Data(allSymbols).catch((error) => {
         console.warn('[ChartView] ⚠️ Falha ao buscar preços em lote:', error);
         return {};
       });
@@ -3313,9 +3311,7 @@ export function ChartView() {
                 <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Preço Atual</div>
                 <div className="text-4xl font-bold text-white tracking-tight tabular-nums" style={{fontFamily: 'ui-monospace, monospace'}}>
                   {displayedPrice !== null ? (
-                    selectedSymbol.includes('BTC') || selectedSymbol.includes('ETH') || selectedSymbol.includes('XAU') || selectedSymbol.includes('US30') || selectedSymbol.includes('NAS') || selectedSymbol.includes('SPX') 
-                      ? formatBrazilianPrice(displayedPrice, 2) 
-                      : formatBrazilianPrice(displayedPrice, selectedSymbol.includes('JPY') ? 3 : 5)
+                    formatBrazilianPrice(displayedPrice, getPrecisionForSymbol(selectedSymbol, displayedPrice))
                   ) : (
                     <div className="h-12 w-32 bg-gray-800/50 animate-pulse rounded"></div>
                   )}
@@ -3337,9 +3333,7 @@ export function ChartView() {
                   <div className={`text-2xl font-bold tracking-tight tabular-nums ${
                     isPositive ? 'text-green-400' : 'text-red-400'
                   }`} style={{fontFamily: 'ui-monospace, monospace'}}>
-                    {isPositive ? '+' : '-'}{selectedSymbol.includes('BTC') || selectedSymbol.includes('ETH') || selectedSymbol.includes('XAU') || selectedSymbol.includes('US30') || selectedSymbol.includes('NAS') || selectedSymbol.includes('SPX')
-                      ? formatBrazilianPrice(Math.abs(dailyChange), 2)
-                      : formatBrazilianPrice(Math.abs(dailyChange), selectedSymbol.includes('JPY') ? 3 : 5)}
+                    {isPositive ? '+' : '-'}{formatBrazilianPrice(Math.abs(dailyChange), getPrecisionForSymbol(selectedSymbol, displayedPrice ?? Math.abs(dailyChange)))}
                   </div>
                   <div className={`text-sm font-medium ${
                     isPositive ? 'text-green-400' : 'text-red-400'
