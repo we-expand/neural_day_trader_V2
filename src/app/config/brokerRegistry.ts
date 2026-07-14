@@ -124,7 +124,11 @@ function isEuropeanStock(unified: string): boolean {
  * velho — revertido de volta pra corretora, igual BTCUSD.
  */
 const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD']),
+  // ✅ 2026-07-14: BATUSD adicionado ao catálogo (assetDatabase.ts) e já
+  // confirmado ao vivo com CFD real na Infinox — roteado direto pela
+  // corretora, sem passar pela Binance direta (que está morta em produção,
+  // ver comentário acima sobre SOL/BNB/XRP/ADA/DOT).
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD']),
 };
 
 /**

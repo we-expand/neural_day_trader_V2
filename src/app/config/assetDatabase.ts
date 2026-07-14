@@ -115,6 +115,7 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'BCHUSD', name: 'Bitcoin Cash', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Bitcoin Cash' },
   { symbol: 'DOGEUSD', name: 'Dogecoin', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 5, lotSize: 1, minLot: 10, maxLot: 1000000, leverage: 2, tradingHours: '24/7', description: 'Dogecoin' },
   { symbol: 'SHIBUSD', name: 'Shiba Inu', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 6, lotSize: 1, minLot: 100000, maxLot: 100000000, leverage: 2, tradingHours: '24/7', description: 'Shiba Inu' },
+  { symbol: 'BATUSD', name: 'Basic Attention Token', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🦁', precision: 5, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Basic Attention Token' },
   
   // ============================================================================
   // 📊 INDICES - ÍNDICES GLOBAIS (16 ÍNDICES)
