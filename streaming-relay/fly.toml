@@ -1,0 +1,14 @@
+app = "neural-day-trader-streaming-relay"
+primary_region = "gru"
+
+[build]
+
+[processes]
+  app = "node dist/streaming-relay/src/index.js"
+
+# Serviço sempre-ligado — sem auto-stop/auto-start (diferente do padrão do
+# Fly.io pra web apps). Não expõe porta HTTP, só mantém a conexão de
+# streaming com a MetaAPI e publica no Supabase Realtime.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
