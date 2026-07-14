@@ -257,8 +257,8 @@ export const ASSET_DATABASE: AssetCategory[] = [
       {
         name: 'Asia Pacific',
         items: [
-          { symbol: 'JPN225', display: 'NIKKEI', name: 'Japan 225', volatility: 'High' },
-          { symbol: 'HKG33', display: 'HANG SENG', name: 'Hong Kong 33', volatility: 'High' },
+          { symbol: 'JP225', display: 'NIKKEI', name: 'Japan 225', volatility: 'High' },
+          { symbol: 'HK50', display: 'HANG SENG', name: 'Hong Kong 33', volatility: 'High' },
           { symbol: 'HK50dft', display: 'HSI50dft', name: 'Hong Kong 50 Draft', volatility: 'High' },
           { symbol: 'AUS200', display: 'ASX200', name: 'Australia 200', volatility: 'Medium' },
           { symbol: 'CHINA50', display: 'CHINA50', name: 'China A50', volatility: 'High' },
@@ -615,7 +615,7 @@ function isMarketOpen(symbol: string, categoryId: string): boolean {
   }
   
   // 📍 ÍNDICES ASIÁTICOS (NIKKEI, HSI): 00:00-08:00 UTC
-  if (['JPN225', 'HKG33', 'AUS200'].includes(symbol)) {
+  if (['JP225', 'HK50', 'AUS200'].includes(symbol)) {
     if (dayOfWeek === 0 || dayOfWeek === 6) return false;
     return utcHour >= 0 && utcHour < 8;
   }
