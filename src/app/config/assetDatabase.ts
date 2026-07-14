@@ -126,6 +126,7 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'NAS100', name: 'NASDAQ 100', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'NASDAQ 100' },
   { symbol: 'US30', name: 'Dow Jones Industrial Average', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Dow Jones' },
   { symbol: 'US2000', name: 'Russell 2000', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Russell 2000' },
+  { symbol: 'VIX', name: 'CBOE Volatility Index', category: 'INDICES', subCategory: 'US Indices', icon: '📉', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:15 ET', description: 'CBOE Volatility Index' },
   
   // EUROPEAN INDICES
   { symbol: 'UK100', name: 'FTSE 100', category: 'INDICES', subCategory: 'European Indices', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '08:00-16:30 GMT', description: 'FTSE 100' },

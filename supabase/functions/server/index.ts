@@ -4629,6 +4629,7 @@ app.get('/real/yahoo/:symbol', async (c) => {
       'NAS100': '^IXIC', // NASDAQ
       'SPX': '^GSPC',
       'SPX500': '^GSPC',
+      'VIX': '^VIX',      // ✅ 2026-07-14: sem isso caía no ticker literal "VIX" (Yahoo não reconhece sem o "^"), aparecia como "não existe"
       // ✅ ADICIONADO 2026-07-08: commodities agrícolas que a MetaAPI/broker atual
       // não oferece (confirmado HTTP 404 em /mt5-prices) — futuros contínuos do
       // Yahoo como fonte real alternativa, em vez do gerador sintético local.
