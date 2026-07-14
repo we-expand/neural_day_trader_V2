@@ -16,7 +16,7 @@
 import MetaApi, { SynchronizationListener, MetatraderSymbolPrice } from 'metaapi.cloud-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { ALL_ASSETS } from '../../src/app/config/assetDatabase.js';
-import { isAvailableOnBroker, getBrokerSymbol } from '../../src/app/config/brokerRegistry.js';
+import { isAvailableOnBroker, isCryptoCfdAvailable, getBrokerSymbol } from '../../src/app/config/brokerRegistry.js';
 
 const METAAPI_TOKEN = requireEnv('METAAPI_TOKEN');
 const METAAPI_ACCOUNT_ID = requireEnv('METAAPI_ACCOUNT_ID');
@@ -34,8 +34,18 @@ function requireEnv(name: string): string {
 
 // Catálogo real disponível na Infinox (mesma fonte usada pelo frontend) —
 // nome unificado -> nome real na corretora.
+//
+// ⚠️ CORRIGIDO 2026-07-14: `isAvailableOnBroker` sozinho não é suficiente pra
+// cripto — só BTCUSD/SOLUSD/BNBUSD/XRPUSD/ADAUSD/DOTUSD/BATUSD têm CFD
+// confirmado na Infinox (`CRYPTO_CFD_AVAILABLE` em brokerRegistry.ts); o
+// resto (ex: ETHUSD) passa em `isAvailableOnBroker` mas NÃO EXISTE como CFD
+// de verdade — assinar esse símbolo faz a MetaAPI rejeitar com
+// `ValidationError: symbol does not exist`, que sem tratamento derrubava o
+// processo inteiro (loop de crash-restart, nunca chegava a transmitir
+// preço nenhum). Mesmo gate que o frontend já usa em `getRealMarketData`.
 const brokerSymbolByUnified = new Map<string, string>();
 for (const asset of ALL_ASSETS) {
+  if (asset.category === 'CRYPTO' && !isCryptoCfdAvailable(asset.symbol, 'infinox')) continue;
   if (isAvailableOnBroker(asset.symbol, 'infinox')) {
     brokerSymbolByUnified.set(getBrokerSymbol(asset.symbol, 'infinox'), asset.symbol);
   }
@@ -94,30 +104,54 @@ async function main() {
   await connection.waitSynchronized();
   console.log('[streaming-relay] ✅ Conexão de streaming MetaAPI sincronizada.');
 
-  // Seed do previousClose via terminal state (candle D1 mais recente por
-  // símbolo) antes de assinar — sem isso, os primeiros ticks de cada símbolo
-  // vêm com change/changePercent = 0 até o primeiro candle fechar.
-  for (const [brokerSymbol] of brokerSymbolByUnified) {
-    try {
-      const candles = await account.getHistoricalCandles(brokerSymbol, '1d', undefined, 2);
-      if (candles.length >= 1) {
-        previousCloseBySymbol.set(brokerSymbol, candles[candles.length - 1].close);
-      }
-    } catch {
-      // símbolo sem candle D1 disponível ainda — segue sem seed, corrige no
-      // próximo fechamento de candle diário.
-    }
-  }
-
+  // ⚠️ CORRIGIDO 2026-07-14: o seed do previousClose (candle D1) rodava
+  // SEQUENCIAL e SEM TIMEOUT antes de qualquer assinatura de preço — se
+  // `getHistoricalCandles` travasse (sem erro, sem timeout) pra QUALQUER um
+  // dos 219 símbolos, o serviço inteiro ficava preso aí pra sempre e nunca
+  // chegava a assinar preço nenhum (sintoma: relay "conectado e sincronizado"
+  // no log, mas Dashboard nunca recebendo tick). Fix: assina os preços
+  // PRIMEIRO (tick já flui imediatamente) e faz o seed do candle em paralelo,
+  // em background, com timeout por chamada — se travar/falhar, só aquele
+  // símbolo fica sem seed (change/changePercent começam em 0 até o primeiro
+  // fechamento de candle real, já tratado sem piscar no frontend via
+  // `rememberIfReal`, ver RealMarketDataService.ts).
   const symbols = [...brokerSymbolByUnified.keys()];
   const CHUNK_SIZE = 40;
   for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
     const chunk = symbols.slice(i, i + CHUNK_SIZE);
-    await Promise.all(chunk.map(symbol => connection.subscribeToMarketData(symbol, [{ type: 'quotes' }])));
+    await Promise.allSettled(chunk.map(async (symbol) => {
+      try {
+        await connection.subscribeToMarketData(symbol, [{ type: 'quotes' }]);
+      } catch (error) {
+        console.error(`[streaming-relay] ⚠️ Falha ao assinar ${symbol} (${brokerSymbolByUnified.get(symbol)}), ignorando:`, error instanceof Error ? error.message : error);
+      }
+    }));
     console.log(`[streaming-relay] 📡 Assinado lote ${i / CHUNK_SIZE + 1}/${Math.ceil(symbols.length / CHUNK_SIZE)} (${chunk.length} símbolos).`);
   }
-
   console.log(`[streaming-relay] 🚀 Streaming ativo pra ${symbols.length} símbolos.`);
+
+  const CANDLE_TIMEOUT_MS = 5000;
+  function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+    ]);
+  }
+
+  (async () => {
+    for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
+      const chunk = symbols.slice(i, i + CHUNK_SIZE);
+      await Promise.allSettled(
+        chunk.map(async (brokerSymbol) => {
+          const candles = await withTimeout(account.getHistoricalCandles(brokerSymbol, '1d', undefined, 2), CANDLE_TIMEOUT_MS);
+          if (candles.length >= 1) {
+            previousCloseBySymbol.set(brokerSymbol, candles[candles.length - 1].close);
+          }
+        })
+      );
+    }
+    console.log(`[streaming-relay] 📈 Seed de previousClose concluído (${previousCloseBySymbol.size}/${symbols.length} símbolos).`);
+  })();
 }
 
 main().catch((error) => {

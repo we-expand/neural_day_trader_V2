@@ -302,12 +302,22 @@ export const MarketScoreBoard = () => {
   // abaixo (fetchData/setInterval) continua ativo como rede de segurança —
   // cobre o período antes do streaming-relay entregar o primeiro tick e
   // símbolos fora do catálogo assinado pelo relay.
+  //
+  // ⚠️ CORRIGIDO 2026-07-14 (2ª parte): só o PREÇO vem do streaming aqui —
+  // `change`/`changePercent` NÃO são escritos por este listener. Cleber
+  // reportou (com print) o % oscilando entre dois valores plausíveis mas
+  // diferentes (ex: +0,50% → -0,12%) com o preço praticamente parado — causa
+  // raiz: o `streaming-relay` calcula sua própria variação diária (seed de
+  // candle D1 simplificado) e o polling antigo calcula a variação com toda a
+  // validação já existente no backend (referência ≤4 dias, magnitude ≤15%,
+  // ver supabase/functions/server/index.ts) — os dois métodos divergem um
+  // pouco e, escrevendo no mesmo ref, brigavam a cada tick/polling.
+  // `change`/`changePercent` continuam vindo SÓ do polling (fetchData
+  // abaixo), que já é a fonte validada; o streaming só acelera o preço.
   useEffect(() => {
     const unsubscribe = subscribeToRealtimePrice(activeSymbol, (data) => {
       if (activeSymbolRef.current !== activeSymbol) return;
       targetPriceRef.current = data.price;
-      targetChangeRef.current = data.change ?? 0;
-      targetTrendRef.current = data.changePercent ?? 0;
       setDataSource('MetaApi');
       setWsUpdateCounter((c) => c + 1);
     });
