@@ -358,7 +358,11 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
   // transitória da corretora, prefere manter o último preço real da própria
   // corretora (nunca mistura fonte) em vez de mostrar um número de fonte
   // diferente que não bate com o terminal MT5 do usuário.
-  const brokerOnly = symbol === 'XPTUSD';
+  // ✅ 2026-07-14: VIX também tem CFD confirmado na Infinox (testado direto,
+  // bate com o MT5 do Cleber: -3.03% vs -3.11%) — o fallback Yahoo estava
+  // sendo usado sempre (marcado errado como "sem CFD" numa sessão anterior)
+  // e divergia bastante do MT5 real (-4.43% vs -3.11%). Mesma regra do XPTUSD.
+  const brokerOnly = symbol === 'XPTUSD' || symbol === 'VIX';
 
   // Nome real do ativo na corretora — pode ser diferente do símbolo unificado
   // que o resto do app usa (ex: JP225 unificado -> 'JPN225' na Infinox).
@@ -686,10 +690,10 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
       const tick = priceByBrokerName.get(brokerName);
 
       if (!tick || !isValidPrice(tick.price)) {
-        // ✅ 2026-07-14: XPTUSD nunca deve cair no Yahoo (futuro PL=F diverge
-        // do MT5 real) — tem CFD confirmado na Infinox, então numa falha
+        // ✅ 2026-07-14: XPTUSD e VIX nunca devem cair no Yahoo (diverge do
+        // MT5 real) — os dois têm CFD confirmado na Infinox, então numa falha
         // transitória mantém o último preço real da própria corretora.
-        results[unified] = unified === 'XPTUSD'
+        results[unified] = (unified === 'XPTUSD' || unified === 'VIX')
           ? getFallbackOrLastKnown(unified)
           : await fetchYahooData(unified);
         return;

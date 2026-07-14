@@ -61,12 +61,6 @@ const UNAVAILABLE: Record<BrokerId, Set<string>> = {
     // por design, títulos e agrícolas acima. Estes 3 pares eram a única
     // lacuna real ainda não classificada).
     'USDPLN', 'USDCZK', 'USDMYR',
-    // ✅ 2026-07-14: VIX é um índice calculado pela CBOE a partir de opções,
-    // não um instrumento negociável — a Infinox (como a maioria das
-    // corretoras) não oferece CFD dele. Vai direto pro fallback Yahoo (ticker
-    // correto ^VIX, ver yahooSymbolMap no backend) em vez de gastar um
-    // round-trip inútil na corretora primeiro.
-    'VIX',
   ]),
 };
 
