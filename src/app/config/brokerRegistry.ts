@@ -107,24 +107,24 @@ function isEuropeanStock(unified: string): boolean {
  * fontes de Binance direta estão mortas em produção desde o incidente de
  * 2026-07-10 (CORS/403 bloqueado no domínio de produção).
  *
- * ✅ 2026-07-11 (2ª parte): Cleber pediu pra verificar TODA cripto contra a
- * Binance e reportou variação diária "totalmente errada" (ex: BNBUSD). Causa
- * raiz confirmada: o candle diário (D1) da MetaAPI fecha às 21:00 UTC (fuso
- * do broker), não numa janela rolante de 24h como a Binance — pra forex isso
- * já dava uma diferença pequena (~0,2%) aceita antes, mas cripto é volátil
- * o bastante pra essa diferença de METODOLOGIA inverter até o sinal da
- * variação (confirmado: SOL/BNB/XRP/ADA com sinal ou magnitude bem diferente
- * da Binance). Não é bug de preço errado, é referência de mercado diferente
- * — mas Cleber decidiu que bater com a Binance importa mais que a
- * disponibilidade extra do CFD pra essas 5. Revertidas pra Binance direta
- * (o fix de validação `isFinite` em `DirectBinanceService.ts`, mesma sessão,
- * reduz o risco do incidente de dado inválido se algum proxy CORS responder
- * mal). BTCUSD é a EXCEÇÃO deliberada: continua na MetaAPI (decisão explícita
- * do Cleber) — é o ativo padrão do Dashboard, prioriza disponibilidade sobre
- * bater exatamente com a Binance.
+ * ✅ 2026-07-11 (2ª parte, REVERTIDO em 2026-07-14): SOL/BNB/XRP/ADA/DOT
+ * tinham sido movidas pra Binance direta porque a metodologia de fechamento
+ * D1 do broker (21:00 UTC) diverge um pouco da janela rolante 24h da Binance
+ * em cripto (mais volátil, a diferença de metodologia podia até inverter o
+ * sinal da variação). Na época isso parecia um trade-off aceitável.
+ *
+ * ✅ 2026-07-14: Cleber reportou XRPUSD "completamente errado, parece
+ * cotação de ontem" — confirmado ao vivo: Binance direta (as 3 fontes, ver
+ * `DirectBinanceService.ts`) está MORTA em produção (CORS bloqueado no
+ * domínio), então essas 5 cripto caíam sempre no último preço real conhecido
+ * em cache — que podia ser de horas ou dias atrás. Comparado ao vivo: a
+ * mesma consulta via corretora (`/mt5-prices`) devolve XRPUSD real e fresco
+ * na hora (ver commit). Preço certo com metodologia de variação levemente
+ * diferente da Binance é MUITO melhor que preço/variação travados em cache
+ * velho — revertido de volta pra corretora, igual BTCUSD.
  */
 const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
-  infinox: new Set(['BTCUSD']),
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD']),
 };
 
 /**
