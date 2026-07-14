@@ -4642,8 +4642,14 @@ app.get('/real/yahoo/:symbol', async (c) => {
 
     const yahooSymbol = yahooSymbolMap[symbol] || symbol;
 
+    // ✅ 2026-07-14: `interval=1d&range=2d` dava um snapshot de `meta.regularMarketPrice`
+    // menos fresco que o Yahoo tem disponível (confirmado no VIX: variação
+    // batendo ~1,3 ponto percentual atrás do valor real reportado pelo Cleber).
+    // Os campos usados aqui (regularMarketPrice/previousClose/chartPreviousClose)
+    // vêm do `meta`, não dos candles — trocar pra intervalo de 1 minuto não muda
+    // nada além de pedir ao Yahoo um snapshot mais recente do mesmo campo.
     const response = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=2d`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1m&range=1d`,
       {
         method: 'GET',
         headers: {
