@@ -59,6 +59,11 @@ function getDisplayCategory(asset: Asset): DisplayCategory | null {
  * o nome interno da corretora, que é só um detalhe de implementação de
  * `brokerRegistry.getBrokerSymbol()` usado na hora de buscar o preço.
  */
+// ✅ 2026-07-14: ativos sem CFD na Infinox mas com preço real confirmado
+// por fonte alternativa (fallback Yahoo, ver yahooSymbolMap no backend) —
+// não devem ficar de fora do seletor só por não terem CFD na corretora.
+const NO_BROKER_BUT_REAL_DATA = new Set<string>(['VIX']);
+
 function buildRealInfinoxCatalog(): Record<DisplayCategory, string[]> {
   const catalog: Record<DisplayCategory, string[]> = {
     FOREX: [], METALS: [], ENERGY: [], COMMODITIES: [], CRYPTO: [],
@@ -66,7 +71,7 @@ function buildRealInfinoxCatalog(): Record<DisplayCategory, string[]> {
   };
 
   for (const asset of ALL_ASSETS) {
-    if (!isAvailableOnBroker(asset.symbol, 'infinox')) continue;
+    if (!isAvailableOnBroker(asset.symbol, 'infinox') && !NO_BROKER_BUT_REAL_DATA.has(asset.symbol)) continue;
     const category = getDisplayCategory(asset);
     if (category) catalog[category].push(asset.symbol);
   }
