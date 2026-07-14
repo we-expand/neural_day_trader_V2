@@ -352,6 +352,14 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
     return await fetchYahooData(symbol);
   }
 
+  // ✅ 2026-07-14: Cleber confirmou que o preço do Yahoo (futuro CC=F/PL=F)
+  // diverge "brutalmente" do MT5 real pra Platina — o ativo TEM CFD
+  // confirmado na Infinox, então nunca deve cair no Yahoo; em qualquer falha
+  // transitória da corretora, prefere manter o último preço real da própria
+  // corretora (nunca mistura fonte) em vez de mostrar um número de fonte
+  // diferente que não bate com o terminal MT5 do usuário.
+  const brokerOnly = symbol === 'XPTUSD';
+
   // Nome real do ativo na corretora — pode ser diferente do símbolo unificado
   // que o resto do app usa (ex: JP225 unificado -> 'JPN225' na Infinox).
   const brokerSymbol = getBrokerSymbol(symbol, 'infinox');
@@ -367,6 +375,10 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
     });
 
     if (!res.ok) {
+      if (brokerOnly) {
+        console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol} (${brokerSymbol}) — nunca usa Yahoo pra este ativo, mantendo último preço real da corretora.`);
+        return getFallbackOrLastKnown(symbol);
+      }
       console.warn(`[MT5] ⚠️ HTTP ${res.status} para ${symbol} (${brokerSymbol}), tentando Yahoo Finance.`);
       return await fetchYahooData(symbol);
     }
@@ -381,6 +393,10 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
     // direto no gerador sintético local; agora tenta o Yahoo Finance (fonte
     // real) primeiro, só cai pro sintético se o Yahoo também falhar.
     if (!tick || !isValidPrice(tick.price) || result.source === 'SIMULATED') {
+      if (brokerOnly) {
+        console.warn(`[MT5] ⚠️ ${symbol} sem tick válido da corretora neste ciclo — nunca usa Yahoo pra este ativo, mantendo último preço real da corretora.`);
+        return getFallbackOrLastKnown(symbol);
+      }
       console.warn(`[MT5] ⚠️ ${symbol} indisponível na MetaAPI/broker, tentando Yahoo Finance.`);
       return await fetchYahooData(symbol);
     }
@@ -398,6 +414,10 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
       isRealData: true,
     });
   } catch (error: any) {
+    if (brokerOnly) {
+      console.warn(`[MT5] ⚠️ Falha ao buscar ${symbol} via MetaAPI — nunca usa Yahoo pra este ativo, mantendo último preço real da corretora.`, error?.message);
+      return getFallbackOrLastKnown(symbol);
+    }
     console.warn(`[MT5] ⚠️ Falha ao buscar ${symbol} via MetaAPI, tentando Yahoo Finance.`, error?.message);
     return await fetchYahooData(symbol);
   }
@@ -666,7 +686,12 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
       const tick = priceByBrokerName.get(brokerName);
 
       if (!tick || !isValidPrice(tick.price)) {
-        results[unified] = await fetchYahooData(unified);
+        // ✅ 2026-07-14: XPTUSD nunca deve cair no Yahoo (futuro PL=F diverge
+        // do MT5 real) — tem CFD confirmado na Infinox, então numa falha
+        // transitória mantém o último preço real da própria corretora.
+        results[unified] = unified === 'XPTUSD'
+          ? getFallbackOrLastKnown(unified)
+          : await fetchYahooData(unified);
         return;
       }
 
