@@ -1,4 +1,37 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-14, continuação 2)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-14, continuação 3)
+
+## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY AINDA PENDENTE
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continua a sessão "Sessão nova (2026-07-14, continuação 2)" logo abaixo. Cleber testou em produção (`neuraldaytrader.com`) depois daquela sessão e reportou "ainda demora demais" — investigação ao vivo achou 2 bugs reais no relay (nunca tinha ficado de pé de verdade) + 1 bug de oscilação introduzido pela própria migração desta sessão. Todos corrigidos e testados. **Commit feito (`d64c1ed95`), mas `vercel --prod` ainda não rodou** — a correção não está em produção até o Cleber rodar o deploy.
+
+### Bug 1 — streaming-relay nunca tinha ficado de pé de verdade (travava sem erro)
+
+O seed do `previousClose` (candle D1, usado só pro cálculo de variação) rodava **sequencial, um símbolo de cada vez, sem timeout**, ANTES de qualquer assinatura de preço. Se `getHistoricalCandles` travasse (sem erro, sem timeout) pra qualquer um dos 219 símbolos, o processo inteiro ficava preso ali pra sempre — o log mostrava "conectado e sincronizado" mas nunca chegava a `📡 Assinado lote`/`🚀 Streaming ativo`. Rodou 10+ minutos assim sem nunca transmitir preço nenhum. **Fix** ([streaming-relay/src/index.ts](streaming-relay/src/index.ts)): assina os preços PRIMEIRO (tick já flui imediato), seed do candle roda depois, em paralelo (lotes de 40via `Promise.allSettled`), com timeout de 5s por chamada — se travar, só aquele símbolo fica sem seed (change/changePercent começam em 0 até o próximo candle real fechar, já tratado sem piscar no frontend).
+
+### Bug 2 — crash loop ao tentar assinar ETHUSD (não existe como CFD)
+
+Erro fatal não tratado (`ValidationError: Cannot subscribe to market data for symbol ETHUSD because symbol does not exist`) derrubava o processo inteiro — `launchd` reiniciava (`KeepAlive`), caía no mesmo símbolo, reiniciava nulo, infinito. Causa: o filtro do relay usava só `isAvailableOnBroker`, que não é suficiente pra cripto — só `BTCUSD`/`SOLUSD`/`BNBUSD`/`XRPUSD`/`ADAUSD`/`DOTUSD`/`BATUSD` têm CFD confirmado na Infinox (`CRYPTO_CFD_AVAILABLE` em `brokerRegistry.ts`), ETHUSD passa em `isAvailableOnBroker` mas não existe de verdade. **Fix**: relay agora aplica `isCryptoCfdAvailable` pra ativos `category === 'CRYPTO'`, mesmo gate que o frontend já usa. Também blindado: cada assinatura individual agora tem try/catch (`Promise.allSettled` em vez de `Promise.all`) — uma falha de símbolo nunca mais derruba o processo inteiro, só loga e segue. Resultado após o fix: **208 símbolos elegíveis, 176 assinados com sucesso, 32 falharam** (majoritariamente ações europeias — `SHEL`, `DGE`, ações `.PA`/`.DE` — provavelmente essa API de streaming específica exige o sufixo de bolsa que o REST não exige; não investigado a fundo, ficam no polling HTTP normal por enquanto).
+
+### Bug 3 — oscilação de %/gauge no Dashboard (introduzido pela migração desta sessão, achado pelo Cleber testando em produção)
+
+Depois dos bugs 1/2 corrigidos e o relay finalmente transmitindo, Cleber reportou (com prints, confirmado ao vivo em produção): MARKET SCORE gauge pulando `54 → 48`, variação `+0,42% (+105,84) → -0,19% (-49,00)` com o PREÇO praticamente parado (`25.098,67 → 25.096,85`) — não é ruído de mercado, é dois cálculos de variação diferentes brigando pela mesma tela. Causa: o `streaming-relay` calcula sua própria variação diária (seed simplificado de candle D1) e o polling antigo usa o cálculo já validado do backend (referência ≤4 dias, magnitude ≤15%, ver `supabase/functions/server/index.ts`) — os dois métodos divergem e ambos escreviam nos mesmos refs (`targetChangeRef`/`targetTrendRef`) em `MarketScoreBoard.tsx`, um sobrescrevendo o outro a cada tick/polling. **Fix**: o listener do streaming (`subscribeToRealtimePrice`, ver sessão anterior) agora só escreve `targetPriceRef` (preço). `change`/`changePercent` continuam vindo EXCLUSIVAMENTE do polling validado — o streaming acelera só o preço, nunca a variação.
+
+### Verificação feita
+
+- Bugs 1/2: relay reiniciado localmente (`launchctl unload`/`load`), log confirmou `🚀 Streaming ativo pra 208 símbolos` sem crash-loop.
+- Bug 3: testado em `neuraldaytrader.com` (produção, ainda com o código ANTIGO) — reproduziu a oscilação ao vivo, confirmando o diagnóstico. Testado no preview local (`localhost:5173`, já com o fix) — GER40 subiu suavemente `25.117,49 → 25.118,66 → 25.118,67`, variação estável em `+0,50%` sem pular. `tsc --noEmit` limpo.
+- **NÃO testado em produção com o fix** — só depois do deploy abaixo.
+
+### Pendente real pra próxima sessão — DEPLOY
+
+Commit `d64c1ed95` já feito pelo Cleber, mas `vercel --prod` ainda não rodou:
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+vercel --prod
+```
+Depois do deploy, testar de novo em produção (GER40, AUDJPY, XAUUSD — os símbolos usados nesta sessão) pra confirmar que a oscilação parou de verdade fora do ambiente local.
+
+Além disso, tudo que ficou pendente da sessão anterior continua valendo: migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, investigar o formato de símbolo certo pras 32 ações europeias que falham na assinatura, considerar hospedagem de verdade em vez do Mac local.
 
 ## Sessão nova (2026-07-14, continuação 2): streaming-relay publicado no MAC do Cleber (não Fly.io — pedia cartão) + Dashboard migrado pra consumir via Supabase Realtime, CONFIRMADO funcionando ao vivo
 
