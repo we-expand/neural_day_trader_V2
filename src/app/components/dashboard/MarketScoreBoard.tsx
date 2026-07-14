@@ -38,6 +38,7 @@ import { MT5QuickConnect } from './MT5QuickConnect'; // 🚀 NOVO: Conexão ráp
 import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status MT5
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { getRealMarketData, getLastKnownRealPrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard)
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
@@ -152,8 +153,19 @@ let lastDashboardSymbol: string | null = null;
 // forex/índices já usam. ETH/SOL continuam em Binance (CFD não confirmado na
 // corretora) até serem auditados também.
 function isBinanceCryptoSymbol(symbol: string): boolean {
-  const normalized = symbol.toUpperCase();
+  const normalized = symbol.toUpperCase().replace('/', '').replace(' ', '');
   if (normalized === 'BTCUSD' || normalized === 'BTCUSDT') return false;
+
+  // ✅ 2026-07-13: antes só reconhecia BTC/ETH/SOL (substring) ou sufixo
+  // USDT — XRP, ADA, BNB, DOGE, AVAX, DOT, POL (símbolo "XXXUSD" no app,
+  // sem "USDT") nunca batiam, então caíam por engano no loop de animação
+  // feito pra Forex/Índices (interpola a partir do preço do ativo anterior)
+  // em vez de mostrar o valor exato da API como cripto deveria — trocar de
+  // um ativo caro (ex: índice ~25000) pra uma cripto barata (ex: XRP ~$1)
+  // podia aparecer instável/errado por alguns ciclos de animação.
+  const asset = getAssetBySymbol(normalized);
+  if (asset) return asset.category === 'CRYPTO';
+
   return normalized.endsWith('USDT') || ['BTC', 'ETH', 'SOL'].some(c => normalized.includes(c));
 }
 
