@@ -14,6 +14,7 @@ import { PriceValidator } from './PriceValidator';
 import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { getBrokerSymbol, isAvailableOnBroker, isCryptoCfdAvailable } from '@/app/config/brokerRegistry';
+import { supabase } from '@/lib/supabaseClient';
 
 const MT5_PRICES_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-prices`;
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
@@ -138,6 +139,73 @@ function getFallbackOrLastKnown(symbol: string): RealMarketData {
  */
 export function getLastKnownRealPrice(symbol: string): RealMarketData | undefined {
   return lastRealPriceCache.get(symbol.toUpperCase().replace('/', '').replace(' ', ''));
+}
+
+/**
+ * 🔌 STREAMING (push) — assina o canal `turbo-main-channel` (evento
+ * `price-update`) publicado pelo serviço `streaming-relay` (Node sempre-ligado,
+ * ver streaming-relay/README.md), que mantém uma conexão de streaming
+ * WebSocket direto com a MetaAPI e repassa cada tick real pro Supabase
+ * Realtime. Substitui a espera de um ciclo de polling HTTP (até 2s + fila de
+ * lotes, que já causou atraso de 20s+ documentado no CLAUDE.md) por
+ * atualização assim que a corretora manda o tick.
+ *
+ * Inicializa o canal uma única vez (singleton do módulo) e mantém um
+ * registro de callbacks por símbolo — múltiplos componentes podem assinar o
+ * mesmo símbolo sem abrir mais de uma conexão Realtime.
+ */
+const realtimeListenersBySymbol = new Map<string, Set<(data: RealMarketData) => void>>();
+let realtimeChannelInitialized = false;
+
+function ensureRealtimeStreamingInitialized(): void {
+  if (realtimeChannelInitialized || !supabase) return;
+  realtimeChannelInitialized = true;
+
+  supabase
+    .channel('turbo-main-channel', { config: { broadcast: { self: true } } })
+    .on('broadcast', { event: 'price-update' }, ({ payload }) => {
+      if (!payload?.asset_symbol || typeof payload.price !== 'number') return;
+
+      const data: RealMarketData = rememberIfReal({
+        symbol: payload.asset_symbol,
+        price: payload.price,
+        bid: payload.bid,
+        ask: payload.ask,
+        change: payload.change_24h ?? 0,
+        changePercent: payload.change_percent_24h ?? 0,
+        volume: payload.volume ?? 0,
+        timestamp: payload.timestamp ? new Date(payload.timestamp).getTime() : Date.now(),
+        source: 'metaapi',
+        isRealData: true,
+      });
+
+      realtimeListenersBySymbol.get(data.symbol)?.forEach((cb) => cb(data));
+    })
+    .subscribe();
+}
+
+/**
+ * Assina atualização em tempo real (push) de um único símbolo via
+ * `streaming-relay`. Chama `callback` assim que um tick chegar pra esse
+ * símbolo — sem polling, sem espera de fila de lotes. Retorna função de
+ * cleanup (remove o listener; a conexão Realtime em si permanece aberta,
+ * compartilhada entre assinantes).
+ */
+export function subscribeToRealtimePrice(
+  symbol: string,
+  callback: (data: RealMarketData) => void
+): () => void {
+  ensureRealtimeStreamingInitialized();
+
+  const normalizedSymbol = symbol.toUpperCase().replace('/', '').replace(' ', '');
+  if (!realtimeListenersBySymbol.has(normalizedSymbol)) {
+    realtimeListenersBySymbol.set(normalizedSymbol, new Set());
+  }
+  realtimeListenersBySymbol.get(normalizedSymbol)!.add(callback);
+
+  return () => {
+    realtimeListenersBySymbol.get(normalizedSymbol)?.delete(callback);
+  };
 }
 
 /**

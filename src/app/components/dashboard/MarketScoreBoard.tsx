@@ -39,7 +39,7 @@ import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
-import { getRealMarketData, getLastKnownRealPrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard)
+import { getRealMarketData, getLastKnownRealPrice, subscribeToRealtimePrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard). subscribeToRealtimePrice: streaming-relay (2026-07-14)
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
 import { BtcPriceDebug } from '../debug/BtcPriceDebug'; // 🐛 DEBUG: BTC Price Debug
@@ -292,6 +292,26 @@ export const MarketScoreBoard = () => {
     targetChangeRef.current = known?.change ?? 0;
     targetTrendRef.current = known?.changePercent ?? 0;
     setAnimatedPrice(known?.price ?? 0);
+  }, [activeSymbol]);
+
+  // ✅ 2026-07-14: STREAMING (push) — assina o `streaming-relay` (ver
+  // RealMarketDataService.ts, subscribeToRealtimePrice) pro ativo selecionado.
+  // Substitui a espera do próximo ciclo de polling (até 2s + fila de lotes da
+  // conta MetaAPI compartilhada, que já causou atraso de 20s+ documentado no
+  // CLAUDE.md) por atualização assim que a corretora manda o tick. O polling
+  // abaixo (fetchData/setInterval) continua ativo como rede de segurança —
+  // cobre o período antes do streaming-relay entregar o primeiro tick e
+  // símbolos fora do catálogo assinado pelo relay.
+  useEffect(() => {
+    const unsubscribe = subscribeToRealtimePrice(activeSymbol, (data) => {
+      if (activeSymbolRef.current !== activeSymbol) return;
+      targetPriceRef.current = data.price;
+      targetChangeRef.current = data.change ?? 0;
+      targetTrendRef.current = data.changePercent ?? 0;
+      setDataSource('MetaApi');
+      setWsUpdateCounter((c) => c + 1);
+    });
+    return unsubscribe;
   }, [activeSymbol]);
 
   // 🔥 CRYPTO: Usar valores DIRETOS das refs (SEM animação - ZERO latência!)

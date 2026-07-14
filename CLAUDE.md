@@ -1,4 +1,187 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-11, continuação 4)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-14, continuação 2)
+
+## Sessão nova (2026-07-14, continuação 2): streaming-relay publicado no MAC do Cleber (não Fly.io — pedia cartão) + Dashboard migrado pra consumir via Supabase Realtime, CONFIRMADO funcionando ao vivo
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continua a sessão "Sessão nova (2026-07-14, continuação)" logo abaixo. Fecha o ciclo: relay publicado, frontend migrado, testado no navegador com sucesso.
+
+### Mudança de hospedagem: Fly.io → Mac local (Fly.io pedia cartão de crédito)
+
+Cleber não tinha cartão disponível. Opções analisadas (Render free — dorme por inatividade, não serve pra streaming 24/7; Fly.io com cartão; rodar local; adiar). Cleber escolheu **rodar no próprio Mac**, via `launchd` (sobe sozinho no login, reinicia se cair — mas só funciona enquanto o Mac estiver ligado; é a limitação aceita dessa opção).
+
+**Setup criado**: [streaming-relay/run.sh](streaming-relay/run.sh) (wrapper que carrega `.env` e roda o `dist/` já compilado — **usa caminho absoluto pro node**, `/opt/homebrew/bin/node`, porque `launchd` roda com `PATH` mínimo sem Homebrew; isso causou falha silenciosa `exec: node: not found` na primeira tentativa, corrigido) + [streaming-relay/com.neuralday.streaming-relay.plist](streaming-relay/com.neuralday.streaming-relay.plist) (registrado em `~/Library/LaunchAgents/`, `RunAtLoad`+`KeepAlive`, log em `streaming-relay/relay.log`). Credenciais em `streaming-relay/.env` (nunca commitado, no `.gitignore`).
+
+**Comandos pra gerenciar** (Cleber, se precisar):
+```bash
+# parar
+launchctl unload ~/Library/LaunchAgents/com.neuralday.streaming-relay.plist
+# rodar de novo (depois de editar .env ou rebuild)
+launchctl load ~/Library/LaunchAgents/com.neuralday.streaming-relay.plist
+# ver log
+tail -f /Users/clebercouto/Projects/we-expand/Neural-Day-Trader/streaming-relay/relay.log
+```
+
+Confirmado ao vivo: conectou no Supabase Realtime, sincronizou com a conta MetaAPI (`bb99f865-96fb-4573-98a7-1f32895f84f7`), assinou 219 símbolos.
+
+### Segurança — token exposto 2x no chat, ambos revogados/trocados pelo Cleber
+
+Cleber colou o token MetaAPI em texto puro no chat duas vezes nesta sessão (uma vez pra trocar por um vazado de sessão anterior, depois um terceiro token). Confirmou que já tinha outro token novo gerado — o exposto aqui não deve mais estar ativo. Nenhuma ação adicional necessária, só reforçar o hábito: nunca colar token no chat, preencher direto no arquivo (usei `open -e` pra abrir o `.env` no TextEdit em vez de pedir pra colar aqui, mas o Cleber colou de qualquer forma).
+
+### Migração do frontend — Dashboard (`MarketScoreBoard.tsx`) migrado, Ticker/Context ainda não
+
+**Decisão de escopo**: migrar uma tela por vez (mesmo padrão da consolidação de pipeline desta manhã) — comecei pelo Dashboard (preço grande do ativo selecionado), que foi o sintoma original ("demora até 20s"). `MarketTicker.tsx` (rodapé) e `MarketDataContext.tsx` (S&P 500/outros consumidores) **continuam no polling antigo** (`getBatchedMT5Data`) — não tocados nesta sessão, ainda pendentes.
+
+**O que foi feito**:
+1. [RealMarketDataService.ts](src/app/services/RealMarketDataService.ts): novo `subscribeToRealtimePrice(symbol, callback)` — assina (singleton do módulo, uma única conexão Realtime compartilhada entre assinantes) o canal `turbo-main-channel`/evento `price-update` que o `streaming-relay` publica. Cada tick também alimenta `lastRealPriceCache` via `rememberIfReal` (o mesmo cache que já existia pra troca instantânea de ativo) — então mesmo consumidores que não usam o novo subscribe (Ticker, Context) já se beneficiam indiretamente de um cache mais fresco.
+2. [MarketScoreBoard.tsx](src/app/components/dashboard/MarketScoreBoard.tsx): novo `useEffect([activeSymbol])` assina `subscribeToRealtimePrice` pro ativo selecionado — ao chegar um tick, escreve direto em `targetPriceRef`/`targetChangeRef`/`targetTrendRef` (os mesmos refs que o polling já escrevia) e força re-render via `setWsUpdateCounter` (estado que já existia, declarado mas nunca usado antes). **O polling antigo (`fetchData`/`setInterval` 2s) continua ativo como rede de segurança** — cobre o período antes do primeiro tick chegar e símbolos fora do catálogo do relay; não foi removido, roda em paralelo sem conflito (mesmos refs, sobrescrita simplesmente pega o valor mais recente).
+
+**Verificado no navegador (preview local)**: `tsc --noEmit` limpo. Selecionei GER40 no Dashboard — preço pulou de um valor estático (`7.140,00`, sobra de cache/fallback) pra `16.660,49` e, **sem qualquer interação minha**, mudou de novo sozinho pra `20.798,55` (+156,84 / +0,63%) alguns segundos depois — confirma push ao vivo funcionando de ponta a ponta (relay → Supabase Realtime → `subscribeToRealtimePrice` → refs → tela). Console sem erros novos (os warnings de `[VIX ENHANCED]`/`[Yahoo] HTTP 500` são do backend Edge Function não estar acessível neste preview local, pré-existente, não relacionado a esta mudança).
+
+### Pendente real pra próxima sessão
+
+1. **Migrar `MarketTicker.tsx`** (rodapé) e **`MarketDataContext.tsx`** (S&P 500 e outros consumidores de `useMarketData`/`useSymbolPrice`) pro mesmo padrão `subscribeToRealtimePrice` — ainda no polling antigo. Cuidado: `MarketTicker` mostra ~15-20 símbolos ao mesmo tempo, então seria 15-20 assinaturas simultâneas no registry — funciona (é só um `Map<symbol, Set<callback>>`), mas nunca testado nesse volume.
+2. **Confirmar login real** (com a conta MT5 de verdade do Cleber, não só preview local sem sessão) — o teste desta sessão foi sem estar logado, mostrando dados no preview público/demo. Testar de novo já logado.
+3. `streaming-relay` só fica ativo enquanto o Mac do Cleber estiver ligado — se ele desligar/suspender, o app volta a depender só do polling HTTP (fallback já existe, não quebra nada, só volta a ficar mais lento). Sem monitoramento/alerta se o relay cair — considerar depois.
+4. Considerar mover pra hospedagem de verdade (Fly.io com cartão, ou outra) se o Mac local não for aceitável no longo prazo — decisão do Cleber, não urgente.
+
+### Git — pendente, Cleber commita quando quiser
+
+Mudanças desta sessão ainda não commitadas:
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/RealMarketDataService.ts src/app/components/dashboard/MarketScoreBoard.tsx streaming-relay/.gitignore CLAUDE.md
+git commit -m "feat: Dashboard passa a consumir preço via streaming-relay (Supabase Realtime push) em vez de só polling HTTP — subscribeToRealtimePrice novo em RealMarketDataService.ts, MarketScoreBoard assina o ativo selecionado; polling mantido como rede de segurança. Ticker/Context ainda pendentes"
+git push origin main
+```
+Nota: `streaming-relay/run.sh`, `streaming-relay/*.plist`, `streaming-relay/.env.example` são infraestrutura local (rodar no Mac) — decidir com o Cleber se entram no git (não têm segredo, `.env` real está no `.gitignore`) ou ficam só locais.
+
+## Sessão nova (2026-07-14, continuação): streaming/WebSocket direto da MetaAPI — novo serviço `streaming-relay` criado e já commitado, falta só o deploy no Fly.io (Cleber)
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continua diretamente a sessão "Sessão nova (2026-07-14)" logo abaixo (consolidação de pipeline). Esta janela tratou de outro sintoma: **ativo selecionado no Dashboard demorando até ~20s pra atualizar**.
+
+### Diagnóstico (duas causas reais)
+
+1. Polling HTTP de 2s no Dashboard — não deveria por si só causar 20s de atraso.
+2. **Causa raiz real**: `getBatchedMT5Data()` busca a conta MetaAPI compartilhada de plataforma em lotes de 40 símbolos com pausa de 500ms entre lotes (proteção anti rate-limit já documentada em sessões anteriores). Se o ativo que o Cleber está olhando cai num lote no fim da fila (ticker do rodapé + navegador de ativos + motor de IA em background todos competindo pela mesma fila), a espera real pode chegar a vários segundos.
+
+Fix de configuração não resolve de verdade — é arquitetural: trocar polling HTTP por **streaming/WebSocket direto da corretora** (já existe pra cripto via Binance WebSocket, nunca foi implementado pra forex/índices/commodities via MetaAPI).
+
+### Decisão de arquitetura (alinhada com o Cleber)
+
+A MetaAPI tem streaming via WebSocket (socket.io) e não consome créditos de API (só REST consome). Mas usar o streaming direto do navegador exigiria o token MetaAPI no cliente — reverteria a Fase 1 de segurança já fechada (token sempre atrás do backend, nunca exposto no navegador, ver seção "Neural Day Trader — estado" na memória). Solução escolhida: **servidor sempre-ligado, fora do Supabase/Vercel** (Edge Function é sem estado/por requisição, não serve pra streaming persistente), que mantém a conexão MetaAPI e repassa preço pro navegador via canal já existente do **Supabase Realtime** (não introduz mais uma conexão externa no cliente). Hospedagem escolhida pelo Cleber: **Fly.io**.
+
+### Trabalho técnico concluído nesta sessão
+
+Criado `streaming-relay/` (Node.js, CommonJS — trocado de ESM por atrito de resolução de módulo com import relativo sem extensão `.js`, comum em projetos Vite mas quebra em Node puro; não mexeu no arquivo compartilhado do frontend):
+- [streaming-relay/src/index.ts](streaming-relay/src/index.ts): assina o streaming da MetaAPI (`metaapi.cloud-sdk`, `getStreamingConnection`) pro catálogo real de símbolos (reaproveita `assetDatabase.ts`/`brokerRegistry.ts` como única fonte de verdade — mesmo motivo da reescrita de 2026-07-08, nunca duplicar lista de símbolos). Cada tick de preço vira `broadcast` no canal `turbo-main-channel`, evento `price-update`, no MESMO formato que `useSupabaseRealtimeTurbo.ts` já sabe consumir. `previousClose` por símbolo é seedado via candle D1 antes de assinar (senão `change`/`changePercent` ficam 0 até o primeiro fechamento). Assinatura em lotes de 40 (mesma proteção anti rate-limit do resto do app).
+- `fly.toml`: app sem auto-stop/auto-start (serviço sempre-ligado, não expõe porta HTTP).
+- `Dockerfile`, `.dockerignore`, `README.md`: README documenta o comando de deploy e como verificar (`fly logs`, esperado `[streaming-relay] 🚀 Streaming ativo pra N símbolos.`).
+- Testado localmente: compila limpo (`tsc`), roda até pedir credenciais reais (confirma lógica e chamadas da SDK MetaAPI corretas, tipos validados contra o pacote publicado).
+
+**Importante — ordem do plano**: publicar esse produtor primeiro e confirmar que ele emite preço de verdade, só DEPOIS migrar o frontend pra consumir (evita mexer nos vários pontos do app sem saber se o streaming funciona).
+
+### Git — já commitado e em `origin/main`, nada pendente
+
+Commit `b16bf867e` (streaming-relay completo) já está em `origin/main` (confirmado via `git log origin/main`). Nenhuma ação de git pendente.
+
+### Pendente real pra próxima sessão — deploy no Fly.io (só o Cleber, ele mesmo, primeira vez)
+
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader/streaming-relay
+fly launch --no-deploy   # cria o app no Fly.io usando o fly.toml já commitado
+fly secrets set \
+  METAAPI_TOKEN="<mesmo token já usado no Supabase>" \
+  METAAPI_ACCOUNT_ID="<mesmo account id já usado no Supabase>" \
+  SUPABASE_URL="https://wyvdsxtcmizettljxtbg.supabase.co" \
+  SUPABASE_SERVICE_ROLE_KEY="<service_role key — Project Settings > API no painel do Supabase>"
+fly deploy
+```
+
+Depois, verificar: `fly logs` deve mostrar `[streaming-relay] 🚀 Streaming ativo pra N símbolos.` sem erro fatal.
+
+**Passo seguinte, só depois do deploy confirmado funcionando**: migrar o frontend (Dashboard/Ticker/AI Trader) do polling HTTP (`RealMarketDataService.ts`/`getBatchedMT5Data`) pra consumir `useSupabaseRealtimeTurbo.ts` — ainda não iniciado, não tocar nisso antes do relay estar comprovadamente publicando preço real.
+
+### Segurança
+
+Nenhuma credencial nova foi exposta nesta sessão. Token MetaAPI e service_role do Supabase só devem ser colados diretamente no comando `fly secrets set` pelo próprio Cleber, nunca em texto solto no chat.
+
+## Sessão nova (2026-07-14): consolidação do pipeline de preço concluída na prática + correção ativo-por-grupo (Gráfico, Metais, Cripto) — Fase 1/2 do plano de 4 fases
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Leia esta seção antes de qualquer coisa. Continua diretamente a "Sessão 2026-07-11, continuação 4" logo abaixo (que decidiu o plano de 4 fases) — esta sessão executou a Fase 0/1 na prática: descobriu que o problema nunca foi "ativo X com preço errado", era **fragmentação arquitetural** (5-7 pipelines de preço concorrentes, cada um com seu próprio bug). Consolidado quase tudo num pipeline único (`RealMarketDataService.ts`).
+
+### Contexto: por que a virada de chave desta sessão
+
+Cleber estava frustrado ("já perdemos dias e dias, erros sistêmicos em praticamente todos os ativos") e cogitando validar ativo-por-ativo manualmente. Investigação revelou a causa raiz real: **não havia UM pipeline de preço no app, havia pelo menos 6**: `RealMarketDataService.ts` (o único já auditado/corrigido), `market-service.ts`, `marketDataService.ts`, `DataSourceRouter.ts`, `UnifiedMarketDataService.ts`, `MetaApiService.ts`, `unifiedMarketData.ts`, `MultiSourcePriceFeed.ts`/`UnifiedDataLayer.ts`. Cada tela (Dashboard, Gráfico, Ticker do rodapé, contexto global do AI Trader) podia estar ligada a um pipeline diferente — corrigir um não corrigia os outros. Diagnóstico e correção passaram a ser: **por tela, migrar pro pipeline único; por grupo de ativo, achar o bug real de cada um**.
+
+### Trabalho técnico concluído nesta sessão (ordem cronológica)
+
+**1. Migração de pipeline — ChartView.tsx e MarketTicker.tsx pro `RealMarketDataService.ts` único:**
+- `market-service.ts`: deletado `generateFallbackCandles()` (candle fake com `basePrices` hardcoded + pseudo-random) — `fetchCandles()` agora retorna `[]` explícito em vez de inventar vela.
+- `ChartView.tsx`: parou de usar `DataSourceRouter`/`UnifiedMarketDataService` — preço, variação e streaming (`subscribeToSymbol`) agora vêm só do `RealMarketDataService.ts`. Removidos imports mortos (`fetchQuote`, `calculateDailyChange`, nunca chamados).
+- `MarketTicker.tsx`: migrado de `UnifiedMarketDataService` (tinha fallback `Math.random()`) pra `getBatchedMT5Data`. Bug real corrigido: **4 ativos (Gás Natural, Trigo, Café, Açúcar) estavam na lista de exibição mas nunca eram buscados** — esquecimento no array antigo, não mock.
+- Confirmado: `MarketDataContext.tsx` e `marketDataService.ts` (usado por `MarketScore.tsx`/`AssetPriceTag.tsx` via `hooks/useMarketData.ts`) **já tinham sido migrados numa sessão anterior** (2026-07-12) — não precisaram de trabalho novo.
+- Resultado: hoje **toda tela real do produto** (Dashboard, Gráfico, Ticker, AI Trader, MarketScore, AssetPriceTag) passa pelo `RealMarketDataService.ts`. Os 6 pipelines concorrentes só sobrevivem em telas de debug/exemplo (`DataSourceMonitor.tsx`, `QuickDataTest.tsx`, `UnifiedDataTester.tsx`, `BinanceDirectComparison.tsx`, `SmartDataExample.tsx`) e 2 hooks mortos (`useMarketPrice.ts`, `useRealtimePrice.ts`, zero consumidores) — **decisão pendente**: Cleber disse "não sei/deixa pra depois" sobre apagar esses arquivos mortos (não afetam nada visível, é só peso morto no repo).
+
+**2. Índices e Commodities do Gráfico "completamente errados", "metais não existem" — 3 causas reais, todas corrigidas:**
+- Precisão decimal: `ChartView.tsx` tinha lista hardcoded "BTC/ETH/XAU/US30/NAS/SPX = 2 casas, resto = 5 casas" — qualquer outro índice (GER40, UK100, JPN225...) aparecia com 5 casas decimais (ex: "24,993.00000"), parecendo errado. Trocado pra usar `getPrecisionForSymbol` (formatador central por ativo, já usado no Dashboard).
+- Nomes de símbolo inventados: `WTIUSD`, `BRENTUSD`, `NGAS`, `CORN`, `COCOA`, `SOYBEAN`, `COTTON`, `LUMBER` etc. na lista `staticAssetsBase` do Gráfico **nunca existiram na corretora** — trocados pelos nomes reais (`USOUSD`, `UKOUSD`, `XNGUSD`, `WHEUSD`, `SUGUSD`, `COFUSD`); removidos os sem contrato confirmado na Infinox.
+- **Causa raiz real dos metais "não existirem"**: o efeito que popula preço real no painel demonstrativo do Gráfico só buscava os **primeiros 50 ativos** do array (`staticAssetsBase.slice(0, 50)`) — como o array começa com ~68 cripto+forex, índices e commodities (posição 68+) nunca eram alcançados, ficavam presos pra sempre no valor fake do seed inicial. Removido o limite — busca todos os 271 símbolos (`getBatchedMT5Data` já faz chunking interno de 40 em 40 com pausa, seguro pra lista inteira).
+- Confirmado no navegador: Ouro, Prata, Platina, Paládio, WTI, Brent, Gás Natural, GER40 e outros índices com preço real e distinto, tanto no seletor de ativos do Gráfico quanto no Ticker.
+
+**3. Metais "oscilam entre próximo do correto e muito errado" — causa raiz no BACKEND, não no frontend:**
+- `supabase/functions/server/index.ts`, rota `/real/yahoo/:symbol`: o mapa de tickers do Yahoo Finance (`yahooSymbolMap`) tinha Ouro (`GC=F`) e Prata (`SI=F`) certos, mas **Platina e Paládio não estavam no mapa** — caíam no `|| symbol` (ticker literal `XPTUSD`/`XPDUSD`, que não existe no Yahoo). Isso só aparecia quando a MetaAPI falhava transitoriamente (comum, conta compartilhada) e o preço caía pro fallback Yahoo — dava erro ou, pior, dado de outro instrumento. Corrigido: adicionados `PL=F`/`PA=F`.
+- Rede de segurança adicionada no frontend (`RealMarketDataService.ts`, `fetchYahooData`): se o preço vindo do Yahoo desviar mais de 20% do último preço real conhecido daquele símbolo, descarta e mantém o último preço real em vez de aceitar o número novo — protege contra esse mesmo tipo de bug (ticker errado/ausente) aparecer em outro ativo no futuro sem precisar de outro round de debug.
+
+**4. UKOUSD (Brent) "mostrando cotação de ontem mesmo com o mercado reaberto":**
+- Causa raiz (backend, `/mt5-prices`): o cálculo de variação diária usa o candle D1 "de ontem" como referência (`candles[candles.length - 2]`). Quando a conta MetaAPI compartilhada sofre rate-limit (**confirmado ao vivo acontecendo durante a investigação**: `HTTP 429 TooManyRequestsError`), a série de candles fica com buraco e o "penúltimo candle" pode ser de dias/semanas atrás — gerando variação implausível (medido: **+11,5% num único dia pra petróleo**) que fica presa até o próximo ciclo funcionar.
+- Corrigido: validação dupla antes de aceitar a variação calculada — (1) o candle de referência precisa ter até 4 dias (cobre fim de semana longo); (2) a variação computada precisa ser ≤15% em magnitude. Fora disso, `change`/`changePercent` ficam em `0` em vez de mostrar um número fabricado pela referência errada.
+
+**5. XRPUSD "completamente errado, parece cotação de ontem" — decisão anterior revertida:**
+- Numa sessão de 2026-07-11, SOL/BNB/XRP/ADA/DOT tinham sido movidas de propósito da corretora pra Binance direta, porque a metodologia de fechamento D1 do broker (21h UTC) diverge um pouco da janela rolante 24h da Binance em cripto volátil (podia até inverter o sinal da variação). Decisão válida **na época**, mas as 3 fontes de Binance direta (`DirectBinanceService.ts`) estão **confirmadas mortas em produção** (CORS bloqueado no domínio) desde o incidente de 2026-07-10 — então essas 5 cripto ficavam sempre presas no último preço real conhecido em cache, que podia ser de horas/dias atrás.
+- Testado ao vivo: `/mt5-prices` devolve XRPUSD real e fresco na hora (`$1.0579`, variação -4,15%, plausível). Revertido: SOL/BNB/XRP/ADA/DOT voltaram a rotear pela corretora (`brokerRegistry.ts`, `CRYPTO_CFD_AVAILABLE`), igual BTCUSD. **Nota**: isso reverte uma decisão explícita anterior do Cleber — o trade-off mudou porque a Binance direta parou de funcionar de vez; se ele preferir manter a comparação exata com a Binance mesmo assim, precisa reverter esse commit.
+
+**6. BATUSD adicionado ao catálogo**: não existia — nunca tinha sido incluído na lista curada de 17 criptos do `assetDatabase.ts` (não é bug de disponibilidade, só nunca foi adicionado). Confirmado CFD real na Infinox ao vivo (`$0,077`, dado fresco) — adicionado ao catálogo já roteado pela corretora (não pela Binance direta morta).
+
+### Confirmações do Cleber durante a sessão (regras de escopo pra próxima janela)
+
+- **Forex e Moedas: corretos, não mexer mais.**
+- **Índices: todos corretos, não mexer mais.**
+- Trabalho seguiu grupo por grupo a pedido dele: Metais (concluído), depois Cripto (XRP resolvido, mesma causa provavelmente afeta SOL/BNB/ADA/DOT — já corrigidos junto).
+- Ainda não confirmado por ele: Ações (AAPL/MSFT/etc — pareciam corretas nos testes desta sessão, mas não foi peça de feedback explícito dele ainda), Energia/Agrícolas além de UKOUSD.
+
+### Pendente de deploy (Cleber prefere rodar ele mesmo via terminal — não fazer sozinho)
+
+Todos os commits abaixo já estão em `origin/main` (push feito nesta sessão). Faltam os deploys:
+
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+
+# 1) Deploy da Edge Function (backend) — necessário pros fixes de Platina/Paládio
+#    (Yahoo ticker) e UKOUSD (validação de candle de referência). Cleber ainda
+#    não confirmou ter rodado isso até o fim desta sessão.
+supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
+
+# 2) Deploy do frontend na Vercel — cobre todos os outros fixes (migração de
+#    pipeline, precisão decimal, símbolos de commodity, limite de 50 ativos,
+#    XRP/cripto de volta pra corretora, BATUSD). Cleber prefere rodar via
+#    `vercel` CLI direto, não só depender do auto-deploy do GitHub.
+vercel link   # se ainda não linkou este diretório a um projeto Vercel
+vercel --prod
+```
+
+Commits desta sessão (mais recente primeiro): `776b73664` (BATUSD), `22c8c3a10` (XRP/cripto de volta pra corretora), `5b6dbe81d` (UKOUSD candle stale), `455c189b1` (classificação de cripto incompleta no Dashboard — XRP/ADA/BNB/DOGE/AVAX/DOT/POL caíam no loop de animação de Forex), `9667b8088` (tickers Platina/Paládio + rede de segurança de desvio de preço), `5baf800e4` e `4f97247a7` (migração de pipeline + fixes de símbolo/limite de 50 ativos + Ticker).
+
+### Pendente real pra próxima sessão
+
+1. **Confirmar deploys rodados** (backend + frontend) e testar em produção: Gráfico trocando entre vários índices/commodities/metais/cripto, Ticker do rodapé, Dashboard.
+2. **`InfinoxAssetsBrowser.tsx`** (o widget "Navegador de Ativos" no meio do Dashboard) mostrou `XRPUSD "Sem dados"` durante um teste local, mesmo com o Ticker mostrando XRP correto ao mesmo tempo — pode já estar resolvido pelo fix #5 (routing pra corretora), mas não foi reconfirmado depois desse fix. Vale testar de novo.
+3. **Decisão pendente**: apagar os 6 serviços de pipeline mortos (`DataSourceRouter.ts`, `UnifiedMarketDataService.ts`, `MetaApiService.ts`, `unifiedMarketData.ts`, `MultiSourcePriceFeed.ts`, `UnifiedDataLayer.ts`) + 2 hooks mortos (`useMarketPrice.ts`, `useRealtimePrice.ts`) — Cleber disse "não sei, deixa pra depois". Não afeta nada visível, só limpeza.
+4. Task em background `task_ad175cd4` ("Investigar candles não renderizando em alguns ativos") foi iniciada pelo Cleber numa sessão separada durante esta conversa — parece ter gerado pelo menos os commits `fc79969a3`/`1feb54f09`/`043fcab51` (rate-limit de concorrência MetaAPI, modo demo). Conferir se terminou e se achou mais alguma coisa antes de reabrir essa investigação do zero.
+5. Havia mudanças não commitadas no diretório do Cleber no fim desta sessão (`package.json`, `package-lock.json`, `InfinoxAssetsBrowser.tsx`, um `.gitignore` novo, um `.zip`) — provavelmente da sessão em paralelo do item 4. Não foram tocadas nem commitadas por mim; conferir origem antes de decidir o que fazer com elas.
+6. Ações (AAPL/MSFT/GOOGL etc.), Energia além de UKOUSD (USOUSD/XNGUSD) e Agrícolas (WHEUSD/COFUSD/SUGUSD) não tiveram feedback explícito do Cleber nesta sessão — parecem corretos nos testes locais, mas seguir o mesmo processo grupo-por-grupo quando ele confirmar.
+
+### Segurança
+
+Nenhuma credencial nova foi exposta nesta sessão.
 
 ## Sessão nova (2026-07-11, continuação 4): fim dos fallbacks fake silenciosos no Dashboard + DECISÃO ESTRATÉGICA — auditoria de mock em lote (o projeto veio do Figma Make, cheio de casca simulada)
 
