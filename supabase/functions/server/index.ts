@@ -3563,9 +3563,33 @@ app.post('/mt5-prices', async (c) => {
                                 : candles[candles.length - 1];
                             const referencePrice = previousCandle.close || previousCandle.open || 0;
 
-                            if (referencePrice > 0 && currentPrice > 0) {
-                                change = currentPrice - referencePrice;
-                                changePercent = (change / referencePrice) * 100;
+                            // ✅ 2026-07-13: achado real (UKOUSD) — quando a conta MetaAPI
+                            // compartilhada está sob rate-limit (429, comum, ver histórico
+                            // deste arquivo), a série de candles às vezes tem um buraco e o
+                            // "penúltimo" candle não é de ontem, é de dias/semanas atrás —
+                            // gerando variação implausível (ex: +11.5% num único dia pra
+                            // petróleo) que ficava presa até o próximo ciclo funcionar.
+                            // Validação dupla: 1) o candle de referência precisa ser recente
+                            // (até 4 dias, cobre fim de semana longo); 2) mesmo se a data
+                            // bater, uma variação diária >15% pra CFD não-cripto é implausível
+                            // o bastante pra ser mais provável bug de referência do que
+                            // movimento real — nesses casos, melhor mostrar 0 (sem variação
+                            // confiável) do que um número fabricado pela referência errada.
+                            const candleTime = previousCandle.time ? new Date(previousCandle.time).getTime() : null;
+                            const candleIsRecent = candleTime === null || (now.getTime() - candleTime) <= 4 * 86_400_000;
+
+                            if (referencePrice > 0 && currentPrice > 0 && candleIsRecent) {
+                                const computedChange = currentPrice - referencePrice;
+                                const computedChangePercent = (computedChange / referencePrice) * 100;
+
+                                if (Math.abs(computedChangePercent) <= 15) {
+                                    change = computedChange;
+                                    changePercent = computedChangePercent;
+                                } else {
+                                    console.warn(`[MT5 PRICES] ⚠️ ${symbol}: variação implausível (${computedChangePercent.toFixed(2)}%) — referência provavelmente desatualizada, mantendo change 0.`);
+                                }
+                            } else if (!candleIsRecent) {
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candle de referência desatualizado (${previousCandle.time}), change ficará 0.`);
                             }
                         }
                     } else {
