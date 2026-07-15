@@ -3539,8 +3539,15 @@ app.post('/mt5-prices', async (c) => {
                     const now = new Date();
                     const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
                     const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1d/candles`;
+                    // ✅ 2026-07-15 (2ª parte): pedir só `limit=2` partia do pressuposto de
+                    // que a API sempre devolve exatamente [ontem, hoje] — pra BTCUSD (mercado
+                    // 24/7, sem pausa diária como CFD tradicional) a API vinha devolvendo
+                    // sistematicamente só 1 candle (o de hoje), fazendo a variação ficar
+                    // sempre em 0 depois do fix anterior (que passou a exigir 2 candles pra
+                    // calcular). Pedimos uma janela maior (5) e escolhemos pela DATA, não
+                    // pelo índice — mais resiliente a variação na contagem devolvida.
                     const candlesRes = await fetch(
-                        `${candlesUrl}?startTime=${now.toISOString()}&limit=2`,
+                        `${candlesUrl}?startTime=${now.toISOString()}&limit=5`,
                         {
                             headers: {
                                 'auth-token': metaapiToken,
@@ -3554,24 +3561,18 @@ app.post('/mt5-prices', async (c) => {
 
                     if (candlesRes.ok) {
                         const candles = await candlesRes.json();
-                        if (candles && candles.length >= 2) {
-                            // Carregado pra trás a partir de agora: o último elemento é o
-                            // D1 em curso (hoje, ainda aberto); o penúltimo é o D1 de ontem,
-                            // já fechado — é esse fechamento que o MetaTrader usa como base.
-                            //
-                            // ✅ 2026-07-15: achado real (BTCUSD) — quando a API retorna só 1
-                            // candle (comum sob rate-limit da conta compartilhada), o código
-                            // antes caía pra `candles[length - 1]` = o candle de HOJE, ainda
-                            // aberto, cujo `close` fica se atualizando junto com o preço ao
-                            // vivo — usar isso como "fechamento de ontem" gera uma variação
-                            // quase-zero que MUDA a cada chamada (porque o candle em aberto
-                            // muda), alternando com o valor correto do ciclo em que a API
-                            // devolve os 2 candles de verdade. Agora, com só 1 candle, NÃO
-                            // calcula variação nenhuma (mesmo comportamento de "sem candle
-                            // válido" abaixo) — a rede de segurança do frontend
-                            // (`rememberIfReal` em RealMarketDataService.ts) já mantém o
-                            // último valor real conhecido em vez de piscar pra 0.
-                            const previousCandle = candles[candles.length - 2];
+                        // Candle de referência = o mais recente cuja data (UTC) é ANTERIOR à
+                        // de hoje — nunca o candle de hoje (ainda aberto, `close` muda junto
+                        // com o preço ao vivo, o que causava a variação alternando entre um
+                        // valor real e outro a cada polling, achado real no BTCUSD).
+                        const todayUTC = now.toISOString().slice(0, 10);
+                        const previousCandle = Array.isArray(candles)
+                            ? [...candles]
+                                .reverse()
+                                .find((c: any) => c.time && new Date(c.time).toISOString().slice(0, 10) !== todayUTC)
+                            : null;
+
+                        if (previousCandle) {
                             const referencePrice = previousCandle.close || previousCandle.open || 0;
 
                             // ✅ 2026-07-13: achado real (UKOUSD) — quando a conta MetaAPI

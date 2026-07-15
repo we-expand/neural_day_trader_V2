@@ -28,17 +28,23 @@ Causa: em [supabase/functions/server/index.ts:3561](supabase/functions/server/in
 
 **⚠️ Esta é uma Edge Function do Supabase, não o frontend Vercel — precisa de `supabase functions deploy`, não só `vercel --prod`.**
 
+### Causa raiz 3, parte 2 — depois do deploy, preço certo mas variação ficou sempre ZERADA
+
+Cleber deployou a Edge Function e testou: preço parou de oscilar (confirma que a causa 3 era real), mas a % ficou sempre em 0. Diagnóstico: não era intermitente como eu supunha — a API de candles estava devolvendo **sistematicamente só 1 candle** pro BTCUSD (provável: mercado de cripto é 24/7, sem a pausa diária que CFD tradicional tem, então o `startTime=now&limit=2` não estava alinhando com [ontem, hoje] do jeito esperado). Com a exigência de 2 candles do fix anterior, isso zerava a variação sempre.
+
+**Fix**: pedir `limit=5` em vez de `2`, e escolher o candle de referência pela **data** (o mais recente cuja data UTC é diferente da de hoje), não mais por índice fixo (`length - 2`) — resiliente a quantos candles a API realmente devolver.
+
 ### Pendente real pra próxima sessão
 
-1. **Commit + deploy dos 2 fixes que faltam** (fix 2 do frontend + fix 3 do backend, ambos ainda não commitados nesta sessão em diante do fix 1):
+1. **Commit + deploy** — fix da parte 2 (limit=5 + seleção por data) ainda não commitado.
 ```bash
 cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
 git add supabase/functions/server/index.ts CLAUDE.md
-git commit -m "fix: candle único da MetaAPI não vira mais referência de 'fechamento de ontem' por engano — usava o candle de HOJE (ainda aberto, close mudando ao vivo) quando a API só devolvia 1 candle, causando variação do BTCUSD alternando entre dois valores reais a cada polling"
+git commit -m "fix: candle de referência do /mt5-prices escolhido por DATA (mais recente != hoje) em vez de índice fixo, com janela maior (limit=5) — BTCUSD (mercado 24/7) fazia a API devolver sistematicamente só 1 candle, zerando a variação sempre depois do fix anterior"
 git push origin main
 supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
 ```
-2. Depois do deploy da Edge Function, testar em produção de novo (cache limpo): abrir BTCUSD por ~1-2min, comparar 2-3 prints do preço/%/valor absoluto como fez desta vez — se a % parar de alternar entre dois valores diferentes, resolvido. Se persistir, pedir de novo os valores exatos (esse método de comparar as referências implícitas foi o que achou a causa real desta vez).
+2. Depois do deploy, testar em produção (cache limpo): BTCUSD deve mostrar preço estável E variação diferente de zero, sem alternar entre dois valores. Se a % continuar zerada, o próximo passo é logar a resposta crua da API de candles pro BTCUSD (`console.log(candles)` temporário na Edge Function) pra ver exatamente quantos candles e com que datas ela devolve.
 3. Tudo mais pendente das sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, símbolos europeus que falham na assinatura, hospedagem definitiva.
 
 ## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY CONFIRMADO FEITO PELO CLEBER
