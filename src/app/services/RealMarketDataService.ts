@@ -455,7 +455,18 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
   // preço/variação alternando entre dois valores reais mas de fontes
   // diferentes. Cripto com CFD confirmado nunca deve cair no Yahoo — mesma
   // regra do XPTUSD/VIX.
-  const brokerOnly = symbol === 'XPTUSD' || symbol === 'VIX' || isCryptoCfdAvailable(symbol, 'infinox');
+  //
+  // ✅ 2026-07-15: mesmo sintoma no NAS100 ("preço pulando milhares de
+  // pontos", vídeo do Cleber) — tinha CFD confirmado na corretora mas não
+  // estava nesta lista, então qualquer engasgo transitório da MetaAPI
+  // (rate-limit, documentado várias vezes neste arquivo) mandava pro Yahoo.
+  // Corrigido primeiro o ticker errado do Yahoo pro NAS100 (^IXIC, Nasdaq
+  // Composite, por ^NDX, Nasdaq-100 — ver supabase/functions/server/index.ts),
+  // mas o padrão "começa certo, depois degringola" persistiu mesmo depois —
+  // Yahoo continua sendo uma fonte/metodologia diferente da corretora mesmo
+  // com o ticker certo (índice cash vs CFD do broker). Fix real: mesma regra
+  // do XPTUSD/VIX/cripto — nunca cair no Yahoo pra ativo com CFD confirmado.
+  const brokerOnly = symbol === 'XPTUSD' || symbol === 'VIX' || symbol === 'NAS100' || isCryptoCfdAvailable(symbol, 'infinox');
 
   // Nome real do ativo na corretora — pode ser diferente do símbolo unificado
   // que o resto do app usa (ex: JP225 unificado -> 'JPN225' na Infinox).
