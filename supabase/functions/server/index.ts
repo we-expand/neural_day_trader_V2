@@ -3395,6 +3395,11 @@ app.delete('/clear-metaapi-token', async (c) => {
 // ========================================
 // 📊 ROTA: MT5 REAL-TIME PRICES (METAAPI)
 // ========================================
+// 🔍 2026-07-15: mesma lista de `CRYPTO_CFD_AVAILABLE.infinox` em
+// src/app/config/brokerRegistry.ts (não importável aqui, Edge Function é
+// isolada do bundle do frontend) — usada só pro log de debug temporário abaixo.
+const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD']);
+
 app.post('/mt5-prices', async (c) => {
     try {
         const { symbols, token, accountId } = await c.req.json();
@@ -3582,6 +3587,18 @@ app.post('/mt5-prices', async (c) => {
                         const previousCandle = candles && candles.length >= 2
                             ? candles[candles.length - 2]
                             : null;
+
+                        // 🔍 2026-07-15: log temporário pra investigar variação levemente
+                        // errada em cripto (SOLUSD, ADAUSD) — captura o array bruto de
+                        // candles pra comparar com o % real do terminal MT5 quando o erro
+                        // for reproduzido. Remover depois de diagnosticado.
+                        if (CRYPTO_CFD_SYMBOLS.has(symbol)) {
+                            console.log(`[MT5 PRICES][CRYPTO DEBUG] ${symbol} candles brutos:`,
+                                JSON.stringify((candles || []).map((cd: any) => ({ time: cd.time, open: cd.open, close: cd.close }))));
+                            console.log(`[MT5 PRICES][CRYPTO DEBUG] ${symbol} previousCandle escolhido:`,
+                                JSON.stringify({ time: previousCandle?.time, close: previousCandle?.close, open: previousCandle?.open }),
+                                `currentPrice=${currentPrice}`);
+                        }
 
                         if (previousCandle) {
                             const referencePrice = previousCandle.close || previousCandle.open || 0;
