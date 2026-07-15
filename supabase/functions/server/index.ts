@@ -3554,13 +3554,24 @@ app.post('/mt5-prices', async (c) => {
 
                     if (candlesRes.ok) {
                         const candles = await candlesRes.json();
-                        if (candles && candles.length > 0) {
+                        if (candles && candles.length >= 2) {
                             // Carregado pra trás a partir de agora: o último elemento é o
                             // D1 em curso (hoje, ainda aberto); o penúltimo é o D1 de ontem,
                             // já fechado — é esse fechamento que o MetaTrader usa como base.
-                            const previousCandle = candles.length >= 2
-                                ? candles[candles.length - 2]
-                                : candles[candles.length - 1];
+                            //
+                            // ✅ 2026-07-15: achado real (BTCUSD) — quando a API retorna só 1
+                            // candle (comum sob rate-limit da conta compartilhada), o código
+                            // antes caía pra `candles[length - 1]` = o candle de HOJE, ainda
+                            // aberto, cujo `close` fica se atualizando junto com o preço ao
+                            // vivo — usar isso como "fechamento de ontem" gera uma variação
+                            // quase-zero que MUDA a cada chamada (porque o candle em aberto
+                            // muda), alternando com o valor correto do ciclo em que a API
+                            // devolve os 2 candles de verdade. Agora, com só 1 candle, NÃO
+                            // calcula variação nenhuma (mesmo comportamento de "sem candle
+                            // válido" abaixo) — a rede de segurança do frontend
+                            // (`rememberIfReal` em RealMarketDataService.ts) já mantém o
+                            // último valor real conhecido em vez de piscar pra 0.
+                            const previousCandle = candles[candles.length - 2];
                             const referencePrice = previousCandle.close || previousCandle.open || 0;
 
                             // ✅ 2026-07-13: achado real (UKOUSD) — quando a conta MetaAPI

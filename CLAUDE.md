@@ -18,17 +18,27 @@ O listener do `streaming-relay` em [RealMarketDataService.ts](src/app/services/R
 
 `tsc --noEmit` limpo nos dois arquivos tocados. Preview local sobe sem erro novo. **Não reproduzível no preview isolado** (sem login/credenciais reais, sem o `streaming-relay` rodando) — só se prova em produção com tick real.
 
+### Causa raiz 3 (achada nesta sessão, com prints do Cleber comparando valores exatos) — candle único vira "referência de ontem" por engano, no BACKEND
+
+Fixes 1 e 2 foram commitados/deployados (frontend + Vercel), mas Cleber testou de novo (cache limpo, aba anônima confirmada) e o problema seguiu — **preço praticamente igual, só a % alternando** entre dois valores plausíveis: print 1 mostrou `64.860,40 (+327,89 / +0,51%)`, print 2 (4 min depois) mostrou `64.863,70 (-70,43 / -0,11%)`. Preço quase idêntico → não é fonte trocada (já descartado pelos fixes 1/2). Fazendo as contas: a referência "fechamento de ontem" implícita era `64.532,51` num print e `64.934,13` no outro — duas referências REAIS mas diferentes, ~0,6% de distância, alternando.
+
+Causa: em [supabase/functions/server/index.ts:3561](supabase/functions/server/index.ts:3561) (rota `/mt5-prices`), quando a API de candles da MetaAPI devolve só 1 candle (comum sob rate-limit da conta compartilhada, já documentado várias vezes neste arquivo), o código caía em `candles[length - 1]` — **o candle de HOJE, ainda aberto** — usado como se fosse o fechamento de ontem. O `close` de um candle aberto fica se atualizando junto com o preço ao vivo, então essa "referência" mudava a cada chamada, gerando uma % que ora batia com o cálculo certo (quando a API devolvia os 2 candles de verdade), ora ficava quase-zero e deslizando (quando devolvia só 1).
+
+**Fix**: `candles.length >= 2` agora é obrigatório pra calcular qualquer variação — com só 1 candle (ou 0), `change`/`changePercent` ficam em `0` (mesmo comportamento já existente pra "sem candle válido"/"candle desatualizado"). A rede de segurança do frontend (`rememberIfReal` em `RealMarketDataService.ts`, já existente) mantém o último valor real conhecido em vez de piscar pra 0.
+
+**⚠️ Esta é uma Edge Function do Supabase, não o frontend Vercel — precisa de `supabase functions deploy`, não só `vercel --prod`.**
+
 ### Pendente real pra próxima sessão
 
-1. **Commit + deploy** — 2º fix (`isCryptoCfdAvailable` no `brokerOnly`) ainda não commitado.
+1. **Commit + deploy dos 2 fixes que faltam** (fix 2 do frontend + fix 3 do backend, ambos ainda não commitados nesta sessão em diante do fix 1):
 ```bash
 cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
-git add src/app/services/RealMarketDataService.ts CLAUDE.md
-git commit -m "fix: cripto com CFD confirmado (BTC/SOL/BNB/XRP/ADA/DOT/BAT) nunca cai no Yahoo Finance em falha transitória da corretora — mesma proteção brokerOnly que já existia pra XPTUSD/VIX. Causa raiz real do preço+variação oscilando no BTCUSD (fallback silencioso trocava de fonte a cada rate-limit da conta MetaAPI compartilhada)"
+git add supabase/functions/server/index.ts CLAUDE.md
+git commit -m "fix: candle único da MetaAPI não vira mais referência de 'fechamento de ontem' por engano — usava o candle de HOJE (ainda aberto, close mudando ao vivo) quando a API só devolvia 1 candle, causando variação do BTCUSD alternando entre dois valores reais a cada polling"
 git push origin main
-vercel --prod
+supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
 ```
-2. Depois do deploy, testar em produção: abrir BTCUSD por ~1-2min observando se preço/variação param de alternar entre dois valores. Se persistir mesmo assim, next suspeito: o streaming-relay e o polling REST podem estar respondendo com pequenas diferenças de latência/spread (bid vs ask vs last) mesmo sendo a mesma fonte — investigar se `targetPriceRef` está recebendo valores de bid/ask alternados em vez de sempre o mesmo campo.
+2. Depois do deploy da Edge Function, testar em produção de novo (cache limpo): abrir BTCUSD por ~1-2min, comparar 2-3 prints do preço/%/valor absoluto como fez desta vez — se a % parar de alternar entre dois valores diferentes, resolvido. Se persistir, pedir de novo os valores exatos (esse método de comparar as referências implícitas foi o que achou a causa real desta vez).
 3. Tudo mais pendente das sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, símbolos europeus que falham na assinatura, hospedagem definitiva.
 
 ## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY CONFIRMADO FEITO PELO CLEBER
