@@ -34,17 +34,23 @@ Cleber deployou a Edge Function e testou: preço parou de oscilar (confirma que 
 
 **Fix**: pedir `limit=5` em vez de `2`, e escolher o candle de referência pela **data** (o mais recente cuja data UTC é diferente da de hoje), não mais por índice fixo (`length - 2`) — resiliente a quantos candles a API realmente devolver.
 
+### Causa raiz 3, parte 3 — a tentativa de escolher candle por DATA quebrou vários ativos (não só BTCUSD)
+
+Depois do deploy da parte 2 (seleção por data UTC), Cleber reportou que PIOROU: vários ativos (não só BTCUSD) passaram a mostrar variação zerada. Causa: o fechamento D1 da corretora não bate com meia-noite UTC (mesma observação já documentada em sessões anteriores sobre a convenção MetaTrader) — comparar `data do candle != hoje (UTC)` descartava o candle de ontem certo pra qualquer ativo cujo D1 feche fora da meia-noite UTC, ou seja, quase todos.
+
+**Fix**: revertido pra escolher por POSIÇÃO no array (`candles[length - 2]`, penúltimo elemento — é assim que a API sempre ordenou, funcionou pra todo ativo por meses antes desta sessão). Mantida só a janela maior (`limit=5` em vez de `2`) pra dar mais chance de vir candle suficiente pro BTCUSD. Ou seja: o fix real desta causa 3 é **só o `limit=5` + exigir `length >= 2`** — a parte da seleção por data foi tentativa errada, já revertida.
+
 ### Pendente real pra próxima sessão
 
-1. **Commit + deploy** — fix da parte 2 (limit=5 + seleção por data) ainda não commitado.
+1. **Commit + deploy** — fix da parte 3 (reversão pra seleção por posição, mantendo limit=5) ainda não commitado.
 ```bash
 cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
 git add supabase/functions/server/index.ts CLAUDE.md
-git commit -m "fix: candle de referência do /mt5-prices escolhido por DATA (mais recente != hoje) em vez de índice fixo, com janela maior (limit=5) — BTCUSD (mercado 24/7) fazia a API devolver sistematicamente só 1 candle, zerando a variação sempre depois do fix anterior"
+git commit -m "fix: reverte seleção de candle por data (quebrou vários ativos, D1 da corretora não bate com meia-noite UTC) — volta pra seleção por posição no array (penúltimo elemento), mantendo só a janela maior (limit=5) que ajuda o BTCUSD a vir com candle suficiente"
 git push origin main
 supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
 ```
-2. Depois do deploy, testar em produção (cache limpo): BTCUSD deve mostrar preço estável E variação diferente de zero, sem alternar entre dois valores. Se a % continuar zerada, o próximo passo é logar a resposta crua da API de candles pro BTCUSD (`console.log(candles)` temporário na Edge Function) pra ver exatamente quantos candles e com que datas ela devolve.
+2. Depois do deploy, testar em produção (cache limpo): checar BTCUSD E pelo menos 2-3 outros ativos (ex: EURUSD, GER40) pra confirmar que a variação voltou em todos, não só no BTC, e que o BTC não voltou a oscilar. Se o BTCUSD especificamente continuar zerado mesmo com limit=5, o próximo passo é logar a resposta crua da API de candles pro BTCUSD (`console.log(candles)` temporário na Edge Function) pra ver exatamente quantos candles e com que datas ela devolve — evitar mexer na lógica de novo sem esse dado concreto.
 3. Tudo mais pendente das sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, símbolos europeus que falham na assinatura, hospedagem definitiva.
 
 ## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY CONFIRMADO FEITO PELO CLEBER

@@ -3561,15 +3561,18 @@ app.post('/mt5-prices', async (c) => {
 
                     if (candlesRes.ok) {
                         const candles = await candlesRes.json();
-                        // Candle de referência = o mais recente cuja data (UTC) é ANTERIOR à
-                        // de hoje — nunca o candle de hoje (ainda aberto, `close` muda junto
-                        // com o preço ao vivo, o que causava a variação alternando entre um
-                        // valor real e outro a cada polling, achado real no BTCUSD).
-                        const todayUTC = now.toISOString().slice(0, 10);
-                        const previousCandle = Array.isArray(candles)
-                            ? [...candles]
-                                .reverse()
-                                .find((c: any) => c.time && new Date(c.time).toISOString().slice(0, 10) !== todayUTC)
+                        // ✅ 2026-07-15 (3ª parte): a tentativa de escolher o candle de
+                        // referência por DATA (string UTC != hoje) QUEBROU pra vários ativos
+                        // — o fechamento D1 da corretora não bate com meia-noite UTC (mesma
+                        // observação já documentada sobre convenção MetaTrader em sessões
+                        // anteriores), então comparar por data derrubava o candle de ontem
+                        // certo em qualquer ativo cujo D1 feche fora da meia-noite UTC.
+                        // Voltando pra posição no array (penúltimo elemento = D1 fechado mais
+                        // recente, é assim que a API sempre ordenou, funcionou pra todo ativo
+                        // por meses) — só a janela pedida aumentou (limit=5 em vez de 2), pra
+                        // dar mais chance da API devolver os candles suficientes pro BTCUSD.
+                        const previousCandle = Array.isArray(candles) && candles.length >= 2
+                            ? candles[candles.length - 2]
                             : null;
 
                         if (previousCandle) {
