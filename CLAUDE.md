@@ -1,6 +1,35 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-14, continuação 3)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-15)
 
-## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY AINDA PENDENTE
+## Sessão nova (2026-07-15): oscilação de %/variação (BTCUSD e provavelmente outros ativos streamados) — mesma causa raiz do "Bug 3" da sessão anterior, vazando por um lugar diferente — CORRIGIDO, NÃO COMMITADO/DEPLOYADO
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Deploy de `d64c1ed95` (continuação 3, abaixo) foi confirmado feito pelo Cleber. Logo depois ele reportou que a variação diária do BTCUSD oscila entre certo e errado o tempo todo — suspeita (correta) de que afeta outros ativos também.
+
+### Causa raiz
+
+O fix do "Bug 3" da sessão anterior só cobriu o `MarketScoreBoard.tsx` (o tick de streaming não escreve mais direto em `targetChangeRef`). Mas o listener do `streaming-relay` em [RealMarketDataService.ts](src/app/services/RealMarketDataService.ts) (`ensureRealtimeStreamingInitialized`, ~linha 169) continuava gravando `change`/`changePercent` — vindos da metodologia simplificada do relay (seed de candle sem a validação "candle ≤4 dias"/"magnitude ≤15%" que o backend tem em `/mt5-prices`) — direto no `lastRealPriceCache`, o cache COMPARTILHADO que `getLastKnownRealPrice()` expõe pro app inteiro (inclusive pra inicializar `targetChangeRef`/`targetTrendRef` quando o Dashboard troca de ativo). Como o streaming manda tick várias vezes por segundo (bem mais rápido que o polling HTTP de ~2s), ele sobrescrevia o valor validado do polling quase continuamente — polling corrige, streaming sobrescreve, polling corrige de novo = oscilação visual constante entre número certo e número errado. Afeta os ~176 símbolos que o relay assina, não só BTCUSD.
+
+### Fix aplicado
+
+[RealMarketDataService.ts:169-190](src/app/services/RealMarketDataService.ts): o listener do streaming agora lê o `change`/`changePercent` anteriores do próprio `lastRealPriceCache` (valor já validado do polling) em vez do payload do relay — o streaming continua acelerando só o PREÇO; `change`/`changePercent` nunca mais vêm do tick de streaming pro cache compartilhado.
+
+### Verificação feita
+
+`tsc --noEmit` limpo no arquivo tocado (erros pré-existentes em outros arquivos não relacionados, `src/imports/pasted_text/*`, `SmartDataExample.tsx`, já existiam antes desta sessão). Preview local sobe sem erro novo — mas a lógica em si só se prova com o `streaming-relay` real (rodando no Mac do Cleber, credenciais reais) empurrando tick de verdade, o que não dá pra reproduzir no preview isolado sem login. **NÃO testado em produção.**
+
+### Pendente real pra próxima sessão
+
+1. **Commit + deploy** — nada commitado ainda desta sessão.
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/RealMarketDataService.ts CLAUDE.md
+git commit -m "fix: streaming-relay não sobrescreve mais change/changePercent no cache compartilhado — só acelera preço, variação continua vindo do polling validado (oscilação certo/errado no BTCUSD e outros ativos streamados)"
+git push origin main
+vercel --prod
+```
+2. Depois do deploy, testar em produção: abrir BTCUSD e mais 1-2 ativos streamados (ex: GER40, XAUUSD) e observar por ~30s se a variação para de piscar entre dois valores.
+3. Tudo mais pendente das sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, símbolos europeus que falham na assinatura, hospedagem definitiva.
+
+## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY CONFIRMADO FEITO PELO CLEBER
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continua a sessão "Sessão nova (2026-07-14, continuação 2)" logo abaixo. Cleber testou em produção (`neuraldaytrader.com`) depois daquela sessão e reportou "ainda demora demais" — investigação ao vivo achou 2 bugs reais no relay (nunca tinha ficado de pé de verdade) + 1 bug de oscilação introduzido pela própria migração desta sessão. Todos corrigidos e testados. **Commit feito (`d64c1ed95`), mas `vercel --prod` ainda não rodou** — a correção não está em produção até o Cleber rodar o deploy.
 

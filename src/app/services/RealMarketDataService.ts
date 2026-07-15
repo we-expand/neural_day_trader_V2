@@ -166,13 +166,25 @@ function ensureRealtimeStreamingInitialized(): void {
     .on('broadcast', { event: 'price-update' }, ({ payload }) => {
       if (!payload?.asset_symbol || typeof payload.price !== 'number') return;
 
+      // ✅ 2026-07-15: change/changePercent NUNCA vêm do streaming-relay pro
+      // cache compartilhado — o relay usa uma metodologia simplificada de
+      // seed (sem a validação de candle recente ≤4 dias / magnitude ≤15% que
+      // o backend tem em /mt5-prices) e escreve a cada tick (várias vezes por
+      // segundo), sobrescrevendo o valor validado do polling quase
+      // continuamente = oscilação visual entre valor certo e errado (achado
+      // no BTCUSD, mas afeta qualquer símbolo assinado pelo relay). Mesma
+      // causa raiz do "Bug 3" da sessão anterior, só que vazando pelo cache
+      // compartilhado em vez do ref direto do Dashboard. O streaming só
+      // acelera o PREÇO; change/changePercent continuam exclusivamente do
+      // último polling validado já presente no cache.
+      const previousReal = lastRealPriceCache.get(payload.asset_symbol.toUpperCase());
       const data: RealMarketData = rememberIfReal({
         symbol: payload.asset_symbol,
         price: payload.price,
         bid: payload.bid,
         ask: payload.ask,
-        change: payload.change_24h ?? 0,
-        changePercent: payload.change_percent_24h ?? 0,
+        change: previousReal?.change ?? 0,
+        changePercent: previousReal?.changePercent ?? 0,
         volume: payload.volume ?? 0,
         timestamp: payload.timestamp ? new Date(payload.timestamp).getTime() : Date.now(),
         source: 'metaapi',
