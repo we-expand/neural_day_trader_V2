@@ -40,17 +40,23 @@ Depois do deploy da parte 2 (seleção por data UTC), Cleber reportou que PIOROU
 
 **Fix**: revertido pra escolher por POSIÇÃO no array (`candles[length - 2]`, penúltimo elemento — é assim que a API sempre ordenou, funcionou pra todo ativo por meses antes desta sessão). Mantida só a janela maior (`limit=5` em vez de `2`) pra dar mais chance de vir candle suficiente pro BTCUSD. Ou seja: o fix real desta causa 3 é **só o `limit=5` + exigir `length >= 2`** — a parte da seleção por data foi tentativa errada, já revertida.
 
+### Causa raiz 3, parte 4 — limit=5 fixo pra TODO ativo causou lentidão (~1min pra corrigir) nos outros
+
+Cleber testou o fix da parte 3 (limit=5 fixo pra todo ativo): BTC ficou certo, mas outros ativos (que já funcionavam bem antes) passaram a demorar mais de 1 minuto na tela com valor errado antes de "auto-corrigir". Causa provável: pedir uma janela 2,5x maior de candle SEMPRE (não só quando precisa) aumenta o custo/latência de cada chamada na conta MetaAPI compartilhada (já documentada como sensível a rate-limit), afetando ativos que nunca tiveram esse problema.
+
+**Fix**: `limit=2` (o de sempre) continua sendo a ÚNICA chamada pra praticamente todo ativo — zero mudança de custo/latência pra quem já funcionava. Só quando essa primeira resposta vier curta (`< 2` candles — hoje, na prática, só o BTCUSD) é que uma 2ª chamada com `limit=5` é feita. Isolado de verdade pro caso real, sem custo extra pro resto.
+
 ### Pendente real pra próxima sessão
 
-1. **Commit + deploy** — fix da parte 3 (reversão pra seleção por posição, mantendo limit=5) ainda não commitado.
+1. **Commit + deploy** — fix da parte 4 (retry isolado, só quando a 1ª chamada vem curta) ainda não commitado.
 ```bash
 cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
 git add supabase/functions/server/index.ts CLAUDE.md
-git commit -m "fix: reverte seleção de candle por data (quebrou vários ativos, D1 da corretora não bate com meia-noite UTC) — volta pra seleção por posição no array (penúltimo elemento), mantendo só a janela maior (limit=5) que ajuda o BTCUSD a vir com candle suficiente"
+git commit -m "fix: candle de referência do /mt5-prices volta a pedir limit=2 (como sempre) pra todo ativo — só refaz a chamada com janela maior (limit=5) quando a 1ª vem curta (hoje, só BTCUSD), evitando a lentidão/latência extra que limit=5 fixo causava nos outros ativos"
 git push origin main
 supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
 ```
-2. Depois do deploy, testar em produção (cache limpo): checar BTCUSD E pelo menos 2-3 outros ativos (ex: EURUSD, GER40) pra confirmar que a variação voltou em todos, não só no BTC, e que o BTC não voltou a oscilar. Se o BTCUSD especificamente continuar zerado mesmo com limit=5, o próximo passo é logar a resposta crua da API de candles pro BTCUSD (`console.log(candles)` temporário na Edge Function) pra ver exatamente quantos candles e com que datas ela devolve — evitar mexer na lógica de novo sem esse dado concreto.
+2. Depois do deploy, testar em produção (cache limpo): BTCUSD certo e sem oscilar, E os outros ativos (EURUSD, GER40, US30) voltando ao normal rápido, sem demora de 1min. Se algum ainda demorar, pode ser rate-limit genérico da conta compartilhada (já documentado, não relacionado a este código) — nesse caso pedir print com timestamp de quando ficou certo/errado de novo.
 3. Tudo mais pendente das sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, símbolos europeus que falham na assinatura, hospedagem definitiva.
 
 ## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY CONFIRMADO FEITO PELO CLEBER

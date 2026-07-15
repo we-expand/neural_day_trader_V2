@@ -3539,39 +3539,47 @@ app.post('/mt5-prices', async (c) => {
                     const now = new Date();
                     const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
                     const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1d/candles`;
-                    // ✅ 2026-07-15 (2ª parte): pedir só `limit=2` partia do pressuposto de
-                    // que a API sempre devolve exatamente [ontem, hoje] — pra BTCUSD (mercado
-                    // 24/7, sem pausa diária como CFD tradicional) a API vinha devolvendo
-                    // sistematicamente só 1 candle (o de hoje), fazendo a variação ficar
-                    // sempre em 0 depois do fix anterior (que passou a exigir 2 candles pra
-                    // calcular). Pedimos uma janela maior (5) e escolhemos pela DATA, não
-                    // pelo índice — mais resiliente a variação na contagem devolvida.
-                    const candlesRes = await fetch(
-                        `${candlesUrl}?startTime=${now.toISOString()}&limit=5`,
-                        {
-                            headers: {
-                                'auth-token': metaapiToken,
-                                'Accept': 'application/json'
+                    // ✅ 2026-07-15 (4ª parte): `limit=2` funcionou pra praticamente todo
+                    // ativo por meses (posição fixa `length-2` = candle de ontem fechado).
+                    // Só o BTCUSD (mercado 24/7, sem a pausa diária que CFD tradicional tem)
+                    // vinha recebendo sistematicamente 1 candle só com esse limit. Tentativas
+                    // anteriores de mudar a janela/seleção pra TODO ativo quebraram os que já
+                    // funcionavam (US30 e outros voltaram errados com limit=5 fixo, e a
+                    // seleção por data quebrou o resto por causa do fechamento D1 não bater
+                    // com meia-noite UTC). Fix final: mantém `limit=2` como sempre (zero risco
+                    // pro que já funciona) e só faz uma 2ª tentativa com janela maior quando a
+                    // primeira vier curta (<2 candles) — isolado pro caso real, sem tocar no
+                    // caminho que já era correto pra todo o resto.
+                    async function fetchCandles(limit: number) {
+                        const res = await fetch(
+                            `${candlesUrl}?startTime=${now.toISOString()}&limit=${limit}`,
+                            {
+                                headers: {
+                                    'auth-token': metaapiToken,
+                                    'Accept': 'application/json'
+                                }
                             }
-                        }
-                    );
+                        );
+                        if (!res.ok) return { ok: false, candles: null as any[] | null };
+                        const json = await res.json();
+                        return { ok: true, candles: Array.isArray(json) ? json : null };
+                    }
 
                     let change = 0;
                     let changePercent = 0;
 
-                    if (candlesRes.ok) {
-                        const candles = await candlesRes.json();
-                        // ✅ 2026-07-15 (3ª parte): a tentativa de escolher o candle de
-                        // referência por DATA (string UTC != hoje) QUEBROU pra vários ativos
-                        // — o fechamento D1 da corretora não bate com meia-noite UTC (mesma
-                        // observação já documentada sobre convenção MetaTrader em sessões
-                        // anteriores), então comparar por data derrubava o candle de ontem
-                        // certo em qualquer ativo cujo D1 feche fora da meia-noite UTC.
-                        // Voltando pra posição no array (penúltimo elemento = D1 fechado mais
-                        // recente, é assim que a API sempre ordenou, funcionou pra todo ativo
-                        // por meses) — só a janela pedida aumentou (limit=5 em vez de 2), pra
-                        // dar mais chance da API devolver os candles suficientes pro BTCUSD.
-                        const previousCandle = Array.isArray(candles) && candles.length >= 2
+                    const firstTry = await fetchCandles(2);
+
+                    if (firstTry.ok) {
+                        let candles = firstTry.candles;
+                        if (!candles || candles.length < 2) {
+                            // Só refaz a chamada (janela maior) quando a primeira veio curta
+                            // — na prática só acontece com BTCUSD hoje, não custa latência
+                            // extra pra nenhum outro ativo.
+                            const retry = await fetchCandles(5);
+                            candles = retry.candles;
+                        }
+                        const previousCandle = candles && candles.length >= 2
                             ? candles[candles.length - 2]
                             : null;
 
@@ -3608,7 +3616,7 @@ app.post('/mt5-prices', async (c) => {
                             }
                         }
                     } else {
-                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles HTTP ${candlesRes.status}, change ficará 0`);
+                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles HTTP falhou, change ficará 0`);
                     }
                     
                     console.log(`[MT5 PRICES] ✅ ${symbol}: $${currentPrice.toFixed(5)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
