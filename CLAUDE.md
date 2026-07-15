@@ -1,32 +1,34 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-15)
 
-## Sessão nova (2026-07-15): oscilação de %/variação (BTCUSD e provavelmente outros ativos streamados) — mesma causa raiz do "Bug 3" da sessão anterior, vazando por um lugar diferente — CORRIGIDO, NÃO COMMITADO/DEPLOYADO
+## Sessão nova (2026-07-15): oscilação preço/variação no BTCUSD (e provavelmente outras cripto com CFD) — 2 causas reais, ambas corrigidas — NÃO COMMITADO/DEPLOYADO (2º fix)
 
-> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Deploy de `d64c1ed95` (continuação 3, abaixo) foi confirmado feito pelo Cleber. Logo depois ele reportou que a variação diária do BTCUSD oscila entre certo e errado o tempo todo — suspeita (correta) de que afeta outros ativos também.
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Deploy de `d64c1ed95` (continuação 3, abaixo) foi confirmado feito pelo Cleber. Ele reportou variação do BTCUSD oscilando certo/errado. 1º fix (cache do streaming) foi commitado (`05ea472a6`) e deployado — Cleber testou de novo e reportou que **persiste, agora com PREÇO oscilando também**, não só variação. Achada uma 2ª causa real, mais profunda.
 
-### Causa raiz
+### Causa raiz 1 (commitada em `05ea472a6`, já em produção, não foi suficiente sozinha)
 
-O fix do "Bug 3" da sessão anterior só cobriu o `MarketScoreBoard.tsx` (o tick de streaming não escreve mais direto em `targetChangeRef`). Mas o listener do `streaming-relay` em [RealMarketDataService.ts](src/app/services/RealMarketDataService.ts) (`ensureRealtimeStreamingInitialized`, ~linha 169) continuava gravando `change`/`changePercent` — vindos da metodologia simplificada do relay (seed de candle sem a validação "candle ≤4 dias"/"magnitude ≤15%" que o backend tem em `/mt5-prices`) — direto no `lastRealPriceCache`, o cache COMPARTILHADO que `getLastKnownRealPrice()` expõe pro app inteiro (inclusive pra inicializar `targetChangeRef`/`targetTrendRef` quando o Dashboard troca de ativo). Como o streaming manda tick várias vezes por segundo (bem mais rápido que o polling HTTP de ~2s), ele sobrescrevia o valor validado do polling quase continuamente — polling corrige, streaming sobrescreve, polling corrige de novo = oscilação visual constante entre número certo e número errado. Afeta os ~176 símbolos que o relay assina, não só BTCUSD.
+O listener do `streaming-relay` em [RealMarketDataService.ts](src/app/services/RealMarketDataService.ts) (`ensureRealtimeStreamingInitialized`) gravava `change`/`changePercent` (metodologia simplificada do relay) direto no `lastRealPriceCache` compartilhado a cada tick, sobrescrevendo o valor validado do polling. Corrigido: streaming só grava preço; `change`/`changePercent` vêm só do polling.
 
-### Fix aplicado
+### Causa raiz 2 (achada nesta sessão, após Cleber reportar que persistia) — fallback silencioso pro Yahoo Finance
 
-[RealMarketDataService.ts:169-190](src/app/services/RealMarketDataService.ts): o listener do streaming agora lê o `change`/`changePercent` anteriores do próprio `lastRealPriceCache` (valor já validado do polling) em vez do payload do relay — o streaming continua acelerando só o PREÇO; `change`/`changePercent` nunca mais vêm do tick de streaming pro cache compartilhado.
+`fetchMT5Data()` em [RealMarketDataService.ts:445](src/app/services/RealMarketDataService.ts:445) tinha uma proteção `brokerOnly` (nunca cai no Yahoo em falha transitória, mantém último preço real da própria corretora) só pra `XPTUSD`/`VIX` — criada numa sessão anterior pro mesmo sintoma ("oscila entre certo e muito errado") nesses dois ativos. **Cripto com CFD confirmado (BTCUSD, SOLUSD, BNBUSD, XRPUSD, ADAUSD, DOTUSD, BATUSD — ver `isCryptoCfdAvailable`) nunca foi incluída nessa lista.** Qualquer engasgo transitório da conta MetaAPI compartilhada (rate-limit 429, documentado repetidamente neste arquivo) fazia `fetchMT5Data` cair pro Yahoo Finance pra essas criptos — fonte e metodologia de variação diferentes da corretora — até o próximo polling bem-sucedido voltar pra corretora. Resultado: três fontes reais mas divergentes brigando (WS da corretora via streaming, REST da corretora via polling, Yahoo como fallback silencioso) — preço E variação alternando entre valores plausíveis mas de fontes diferentes.
+
+**Fix**: `brokerOnly` agora inclui `isCryptoCfdAvailable(symbol, 'infinox')` — qualquer cripto com CFD confirmado nunca cai no Yahoo, mesma regra do XPTUSD/VIX.
 
 ### Verificação feita
 
-`tsc --noEmit` limpo no arquivo tocado (erros pré-existentes em outros arquivos não relacionados, `src/imports/pasted_text/*`, `SmartDataExample.tsx`, já existiam antes desta sessão). Preview local sobe sem erro novo — mas a lógica em si só se prova com o `streaming-relay` real (rodando no Mac do Cleber, credenciais reais) empurrando tick de verdade, o que não dá pra reproduzir no preview isolado sem login. **NÃO testado em produção.**
+`tsc --noEmit` limpo nos dois arquivos tocados. Preview local sobe sem erro novo. **Não reproduzível no preview isolado** (sem login/credenciais reais, sem o `streaming-relay` rodando) — só se prova em produção com tick real.
 
 ### Pendente real pra próxima sessão
 
-1. **Commit + deploy** — nada commitado ainda desta sessão.
+1. **Commit + deploy** — 2º fix (`isCryptoCfdAvailable` no `brokerOnly`) ainda não commitado.
 ```bash
 cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
 git add src/app/services/RealMarketDataService.ts CLAUDE.md
-git commit -m "fix: streaming-relay não sobrescreve mais change/changePercent no cache compartilhado — só acelera preço, variação continua vindo do polling validado (oscilação certo/errado no BTCUSD e outros ativos streamados)"
+git commit -m "fix: cripto com CFD confirmado (BTC/SOL/BNB/XRP/ADA/DOT/BAT) nunca cai no Yahoo Finance em falha transitória da corretora — mesma proteção brokerOnly que já existia pra XPTUSD/VIX. Causa raiz real do preço+variação oscilando no BTCUSD (fallback silencioso trocava de fonte a cada rate-limit da conta MetaAPI compartilhada)"
 git push origin main
 vercel --prod
 ```
-2. Depois do deploy, testar em produção: abrir BTCUSD e mais 1-2 ativos streamados (ex: GER40, XAUUSD) e observar por ~30s se a variação para de piscar entre dois valores.
+2. Depois do deploy, testar em produção: abrir BTCUSD por ~1-2min observando se preço/variação param de alternar entre dois valores. Se persistir mesmo assim, next suspeito: o streaming-relay e o polling REST podem estar respondendo com pequenas diferenças de latência/spread (bid vs ask vs last) mesmo sendo a mesma fonte — investigar se `targetPriceRef` está recebendo valores de bid/ask alternados em vez de sempre o mesmo campo.
 3. Tudo mais pendente das sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx`/`MarketDataContext.tsx` pro streaming, símbolos europeus que falham na assinatura, hospedagem definitiva.
 
 ## Sessão nova (2026-07-14, continuação 3): 2 bugs reais no streaming-relay corrigidos (travava na inicialização + crash loop) + oscilação de % no Dashboard corrigida — commitado, DEPLOY CONFIRMADO FEITO PELO CLEBER

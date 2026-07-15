@@ -442,7 +442,20 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
   // bate com o MT5 do Cleber: -3.03% vs -3.11%) — o fallback Yahoo estava
   // sendo usado sempre (marcado errado como "sem CFD" numa sessão anterior)
   // e divergia bastante do MT5 real (-4.43% vs -3.11%). Mesma regra do XPTUSD.
-  const brokerOnly = symbol === 'XPTUSD' || symbol === 'VIX';
+  //
+  // ✅ 2026-07-15: mesma causa raiz, achada no BTCUSD (Cleber reportou preço
+  // E variação oscilando entre certo e errado) — qualquer engasgo transitório
+  // da conta MetaAPI compartilhada (rate-limit 429, documentado várias vezes
+  // neste arquivo/CLAUDE.md) fazia QUALQUER cripto com CFD confirmado
+  // (BTC/SOL/BNB/XRP/ADA/DOT/BAT, ver isCryptoCfdAvailable) cair pro Yahoo
+  // Finance — fonte e metodologia de variação totalmente diferentes da
+  // corretora — até o próximo polling bem-sucedido voltar pra corretora.
+  // Isso brigava tanto com o polling seguinte quanto com o tick em tempo real
+  // do streaming-relay (que sempre vem direto da corretora via WS), causando
+  // preço/variação alternando entre dois valores reais mas de fontes
+  // diferentes. Cripto com CFD confirmado nunca deve cair no Yahoo — mesma
+  // regra do XPTUSD/VIX.
+  const brokerOnly = symbol === 'XPTUSD' || symbol === 'VIX' || isCryptoCfdAvailable(symbol, 'infinox');
 
   // Nome real do ativo na corretora — pode ser diferente do símbolo unificado
   // que o resto do app usa (ex: JP225 unificado -> 'JPN225' na Infinox).
