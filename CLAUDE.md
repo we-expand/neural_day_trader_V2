@@ -1,4 +1,38 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação)
+
+## Sessão nova (2026-07-16, continuação): USDX + widget do VIX reescrito (estava 100% mockado) — TUDO COMMITADO E DEPLOYADO
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continua a sessão "Sessão nova (2026-07-16)" logo abaixo (mesmo dia, sessão nova depois do Cleber descansar). Dois temas: mais um ativo faltando no catálogo (USDX) e uma reescrita real do widget de VIX do Dashboard, que estava desconectado de dado real.
+
+### USDX (Índice do Dólar) — mais um "X não existe no catálogo", mesmo processo
+
+Confirmado real via `/mt5-prices` antes de adicionar (padrão já estabelecido nesta sessão). Achado de bônus: o `ChartView.tsx` já tinha uma entrada `DXY` pro mesmo conceito, mas **`DXY` nunca existiu de verdade na corretora** (HTTP 404 confirmado) — ficava sempre em fallback sem o Cleber notar (índice pouco acompanhado). Corrigido pra `USDX` (nome real) nos dois catálogos. Commit `ed0263781`.
+
+Nota: achada uma 3ª referência a `DXY` em `ButterflyMatrix.tsx` — **não mexida de propósito**, é um componente inteiramente simulado (`Math.random()`, comentário "Simulate real-time price updates"), não busca dado real, fora do escopo do pipeline de preço real.
+
+### Widget do VIX no Dashboard — estava 100% mockado, "Correções" pedidas pelo Cleber, 4 rodadas de fix
+
+**Causa raiz descoberta**: `VIXWidgetEnhanced.tsx` (o box de VIX que aparece no Dashboard) tinha a chamada real ao backend **comentada de propósito** havia tempo (comentário "MODO OFFLINE: Supabase desabilitado — quota excedida", de sessão antiga, nunca reativada) — sempre caía num gerador 100% sintético (`Math.random` com seed de tempo, base fixa 18.5). Reconectado em `getRealMarketData('VIX')`, a MESMA função que o box de ativos do Dashboard (`MarketScoreBoard.tsx`) já usa — garante paridade exata de dado. Commit `67e45cf82`.
+
+Depois desse fix, o Cleber reportou 3 problemas visuais/lógicos, corrigidos em sequência:
+
+1. **Box "estourando"** no rodapé — o container pai (`ModularDashboard.tsx`) tem altura fixa (`h-[490px]`), o Card do widget não tinha scroll/limite interno. Fix: `overflow-y-auto` + compactação (texto principal `text-6xl`→`text-5xl`, gráfico `h-32`→`h-24`). Commit `1d4df442c`.
+2. **Cor da variação invertida** — tinha uma convenção proposital "VIX subir = vermelho" (risk sentiment), mas o Cleber espera a convenção padrão do resto do app (sobe=verde, cai=vermelho). Trocado. Mesmo commit `1d4df442c`.
+3. **Classificação de posicionamento (Alto/Normal/Baixo) — 2 tentativas**:
+   - Confirmado primeiro que "pré-mercado" estava CORRETO (calculado com hora real do sistema: VIX abre 9:30 AM ET, hora real então era ~6:57 AM ET — bate).
+   - 1ª tentativa (`5058b408d`): trocou a tabela fixa antiga (`<20 = BAIXO` hardcoded, nunca mudava) por uma comparação do valor atual vs. média do próprio histórico acumulado (`history`). Cleber testou e apontou que ainda estava errado — mostrava "NORMAL" com o VIX subindo **+9,88% no dia**, porque o histórico curto da sessão já continha só valores próximos (contaminado pelo próprio salto).
+   - **2ª tentativa, a certa** (`97ae6e414`): Cleber esclareceu o conceito real — o indicador deve refletir a **magnitude da variação diária** (`vixChangePercent`), não o nível absoluto nem a média de um histórico curto. Um movimento diário "normal" pra VIX é até ±2%; além disso é ALTO ou BAIXO. Implementado: `changePercent > 2% → ALTO`, `< -2% → BAIXO`, entre isso → `NORMAL`. Simples, direto, sem dependência de histórico acumulado.
+   - **3ª correção, cor invertida**: a cor do badge ALTO/BAIXO estava com a mesma lógica "risk sentiment" que já tinha sido removida do badge de variação — Cleber pediu a convenção direcional padrão (positivo=verde/negativo=vermelho) também aqui. Corrigido: `ALTO = verde (emerald)`, `BAIXO = vermelho (red)`, `NORMAL = amarelo`.
+
+### Gráfico do widget dizia "ÚLTIMAS 24H" mas só guardava ~72 segundos de dado real
+
+Achado ao Cleber perguntar "o gráfico está funcionando de forma real?". O valor já era real (fix anterior), mas o rótulo do gráfico ("ÚLTIMAS 24H") era herdado de uma versão antiga que atualizava a cada 30min (48 pontos × 30min = 24h) — o refresh real hoje é a cada 1.5s, então os mesmos 48 pontos cobriam só ~72s. Fix: janela aumentada pra 240 pontos (~6min a 1.5s/tick) e o rótulo agora é **calculado dinamicamente** a partir do timestamp real dos pontos acumulados (`historySpanLabel`), nunca mais um número fixo desatualizado.
+
+### Pendente real pra próxima sessão
+
+1. Confirmar com print atualizado (pós-deploy) que a classificação ALTO/NORMAL/BAIXO, as cores e o rótulo do gráfico estão batendo com a realidade — só testado por raciocínio/tipo, não visualmente (login bloqueia preview local).
+2. Considerar aplicar esse mesmo padrão de classificação por magnitude de variação (±2% normal) a outros indicadores de "estado" no app, se a IA for usar esse conceito em outros ativos no futuro (mencionado pelo Cleber como objetivo).
+3. Tudo mais pendente da sessão anterior (ver seção logo abaixo) continua valendo — aguardar conta MetaAPI descongestionar e reavaliar HKG33/AUDJPY/UKOUSD com o campo `_debug` da resposta de `/mt5-prices`.
 
 ## Sessão nova (2026-07-16): maratona de bugs de preço/variação (NAS100, XAUUSD, SOLUSD/ADAUSD, AUDJPY, UKOUSD, HKG33) + catálogo de ativos ampliado — TUDO COMMITADO E DEPLOYADO, exceto último commit de debug
 
