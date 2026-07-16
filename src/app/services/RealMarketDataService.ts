@@ -794,10 +794,17 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
       const tick = priceByBrokerName.get(brokerName);
 
       if (!tick || !isValidPrice(tick.price)) {
-        // ✅ 2026-07-14: XPTUSD e VIX nunca devem cair no Yahoo (diverge do
-        // MT5 real) — os dois têm CFD confirmado na Infinox, então numa falha
-        // transitória mantém o último preço real da própria corretora.
-        results[unified] = (unified === 'XPTUSD' || unified === 'VIX')
+        // ✅ 2026-07-14/15: XPTUSD, VIX, NAS100 e cripto com CFD confirmado
+        // nunca devem cair no Yahoo (diverge do MT5 real) — todos têm CFD
+        // confirmado na Infinox, então numa falha transitória mantém o
+        // último preço real da própria corretora. Esta é uma SEGUNDA cópia
+        // da mesma regra já aplicada em `fetchMT5Data` (usada só pelo
+        // Dashboard) — `getBatchedMT5Data` (usada por Ticker/Context/outras
+        // telas) tinha ficado pra trás, só protegendo XPTUSD/VIX; SOLUSD/
+        // BTCUSD/ADAUSD/NAS100 continuavam caindo no Yahoo por este caminho
+        // mesmo depois do fix no outro (sintoma: "ainda está assim pós
+        // deploy" — cada fix cobria só metade dos pipelines).
+        results[unified] = (unified === 'XPTUSD' || unified === 'VIX' || unified === 'NAS100' || isCryptoCfdAvailable(unified, 'infinox'))
           ? getFallbackOrLastKnown(unified)
           : await fetchYahooData(unified);
         return;
