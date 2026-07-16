@@ -303,6 +303,10 @@ function toUnifiedCryptoSymbol(symbol: string): string {
   // vez do broker mesmo estando cadastrado. Reconhece outros sufixos fiat
   // conhecidos do catálogo antes de assumir USD.
   if (/^(.+)(EUR|GBP|JPY|CHF)$/.test(symbol)) return symbol;
+  // ✅ 2026-07-16: BTCBNB (cripto cotada em outra cripto, não em fiat) tinha
+  // o mesmo problema — virava "BTCBNBUSD". Reconhece sufixos de cripto-base
+  // conhecidos antes de assumir USD.
+  if (/^(.+)(BTC|BNB|ETH)$/.test(symbol)) return symbol;
   return `${symbol}USD`;
 }
 

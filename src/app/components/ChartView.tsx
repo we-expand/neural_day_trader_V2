@@ -563,6 +563,9 @@ export function ChartView() {
     // ✅ 2026-07-16: BTCEUR não existia no catálogo — confirmado real via
     // /mt5-prices (~€55.918).
     { symbol: 'BTCEUR', name: 'Bitcoin (EUR)', bid: 55918.91, ask: 55964.87, change: 0, changePercent: 0, category: 'Crypto' },
+    // ✅ 2026-07-16: BTCBNB não existia no catálogo — real com o nome
+    // 'BTCXBN' na Infinox (override em brokerRegistry.ts), ~288,65.
+    { symbol: 'BTCBNB', name: 'Bitcoin (BNB)', bid: 288.65, ask: 289.24, change: 24.65, changePercent: 9.34, category: 'Crypto' },
     { symbol: 'ETHUSD', name: 'Ethereum', bid: 3200, ask: 3201, change: -80, changePercent: -2.44, category: 'Crypto' },
     { symbol: 'BNBUSD', name: 'Binance Coin', bid: 645.20, ask: 645.30, change: 12.5, changePercent: 1.98, category: 'Crypto' },
     { symbol: 'XRPUSD', name: 'Ripple', bid: 0.5234, ask: 0.5235, change: 0.0124, changePercent: 2.42, category: 'Crypto' },

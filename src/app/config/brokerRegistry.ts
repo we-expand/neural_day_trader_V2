@@ -46,6 +46,10 @@ const SYMBOL_OVERRIDES: Record<BrokerId, Record<string, string>> = {
     XBNUSDCRP: 'XBNUSD.crp',
     XLCUSDCRP: 'XLCUSD.crp',
     USDCHFEXC: 'USDCHF-EXC',
+    // ✅ 2026-07-16: BTCBNB não existe com esse nome literal na Infinox —
+    // real com 'BTCXBN' (mesmo padrão do XBN visto nesta sessão pro
+    // Binance Coin), confirmado via /mt5-prices.
+    BTCBNB: 'BTCXBN',
   },
 };
 
@@ -149,7 +153,9 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // BTCEUR: confirmado real via /mt5-prices em 2026-07-16 — roteado pelo
   // broker em vez da Binance direta (as 3 fontes de Binance direta têm
   // histórico de ficarem mortas em produção, ver comentário logo abaixo).
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR']),
+  // BTCBNB: mesmo caso — na Binance esse par existe invertido (BNBBTC), não
+  // "BTCBNB", então cairia sempre em erro na Binance direta.
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB']),
 };
 
 /**
