@@ -435,6 +435,15 @@ export const ALL_ASSETS: Asset[] = [
   // usa nomes diferentes; mantidos literais até o Cleber confirmar no MT5).
   { symbol: 'PUBP.PA', name: 'PUBP', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato PUBP da Infinox — provável Publicis Groupe, identidade não confirmada' },
   { symbol: 'TCFP.PA', name: 'TCFP', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato TCFP da Infinox — identidade exata não confirmada' },
+  // ✅ 2026-07-16: nova lista do Cleber (França/Espanha/Portugal/Holanda) —
+  // auditados via /mt5-prices antes de adicionar.
+  { symbol: 'AMUN.PA', name: 'Amundi SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Asset Management' },
+  { symbol: 'CDI.PA', name: 'Christian Dior SE', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Luxury Goods' },
+  { symbol: 'SW.PA', name: 'Sodexo SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Food Services' },
+  // ADPR/DIM: preço real confirmado, identidade exata não confirmada
+  // (ADPR provavelmente Aéroports de Paris, ticker usual "ADP").
+  { symbol: 'ADPR.PA', name: 'ADPR', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato ADPR da Infinox — provável Aéroports de Paris, identidade não confirmada' },
+  { symbol: 'DIM.PA', name: 'DIM', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato DIM da Infinox — identidade exata não confirmada' },
   { symbol: 'WLN.PA', name: 'Worldline SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Payment Services' },
   
   // GERMAN STOCKS (DAX 40) - Sample
@@ -465,6 +474,61 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'SAP.DE', name: 'SAP SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Software' },
   { symbol: 'SIE.DE', name: 'Siemens AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Conglomerate' },
   { symbol: 'VOW3.DE', name: 'Volkswagen AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
+
+  // ============================================================================
+  // 🇪🇸 SPANISH STOCKS (IBEX 35) — adicionado 2026-07-16, lista do Cleber
+  // ============================================================================
+  { symbol: 'BBVA.MC', name: 'Banco Bilbao Vizcaya Argentaria SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  { symbol: 'CABK.MC', name: 'CaixaBank SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  { symbol: 'ELE.MC', name: 'Endesa SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Utilities' },
+  { symbol: 'IBE.MC', name: 'Iberdrola SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Utilities' },
+  { symbol: 'ITX.MC', name: 'Industria de Diseno Textil SA (Inditex)', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Retail' },
+  { symbol: 'MAP.MC', name: 'Mapfre SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Insurance' },
+  { symbol: 'REP.MC', name: 'Repsol SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Oil & Gas' },
+  { symbol: 'SAB.MC', name: 'Banco de Sabadell SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  // ✅ Santander: nome real na Infinox é o nome completo "SANTANDER", não o
+  // ticker curto "SAN" — evita colisão com SAN.PA (Sanofi, já no catálogo
+  // francês).
+  { symbol: 'SANTANDER.MC', name: 'Banco Santander SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  { symbol: 'TEF.MC', name: 'Telefonica SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Telecommunications' },
+  { symbol: 'AENA.MC', name: 'Aena SME SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Airport Operator' },
+  { symbol: 'AMS.MC', name: 'Amadeus IT Group SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Travel Technology' },
+  { symbol: 'ANA.MC', name: 'Acciona SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Construction & Renewables' },
+  { symbol: 'CLNX.MC', name: 'Cellnex Telecom SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Telecom Infrastructure' },
+  { symbol: 'VIS.MC', name: 'Viscofan SA', category: 'STOCKS', subCategory: 'Spanish Stocks', icon: '🇪🇸', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Food Packaging' },
+
+  // ============================================================================
+  // 🇵🇹 PORTUGUESE STOCKS (PSI 20) — adicionado 2026-07-16, lista do Cleber
+  // ============================================================================
+  { symbol: 'GALP.LS', name: 'Galp Energia SGPS SA', category: 'STOCKS', subCategory: 'Portuguese Stocks', icon: '🇵🇹', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 WET', description: 'Oil & Gas' },
+  { symbol: 'SON.LS', name: 'Sonae SGPS SA', category: 'STOCKS', subCategory: 'Portuguese Stocks', icon: '🇵🇹', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 WET', description: 'Retail & Holdings' },
+
+  // ============================================================================
+  // 🇳🇱 DUTCH STOCKS (AEX) — adicionado 2026-07-16, lista do Cleber
+  // ============================================================================
+  { symbol: 'ABN.AS', name: 'ABN AMRO Bank NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  { symbol: 'AGN.AS', name: 'Aegon NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Insurance' },
+  // AIR (Airbus SE, listagem holandesa — já existe AIR.PA na França):
+  // confirmado HTTP 404 em várias variantes ('AIR', 'AIR.AS', 'AIR.PA',
+  // 'AIRP') — não adicionado, aguardando o Cleber confirmar o nome real
+  // dessa listagem específica no MT5 dele.
+  { symbol: 'ASML.AS', name: 'ASML Holding NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Semiconductor Equipment' },
+  { symbol: 'HEIA.AS', name: 'Heineken NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Beverages' },
+  { symbol: 'INGA.AS', name: 'ING Groep NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 4, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  { symbol: 'MT.AS', name: 'ArcelorMittal SA', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Steel Manufacturing' },
+  { symbol: 'PHIA.AS', name: 'Koninklijke Philips NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Healthcare Technology' },
+  { symbol: 'UNA.AS', name: 'Unilever NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Consumer Goods' },
+  { symbol: 'AALB.AS', name: 'Aalberts NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Industrial Equipment' },
+  { symbol: 'ADYEN.AS', name: 'Adyen NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Payment Technology' },
+  { symbol: 'AKZA.AS', name: 'Akzo Nobel NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Specialty Chemicals' },
+  { symbol: 'ASM.AS', name: 'ASM International NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Semiconductor Equipment' },
+  { symbol: 'ASRNL.AS', name: 'ASR Nederland NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Insurance' },
+  { symbol: 'IMCD.AS', name: 'IMCD NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Chemical Distribution' },
+  { symbol: 'NN.AS', name: 'NN Group NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Insurance' },
+  { symbol: 'PRX.AS', name: 'Prosus NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Internet & Technology Investments' },
+  { symbol: 'RAND.AS', name: 'Randstad NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Staffing Services' },
+  { symbol: 'VPK.AS', name: 'Koninklijke Vopak NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Tank Storage' },
+  { symbol: 'WKL.AS', name: 'Wolters Kluwer NV', category: 'STOCKS', subCategory: 'Dutch Stocks', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Publishing & Software' },
 
   // ============================================================================
   // 🇺🇸 US STOCKS — não negociáveis via Infinox/MetaAPI (confirmado 404 em
