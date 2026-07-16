@@ -665,7 +665,10 @@ export function ChartView() {
     { symbol: 'SPX500', name: 'S&P 500', bid: 5932, ask: 5933, change: 11, changePercent: 0.18, category: 'Índices' },
     { symbol: 'US2000', name: 'Russell 2000', bid: 2234.50, ask: 2234.70, change: -8.30, changePercent: -0.37, category: 'Índices' },
     { symbol: 'VIX', name: 'Volatility Index', bid: 16.45, ask: 16.47, change: -1.23, changePercent: -6.96, category: 'Índices' },
-    { symbol: 'DXY', name: 'US Dollar Index', bid: 107.234, ask: 107.244, change: 0.123, changePercent: 0.11, category: 'Índices' },
+    // ✅ 2026-07-16: era 'DXY', testado agora contra a corretora e dá HTTP
+    // 404 (nunca existiu de verdade nesta conta) — nome real é 'USDX',
+    // confirmado real via /mt5-prices.
+    { symbol: 'USDX', name: 'US Dollar Index', bid: 100.314, ask: 100.414, change: 0.02, changePercent: 0.02, category: 'Índices' },
     { symbol: 'GER40', name: 'DAX 40', bid: 19234.50, ask: 19235.00, change: 45.20, changePercent: 0.24, category: 'Índices' },
     { symbol: 'UK100', name: 'FTSE 100', bid: 8456.30, ask: 8456.80, change: -12.40, changePercent: -0.15, category: 'Índices' },
     { symbol: 'FRA40', name: 'CAC 40', bid: 7823.40, ask: 7823.90, change: 23.10, changePercent: 0.30, category: 'Índices' },

@@ -145,6 +145,10 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'NAS100', name: 'NASDAQ 100', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'NASDAQ 100' },
   { symbol: 'US30', name: 'Dow Jones Industrial Average', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Dow Jones' },
   { symbol: 'US2000', name: 'Russell 2000', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Russell 2000' },
+  // ✅ 2026-07-16: confirmado CFD real na Infinox via /mt5-prices, nome
+  // unificado funciona direto. Nota: o ChartView.tsx tinha um "DXY" que
+  // testado agora dá HTTP 404 (nunca existiu de verdade) — corrigido junto.
+  { symbol: 'USDX', name: 'US Dollar Index', category: 'INDICES', subCategory: 'US Indices', icon: '💵', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'US Dollar Index' },
   { symbol: 'VIX', name: 'CBOE Volatility Index', category: 'INDICES', subCategory: 'US Indices', icon: '📉', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:15 ET', description: 'CBOE Volatility Index' },
   
   // EUROPEAN INDICES
