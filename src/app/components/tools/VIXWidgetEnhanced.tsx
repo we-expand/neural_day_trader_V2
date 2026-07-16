@@ -324,16 +324,32 @@ export function VIXWidgetEnhanced() {
     return () => clearInterval(interval);
   }, [marketStatus]);
 
-  // Nível de risco
-  const getRiskLevel = (vix: number) => {
-    if (vix < 12) return { label: 'MUITO BAIXO', color: 'emerald', severity: 1 };
-    if (vix < 20) return { label: 'BAIXO', color: 'green', severity: 2 };
-    if (vix < 30) return { label: 'MODERADO', color: 'yellow', severity: 3 };
-    if (vix < 40) return { label: 'ALTO', color: 'orange', severity: 4 };
-    return { label: 'EXTREMO', color: 'red', severity: 5 };
+  // ✅ 2026-07-16: era uma tabela de faixas FIXAS (ex: "BAIXO" pra qualquer
+  // valor <20) — o Cleber apontou que isso não reflete posicionamento real:
+  // com VIX em 18.12 subindo +10% no dia, está ACIMA do normal pro momento
+  // atual do ativo, não "baixo". O indicador precisa ser dinâmico — comparar
+  // o valor atual com a média do próprio histórico real recente (`history`,
+  // já alimentado só por dado real desde o fix anterior), não um número
+  // fixo hardcoded que nunca se ajusta ao comportamento do ativo.
+  const getRiskLevel = (vix: number, recentHistory: VIXDataPoint[]) => {
+    const realPoints = recentHistory.map(h => h.value).filter(v => v > 0);
+
+    // Sem histórico suficiente ainda (widget acabou de carregar) — não dá
+    // pra dizer "alto" ou "baixo" em relação a nada, fica neutro até
+    // acumular pontos reais suficientes pra uma média confiável.
+    if (realPoints.length < 3) {
+      return { label: 'CALCULANDO', color: 'slate', severity: 0 };
+    }
+
+    const average = realPoints.reduce((sum, v) => sum + v, 0) / realPoints.length;
+    const deviationPercent = ((vix - average) / average) * 100;
+
+    if (deviationPercent > 10) return { label: 'ALTO', color: 'red', severity: 3 };
+    if (deviationPercent < -10) return { label: 'BAIXO', color: 'emerald', severity: 1 };
+    return { label: 'NORMAL', color: 'yellow', severity: 2 };
   };
 
-  const riskLevel = getRiskLevel(currentVIX);
+  const riskLevel = getRiskLevel(currentVIX, history);
   const isPositive = vixChangePercent >= 0;
   const tradingStatus = checkVIXTradingHours();
 
@@ -357,15 +373,15 @@ export function VIXWidgetEnhanced() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Risk Level Badge */}
-          <Badge 
+          {/* Risk Level Badge — posicionamento dinâmico (Alto/Normal/Baixo)
+              relativo à média do histórico real recente, ver getRiskLevel */}
+          <Badge
             variant="outline"
             className={`text-xs ${
               riskLevel.color === 'emerald' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
-              riskLevel.color === 'green' ? 'bg-green-500/10 border-green-500/30 text-green-400' :
               riskLevel.color === 'yellow' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
-              riskLevel.color === 'orange' ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' :
-              'bg-red-500/10 border-red-500/30 text-red-400'
+              riskLevel.color === 'red' ? 'bg-red-500/10 border-red-500/30 text-red-400' :
+              'bg-slate-500/10 border-slate-500/30 text-slate-400'
             }`}
           >
             <AlertTriangle className="w-3 h-3 mr-1" />
