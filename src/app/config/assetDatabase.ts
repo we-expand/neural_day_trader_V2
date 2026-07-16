@@ -166,7 +166,14 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'HK50', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng' },
   { symbol: 'AUS200', name: 'ASX 200', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇦🇺', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '10:00-16:00 AEST', description: 'ASX 200' },
   { symbol: 'CHINA50', name: 'FTSE China A50', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇨🇳', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 CST', description: 'FTSE China A50' },
-  
+
+  // LATAM INDICES
+  // ✅ 2026-07-16: BVSPX (Ibovespa) confirmado real via /mt5-prices antes de
+  // adicionar — alternativas testadas (IBOV, BVSP, IBOVX, BRA50, WIN) deram
+  // HTTP 404, nome real na corretora é BVSPX. Estava faltando no catálogo
+  // (Cleber reportou "não existe").
+  { symbol: 'BVSPX', name: 'Ibovespa', category: 'INDICES', subCategory: 'LatAm Indices', icon: '🇧🇷', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '10:00-17:00 BRT', description: 'Ibovespa' },
+
   // ============================================================================
   // 🏅 COMMODITIES - METAIS E ENERGIA (14 ATIVOS)
   // ============================================================================

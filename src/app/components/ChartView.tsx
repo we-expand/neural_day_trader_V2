@@ -695,7 +695,10 @@ export function ChartView() {
     { symbol: 'SING', name: 'STI Singapore', bid: 3456.70, ask: 3456.80, change: -12.30, changePercent: -0.35, category: 'Índices' },
     { symbol: 'KOREA200', name: 'KOSPI 200', bid: 367.45, ask: 367.50, change: 2.15, changePercent: 0.59, category: 'Índices' },
     { symbol: 'TAIWAN', name: 'Taiwan Weighted', bid: 21234.50, ask: 21235.00, change: 89.20, changePercent: 0.42, category: 'Índices' },
-    { symbol: 'BRA', name: 'Ibovespa', bid: 125678.50, ask: 125679.00, change: 456.30, changePercent: 0.36, category: 'Índices' },
+    // ✅ 2026-07-16: era 'BRA', testado agora contra a corretora e dá HTTP 404
+    // (nunca existiu de verdade) — nome real é 'BVSPX', confirmado via
+    // /mt5-prices. Cleber reportou "BVSPX não existe no catálogo".
+    { symbol: 'BVSPX', name: 'Ibovespa', bid: 175918.71, ask: 175923.87, change: 0, changePercent: 0, category: 'Índices' },
     { symbol: 'MEX', name: 'IPC Mexico', bid: 56234.70, ask: 56235.20, change: -123.40, changePercent: -0.22, category: 'Índices' },
     { symbol: 'ARG', name: 'Merval Argentina', bid: 1678456.00, ask: 1678500.00, change: 8934.00, changePercent: 0.53, category: 'Índices' },
     { symbol: 'SA40', name: 'South Africa 40', bid: 78234.50, ask: 78235.00, change: -234.20, changePercent: -0.30, category: 'Índices' },

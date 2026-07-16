@@ -210,7 +210,8 @@ const ASSETS: MarketAsset[] = [
   { symbol: 'HK50',    name: 'Hang Seng',                bid: 19456.70,ask: 19457.20,change: -89.40, changePercent: -0.46, category: 'Índices' },
   { symbol: 'AUS200',  name: 'ASX 200',                  bid: 8123.40, ask: 8123.90, change: -23.50, changePercent: -0.29, category: 'Índices' },
   { symbol: 'INDIA50', name: 'Nifty 50',                 bid: 22345.60,ask: 22346.10,change: 78.90,  changePercent:  0.35, category: 'Índices' },
-  { symbol: 'BRA',     name: 'Ibovespa',                 bid: 125678,  ask: 125679,  change: 456,    changePercent:  0.36, category: 'Índices' },
+  // ✅ 2026-07-16: era 'BRA' (HTTP 404, nunca existiu) — nome real é 'BVSPX'.
+  { symbol: 'BVSPX',   name: 'Ibovespa',                 bid: 175918.71,ask: 175923.87,change: 0,      changePercent:  0,    category: 'Índices' },
   // STOCKS US
   { symbol: 'AAPL',    name: 'Apple Inc',                bid: 178.45,  ask: 178.47,  change: 2.34,   changePercent:  1.33, category: 'Stocks US' },
   { symbol: 'MSFT',    name: 'Microsoft Corp',           bid: 412.50,  ask: 412.52,  change: -3.20,  changePercent: -0.77, category: 'Stocks US' },

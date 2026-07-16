@@ -1,4 +1,27 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 2)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 3)
+
+## Sessão nova (2026-07-16, continuação 3): BVSPX (Ibovespa) faltando no catálogo — achado que já existia um 'BRA' fantasma (404) em 2 catálogos, NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou "BVSPX não existe no nosso catálogo". Testado direto via `/mt5-prices`: `BVSPX` é real (preço ~175.918, confirmado). Testadas alternativas antes de assumir o nome (`IBOV`, `BVSP`, `IBOVX`, `BRA50`, `WIN`) — todas deram HTTP 404, `BVSPX` é o nome correto na corretora.
+
+Ao adicionar, achado que **já existia uma entrada fantasma pro mesmo conceito** em 2 arquivos: `ChartView.tsx:698` e `StandaloneChartPage.tsx:213` tinham `{ symbol: 'BRA', name: 'Ibovespa', ... }` com valores estáticos hardcoded — testado agora, `BRA` dá HTTP 404 (nunca existiu de verdade na corretora). Mesmo padrão já visto nesta sessão (DXY, SPA35): um símbolo inventado/nunca confirmado, congelado em valor estático, nunca conectado ao pipeline real.
+
+**Fix**: `BRA` → `BVSPX` nos dois arquivos (`ChartView.tsx`, `StandaloneChartPage.tsx`), mais adicionado nos catálogos "oficiais" `assetDatabase.ts` (nova subcategoria `LatAm Indices`) e `SymbolMappingService.ts` (override `infinox: 'BVSPX'`, yahoo `^BVSP`). `tsc --noEmit` limpo nos 4 arquivos tocados. **Não testado visualmente** — mesma limitação de login/sessão MT5 já documentada.
+
+Nota: achado de bônus, **não corrigido** — `StandaloneChartPage.tsx:209` ainda tem `JPN225` (devia ser `JP225`, já unificado em `assetDatabase.ts`/`ChartView.tsx` na sessão anterior). É um 3º catálogo com o mesmo tipo de divergência, fora do escopo pedido agora — considerar auditar esse arquivo também numa sessão futura.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + deploy** (não commitado ainda):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/config/assetDatabase.ts src/app/services/SymbolMappingService.ts src/app/components/ChartView.tsx src/app/components/StandaloneChartPage.tsx CLAUDE.md
+git commit -m "fix: adiciona BVSPX (Ibovespa) real ao catálogo — havia um símbolo fantasma 'BRA' (HTTP 404, nunca existiu) hardcoded em ChartView.tsx/StandaloneChartPage.tsx; corrigido pro nome real confirmado via /mt5-prices e adicionado em assetDatabase.ts/SymbolMappingService.ts"
+git push origin main
+```
+2. Confirmar com print pós-deploy, logado, que o BVSPX aparece e atualiza de verdade no Dashboard/Navegador de Ativos.
+3. Considerar auditar `StandaloneChartPage.tsx` por mais divergências do tipo `JPN225` vs `JP225` (achado de bônus acima, não corrigido).
+4. Tudo mais pendente da sessão anterior (ESP35, ver seção logo abaixo) continua valendo.
 
 ## Sessão nova (2026-07-16, continuação 2): ESP35 sem variação diária — mesmo bug de nome divergente entre catálogos (JP225/DXY), NÃO COMMITADO AINDA
 

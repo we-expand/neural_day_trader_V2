@@ -284,6 +284,15 @@ export class SymbolMappingService {
         type: 'index'
       },
       {
+        unified: 'BVSPX',
+        infinox: 'BVSPX',      // ✅ ADICIONADO 2026-07-16: confirmado real via /mt5-prices (Cleber reportou faltando no catálogo)
+        binance: undefined,
+        yahoo: '^BVSP',
+        tradingview: 'BMFBOVESPA:IBOV',
+        displayName: 'Ibovespa',
+        type: 'index'
+      },
+      {
         unified: 'ESP35',
         infinox: 'ESP35',      // ✅ ADICIONADO 2026-07-08: confirmado no watch list real da Infinox
         binance: undefined,
