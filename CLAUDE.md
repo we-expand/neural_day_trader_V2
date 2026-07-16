@@ -18,18 +18,28 @@ Causa real, no FRONTEND: [ChartView.tsx:874](src/app/components/ChartView.tsx:87
 
 **Não é bug específico do BVSPX** — é o mesmo mecanismo usado pra QUALQUER ativo desse catálogo (inclusive ESP35/USDX/GAUUSD adicionados nesta mesma sessão, todos têm o mesmo placeholder estático). Só ficou mais visível no BVSPX porque o placeholder que escrevi tinha `change`/`changePercent` zerados, chamando mais atenção que os valores "coincidentemente parecidos" dos placeholders antigos de outros ativos. **Nenhuma correção de código foi feita pra isso** — comportamento temporário e esperado, resolve sozinho.
 
+### Depois disso, Cleber reportou OUTRA vez: BVSPX oscilando entre valor/variação certos e errados (não é só o "~1min inicial" já explicado acima) — NÃO RESOLVIDO, só instrumentado
+
+Testado `/mt5-prices` direto de novo (8 chamadas em ~80s) e o backend respondeu certo o tempo todo — não reproduzido ao vivo desta vez. Suspeita (não confirmada): a B3 tem pregão bem mais curto que a maioria dos CFDs (~7h/dia vs quase 24h dos outros índices/forex), o que pode aumentar a chance do candle D1 "penúltimo" escolhido em `/mt5-prices` não ser o fechamento de ontem sob rate-limit da conta MetaAPI compartilhada — mesma causa raiz já documentada e nunca 100% resolvida pra UKOUSD/AUDJPY/HKG33 (ver seção "4. Gaps pequenos de variação" mais abaixo neste arquivo).
+
+**Fix**: nenhum ainda — `BVSPX` adicionado ao `EXTRA_DEBUG_SYMBOLS` em [supabase/functions/server/index.ts:3418](supabase/functions/server/index.ts:3418) (mesmo grupo de UKOUSD/AUDJPY/HKG33), pra expor o candle bruto usado no campo `_debug` da resposta JSON na próxima vez que o Cleber reproduzir o problema — mesmo processo de diagnóstico já estabelecido, sem tentar "consertar" às cegas de novo.
+
+**⚠️ Essa mudança é numa Edge Function do Supabase — precisa de `supabase functions deploy server`, não só `git push`/Vercel.**
+
 ### Pendente real pra próxima sessão
 
 1. **Commit + deploy** (não commitado ainda):
 ```bash
 cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
-git add src/app/config/assetDatabase.ts src/app/services/SymbolMappingService.ts src/app/components/ChartView.tsx src/app/components/StandaloneChartPage.tsx CLAUDE.md
-git commit -m "fix: adiciona BVSPX (Ibovespa) real ao catálogo — havia um símbolo fantasma 'BRA' (HTTP 404, nunca existiu) hardcoded em ChartView.tsx/StandaloneChartPage.tsx; corrigido pro nome real confirmado via /mt5-prices e adicionado em assetDatabase.ts/SymbolMappingService.ts"
+git add src/app/config/assetDatabase.ts src/app/services/SymbolMappingService.ts src/app/components/ChartView.tsx src/app/components/StandaloneChartPage.tsx supabase/functions/server/index.ts CLAUDE.md
+git commit -m "fix: adiciona BVSPX (Ibovespa) real ao catálogo (havia um símbolo fantasma 'BRA' HTTP 404 hardcoded em ChartView.tsx/StandaloneChartPage.tsx) + instrumenta BVSPX em EXTRA_DEBUG_SYMBOLS de /mt5-prices pra investigar oscilação de valor/variação reportada pelo Cleber"
 git push origin main
+supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
 ```
 2. Confirmar com print pós-deploy, logado, que o BVSPX aparece e atualiza de verdade no Dashboard/Navegador de Ativos (esperar o ~1min do primeiro ciclo de `getBatchedMT5Data` — não é bug, ver seção acima).
-3. Considerar auditar `StandaloneChartPage.tsx` por mais divergências do tipo `JPN225` vs `JP225` (achado de bônus acima, não corrigido).
-4. Tudo mais pendente da sessão anterior (ESP35, ver seção logo abaixo) continua valendo.
+3. **Quando o BVSPX oscilar de novo**: reproduzir no app + olhar aba Network do navegador (ou curl direto em `/mt5-prices`) e ler o campo `_debug` pra achar a causa raiz real do candle errado. Só depois decidir o fix — ainda é hipótese.
+4. Considerar auditar `StandaloneChartPage.tsx` por mais divergências do tipo `JPN225` vs `JP225` (achado de bônus acima, não corrigido).
+5. Tudo mais pendente da sessão anterior (ESP35, ver seção logo abaixo) continua valendo.
 
 ## Sessão nova (2026-07-16, continuação 2): ESP35 sem variação diária — mesmo bug de nome divergente entre catálogos (JP225/DXY), NÃO COMMITADO AINDA
 

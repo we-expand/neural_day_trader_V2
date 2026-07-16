@@ -3415,7 +3415,16 @@ const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADA
 // em brokerRegistry.ts) reportado com gap grande de variação — app +2.53%,
 // MT5 real +0.57%, preço batendo (24.974 vs ~24.932). Nome que chega aqui já
 // é o traduzido pela corretora ('HKG33'), não o unificado.
-const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33']);
+// 🔍 2026-07-16: BVSPX (Ibovespa, recém-adicionado ao catálogo) reportado por
+// Cleber oscilando entre valor/variação certos e errados. Testado via curl
+// direto (8 chamadas em ~80s) e o backend respondeu certo o tempo todo —
+// não reproduzido ao vivo. Suspeita (não confirmada): pregão da B3 é bem
+// mais curto que a maioria dos CFDs (~7h/dia vs quase 24h), o que pode
+// aumentar a chance do candle D1 "penúltimo" não ser o fechamento de ontem
+// sob rate-limit da conta compartilhada (mesma causa já documentada pra
+// UKOUSD/AUDJPY/HKG33). Instrumentado aqui pra capturar o candle bruto na
+// próxima vez que acontecer.
+const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33', 'BVSPX']);
 
 app.post('/mt5-prices', async (c) => {
     try {
