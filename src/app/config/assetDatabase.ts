@@ -174,10 +174,21 @@ export const ALL_ASSETS: Asset[] = [
   // que o XAUUSD tradicional fecha (ex: fim de semana). Confirmada real via
   // /mt5-prices antes de adicionar.
   { symbol: 'XAUUSDCRP', name: 'Gold (liquidação cripto)', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/7', description: 'Gold — variante .crp da Infinox' },
+  // ✅ 2026-07-16: GAUUSD confirmado real via /mt5-prices, mas com preço
+  // (~130) muito diferente do XAUUSD (~4000) — contrato distinto (provável
+  // variante mini/fracionária), não duplicata. Nome bate direto, sem
+  // override necessário.
+  { symbol: 'GAUUSD', name: 'Gold (contrato alternativo)', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold — contrato GAUUSD da Infinox, distinto do XAUUSD' },
   { symbol: 'XAGUSD', name: 'Silver', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥈', precision: 3, lotSize: 5000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Silver' },
   { symbol: 'XPTUSD', name: 'Platinum', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '⚪', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Platinum' },
   { symbol: 'XPDUSD', name: 'Palladium', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '⚪', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Palladium' },
   { symbol: 'XAUEUR', name: 'Gold vs Euro', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Euro' },
+  // ✅ 2026-07-16: pares de ouro em outras moedas, confirmados reais via
+  // /mt5-prices antes de adicionar.
+  { symbol: 'XAUAUD', name: 'Gold vs Australian Dollar', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Australian Dollar' },
+  { symbol: 'XAUGBP', name: 'Gold vs British Pound', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in British Pound' },
+  { symbol: 'XAUJPY', name: 'Gold vs Japanese Yen', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 0, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Japanese Yen' },
+  { symbol: 'XAUCHF', name: 'Gold vs Swiss Franc', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Swiss Franc' },
 
   // ENERGY
   { symbol: 'USOUSD', name: 'Crude Oil WTI', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 2, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'WTI Crude Oil' },

@@ -633,6 +633,15 @@ export function ChartView() {
     // COMMODITIES (10 ativos)
     { symbol: 'XAUUSD', name: 'Gold', bid: 2678, ask: 2679, change: 12, changePercent: 0.45, category: 'Commodities' },
     { symbol: 'XAUUSDCRP', name: 'Gold (liquidação cripto)', bid: 4046.65, ask: 4046.85, change: 0, changePercent: 0, category: 'Commodities' },
+    // ✅ 2026-07-16: contrato distinto do XAUUSD, confirmado real (preço bem
+    // diferente, ~130 vs ~4000).
+    { symbol: 'GAUUSD', name: 'Gold (contrato alternativo)', bid: 129.94, ask: 130.15, change: 1.48, changePercent: 1.15, category: 'Commodities' },
+    // ✅ 2026-07-16: pares de ouro em outras moedas, confirmados reais antes
+    // de adicionar.
+    { symbol: 'XAUAUD', name: 'Gold / Australian Dollar', bid: 5780.17, ask: 5780.78, change: -13.41, changePercent: -0.23, category: 'Commodities' },
+    { symbol: 'XAUGBP', name: 'Gold / British Pound', bid: 2988.16, ask: 2988.76, change: 0, changePercent: 0, category: 'Commodities' },
+    { symbol: 'XAUJPY', name: 'Gold / Japanese Yen', bid: 655106, ask: 655165, change: 0, changePercent: 0, category: 'Commodities' },
+    { symbol: 'XAUCHF', name: 'Gold / Swiss Franc', bid: 3257.11, ask: 3257.69, change: 0, changePercent: 0, category: 'Commodities' },
     { symbol: 'XAGUSD', name: 'Silver', bid: 31.45, ask: 31.46, change: -0.34, changePercent: -1.07, category: 'Commodities' },
     { symbol: 'XPTUSD', name: 'Platinum', bid: 945.20, ask: 945.40, change: 8.5, changePercent: 0.91, category: 'Commodities' },
     { symbol: 'XPDUSD', name: 'Palladium', bid: 1034.50, ask: 1034.70, change: -12.3, changePercent: -1.18, category: 'Commodities' },
