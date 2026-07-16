@@ -240,6 +240,17 @@ export const MarketScoreBoard = () => {
   const [currentTrend, setCurrentTrend] = useState(0);
   const [currentChange, setCurrentChange] = useState(0); // ✅ NOVO: Variação absoluta
   const [marketStatus, setMarketStatus] = useState<'OPEN' | 'CLOSED'>('OPEN');
+  // ✅ 2026-07-16: Cleber pediu — mercado fechado precisa (1) mostrar o
+  // último preço negociado (não zero) e (2) avisar claramente que está
+  // fechado. O preço já é sempre o último real conhecido (targetPriceRef
+  // nunca zera por conta própria). O que faltava: `marketStatus` só olhava
+  // `isRealData` — um tick de ontem/da última sessão (mercado fechado agora)
+  // ainda tem `isRealData: true` (preço genuíno, só desatualizado), então o
+  // badge mostrava "OPEN" errado. Agora combina com a IDADE do tick (mesma
+  // filosofia já estabelecida: nunca usar relógio fixo pra decidir SE busca
+  // dado, mas aqui é só pra rotular status — a fonte de verdade continua
+  // sendo a resposta real da corretora, só que agora com o timestamp dela).
+  const [lastTradeTimeLabel, setLastTradeTimeLabel] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<'MetaApi' | 'Binance' | 'Fallback'>('Fallback'); // ✅ NOVO: Track data source
   const [wsUpdateCounter, setWsUpdateCounter] = useState(0); // 🔥 NOVO: Contador de updates WebSocket (para forçar re-render)
   
@@ -470,7 +481,20 @@ export const MarketScoreBoard = () => {
 
             targetTrendRef.current = realTrend;
             isRealData = marketData.isRealData;
-            setMarketStatus(isRealData ? 'OPEN' : 'CLOSED');
+
+            // ✅ 2026-07-16: idade do tick decide o status exibido — um preço
+            // real mas com timestamp velho (>10min) significa que a corretora
+            // não está mais atualizando esse ativo agora (mercado fechado),
+            // mesmo que o preço em si seja genuíno (último negociado).
+            const STALE_TICK_MS = 10 * 60 * 1000;
+            const tickAgeMs = marketData.timestamp ? Date.now() - marketData.timestamp : Infinity;
+            const isTickStale = tickAgeMs > STALE_TICK_MS;
+            setMarketStatus(isRealData && !isTickStale ? 'OPEN' : 'CLOSED');
+            setLastTradeTimeLabel(
+                marketData.timestamp
+                    ? new Date(marketData.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                    : null
+            );
             setDataSource(marketData.source);
 
             console.log(`[MarketScoreBoard] ${isRealData ? '✅' : '⚠️'} ${activeSymbol}: $${marketData.price} (${realTrend > 0 ? '+' : ''}${realTrend.toFixed(2)}%) [${marketData.source}]`);
@@ -833,23 +857,35 @@ export const MarketScoreBoard = () => {
                                     <span className="text-[10px] font-mono font-bold text-emerald-400">LIVE #{wsUpdateCounter}</span>
                                 </div>
                             )}
-                            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Preço Atual</span>
+                            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
+                                {marketStatus === 'CLOSED' ? 'Preço Atual (fechado)' : 'Preço Atual'}
+                            </span>
                         </div>
-                        
+
                         {/* ✅ FORMATO CORRETO: Preço atual em destaque + % hoje embaixo */}
                         <div className="flex flex-col items-end gap-0.5">
-                            <span className={`text-3xl font-bold font-mono tracking-tight leading-none ${displayTrend >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            <span className={`text-3xl font-bold font-mono tracking-tight leading-none ${marketStatus === 'CLOSED' ? 'text-slate-300' : (displayTrend >= 0 ? 'text-emerald-400' : 'text-rose-400')}`}>
                                 {formatPrice(displayPrice)}
                             </span>
                             {/* 🔥 EXIBIR: Variação absoluta ($) + Percentual (%) */}
                             <div className="flex items-center gap-2">
-                                <span className={`text-xs font-bold font-mono ${displayChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                <span className={`text-xs font-bold font-mono ${marketStatus === 'CLOSED' ? 'text-slate-400' : (displayChange >= 0 ? 'text-emerald-400' : 'text-rose-400')}`}>
                                     {displayChange > 0 ? '+' : ''}{formatPrice(displayChange || 0)}
                                 </span>
-                                <span className={`text-xs font-medium ${displayTrend >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+                                <span className={`text-xs font-medium ${marketStatus === 'CLOSED' ? 'text-slate-400/80' : (displayTrend >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}`}>
                                     ({displayTrend > 0 ? '+' : ''}{(displayTrend || 0).toFixed(2)}% hoje)
                                 </span>
                             </div>
+                            {/* ✅ 2026-07-16: aviso explícito de mercado fechado + horário do
+                                último negócio — pedido do Cleber, pra nunca parecer que 0000
+                                ou um preço "vivo" quando na verdade é o fechamento anterior. */}
+                            {marketStatus === 'CLOSED' && (
+                                <div className="flex items-center gap-1 mt-1 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
+                                    <span className="text-[9px] font-bold text-amber-400 uppercase tracking-wide">
+                                        🔒 Mercado Fechado{lastTradeTimeLabel ? ` — último negócio ${lastTradeTimeLabel}` : ''}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
