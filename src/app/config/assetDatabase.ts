@@ -118,6 +118,11 @@ export const ALL_ASSETS: Asset[] = [
   // do XBN visto nesta sessão pro Binance Coin) — confirmado real via
   // /mt5-prices (~288,65), override em brokerRegistry.ts.
   { symbol: 'BTCBNB', name: 'Bitcoin (BNB)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Binance Coin' },
+  // ✅ 2026-07-16: mesmo padrão do BTCBNB — BTCETH (real 'BTCXET' na
+  // Infinox, ~34,15) e BTCLTC (real 'BTCXLC', ~1437,77) não existiam no
+  // catálogo. Overrides em brokerRegistry.ts.
+  { symbol: 'BTCETH', name: 'Bitcoin (ETH)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Ethereum' },
+  { symbol: 'BTCLTC', name: 'Bitcoin (LTC)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Litecoin' },
   { symbol: 'ETHUSD', name: 'Ethereum', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum' },
   { symbol: 'XRPUSD', name: 'Ripple', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🪙', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Ripple' },
   { symbol: 'BNBUSD', name: 'Binance Coin', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin' },
@@ -155,6 +160,10 @@ export const ALL_ASSETS: Asset[] = [
   // ✅ 2026-07-16: mesmo padrão do XBNUSD/XETUSD — só o XLCUSDCRP existia.
   // Testado 'XLCUSD' normal via /mt5-prices e é real (~43,92).
   { symbol: 'XLCUSD', name: 'Litecoin (XLC)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — contrato XLCUSD da Infinox' },
+  // ✅ 2026-07-16: XETEUR não existia no catálogo — mesmo padrão do BTCEUR
+  // (contrato XET cotado em Euro em vez de USD), confirmado real via
+  // /mt5-prices (~€1.630,48, bate com o print do Cleber ~€1.628,40).
+  { symbol: 'XETEUR', name: 'Ethereum (XET/EUR)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum (contrato XET) — cotado em Euro' },
   { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — variante .crp da Infinox' },
   
   // ============================================================================

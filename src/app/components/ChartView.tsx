@@ -566,6 +566,10 @@ export function ChartView() {
     // ✅ 2026-07-16: BTCBNB não existia no catálogo — real com o nome
     // 'BTCXBN' na Infinox (override em brokerRegistry.ts), ~288,65.
     { symbol: 'BTCBNB', name: 'Bitcoin (BNB)', bid: 288.65, ask: 289.24, change: 24.65, changePercent: 9.34, category: 'Crypto' },
+    // ✅ 2026-07-16: mesmo padrão — BTCETH (real 'BTCXET') e BTCLTC (real
+    // 'BTCXLC') não existiam no catálogo.
+    { symbol: 'BTCETH', name: 'Bitcoin (ETH)', bid: 34.15, ask: 34.21, change: -1.02, changePercent: -2.91, category: 'Crypto' },
+    { symbol: 'BTCLTC', name: 'Bitcoin (LTC)', bid: 1437.77, ask: 1439.81, change: -2.28, changePercent: -0.16, category: 'Crypto' },
     { symbol: 'ETHUSD', name: 'Ethereum', bid: 3200, ask: 3201, change: -80, changePercent: -2.44, category: 'Crypto' },
     { symbol: 'BNBUSD', name: 'Binance Coin', bid: 645.20, ask: 645.30, change: 12.5, changePercent: 1.98, category: 'Crypto' },
     { symbol: 'XRPUSD', name: 'Ripple', bid: 0.5234, ask: 0.5235, change: 0.0124, changePercent: 2.42, category: 'Crypto' },
@@ -611,6 +615,10 @@ export function ChartView() {
     // confirmado real via /mt5-prices (~43,92).
     { symbol: 'XLCUSD', name: 'Litecoin (XLC)', bid: 43.92, ask: 45.07, change: 1.25, changePercent: 2.93, category: 'Crypto' },
     { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', bid: 44.47, ask: 45.62, change: 0, changePercent: 0, category: 'Crypto' },
+    // ✅ 2026-07-16: XETEUR não existia aqui — mesmo padrão do BTCEUR (XET
+    // cotado em Euro em vez de USD), confirmado real via /mt5-prices
+    // (~€1.630,48).
+    { symbol: 'XETEUR', name: 'Ethereum (XET/EUR)', bid: 1630.48, ask: 1635.79, change: 81.46, changePercent: 5.26, category: 'Crypto' },
 
     // FOREX MAJORS (28 pares principais)
     { symbol: 'EURUSD', name: 'Euro / US Dollar', bid: 1.0412, ask: 1.0413, change: 0.0015, changePercent: 0.14, category: 'Forex' },

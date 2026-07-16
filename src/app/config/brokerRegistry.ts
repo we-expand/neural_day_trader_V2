@@ -50,6 +50,15 @@ const SYMBOL_OVERRIDES: Record<BrokerId, Record<string, string>> = {
     // real com 'BTCXBN' (mesmo padrão do XBN visto nesta sessão pro
     // Binance Coin), confirmado via /mt5-prices.
     BTCBNB: 'BTCXBN',
+    BTCETH: 'BTCXET',
+    BTCLTC: 'BTCXLC',
+    // ✅ 2026-07-16: Dogecoin/Chainlink já existiam no catálogo (roteando
+    // pela Binance direta), mas a Infinox oferece os dois como CFD próprio
+    // com nome curto — confirmado via /mt5-prices ('DOG'+'USD', 'LNK'+'USD').
+    // Roteados pro broker agora (ver CRYPTO_CFD_AVAILABLE), pra bater com o
+    // MT5 real em vez do spot da Binance.
+    DOGEUSD: 'DOGUSD',
+    LINKUSD: 'LNKUSD',
   },
 };
 
@@ -153,9 +162,13 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // BTCEUR: confirmado real via /mt5-prices em 2026-07-16 — roteado pelo
   // broker em vez da Binance direta (as 3 fontes de Binance direta têm
   // histórico de ficarem mortas em produção, ver comentário logo abaixo).
-  // BTCBNB: mesmo caso — na Binance esse par existe invertido (BNBBTC), não
-  // "BTCBNB", então cairia sempre em erro na Binance direta.
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB']),
+  // BTCBNB/BTCETH/BTCLTC: mesmo caso — cruzamentos que a Binance não
+  // oferece com esse nome (ou oferece invertido, ex: BNBBTC).
+  // DOGEUSD/LINKUSD: CFD confirmado na Infinox com nome curto (DOG/LNK) —
+  // roteado pro broker em vez da Binance pra bater com o MT5 real.
+  // XETEUR: mesmo caso do BTCEUR — XET (Ethereum) cotado em Euro, confirmado
+  // real via /mt5-prices em 2026-07-16.
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR']),
 };
 
 /**
