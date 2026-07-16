@@ -3405,7 +3405,17 @@ const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADA
 // mas em forex tradicional (não 24/7), então a hipótese de mercado sem pausa
 // de sessão não se aplica igual. Log temporário isolado pra este símbolo
 // específico, pra pegar o candle bruto exato na próxima ocorrência.
-const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY']);
+// 🔍 2026-07-16: UKOUSD (Brent) reportado oscilando preço E variação entre
+// certo e errado, mesmo depois da proteção brokerOnly generalizada
+// (RealMarketDataService.ts) já cobrir esse ativo — descarta fallback pro
+// Yahoo como causa. Já teve causa raiz documentada antes (candle de
+// referência com gap sob rate-limit, ver "Causa raiz" no CLAUDE.md) mas pode
+// ter voltado ou ter causa nova. Log isolado pra pegar o candle bruto exato.
+// 🔍 2026-07-16: HK50 (Hang Seng, nome real na corretora 'HKG33', ver override
+// em brokerRegistry.ts) reportado com gap grande de variação — app +2.53%,
+// MT5 real +0.57%, preço batendo (24.974 vs ~24.932). Nome que chega aqui já
+// é o traduzido pela corretora ('HKG33'), não o unificado.
+const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33']);
 
 app.post('/mt5-prices', async (c) => {
     try {
