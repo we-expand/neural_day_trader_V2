@@ -587,6 +587,13 @@ export function ChartView() {
     { symbol: 'AXSUSD', name: 'Axie Infinity', bid: 7.12, ask: 7.13, change: 0.34, changePercent: 5.01, category: 'Crypto' },
     { symbol: 'GALAUSD', name: 'Gala', bid: 0.0289, ask: 0.0290, change: 0.0015, changePercent: 5.47, category: 'Crypto' },
     { symbol: 'FTMUSD', name: 'Fantom', bid: 0.3456, ask: 0.3457, change: -0.0189, changePercent: -5.18, category: 'Crypto' },
+    // ✅ 2026-07-16: variantes "liquidação cripto" (sufixo .crp na Infinox,
+    // ver override em brokerRegistry.ts) — confirmadas reais antes de
+    // adicionar, mesmo lote do assetDatabase.ts.
+    { symbol: 'BTCUSDCRP', name: 'Bitcoin (liquidação cripto)', bid: 64568, ask: 64579, change: 2394, changePercent: 3.85, category: 'Crypto' },
+    { symbol: 'XETUSDCRP', name: 'Ethereum (liquidação cripto)', bid: 1913.7, ask: 1916.29, change: 0, changePercent: 0, category: 'Crypto' },
+    { symbol: 'XBNUSDCRP', name: 'Binance Coin (liquidação cripto)', bid: 219.05, ask: 221.66, change: -14.88, changePercent: -6.36, category: 'Crypto' },
+    { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', bid: 44.47, ask: 45.62, change: 0, changePercent: 0, category: 'Crypto' },
 
     // FOREX MAJORS (28 pares principais)
     { symbol: 'EURUSD', name: 'Euro / US Dollar', bid: 1.0412, ask: 1.0413, change: 0.0015, changePercent: 0.14, category: 'Forex' },
@@ -617,9 +624,15 @@ export function ChartView() {
     { symbol: 'CADCHF', name: 'Canadian Dollar / Swiss Franc', bid: 0.6781, ask: 0.6782, change: 0.0009, changePercent: 0.13, category: 'Forex' },
     { symbol: 'EURNZD', name: 'Euro / New Zealand Dollar', bid: 1.8334, ask: 1.8335, change: 0.0045, changePercent: 0.25, category: 'Forex' },
     { symbol: 'GBPNZD', name: 'British Pound / New Zealand Dollar', bid: 2.1567, ask: 2.1568, change: -0.0078, changePercent: -0.36, category: 'Forex' },
+    // ✅ 2026-07-16: confirmados reais na Infinox antes de adicionar, mesmo
+    // lote do assetDatabase.ts.
+    { symbol: 'USDBRL', name: 'US Dollar / Brazilian Real', bid: 5.42, ask: 5.43, change: 0, changePercent: 0, category: 'Forex' },
+    { symbol: 'USDNGN', name: 'US Dollar / Nigerian Naira', bid: 755.74, ask: 757.74, change: 0, changePercent: 0, category: 'Forex' },
+    { symbol: 'USDCHFEXC', name: 'US Dollar / Swiss Franc (horário estendido)', bid: 0.8048, ask: 0.80487, change: 0, changePercent: 0, category: 'Forex' },
 
     // COMMODITIES (10 ativos)
     { symbol: 'XAUUSD', name: 'Gold', bid: 2678, ask: 2679, change: 12, changePercent: 0.45, category: 'Commodities' },
+    { symbol: 'XAUUSDCRP', name: 'Gold (liquidação cripto)', bid: 4046.65, ask: 4046.85, change: 0, changePercent: 0, category: 'Commodities' },
     { symbol: 'XAGUSD', name: 'Silver', bid: 31.45, ask: 31.46, change: -0.34, changePercent: -1.07, category: 'Commodities' },
     { symbol: 'XPTUSD', name: 'Platinum', bid: 945.20, ask: 945.40, change: 8.5, changePercent: 0.91, category: 'Commodities' },
     { symbol: 'XPDUSD', name: 'Palladium', bid: 1034.50, ask: 1034.70, change: -12.3, changePercent: -1.18, category: 'Commodities' },
