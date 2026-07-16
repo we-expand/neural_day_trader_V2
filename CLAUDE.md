@@ -1,4 +1,40 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 4)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 5)
+
+## Sessão nova (2026-07-16, continuação 5): maratona de "X não existe no catálogo" em criptomoedas — todos confirmados reais via /mt5-prices, TUDO COMMITADO, formato de preço com 4 dígitos antes do ponto
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continua diretamente a sessão "continuação 4" logo abaixo (mesmo padrão de trabalho: Cleber reporta símbolo "não existe no catálogo", testado via `/mt5-prices` antes de mexer no código, nunca supondo). Sessão longa, vários pedidos em sequência.
+
+### Regra de formato: 4 dígitos antes do ponto pra TODO ativo (zero-padding, "pra parecerem vivos")
+
+Cleber pediu um padrão visual novo pra todos os preços exibidos: parte inteira sempre com 4 dígitos, preenchida com zero à esquerda (ex: `XLCUSD 0043.92`, `BATUSD 0000.08`; ativos que já têm 4+ dígitos, como `XAUUSD 4119.75`/`BTCUSD 64568`, não mudam visualmente). Confirmado explicitamente com o Cleber via pergunta de esclarecimento (frase original era ambígua — "quatro casas decimais antes do ponto" mistura os dois conceitos).
+
+**Implementado**: novo `padIntegerPart()` central em [priceFormatter.ts](src/app/utils/priceFormatter.ts), aplicado em `formatPrice()` (usado pelo Dashboard). Também aplicado em `formatBrazilianPrice` do [ChartView.tsx](src/app/components/ChartView.tsx) (preço grande do Gráfico) e no `formatPrice` local de [StandaloneChartPage.tsx](src/app/components/StandaloneChartPage.tsx). `MarketScoreBoard.tsx` simplificado pra delegar direto no formatador central (removido o `Intl.NumberFormat` com separador de milhar — não fazia sentido junto com zero-padding, ex: "0,043.92" ficaria estranho). `tsc --noEmit` limpo.
+
+**Não estendido** (por escopo, não por decisão negativa): os vários `toFixed()` de debug/tooltip/indicador dentro de `ChartView.tsx`/`StandaloneChartPage.tsx` (RSI, labels de eixo do gráfico, "copiar preço" do menu de contexto) — só os 3 displays principais de preço foram tocados.
+
+### Maratona de criptos faltando no catálogo — todos o mesmo processo (testar via `/mt5-prices` → achar nome real → adicionar)
+
+Sequência de símbolos reportados pelo Cleber como "não existe no catálogo", um atrás do outro na mesma sessão. Todos confirmados reais antes de qualquer mudança de código (nunca supondo nome):
+
+- **XBNUSD** (`assetDatabase.ts`/`ChartView.tsx`) — contrato distinto do BNBUSD (~219 vs ~576), já tinha o `.crp` mas faltava o normal. **Achado bug real ao adicionar**: como a categoria é CRYPTO, `isCryptoSymbol()` roteava pra Binance direta — que não tem ticker `XBNUSD` (só `BNBUSD`) — zerando preço/variação. Fix: adicionado em `CRYPTO_CFD_AVAILABLE` (`brokerRegistry.ts`) pra rotear pelo broker, igual BTCUSD.
+- **XETUSD** e **XLCUSD** — mesmo padrão exato do XBNUSD (contratos distintos de ETHUSD/LTCUSD, só tinham o `.crp`, mesmo fix de `CRYPTO_CFD_AVAILABLE`).
+- **BTCEUR** — não existia nenhuma entrada. Confirmado real (~€55.963, bate com Binance ~€55.977). **Bug achado ao adicionar**: `toUnifiedCryptoSymbol()` em `RealMarketDataService.ts` só reconhecia sufixo `USD`/`USDT` — qualquer cripto cotada em outra moeda (EUR/GBP/JPY/CHF) caía no fallback `${symbol}USD}` e virava `"BTCEURUSD"`, nunca batendo em `CRYPTO_CFD_AVAILABLE`. Corrigido com regex reconhecendo sufixos fiat conhecidos.
+  - **Depois de adicionado, Cleber reportou preço errado (mostrando valor de BTCUSD, ~64k, com o rótulo de BTCEUR)** — sintoma de bundle desatualizado/cache do navegador logo após o deploy (confirmado comparando: backend já devolvia BTCEUR e BTCUSD como valores corretos e distintos no mesmo instante). Pedido hard refresh.
+  - **Depois, Cleber reportou "aparece zerado"** — diagnosticado como o mesmo padrão já documentado (BVSPX, ESP35): ativo novo na sessão do navegador, sem preço real em cache ainda; testado `/mt5-prices` na hora e peguei um `HTTP 504` transitório (rate-limit da conta MetaAPI compartilhada, agravado pelos meus próprios testes em sequência) — não é bug, se resolve sozinho assim que o primeiro fetch bem-sucedido chegar.
+- **BTCBNB** — não existia com esse nome literal (404), mas existe como `BTCXBN` na Infinox (mesmo padrão do XBN). Adicionado com override em `SYMBOL_OVERRIDES` (`brokerRegistry.ts`). **Mesmo bug do BTCEUR, generalizado**: `toUnifiedCryptoSymbol()` também não reconhecia cripto cotada em outra cripto (BNB/BTC/ETH) — vira `"BTCBNBUSD"` sem meu fix. Regex estendida.
+- **BTCETH**/**BTCLTC** — mesmo padrão: reais como `BTCXET`/`BTCXLC` na Infinox. Regex de `toUnifiedCryptoSymbol()` estendida de novo pra incluir sufixo `LTC` (já tinha BTC/BNB/ETH).
+- **DOGEUSD**/**LINKUSD** — únicos que **já existiam** no catálogo (roteando pela Binance direta desde sempre). Cleber reportou como "não existe" mesmo já cadastrados — teste revelou que a Infinox também oferece os dois como CFD próprio, só que com nome curto (`DOG`+`USD`, `LNK`+`USD`, não o nome completo). Adicionado override em `SYMBOL_OVERRIDES` + movidos pra `CRYPTO_CFD_AVAILABLE`, agora roteiam pelo broker (bate com o MT5 real) em vez do spot da Binance.
+
+**Padrão que se repetiu 3x nesta sessão, agora bem entendido**: qualquer cripto nova com `category: 'CRYPTO'` no catálogo, se não estiver em `CRYPTO_CFD_AVAILABLE`, cai automaticamente na Binance direta via `isCryptoSymbol()`/`shouldRouteCryptoViaBroker()` — e `toUnifiedCryptoSymbol()` (que normaliza o símbolo pra bater contra esse Set) só sabia lidar com sufixo `USD`/`USDT` até esta sessão. Qualquer cripto cotada em algo diferente disso (outra fiat, ou outra cripto) quebrava essa normalização silenciosamente. Agora cobre fiat (EUR/GBP/JPY/CHF) e cripto-base (BTC/BNB/ETH/LTC) — mas se aparecer mais uma variante exótica (ex: cotada em uma cripto ainda não coberta), o mesmo bug pode se repetir; conferir esse regex primeiro antes de investigar mais fundo.
+
+**Verificação feita**: `tsc --noEmit` limpo em todos os arquivos tocados em cada rodada. Todos os preços testados via `/mt5-prices` direto (curl com o anon key do projeto) antes de qualquer adição — várias vezes esbarrei em `HTTP 504` transitório da conta MetaAPI compartilhada (esperado sob teste repetido, documentado desde sessões anteriores), sempre reconfirmado com uma nova tentativa antes de concluir indisponibilidade real (404 genuíno).
+
+### Pendente real pra próxima sessão
+
+1. **Tudo já commitado e pushado** nesta sessão (múltiplos commits — XBNUSD/XETUSD/XLCUSD, formato 4-dígitos, BTCEUR, BTCBNB, BTCETH/BTCLTC+DOGEUSD/LINKUSD). Rodar `git log --oneline -10` se precisar dos hashes exatos.
+2. Confirmar visualmente, logado: todos os pares cripto adicionados/corrigidos hoje (XBNUSD, XETUSD, XLCUSD, BTCEUR, BTCBNB, BTCETH, BTCLTC, DOGEUSD, LINKUSD) aparecendo com preço real, e o formato de 4 dígitos aplicado no Dashboard/Gráfico/Gráfico standalone.
+3. Considerar auditar o resto do catálogo de cripto por mais pares cruzados do mesmo tipo (ex: outras combinações BTCXxx) antes que apareçam um por um — mesmo processo, `/mt5-prices` direto por curl é rápido.
+4. Tudo mais pendente das sessões anteriores (BVSPX oscilando/instrumentado, ver seção logo abaixo) continua valendo.
 
 ## Sessão nova (2026-07-16, continuação 4): WHEAT e XBNUSD — 1 falso alarme (já existia com outro nome) + 1 símbolo real faltando, NÃO COMMITADO AINDA
 
