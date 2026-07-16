@@ -123,6 +123,22 @@ function isUsStock(unified: string): boolean {
 const STOCK_SUFFIX_OVERRIDES: Record<BrokerId, Record<string, string>> = {
   infinox: {
     'BT-A.L': 'BT.A',
+    // ✅ 2026-07-16: achado auditando uma lista do MT5 do Cleber — estes 11
+    // ativos já existiam no catálogo, mas o `stripExchangeSuffix` produzia
+    // um código (ex: 'AV', 'ATO') que dá HTTP 404 na Infinox — a corretora
+    // usa o nome completo/uma abreviação diferente da LSE/Euronext oficial.
+    // Caíam SEMPRE no fallback Yahoo silenciosamente, sem ninguém notar.
+    'AV.L': 'AVIVA',
+    'BA.L': 'BAE',
+    'DGE.L': 'DIAGEO',
+    'RKT.L': 'RB',
+    'SHEL.L': 'SHELL',
+    'TSCO.L': 'TESCO',
+    'JD.L': 'JDI',
+    'ATO.PA': 'ATOS',
+    'DSY.PA': 'DAST',
+    'RMS.PA': 'HRMS',
+    'MC.PA': 'LVMH',
   },
 };
 

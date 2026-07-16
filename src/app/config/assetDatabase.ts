@@ -359,7 +359,39 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'UU.L', name: 'United Utilities Group PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Water Utilities' },
   { symbol: 'VOD.L', name: 'Vodafone Group PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Telecommunications' },
   { symbol: 'WTB.L', name: 'Whitbread PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Hotels & Restaurants' },
-  
+  // ✅ 2026-07-16: Cleber mandou uma lista grande do MT5 dele (ações UK) —
+  // auditados um a um via /mt5-prices antes de adicionar. O símbolo usado
+  // aqui (antes do ".L") já é o nome literal confirmado na Infinox — não
+  // precisa de override em brokerRegistry.ts, segue o mesmo padrão do resto
+  // do catálogo (stripExchangeSuffix já resolve certo).
+  { symbol: 'ABF.L', name: 'Associated British Foods PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Food Products' },
+  { symbol: 'PRU.L', name: 'Prudential PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Insurance' },
+  { symbol: 'RELX.L', name: 'RELX PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Publishing & Analytics' },
+  { symbol: 'ABDN.L', name: 'abrdn PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Asset Management' },
+  { symbol: 'AUTO.L', name: 'Auto Trader Group PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Online Marketplace' },
+  { symbol: 'BLND.L', name: 'British Land Company PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Real Estate' },
+  { symbol: 'CRH.L', name: 'CRH PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Building Materials' },
+  { symbol: 'ENT.L', name: 'Entain PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Gambling' },
+  { symbol: 'EZJ.L', name: 'easyJet PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Airlines' },
+  { symbol: 'FRAS.L', name: 'Frasers Group PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Retail' },
+  { symbol: 'HSX.L', name: 'Hiscox Ltd', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Insurance' },
+  { symbol: 'III.L', name: '3i Group PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Private Equity' },
+  { symbol: 'ITV.L', name: 'ITV PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Media & Broadcasting' },
+  { symbol: 'JMAT.L', name: 'Johnson Matthey PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Specialty Chemicals' },
+  { symbol: 'KGF.L', name: 'Kingfisher PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Retail' },
+  { symbol: 'MNDI.L', name: 'Mondi PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Packaging' },
+  { symbol: 'NGRID.L', name: 'National Grid PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Utilities' },
+  { symbol: 'NXT.L', name: 'Next PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Retail' },
+  { symbol: 'PSH.L', name: 'Pershing Square Holdings Ltd', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Investment Trust' },
+  { symbol: 'RMV.L', name: 'Rightmove PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Online Marketplace' },
+  { symbol: 'RTO.L', name: 'Rentokil Initial PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Business Services' },
+  { symbol: 'WPP.L', name: 'WPP PLC', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Advertising' },
+  // TRST/SWR: preço real confirmado via /mt5-prices, mas identidade exata da
+  // empresa não confirmada — mantidos com nome literal até o Cleber
+  // confirmar no MT5 dele.
+  { symbol: 'TRST.L', name: 'TRST', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Contrato TRST da Infinox — identidade exata não confirmada' },
+  { symbol: 'SWR.L', name: 'SWR', category: 'STOCKS', subCategory: 'UK Stocks', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '08:00-16:30 GMT', description: 'Contrato SWR da Infinox — identidade exata não confirmada' },
+
   // FRENCH STOCKS (CAC 40) - Sample
   { symbol: 'AC.PA', name: 'Accor SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Hotels' },
   { symbol: 'AI.PA', name: 'Air Liquide SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Industrial Gases' },
@@ -391,6 +423,18 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'URW.PA', name: 'Unibail-Rodamco-Westfield SE', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Real Estate' },
   { symbol: 'VIE.PA', name: 'Veolia Environnement SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Water & Waste' },
   { symbol: 'VIV.PA', name: 'Vivendi SE', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Media' },
+  // ✅ 2026-07-16: mesma lista do Cleber, auditados via /mt5-prices —
+  // símbolo (antes do ".PA") já é o nome literal confirmado, sem precisar
+  // de override.
+  { symbol: 'ACA.PA', name: 'Credit Agricole SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
+  { symbol: 'LR.PA', name: 'Legrand SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Electrical Equipment' },
+  { symbol: 'RNO.PA', name: 'Renault SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
+  { symbol: 'STM.PA', name: 'STMicroelectronics NV', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Semiconductors' },
+  // PUBP/TCFP: preço real confirmado, mas identidade exata não confirmada
+  // (Publicis costuma ser "PUB", TechnipFMC costuma ser "FTI" — a corretora
+  // usa nomes diferentes; mantidos literais até o Cleber confirmar no MT5).
+  { symbol: 'PUBP.PA', name: 'PUBP', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato PUBP da Infinox — provável Publicis Groupe, identidade não confirmada' },
+  { symbol: 'TCFP.PA', name: 'TCFP', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato TCFP da Infinox — identidade exata não confirmada' },
   { symbol: 'WLN.PA', name: 'Worldline SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Payment Services' },
   
   // GERMAN STOCKS (DAX 40) - Sample
