@@ -673,7 +673,12 @@ export function ChartView() {
     { symbol: 'UK100', name: 'FTSE 100', bid: 8456.30, ask: 8456.80, change: -12.40, changePercent: -0.15, category: 'Índices' },
     { symbol: 'FRA40', name: 'CAC 40', bid: 7823.40, ask: 7823.90, change: 23.10, changePercent: 0.30, category: 'Índices' },
     { symbol: 'EU50', name: 'Euro Stoxx 50', bid: 4945.60, ask: 4946.10, change: 18.50, changePercent: 0.38, category: 'Índices' },
-    { symbol: 'SPA35', name: 'IBEX 35', bid: 11678.20, ask: 11678.70, change: -34.50, changePercent: -0.29, category: 'Índices' },
+    // ✅ 2026-07-16: era 'SPA35', inconsistente com o nome real da corretora
+    // ('ESP35', ver SymbolMappingService.ts) usado em assetDatabase.ts — a
+    // divergência impedia o pipeline de preço real de resolver o símbolo,
+    // então o Dashboard ficava travado no valor estático abaixo (variação
+    // nunca atualizava). Mesmo padrão do fix JP225/JPN225 desta sessão.
+    { symbol: 'ESP35', name: 'IBEX 35', bid: 11678.20, ask: 11678.70, change: -34.50, changePercent: -0.29, category: 'Índices' },
     { symbol: 'ITA40', name: 'FTSE MIB', bid: 34567.80, ask: 34568.30, change: 78.20, changePercent: 0.23, category: 'Índices' },
     { symbol: 'NED25', name: 'AEX 25', bid: 923.45, ask: 923.50, change: -2.15, changePercent: -0.23, category: 'Índices' },
     { symbol: 'SUI20', name: 'SMI 20', bid: 12123.40, ask: 12123.90, change: 34.20, changePercent: 0.28, category: 'Índices' },

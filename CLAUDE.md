@@ -1,4 +1,22 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 2)
+
+## Sessão nova (2026-07-16, continuação 2): ESP35 sem variação diária — mesmo bug de nome divergente entre catálogos (JP225/DXY), NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou que o ativo ESP35 no Dashboard estava sem variação diária. Causa: `ChartView.tsx:676` (catálogo usado pelo Dashboard/Gráfico do dia a dia) tinha o símbolo como `SPA35`, enquanto `assetDatabase.ts:158` e `SymbolMappingService.ts:287-288` (mapeamento real da corretora, nome confirmado na Infinox) usam `ESP35`. Como `SPA35` não bate com nenhuma entrada de `SymbolMappingService`/`brokerRegistry`, o Dashboard nunca resolvia o símbolo no pipeline de preço real — ficava travado no valor estático hardcoded do próprio `ChartView.tsx` (`change: -34.50`, congelado), daí a variação nunca atualizava. Mesmo padrão já documentado pra JP225/JPN225 e DXY/USDX nesta mesma sessão (dois catálogos duplicados, `assetDatabase.ts` vs `ChartView.tsx`).
+
+**Fix**: `SPA35` → `ESP35` em `ChartView.tsx:676`, comentário explicativo adicionado. `tsc --noEmit` limpo nesse arquivo (não afetado pelos erros pré-existentes de `src/imports/pasted_text/chartview.tsx`, arquivo não relacionado). **Não testado visualmente** — pipeline de preço real exige login/sessão MT5, preview local sem login não reproduz (mesma limitação já documentada nas sessões anteriores).
+
+### Pendente real pra próxima sessão
+
+1. **Commit + deploy** (não commitado ainda):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/ChartView.tsx CLAUDE.md
+git commit -m "fix: ESP35 (IBEX 35) estava como 'SPA35' em ChartView.tsx, divergente do nome real da corretora (ESP35) usado em assetDatabase.ts/SymbolMappingService.ts — impedia o pipeline de preço real de resolver o símbolo, deixando a variação diária sempre travada no valor estático"
+git push origin main
+```
+2. Confirmar com print pós-deploy, logado, que a variação do ESP35 passa a atualizar de verdade.
+3. Considerar auditar o resto do catálogo duplicado (`assetDatabase.ts` vs `ChartView.tsx`) por mais divergências de nome do mesmo tipo (JP225/JPN225, DXY/USDX, SPA35/ESP35 já achados nesta sessão) antes que apareçam um por um.
 
 ## Sessão nova (2026-07-16, continuação): USDX + widget do VIX reescrito (estava 100% mockado) — TUDO COMMITADO E DEPLOYADO
 
