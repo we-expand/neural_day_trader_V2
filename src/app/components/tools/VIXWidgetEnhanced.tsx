@@ -340,8 +340,11 @@ export function VIXWidgetEnhanced() {
   const getRiskLevel = (changePercent: number) => {
     const NORMAL_THRESHOLD = 2; // ✅ combinado com o Cleber: até ±2% é normal
 
-    if (changePercent > NORMAL_THRESHOLD) return { label: 'ALTO', color: 'red', severity: 3 };
-    if (changePercent < -NORMAL_THRESHOLD) return { label: 'BAIXO', color: 'emerald', severity: 1 };
+    // ✅ 2026-07-16 (3ª correção): cor segue a mesma convenção direcional do
+    // badge de variação (positivo=verde, negativo=vermelho) — ALTO
+    // correlaciona com variação positiva, BAIXO com negativa.
+    if (changePercent > NORMAL_THRESHOLD) return { label: 'ALTO', color: 'emerald', severity: 3 };
+    if (changePercent < -NORMAL_THRESHOLD) return { label: 'BAIXO', color: 'red', severity: 1 };
     return { label: 'NORMAL', color: 'yellow', severity: 2 };
   };
 
