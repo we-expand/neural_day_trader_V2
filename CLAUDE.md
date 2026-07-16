@@ -1,4 +1,57 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-15)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16)
+
+## Sessão nova (2026-07-16): maratona de bugs de preço/variação (NAS100, XAUUSD, SOLUSD/ADAUSD, AUDJPY, UKOUSD, HKG33) + catálogo de ativos ampliado — TUDO COMMITADO E DEPLOYADO, exceto último commit de debug
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Sessão muito longa (Cleber foi dormir "tarde da noite", disse "amanhã retorno, vemos como está se comportando"). Resumo por tema, na ordem em que aconteceu:
+
+### 1. NAS100 "pulando milhares de pontos" (vídeo do Cleber) — 2 causas
+
+- **Ticker Yahoo errado**: `NAS100` mapeado pro Nasdaq **Composite** (`^IXIC`) em vez do Nasdaq-**100** (`^NDX`) em `supabase/functions/server/index.ts` (rota `/real/yahoo/:symbol`). Níveis de preço bem diferentes — qualquer fallback transitório pro Yahoo causava salto de milhares de pontos. **Fix commitado, mas sozinho não resolveu** (padrão "começa certo, degringola" continuou).
+- **Causa real**: NAS100 não estava protegido contra cair no Yahoo (só XPTUSD/VIX/cripto tinham essa proteção `brokerOnly`). Virou `brokerOnly` também — commit `e4eb205c1`.
+
+### 2. Mesmo bug generalizado — SOLUSD, XAUUSD, e por fim TODO ativo com CFD confirmado
+
+- Achado que a proteção `brokerOnly` existia **duplicada em 2 lugares** (`fetchMT5Data`, usado pelo Dashboard, e `getBatchedMT5Data`, usado por Ticker/Context) — cada fix cobria só um caminho. Corrigido os dois pra NAS100+cripto (commit `265e2e3d0`).
+- Depois disso, **XAUUSD** apresentou o mesmo sintoma — em vez de continuar adicionando símbolo por símbolo numa lista manual (padrão que sempre ficava um passo atrás do próximo ativo reportado), **generalizado de vez**: `brokerOnly` agora é sempre `true` pra qualquer símbolo que já passou pela checagem `isAvailableOnBroker` — ou seja, **todo ativo com CFD confirmado na corretora nunca mais cai no Yahoo em falha transitória**, sem precisar de mais patches (commit `d84a34c9d`). Esse é o fix arquitetural mais importante da sessão.
+
+### 3. Auditoria de conta MetaAPI compartilhada saturada (rate-limit 429)
+
+Sessão inteira envolveu MUITOS testes manuais via `curl`/`scripts/audit-broker-symbols.mjs` contra a conta MetaAPI compartilhada pra confirmar cada ativo antes de adicionar — isso **saturou a conta** (HTTP 429 recorrente) nas últimas horas da sessão. Os sintomas finais (HKG33 "preço certo mas sem variação", ativos "na mesma situação") são **muito provavelmente autoinfligidos pelos meus próprios testes**, não bugs novos de código — a chamada de candle (separada da chamada de ticker) fica mais sujeita a 429 sob carga, e quando falha o código corretamente mostra `change: 0` em vez de inventar número. **Não commitado nenhum "fix" pra isso porque não é bug — é esperado que se resolva sozinho com o tempo.**
+
+### 4. Gaps pequenos de variação (candle de referência) — AUDJPY, UKOUSD, HKG33: NÃO RESOLVIDO, só instrumentado
+
+- AUDJPY: app -0,05% vs MT5 real -0,08% (preço batendo). UKOUSD: preço E variação oscilando. HKG33 (Hang Seng): app +2,53% vs MT5 real +0,57% (preço batendo, gap grande).
+- Hipótese (não confirmada com dado real ainda): o candle D1 escolhido como referência (`candles[length-2]` em `/mt5-prices`) não é exatamente o mesmo que o terminal MT5 usa internamente pro cálculo de %.
+- **Tentativa de instrumentar falhou por 2x**: primeiro com `console.log` (as ferramentas de log disponíveis só mostram log de acesso HTTP, não stdout da função — não deu pra ver). Pivô pro plano B: a resposta JSON de `/mt5-prices` agora inclui um campo `_debug` (candle bruto usado) pra símbolos em `EXTRA_DEBUG_SYMBOLS`/`CRYPTO_CFD_SYMBOLS` (`supabase/functions/server/index.ts`, perto da linha 3401). **Não deu pra testar em produção ainda** — toda tentativa bateu em 429 (conta saturada, ver item 3 acima).
+- **Pendente real pra próxima sessão**: com a conta descongestionada, testar de novo (`curl` direto ou reproduzir no app + olhar aba Network do navegador) e ler o campo `_debug` da resposta pra achar a causa raiz de verdade. Só depois disso decidir o fix — ainda é hipótese, não confirmado.
+
+### 5. Catálogo de ativos ampliado — vários "X não existe no catálogo" resolvidos
+
+Descoberta importante: **existem 2 catálogos duplicados** — `src/app/config/assetDatabase.ts` (fonte "oficial", usada pelo Navegador de Ativos/`AssetBrowser.tsx`) e `src/app/components/ChartView.tsx` (`staticAssetsBase`, usado pelo Dashboard/Gráfico que o Cleber usa no dia a dia). Adicionar um ativo só no primeiro não o fazia aparecer no segundo — **todo ativo novo desta sessão foi adicionado nos dois arquivos**. Isso é dívida técnica: vale unificar os dois catálogos numa sessão futura, mas não foi feito agora (fix mínimo, symptom-by-symptom).
+
+Ativos adicionados, todos confirmados reais via `/mt5-prices` (nunca supondo) antes de entrar:
+- `USDBRL` (Dólar/Real)
+- `USDNGN` (Dólar/Naira), `USDCHFEXC` (USDCHF horário estendido), `XAUUSDCRP`/`BTCUSDCRP`/`XETUSDCRP`/`XBNUSDCRP`/`XLCUSDCRP` (variantes ".crp" liquidadas em cripto — overrides em `brokerRegistry.ts`)
+- `GAUUSD` (contrato de ouro alternativo, preço ~130, bem diferente do XAUUSD ~4000 — instrumento genuinamente distinto, não duplicata)
+- `XAUAUD`, `XAUGBP`, `XAUJPY`, `XAUCHF` (ouro em outras moedas)
+- **`EURHUF` testado e CONFIRMADO INDISPONÍVEL** (HTTP 404 real) — não adicionado de propósito, corretora não oferece.
+
+Também corrigido: **JP225/JPN225 tinha nome inconsistente entre os 2 catálogos** (`assetDatabase.ts` usava `JP225`, `ChartView.tsx` usava `JPN225`) — padronizado pra `JP225` em ambos (commit `ebea32aeb`). Nota: **`HK50`/`HKG33` tem a mesma relação (nome unificado vs nome real da corretora) mas os 2 catálogos já estavam consistentes nesse caso** — só expliquei pro Cleber, não precisou de fix.
+
+### Pendente real pra próxima sessão
+
+1. **Aguardar a conta MetaAPI descongestionar** e reavaliar se os sintomas de "variação zerada"/"gap grande" (HKG33, AUDJPY, UKOUSD) persistem sem eu estar testando em paralelo. Se persistirem, usar o campo `_debug` da resposta de `/mt5-prices` pra achar a causa raiz real (ver item 4 acima).
+2. **Commit pendente, não commitado ainda** (último da sessão):
+   ```bash
+   cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+   git add supabase/functions/server/index.ts
+   git commit -m "debug: expõe candle bruto usado direto na resposta JSON de /mt5-prices (campo _debug) pra símbolos marcados como debug — console.log não é acessível pelas ferramentas de log disponíveis, isso permite investigar via curl/network tab direto"
+   git push origin main
+   ```
+   (Nota: o deploy da Edge Function com essa mudança **já foi feito direto por mim durante a sessão** — `supabase functions deploy server` já rodou. Só falta o commit/push do código pra registrar no git.)
+3. Considerar remover os campos `_debug`/logs de debug temporários (AUDJPY, UKOUSD, HKG33, cripto) depois que as causas forem confirmadas e corrigidas — são instrumentação temporária, não devem ficar pra sempre.
+4. Considerar (não decidido com o Cleber ainda) unificar os 2 catálogos de ativos duplicados (`assetDatabase.ts` vs `ChartView.tsx`) pra parar de exigir edição em 2 lugares toda vez que um ativo novo aparece.
+5. Tudo mais pendente de sessões anteriores continua valendo (ver seções abaixo): migrar `MarketTicker.tsx` pro streaming, hospedagem definitiva do `streaming-relay` (hoje no Mac do Cleber).
 
 ## Sessão nova (2026-07-15): oscilação preço/variação no BTCUSD (e provavelmente outras cripto com CFD) — 2 causas reais, ambas corrigidas — NÃO COMMITADO/DEPLOYADO (2º fix)
 
