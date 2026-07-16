@@ -674,7 +674,12 @@ export function ChartView() {
     { symbol: 'ITA40', name: 'FTSE MIB', bid: 34567.80, ask: 34568.30, change: 78.20, changePercent: 0.23, category: 'Índices' },
     { symbol: 'NED25', name: 'AEX 25', bid: 923.45, ask: 923.50, change: -2.15, changePercent: -0.23, category: 'Índices' },
     { symbol: 'SUI20', name: 'SMI 20', bid: 12123.40, ask: 12123.90, change: 34.20, changePercent: 0.28, category: 'Índices' },
-    { symbol: 'JPN225', name: 'Nikkei 225', bid: 38234.50, ask: 38235.00, change: 156.30, changePercent: 0.41, category: 'Índices' },
+    // ✅ 2026-07-16: era 'JPN225' (nome real da corretora), inconsistente com
+    // o nome unificado 'JP225' usado no resto do projeto (assetDatabase.ts,
+    // brokerRegistry.ts já tem o override JP225->JPN225) — causava confusão
+    // de busca (Cleber procurou "JPN225" no Navegador de Ativos, que lê do
+    // assetDatabase.ts, e não achou porque lá é 'JP225').
+    { symbol: 'JP225', name: 'Nikkei 225', bid: 38234.50, ask: 38235.00, change: 156.30, changePercent: 0.41, category: 'Índices' },
     { symbol: 'HK50', name: 'Hang Seng', bid: 19456.70, ask: 19457.20, change: -89.40, changePercent: -0.46, category: 'Índices' },
     { symbol: 'CHINA50', name: 'FTSE China A50', bid: 13234.20, ask: 13234.70, change: 45.80, changePercent: 0.35, category: 'Índices' },
     { symbol: 'AUS200', name: 'ASX 200', bid: 8123.40, ask: 8123.90, change: -23.50, changePercent: -0.29, category: 'Índices' },
