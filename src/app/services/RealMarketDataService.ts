@@ -464,9 +464,17 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
   // Composite, por ^NDX, Nasdaq-100 — ver supabase/functions/server/index.ts),
   // mas o padrão "começa certo, depois degringola" persistiu mesmo depois —
   // Yahoo continua sendo uma fonte/metodologia diferente da corretora mesmo
-  // com o ticker certo (índice cash vs CFD do broker). Fix real: mesma regra
-  // do XPTUSD/VIX/cripto — nunca cair no Yahoo pra ativo com CFD confirmado.
-  const brokerOnly = symbol === 'XPTUSD' || symbol === 'VIX' || symbol === 'NAS100' || isCryptoCfdAvailable(symbol, 'infinox');
+  // com o ticker certo (índice cash vs CFD do broker).
+  //
+  // ✅ 2026-07-15 (generalizado): mesmo sintoma achado de novo no XAUUSD —
+  // cada sessão vinha adicionando mais um símbolo nesta lista (XPTUSD → VIX →
+  // cripto → NAS100 → XAUUSD...), sempre ficando desatualizada pro próximo
+  // ativo real. A função já garante, no topo (`isAvailableOnBroker`, linha
+  // 430), que só chega até aqui símbolo com CFD confirmado na corretora —
+  // então não existe caso em que faz sentido cair no Yahoo por aqui. Sempre
+  // `true`: numa falha transitória, mantém o último preço real da própria
+  // corretora, nunca mistura com uma fonte/metodologia diferente.
+  const brokerOnly = true;
 
   // Nome real do ativo na corretora — pode ser diferente do símbolo unificado
   // que o resto do app usa (ex: JP225 unificado -> 'JPN225' na Infinox).
@@ -794,19 +802,18 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
       const tick = priceByBrokerName.get(brokerName);
 
       if (!tick || !isValidPrice(tick.price)) {
-        // ✅ 2026-07-14/15: XPTUSD, VIX, NAS100 e cripto com CFD confirmado
-        // nunca devem cair no Yahoo (diverge do MT5 real) — todos têm CFD
-        // confirmado na Infinox, então numa falha transitória mantém o
-        // último preço real da própria corretora. Esta é uma SEGUNDA cópia
-        // da mesma regra já aplicada em `fetchMT5Data` (usada só pelo
-        // Dashboard) — `getBatchedMT5Data` (usada por Ticker/Context/outras
-        // telas) tinha ficado pra trás, só protegendo XPTUSD/VIX; SOLUSD/
-        // BTCUSD/ADAUSD/NAS100 continuavam caindo no Yahoo por este caminho
-        // mesmo depois do fix no outro (sintoma: "ainda está assim pós
-        // deploy" — cada fix cobria só metade dos pipelines).
-        results[unified] = (unified === 'XPTUSD' || unified === 'VIX' || unified === 'NAS100' || isCryptoCfdAvailable(unified, 'infinox'))
-          ? getFallbackOrLastKnown(unified)
-          : await fetchYahooData(unified);
+        // ✅ 2026-07-15: generalizado. Cada sessão anterior adicionava mais um
+        // símbolo (XPTUSD, VIX, cripto com CFD, NAS100...) numa lista fixa de
+        // "nunca cai no Yahoo" — sempre ficava desatualizada pro próximo
+        // ativo real (achado agora: XAUUSD, mesmo sintoma). `unified` aqui já
+        // veio de `availableSymbols`, filtrado por `isAvailableOnBroker`
+        // (linha ~736) — ou seja, TODO símbolo que chega neste bloco já tem
+        // CFD confirmado na corretora. Não existe motivo pra cair no Yahoo
+        // (fonte/metodologia sempre diferente do MT5 real) — numa falha
+        // transitória, mantém sempre o último preço real da própria
+        // corretora. Elimina de vez o padrão "corrige um ativo, quebra o
+        // próximo" que se repetiu XPTUSD → VIX → cripto → NAS100 → XAUUSD.
+        results[unified] = getFallbackOrLastKnown(unified);
         return;
       }
 
