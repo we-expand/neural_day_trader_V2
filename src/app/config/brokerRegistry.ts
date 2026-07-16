@@ -139,7 +139,11 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // confirmado ao vivo com CFD real na Infinox — roteado direto pela
   // corretora, sem passar pela Binance direta (que está morta em produção,
   // ver comentário acima sobre SOL/BNB/XRP/ADA/DOT).
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD']),
+  // XBNUSD/XBNUSDCRP: contratos distintos do BNBUSD (confirmados reais via
+  // /mt5-prices em 2026-07-16) — sem isso, isCryptoSymbol via categoria
+  // CRYPTO os roteava pra Binance direta, que não tem esse ticker (só
+  // BNBUSD existe lá), zerando preço/variação.
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP']),
 };
 
 /**
