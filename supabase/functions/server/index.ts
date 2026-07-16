@@ -3400,6 +3400,13 @@ app.delete('/clear-metaapi-token', async (c) => {
 // isolada do bundle do frontend) — usada só pro log de debug temporário abaixo.
 const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD']);
 
+// 🔍 2026-07-15: AUDJPY reportado com % levemente errada (-0.05% no app vs
+// -0.08% no MT5 real, preço batendo) — mesma família de sintoma do SOL/ADA,
+// mas em forex tradicional (não 24/7), então a hipótese de mercado sem pausa
+// de sessão não se aplica igual. Log temporário isolado pra este símbolo
+// específico, pra pegar o candle bruto exato na próxima ocorrência.
+const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY']);
+
 app.post('/mt5-prices', async (c) => {
     try {
         const { symbols, token, accountId } = await c.req.json();
@@ -3592,7 +3599,7 @@ app.post('/mt5-prices', async (c) => {
                         // errada em cripto (SOLUSD, ADAUSD) — captura o array bruto de
                         // candles pra comparar com o % real do terminal MT5 quando o erro
                         // for reproduzido. Remover depois de diagnosticado.
-                        if (CRYPTO_CFD_SYMBOLS.has(symbol)) {
+                        if (CRYPTO_CFD_SYMBOLS.has(symbol) || EXTRA_DEBUG_SYMBOLS.has(symbol)) {
                             console.log(`[MT5 PRICES][CRYPTO DEBUG] ${symbol} candles brutos:`,
                                 JSON.stringify((candles || []).map((cd: any) => ({ time: cd.time, open: cd.open, close: cd.close }))));
                             console.log(`[MT5 PRICES][CRYPTO DEBUG] ${symbol} previousCandle escolhido:`,
@@ -4666,7 +4673,13 @@ app.get('/real/yahoo/:symbol', async (c) => {
       'XPDUSD': 'PA=F',  // Palladium futures
       'US500': '^GSPC',  // S&P 500
       'US30': '^DJI',    // Dow Jones
-      'NAS100': '^IXIC', // NASDAQ
+      // ✅ 2026-07-15: estava mapeado pro Nasdaq COMPOSITE (^IXIC), índice
+      // diferente do Nasdaq-100 que o broker realmente oferece como CFD —
+      // nível de preço bem mais baixo, então qualquer queda transitória da
+      // MetaAPI fazia o preço "pular" milhares de pontos quando caía nesse
+      // fallback (sintoma: "NAS100 está louco", salto de ~26.427 pra
+      // ~29.547 em segundos, visto ao vivo num vídeo do Cleber).
+      'NAS100': '^NDX', // Nasdaq-100 (não confundir com ^IXIC, Nasdaq Composite)
       'SPX': '^GSPC',
       'SPX500': '^GSPC',
       'VIX': '^VIX',      // ✅ 2026-07-14: sem isso caía no ticker literal "VIX" (Yahoo não reconhece sem o "^"), aparecia como "não existe"
