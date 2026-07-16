@@ -337,8 +337,13 @@ export function VIXWidgetEnhanced() {
   const isPositive = vixChangePercent >= 0;
   const tradingStatus = checkVIXTradingHours();
 
+  // ✅ 2026-07-16: o container pai (ModularDashboard.tsx) tem altura fixa
+  // (h-[490px]) e este Card não tinha limite/scroll interno — o conteúdo
+  // (header + badge de status + alerta + valor principal + gráfico +
+  // rodapé) ultrapassava 490px e "estourava" o box visualmente.
+  // overflow-y-auto garante que role internamente em vez de vazar.
   return (
-    <Card className="p-6 bg-gradient-to-br from-slate-900 via-slate-900 to-purple-900/20 border-slate-800 h-full flex flex-col">
+    <Card className="p-6 bg-gradient-to-br from-slate-900 via-slate-900 to-purple-900/20 border-slate-800 h-full flex flex-col overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -429,7 +434,7 @@ export function VIXWidgetEnhanced() {
           <>
             {/* VIX Value */}
             <div className="text-center mb-3">
-              <div className="text-6xl font-mono font-bold text-white mb-1">
+              <div className="text-5xl font-mono font-bold text-white mb-1">
                 {currentVIX.toFixed(2)}
               </div>
               <div className="text-xs text-slate-500 uppercase tracking-wider font-bold">
@@ -437,27 +442,32 @@ export function VIXWidgetEnhanced() {
               </div>
             </div>
 
-            {/* Change Today */}
+            {/* Change Today — ✅ 2026-07-16: convenção direcional padrão
+                (positivo = verde, negativo = vermelho), igual todo o resto
+                do app. Antes era invertido de propósito (VIX subindo = ruim
+                pro apetite a risco = vermelho), mas isso confundia — o
+                Cleber espera a mesma convenção visual de qualquer outro
+                ativo: sobe = verde, cai = vermelho. */}
             <div className={`
               flex items-center justify-center gap-2 px-4 py-2 rounded-lg border
-              ${isPositive 
-                ? 'bg-rose-500/10 border-rose-500/30' 
-                : 'bg-emerald-500/10 border-emerald-500/30'
+              ${isPositive
+                ? 'bg-emerald-500/10 border-emerald-500/30'
+                : 'bg-rose-500/10 border-rose-500/30'
               }
             `}>
               {isPositive ? (
-                <TrendingUp className="w-5 h-5 text-rose-400" />
+                <TrendingUp className="w-5 h-5 text-emerald-400" />
               ) : (
-                <TrendingDown className="w-5 h-5 text-emerald-400" />
+                <TrendingDown className="w-5 h-5 text-rose-400" />
               )}
               <div className="flex items-baseline gap-2">
                 <span className={`text-2xl font-mono font-bold ${
-                  isPositive ? 'text-rose-400' : 'text-emerald-400'
+                  isPositive ? 'text-emerald-400' : 'text-rose-400'
                 }`}>
                   {isPositive ? '+' : ''}{vixChangePercent.toFixed(2)}%
                 </span>
                 <span className={`text-sm font-mono ${
-                  isPositive ? 'text-rose-400/70' : 'text-emerald-400/70'
+                  isPositive ? 'text-emerald-400/70' : 'text-rose-400/70'
                 }`}>
                   ({isPositive ? '+' : ''}{vixChange.toFixed(2)})
                 </span>
@@ -474,7 +484,7 @@ export function VIXWidgetEnhanced() {
           <span className="text-xs font-bold text-slate-400 uppercase">Últimas 24h</span>
           <span className="text-xs text-slate-500">({history.length} pontos)</span>
         </div>
-        <div className="relative h-32 bg-slate-900/50 rounded-lg border border-slate-800 p-2">
+        <div className="relative h-24 bg-slate-900/50 rounded-lg border border-slate-800 p-2">
           <canvas 
             ref={canvasRef} 
             className="w-full h-full"
