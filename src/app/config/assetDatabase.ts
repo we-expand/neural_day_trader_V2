@@ -72,6 +72,10 @@ export const ALL_ASSETS: Asset[] = [
   // EXOTIC PAIRS
   { symbol: 'USDMXN', name: 'US Dollar vs Mexican Peso', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'USD/MXN' },
   { symbol: 'USDZAR', name: 'US Dollar vs South African Rand', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'USD/ZAR' },
+  // ✅ 2026-07-15: confirmado CFD real na Infinox via script de auditoria
+  // (`scripts/audit-broker-symbols.mjs USDBRL` — resposta OK com nome
+  // unificado, sem precisar de override em brokerRegistry.ts).
+  { symbol: 'USDBRL', name: 'US Dollar vs Brazilian Real', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'USD/BRL' },
   { symbol: 'USDTRY', name: 'US Dollar vs Turkish Lira', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 50, tradingHours: '24/5', description: 'USD/TRY' },
   { symbol: 'USDSEK', name: 'US Dollar vs Swedish Krona', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 200, tradingHours: '24/5', description: 'USD/SEK' },
   { symbol: 'USDNOK', name: 'US Dollar vs Norwegian Krone', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 200, tradingHours: '24/5', description: 'USD/NOK' },
