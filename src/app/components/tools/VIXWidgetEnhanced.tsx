@@ -97,7 +97,12 @@ export function VIXWidgetEnhanced() {
       setVixChange(primaryChange);
       setVixChangePercent(primaryChangePercent);
 
-      // Adicionar ao histórico
+      // Adicionar ao histórico — ✅ 2026-07-16: era 48 pontos (comentário
+      // antigo assumia refresh a cada 30min = 24h, mas o refresh real é a
+      // cada 1.5s, então 48 pontos cobriam só ~72s). Aumentado pra 240
+      // pontos = ~6min de janela real a 1.5s/tick, mais útil pra enxergar
+      // tendência sem pesar o redraw do canvas. Rótulo do gráfico agora é
+      // calculado dinamicamente a partir do timestamp real (historySpanLabel).
       setHistory(prev => {
         const newHistory = [
           ...prev,
@@ -106,8 +111,8 @@ export function VIXWidgetEnhanced() {
             value: primaryValue,
             source: 'Primary'
           }
-        ].slice(-48); // Últimas 24h (se atualizar a cada 30min)
-        
+        ].slice(-240);
+
         return newHistory;
       });
 
@@ -344,6 +349,20 @@ export function VIXWidgetEnhanced() {
   const isPositive = vixChangePercent >= 0;
   const tradingStatus = checkVIXTradingHours();
 
+  // ✅ 2026-07-16: o rótulo "Últimas 24h" ficou de uma versão antiga que
+  // atualizava a cada 30min (48 pontos × 30min = 24h) — o refresh real hoje
+  // é a cada 1.5s, então os mesmos 48 pontos cobrem só ~72 segundos, não
+  // 24h. Rótulo agora reflete o intervalo real coberto pelo histórico
+  // acumulado, calculado a partir dos timestamps reais.
+  const historySpanLabel = (() => {
+    if (history.length < 2) return 'coletando...';
+    const spanMs = history[history.length - 1].timestamp.getTime() - history[0].timestamp.getTime();
+    const spanSeconds = Math.round(spanMs / 1000);
+    if (spanSeconds < 60) return `últimos ${spanSeconds}s`;
+    const spanMinutes = Math.round(spanSeconds / 60);
+    return `últimos ${spanMinutes}min`;
+  })();
+
   // ✅ 2026-07-16: o container pai (ModularDashboard.tsx) tem altura fixa
   // (h-[490px]) e este Card não tinha limite/scroll interno — o conteúdo
   // (header + badge de status + alerta + valor principal + gráfico +
@@ -488,7 +507,7 @@ export function VIXWidgetEnhanced() {
       <div className="mb-4">
         <div className="flex items-center gap-2 mb-2">
           <BarChart3 className="w-4 h-4 text-purple-400" />
-          <span className="text-xs font-bold text-slate-400 uppercase">Últimas 24h</span>
+          <span className="text-xs font-bold text-slate-400 uppercase">{historySpanLabel}</span>
           <span className="text-xs text-slate-500">({history.length} pontos)</span>
         </div>
         <div className="relative h-24 bg-slate-900/50 rounded-lg border border-slate-800 p-2">
