@@ -33,6 +33,7 @@ import { fetchVIXData } from '@/app/utils/vixDataSources';
 import { checkVIXTradingHours } from '@/app/utils/vixTradingHours';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { getRealMarketData } from '@/app/services/RealMarketDataService';
 
 interface VIXDataPoint {
   timestamp: Date;
@@ -64,67 +65,32 @@ export function VIXWidgetEnhanced() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
 
-  // 🔥 Buscar VIX de múltiplas fontes e comparar
+  // 🔥 Buscar VIX real — mesma fonte única já usada pelo box de ativos do
+  // Dashboard (MarketScoreBoard.tsx via RealMarketDataService.getRealMarketData).
+  // ✅ 2026-07-16: antes disso, esta função tinha a chamada real DESATIVADA de
+  // propósito ("MODO OFFLINE: Supabase desabilitado (quota excedida)",
+  // provavelmente de uma sessão antiga) e caía SEMPRE num gerador sintético
+  // (Math.random determinístico por seed de tempo, base fixa 18.5,
+  // completamente desconectado de qualquer dado real) — por isso o widget
+  // mostrava "dados errados" comparado ao resto do app. VIX já tem CFD
+  // confirmado na Infinox e proteção brokerOnly (nunca cai no Yahoo em falha
+  // transitória, ver RealMarketDataService.ts), então reusar essa mesma
+  // função garante paridade exata com o box de ativos.
   const fetchAllSources = async () => {
     try {
-      console.log('═══════════════════════════════════════════════════════');
-      console.log('🔥 [VIX ENHANCED] === MODO OFFLINE - USANDO FALLBACK ===');
-      console.log('═══════════════════════════════════════════════════════');
+      const marketData = await getRealMarketData('VIX');
 
-      // 🚨 MODO OFFLINE: Supabase desabilitado (quota excedida)
-      const backendData = null; // Forçar fallback
+      const primaryValue = marketData.price ?? 0;
+      const primaryChange = marketData.change ?? 0;
+      const primaryChangePercent = marketData.changePercent ?? 0;
 
-      /* DESATIVADO - Quota excedida
-      // 🔥 USAR APENAS BACKEND - ZERO CHAMADAS CORS DIRETAS!
-      const backendData = await fetch(`https://${projectId}.supabase.co/functions/v1/server/vix`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      */
-
-      console.log('[VIX ENHANCED] 📊 Resultado backend:', backendData);
-
-      // Usar backend como fonte primária
-      let primaryValue = 0;
-      let primaryChange = 0;
-      let primaryChangePercent = 0;
-
-      if (backendData) {
-        primaryValue = parseFloat(backendData.value) || 0;
-        primaryChange = parseFloat(backendData.change) || 0;
-        primaryChangePercent = parseFloat(backendData.changePercent) || 0;
-        
-        console.log('[VIX ENHANCED] ✅ Usando Backend:', {
-          value: primaryValue,
-          change: primaryChange,
-          changePercent: primaryChangePercent,
-          source: backendData.source
-        });
-      } else {
-        // Fallback simulado realista
-        console.warn('[VIX ENHANCED] ⚠️ Backend falhou, usando fallback simulado...');
-        
-        const now = Date.now();
-        const seed = Math.floor(now / 300000); // 5 minutos
-        const pseudoRandom = ((seed * 9301 + 49297) % 233280) / 233280;
-        const baseVix = 18.5;
-        const variation = (pseudoRandom - 0.5) * 10;
-        primaryValue = baseVix + variation;
-        
-        const previousSeed = Math.floor((now - 86400000) / 300000);
-        const previousRandom = ((previousSeed * 9301 + 49297) % 233280) / 233280;
-        const previousClose = baseVix + (previousRandom - 0.5) * 10;
-        primaryChange = primaryValue - previousClose;
-        primaryChangePercent = (primaryChange / previousClose) * 100;
-        
-        console.log('[VIX ENHANCED] 📊 Fallback gerado:', {
-          value: primaryValue.toFixed(2),
-          change: primaryChange.toFixed(2),
-          changePercent: primaryChangePercent.toFixed(2)
-        });
-      }
+      console.log('[VIX ENHANCED] ✅ Dado real:', {
+        value: primaryValue,
+        change: primaryChange,
+        changePercent: primaryChangePercent,
+        source: marketData.source,
+        isRealData: marketData.isRealData
+      });
 
       // Atualizar estado principal
       setCurrentVIX(primaryValue);
