@@ -110,6 +110,9 @@ export const ALL_ASSETS: Asset[] = [
   // ============================================================================
   
   { symbol: 'BTCUSD', name: 'Bitcoin', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin' },
+  // ✅ 2026-07-16: BTCEUR não existia no catálogo — confirmado real via
+  // /mt5-prices (~€55.918). Sem variante .crp (testada, HTTP 404).
+  { symbol: 'BTCEUR', name: 'Bitcoin (EUR)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Euro' },
   { symbol: 'ETHUSD', name: 'Ethereum', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum' },
   { symbol: 'XRPUSD', name: 'Ripple', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🪙', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Ripple' },
   { symbol: 'BNBUSD', name: 'Binance Coin', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin' },

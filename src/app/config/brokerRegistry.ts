@@ -146,7 +146,10 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // XETUSD/XETUSDCRP: mesmo caso, contratos distintos do ETHUSD (Binance
   // não tem "XETUSD"/"XETUSDCRP" como ticker).
   // XLCUSD/XLCUSDCRP: mesmo caso, contratos distintos do LTCUSD.
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP']),
+  // BTCEUR: confirmado real via /mt5-prices em 2026-07-16 — roteado pelo
+  // broker em vez da Binance direta (as 3 fontes de Binance direta têm
+  // histórico de ficarem mortas em produção, ver comentário logo abaixo).
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR']),
 };
 
 /**

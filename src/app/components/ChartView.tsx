@@ -560,6 +560,9 @@ export function ChartView() {
   const staticAssetsBase: MarketAsset[] = [
     // CRYPTO (30 ativos)
     { symbol: 'BTCUSD', name: 'Bitcoin', bid: 86500, ask: 86502, change: -2400, changePercent: -2.70, category: 'Crypto' },
+    // ✅ 2026-07-16: BTCEUR não existia no catálogo — confirmado real via
+    // /mt5-prices (~€55.918).
+    { symbol: 'BTCEUR', name: 'Bitcoin (EUR)', bid: 55918.91, ask: 55964.87, change: 0, changePercent: 0, category: 'Crypto' },
     { symbol: 'ETHUSD', name: 'Ethereum', bid: 3200, ask: 3201, change: -80, changePercent: -2.44, category: 'Crypto' },
     { symbol: 'BNBUSD', name: 'Binance Coin', bid: 645.20, ask: 645.30, change: 12.5, changePercent: 1.98, category: 'Crypto' },
     { symbol: 'XRPUSD', name: 'Ripple', bid: 0.5234, ask: 0.5235, change: 0.0124, changePercent: 2.42, category: 'Crypto' },

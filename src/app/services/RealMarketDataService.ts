@@ -297,6 +297,12 @@ export async function getRealMarketData(symbol: string): Promise<RealMarketData>
 function toUnifiedCryptoSymbol(symbol: string): string {
   if (symbol.endsWith('USDT')) return symbol.slice(0, -1); // USDT -> USD
   if (symbol.endsWith('USD')) return symbol;
+  // ✅ 2026-07-16: BTCEUR (e outras variantes cripto/fiat que não seja USD)
+  // batia no fallback abaixo e virava "BTCEURUSD" — nunca combinava com
+  // nada em CRYPTO_CFD_AVAILABLE, então caía sempre na Binance direta em
+  // vez do broker mesmo estando cadastrado. Reconhece outros sufixos fiat
+  // conhecidos do catálogo antes de assumir USD.
+  if (/^(.+)(EUR|GBP|JPY|CHF)$/.test(symbol)) return symbol;
   return `${symbol}USD`;
 }
 
