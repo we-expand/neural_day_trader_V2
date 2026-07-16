@@ -132,6 +132,10 @@ export const ALL_ASSETS: Asset[] = [
   // BTCUSD/ETHUSD/BNBUSD/LTCUSD normais (ver override em brokerRegistry.ts),
   // confirmados reais via /mt5-prices antes de adicionar.
   { symbol: 'BTCUSDCRP', name: 'Bitcoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — variante .crp da Infinox' },
+  // ✅ 2026-07-16: mesmo padrão do XBNUSD — Cleber notou que só o XETUSDCRP
+  // existia. Testado 'XETUSD' normal (sem .crp) via /mt5-prices e é real
+  // (~1871, variante de liquidação diferente do .crp, valores próximos).
+  { symbol: 'XETUSD', name: 'Ethereum (XET)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum — contrato XETUSD da Infinox' },
   { symbol: 'XETUSDCRP', name: 'Ethereum (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum — variante .crp da Infinox' },
   // ✅ 2026-07-16: Cleber notou que só o XBNUSDCRP existia — testado o
   // 'XBNUSD' normal (sem .crp) via /mt5-prices e é real, contrato DISTINTO

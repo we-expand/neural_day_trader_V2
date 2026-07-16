@@ -592,6 +592,9 @@ export function ChartView() {
     // adicionar, mesmo lote do assetDatabase.ts.
     { symbol: 'BTCUSDCRP', name: 'Bitcoin (liquidação cripto)', bid: 64568, ask: 64579, change: 2394, changePercent: 3.85, category: 'Crypto' },
     { symbol: 'XETUSDCRP', name: 'Ethereum (liquidação cripto)', bid: 1913.7, ask: 1916.29, change: 0, changePercent: 0, category: 'Crypto' },
+    // ✅ 2026-07-16: mesmo padrão — só o XETUSDCRP existia aqui, 'XETUSD'
+    // normal confirmado real via /mt5-prices (~1871).
+    { symbol: 'XETUSD', name: 'Ethereum (XET)', bid: 1871.7, ask: 1874.29, change: -49.66, changePercent: -2.58, category: 'Crypto' },
     // ✅ 2026-07-16: só o XBNUSDCRP existia aqui — 'XBNUSD' normal confirmado
     // real via /mt5-prices, contrato distinto do BNBUSD (~576 vs ~219).
     { symbol: 'XBNUSD', name: 'Binance Coin (XBN)', bid: 219.63, ask: 222.22, change: -7.29, changePercent: -3.21, category: 'Crypto' },
