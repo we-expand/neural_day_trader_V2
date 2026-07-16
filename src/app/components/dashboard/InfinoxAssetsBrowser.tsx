@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getInfinoxAssetsByCategory, INFINOX_CATEGORY_NAMES } from '@/config/infinoxAssets';
+import { getBrokerSymbol } from '@/app/config/brokerRegistry';
 import { fetchRealPricesBatch } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
 import { getMarketStatus } from '@/app/utils/marketStatus';
 import { comparePricesBatch } from '@/app/utils/priceDebugger';
@@ -27,7 +28,7 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
   const [autocompleteResults, setAutocompleteResults] = useState<string[]>([]);
   const [selectedAutocompleteIndex, setSelectedAutocompleteIndex] = useState(-1);
 
-  // Obter todos os ativos por categoria (300+)
+  // Obter todos os ativos por categoria (catálogo real auditado, ~220)
   // ✅ CORRIGIDO 2026-07-08: useMemo — sem isso, getInfinoxAssetsByCategory()
   // criava um objeto novo a cada render, entrava como dependência do
   // useEffect abaixo (que seta estado), e causava loop infinito de render
@@ -43,9 +44,19 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
     }
     
     // Buscar todos os ativos que contêm o termo (não apenas startsWith)
+    // ✅ 2026-07-16: Cleber busca pelo nome REAL da corretora (ex: 'BTCXET',
+    // 'LNKUSD' — o que ele vê no MT5), não pelo símbolo unificado que
+    // guardamos (BTCETH, LINKUSD) — antes disso, esses ativos "sumiam" da
+    // busca mesmo já cadastrados. Agora casa também pelo nome real via
+    // getBrokerSymbol (reverse-match), sem precisar duplicar entrada no
+    // catálogo nem renomear o símbolo unificado já usado em todo o app.
+    const term = searchTerm.toLowerCase();
     const allSymbols = Object.values(allAssets).flat();
     const matches = allSymbols
-      .filter(symbol => symbol.toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter(symbol =>
+        symbol.toLowerCase().includes(term) ||
+        getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(term)
+      )
       .sort((a, b) => {
         // Priorizar matches que começam com o termo
         const aStarts = a.toLowerCase().startsWith(searchTerm.toLowerCase());
@@ -101,7 +112,7 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
     const fetchPrices = async () => {
       setIsLoadingPrices(true);
       
-      // Buscar TODOS os ativos (300+)
+      // Buscar TODOS os ativos (catálogo real auditado, ~220)
       const allSymbols = Object.values(allAssets).flat();
       
       console.log(`[InfinoxAssetsBrowser] 🔄 Buscando preços REAIS de ${allSymbols.length} ativos usando Yahoo Finance + Binance...`);
@@ -135,10 +146,13 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
   }, [isOpen]);
 
   // Filtrar ativos baseado na pesquisa e categoria selecionada
+  // ✅ 2026-07-16: mesmo fix do autocomplete acima — também casa pelo nome
+  // real da corretora, não só pelo símbolo unificado.
   const filteredCategories = Object.entries(allAssets)
     .map(([categoryKey, symbols]) => {
       const filtered = symbols.filter(symbol =>
-        symbol.toLowerCase().includes(searchTerm.toLowerCase())
+        symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(searchTerm.toLowerCase())
       );
 
       return {

@@ -168,7 +168,13 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // roteado pro broker em vez da Binance pra bater com o MT5 real.
   // XETEUR: mesmo caso do BTCEUR — XET (Ethereum) cotado em Euro, confirmado
   // real via /mt5-prices em 2026-07-16.
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR']),
+  // XETXBN/XETXLC: Ethereum (contrato XET) cotado em XBN/XLC — confirmados
+  // reais via /mt5-prices em 2026-07-16 (Cleber reportou "não está na
+  // lista"), mesmo padrão do BTCBNB/BTCETH/BTCLTC.
+  // UNIUSD/XLMUSD: CFD confirmado na Infinox com o mesmo nome unificado —
+  // Cleber reportou preço/variação divergindo do MT5; causa era rotear pela
+  // Binance direta (isCryptoSymbol sem CFD confirmado) em vez do broker.
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD']),
 };
 
 /**

@@ -165,7 +165,13 @@ export const ALL_ASSETS: Asset[] = [
   // /mt5-prices (~€1.630,48, bate com o print do Cleber ~€1.628,40).
   { symbol: 'XETEUR', name: 'Ethereum (XET/EUR)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum (contrato XET) — cotado em Euro' },
   { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — variante .crp da Infinox' },
-  
+  // ✅ 2026-07-16: XETXBN e XETXLC não existiam no catálogo — Cleber notou
+  // no terminal MT5. Confirmados reais via /mt5-prices (XETXBN ~8,36,
+  // XETXLC ~41,43) — Ethereum (contrato XET) cotado em XBN/XLC, mesmo
+  // padrão do BTCBNB/BTCETH/BTCLTC.
+  { symbol: 'XETXBN', name: 'Ethereum (XET/XBN)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Ethereum (contrato XET) — cotado em Binance Coin (XBN)' },
+  { symbol: 'XETXLC', name: 'Ethereum (XET/XLC)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Ethereum (contrato XET) — cotado em Litecoin (XLC)' },
+
   // ============================================================================
   // 📊 INDICES - ÍNDICES GLOBAIS (16 ÍNDICES)
   // ============================================================================

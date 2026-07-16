@@ -619,6 +619,11 @@ export function ChartView() {
     // cotado em Euro em vez de USD), confirmado real via /mt5-prices
     // (~€1.630,48).
     { symbol: 'XETEUR', name: 'Ethereum (XET/EUR)', bid: 1630.48, ask: 1635.79, change: 81.46, changePercent: 5.26, category: 'Crypto' },
+    // ✅ 2026-07-16: XETXBN/XETXLC não existiam aqui — mesmo padrão do
+    // XETEUR (Ethereum/XET cotado em outra cripto da Infinox), confirmados
+    // reais via /mt5-prices.
+    { symbol: 'XETXBN', name: 'Ethereum (XET/XBN)', bid: 8.3592, ask: 8.3943, change: 0, changePercent: 0, category: 'Crypto' },
+    { symbol: 'XETXLC', name: 'Ethereum (XET/XLC)', bid: 41.4321, ask: 41.5547, change: 0, changePercent: 0, category: 'Crypto' },
 
     // FOREX MAJORS (28 pares principais)
     { symbol: 'EURUSD', name: 'Euro / US Dollar', bid: 1.0412, ask: 1.0413, change: 0.0015, changePercent: 0.14, category: 'Forex' },
