@@ -59,7 +59,7 @@ import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
 import { fetchCandles } from '@/app/services/market-service';
-import { getPrecisionForSymbol } from '@/app/utils/priceFormatter';
+import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
@@ -445,7 +445,9 @@ const INDICATORS: IndicatorConfig[] = [
 // ✅ FUNÇÃO DE FORMATAÇÃO INTERNACIONAL (estilo TradingView/Binance)
 function formatBrazilianPrice(price: number, decimals: number = 2): string {
   // Formatar com ponto decimal, SEM separador de milhares (padrão trading profissional)
-  return price.toFixed(decimals);
+  // ✅ 2026-07-16: 4 dígitos antes do ponto pra todo ativo (regra central,
+  // ver priceFormatter.ts) — "pra parecerem vivos".
+  return padIntegerPart(price.toFixed(decimals));
 }
 
 export function ChartView() {

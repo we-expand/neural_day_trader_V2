@@ -683,15 +683,14 @@ export const MarketScoreBoard = () => {
   const target2 = marketStatus === 'CLOSED' ? 0 : (score > 50 ? entry * 1.02 : entry * 0.98);
 
   const formatPrice = (p: number) => {
-      if (!Number.isFinite(p)) return "0.00";
+      if (!Number.isFinite(p)) return "0000.00";
 
       // ✅ 2026-07-11: precisão por ativo de novo (Cleber pediu de volta —
-      // "AUDCAD 0.9838 | XAUUSD 4119.72"), com separador de milhar.
-      const decimals = formatPriceByAsset(p, activeSymbol).split('.')[1]?.length ?? 2;
-      return new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals
-      }).format(p);
+      // "AUDCAD 0.9838 | XAUUSD 4119.72").
+      // ✅ 2026-07-16: 4 dígitos antes do ponto pra todo ativo (mesma regra
+      // central de priceFormatter.ts) — sem separador de milhar, que
+      // conflitava visualmente com o zero-padding (ex: "0,043.92").
+      return formatPriceByAsset(p, activeSymbol);
   };
 
   const formatMoney = (val: number) => {

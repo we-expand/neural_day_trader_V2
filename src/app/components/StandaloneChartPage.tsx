@@ -49,6 +49,7 @@ import {
   TrendingUpDown,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
+import { padIntegerPart } from '@/app/utils/priceFormatter';
 
 // ============================================================
 // TIPOS
@@ -462,7 +463,8 @@ function detectZones(data: KLineData[], currentPrice: number): LiquidityZone[] {
 
 function formatPrice(price: number, symbol: string): string {
   // Todos os ativos: sempre 2 casas decimais (padrão único, a pedido do Cleber)
-  return price.toFixed(2);
+  // ✅ 2026-07-16: + 4 dígitos antes do ponto (regra central, ver priceFormatter.ts)
+  return padIntegerPart(price.toFixed(2));
 }
 
 function formatCountdown(ms: number): string {

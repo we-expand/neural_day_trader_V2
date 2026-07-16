@@ -17,10 +17,25 @@ import { getAssetBySymbol } from '@/app/config/assetDatabase';
  * casas, senão perde toda a variação percentual visível).
  */
 export function formatPrice(price: number, symbol: string): string {
-  if (!price || isNaN(price)) return '0.00';
+  if (!price || isNaN(price)) return '0000.00';
 
   const precision = getPrecisionForSymbol(symbol, price);
-  return price.toFixed(precision);
+  return padIntegerPart(price.toFixed(precision));
+}
+
+/**
+ * ✅ 2026-07-16: Cleber pediu 4 dígitos antes do ponto pra TODO ativo — "pra
+ * parecerem vivos" (largura fixa tipo odômetro de terminal profissional,
+ * ex: XLCUSD 0043.92, BATUSD 0000.08, XAUUSD 4119.75 já tem 4+ e não muda).
+ * Preenche a parte inteira com zeros à esquerda até 4 dígitos; não mexe na
+ * parte decimal (essa continua vindo da precisão por ativo).
+ */
+export function padIntegerPart(formatted: string): string {
+  const negative = formatted.startsWith('-');
+  const unsigned = negative ? formatted.slice(1) : formatted;
+  const [intPart, decPart] = unsigned.split('.');
+  const padded = intPart.padStart(4, '0');
+  return (negative ? '-' : '') + padded + (decPart !== undefined ? '.' + decPart : '');
 }
 
 export function getPrecisionForSymbol(symbol: string, price: number): number {
