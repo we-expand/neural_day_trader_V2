@@ -10,6 +10,14 @@ Ao adicionar, achado que **já existia uma entrada fantasma pro mesmo conceito**
 
 Nota: achado de bônus, **não corrigido** — `StandaloneChartPage.tsx:209` ainda tem `JPN225` (devia ser `JP225`, já unificado em `assetDatabase.ts`/`ChartView.tsx` na sessão anterior). É um 3º catálogo com o mesmo tipo de divergência, fora do escopo pedido agora — considerar auditar esse arquivo também numa sessão futura.
 
+### Depois do fix, Cleber reportou: "BVSPX entrega valor/variação errados por ~1min, depois corrige sozinho" — DIAGNOSTICADO, NÃO É BUG, comportamento esperado da arquitetura
+
+Testado `/mt5-prices` direto (curl, 8 chamadas em ~80s): backend sempre respondeu certo, variação/preço oscilando de forma realista, sem salto nem candle errado — o backend está correto desde o início.
+
+Causa real, no FRONTEND: [ChartView.tsx:874](src/app/components/ChartView.tsx:874) — `const [liveAssets, setLiveAssets] = useState<MarketAsset[]>(staticAssetsBase)`. O componente monta a tela já mostrando o array estático hardcoded (`staticAssetsBase`, onde ficam os placeholders tipo o que escrevi pro BVSPX: `change: 0, changePercent: 0`) e só troca pelo dado real depois que `getBatchedMT5Data` termina de varrer TODO o catálogo (~200+ ativos, lotes de 40, pausa entre lotes — ver `useEffect` logo abaixo, linha ~877). Enquanto esse primeiro ciclo não termina, o placeholder fica na tela — daí "errado por ~1min, depois corrige".
+
+**Não é bug específico do BVSPX** — é o mesmo mecanismo usado pra QUALQUER ativo desse catálogo (inclusive ESP35/USDX/GAUUSD adicionados nesta mesma sessão, todos têm o mesmo placeholder estático). Só ficou mais visível no BVSPX porque o placeholder que escrevi tinha `change`/`changePercent` zerados, chamando mais atenção que os valores "coincidentemente parecidos" dos placeholders antigos de outros ativos. **Nenhuma correção de código foi feita pra isso** — comportamento temporário e esperado, resolve sozinho.
+
 ### Pendente real pra próxima sessão
 
 1. **Commit + deploy** (não commitado ainda):
@@ -19,7 +27,7 @@ git add src/app/config/assetDatabase.ts src/app/services/SymbolMappingService.ts
 git commit -m "fix: adiciona BVSPX (Ibovespa) real ao catálogo — havia um símbolo fantasma 'BRA' (HTTP 404, nunca existiu) hardcoded em ChartView.tsx/StandaloneChartPage.tsx; corrigido pro nome real confirmado via /mt5-prices e adicionado em assetDatabase.ts/SymbolMappingService.ts"
 git push origin main
 ```
-2. Confirmar com print pós-deploy, logado, que o BVSPX aparece e atualiza de verdade no Dashboard/Navegador de Ativos.
+2. Confirmar com print pós-deploy, logado, que o BVSPX aparece e atualiza de verdade no Dashboard/Navegador de Ativos (esperar o ~1min do primeiro ciclo de `getBatchedMT5Data` — não é bug, ver seção acima).
 3. Considerar auditar `StandaloneChartPage.tsx` por mais divergências do tipo `JPN225` vs `JP225` (achado de bônus acima, não corrigido).
 4. Tudo mais pendente da sessão anterior (ESP35, ver seção logo abaixo) continua valendo.
 
