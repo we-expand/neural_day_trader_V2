@@ -324,32 +324,23 @@ export function VIXWidgetEnhanced() {
     return () => clearInterval(interval);
   }, [marketStatus]);
 
-  // ✅ 2026-07-16: era uma tabela de faixas FIXAS (ex: "BAIXO" pra qualquer
-  // valor <20) — o Cleber apontou que isso não reflete posicionamento real:
-  // com VIX em 18.12 subindo +10% no dia, está ACIMA do normal pro momento
-  // atual do ativo, não "baixo". O indicador precisa ser dinâmico — comparar
-  // o valor atual com a média do próprio histórico real recente (`history`,
-  // já alimentado só por dado real desde o fix anterior), não um número
-  // fixo hardcoded que nunca se ajusta ao comportamento do ativo.
-  const getRiskLevel = (vix: number, recentHistory: VIXDataPoint[]) => {
-    const realPoints = recentHistory.map(h => h.value).filter(v => v > 0);
+  // ✅ 2026-07-16 (2ª correção): a 1ª tentativa comparava o valor absoluto
+  // com a média do próprio histórico — errado. O Cleber esclareceu: o que
+  // importa é a MAGNITUDE DA VARIAÇÃO DO DIA (vixChangePercent), não o nível
+  // absoluto. Pra um índice de volatilidade, um movimento diário "normal" é
+  // até ~1,5-2%; além disso (pra cima OU pra baixo) já é um sinal forte de
+  // mudança de regime de risco. +9,88% no dia é um salto grande — tem que
+  // acusar ALTO, não "normal" só porque o histórico de sessão (curto,
+  // poucos pontos) também já reflete esse mesmo salto.
+  const getRiskLevel = (changePercent: number) => {
+    const NORMAL_THRESHOLD = 2; // ✅ combinado com o Cleber: até ±2% é normal
 
-    // Sem histórico suficiente ainda (widget acabou de carregar) — não dá
-    // pra dizer "alto" ou "baixo" em relação a nada, fica neutro até
-    // acumular pontos reais suficientes pra uma média confiável.
-    if (realPoints.length < 3) {
-      return { label: 'CALCULANDO', color: 'slate', severity: 0 };
-    }
-
-    const average = realPoints.reduce((sum, v) => sum + v, 0) / realPoints.length;
-    const deviationPercent = ((vix - average) / average) * 100;
-
-    if (deviationPercent > 10) return { label: 'ALTO', color: 'red', severity: 3 };
-    if (deviationPercent < -10) return { label: 'BAIXO', color: 'emerald', severity: 1 };
+    if (changePercent > NORMAL_THRESHOLD) return { label: 'ALTO', color: 'red', severity: 3 };
+    if (changePercent < -NORMAL_THRESHOLD) return { label: 'BAIXO', color: 'emerald', severity: 1 };
     return { label: 'NORMAL', color: 'yellow', severity: 2 };
   };
 
-  const riskLevel = getRiskLevel(currentVIX, history);
+  const riskLevel = getRiskLevel(vixChangePercent);
   const isPositive = vixChangePercent >= 0;
   const tradingStatus = checkVIXTradingHours();
 
