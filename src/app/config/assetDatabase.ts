@@ -171,6 +171,38 @@ export const ALL_ASSETS: Asset[] = [
   // padrão do BTCBNB/BTCETH/BTCLTC.
   { symbol: 'XETXBN', name: 'Ethereum (XET/XBN)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Ethereum (contrato XET) — cotado em Binance Coin (XBN)' },
   { symbol: 'XETXLC', name: 'Ethereum (XET/XLC)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Ethereum (contrato XET) — cotado em Litecoin (XLC)' },
+  // ✅ 2026-07-16: Cleber reportou uma lista do MT5 com vários ativos "que
+  // eu sei que não tem" — auditados um a um via /mt5-prices antes de
+  // adicionar. Achado importante: FILUSD/GRTUSD/TRXUSD/ETCUSD/NEARUSD/
+  // SANDUSD/ALGOUSD já existiam em ChartView.tsx (usado pelo Dashboard/
+  // Gráfico), mas NUNCA tinham sido portados pra este catálogo oficial
+  // (usado pelo Navegador de Ativos) — por isso "não apareciam" pra ele
+  // mesmo já tendo preço real em outras telas. Confirmados reais de novo
+  // aqui antes de portar.
+  { symbol: 'FILUSD', name: 'Filecoin', category: 'CRYPTO', subCategory: 'Altcoins', icon: '📦', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Filecoin' },
+  { symbol: 'GRTUSD', name: 'The Graph', category: 'CRYPTO', subCategory: 'Altcoins', icon: '📊', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'The Graph' },
+  { symbol: 'TRXUSD', name: 'Tron', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔻', precision: 5, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Tron' },
+  { symbol: 'ETCUSD', name: 'Ethereum Classic', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Ethereum Classic' },
+  { symbol: 'NEARUSD', name: 'NEAR Protocol', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🌐', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'NEAR Protocol' },
+  { symbol: 'SANDUSD', name: 'The Sandbox', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🏖️', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'The Sandbox' },
+  { symbol: 'ALGOUSD', name: 'Algorand', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔷', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Algorand' },
+  // ✅ 2026-07-16: os 8 abaixo eram genuinamente novos — não existiam em
+  // nenhum dos 2 catálogos. Confirmados reais via /mt5-prices. ZECUSD/
+  // XTZUSD/CRVUSD/NEOUSD têm o mesmo nome unificado e real na corretora
+  // (sem override). SUSHIUSD/IOTAUSD têm nome real curto na Infinox
+  // ('SUSUSD'/'IOTUSD', override em brokerRegistry.ts, mesmo padrão do
+  // DOGEUSD/LINKUSD). ONEUSD (Harmony) já é o próprio ticker real, sem
+  // sufixo diferente. INCUSD: identidade exata não confirmada (preço real
+  // batendo, ~$0,071, mas sem certeza de qual altcoin é — nome mantido
+  // literal até o Cleber confirmar no MT5 dele).
+  { symbol: 'ZECUSD', name: 'Zcash', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🛡️', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Zcash' },
+  { symbol: 'XTZUSD', name: 'Tezos', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔵', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Tezos' },
+  { symbol: 'CRVUSD', name: 'Curve DAO Token', category: 'CRYPTO', subCategory: 'DeFi', icon: '🌀', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Curve DAO Token' },
+  { symbol: 'NEOUSD', name: 'NEO', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟢', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'NEO' },
+  { symbol: 'SUSHIUSD', name: 'SushiSwap', category: 'CRYPTO', subCategory: 'DeFi', icon: '🍣', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'SushiSwap — contrato real da Infinox é SUSUSD' },
+  { symbol: 'IOTAUSD', name: 'IOTA', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ⓘ', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'IOTA — contrato real da Infinox é IOTUSD' },
+  { symbol: 'ONEUSD', name: 'Harmony', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔶', precision: 6, lotSize: 1, minLot: 100, maxLot: 1000000, leverage: 5, tradingHours: '24/7', description: 'Harmony' },
+  { symbol: 'INCUSD', name: 'INC', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🪙', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Contrato INCUSD da Infinox — identidade exata não confirmada' },
 
   // ============================================================================
   // 📊 INDICES - ÍNDICES GLOBAIS (16 ÍNDICES)

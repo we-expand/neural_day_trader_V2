@@ -59,6 +59,19 @@ const SYMBOL_OVERRIDES: Record<BrokerId, Record<string, string>> = {
     // MT5 real em vez do spot da Binance.
     DOGEUSD: 'DOGUSD',
     LINKUSD: 'LNKUSD',
+    // ✅ 2026-07-16: mesmo padrão — vários já existiam no catálogo (roteando
+    // pela Binance direta) mas a Infinox oferece como CFD próprio com nome
+    // curto (dropando vogal/letra pra caber num código fixo). Confirmados
+    // via /mt5-prices, roteados pro broker agora (ver CRYPTO_CFD_AVAILABLE).
+    ATOMUSD: 'ATMUSD',
+    NEARUSD: 'NERUSD',
+    SANDUSD: 'SANUSD',
+    ALGOUSD: 'ALGUSD',
+    SHIBUSD: 'SHBUSD',
+    AVAXUSD: 'AVAUSD',
+    // Mesmo padrão, pra ativos genuinamente novos adicionados nesta sessão.
+    SUSHIUSD: 'SUSUSD',
+    IOTAUSD: 'IOTUSD',
   },
 };
 
@@ -174,7 +187,13 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // UNIUSD/XLMUSD: CFD confirmado na Infinox com o mesmo nome unificado —
   // Cleber reportou preço/variação divergindo do MT5; causa era rotear pela
   // Binance direta (isCryptoSymbol sem CFD confirmado) em vez do broker.
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD']),
+  // ✅ 2026-07-16: lote grande auditado a partir de uma lista do MT5 do
+  // Cleber — todos confirmados reais via /mt5-prices antes de adicionar.
+  // ATOMUSD/NEARUSD/SANDUSD/ALGOUSD/SHIBUSD/AVAXUSD/SUSHIUSD/IOTAUSD têm
+  // override de nome (ver SYMBOL_OVERRIDES). ETCUSD/GRTUSD/TRXUSD/FILUSD/
+  // ZECUSD/XTZUSD/CRVUSD/NEOUSD/ONEUSD/INCUSD usam o próprio nome unificado
+  // como nome real na corretora (sem override).
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD', 'ATOMUSD', 'NEARUSD', 'SANDUSD', 'ALGOUSD', 'SHIBUSD', 'AVAXUSD', 'ETCUSD', 'GRTUSD', 'TRXUSD', 'FILUSD', 'ZECUSD', 'XTZUSD', 'CRVUSD', 'NEOUSD', 'SUSHIUSD', 'IOTAUSD', 'ONEUSD', 'INCUSD']),
 };
 
 /**

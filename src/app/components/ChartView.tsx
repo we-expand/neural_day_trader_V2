@@ -599,6 +599,16 @@ export function ChartView() {
     { symbol: 'AXSUSD', name: 'Axie Infinity', bid: 7.12, ask: 7.13, change: 0.34, changePercent: 5.01, category: 'Crypto' },
     { symbol: 'GALAUSD', name: 'Gala', bid: 0.0289, ask: 0.0290, change: 0.0015, changePercent: 5.47, category: 'Crypto' },
     { symbol: 'FTMUSD', name: 'Fantom', bid: 0.3456, ask: 0.3457, change: -0.0189, changePercent: -5.18, category: 'Crypto' },
+    // ✅ 2026-07-16: genuinamente novos, não existiam em nenhum dos 2
+    // catálogos — confirmados reais via /mt5-prices (ver assetDatabase.ts).
+    { symbol: 'ZECUSD', name: 'Zcash', bid: 540.37, ask: 541.19, change: -35.26, changePercent: -6.13, category: 'Crypto' },
+    { symbol: 'XTZUSD', name: 'Tezos', bid: 0.2202, ask: 0.2256, change: 0.0016, changePercent: 0.73, category: 'Crypto' },
+    { symbol: 'CRVUSD', name: 'Curve DAO Token', bid: 0.214, ask: 0.223, change: 0.002, changePercent: 0.94, category: 'Crypto' },
+    { symbol: 'NEOUSD', name: 'NEO', bid: 1.89, ask: 2.03, change: -0.02, changePercent: -1.05, category: 'Crypto' },
+    { symbol: 'SUSHIUSD', name: 'SushiSwap', bid: 0.162, ask: 0.170, change: 0, changePercent: 0, category: 'Crypto' },
+    { symbol: 'IOTAUSD', name: 'IOTA', bid: 0.0338, ask: 0.0386, change: 0, changePercent: 0, category: 'Crypto' },
+    { symbol: 'ONEUSD', name: 'Harmony', bid: 0.00102, ask: 0.00121, change: -0.00003, changePercent: -2.86, category: 'Crypto' },
+    { symbol: 'INCUSD', name: 'INC', bid: 0.0713, ask: 0.0751, change: 0.0018, changePercent: 2.59, category: 'Crypto' },
     // ✅ 2026-07-16: variantes "liquidação cripto" (sufixo .crp na Infinox,
     // ver override em brokerRegistry.ts) — confirmadas reais antes de
     // adicionar, mesmo lote do assetDatabase.ts.
