@@ -1,4 +1,30 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 3)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 4)
+
+## Sessão nova (2026-07-16, continuação 4): WHEAT e XBNUSD — 1 falso alarme (já existia com outro nome) + 1 símbolo real faltando, NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Dois pedidos rápidos do Cleber na sequência.
+
+### "WHEAT não existe no catálogo" — falso alarme, já existia com nome unificado diferente
+
+Testei vários nomes (`WHEAT`, `WHEATUSD`, `WHTUSD`, `ZWUSD`, até `WHEUSD` direto) e todos deram 404 — até achar que `WHEUSD` (o nome unificado que já existe em `assetDatabase.ts:210`/`ChartView.tsx:658`) tem um **override em `brokerRegistry.ts:35`** pro nome real da corretora, que é literalmente a palavra `Wheat` (sem sufixo). Testado `Wheat` direto via `/mt5-prices` → real (preço ~6,844). Ou seja, **o Trigo já estava certo e funcional o tempo todo** — o Cleber só não achou porque procurou por "WHEAT" e o nome unificado no app é `WHEUSD`. Nenhuma mudança de código feita.
+
+### "XBNUSD normal não existe, só temos o .crp" — confirmado real, ADICIONADO
+
+Testado `XBNUSD` (sem `.crp`) via `/mt5-prices` → real, preço ~219,63 — **contrato distinto de `BNBUSD`** (~576,13, mesma relação já vista em GAUUSD vs XAUUSD nesta sessão) e bem próximo do próprio `XBNUSDCRP` (~219,65, mesmo ativo, variante de liquidação diferente). Adicionado em `assetDatabase.ts` (categoria CRYPTO/Altcoins, ao lado do `.crp`) e `ChartView.tsx`. **Não precisou de override em `brokerRegistry.ts`** — nome real na corretora já bate com o unificado (só o `.crp` precisa de override pro sufixo).
+
+`tsc --noEmit` limpo nos 2 arquivos tocados. Não testado visualmente (mesma limitação de login já documentada).
+
+### Pendente real pra próxima sessão
+
+1. **Commit + deploy** (não commitado ainda, acumula com o BVSPX pendente da sessão anterior):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/config/assetDatabase.ts src/app/components/ChartView.tsx CLAUDE.md
+git commit -m "feat: adiciona XBNUSD (contrato distinto do BNBUSD, confirmado real via /mt5-prices) ao catálogo, ao lado do XBNUSDCRP já existente"
+git push origin main
+```
+2. Confirmar com print pós-deploy, logado, que o XBNUSD aparece e atualiza de verdade.
+3. Tudo mais pendente das sessões anteriores (BVSPX oscilando/instrumentado, ESP35) continua valendo, ver seções logo abaixo.
 
 ## Sessão nova (2026-07-16, continuação 3): BVSPX (Ibovespa) faltando no catálogo — achado que já existia um 'BRA' fantasma (404) em 2 catálogos, NÃO COMMITADO AINDA
 

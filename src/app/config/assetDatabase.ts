@@ -133,6 +133,12 @@ export const ALL_ASSETS: Asset[] = [
   // confirmados reais via /mt5-prices antes de adicionar.
   { symbol: 'BTCUSDCRP', name: 'Bitcoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — variante .crp da Infinox' },
   { symbol: 'XETUSDCRP', name: 'Ethereum (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum — variante .crp da Infinox' },
+  // ✅ 2026-07-16: Cleber notou que só o XBNUSDCRP existia — testado o
+  // 'XBNUSD' normal (sem .crp) via /mt5-prices e é real, contrato DISTINTO
+  // do BNBUSD (~576 vs ~219, mesma relação já vista em GAUUSD/XAUUSD),
+  // preço bate de perto com o próprio XBNUSDCRP (mesmo ativo, liquidação
+  // diferente). Faltava adicionar o par junto do .crp.
+  { symbol: 'XBNUSD', name: 'Binance Coin (XBN)', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin — contrato XBNUSD da Infinox, distinto do BNBUSD' },
   { symbol: 'XBNUSDCRP', name: 'Binance Coin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin — variante .crp da Infinox' },
   { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — variante .crp da Infinox' },
   
