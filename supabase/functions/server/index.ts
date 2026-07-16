@@ -3589,6 +3589,8 @@ app.post('/mt5-prices', async (c) => {
 
                     let change = 0;
                     let changePercent = 0;
+                    let candlesUsedForDebug: any[] | null = null;
+                    let previousCandleForDebug: any = null;
 
                     const firstTry = await fetchCandles(2);
 
@@ -3604,6 +3606,8 @@ app.post('/mt5-prices', async (c) => {
                         const previousCandle = candles && candles.length >= 2
                             ? candles[candles.length - 2]
                             : null;
+                        candlesUsedForDebug = candles;
+                        previousCandleForDebug = previousCandle;
 
                         // 🔍 2026-07-15: log temporário pra investigar variação levemente
                         // errada em cripto (SOLUSD, ADAUSD) — captura o array bruto de
@@ -3654,7 +3658,24 @@ app.post('/mt5-prices', async (c) => {
                     }
                     
                     console.log(`[MT5 PRICES] ✅ ${symbol}: $${currentPrice.toFixed(5)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
-                    
+
+                    // 🔍 2026-07-16: console.log não é acessível pelas ferramentas de
+                    // debug disponíveis (só devolvem log de acesso HTTP, não stdout da
+                    // função) — devolve o candle bruto direto na resposta JSON pros
+                    // símbolos marcados como debug, pra investigar com um curl simples
+                    // em vez de depender de acesso a log. Remover depois de diagnosticado.
+                    const debugCandles = (CRYPTO_CFD_SYMBOLS.has(symbol) || EXTRA_DEBUG_SYMBOLS.has(symbol))
+                        ? {
+                            _debug: {
+                                allCandles: (candlesUsedForDebug || []).map((cd: any) => ({ time: cd.time, open: cd.open, close: cd.close })),
+                                previousCandleUsed: previousCandleForDebug
+                                    ? { time: previousCandleForDebug.time, close: previousCandleForDebug.close, open: previousCandleForDebug.open }
+                                    : null,
+                                currentPrice,
+                            }
+                        }
+                        : {};
+
                     return {
                         symbol,
                         price: currentPrice,
@@ -3662,7 +3683,8 @@ app.post('/mt5-prices', async (c) => {
                         changePercent,
                         bid: tickerData.bid,
                         ask: tickerData.ask,
-                        timestamp: tickerData.time || new Date().toISOString()
+                        timestamp: tickerData.time || new Date().toISOString(),
+                        ...debugCandles
                     };
                     
                 } catch (error: any) {
