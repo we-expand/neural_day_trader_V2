@@ -42,6 +42,10 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'GBPUSD', name: 'British Pound vs US Dollar', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Cable' },
   { symbol: 'USDJPY', name: 'US Dollar vs Japanese Yen', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 3, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Safe haven' },
   { symbol: 'USDCHF', name: 'US Dollar vs Swiss Franc', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Swissie' },
+  // ✅ 2026-07-16: variante "horário estendido" do USDCHF (sufixo `-EXC` na
+  // Infinox, ver override em brokerRegistry.ts). Confirmada real via
+  // /mt5-prices antes de adicionar.
+  { symbol: 'USDCHFEXC', name: 'US Dollar vs Swiss Franc (horário estendido)', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/7', description: 'USD/CHF — variante -EXC da Infinox' },
   { symbol: 'AUDUSD', name: 'Australian Dollar vs US Dollar', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Aussie' },
   { symbol: 'USDCAD', name: 'US Dollar vs Canadian Dollar', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Loonie' },
   { symbol: 'NZDUSD', name: 'New Zealand Dollar vs US Dollar', category: 'FOREX', subCategory: 'Major Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Kiwi' },
@@ -76,6 +80,9 @@ export const ALL_ASSETS: Asset[] = [
   // (`scripts/audit-broker-symbols.mjs USDBRL` — resposta OK com nome
   // unificado, sem precisar de override em brokerRegistry.ts).
   { symbol: 'USDBRL', name: 'US Dollar vs Brazilian Real', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'USD/BRL' },
+  // ✅ 2026-07-16: confirmado CFD real na Infinox (nome unificado bate direto
+  // com o nome da corretora, sem override necessário).
+  { symbol: 'USDNGN', name: 'US Dollar vs Nigerian Naira', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 2, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 50, tradingHours: '24/5', description: 'USD/NGN' },
   { symbol: 'USDTRY', name: 'US Dollar vs Turkish Lira', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 50, tradingHours: '24/5', description: 'USD/TRY' },
   { symbol: 'USDSEK', name: 'US Dollar vs Swedish Krona', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 200, tradingHours: '24/5', description: 'USD/SEK' },
   { symbol: 'USDNOK', name: 'US Dollar vs Norwegian Krone', category: 'FOREX', subCategory: 'Exotic Pairs', icon: '💱', precision: 5, lotSize: 100000, minLot: 0.01, maxLot: 100, leverage: 200, tradingHours: '24/5', description: 'USD/NOK' },
@@ -120,6 +127,14 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'DOGEUSD', name: 'Dogecoin', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 5, lotSize: 1, minLot: 10, maxLot: 1000000, leverage: 2, tradingHours: '24/7', description: 'Dogecoin' },
   { symbol: 'SHIBUSD', name: 'Shiba Inu', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 6, lotSize: 1, minLot: 100000, maxLot: 100000000, leverage: 2, tradingHours: '24/7', description: 'Shiba Inu' },
   { symbol: 'BATUSD', name: 'Basic Attention Token', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🦁', precision: 5, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Basic Attention Token' },
+  // ✅ 2026-07-16: variantes "liquidadas em cripto" vistas pelo Cleber no
+  // terminal MT5 (sufixo `.crp` na Infinox) — instrumentos distintos dos
+  // BTCUSD/ETHUSD/BNBUSD/LTCUSD normais (ver override em brokerRegistry.ts),
+  // confirmados reais via /mt5-prices antes de adicionar.
+  { symbol: 'BTCUSDCRP', name: 'Bitcoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — variante .crp da Infinox' },
+  { symbol: 'XETUSDCRP', name: 'Ethereum (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ξ', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Ethereum — variante .crp da Infinox' },
+  { symbol: 'XBNUSDCRP', name: 'Binance Coin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin — variante .crp da Infinox' },
+  { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — variante .crp da Infinox' },
   
   // ============================================================================
   // 📊 INDICES - ÍNDICES GLOBAIS (16 ÍNDICES)
@@ -154,6 +169,11 @@ export const ALL_ASSETS: Asset[] = [
   
   // PRECIOUS METALS
   { symbol: 'XAUUSD', name: 'Gold', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold' },
+  // ✅ 2026-07-16: variante "liquidação cripto" do ouro (sufixo `.crp` na
+  // Infinox, ver override em brokerRegistry.ts) — costuma operar em horários
+  // que o XAUUSD tradicional fecha (ex: fim de semana). Confirmada real via
+  // /mt5-prices antes de adicionar.
+  { symbol: 'XAUUSDCRP', name: 'Gold (liquidação cripto)', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/7', description: 'Gold — variante .crp da Infinox' },
   { symbol: 'XAGUSD', name: 'Silver', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥈', precision: 3, lotSize: 5000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Silver' },
   { symbol: 'XPTUSD', name: 'Platinum', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '⚪', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Platinum' },
   { symbol: 'XPDUSD', name: 'Palladium', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '⚪', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Palladium' },

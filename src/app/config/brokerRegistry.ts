@@ -35,6 +35,17 @@ const SYMBOL_OVERRIDES: Record<BrokerId, Record<string, string>> = {
     WHEUSD: 'Wheat',   // Trigo — corretora usa o nome em inglês, sem sufixo
     COFUSD: 'Coffee',  // Café — idem
     COCUSD: 'Cocoa',   // Cacau — idem
+    // ✅ 2026-07-16: variantes "liquidadas em cripto"/horário estendido que o
+    // Cleber viu no terminal MT5 mas não existiam no catálogo — confirmadas
+    // reais direto via /mt5-prices (nome literal com ponto/traço da
+    // corretora), nomes unificados sem pontuação seguindo o padrão do resto
+    // deste arquivo.
+    XAUUSDCRP: 'XAUUSD.crp',
+    BTCUSDCRP: 'BTCUSD.crp',
+    XETUSDCRP: 'XETUSD.crp',
+    XBNUSDCRP: 'XBNUSD.crp',
+    XLCUSDCRP: 'XLCUSD.crp',
+    USDCHFEXC: 'USDCHF-EXC',
   },
 };
 
