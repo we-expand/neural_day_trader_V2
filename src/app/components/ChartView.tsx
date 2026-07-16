@@ -599,6 +599,9 @@ export function ChartView() {
     // real via /mt5-prices, contrato distinto do BNBUSD (~576 vs ~219).
     { symbol: 'XBNUSD', name: 'Binance Coin (XBN)', bid: 219.63, ask: 222.22, change: -7.29, changePercent: -3.21, category: 'Crypto' },
     { symbol: 'XBNUSDCRP', name: 'Binance Coin (liquidação cripto)', bid: 219.05, ask: 221.66, change: -14.88, changePercent: -6.36, category: 'Crypto' },
+    // ✅ 2026-07-16: mesmo padrão — só o XLCUSDCRP existia, 'XLCUSD' normal
+    // confirmado real via /mt5-prices (~43,92).
+    { symbol: 'XLCUSD', name: 'Litecoin (XLC)', bid: 43.92, ask: 45.07, change: 1.25, changePercent: 2.93, category: 'Crypto' },
     { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', bid: 44.47, ask: 45.62, change: 0, changePercent: 0, category: 'Crypto' },
 
     // FOREX MAJORS (28 pares principais)

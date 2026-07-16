@@ -145,7 +145,8 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // BNBUSD existe lá), zerando preço/variação.
   // XETUSD/XETUSDCRP: mesmo caso, contratos distintos do ETHUSD (Binance
   // não tem "XETUSD"/"XETUSDCRP" como ticker).
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP']),
+  // XLCUSD/XLCUSDCRP: mesmo caso, contratos distintos do LTCUSD.
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP']),
 };
 
 /**

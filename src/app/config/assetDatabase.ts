@@ -144,6 +144,9 @@ export const ALL_ASSETS: Asset[] = [
   // diferente). Faltava adicionar o par junto do .crp.
   { symbol: 'XBNUSD', name: 'Binance Coin (XBN)', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin — contrato XBNUSD da Infinox, distinto do BNBUSD' },
   { symbol: 'XBNUSDCRP', name: 'Binance Coin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟡', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Binance Coin — variante .crp da Infinox' },
+  // ✅ 2026-07-16: mesmo padrão do XBNUSD/XETUSD — só o XLCUSDCRP existia.
+  // Testado 'XLCUSD' normal via /mt5-prices e é real (~43,92).
+  { symbol: 'XLCUSD', name: 'Litecoin (XLC)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — contrato XLCUSD da Infinox' },
   { symbol: 'XLCUSDCRP', name: 'Litecoin (liquidação cripto)', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin — variante .crp da Infinox' },
   
   // ============================================================================
