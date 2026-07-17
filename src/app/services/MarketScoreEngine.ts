@@ -190,8 +190,40 @@ function trendOfTimeframe(candles: Candle[]): { value: number; ema9: number | nu
   return { value: clamp(value, -1, 1), ema9, sma20, sma200, adx, atr };
 }
 
-/** Momentum: MÉDIA de RSI, Estocástico e MACD (eixo único — média evita contar 3x). -1…+1. */
-function momentumFactor(candles: Candle[], atr: number | null): { value: number; rsi: number | null; stochK: number | null; stochD: number | null; macdHist: number | null } {
+/**
+ * Duração real do candle (mediana dos gaps entre timestamps), em ms — deixa
+ * `momentumFactor` saber "que timeframe é esse" sem mudar a assinatura da
+ * função (o resto do motor é timeframe-agnóstico por design).
+ */
+function inferBarDurationMs(candles: Candle[]): number {
+  if (candles.length < 3) return 0;
+  const sample = candles.slice(-30);
+  const diffs: number[] = [];
+  for (let i = 1; i < sample.length; i++) diffs.push(sample[i].time - sample[i - 1].time);
+  diffs.sort((a, b) => a - b);
+  return diffs[Math.floor(diffs.length / 2)] || 0;
+}
+
+/**
+ * Momentum: MÉDIA de RSI, Estocástico e MACD (eixo único — média evita contar
+ * 3x). -1…+1. Também retorna `shock`: o retorno do ÚLTIMO candle sozinho
+ * (close vs close anterior, normalizado pelo ATR) — só tem PESO quando o
+ * candle é longo (1D+).
+ *
+ * ✅ 2026-07-17: achado ao vivo — USOUSD subindo +3,6% NO DIA (candle diário
+ * único) mostrava RSI(14)=49 (neutro), porque RSI/MACD são médias sobre 14+
+ * candles e diluem um movimento concentrado num só. Um "choque" separado do
+ * candle mais recente resolve isso — MAS validado com MarketScoreValidator
+ * (walk-forward real) que aplicar esse choque em TODO timeframe (15m/1h)
+ * piora a precisão geral (BTC 1h caiu de 59,5%→52%, 15m de 63%→56%): num
+ * candle curto, um "choque" isolado é majoritariamente RUÍDO, não sinal — é
+ * exatamente por isso que RSI/MACD são projetados pra suavizar. Em 1D+ é
+ * diferente: cada candle já representa um dia inteiro de negociação real
+ * (evento macro, notícia, sessão inteira), então o choque É informativo.
+ * Fix: relevância do choque escala com a duração do candle — zero em
+ * intraday curto (≤1h), cheia em diário+ (≥1d), rampa linear em 4h.
+ */
+function momentumFactor(candles: Candle[], atr: number | null): { value: number; shock: number; rsi: number | null; stochK: number | null; stochD: number | null; macdHist: number | null } {
   const rsi = lastNonNull(calculateRSI(candles, 14));
   const stoch = calculateStochastic(candles, 14, 3);
   const stochK = lastNonNull(stoch.k);
@@ -205,7 +237,19 @@ function momentumFactor(candles: Candle[], atr: number | null): { value: number;
   if (macdHist !== null && atr && atr > 0) parts.push(clamp(macdHist / (atr * 0.6), -1, 1));
 
   const value = parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
-  return { value: clamp(value, -1, 1), rsi, stochK, stochD, macdHist };
+
+  const barDurationMs = inferBarDurationMs(candles);
+  const ONE_HOUR = 3_600_000, ONE_DAY = 86_400_000;
+  const shockRelevance = clamp((barDurationMs - ONE_HOUR) / (ONE_DAY - ONE_HOUR), 0, 1);
+
+  const prevClose = candles.length >= 2 ? candles[candles.length - 2].close : null;
+  const lastClose = candles[candles.length - 1].close;
+  let shock = 0;
+  if (prevClose !== null && atr && atr > 0 && shockRelevance > 0) {
+    shock = clamp(((lastClose - prevClose) / atr) / 0.8, -1, 1) * shockRelevance;
+  }
+
+  return { value: clamp(value, -1, 1), shock, rsi, stochK, stochD, macdHist };
 }
 
 /** Estrutura / Fibonacci: posição do preço no swing recente. -1 (topo/caro) … +1 (fundo/barato). */
@@ -345,11 +389,15 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
   // Trocado por amortecimento SEM inverter (mesmo tratamento de INDEFINIDO,
   // só mais amortecido) — mantém a direção real do momentum em vez de
   // apostar contra ela.
-  const regimeTrendScale = regime === 'LATERAL' ? 0.5 : 1.0;
-  const momentumEff =
+  // ✅ 2026-07-17: `m.shock` só é != 0 em timeframes 1D+ (ver momentumFactor)
+  // — relaxa o amortecimento de LATERAL só quando o candle mais recente é
+  // longo o bastante pra um choque nele ser sinal de verdade, não ruído.
+  const regimeTrendScale = regime === 'LATERAL' ? Math.max(0.5, Math.abs(m.shock)) : 1.0;
+  const oscillatorMomentumEff =
     regime === 'TENDENCIA' ? m.value
     : regime === 'LATERAL' ? m.value * 0.3
     : m.value * 0.4;
+  const momentumEff = clamp(oscillatorMomentumEff + m.shock * 0.55, -1, 1);
 
   // ✅ 2026-07-17: mesmo problema do momentum, achado ao vivo com BTC em alta
   // forte — `structureFactor` lê "perto do topo do swing recente" como
