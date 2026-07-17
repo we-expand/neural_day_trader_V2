@@ -268,10 +268,27 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'XAUGBP', name: 'Gold vs British Pound', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in British Pound' },
   { symbol: 'XAUJPY', name: 'Gold vs Japanese Yen', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 0, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Japanese Yen' },
   { symbol: 'XAUCHF', name: 'Gold vs Swiss Franc', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold priced in Swiss Franc' },
+  // ✅ 2026-07-16: GOLDft/SILVERft (contratos futuros, distintos do spot
+  // XAUUSD/XAGUSD — mesma relação já vista em GAUUSD vs XAUUSD) confirmados
+  // reais via /mt5-prices, a pedido do Cleber.
+  // ⚠️ 2026-07-16: símbolo unificado precisa ser MAIÚSCULO (GOLDFT, não
+  // GOLDft) — todo o pipeline de preço faz `.toUpperCase()` no símbolo antes
+  // de qualquer busca (cache, seleção, fetch), então um símbolo com "ft"
+  // minúsculo nunca sobrevivia à normalização e nunca batia com nada. O nome
+  // REAL na Infinox É case-sensitive ("GOLDft") — daí o override abaixo.
+  { symbol: 'GOLDFT', name: 'Gold Futures', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥇', precision: 2, lotSize: 100, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Gold — contrato futuro da Infinox, distinto do XAUUSD (spot)' },
+  { symbol: 'SILVERFT', name: 'Silver Futures', category: 'COMMODITIES', subCategory: 'Precious Metals', icon: '🥈', precision: 3, lotSize: 5000, minLot: 0.01, maxLot: 100, leverage: 500, tradingHours: '24/5', description: 'Silver — contrato futuro da Infinox, distinto do XAGUSD (spot)' },
 
   // ENERGY
   { symbol: 'USOUSD', name: 'Crude Oil WTI', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 2, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'WTI Crude Oil' },
   { symbol: 'UKOUSD', name: 'Brent Oil', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 2, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Brent Crude Oil' },
+  // ✅ 2026-07-16: CL-OIL (WTI, contrato distinto do USOUSD) e UKOUSDft
+  // (Brent futuro, distinto do UKOUSD spot/CFD) confirmados reais via
+  // /mt5-prices, a pedido do Cleber.
+  { symbol: 'CL-OIL', name: 'Crude Oil WTI Futures', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 3, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'WTI — contrato futuro da Infinox, distinto do USOUSD' },
+  // ⚠️ mesmo caso do GOLDFT/SILVERFT acima — símbolo unificado maiúsculo,
+  // override case-sensitive pro nome real.
+  { symbol: 'UKOUSDFT', name: 'Brent Oil Futures', category: 'COMMODITIES', subCategory: 'Energy', icon: '🛢️', precision: 3, lotSize: 1000, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Brent — contrato futuro da Infinox, distinto do UKOUSD (spot/CFD)' },
   { symbol: 'XNGUSD', name: 'Natural Gas', category: 'COMMODITIES', subCategory: 'Energy', icon: '🔥', precision: 3, lotSize: 10000, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'Natural Gas' },
   
   // AGRICULTURE
@@ -447,33 +464,82 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'WLN.PA', name: 'Worldline SA', category: 'STOCKS', subCategory: 'French Stocks', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Payment Services' },
   
   // GERMAN STOCKS (DAX 40) - Sample
-  { symbol: '1COV.DE', name: 'Covestro AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Chemicals' },
+  // ⚠️ 2026-07-16: auditoria confirmou 6 destas entradas com o código de
+  // broker QUEBRADO (HTTP 404 genuíno via /mt5-prices, testado isolado
+  // várias vezes pra descartar rate-limit) — caem sempre no fallback Yahoo
+  // silenciosamente. DAI (Daimler) e DPW (Deutsche Post) têm causa raiz
+  // conhecida: as empresas mudaram de nome/ticker (Daimler → Mercedes-Benz
+  // Group/MBG em 2022; Deutsche Post → DHL Group/DHL) — os nomes novos
+  // foram confirmados reais e adicionados abaixo (MBG.DE/DHL.DE). As outras
+  // 4 (1COV, LHA, LIN, DTE) + MRK + BEI não têm substituto confirmado ainda
+  // (testadas várias variantes, todas 404) — LIN (Linde) provavelmente
+  // porque a empresa migrou o listing principal pra NYSE em 2023 e saiu da
+  // Xetra. Pendente: Cleber confirmar o nome real de cada uma no MT5 dele.
+  { symbol: '1COV.DE', name: 'Covestro AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — Chemicals' },
   { symbol: 'ADS.DE', name: 'Adidas AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Sporting Goods' },
   { symbol: 'ALV.DE', name: 'Allianz SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Insurance' },
   { symbol: 'BAS.DE', name: 'BASF SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Chemicals' },
   { symbol: 'BAYN.DE', name: 'Bayer AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Pharmaceuticals' },
-  { symbol: 'BEI.DE', name: 'Beiersdorf AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Personal Care' },
+  { symbol: 'BEI.DE', name: 'Beiersdorf AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — Personal Care' },
   { symbol: 'BMW.DE', name: 'Bayerische Motoren Werke AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
   { symbol: 'CBK.DE', name: 'Commerzbank AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
   { symbol: 'CON.DE', name: 'Continental AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Auto Parts' },
-  { symbol: 'DAI.DE', name: 'Daimler AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
+  { symbol: 'DAI.DE', name: 'Daimler AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — empresa renomeada, ver MBG.DE — Automobiles' },
   { symbol: 'DB1.DE', name: 'Deutsche Boerse AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Financial Services' },
   { symbol: 'DBK.DE', name: 'Deutsche Bank AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Banking' },
-  { symbol: 'DPW.DE', name: 'Deutsche Post AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Logistics' },
-  { symbol: 'DTE.DE', name: 'Deutsche Telekom AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Telecommunications' },
+  { symbol: 'DPW.DE', name: 'Deutsche Post AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — empresa renomeada, ver DHL.DE — Logistics' },
+  { symbol: 'DTE.DE', name: 'Deutsche Telekom AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — Telecommunications' },
   { symbol: 'EOAN.DE', name: 'E.ON SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Utilities' },
   { symbol: 'FRE.DE', name: 'Fresenius SE & Co KGaA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Healthcare' },
   { symbol: 'FME.DE', name: 'Fresenius Medical Care AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Healthcare' },
   { symbol: 'HEN3.DE', name: 'Henkel AG & Co KGaA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Consumer Goods' },
   { symbol: 'IFX.DE', name: 'Infineon Technologies AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Semiconductors' },
-  { symbol: 'LHA.DE', name: 'Deutsche Lufthansa AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Airlines' },
-  { symbol: 'LIN.DE', name: 'Linde PLC', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Industrial Gases' },
-  { symbol: 'MRK.DE', name: 'Merck KGaA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Pharmaceuticals' },
+  { symbol: 'LHA.DE', name: 'Deutsche Lufthansa AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — Airlines' },
+  { symbol: 'LIN.DE', name: 'Linde PLC', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — Linde saiu da Xetra em 2023, listing principal virou só NYSE — Industrial Gases' },
+  { symbol: 'MRK.DE', name: 'Merck KGaA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: '⚠️ QUEBRADO (HTTP 404) — não confundir com MRCK.DE (Merck & Co, EUA) — Pharmaceuticals' },
   { symbol: 'MUV2.DE', name: 'Muenchener Rueckversicherungs-Gesellschaft AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Reinsurance' },
   { symbol: 'RWE.DE', name: 'RWE AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Utilities' },
   { symbol: 'SAP.DE', name: 'SAP SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Software' },
   { symbol: 'SIE.DE', name: 'Siemens AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Conglomerate' },
-  { symbol: 'VOW3.DE', name: 'Volkswagen AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
+  { symbol: 'VOW3.DE', name: 'Volkswagen AG (ações preferenciais)', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
+  // ✅ 2026-07-16: nova lista do Cleber — auditados via /mt5-prices antes de
+  // adicionar. Alguns substituem/complementam entradas quebradas acima.
+  { symbol: 'AFX.DE', name: 'Carl Zeiss Meditec AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Medical Technology' },
+  { symbol: 'BNR.DE', name: 'Brenntag SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Chemical Distribution' },
+  { symbol: 'MBG.DE', name: 'Mercedes-Benz Group AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles — sucessora da Daimler AG (DAI, quebrado)' },
+  { symbol: 'DHER.DE', name: 'Delivery Hero SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Food Delivery' },
+  { symbol: 'DWNI.DE', name: 'Deutsche Wohnen SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Real Estate' },
+  { symbol: 'DWS.DE', name: 'DWS Group GmbH & Co KGaA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Asset Management' },
+  // FIE/HOT/RAA/NEMD: preço real confirmado, identidade exata não
+  // confirmada (melhores palpites: Fielmann, HOCHTIEF, Rational, Nemetschek).
+  { symbol: 'FIE.DE', name: 'FIE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato FIE da Infinox — provável Fielmann AG, identidade não confirmada' },
+  { symbol: 'FRA.DE', name: 'Fraport AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Airport Operator' },
+  { symbol: 'G24.DE', name: 'Scout24 SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Online Marketplace' },
+  { symbol: 'HEI.DE', name: 'Heidelberg Materials AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Building Materials' },
+  { symbol: 'HLAG.DE', name: 'Hapag-Lloyd AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Shipping' },
+  { symbol: 'HNR1.DE', name: 'Hannover Rueck SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Reinsurance' },
+  { symbol: 'HOT.DE', name: 'HOT', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato HOT da Infinox — provável HOCHTIEF AG, identidade não confirmada' },
+  { symbol: 'KBX.DE', name: 'Knorr-Bremse AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Braking Systems' },
+  { symbol: 'KGX.DE', name: 'KION Group AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Industrial Equipment' },
+  { symbol: 'KRN.DE', name: 'Krones AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Industrial Machinery' },
+  { symbol: 'LEG.DE', name: 'LEG Immobilien SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Real Estate' },
+  { symbol: 'MRCK.DE', name: 'Merck & Co Inc', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Pharmaceuticals — empresa americana, listada na Xetra sob esse código (distinta da Merck KGaA, MRK.DE, quebrada)' },
+  { symbol: 'MTX.DE', name: 'MTU Aero Engines AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Aerospace' },
+  { symbol: 'NEMD.DE', name: 'NEMD', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato NEMD da Infinox — provável Nemetschek SE, identidade não confirmada' },
+  { symbol: 'PUM.DE', name: 'Puma SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Sporting Goods' },
+  { symbol: 'RAA.DE', name: 'RAA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Contrato RAA da Infinox — provável Rational AG, identidade não confirmada' },
+  { symbol: 'RRTL.DE', name: 'RTL Group SA', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Media & Broadcasting' },
+  { symbol: 'SHL.DE', name: 'Siemens Healthineers AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Medical Technology' },
+  { symbol: 'SRT3.DE', name: 'Sartorius AG (ações preferenciais)', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Laboratory Equipment' },
+  { symbol: 'SY1.DE', name: 'Symrise AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Fragrances & Flavors' },
+  { symbol: 'TLX.DE', name: 'Talanx AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Insurance' },
+  { symbol: 'UTDI.DE', name: 'United Internet AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Internet Services' },
+  { symbol: 'VNA.DE', name: 'Vonovia SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Real Estate' },
+  // VOW (ações ordinárias) é um instrumento DISTINTO de VOW3 (preferenciais,
+  // já existia) — mesma relação já vista em BTCUSD/XBNUSD.
+  { symbol: 'VOW.DE', name: 'Volkswagen AG (ações ordinárias)', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Automobiles' },
+  { symbol: 'ZAL.DE', name: 'Zalando SE', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'E-commerce Retail' },
+  { symbol: 'DHL.DE', name: 'DHL Group AG', category: 'STOCKS', subCategory: 'German Stocks', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 1, maxLot: 10000, leverage: 20, tradingHours: '09:00-17:30 CET', description: 'Logistics — sucessora da Deutsche Post AG (DPW, quebrado)' },
 
   // ============================================================================
   // 🇪🇸 SPANISH STOCKS (IBEX 35) — adicionado 2026-07-16, lista do Cleber

@@ -72,6 +72,14 @@ const SYMBOL_OVERRIDES: Record<BrokerId, Record<string, string>> = {
     // Mesmo padrão, pra ativos genuinamente novos adicionados nesta sessão.
     SUSHIUSD: 'SUSUSD',
     IOTAUSD: 'IOTUSD',
+    // ✅ 2026-07-16: GOLDFT/SILVERFT/UKOUSDFT — o nome REAL na Infinox é
+    // case-sensitive ("GOLDft", "ft" minúsculo). O símbolo unificado
+    // precisa ficar maiúsculo (todo o app normaliza com toUpperCase antes
+    // de qualquer busca/cache), então esse override é o único lugar onde a
+    // capitalização exata sobrevive até a chamada real à corretora.
+    GOLDFT: 'GOLDft',
+    SILVERFT: 'SILVERft',
+    UKOUSDFT: 'UKOUSDft',
   },
 };
 
