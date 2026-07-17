@@ -185,7 +185,6 @@ export const MarketScoreBoard = () => {
 
   const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'|'1d'>('15m');
   const [candleTimeLeft, setCandleTimeLeft] = useState('00:00');
-  const [marketSignal, setMarketSignal] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [isAssetsBrowserOpen, setIsAssetsBrowserOpen] = useState(false);
@@ -529,59 +528,15 @@ export const MarketScoreBoard = () => {
             console.error('[MarketScoreBoard] ❌ Error:', e.message);
         }
 
-        // Scanner Integration & Consistency Check
-        let insight = "Monitorando volatilidade...";
-
-        // 1. Calculate Score FIRST to ensure consistency
-        const approxScore = 50 + (targetTrendRef.current * 10);
-        const finalScoreCalc = Math.min(Math.max(Math.round(approxScore), 1), 99);
-
-        // 2. Generate Insight based on THE CALCULATED SCORE (Single Source of Truth)
-        // CORREÇÃO: Insight deve refletir corretamente a direção do mercado
-        if (finalScoreCalc >= 60) {
-            const bulls = [
-                "Forte pressão de compra detectada.",
-                "Fluxo institucional de alta confirmada.",
-                "Rompimento de resistência com volume.",
-                "Dominância de compradores no book.",
-                "Momentum de alta acelerando."
-            ];
-            insight = bulls[Math.floor(Math.random() * bulls.length)];
-        } else if (finalScoreCalc <= 40) {
-            const bears = [
-                "Pressão vendedora aumentando.",
-                "Distribuição institucional detectada.",
-                "Falha de suporte chave.",
-                "Correção agressiva em andamento.",
-                "Despejo de ativos no varejo."
-            ];
-            insight = bears[Math.floor(Math.random() * bears.length)];
-        } else {
-             insight = "Mercado lateralizado. Aguardando definição.";
-        }
-        
-        // 3. Optional: Mix with Scanner ONLY if consistent
-        if (scanner && scanner.bestAsset === activeSymbol) {
-             // Only use scanner insight if direction matches
-             const scannerBullish = scanner.score > 50;
-             const localBullish = finalScoreCalc > 50;
-             if (scannerBullish === localBullish) {
-                 insight = scanner.insight;
-             }
-        }
-        
-        // 4. FINAL: Set market signal with CORRECT bias based on score
-        // ✅ 2026-07-10: `isRealData` reflete a resposta REAL da corretora pra
-        // ESTE símbolo agora, não mais um relógio genérico — cada ativo pode
-        // estar aberto ou fechado de forma independente dos outros.
-        const newSignal = {
-            insight: isRealData ? insight : `${getMarketStatusIcon(marketInfo)} ${statusMessage}`,
-            strength: Math.min(Math.round(Math.abs(finalScoreCalc - 50) * 1.6) + 30, 98),
-            bias: finalScoreCalc > 50 ? 'BULLISH' : 'BEARISH'
-        };
-        
+        // ✅ 2026-07-17: removido o cálculo de `marketSignal` (fórmula legada
+        // `50+variação%×10` + texto sorteado de listas `bulls[]`/`bears[]`,
+        // incluindo o fantasma "Correção agressiva em andamento.") — estava
+        // 100% morto pra renderização (nada mais lê `marketSignal` na tela,
+        // confirmado por busca), mas continuava rodando/computando à toa a
+        // cada ciclo. Fonte única de verdade pro veredito agora é só
+        // `scoreResult` (motor real) → `marketClassification`, ver mais
+        // abaixo neste arquivo.
         if (isStale) return; // resposta de uma chamada antiga — ignorar
-        setMarketSignal(newSignal);
         } finally {
             isFetching = false;
         }
@@ -770,13 +725,23 @@ export const MarketScoreBoard = () => {
   // `unavailable` sem cache nenhuma vira um rótulo explícito "SEM DADOS",
   // nunca mais confundível com uma leitura real de lateralização.
   const isTrulyUnavailable = hasScoreData && scoreResult!.provenance === 'unavailable';
+  // ✅ 2026-07-17: FONTE ÚNICA DE VERDADE pro veredito exibido na tela — até
+  // aqui, 5 pedaços DIFERENTES deste arquivo calculavam "é alta/baixa/lateral"
+  // cada um com seu próprio corte (WHEUSD, badge de mercado fechado, "sem
+  // dados" disfarçado de lateral, o rótulo grande vs. o parágrafo de detalhe
+  // baseado em ADX cru...), todos corrigidos hoje um a um — sintoma de que a
+  // tela foi remendada em muitas sessões, nunca teve um único lugar decidindo
+  // o veredito. Daqui pra frente, TODO texto/rótulo/badge de direção nesta
+  // tela deve ler `marketClassification` — nunca recalcular score>X/<Y de
+  // novo em outro lugar. Um objeto, todas as variantes de apresentação
+  // (rótulo longo, curto, emoji, badge) já prontas.
   const marketClassification = isTrulyUnavailable
-    ? { label: 'SEM DADOS', color: 'text-slate-400', bgColor: 'bg-slate-600' }
-    : score > 75 ? { label: 'ALTA FORTE', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
-    : score > 60 ? { label: 'TENDÊNCIA DE ALTA', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
-    : score < 25 ? { label: 'CORREÇÃO FORTE', color: 'text-rose-400', bgColor: 'bg-rose-500' }
-    : score < 40 ? { label: 'TENDÊNCIA DE BAIXA', color: 'text-rose-400', bgColor: 'bg-rose-500' }
-    : { label: 'LATERAL/RANGE', color: 'text-blue-400', bgColor: 'bg-blue-500' };
+    ? { label: 'SEM DADOS', shortLabel: 'SEM DADOS', badge: 'SEM DADOS', emoji: '⚪', color: 'text-slate-400', bgColor: 'bg-slate-600', badgeClass: 'bg-slate-500/20 text-slate-400' }
+    : score > 75 ? { label: 'ALTA FORTE', shortLabel: 'TENDÊNCIA DE ALTA', badge: 'ALTA', emoji: '🟢', color: 'text-emerald-400', bgColor: 'bg-emerald-500', badgeClass: 'bg-emerald-500/20 text-emerald-400' }
+    : score > 60 ? { label: 'TENDÊNCIA DE ALTA', shortLabel: 'TENDÊNCIA DE ALTA', badge: 'ALTA', emoji: '🟢', color: 'text-emerald-400', bgColor: 'bg-emerald-500', badgeClass: 'bg-emerald-500/20 text-emerald-400' }
+    : score < 25 ? { label: 'CORREÇÃO FORTE', shortLabel: 'TENDÊNCIA DE BAIXA', badge: 'BAIXA', emoji: '🔴', color: 'text-rose-400', bgColor: 'bg-rose-500', badgeClass: 'bg-rose-500/20 text-rose-400' }
+    : score < 40 ? { label: 'TENDÊNCIA DE BAIXA', shortLabel: 'TENDÊNCIA DE BAIXA', badge: 'BAIXA', emoji: '🔴', color: 'text-rose-400', bgColor: 'bg-rose-500', badgeClass: 'bg-rose-500/20 text-rose-400' }
+    : { label: 'LATERAL/RANGE', shortLabel: 'CONSOLIDAÇÃO LATERAL', badge: 'NEUTRO', emoji: '🟡', color: 'text-blue-400', bgColor: 'bg-blue-500', badgeClass: 'bg-yellow-500/20 text-yellow-400' };
 
   const entry = displayPrice; // 🔥 USAR displayPrice (direto da ref para crypto)
   const stopLoss = marketStatus === 'CLOSED' ? 0 : (score > 50 ? entry * 0.995 : entry * 1.005);
@@ -1247,18 +1212,13 @@ export const MarketScoreBoard = () => {
                         {/* Tendência Principal */}
                         <div className="space-y-2.5">
                             <div className="flex items-center justify-between">
+                                {/* ✅ 2026-07-17: lê de `marketClassification` (fonte única) — antes
+                                    recalculava score>60/<40 de novo aqui, duplicado */}
                                 <h3 className={`text-base font-bold tracking-tight ${marketStatus === 'CLOSED' ? 'text-slate-500' : 'text-white'}`}>
-                                    {marketStatus === 'CLOSED' ? "AGUARDANDO ABERTURA" : 
-                                     (score > 60 ? "🟢 TENDÊNCIA DE ALTA" : 
-                                     score < 40 ? "🔴 TENDÊNCIA DE BAIXA" : 
-                                     "🟡 CONSOLIDAÇÃO LATERAL")}
+                                    {marketStatus === 'CLOSED' ? "AGUARDANDO ABERTURA" : `${marketClassification.emoji} ${marketClassification.shortLabel}`}
                                 </h3>
-                                <div className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                                    score > 60 ? 'bg-emerald-500/20 text-emerald-400' :
-                                    score < 40 ? 'bg-rose-500/20 text-rose-400' :
-                                    'bg-yellow-500/20 text-yellow-400'
-                                }`}>
-                                    {score > 60 ? 'ALTA' : score < 40 ? 'BAIXA' : 'NEUTRO'}
+                                <div className={`px-2 py-0.5 rounded text-[9px] font-bold ${marketClassification.badgeClass}`}>
+                                    {marketClassification.badge}
                                 </div>
                             </div>
                             
