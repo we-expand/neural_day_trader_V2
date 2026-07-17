@@ -1,4 +1,49 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 4)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 5)
+
+## Sessão nova (2026-07-17, continuação 5): maratona de calibração do Market Score — 11 commits, todos já em produção — PAUSADA aguardando volume/volatilidade voltar pro mercado (sexta 19h, fim de semana)
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Sessão muito longa, sequência direta de bugs achados ao vivo pelo Cleber testando o card "Análise Neural em Tempo Real" com ativos reais em movimento (S&P caindo, petróleo subindo forte por causa de guerra). Cada fix foi validado com dado histórico real (curl direto + `MarketScoreValidator`, walk-forward) antes de commitar — nada foi "parece certo, vamos testar em produção".
+
+### ⚠️ Regra de deploy MUDOU nesta sessão: Cleber volta a fazer os pushes
+
+A partir de agora, **Claude nunca roda `git push`** — só `git commit` local e entrega os comandos prontos pro Cleber rodar. Isso já estava valendo como regra geral do projeto, mas foi reforçado explicitamente nesta sessão ("Vamos retornar ao padrão inicial do projeto. Quem faz os deploy sou eu."). Todos os 11 commits abaixo **já foram pushados pelo Cleber** (confirmado via `git log origin/main -1` batendo com o último commit local) — nada pendente de push no fim desta sessão.
+
+### Os 11 commits, em ordem cronológica (todos em produção)
+
+1. **`c00b534eb`** — badge "MERCADO FECHADO" não confiava mais cegamente em tick desatinado (podia mentir "fechado" com mercado genuinamente aberto sob rate-limit).
+2. **`8a49d4d4f`** — motor de Score/Backtest mandava o símbolo unificado cru (`WHEUSD`) pra MetaAPI em vez do nome real da corretora (`Wheat`) — `BacktestDataService.normalizeForBroker` agora usa `getBrokerSymbol`/`brokerRegistry.ts`, a mesma fonte de verdade já usada pelo preço. Corrige também JPN225/HKG33/Coffee/Cocoa/variantes `.crp` no Score.
+3. **`55f72061f`** — fallback `unavailable` (motor sem NENHUM dado real) renderizava como "LATERAL/RANGE", indistinguível de um veredito real — agora mostra "SEM DADOS" explícito.
+4. **`83365bda9`** — removida a inversão de sinal do momentum em regime LATERAL (RSI/MACD baixista virava contribuinte POSITIVO do score) — achado com candle real do S&P em queda. Validado com `MarketScoreValidator`: sem regressão.
+5. **`486c80eb6`** — motor reage ao "choque" do candle mais recente, mas só em timeframes 1D+ (testado que aplicar em 15m/1h piorava a precisão real, validado e reduzido de escopo).
+6. **`7dccdff7b`** — 2 bugs achados com UKOUSD (petróleo, guerra): (a) threshold do rótulo visual (60/40) discordava do threshold interno de `classification` (65/35) — alinhados; (b) fator Fibonacci usava "últimos 60 candles" em vez de "últimos 60 dias" — um buraco real de 18 dias na série (rate-limit crônico) fazia a janela esticar até um pico de 4 meses atrás, escondendo rompimentos de topo locais genuínos. Trocado pra janela por tempo real. **Regressão real e aceita**: SPX500 1h caiu de 57,9%→50% no validador — ligado ao viés de venda do S&P já documentado, não resolvido, fica pra sessão futura.
+7. **`5c675c86e`** — score "flashava" um número dramático (ex: 88) por ~1s ao entrar no Dashboard e sumia — fallback antes do motor real responder usava a fórmula legada `50+variação%×10`; agora mostra neutro (50) até o motor real responder.
+8. **`da9c40f8f`** — 3ª fonte de texto contraditório: o parágrafo de detalhe do insight decidia sozinho por `scoreResult.regime` (ADX cru), ignorando a classificação já corrigida — agora usa `classification`.
+9. **`6edd570af`** — refactor pedido pelo Cleber ("não seria melhor refazer o módulo todo?") — consolidada TODA a lógica de rótulo/texto numa única fonte (`marketClassification`, objeto com todas as variantes de exibição), eliminando a CLASSE do bug (impossível um novo trecho calcular seu próprio veredito discordante). Motor de cálculo (`MarketScoreEngine.ts`) não foi tocado — só a camada de apresentação. Removido também o bloco morto `bulls[]/bears[]`/`marketSignal` (fórmula legada + texto sorteado, incluindo o fantasma "Correção agressiva em andamento.") que ainda computava à toa mesmo sem ser lido em lugar nenhum.
+10. **`05f342bed`** — 4ª causa de "mercado fechado" falso: quando um símbolo NUNCA teve preço real nesta sessão e a busca falha (429), o fallback usa `timestamp: Date.now()` (fresco, sem cache) + `isRealData:false` — a checagem de "tick velho" nunca detectava isso como stale, caía direto em "sem dado real = fechado", ignorando o calendário real. Agora essa categoria ("nunca teve dado ainda") sempre confia no calendário.
+11. **`56e71ee54`** — frase "Mercado sem direção definida (mercado em tendência)" lia como autocontraditória quando `regime=TENDENCIA` mas `classification=LATERAL` — são 2 sinais DIFERENTES que podem legitimamente discordar (ADX mede só estrutura, classification mede consenso dos 4 fatores). Reescrita pra não soar como bug.
+
+### Fim de sessão: investigação de "todos os ativos zerados" — confirmado rate-limit real, não regressão de código
+
+Cleber reportou no fim da sessão que todo ativo (inclusive BTCUSD, sempre aberto) aparecia zerado e a Análise Neural parou de responder. Investigado ao vivo via curl direto:
+- `/mt5-prices` pra BTCUSD: **HTTP 429 consistente em 4 tentativas seguidas** (~10s de intervalo) — confirma rate-limit real na conta MetaAPI compartilhada, não transitório de um único request.
+- `/mt5-candles-history` pra BTCUSD: respondeu OK numa tentativa (200, dado real) — mostra que é rate-limit por ENDPOINT/tipo de chamada (ticker mais afetado que candle), não uma queda total da conta.
+- **Confirmado que não é código**: os 11 commits desta sessão tocaram só `MarketScoreBoard.tsx`, `MarketScoreEngine.ts`, `BacktestDataService.ts` — nenhum toca `RealMarketDataService.ts` (responsável pelo preço exibido no header) nem a lógica de roteamento Binance/MetaAPI de cripto.
+- **Causa mais provável**: os próprios testes desta sessão (dezenas de curls diretos + rodadas de `MarketScoreValidator` fazendo centenas de requisições de candle histórico pra validar cada fix) saturaram a conta compartilhada. Mesmo padrão crônico documentado repetidamente neste arquivo em sessões anteriores.
+- **Fator adicional levantado pelo Cleber, plausível**: sexta-feira ~19h (horário dele), mercado de cripto histori­camente esfria bastante (baixo volume) nesse horário — pode estar contribuindo pra leituras "lateralizadas" serem genuinamente corretas agora, não um bug de cálculo. **Sem como distinguir com certeza rate-limit vs. mercado real parado enquanto a conta estiver saturada** — only resolve com o tempo.
+
+### Pendente real pra próxima sessão
+
+1. **Nada de código pendente de commit/push** — os 11 commits já estão em produção.
+2. **Aguardar a conta MetaAPI descongestionar** (minutos a horas, sem ação possível além de esperar — evitar testes em rajada na próxima sessão, aprender com o excesso desta) e o mercado ganhar volume de novo (fim de semana/sexta à noite historicamente mais parado) antes de validar visualmente se os fixes desta sessão realmente resolveram o que o Cleber via.
+3. **Teste real pendente, assim que possível**: abrir o Dashboard logado, escolher um ativo com movimento real (BTC quando o mercado esquentar, ou qualquer forex/índice em horário de maior liquidez), conferir: (a) preço aparece sem ficar zerado; (b) rótulo grande + texto do insight + parágrafo de detalhe NUNCA mais discordam entre si; (c) mudar timeframe realmente muda o Score de forma proporcional ao movimento visível no gráfico daquele timeframe; (d) badge de mercado aberto/fechado bate com a realidade.
+4. **Viés de venda do SPX500, ainda não investigado a fundo** (achado 3x hoje, em 15m e 1D, sempre presente): sinais de VENDA do S&P erram a direção sistematicamente (retorno médio POSITIVO depois de um sinal de venda) — não é ruído, é um padrão real e recorrente. Fica pra uma sessão de investigação dedicada, focada só nisso, com o `MarketScoreValidator` já disponível pra medir qualquer tentativa de fix antes de aceitar.
+5. Tudo mais pendente de sessões anteriores (Nexus Quantum Advisor a ser extinto, ligar o motor real na IA depois de confirmado no Dashboard, Fase B do Score) continua valendo.
+
+### Lição de processo desta sessão (vale repetir)
+
+O Cleber pediu explicitamente pra não "consertar às cegas" de novo depois do primeiro susto do dia (uma tentativa de fix que parecia certa mas o `MarketScoreValidator` provou que piorava a precisão geral — revertida na hora, sem hesitar). A partir daí, TODO fix desta sessão seguiu o mesmo processo: reproduzir o bug com dado real → aplicar o fix → rodar o validador (BTC/SPX500/EURUSD em 15m/1h como baseline de referência) → só commitar se não regredisse os números já validados. Esse processo é o que permitiu achar e corrigir corretamente 4 fontes diferentes de "texto contraditório na mesma tela" sem quebrar a precisão real do motor no meio do caminho. Vale manter esse padrão em qualquer sessão futura de calibração.
+
+---
 
 ## Sessão nova (2026-07-17, continuação 4): 4 sistemas de classificação paralelos descobertos e unificados num só + "nunca mais fica vazio" (cache de última leitura real) — NÃO COMMITADO AINDA
 
