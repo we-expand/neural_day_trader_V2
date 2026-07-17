@@ -14,6 +14,7 @@
  */
 import { supabase } from '@/lib/supabaseClient';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { getBrokerSymbol } from '@/app/config/brokerRegistry';
 
 export interface CandleData {
   time: number; // timestamp em ms
@@ -86,10 +87,22 @@ export async function resolveBinanceTicker(catalogSymbol: string): Promise<strin
   return symbols.has(candidate) ? candidate : null;
 }
 
-/** Corretora (MetaAPI/Infinox) não conhece o sufixo "USDT" (notação de
- *  exchange cripto) — só "USD". Normaliza antes de mandar pro backend. */
+/**
+ * Traduz o símbolo unificado do catálogo pro nome real que a corretora
+ * (MetaAPI/Infinox) reconhece, antes de pedir candle histórico.
+ *
+ * ✅ 2026-07-17: esta função só removia o sufixo "USDT" (notação de exchange
+ * cripto) — nunca aplicava o mapeamento real de nome de corretora que já
+ * existe em `brokerRegistry.ts` (ex: WHEUSD -> 'Wheat', JP225 -> 'JPN225').
+ * Isso fazia o motor de Score (que busca candle histórico via esta rota)
+ * mandar o nome unificado cru pra MetaAPI — que respondia
+ * "Symbol WHEUSD does not exist" — mesmo com o PREÇO ao vivo do mesmo ativo
+ * funcionando normalmente (RealMarketDataService já aplica esse mapeamento
+ * corretamente pro preço). Preço certo + Score "sem dados" era o sintoma.
+ */
 function normalizeForBroker(catalogSymbol: string): string {
-  return catalogSymbol.endsWith('USDT') ? catalogSymbol.slice(0, -1) : catalogSymbol;
+  const withoutUsdt = catalogSymbol.endsWith('USDT') ? catalogSymbol.slice(0, -1) : catalogSymbol;
+  return getBrokerSymbol(withoutUsdt, 'infinox');
 }
 
 class BacktestDataService {
