@@ -508,11 +508,27 @@ export const MarketScoreBoard = () => {
             // deveria estar fechado agora. Tick velho + calendário aberto =
             // problema de DADO, não de mercado — mantém o último status real
             // conhecido em vez de mentir "fechado".
+            // ✅ 2026-07-17: achado ao vivo com UKOUSD — quando o símbolo NUNCA
+            // teve preço real nesta sessão (primeira seleção) e a busca falha
+            // (ex: HTTP 429 da conta compartilhada, confirmado acontecendo),
+            // `getFallbackOrLastKnown` retorna `timestamp: Date.now()` (FRESCO,
+            // porque não há cache nenhum pra reaproveitar) junto com
+            // `isRealData: false` — a checagem de "tick velho" abaixo nunca
+            // detectava isso como stale (timestamp é literalmente agora), caía
+            // direto no ramo `!isRealData` e declarava CLOSED com confiança,
+            // ignorando o calendário — mesmo com o mercado genuinamente aberto
+            // (sexta 21h50 UTC, fecha só às 22h00). "Nunca tive dado real
+            // ainda" é uma 3ª categoria, diferente de "tinha dado, ficou
+            // velho" — nesse caso o calendário é sempre a fonte de verdade,
+            // nunca declara fechado só por falta momentânea de dado.
+            const neverHadRealDataYet = !isRealData && marketData.source === 'generated';
             const STALE_TICK_MS = 10 * 60 * 1000;
             const tickAgeMs = marketData.timestamp ? Date.now() - marketData.timestamp : Infinity;
             const isTickStale = tickAgeMs > STALE_TICK_MS;
             const calendarSaysOpen = isMarketOpen(activeSymbol).isOpen;
-            const shouldShowClosed = isTickStale
+            const shouldShowClosed = neverHadRealDataYet
+                ? !calendarSaysOpen
+                : isTickStale
                 ? !calendarSaysOpen
                 : !isRealData;
             setMarketStatus(shouldShowClosed ? 'CLOSED' : 'OPEN');
