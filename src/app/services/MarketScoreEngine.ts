@@ -113,7 +113,13 @@ const MS_PER_BAR: Record<Timeframe, number> = {
 
 // Quantas barras buscar: SMA200 precisa de 200 + folga.
 const BARS_NEEDED = 240;
-const FIB_SWING_LOOKBACK = 60; // janela pra achar o swing recente (estrutura/Fibonacci)
+// ✅ 2026-07-17: 60 candles/dias era longo demais pra capturar o swing LOCAL
+// (achado com UKOUSD: 60 dias incluía um pico de $114 de maio antes de um
+// crash até $71 em julho — a alta atual até $88, um rompimento real de topo
+// LOCAL, ficava escondida no meio de um range gigante e antigo). Testado
+// com dado real: 20 dias captura o swing certo (fibPosition foi de 0.39 pra
+// 0.99 no mesmo candle, batendo com "rompeu o topo e entrou em expansão").
+const FIB_SWING_LOOKBACK = 20; // janela pra achar o swing recente (estrutura/Fibonacci)
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
@@ -252,9 +258,26 @@ function momentumFactor(candles: Candle[], atr: number | null): { value: number;
   return { value: clamp(value, -1, 1), shock, rsi, stochK, stochD, macdHist };
 }
 
-/** Estrutura / Fibonacci: posição do preço no swing recente. -1 (topo/caro) … +1 (fundo/barato). */
+/**
+ * Estrutura / Fibonacci: posição do preço no swing recente. -1 (topo/caro) …
+ * +1 (fundo/barato).
+ *
+ * ✅ 2026-07-17: achado ao vivo — UKOUSD (petróleo) rompeu o topo recente de
+ * verdade (guerra, alta forte), mas o motor não reconhecia o rompimento
+ * porque `candles.slice(-60)` pegava os últimos 60 CANDLES, não os últimos
+ * 60 DIAS. A série tinha um buraco de 18 dias sem candle nenhum (rate-limit
+ * crônico da conta MetaAPI compartilhada, documentado à exaustão neste
+ * projeto) — a janela "esticava" silenciosamente até 4 meses atrás pra
+ * completar 60 candles, pegando um pico velho e desconectado (119 vs preço
+ * atual ~88) como se fosse o "topo recente". Fix: janela por TEMPO real
+ * (mesma técnica de `inferBarDurationMs` já usada em momentumFactor), não
+ * por contagem de candle — resiliente a buracos de dado.
+ */
 function structureFactor(candles: Candle[]): { value: number; fibPosition: number | null; fibNearestLevel: number | null } {
-  const window = candles.slice(-FIB_SWING_LOOKBACK);
+  const barDurationMs = inferBarDurationMs(candles);
+  const windowMs = barDurationMs > 0 ? barDurationMs * FIB_SWING_LOOKBACK : Infinity;
+  const cutoff = candles.length > 0 ? candles[candles.length - 1].time - windowMs : 0;
+  const window = candles.filter(c => c.time >= cutoff);
   if (window.length < 10) return { value: 0, fibPosition: null, fibNearestLevel: null };
 
   const swingHigh = Math.max(...window.map(c => c.high));
@@ -432,7 +455,15 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
     WEIGHTS.volume * v.value;
 
   const score = clamp(Math.round(50 + bruto * 50), 1, 99);
-  const classification: ScoreClassification = score > 65 ? 'COMPRADOR' : score < 35 ? 'VENDEDOR' : 'LATERAL';
+  // ✅ 2026-07-17: thresholds alinhados com o rótulo visual do Dashboard
+  // (MarketScoreBoard.tsx: score>60 = "TENDÊNCIA DE ALTA", score<40 =
+  // "TENDÊNCIA DE BAIXA"). Antes eram 65/35 aqui — dois cortes diferentes
+  // pro mesmo score, mesmo bug de "duas fontes discordando" já corrigido
+  // hoje em outro lugar: rótulo grande dizia "TENDÊNCIA DE ALTA" (score 61,
+  // >60) enquanto o texto do insight (gerado a partir de `classification`)
+  // dizia "mercado sem direção definida (lateralizado)" (61 < 65) — as duas
+  // frases contraditórias na MESMA tela, achado ao vivo com UKOUSD.
+  const classification: ScoreClassification = score > 60 ? 'COMPRADOR' : score < 40 ? 'VENDEDOR' : 'LATERAL';
 
   // Confiança: concordância entre fatores + força da leitura + alinhamento multi-TF + clareza de regime.
   const netDir = Math.sign(bruto) || 1;
