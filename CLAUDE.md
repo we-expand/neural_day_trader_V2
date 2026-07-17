@@ -1,4 +1,33 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 2)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 3)
+
+## Sessão nova (2026-07-17, continuação 3): causa raiz REAL do "sem dados" em produção encontrada e corrigida — URL da rota de candles resolvia pra "undefined" — NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão anterior (fixes de robustez, ainda não deployados quando o Cleber testou). Ele reportou painel sem dados; como os fixes de robustez da sessão anterior tornaram o erro visível em vez de travar mudo, consegui investigar direto em produção (logado, via Browser) e achar a causa raiz de verdade.
+
+### Causa raiz confirmada via aba de Rede: URL da requisição batia em `/undefined/functions/v1/...`
+
+`BacktestDataService.ts` (`fetchFromMetaApiHistory`) usava `import.meta.env.VITE_SUPABASE_URL` — uma env var que **nunca foi configurada em lugar nenhum do projeto** (nenhum outro arquivo usa essa variável; todos os outros ~6 serviços que chamam a Edge Function derivam a URL de `projectId` em `utils/supabase/info.tsx`). Em produção isso resolvia pra `undefined`, virando a URL literal `https://www.neuraldaytrader.com/undefined/functions/v1/server/mt5-candles-history` — sempre HTTP 405. Confirmado via `read_network_requests` no Browser logado como o Cleber.
+
+**Fix**: trocado pra `https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history` (mesmo padrão de todo o resto do app) + adicionado o header `apikey` (exigido pelo CORS da Edge Function, mesmo fix já documentado em sessões anteriores pra outras rotas) + `Authorization` sempre presente (usa `publicAnonKey` como fallback se não houver sessão).
+
+**Verificado via curl direto contra a rota real, com os headers corretos**: `HTTP 200`, candles reais de BTCUSD retornados (ex: `close: 63762.11`, batendo com o preço real da época do teste). Confirma que a rota em si sempre funcionou — o bug era só a URL montada errada no frontend.
+
+### Verificação feita
+`vite build` limpo. Rota testada via curl direto (sucesso, candles reais). **Não testado ainda no app com o build novo** — o fix precisa ser deployado pro Cleber confirmar que o painel resolve com Score real.
+
+### Pendente real pra próxima sessão
+1. **Commit** (inclui tudo desde as 2 sessões anteriores — motor de Score + fixes de robustez + este fix de URL):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketScoreEngine.ts src/app/services/MarketScoreValidator.ts \
+  src/app/services/BacktestDataService.ts src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "fix: causa raiz real do painel sem dados em producao — BacktestDataService usava import.meta.env.VITE_SUPABASE_URL (nunca configurada em lugar nenhum do projeto), resolvendo pra URL literal '.../undefined/functions/v1/...' e batendo HTTP 405 sempre; troca pra montar a URL a partir de projectId (mesmo padrao do resto do app) + adiciona header apikey exigido pelo CORS da Edge Function. Confirmado via curl: rota responde 200 com candles reais. Inclui tambem: Market Score REAL (motor de fatores ortogonais multi-timeframe a partir de candles reais, substitui formula antiga e remove todos os indicadores mockados) + medidor de validacao walk-forward + fixes de robustez (Binance sem fallback pra MetaAPI, erro generico nao tratado travando a UI, resposta nao-JSON derrubando o parse)"
+git push origin main
+```
+2. Confirmar em produção, logado: selecionar BTCUSD (e outro ativo) e ver o Score real aparecendo com RSI/MACD/Estocástico/Médias/Confiança/Fluxo/Volatilidade reais, não mais "—"/mensagem de indisponibilidade.
+3. Tudo mais pendente das sessões anteriores (Nexus Quantum Advisor a ser extinto, ligar motor na IA depois de confirmado, Fase B do Score) continua valendo — ver seções abaixo.
+
+---
 
 ## Sessão nova (2026-07-17, continuação 2): Score real ficava travado mudo em "Calculando..." pra sempre — 3 bugs de robustez corrigidos — NÃO COMMITADO AINDA
 

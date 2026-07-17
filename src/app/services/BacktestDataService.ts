@@ -13,6 +13,7 @@
  * preenchidos com dado fake.
  */
 import { supabase } from '@/lib/supabaseClient';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 export interface CandleData {
   time: number; // timestamp em ms
@@ -199,11 +200,18 @@ class BacktestDataService {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/server/mt5-candles-history`, {
+    // ✅ 2026-07-17: `import.meta.env.VITE_SUPABASE_URL` nunca foi configurada
+    // neste projeto (nenhum outro arquivo usa essa env var — todos derivam de
+    // `projectId` em utils/supabase/info.ts) — em produção resolvia pra
+    // `undefined`, virando a URL literal ".../undefined/functions/v1/..." e
+    // batendo HTTP 405 sempre. Também faltava o header `apikey`, exigido pelo
+    // CORS da Edge Function (mesmo fix já aplicado nas outras rotas do app).
+    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        'apikey': publicAnonKey,
+        Authorization: `Bearer ${accessToken || publicAnonKey}`,
       },
       body: JSON.stringify({
         symbol: catalogSymbol,
