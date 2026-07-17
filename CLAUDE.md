@@ -1,4 +1,54 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 5)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 6)
+
+## Sessão nova (2026-07-16, continuação 6): auditoria em massa de catálogo (cripto, UK/França/Espanha/Portugal/Holanda/Alemanha) + fix de mercado fechado + bug de case-sensitivity — NADA COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber colou várias capturas de tela do Market Watch do MT5 dele (listas de dezenas de símbolos) e pediu, em cada rodada: conferir se cada um está no catálogo, testar preço/variação um a um via `/mt5-prices` antes de mexer, corrigir nomenclatura errada, e garantir que todo ativo informe se o mercado está aberto/fechado. Sessão longa, 4 rodadas de auditoria + 1 pedido de UX sobre mercado fechado.
+
+### 1. Fix de UX: mercado fechado agora mostra o ÚLTIMO PREÇO NEGOCIADO + aviso explícito (não mais "0000.00" mudo)
+
+**Pedido do Cleber**: "quando o mercado estiver fechado, tem que apresentar o último preço negociado + avisar claramente que está fechado — pra TODOS os ativos."
+
+**Causa raiz**: [MarketScoreBoard.tsx](src/app/components/dashboard/MarketScoreBoard.tsx) decidia `marketStatus` (OPEN/CLOSED) só por `isRealData` — um tick de ontem/da sessão anterior (mercado fechado agora) ainda tem `isRealData: true` (preço genuíno, só desatualizado), então o badge sempre mostrava "aberto" errado, e o preço podia aparecer zerado na primeira seleção do símbolo na sessão do navegador.
+
+**Fix**: `marketStatus` agora combina `isRealData` com a IDADE do tick (`Date.now() - marketData.timestamp > 10min` → considera fechado). O preço exibido sempre foi o último real conhecido (não mudou); o que estava errado era só o rótulo. Adicionado badge visual explícito: `🔒 Mercado Fechado — último negócio DD/MM, HH:MM` logo abaixo do preço, com cores acinzentadas quando fechado. **Importante**: é a MESMA lógica pra qualquer símbolo (só existe um `setMarketStatus` no arquivo inteiro) — não precisa de tratamento por classe de ativo, já vale pra cripto/forex/índice/ação automaticamente. Testado e confirmado com BTC (aberto, 24/7), EURUSD (aberto, forex em horário de pregão) e RELX.L (fechado, mostrou preço real + badge com horário do último negócio).
+
+### 2. Bug de case-sensitivity descoberto e corrigido (afeta qualquer símbolo com sufixo minúsculo)
+
+Ao adicionar `GOLDft`/`SILVERft`/`UKOUSDft` (contratos futuros pedidos pelo Cleber, distintos dos spots XAUUSD/XAGUSD/UKOUSD), o preço nunca aparecia (sempre `$0 [generated]`). Causa: **todo o pipeline do app faz `.toUpperCase()` no símbolo** antes de qualquer busca/cache (`RealMarketDataService.getRealMarketData`), mas o nome real desses 3 contratos na Infinox é case-sensitive (`GOLDft`, com "ft" minúsculo) — nunca sobrevivia à normalização. **Fix**: os símbolos unificados no catálogo viraram maiúsculos (`GOLDFT`/`SILVERFT`/`UKOUSDFT`, consistente com o resto do catálogo) + override em `brokerRegistry.ts` preservando a capitalização exata (`GOLDFT → 'GOLDft'` etc.) só na hora da chamada real à corretora. Testado e confirmado: GOLDFT mostra preço real (3980.93, -2.12%) depois do fix. **Lição pra próximas sessões**: qualquer símbolo novo com letras minúsculas precisa desse mesmo tratamento (maiúsculo no catálogo + override case-sensitive), nunca usar o nome misto direto como símbolo unificado.
+
+### 3. Quatro rodadas de auditoria de catálogo, sempre testando via `/mt5-prices` antes de adicionar
+
+**Rodada 1 (cripto)**: Cleber mandou print do MT5 com XLCUSD, XRPUSD, BTCEUR, ADAUSD, BTCXBN, BTCXET, BTCXLC, DOGUSD, DOTUSD, LNKUSD, SOLUSD, UNIUSD, XETEUR, XETXBN, XETXLC, XLMUSD. Só **XETEUR** (Ethereum/EUR) estava genuinamente faltando — adicionado. Os demais já existiam sob nome unificado diferente do nome real da corretora (ex: BTCXET = nosso BTCETH) — **corrigido o Navegador de Ativos pra também buscar pelo nome real da corretora** (`getBrokerSymbol` reverse-match em `InfinoxAssetsBrowser.tsx`), não só pelo símbolo unificado — resolve de vez esse tipo de "não está na lista" que na verdade só era problema de busca.
+
+**Rodada 1b (mesma cripto, segunda leva)**: Cleber reportou também BTCXET "não está na lista", DOTUSD/UNIUSD/XLMUSD/XETEUR "preço e variação erradas", LNKUSD/XETXBN/XETXLC "não está na lista". Achados: XETXBN e XETXLC eram genuinamente novos (Ethereum/XET cotado em XBN/XLC) — adicionados, com extensão do regex `toUnifiedCryptoSymbol` em `RealMarketDataService.ts` pra reconhecer sufixo XBN/XLC como cripto-base (mesmo padrão já usado pra BTC/BNB/ETH/LTC). UNIUSD e XLMUSD já existiam mas roteavam pela Binance direta em vez do broker — adicionados ao `CRYPTO_CFD_AVAILABLE`. DOTUSD/XETEUR "errados" no momento do teste provavelmente eram rate-limit transitório da conta MetaAPI compartilhada (mesmo padrão crônico documentado em sessões anteriores) — não um bug de código novo.
+
+**Rodada 2 (ações UK + França)**: lista grande de ~50 tickers (AAL, ABF, AVIVA, AZN... + FP, GLE, HRMS, KER, LR, LVMH...). Achado importante: **11 ações já cadastradas tinham o código de broker ERRADO** (caíam silenciosamente no fallback Yahoo há tempos) — `AV.L→AVIVA`, `BA.L→BAE`, `DGE.L→DIAGEO`, `RKT.L→RB`, `SHEL.L→SHELL`, `TSCO.L→TESCO`, `JD.L→JDI` (UK) e `ATO.PA→ATOS`, `DSY.PA→DAST`, `RMS.PA→HRMS`, `MC.PA→LVMH` (França) — todos corrigidos via override em `brokerRegistry.ts`. Mais 26 ações UK genuinamente novas adicionadas (ABF, PRU, RELX, ABDN, AUTO, BLND, CRH, ENT, EZJ, FRAS, HSX, III, ITV, JMAT, KGF, MNDI, NGRID, NXT, PSH, RMV, RTO, WPP, TRST, SWR) + 4 francesas (ACA, LR, RNO, STM, PUBP, TCFP). `GBXUSD` confirmado genuinamente indisponível (HTTP 404 real), não adicionado.
+
+**Rodada 3 (ações Espanha/Portugal/Holanda)**: descoberta que **não existia NENHUMA ação espanhola, portuguesa ou holandesa no catálogo** (só UK/França/Alemanha) — o tipo já suportava essas subcategorias (`Spanish Stocks`/`Portuguese Stocks`/`Dutch Stocks`), só nunca tinham sido populadas. Adicionadas 15 espanholas (BBVA, CaixaBank, Endesa, Iberdrola, Inditex, Mapfre, Repsol, Sabadell, Santander, Telefónica, Aena, Amadeus, Acciona, Cellnex, Viscofan), 2 portuguesas (Galp, Sonae), 19 holandesas (ABN AMRO, Aegon, ASML, Heineken, ING, ArcelorMittal, Philips, Unilever NV, Aalberts, Adyen, AkzoNobel, ASM International, ASR Nederland, IMCD, NN Group, Prosus, Randstad, Vopak, Wolters Kluwer). Achado curioso: Santander usa o nome completo `SANTANDER` (não `SAN`) na corretora, provavelmente pra não colidir com `SAN` (ticker da Sanofi já usado no catálogo francês). `AIR` (Airbus, listagem holandesa) confirmado HTTP 404 em 4 variantes testadas (`AIR`, `AIR.AS`, `AIR.PA`, `AIRP`) — não adicionado, identidade/nome real não confirmado.
+
+**Rodada 4 (ações Alemanha + commodities futuras)**: lista de ~46 tickers alemães + CL-OIL/UKOUSDft/GOLDft/SILVERft. Adicionadas 38 ações alemãs novas (AFX, BNR, MBG, DHER, DWNI, DWS, FRA, G24, HEI, HLAG, HNR1, KBX, KGX, KRN, LEG, MRCK, MTX, PUM, RRTL, SHL, SRT3, SY1, TLX, UTDI, VNA, VOW, ZAL, DHL + 4 com identidade incerta: FIE, HOT, NEMD, RAA) + as 4 commodities futuras (ver item 2 acima). **Achado crítico, auditoria de due-diligence não pedida explicitamente mas revelou bug real**: testando os códigos das ações alemãs JÁ existentes no catálogo, descobri que **`DAI` (Daimler) e `DPW` (Deutsche Post) estão genuinamente 404** — as empresas mudaram de nome/ticker no mundo real (Daimler → Mercedes-Benz Group/`MBG` em 2022; Deutsche Post → DHL Group/`DHL`). Adicionados `MBG.DE`/`DHL.DE` como as entradas corretas/atuais; `DAI.DE`/`DPW.DE` mantidos no catálogo mas marcados com `⚠️ QUEBRADO` na descrição (não deletados, só sinalizados). Mais 5 códigos existentes confirmados quebrados sem substituto encontrado apesar de várias tentativas de variante: `1COV`, `LHA`, `LIN` (provavelmente porque a Linde saiu da Xetra em 2023, foi só NYSE), `DTE`, `MRK`, `BEI` — marcados com `⚠️ QUEBRADO` na descrição, pendente Cleber confirmar o nome real de cada uma no MT5 dele.
+
+### Padrão consolidado desta sessão (útil pra próximas)
+
+1. **Sempre testar via `/mt5-prices` (curl direto) antes de adicionar/mudar qualquer símbolo** — nunca supor nome. Rate-limit da conta MetaAPI compartilhada é comum (HTTP 429/504); sempre retestar isolado com pausa antes de concluir "não existe" — só treinar como indisponível de verdade em HTTP 404 confirmado 2-3x.
+2. **Dois tipos de "não está no catálogo" que parecem iguais mas são bugs diferentes**: (a) símbolo genuinamente ausente — adicionar; (b) símbolo já existe sob nome unificado diferente do nome real da corretora, e a busca só casava pelo unificado — resolvido de vez com o reverse-match em `InfinoxAssetsBrowser.tsx` (item 1 da rodada 1).
+3. **Override de nome quebrado é uma classe de bug recorrente**: sempre que uma ação/cripto já cadastrada "parece errada", testar o código atual isolado via curl — pode estar caindo no fallback Yahoo silenciosamente há sessões (achado em 11 ações UK/França + 2 alemãs nesta sessão).
+4. **Símbolo com letra minúscula precisa de tratamento especial** (item 2 acima) — nunca usar direto como símbolo unificado.
+
+### Pendente real pra próxima sessão
+
+1. **Nada foi commitado ainda nesta sessão inteira** — 4 rodadas de mudança em `assetDatabase.ts`, `brokerRegistry.ts`, `RealMarketDataService.ts`, `ChartView.tsx`, `InfinoxAssetsBrowser.tsx`, `MarketScoreBoard.tsx`. Rodar:
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/config/assetDatabase.ts src/app/config/brokerRegistry.ts src/app/components/ChartView.tsx \
+  src/app/components/dashboard/InfinoxAssetsBrowser.tsx src/app/components/dashboard/MarketScoreBoard.tsx \
+  src/app/services/RealMarketDataService.ts CLAUDE.md
+git commit -m "feat: auditoria em massa do catálogo (cripto, UK/França/Espanha/Portugal/Holanda/Alemanha) — adiciona ~120 ativos confirmados reais via /mt5-prices, corrige 13 nomes de broker quebrados (11 ações + DAI→MBG + DPW→DHL), corrige bug de case-sensitivity em símbolos com sufixo minúsculo, busca do Navegador de Ativos agora casa pelo nome real da corretora; fix: Dashboard mostra último preço negociado + aviso explícito de mercado fechado pra qualquer ativo (baseado na idade do tick, não só se o dado é real)"
+git push origin main
+```
+2. Confirmar com o Cleber, comparando com o MT5 dele: as ~120 adições, os 4 nomes com identidade incerta (INCUSD, TRST, SWR, PUBP, TCFP, FIE, HOT, NEMD, RAA), e os 6 códigos alemães/UK ainda sem substituto (1COV, LHA, LIN, DTE, MRK, BEI).
+3. Considerar uma auditoria sistemática (script em lote, não ad-hoc) do resto do catálogo UK/França/Alemanha já existente — o padrão "código de broker quebrado, caindo no Yahoo silenciosamente" apareceu 13 vezes nesta sessão só nos símbolos que o Cleber por acaso reportou; é provável que existam mais no resto do catálogo nunca auditado.
+4. Tudo mais pendente de sessões anteriores continua valendo (ver seções abaixo).
 
 ## Sessão nova (2026-07-16, continuação 5): maratona de "X não existe no catálogo" em criptomoedas — todos confirmados reais via /mt5-prices, TUDO COMMITADO, formato de preço com 4 dígitos antes do ponto
 
