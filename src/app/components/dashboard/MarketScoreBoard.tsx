@@ -1227,12 +1227,16 @@ export const MarketScoreBoard = () => {
                                             {(hasRealScore ? scoreResult!.insight : marketSignal?.insight) || "Analisando estrutura de mercado..."}
                                         </p>
                                         <p className="text-[11.5px] text-slate-400 leading-relaxed">
-                                            {score > 60 ? 
-                                                `Momentum positivo detectado. Compradores dominando o book de ordens. Volume crescente indica continuidade do movimento de alta. Próxima resistência em ${formatPrice(target1)}.` :
-                                             score < 40 ?
-                                                `Pressão vendedora dominante. Fluxo institucional em distribuição. Volume de venda acima da média. Próximo suporte crítico em ${formatPrice(target1)}.` :
-                                                `Mercado em equilíbrio entre compradores e vendedores. Aguardando rompimento de zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)} para definir direção.`
-                                            }
+                                            {/* 🎯 2026-07-17: texto REAL derivado dos fatores do MarketScoreEngine (nunca mais alega "book de ordens"/"fluxo institucional" que não temos fonte real pra medir) */}
+                                            {hasRealScore ? (
+                                                scoreResult!.regime === 'TENDENCIA'
+                                                    ? `Tendência ${scoreResult!.factors.trend > 0 ? 'de alta' : 'de baixa'} confirmada (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Momentum ${scoreResult!.factors.momentum > 0 ? 'positivo' : 'negativo'}. Volume ${scoreResult!.indicators.volumeRatio != null && scoreResult!.indicators.volumeRatio > 1.2 ? 'acima da média, confirmando o movimento' : 'dentro da média'}.`
+                                                    : scoreResult!.regime === 'LATERAL'
+                                                    ? `Mercado lateralizado (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Osciladores interpretados como reversão à média nesse regime. Zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)}.`
+                                                    : `Regime indefinido — sinais técnicos não convergem o suficiente pra uma leitura de confiança.`
+                                            ) : (
+                                                `Calculando fatores técnicos reais (tendência, momentum, estrutura, volume)...`
+                                            )}
                                         </p>
                                     </div>
                                 </div>
@@ -1240,21 +1244,30 @@ export const MarketScoreBoard = () => {
                         </div>
 
                         {/* Métricas Principais - 3 Colunas */}
+                        {/* 🎯 2026-07-17: valores REAIS do MarketScoreEngine — Confiança já era % de convergência dos fatores; Fluxo agora reflete o fator volume/OBV real; Volatilidade agora é ATR%/regime real (ADX+Bollinger), não mais |variação do dia| */}
                         <div className="grid grid-cols-3 gap-2">
                              <div className="bg-black/20 rounded p-2 border border-white/5">
                                  <span className="text-[9px] font-bold text-neutral-500 uppercase block mb-1">Confiança IA</span>
-                                 <span className="text-lg font-bold text-purple-300">{marketSignal?.strength || 0}%</span>
+                                 <span className="text-lg font-bold text-purple-300">{hasRealScore ? scoreResult!.confidence : 0}%</span>
                              </div>
                              <div className="bg-black/20 rounded p-2 border border-white/5">
-                                 <span className="text-[9px] font-bold text-neutral-500 uppercase block mb-1">Fluxo Ordens</span>
-                                 <span className={`text-sm font-bold ${score > 55 ? 'text-emerald-400' : score < 45 ? 'text-rose-400' : 'text-neutral-400'}`}>
-                                    {score > 55 ? 'Acumul.' : score < 45 ? 'Distrib.' : 'Neutro'}
+                                 <span className="text-[9px] font-bold text-neutral-500 uppercase block mb-1">Fluxo (Volume/OBV)</span>
+                                 <span className={`text-sm font-bold ${
+                                    !hasRealScore ? 'text-neutral-500' : scoreResult!.factors.volume > 0.15 ? 'text-emerald-400' : scoreResult!.factors.volume < -0.15 ? 'text-rose-400' : 'text-neutral-400'
+                                 }`}>
+                                    {!hasRealScore ? '—' : scoreResult!.factors.volume > 0.15 ? 'Acumul.' : scoreResult!.factors.volume < -0.15 ? 'Distrib.' : 'Neutro'}
                                  </span>
                              </div>
                              <div className="bg-black/20 rounded p-2 border border-white/5">
                                  <span className="text-[9px] font-bold text-neutral-500 uppercase block mb-1">Volatilidade</span>
-                                 <span className={`text-sm font-bold ${Math.abs(currentTrend) > 3 ? 'text-orange-400' : 'text-blue-400'}`}>
-                                    {Math.abs(currentTrend) > 3 ? 'Alta' : Math.abs(currentTrend) > 1 ? 'Média' : 'Baixa'}
+                                 <span className={`text-sm font-bold ${
+                                    !hasRealScore ? 'text-neutral-500'
+                                    : (scoreResult!.indicators.atr != null && displayPrice > 0 && (scoreResult!.indicators.atr / displayPrice) * 100 > 1.5) ? 'text-orange-400' : 'text-blue-400'
+                                 }`}>
+                                    {!hasRealScore || scoreResult!.indicators.atr == null || displayPrice <= 0 ? '—' : (() => {
+                                        const atrPct = (scoreResult!.indicators.atr! / displayPrice) * 100;
+                                        return atrPct > 1.5 ? 'Alta' : atrPct > 0.5 ? 'Média' : 'Baixa';
+                                    })()}
                                  </span>
                              </div>
                         </div>

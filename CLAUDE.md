@@ -1,4 +1,43 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação)
+
+## Sessão nova (2026-07-17, continuação): auditoria completa do Dashboard (real vs mock) + achado grave no Nexus Quantum Advisor + porte das últimas caixas pro motor real — NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu auditoria honesta de TODO o módulo do Dashboard (print da "Análise Neural em Tempo Real" anexado) — o que é real, o que é mock, e sugestões de melhoria.
+
+### Achado grave: painel "Nexus Quantum Advisor" (~30% da tela, coluna direita do Dashboard) é 100% `Math.random()`
+
+[MarketTendencyEngine.ts](src/app/services/MarketTendencyEngine.ts) (715 linhas) — as 9 "fontes" (Pressão de Mercado, Fibonacci, Médias Móveis, Notícias, Redes Sociais, Order Book, Indicadores Técnicos, Volume Profile, Fluxo Institucional) são **todas sorteadas**, sem consultar preço/candle real nem nenhuma API. Achados específicos, piores que "só mock":
+- **Notícias fabricadas com fonte atribuída a veículos reais**: sempre as mesmas 3 manchetes fixas (`"${symbol} atinge novo recorde histórico" — Bloomberg`, `"Reguladores investigam ${symbol}" — WSJ`...), pra qualquer ativo.
+- **Badge "Spoofing Detectado"** ([NexusQuantumAdvisor.tsx:46](src/app/components/nexus/NexusQuantumAdvisor.tsx:46)) hardcoded **sempre ligado**, incondicional — nem checa a variável mock que o motor sortearia. Texto fixo: "Ordem fantasma. Pressão artificial de venda."
+- **Caixa "Correlação Borboleta: Movimento US10Y indica queda iminente"** — texto estático, nunca muda, nenhuma correlação calculada.
+- O "Gráfico" da aba Chart desenha candles com `Math.sin`/`Math.random()`.
+- Botão "Recalcular" só sorteia números novos — dá ilusão de nova análise.
+
+**Decisão do Cleber**: Nexus **será extinto** — não mexer agora (aproveitar partes reais depois, deletar o resto numa sessão futura dedicada). Prioridade agora: a seção "Análise Neural em Tempo Real" (o painel do meio, `MarketScoreBoard.tsx`, já em reescrita desde a sessão anterior).
+
+### Resto do Dashboard portado pro motor real (`MarketScoreEngine`, `scoreResult`)
+
+Achei mais 2 blocos no mesmo `MarketScoreBoard.tsx` que ainda usavam a fórmula antiga do score (não pegos na 1ª passada da sessão anterior):
+1. **Texto longo abaixo do insight** (linha ~1229): antes alegava "Compradores dominando o **book de ordens**", "**Fluxo institucional** em distribuição" — dado que não temos (order book real de forex não existe, é mercado OTC — já documentado). Reescrito pra só afirmar o que o motor calcula de verdade: regime (tendência/lateral), ADX, e volume vs média.
+2. **Caixas "Confiança IA" / "Fluxo Ordens" / "Volatilidade"** (linha ~1245): usavam `marketSignal.strength` (fórmula antiga) / `score>55` / `|currentTrend|>3`. Agora usam `scoreResult.confidence` (confiança real do motor), `scoreResult.factors.volume` (fator OBV/volume real) pro Fluxo, e **ATR% do preço** (real, `indicators.atr/displayPrice`) pra Volatilidade — antes usava a variação % do dia, que mede outra coisa (não é volatilidade, é direção acumulada).
+
+### Verificação feita
+`vite build` limpo. Testado no preview local (`npm run dev`, sem login): painel renderiza sem erro, mostra corretamente o estado de loading ("Calculando fatores técnicos reais...") enquanto não há candles reais disponíveis (esperado, mesma limitação de sempre — sem login/conta MT5 real neste ambiente). **Não testado logado** — falta o Cleber confirmar que Confiança/Fluxo/Volatilidade/texto batem com o motor real depois do deploy.
+
+### Pendente real pra próxima sessão
+1. **Commit** (inclui os arquivos da sessão anterior + os 2 blocos portados agora):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketScoreEngine.ts src/app/services/MarketScoreValidator.ts \
+  src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "feat: Market Score REAL no Dashboard — motor de fatores ortogonais (tendencia/momentum/estrutura-fibonacci/volume, modulados por regime, multi-timeframe) a partir de candles reais, substituindo a formula '50+variacao%x10' e removendo TODOS os indicadores mockados (RSI/MACD/EMA/Volume/Confianca/Fluxo/Volatilidade derivados do proprio score ou variacao do dia, texto alegando 'book de ordens'/'fluxo institucional' sem fonte real, 'atualizado ha Xs' aleatorio, insight sorteado); adiciona medidor de validacao walk-forward sem look-ahead (BTC 1h: 81% de acerto nas leituras de conviccao)"
+git push origin main
+```
+2. Confirmar visualmente logado que todas as caixas (Score, RSI/MACD/Estocástico/Médias/Volume/Confiança, Fluxo, Volatilidade, texto de insight) batem e atualizam com o motor real.
+3. **Nexus Quantum Advisor — decisão já tomada, pendente execução numa sessão futura**: extinguir. Antes de deletar, avaliar o que aproveitar: `MarketTendencyPanel.tsx`/`SourceCard` é uma UI de breakdown por fonte bem construída — poderia ser reaproveitada pra mostrar o breakdown REAL do `MarketScoreEngine` (`factors.trend/momentum/structure/volume`) em vez das 9 fontes fictícias. `NexusQuantumAdvisor.tsx` (o gráfico canvas fake + badges de spoofing/correlação) é pra deletar por completo. `MarketTendencyEngine.ts` inteiro é pra deletar (nenhuma lógica real a preservar).
+4. Tudo mais pendente da sessão anterior (item "Sessão nova (2026-07-17)" logo abaixo) continua valendo: ligar o motor na IA (`useApexLogic`) depois de confirmado no Dashboard; Fase B do Score (calendário econômico real, COT/retail sentiment, order book real só cripto).
+
+---
 
 ## Sessão nova (2026-07-17): Market Score REAL — reescrita do motor do Dashboard (fim dos mocks) + medidor de validação — NÃO COMMITADO AINDA
 
