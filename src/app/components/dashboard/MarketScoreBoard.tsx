@@ -492,10 +492,28 @@ export const MarketScoreBoard = () => {
             // real mas com timestamp velho (>10min) significa que a corretora
             // não está mais atualizando esse ativo agora (mercado fechado),
             // mesmo que o preço em si seja genuíno (último negociado).
+            //
+            // ✅ 2026-07-17: tick desatualizado NÃO é sempre igual a "mercado
+            // fechado" — pode ser só falha transitória de dado (ex: HTTP 429
+            // da conta MetaAPI compartilhada, problema crônico documentado à
+            // exaustão neste projeto). Achado com WHEUSD (Trigo, CFD near-24/5
+            // como ouro/petróleo): mercado genuinamente aberto (sexta ~15h
+            // local, dentro do horário), mas rate-limit impedia atualização —
+            // o app rotulava "MERCADO FECHADO" com confiança, o que é falso.
+            // Corrigido: só declara CLOSED com confiança quando (a) o tick é
+            // fresco e a corretora disse explicitamente que não é dado real,
+            // OU (b) o tick está velho E o calendário CFD real também diz que
+            // deveria estar fechado agora. Tick velho + calendário aberto =
+            // problema de DADO, não de mercado — mantém o último status real
+            // conhecido em vez de mentir "fechado".
             const STALE_TICK_MS = 10 * 60 * 1000;
             const tickAgeMs = marketData.timestamp ? Date.now() - marketData.timestamp : Infinity;
             const isTickStale = tickAgeMs > STALE_TICK_MS;
-            setMarketStatus(isRealData && !isTickStale ? 'OPEN' : 'CLOSED');
+            const calendarSaysOpen = isMarketOpen(activeSymbol).isOpen;
+            const shouldShowClosed = isTickStale
+                ? !calendarSaysOpen
+                : !isRealData;
+            setMarketStatus(shouldShowClosed ? 'CLOSED' : 'OPEN');
             setLastTradeTimeLabel(
                 marketData.timestamp
                     ? new Date(marketData.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
