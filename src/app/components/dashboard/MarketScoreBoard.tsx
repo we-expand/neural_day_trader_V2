@@ -1273,12 +1273,22 @@ export const MarketScoreBoard = () => {
                                         </p>
                                         <p className="text-[11.5px] text-slate-400 leading-relaxed">
                                             {/* 🎯 2026-07-17: texto REAL derivado dos fatores do MarketScoreEngine (nunca mais alega "book de ordens"/"fluxo institucional" que não temos fonte real pra medir) */}
+                                            {/* ✅ 2026-07-17: achado ao vivo — este parágrafo decidia o texto só
+                                                por `scoreResult.regime` (ADX<18=LATERAL), TOTALMENTE independente
+                                                da classificação/score já corrigidos hoje (thresholds 60/40). Um
+                                                ativo em alta real mas gradual (ADX ainda baixo, indicador
+                                                atrasado — mesmo padrão documentado com S&P e petróleo hoje)
+                                                tinha score/rótulo dizendo "TENDÊNCIA DE ALTA" enquanto ESTE
+                                                parágrafo, ignorando o score, sempre dizia "mercado lateralizado"
+                                                — a mesma classe de contradição na mesma tela, só que numa 3ª
+                                                fonte que ainda não tinha sido tocada. Fix: usa `classification`
+                                                (já alinhado ao mesmo threshold do rótulo), não mais `regime` cru. */}
                                             {hasRealScore ? (
-                                                scoreResult!.regime === 'TENDENCIA'
-                                                    ? `Tendência ${scoreResult!.factors.trend > 0 ? 'de alta' : 'de baixa'} confirmada (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Momentum ${scoreResult!.factors.momentum > 0 ? 'positivo' : 'negativo'}. Volume ${scoreResult!.indicators.volumeRatio != null && scoreResult!.indicators.volumeRatio > 1.2 ? 'acima da média, confirmando o movimento' : 'dentro da média'}.`
-                                                    : scoreResult!.regime === 'LATERAL'
-                                                    ? `Mercado lateralizado (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Osciladores interpretados como reversão à média nesse regime. Zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)}.`
-                                                    : `Regime indefinido — sinais técnicos não convergem o suficiente pra uma leitura de confiança.`
+                                                scoreResult!.classification === 'COMPRADOR'
+                                                    ? `Pressão compradora${scoreResult!.regime === 'TENDENCIA' ? ` — tendência confirmada (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'})` : ''}. Momentum ${scoreResult!.factors.momentum > 0 ? 'positivo' : 'negativo'}. Volume ${scoreResult!.indicators.volumeRatio != null && scoreResult!.indicators.volumeRatio > 1.2 ? 'acima da média, confirmando o movimento' : 'dentro da média'}.`
+                                                    : scoreResult!.classification === 'VENDEDOR'
+                                                    ? `Pressão vendedora${scoreResult!.regime === 'TENDENCIA' ? ` — tendência confirmada (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'})` : ''}. Momentum ${scoreResult!.factors.momentum > 0 ? 'positivo' : 'negativo'}. Volume ${scoreResult!.indicators.volumeRatio != null && scoreResult!.indicators.volumeRatio > 1.2 ? 'acima da média, confirmando o movimento' : 'dentro da média'}.`
+                                                    : `Mercado lateralizado (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Osciladores interpretados como reversão à média nesse regime. Zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)}.`
                                             ) : scoreResult?.provenance === 'unavailable' ? (
                                                 // ✅ 2026-07-17: distingue "ainda carregando" de "falhou e o motivo é X" — nunca mais fica mudo
                                                 scoreResult.insight
