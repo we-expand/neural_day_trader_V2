@@ -732,7 +732,19 @@ export const MarketScoreBoard = () => {
   // nenhuma ainda mostra "—" nesses campos, mas o score/classificação em si já
   // usa o resultado do motor (conservador: 50/LATERAL) via `hasScoreData`.
   const hasRealScore = hasScoreData && (scoreResult!.provenance === 'real' || scoreResult!.provenance === 'stale');
-  const targetScore = hasScoreData ? scoreResult!.score : (50 + (targetTrendRef.current * 10));
+  // ✅ 2026-07-17: achado ao vivo — ao entrar no Dashboard, o número aparecia
+  // "alta fortíssima" (ex: 88) por ~1s e depois SUMIA/caía. Causa: antes do
+  // 1º resultado do MarketScoreEngine chegar (leva ~1-3s, busca candle real
+  // pela rede), `targetScore` caía nessa fórmula legada de uma linha
+  // (`50+variação%×10`) — que reage cru à variação % do dia, sem nenhum dos
+  // fatores/amortecimentos do motor real. Numa variação grande (ex: +3,8%),
+  // isso dava um número bem mais dramático que o score real calculado
+  // (chega ~1s depois e sobrescreve) — o "flash" era literalmente essa
+  // fórmula fantasma antiga que já devia estar extinta (mesma família do bug
+  // "duas fontes discordando" corrigido hoje em outros lugares desta tela).
+  // Fix: enquanto não há resultado do motor, mostra neutro (50/carregando)
+  // em vez de inventar um número dramático que vai ser trocado.
+  const targetScore = hasScoreData ? scoreResult!.score : 50;
   const smoothScore = marketStatus === 'CLOSED' ? 50 : targetScore;
   let score = Math.min(Math.max(Math.round(smoothScore), 1), 99);
 
