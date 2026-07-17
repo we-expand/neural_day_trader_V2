@@ -68,12 +68,28 @@ async function getBinanceListedSymbols(): Promise<Set<string>> {
 export async function resolveBinanceTicker(catalogSymbol: string): Promise<string | null> {
   const symbols = await getBinanceListedSymbols();
 
+  // ✅ 2026-07-17: o símbolo já pode chegar no formato nativo da Binance
+  // (ex: 'BTCUSDT' — é o default de `TradingContext.selectedAsset`, distinto
+  // do símbolo de catálogo/corretora 'BTCUSD'). `catalogSymbol.endsWith('USD')`
+  // é FALSO pra 'BTCUSDT' (termina em "USDT", não "USD") — sem este check, o
+  // símbolo nunca resolvia via Binance e caía direto (e incorretamente) na
+  // MetaAPI, que não conhece sufixo USDT.
+  if (catalogSymbol.endsWith('USDT') && symbols.has(catalogSymbol)) {
+    return catalogSymbol;
+  }
+
   const mapped = CRYPTO_CATALOG_TO_BINANCE_BASE[catalogSymbol];
   const base = mapped ?? (catalogSymbol.endsWith('USD') ? catalogSymbol.slice(0, -3) : null);
   if (!base) return null;
 
   const candidate = `${base}USDT`;
   return symbols.has(candidate) ? candidate : null;
+}
+
+/** Corretora (MetaAPI/Infinox) não conhece o sufixo "USDT" (notação de
+ *  exchange cripto) — só "USD". Normaliza antes de mandar pro backend. */
+function normalizeForBroker(catalogSymbol: string): string {
+  return catalogSymbol.endsWith('USDT') ? catalogSymbol.slice(0, -1) : catalogSymbol;
 }
 
 class BacktestDataService {
@@ -128,10 +144,10 @@ class BacktestDataService {
         // pra sempre. Cai pra MetaAPI (via broker de plataforma) como
         // segunda fonte real, em vez de desistir.
         console.warn(`[BACKTEST_DATA] ⚠️ Binance falhou pra ${binanceTicker}, tentando MetaAPI:`, binanceError);
-        result = await this.fetchFromMetaApiHistory(catalogSymbol, startDate, endDate, timeframe);
+        result = await this.fetchFromMetaApiHistory(normalizeForBroker(catalogSymbol), startDate, endDate, timeframe);
       }
     } else {
-      result = await this.fetchFromMetaApiHistory(catalogSymbol, startDate, endDate, timeframe);
+      result = await this.fetchFromMetaApiHistory(normalizeForBroker(catalogSymbol), startDate, endDate, timeframe);
     }
 
     this.cache.set(cacheKey, result.candles);
