@@ -183,7 +183,7 @@ export const MarketScoreBoard = () => {
     setActiveSymbolState(symbol);
   };
 
-  const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'>('15m');
+  const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'|'1d'>('15m');
   const [candleTimeLeft, setCandleTimeLeft] = useState('00:00');
   const [marketSignal, setMarketSignal] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -213,6 +213,9 @@ export const MarketScoreBoard = () => {
           } else if (timeframe === '1h') {
               const remain = 60 - minutes;
               diffSec = (remain * 60) - seconds;
+          } else if (timeframe === '1d') {
+              const secondsSinceMidnightUTC = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+              diffSec = 86400 - secondsSinceMidnightUTC;
           }
   
           if (diffSec <= 0) diffSec = 0;
@@ -965,10 +968,10 @@ export const MarketScoreBoard = () => {
                 </div>
 
                 <div className="flex bg-[#111] rounded-lg p-1 border border-white/5">
-                    {['1m','5m','15m','1h'].map(tf => (
+                    {['1m','5m','15m','1h','1d'].map(tf => (
                         <button 
                             key={tf} 
-                            onClick={() => setTimeframe(tf as '1m'|'5m'|'15m'|'1h')}
+                            onClick={() => setTimeframe(tf as '1m'|'5m'|'15m'|'1h'|'1d')}
                             className={`px-3 py-1 rounded text-xs font-bold transition-all ${timeframe === tf ? 'bg-emerald-500/20 text-emerald-400 shadow-lg shadow-emerald-500/20' : 'text-neutral-500 hover:text-neutral-300'}`}
                         >
                             {tf}

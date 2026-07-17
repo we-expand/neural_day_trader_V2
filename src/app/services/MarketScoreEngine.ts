@@ -323,11 +323,32 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
 
   // Regime modula a interpretação:
   //  - Tendência: momentum acompanha (RSI alto = força, NÃO venda).
-  //  - Lateral: osciladores viram mean-reversion (inverte, amortecido) e a tendência pesa menos.
+  //  - Lateral: tendência pesa menos, osciladores amortecidos.
+  //
+  // ✅ 2026-07-17: a inversão de sinal em LATERAL (`-m.value*0.6`, tratando
+  // RSI/momentum como mean-reversion) foi achada como a causa raiz do Score
+  // ficando neutro/errado durante quedas reais e moderadas (ex: S&P caindo
+  // ~1% no dia — real, mas sem ADX alto o bastante pra classificar TENDENCIA,
+  // já que ADX é um indicador atrasado e não sobe rápido em declínios
+  // graduais/"de rastejo"). Reproduzido com candle real do S&P: RSI 39,
+  // alinhamento de médias 100% baixista (-1), MACD negativo — mas a inversão
+  // transformava esse momentum claramente baixista num contribuinte
+  // POSITIVO pro score, arrastando pra "LATERAL/RANGE" mesmo com o mercado
+  // caindo de verdade. Validado com MarketScoreValidator (walk-forward, sem
+  // look-ahead) ANTES desta mudança: SPX500 15m tinha ZERO edge real (42% de
+  // acerto nas leituras de convicção, pior que cara-ou-coroa) e BTC também
+  // tinha degradado (1h: 59%, era 70%+ em calibrações anteriores). A
+  // inversão continua sendo uma hipótese razoável em mercado GENUINAMENTE de
+  // range (osciladores realmente revertem lá), mas o corte de regime por
+  // ADX<18 não distingue "lateral de verdade" de "tendência lenta que ainda
+  // não fez o ADX subir" — nesses casos, inverter o sinal é sempre errado.
+  // Trocado por amortecimento SEM inverter (mesmo tratamento de INDEFINIDO,
+  // só mais amortecido) — mantém a direção real do momentum em vez de
+  // apostar contra ela.
   const regimeTrendScale = regime === 'LATERAL' ? 0.5 : 1.0;
   const momentumEff =
     regime === 'TENDENCIA' ? m.value
-    : regime === 'LATERAL' ? -m.value * 0.6
+    : regime === 'LATERAL' ? m.value * 0.3
     : m.value * 0.4;
 
   // ✅ 2026-07-17: mesmo problema do momentum, achado ao vivo com BTC em alta
