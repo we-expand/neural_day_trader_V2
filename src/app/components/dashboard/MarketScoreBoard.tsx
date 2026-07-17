@@ -46,6 +46,7 @@ import { BtcPriceDebug } from '../debug/BtcPriceDebug'; // 🐛 DEBUG: BTC Price
 import { getBinancePureValues } from '@/app/utils/binanceValidator'; // 🔥 VALORES PUROS: Sem transformações
 import { binanceWebSocket } from '@/app/services/BinanceWebSocketService'; // 🔥 NOVO: Para debug de conexão
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
+import { MarketScoreEngine, type MarketScoreResult } from '@/app/services/MarketScoreEngine'; // 🎯 2026-07-17: Score real (fatores ortogonais multi-timeframe) — substitui a fórmula "50 + variação%×10"
 
 // Debug control
 const DEBUG_API_LOGS = false; // Set to true to enable API logs
@@ -253,7 +254,12 @@ export const MarketScoreBoard = () => {
   const [lastTradeTimeLabel, setLastTradeTimeLabel] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<'MetaApi' | 'Binance' | 'Fallback'>('Fallback'); // ✅ NOVO: Track data source
   const [wsUpdateCounter, setWsUpdateCounter] = useState(0); // 🔥 NOVO: Contador de updates WebSocket (para forçar re-render)
-  
+
+  // 🎯 2026-07-17: Market Score REAL (motor de fatores ortogonais, MarketScoreEngine).
+  // Recalculado ao trocar de ativo/timeframe e a cada 15s; o cache por barra do
+  // BacktestDataService dedupe as chamadas de rede dentro da mesma barra.
+  const [scoreResult, setScoreResult] = useState<MarketScoreResult | null>(null);
+
   // Refs for smooth animation
   const simTrendRef = useRef(2.5);
   const simCycleRef = useRef(0);
@@ -601,6 +607,30 @@ export const MarketScoreBoard = () => {
     // fetch inteiro sempre que o scanner (que nem busca preço real) mudar.
   }, [activeSymbol, timeframe]);
 
+  // 🎯 2026-07-17: Motor de Score REAL. Recalcula ao trocar de ativo/timeframe
+  // e a cada 15s (indicadores mudam devagar; o preço ao vivo continua vindo do
+  // streaming/polling acima, independente disto). Usa candles reais multi-TF.
+  useEffect(() => {
+    let cancelled = false;
+
+    const computeScore = async () => {
+      try {
+        const result = await MarketScoreEngine.compute(activeSymbol, timeframe);
+        if (!cancelled) setScoreResult(result);
+      } catch (e: any) {
+        console.warn('[MarketScoreBoard] Falha ao calcular Score real:', e?.message);
+        // Mantém o último score conhecido em vez de zerar — não inventa nada.
+      }
+    };
+
+    computeScore();
+    const scoreInterval = setInterval(computeScore, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(scoreInterval);
+    };
+  }, [activeSymbol, timeframe]);
+
   // ✅ 2026-07-12: removido o efeito de WebSocket separado que assinava
   // `UnifiedMarketDataService.subscribeToRealtimeData` — era uma SEGUNDA fonte
   // de dado pra cripto, concorrente com o polling de `getRealMarketData`
@@ -657,11 +687,15 @@ export const MarketScoreBoard = () => {
   }, [currentPrice, currentChange, activeSymbol]);
 
   // Derived Calculations
-  // CORREÇÃO CRÍTICA: Usar o mesmo cálculo que o fetchData (targetTrendRef * 10, não simTrendRef * 12)
-  const targetScore = 50 + (targetTrendRef.current * 10);
+  // 🎯 2026-07-17: Score REAL do MarketScoreEngine (fatores ortogonais multi-TF)
+  // quando disponível pra este ativo/timeframe. Fallback pra fórmula antiga
+  // (variação%×10) só enquanto o primeiro cálculo real não chegou ou se a fonte
+  // de dados estiver indisponível — nunca inventa número.
+  const hasRealScore = scoreResult && scoreResult.symbol === activeSymbol && scoreResult.provenance !== 'unavailable';
+  const targetScore = hasRealScore ? scoreResult!.score : (50 + (targetTrendRef.current * 10));
   const smoothScore = marketStatus === 'CLOSED' ? 50 : targetScore;
   let score = Math.min(Math.max(Math.round(smoothScore), 1), 99);
-  
+
   if (!Number.isFinite(score)) score = 50;
 
   // 🔥 NOVA LÓGICA DE CLASSIFICAÇÃO BASEADA NA VARIAÇÃO REAL
@@ -1137,7 +1171,7 @@ export const MarketScoreBoard = () => {
                                 : marketClassification.label}
                         </div>
                         <p className="text-xs text-slate-300 font-medium mt-2 max-w-[280px] mx-auto leading-relaxed">
-                            {marketSignal?.insight || "Analisando fluxo de ordens..."}
+                            {(hasRealScore ? scoreResult!.insight : marketSignal?.insight) || "Analisando fluxo de ordens..."}
                         </p>
                     </div>
                 </Card>
@@ -1190,7 +1224,7 @@ export const MarketScoreBoard = () => {
                                     <Activity className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
                                     <div className="flex-1 space-y-2">
                                         <p className="text-[12px] text-white leading-relaxed font-medium">
-                                            {marketSignal?.insight || "Analisando estrutura de mercado..."}
+                                            {(hasRealScore ? scoreResult!.insight : marketSignal?.insight) || "Analisando estrutura de mercado..."}
                                         </p>
                                         <p className="text-[11.5px] text-slate-400 leading-relaxed">
                                             {score > 60 ? 
@@ -1229,7 +1263,7 @@ export const MarketScoreBoard = () => {
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
                                 <span className="text-[9px] font-bold text-slate-400 uppercase">Níveis Técnicos</span>
-                                <span className="text-[8px] text-slate-500">Atualizado há {Math.floor(Math.random() * 5) + 1}s</span>
+                                <span className="text-[8px] text-slate-500">{scoreResult?.regime ? `Regime: ${scoreResult.regime}` : 'Analisando...'}</span>
                             </div>
                             <div className="grid grid-cols-3 gap-2">
                                 <div className="bg-[#111] rounded p-2 border border-white/5 flex flex-col">
@@ -1254,28 +1288,57 @@ export const MarketScoreBoard = () => {
                                 <span className="text-[9px] font-bold text-cyan-400 uppercase">Indicadores</span>
                             </div>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px]">
+                                {/* 🎯 2026-07-17: valores REAIS do MarketScoreEngine (candles multi-TF), não mais derivados do próprio score */}
                                 <div className="flex justify-between">
                                     <span className="text-slate-400">RSI (14):</span>
-                                    <span className={`font-bold ${score > 70 ? 'text-red-400' : score < 30 ? 'text-emerald-400' : 'text-white'}`}>
-                                        {score > 60 ? Math.min(score + 10, 85) : score < 40 ? Math.max(score - 10, 15) : score}
+                                    <span className={`font-bold ${
+                                        scoreResult?.indicators.rsi != null
+                                            ? (scoreResult.indicators.rsi > 70 ? 'text-red-400' : scoreResult.indicators.rsi < 30 ? 'text-emerald-400' : 'text-white')
+                                            : 'text-slate-500'
+                                    }`}>
+                                        {scoreResult?.indicators.rsi != null ? scoreResult.indicators.rsi.toFixed(1) : '—'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-slate-400">MACD:</span>
-                                    <span className={`font-bold ${score > 50 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {score > 50 ? 'ALTA' : 'BAIXA'}
+                                    <span className={`font-bold ${
+                                        scoreResult?.indicators.macdHistogram != null
+                                            ? (scoreResult.indicators.macdHistogram >= 0 ? 'text-emerald-400' : 'text-rose-400')
+                                            : 'text-slate-500'
+                                    }`}>
+                                        {scoreResult?.indicators.macdHistogram != null ? (scoreResult.indicators.macdHistogram >= 0 ? 'ALTA' : 'BAIXA') : '—'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-slate-400">EMA 20/50:</span>
-                                    <span className={`font-bold ${score > 50 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {score > 50 ? 'Cruz+' : 'Cruz-'}
+                                    <span className="text-slate-400">Estocástico:</span>
+                                    <span className={`font-bold ${
+                                        scoreResult?.indicators.stochK != null
+                                            ? (scoreResult.indicators.stochK > 80 ? 'text-red-400' : scoreResult.indicators.stochK < 20 ? 'text-emerald-400' : 'text-white')
+                                            : 'text-slate-500'
+                                    }`}>
+                                        {scoreResult?.indicators.stochK != null ? scoreResult.indicators.stochK.toFixed(0) : '—'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Médias (9/20/200):</span>
+                                    <span className={`font-bold ${
+                                        scoreResult ? (scoreResult.factors.trend > 0.1 ? 'text-emerald-400' : scoreResult.factors.trend < -0.1 ? 'text-rose-400' : 'text-white') : 'text-slate-500'
+                                    }`}>
+                                        {scoreResult ? (scoreResult.factors.trend > 0.1 ? 'Alta' : scoreResult.factors.trend < -0.1 ? 'Baixa' : 'Neutro') : '—'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-slate-400">Volume:</span>
                                     <span className="font-bold text-yellow-400">
-                                        {Math.abs(currentTrend) > 2 ? 'Alto' : 'Normal'}
+                                        {scoreResult?.indicators.volumeRatio != null ? (scoreResult.indicators.volumeRatio > 1.3 ? 'Alto' : scoreResult.indicators.volumeRatio < 0.7 ? 'Baixo' : 'Normal') : '—'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Confiança:</span>
+                                    <span className={`font-bold ${
+                                        scoreResult ? (scoreResult.confidence >= 65 ? 'text-emerald-400' : scoreResult.confidence >= 40 ? 'text-yellow-400' : 'text-rose-400') : 'text-slate-500'
+                                    }`}>
+                                        {scoreResult ? `${scoreResult.confidence}%` : '—'}
                                     </span>
                                 </div>
                             </div>

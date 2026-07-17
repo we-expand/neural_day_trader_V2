@@ -1,4 +1,43 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-16, continuação 6)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17)
+
+## Sessão nova (2026-07-17): Market Score REAL — reescrita do motor do Dashboard (fim dos mocks) + medidor de validação — NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu pra tornar o Score do Dashboard "extremamente real e eficiente" (a IA vai usá-lo como base). Diagnóstico: o Score antigo era `50 + variação%×10` (uma linha) e os indicadores exibidos (RSI/MACD/EMA/Volume, "atualizado há Xs", insight) eram TODOS mockados/derivados do próprio score ou `Math.random()`. Alinhado com o Cleber um modelo de **fatores ortogonais** (Tendência 40% / Momentum 25% / Estrutura-Fibonacci 20% / Volume 15%, modulados por regime), multi-timeframe, com medidor de validação. Escopo aprovado: Motor + Dashboard + Validação (IA fica pra depois).
+
+### O que foi construído
+1. **[MarketScoreEngine.ts](src/app/services/MarketScoreEngine.ts)** (novo) — motor único de Score. Consome candles reais multi-TF (`backtestDataService.fetchHistoricalData`, TF do usuário + TF-mãe) e o motor de indicadores já existente (`TechnicalIndicators.ts`). Fatores:
+   - **Tendência (40%)**: alinhamento EMA9/SMA20/SMA200 + inclinação SMA200 + ADX (modula magnitude), combinado TF-usuário (0.6) + TF-mãe (0.4).
+   - **Momentum (25%)**: MÉDIA de RSI+Estocástico+MACD (média, não soma — evita falsa tripla-confirmação do mesmo eixo).
+   - **Estrutura/Fibonacci (20%)**: posição do preço no swing recente (0..1) → viés barato/caro.
+   - **Volume (15%)**: OBV slope × força do volume vs média.
+   - **Regime** (ADX+Bollinger) MODULA: em tendência, momentum acompanha; em lateral, osciladores viram mean-reversion e tendência pesa 0.5.
+   - Saída: `{ score 1-99, classification, confidence, factors, indicators, regime, insight, provenance }`. Provenance `partial`/`unavailable` quando falta dado — NUNCA inventa número.
+2. **[MarketScoreValidator.ts](src/app/services/MarketScoreValidator.ts)** (novo) — walk-forward sem look-ahead: em cada barra passada calcula o score só com dados até ali, mede retorno das próximas N barras, agrupa por faixa + reporta o subconjunto de ALTA CONVICÇÃO (score extremo + confiança alta — como a IA opera).
+3. **[MarketScoreBoard.tsx](src/app/components/dashboard/MarketScoreBoard.tsx)** — ligado ao motor real: novo `scoreResult` state + efeito (recalcula ao trocar ativo/TF e a cada 15s). Removidos os mocks: RSI/MACD/EMA/Volume falsos → valores REAIS do motor (agora exibe RSI, MACD, Estocástico, Médias 9/20/200, Volume, Confiança); "atualizado há Xs" aleatório → "Regime: X"; insight sorteado → insight gerado do breakdown real. Fallback pra fórmula antiga só enquanto o 1º cálculo real não chega.
+
+### Validação (a prova, rodada contra dados reais)
+Rodado o medidor: **BTC 1h → 81% de acerto direcional nas leituras de convicção (32 sinais); BTC 15m → 75% (12 sinais); ETH 1h → 30% (sem edge nesta amostra)**. Achado honesto importante: tentei expandir a faixa do score (tanh gain) pra tirar da zona neutra, mas o validador provou na hora que isso MATA o sinal (a faixa de venda forte acertava ~84% justamente por ser rara — forçar setups ambíguos aos extremos diluiu pra 50%). Revertido. A correlação geral (~0.03) NÃO é a métrica certa — o meio neutro é ruído por design; o edge está concentrado nas leituras raras de alta convicção, exatamente onde a IA deve agir. Edge é dependente de ativo/TF (forte em BTC, fraco em ETH nesta janela).
+
+### Verificação feita
+`vite build` limpo (só warnings de chunking pré-existentes). Validação rodada contra candles reais (Binance) via esbuild+node. **NÃO testado visualmente logado** (mesma limitação de sempre — score precisa de candles reais da conta MetaAPI de plataforma; preview local sem login não exercita). Falta o Cleber confirmar no app: selecionar um ativo e ver o Score/indicadores/confiança/insight reais atualizando.
+
+### Pendente real pra próxima sessão
+1. **Commit (nada commitado ainda):**
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketScoreEngine.ts src/app/services/MarketScoreValidator.ts \
+  src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "feat: Market Score REAL no Dashboard — motor de fatores ortogonais (tendencia/momentum/estrutura-fibonacci/volume, modulados por regime, multi-timeframe) a partir de candles reais, substituindo a formula '50+variacao%x10' e removendo os indicadores mockados (RSI/MACD/EMA/Volume derivados do proprio score, 'atualizado ha Xs' aleatorio, insight sorteado); adiciona medidor de validacao walk-forward sem look-ahead (BTC 1h: 81% de acerto nas leituras de conviccao)"
+git push origin main
+```
+2. Confirmar visualmente logado que o Score/indicadores/confiança batem e atualizam.
+3. **Próximo passo do roadmap (Fase A→IA)**: ligar o `MarketScoreEngine` como entrada da IA (`useApexLogic`) — decidido fazer DEPOIS de provar o score no Dashboard.
+4. **Fase B do Score** (não iniciada): camada exógena real — consertar o calendário econômico (stub), COT/retail sentiment como proxy de posicionamento, order book real só cripto (Binance). Social fica pra Fase C (ROI duvidoso).
+5. Considerar calibrar pesos/limiares de convicção por ativo/TF usando o validador (ETH mostrou fraqueza — vale investigar se é o ativo ou a janela).
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-16, continuação 6)
 
 ## Sessão nova (2026-07-16, continuação 6): auditoria em massa de catálogo (cripto, UK/França/Espanha/Portugal/Holanda/Alemanha) + fix de mercado fechado + bug de case-sensitivity — NADA COMMITADO AINDA
 
