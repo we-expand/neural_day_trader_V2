@@ -349,7 +349,17 @@ function buildInsight(
   if (classification === 'VENDEDOR') {
     return `Pressão vendedora em ${regimeTxt}. ${parts}. Volume ${ind.volumeRatio && ind.volumeRatio > 1.2 ? 'acima da média (confirma)' : 'moderado'}.`;
   }
-  return `Mercado sem direção definida (${regimeTxt}). ${parts}. Aguardando rompimento.`;
+  // ✅ 2026-07-17: `classification` (consenso direcional do score, os 4
+  // fatores combinados) e `regime` (só estrutura de tendência via ADX) medem
+  // coisas DIFERENTES e podem legitimamente discordar — ex: ADX alto (regime
+  // TENDENCIA) mas os fatores não convergem o bastante pra um score>60
+  // (classification LATERAL). Isso é um estado real (tendência "capenga",
+  // sem consenso forte), não bug — mas a frase antiga ("Mercado sem direção
+  // definida (mercado em tendência)") lia como autocontraditória. Reescrita
+  // pra deixar claro que são dois sinais distintos, não uma contradição.
+  return regime === 'TENDENCIA'
+    ? `Estrutura de tendência presente (${adxTxt || 'ADX moderado'}), mas os fatores não convergem o bastante pra um consenso direcional forte. ${parts}. Aguardando confirmação.`
+    : `Mercado sem direção definida (${regimeTxt}). ${parts}. Aguardando rompimento.`;
 }
 
 // ---------------------------------------------------------------------------
