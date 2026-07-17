@@ -330,6 +330,26 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
     : regime === 'LATERAL' ? -m.value * 0.6
     : m.value * 0.4;
 
+  // ✅ 2026-07-17: mesmo problema do momentum, achado ao vivo com BTC em alta
+  // forte — `structureFactor` lê "perto do topo do swing recente" como
+  // caro/vender (mean-reversion), sempre. Isso é correto em mercado LATERAL
+  // (onde Fibonacci/suporte-resistência são o sinal primário), mas em
+  // TENDÊNCIA forte um swing de curto prazo se refaz a cada novo topo — "perto
+  // do topo" é CONTINUAÇÃO, não exaustão. Sem amortecer aqui, a Estrutura
+  // brigava contra Tendência+Momentum e arrastava o score pro neutro bem no
+  // meio de uma alta real (score 49 com RSI 69 e ADX subindo). Mesma filosofia
+  // de regime já aplicada ao momentum.
+  // ✅ 2026-07-17: calibrado com o MarketScoreValidator (não é achismo) — 0.3
+  // dampenava demais (deixava setups fracos passarem: BTC 1h caiu de 81%→59%
+  // de acerto). 0.6 é o ponto de equilíbrio: recall bom (BTC não fica mais
+  // preso em "lateral" durante tendência real) sem sacrificar precisão (BTC
+  // 1h 70%/82 sinais, BTC 15m 76%/51 sinais — mais amostra que o 0.3 original
+  // com qualidade similar ao balanceamento anterior).
+  const structureEff =
+    regime === 'TENDENCIA' ? s.value * 0.6
+    : regime === 'LATERAL' ? s.value
+    : s.value * 0.5;
+
   // Sem expansão artificial de faixa: a validação (2026-07-17) mostrou que
   // forçar o score aos extremos só deixa setups ambíguos entrarem nas faixas de
   // convicção e mata o sinal (a faixa de venda forte acertava ~84% justamente
@@ -339,7 +359,7 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
   const bruto =
     WEIGHTS.trend * trend * regimeTrendScale +
     WEIGHTS.momentum * momentumEff +
-    WEIGHTS.structure * s.value +
+    WEIGHTS.structure * structureEff +
     WEIGHTS.volume * v.value;
 
   const score = clamp(Math.round(50 + bruto * 50), 1, 99);
@@ -350,7 +370,7 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
   const weighted: Array<[number, number]> = [
     [WEIGHTS.trend, trend * regimeTrendScale],
     [WEIGHTS.momentum, momentumEff],
-    [WEIGHTS.structure, s.value],
+    [WEIGHTS.structure, structureEff],
     [WEIGHTS.volume, v.value],
   ];
   const agreementScore = weighted.reduce((acc, [w, f]) => acc + w * (Math.sign(f) === netDir ? 1 : -1), 0); // -1…+1
@@ -387,7 +407,7 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
     classification,
     confidence,
     regime,
-    factors: { trend, momentum: momentumEff, structure: s.value, volume: v.value },
+    factors: { trend, momentum: momentumEff, structure: structureEff, volume: v.value },
     indicators,
     insight: buildInsight(classification, regime, indicators),
     provenance,
