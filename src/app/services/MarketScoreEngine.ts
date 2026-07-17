@@ -425,15 +425,19 @@ export class MarketScoreEngine {
         parentTimeframe,
         timestamp: Date.now(),
       };
-    } catch (e) {
-      if (e instanceof BacktestDataUnavailableError) {
-        return this.unavailable(symbol, timeframe, parentTimeframe);
-      }
-      throw e;
+    } catch (e: any) {
+      // ✅ 2026-07-17: antes só tratava `BacktestDataUnavailableError` e
+      // relançava qualquer outro erro (ex: `TypeError: Failed to fetch` de um
+      // CORS/bloqueio geográfico no navegador do usuário) — isso propagava pro
+      // caller sem nunca resolver a Promise de forma tratável, e a UI ficava
+      // travada em "Calculando..." pra sempre, sem avisar nada. Agora qualquer
+      // falha de rede/dado vira um resultado explícito 'unavailable' (nunca
+      // finge dado real, mas também nunca trava mudo).
+      return this.unavailable(symbol, timeframe, parentTimeframe, e?.message);
     }
   }
 
-  private static unavailable(symbol: string, timeframe: Timeframe, parentTimeframe: Timeframe): MarketScoreResult {
+  static unavailable(symbol: string, timeframe: Timeframe, parentTimeframe: Timeframe, reason?: string): MarketScoreResult {
     return {
       score: 50,
       classification: 'LATERAL',
@@ -444,7 +448,7 @@ export class MarketScoreEngine {
         rsi: null, stochK: null, stochD: null, ema9: null, sma20: null, sma200: null,
         macdHistogram: null, adx: null, atr: null, volumeRatio: null, fibPosition: null, fibNearestLevel: null,
       },
-      insight: 'Sem fonte de dados real disponível para este ativo neste momento.',
+      insight: reason ? `Sem fonte de dados real disponível no momento (${reason}).` : 'Sem fonte de dados real disponível para este ativo neste momento.',
       provenance: 'unavailable',
       symbol,
       timeframe,

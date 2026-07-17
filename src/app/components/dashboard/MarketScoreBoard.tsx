@@ -615,11 +615,20 @@ export const MarketScoreBoard = () => {
 
     const computeScore = async () => {
       try {
+        // MarketScoreEngine.compute() já trata falha de rede/dado internamente
+        // e sempre resolve (nunca lança) — retorna provenance:'unavailable' em
+        // vez de travar a Promise. O catch aqui é só rede de segurança extra.
         const result = await MarketScoreEngine.compute(activeSymbol, timeframe);
         if (!cancelled) setScoreResult(result);
       } catch (e: any) {
         console.warn('[MarketScoreBoard] Falha ao calcular Score real:', e?.message);
-        // Mantém o último score conhecido em vez de zerar — não inventa nada.
+        // ✅ 2026-07-17: antes só logava e deixava `scoreResult` como estava —
+        // se a 1ª chamada da sessão falhasse, ficava `null` pra sempre e a UI
+        // travava em "Calculando..." mudo, sem nunca avisar o usuário. Agora
+        // sempre emite um estado explícito 'unavailable' (nunca inventa dado).
+        if (!cancelled) {
+          setScoreResult(MarketScoreEngine.unavailable(activeSymbol, timeframe, timeframe, e?.message));
+        }
       }
     };
 
@@ -1234,6 +1243,9 @@ export const MarketScoreBoard = () => {
                                                     : scoreResult!.regime === 'LATERAL'
                                                     ? `Mercado lateralizado (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Osciladores interpretados como reversão à média nesse regime. Zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)}.`
                                                     : `Regime indefinido — sinais técnicos não convergem o suficiente pra uma leitura de confiança.`
+                                            ) : scoreResult?.provenance === 'unavailable' ? (
+                                                // ✅ 2026-07-17: distingue "ainda carregando" de "falhou e o motivo é X" — nunca mais fica mudo
+                                                scoreResult.insight
                                             ) : (
                                                 `Calculando fatores técnicos reais (tendência, momentum, estrutura, volume)...`
                                             )}

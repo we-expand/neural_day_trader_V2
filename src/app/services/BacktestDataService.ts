@@ -114,9 +114,24 @@ class BacktestDataService {
     }
 
     const binanceTicker = await resolveBinanceTicker(catalogSymbol);
-    const result = binanceTicker
-      ? await this.fetchFromBinance(binanceTicker, startDate, endDate, timeframe)
-      : await this.fetchFromMetaApiHistory(catalogSymbol, startDate, endDate, timeframe);
+    let result: HistoricalDataResponse;
+
+    if (binanceTicker) {
+      try {
+        result = await this.fetchFromBinance(binanceTicker, startDate, endDate, timeframe);
+      } catch (binanceError) {
+        // ✅ 2026-07-17: chamada direta à Binance a partir do NAVEGADOR do
+        // usuário pode falhar (CORS/bloqueio geográfico 451, já documentado
+        // repetidamente neste projeto pra outros serviços de cripto) mesmo
+        // quando o servidor consegue — antes isso derrubava o Score inteiro
+        // pra sempre. Cai pra MetaAPI (via broker de plataforma) como
+        // segunda fonte real, em vez de desistir.
+        console.warn(`[BACKTEST_DATA] ⚠️ Binance falhou pra ${binanceTicker}, tentando MetaAPI:`, binanceError);
+        result = await this.fetchFromMetaApiHistory(catalogSymbol, startDate, endDate, timeframe);
+      }
+    } else {
+      result = await this.fetchFromMetaApiHistory(catalogSymbol, startDate, endDate, timeframe);
+    }
 
     this.cache.set(cacheKey, result.candles);
     return result;
@@ -198,7 +213,20 @@ class BacktestDataService {
       }),
     });
 
-    const data = await response.json();
+    // ✅ 2026-07-17: resposta não-JSON (ex: erro HTML/vazio de rede, ou 401 sem
+    // corpo) fazia `.json()` lançar `SyntaxError: Unexpected end of JSON input`
+    // — um erro genérico que escondia a causa real. Lê como texto primeiro e
+    // tenta parsear, com mensagem explícita se falhar.
+    const rawText = await response.text();
+    let data: any;
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      throw new BacktestDataUnavailableError(
+        catalogSymbol,
+        `Resposta inválida do servidor de candles (HTTP ${response.status})`
+      );
+    }
 
     if (!response.ok || !data.success) {
       throw new BacktestDataUnavailableError(

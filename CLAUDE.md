@@ -1,4 +1,33 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 2)
+
+## Sessão nova (2026-07-17, continuação 2): Score real ficava travado mudo em "Calculando..." pra sempre — 3 bugs de robustez corrigidos — NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber deployou a sessão anterior e reportou (print) que o painel "Análise Neural em Tempo Real" ficava com tudo em branco/"—", travado em "Calculando fatores técnicos reais..." pra sempre.
+
+**Causa raiz (3 bugs de robustez, todos no caminho de busca de candles)**:
+1. **[BacktestDataService.ts](src/app/services/BacktestDataService.ts)**: pra cripto (ex: BTCUSD), sempre tentava só a Binance direto do navegador — sem fallback. Chamada direta à Binance a partir do navegador do usuário tem histórico documentado de falhar (CORS/bloqueio geográfico 451, várias sessões anteriores sobre `DirectBinanceService`) mesmo quando o servidor consegue. Se falhasse, a exceção subia sem nunca tentar a MetaAPI (que já serve BTCUSD via corretora de plataforma, roteamento já existente pra preço ao vivo). **Fix**: tenta Binance, se falhar cai pra MetaAPI automaticamente.
+2. **[MarketScoreEngine.ts](src/app/services/MarketScoreEngine.ts)**: `compute()` só tratava `BacktestDataUnavailableError` — qualquer outro erro (ex: `TypeError: Failed to fetch` de uma falha de rede/CORS crua) era relançado sem nunca resolver a Promise de forma tratável. `MarketScoreBoard` só dava `console.warn` no catch e NUNCA atualizava o estado — se a 1ª tentativa da sessão falhasse, `scoreResult` ficava `null` pra sempre, UI travada mudo. **Fix**: `compute()` agora captura QUALQUER erro e sempre resolve com um resultado explícito `provenance:'unavailable'` (com o motivo do erro na mensagem); `MarketScoreBoard` sempre atualiza o estado, nunca mais fica preso em "Calculando...".
+3. **[BacktestDataService.ts](src/app/services/BacktestDataService.ts)** `fetchFromMetaApiHistory`: fazia `response.json()` direto — resposta não-JSON (401 sem corpo, erro de rede) lançava `SyntaxError: Unexpected end of JSON input`, um erro genérico que escondia a causa real. Agora lê como texto primeiro e reporta o HTTP status na mensagem se não for JSON válido.
+
+**Resultado**: a UI agora **nunca mais trava muda** — ou mostra o Score real, ou mostra a razão exata da indisponibilidade (ex: "Sem fonte de dados real disponível no momento (Sem dado histórico real disponível para BTCUSDT)"), permitindo diagnosticar em produção sem precisar do DevTools.
+
+### Verificação feita
+`vite build` limpo. Testado no preview local (`npm run dev`, sem login): confirmado que a UI resolve pra um estado explícito em vez de travar — mostrou a mensagem de erro real (`Sem dado histórico real disponível para BTCUSDT`, esperado sem sessão real neste ambiente) em vez de ficar presa em "Calculando...". **Não testado em produção com login real** — o Cleber precisa confirmar que, logado, os candles resolvem (Binance ou MetaAPI) e o Score/indicadores aparecem com dado real.
+
+### Pendente real pra próxima sessão
+1. **Commit** (inclui tudo desde a sessão anterior):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketScoreEngine.ts src/app/services/MarketScoreValidator.ts \
+  src/app/services/BacktestDataService.ts src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "feat: Market Score REAL no Dashboard — motor de fatores ortogonais (tendencia/momentum/estrutura-fibonacci/volume, modulados por regime, multi-timeframe) a partir de candles reais, substituindo a formula '50+variacao%x10' e removendo TODOS os indicadores mockados; adiciona medidor de validacao walk-forward sem look-ahead (BTC 1h: 81% de acerto nas leituras de conviccao); fix: painel travava mudo em 'Calculando...' pra sempre quando a busca de candles falhava (Binance sem fallback pra MetaAPI, erro generico nao tratado, resposta nao-JSON derrubando o parse) — agora sempre resolve com Score real ou mensagem honesta do motivo"
+git push origin main
+```
+2. **Confirmar em produção, logado**: selecionar BTCUSD (e outro ativo, ex: EURUSD) e ver se o Score real aparece com números (não mais "—" travado). Se ainda aparecer a mensagem de indisponibilidade, copiar o texto exato (agora tem o motivo real) e investigar a partir dele — não precisa mais adivinhar.
+3. Se em produção continuar mostrando "Sem dado histórico real disponível" mesmo logado: pode ser a rota `/mt5-candles-history` rejeitando o timeframe mapeado ou o formato de data — usar a mensagem de erro real (agora visível na UI) como próximo passo de investigação.
+4. Tudo mais pendente das sessões anteriores (Nexus Quantum Advisor a ser extinto, ligar motor na IA depois de confirmado, Fase B do Score) continua valendo — ver seções abaixo.
+
+---
 
 ## Sessão nova (2026-07-17, continuação): auditoria completa do Dashboard (real vs mock) + achado grave no Nexus Quantum Advisor + porte das últimas caixas pro motor real — NÃO COMMITADO AINDA
 
