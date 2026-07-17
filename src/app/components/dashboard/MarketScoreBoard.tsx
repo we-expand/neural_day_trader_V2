@@ -745,8 +745,19 @@ export const MarketScoreBoard = () => {
   // `score` que já é o resultado do MarketScoreEngine (ou 50/LATERAL honesto
   // se ainda indisponível) — nunca mais duas classificações discordando na
   // mesma tela.
-  const marketClassification =
-    score > 75 ? { label: 'ALTA FORTE', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
+  // ✅ 2026-07-17: `unavailable` (motor sem NENHUM dado real, nem cache de
+  // sessão anterior) renderizava como "LATERAL/RANGE" — indistinguível de um
+  // veredito real de mercado parado. Achado ao vivo: S&P em queda forte
+  // ("derretendo") mostrando "LATERAL/RANGE" porque o motor não conseguiu
+  // candle real (símbolo/rate-limit/qualquer falha) e caiu no fallback
+  // 50/LATERAL honesto — mas a UI não comunicava que era "sem dado", parecia
+  // um "mercado neutro" real. Vale pra QUALQUER ativo, não só o S&P. Fix:
+  // `unavailable` sem cache nenhuma vira um rótulo explícito "SEM DADOS",
+  // nunca mais confundível com uma leitura real de lateralização.
+  const isTrulyUnavailable = hasScoreData && scoreResult!.provenance === 'unavailable';
+  const marketClassification = isTrulyUnavailable
+    ? { label: 'SEM DADOS', color: 'text-slate-400', bgColor: 'bg-slate-600' }
+    : score > 75 ? { label: 'ALTA FORTE', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
     : score > 60 ? { label: 'TENDÊNCIA DE ALTA', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
     : score < 25 ? { label: 'CORREÇÃO FORTE', color: 'text-rose-400', bgColor: 'bg-rose-500' }
     : score < 40 ? { label: 'TENDÊNCIA DE BAIXA', color: 'text-rose-400', bgColor: 'bg-rose-500' }
