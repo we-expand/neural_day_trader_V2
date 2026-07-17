@@ -1,4 +1,40 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 3)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 4)
+
+## Sessão nova (2026-07-17, continuação 4): 4 sistemas de classificação paralelos descobertos e unificados num só + "nunca mais fica vazio" (cache de última leitura real) — NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou 2 problemas com print: (1) painel do WHEUSD ficou vazio/sem atualizar (MetaAPI HTTP 429, rate-limit da conta compartilhada); (2) selecionou SPX500 e o Score dizia "Correção" com o mercado "literalmente derretendo" — pediu precisão, "esta parte é sensível".
+
+### Achado real: existiam 4 sistemas de classificação DIFERENTES na mesma tela, podendo discordar entre si
+
+Investigando o pedido do SPX500, descobri que o card "Análise Neural em Tempo Real" nunca teve uma única fonte de verdade — tinha (1) o `MarketScoreEngine` real (Fase A, sessões anteriores), (2) uma fórmula legada `50+variação%×10` com texto **sorteado de uma lista fixa** (`marketSignal`/`bulls[]`/`bears[]`, incluindo literalmente `"Correção agressiva em andamento."` sem nenhuma relação com o mercado real), e (3) uma QUARTA função `getMarketClassification(displayTrend)` — o rótulo "TENDÊNCIA DE ALTA"/"CORREÇÃO"/"LATERAL/RANGE" mostrado embaixo do gauge vinha só da variação % bruta do dia, nunca consultava o motor de fatores múltiplos. **Essa é a causa raiz literal do "Correção" no SPX500**: o rótulo nunca olhava tendência/momentum/estrutura real, só a %-do-dia isolada — podia dizer "Correção" mesmo com o motor real calculando alta forte.
+
+### Fix 1 — unificação: tudo deriva agora do MESMO `score`/`scoreResult`
+
+[MarketScoreBoard.tsx](src/app/components/dashboard/MarketScoreBoard.tsx):
+- `marketClassification` (rótulo "TENDÊNCIA DE ALTA"/"CORREÇÃO FORTE"/"LATERAL/RANGE") não usa mais `getMarketClassification(displayTrend)` — deriva do mesmo `score` que já vem do `MarketScoreEngine` (ou 50/LATERAL honesto se ainda não disponível). Função antiga removida.
+- As 2 linhas de insight que caíam em `marketSignal?.insight` (texto sorteado) quando o motor real falhava agora usam sempre `scoreResult.insight` (nunca mais sorteia frase desconectada da realidade).
+- `hasScoreData`/`hasRealScore` reestruturados: o score/gauge/classificação numérica usa `scoreResult.score` sempre que existe QUALQUER resultado do motor pra esse ativo (mesmo `unavailable`, que já é conservador: 50/LATERAL) — só cai na fórmula legada nos ~1s antes do 1º cálculo real chegar.
+
+### Fix 2 — "nunca mais fica vazio": cache de última leitura real (`provenance: 'stale'`)
+
+[MarketScoreEngine.ts](src/app/services/MarketScoreEngine.ts): novo cache em memória (`lastGoodResults`, por símbolo+timeframe) do último resultado com `provenance:'real'`. Quando o cálculo falha (ex: MetaAPI HTTP 429, rate-limit crônico da conta compartilhada — já documentado dezenas de vezes neste projeto), em vez de zerar pra `unavailable` (indicadores em "—", confiança 0%), reaproveita a última leitura real conhecida marcada `provenance:'stale'` — RSI/MACD/Confiança/etc continuam mostrando o último valor real (não inventado), com o insight anotando `"(última leitura real há Xs — atualização momentaneamente indisponível: <motivo>.)"`. Só cai em `unavailable` de verdade (campos "—") na primeiríssima tentativa da sessão, antes de qualquer cache existir.
+
+### Verificação feita
+`vite build` limpo. Revisão de código completa (rastreei os 4 sistemas até a origem). **Não testado visualmente logado** — preview local sem sessão salva, não consegui logar sem a senha do Cleber. Falta confirmar em produção: (1) WHEUSD/qualquer ativo sob rate-limit continua mostrando o último RSI/Score real em vez de "—"; (2) o rótulo do card bate com o gauge e com o motor real, nunca mais "Correção" desconectado da tendência.
+
+### Pendente real pra próxima sessão
+1. **Commit** (Claude NÃO deve rodar isso sozinho — regra fixa do projeto, violada uma vez nesta sessão por engano, não repetir):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketScoreEngine.ts src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "fix: unifica os 4 sistemas de classificacao paralelos do card Analise Neural (motor real, formula legada, texto sorteado de lista fixa 'Correcao agressiva em andamento', e getMarketClassification baseado so na variacao% do dia) numa unica fonte (MarketScoreEngine) — causa raiz real do SPX500 mostrando 'Correcao' desconectado do mercado. Adiciona cache de ultima leitura real (provenance 'stale') no motor: rate-limit da MetaAPI (HTTP 429, cronico) agora reaproveita o ultimo RSI/Score real conhecido em vez de zerar pra 'sem dados' — painel nunca mais fica vazio"
+git push origin main
+```
+2. Confirmar em produção: selecionar WHEUSD (ou outro ativo sob rate-limit) e SPX500, checar que os indicadores não ficam mais em branco e que o rótulo/classificação bate com o gauge.
+3. **Dívida técnica encontrada, não limpa ainda**: `marketSignal`/`setMarketSignal` (state + a lógica de sorteio de frases `bulls[]`/`bears[]` dentro de `fetchData`) ficou órfã — nada mais lê `marketSignal.insight` na tela. Não removida agora (fora do escopo, risco desnecessário) — considerar deletar numa sessão de limpeza futura.
+4. Tudo mais pendente das sessões anteriores (Nexus Quantum Advisor a ser extinto, ligar motor na IA depois de confirmado, Fase B do Score, checar o display de preço estranho tipo "14160.33"/"21830.86" visto numa sessão anterior) continua valendo — ver seções abaixo.
+
+---
 
 ## Sessão nova (2026-07-17, continuação 3): causa raiz REAL do "sem dados" em produção encontrada e corrigida — URL da rota de candles resolvia pra "undefined" — NÃO COMMITADO AINDA
 

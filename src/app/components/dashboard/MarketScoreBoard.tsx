@@ -697,52 +697,42 @@ export const MarketScoreBoard = () => {
 
   // Derived Calculations
   // 🎯 2026-07-17: Score REAL do MarketScoreEngine (fatores ortogonais multi-TF)
-  // quando disponível pra este ativo/timeframe. Fallback pra fórmula antiga
-  // (variação%×10) só enquanto o primeiro cálculo real não chegou ou se a fonte
-  // de dados estiver indisponível — nunca inventa número.
-  const hasRealScore = scoreResult && scoreResult.symbol === activeSymbol && scoreResult.provenance !== 'unavailable';
-  const targetScore = hasRealScore ? scoreResult!.score : (50 + (targetTrendRef.current * 10));
+  // é a ÚNICA fonte de verdade pro gauge/classificação assim que existe um
+  // resultado pra este ativo — mesmo 'unavailable' (score:50/LATERAL, "não
+  // sei") é mais honesto que a fórmula legada de variação%×10, que gerava um
+  // segundo sistema de classificação paralelo e podia discordar do motor real
+  // na mesma tela (achado ao vivo: WHEUSD mostrando "TENDÊNCIA DE ALTA" +
+  // score 61 da fórmula antiga ENQUANTO o motor real dizia "sem dados"). A
+  // fórmula antiga só roda no vácuo de ~1s antes do 1º cálculo real chegar.
+  const hasScoreData = !!(scoreResult && scoreResult.symbol === activeSymbol);
+  // `hasRealScore` = tem NÚMERO real pra mostrar (score real OU última leitura
+  // real conhecida, marcada 'stale') — usado pelos campos que não têm um valor
+  // neutro sensato (confiança, fatores, indicadores). 'unavailable' sem cache
+  // nenhuma ainda mostra "—" nesses campos, mas o score/classificação em si já
+  // usa o resultado do motor (conservador: 50/LATERAL) via `hasScoreData`.
+  const hasRealScore = hasScoreData && (scoreResult!.provenance === 'real' || scoreResult!.provenance === 'stale');
+  const targetScore = hasScoreData ? scoreResult!.score : (50 + (targetTrendRef.current * 10));
   const smoothScore = marketStatus === 'CLOSED' ? 50 : targetScore;
   let score = Math.min(Math.max(Math.round(smoothScore), 1), 99);
 
   if (!Number.isFinite(score)) score = 50;
 
-  // 🔥 NOVA LÓGICA DE CLASSIFICAÇÃO BASEADA NA VARIAÇÃO REAL
-  const getMarketClassification = (change: number) => {
-    if (change >= -0.5 && change <= 0.5) {
-      return {
-        label: 'LATERAL/RANGE',
-        color: 'text-blue-400',
-        bgColor: 'bg-blue-500'
-      };
-    } else if (change > 0.5 && change <= 2) {
-      return {
-        label: 'ALTA',
-        color: 'text-emerald-400',
-        bgColor: 'bg-emerald-500'
-      };
-    } else if (change > 2) {
-      return {
-        label: 'ALTA FORTE',
-        color: 'text-emerald-400',
-        bgColor: 'bg-emerald-500'
-      };
-    } else if (change >= -1.7 && change < -0.5) {
-      return {
-        label: 'CORREÇÃO',
-        color: 'text-amber-400',
-        bgColor: 'bg-amber-500'
-      };
-    } else {
-      return {
-        label: 'CORREÇÃO FORTE',
-        color: 'text-rose-400',
-        bgColor: 'bg-rose-500'
-      };
-    }
-  };
-
-  const marketClassification = getMarketClassification(displayTrend); // ✅ FIX: Usar displayTrend (%) ao invés de displayChange ($)
+  // ✅ 2026-07-17: ANTES esse rótulo vinha de `getMarketClassification(displayTrend)`
+  // — uma leitura baseada SÓ na variação % bruta do dia, totalmente
+  // desconectada do motor de fatores múltiplos (Tendência/Momentum/Estrutura/
+  // Volume/Regime). Causa raiz real do bug reportado: SPX500 mostrando
+  // "CORREÇÃO" mesmo com o mercado subindo forte intradia — a variação%-do-dia
+  // sozinha não captura isso, e o motor real (que sim analisa isso direito)
+  // nem era consultado por esse rótulo. Unificado: agora deriva do MESMO
+  // `score` que já é o resultado do MarketScoreEngine (ou 50/LATERAL honesto
+  // se ainda indisponível) — nunca mais duas classificações discordando na
+  // mesma tela.
+  const marketClassification =
+    score > 75 ? { label: 'ALTA FORTE', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
+    : score > 60 ? { label: 'TENDÊNCIA DE ALTA', color: 'text-emerald-400', bgColor: 'bg-emerald-500' }
+    : score < 25 ? { label: 'CORREÇÃO FORTE', color: 'text-rose-400', bgColor: 'bg-rose-500' }
+    : score < 40 ? { label: 'TENDÊNCIA DE BAIXA', color: 'text-rose-400', bgColor: 'bg-rose-500' }
+    : { label: 'LATERAL/RANGE', color: 'text-blue-400', bgColor: 'bg-blue-500' };
 
   const entry = displayPrice; // 🔥 USAR displayPrice (direto da ref para crypto)
   const stopLoss = marketStatus === 'CLOSED' ? 0 : (score > 50 ? entry * 0.995 : entry * 1.005);
@@ -1180,7 +1170,8 @@ export const MarketScoreBoard = () => {
                                 : marketClassification.label}
                         </div>
                         <p className="text-xs text-slate-300 font-medium mt-2 max-w-[280px] mx-auto leading-relaxed">
-                            {(hasRealScore ? scoreResult!.insight : marketSignal?.insight) || "Analisando fluxo de ordens..."}
+                            {/* ✅ 2026-07-17: nunca mais cai no `marketSignal?.insight` (texto sorteado de uma lista fixa, sem relação com o mercado real — causa do "Correção agressiva em andamento" fantasma) */}
+                            {(hasScoreData ? scoreResult!.insight : null) || "Analisando fluxo de ordens..."}
                         </p>
                     </div>
                 </Card>
@@ -1233,7 +1224,8 @@ export const MarketScoreBoard = () => {
                                     <Activity className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
                                     <div className="flex-1 space-y-2">
                                         <p className="text-[12px] text-white leading-relaxed font-medium">
-                                            {(hasRealScore ? scoreResult!.insight : marketSignal?.insight) || "Analisando estrutura de mercado..."}
+                                            {/* ✅ 2026-07-17: idem — sempre o insight real do motor, nunca mais o sorteio da lista fixa */}
+                                            {(hasScoreData ? scoreResult!.insight : null) || "Analisando estrutura de mercado..."}
                                         </p>
                                         <p className="text-[11.5px] text-slate-400 leading-relaxed">
                                             {/* 🎯 2026-07-17: texto REAL derivado dos fatores do MarketScoreEngine (nunca mais alega "book de ordens"/"fluxo institucional" que não temos fonte real pra medir) */}

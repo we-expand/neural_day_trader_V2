@@ -49,7 +49,7 @@ import {
 
 export type ScoreClassification = 'COMPRADOR' | 'VENDEDOR' | 'LATERAL';
 export type MarketRegime = 'TENDENCIA' | 'LATERAL' | 'INDEFINIDO';
-export type ScoreProvenance = 'real' | 'partial' | 'unavailable';
+export type ScoreProvenance = 'real' | 'partial' | 'stale' | 'unavailable';
 
 export interface MarketScoreFactors {
   /** -1 (baixa) … +1 (alta) */
@@ -418,14 +418,31 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
 // API PÚBLICA (com rede)
 // ---------------------------------------------------------------------------
 
+// ✅ 2026-07-17: cache do último resultado REAL (provenance:'real') por
+// símbolo+timeframe — sobrevive a falhas transitórias (ex: rate-limit HTTP
+// 429 da conta MetaAPI compartilhada, problema crônico já documentado em
+// dezenas de sessões deste projeto). Achado ao vivo: quando o motor falhava,
+// a UI caía num sistema LEGADO paralelo (`marketSignal`/fórmula antiga em
+// MarketScoreBoard.tsx) que sorteava texto aleatório ("Correção agressiva em
+// andamento.") sem nenhuma relação com o mercado real — pior que mostrar nada.
+// Agora: sucesso grava aqui; falha reaproveita a última leitura real
+// conhecida (marcada 'stale', nunca inventa um número novo) em vez de cair
+// nesse fallback paralelo.
+const lastGoodResults = new Map<string, MarketScoreResult>();
+function cacheKey(symbol: string, timeframe: Timeframe): string {
+  return `${symbol}_${timeframe}`;
+}
+
 export class MarketScoreEngine {
   /**
    * Calcula o Market Score REAL do ativo no timeframe dado.
    * Busca candles reais (user TF + TF-mãe) e roda o núcleo de agregação.
-   * Lança/retorna provenance 'unavailable' se não houver fonte real de dados.
+   * Em falha, retorna a última leitura real conhecida (provenance 'stale')
+   * se existir, ou 'unavailable' explícito na primeira tentativa da sessão.
    */
   static async compute(symbol: string, timeframe: Timeframe): Promise<MarketScoreResult> {
     const parentTimeframe = PARENT_TF[timeframe];
+    const key = cacheKey(symbol, timeframe);
 
     try {
       const [userCandles, parentCandles] = await Promise.all([
@@ -434,27 +451,43 @@ export class MarketScoreEngine {
       ]);
 
       if (!userCandles || userCandles.length < 30) {
-        return this.unavailable(symbol, timeframe, parentTimeframe);
+        return this.unavailableOrStale(symbol, timeframe, parentTimeframe);
       }
 
       const core = computeScoreFromCandles(userCandles, parentCandles || []);
-      return {
+      const result: MarketScoreResult = {
         ...core,
         symbol,
         timeframe,
         parentTimeframe,
         timestamp: Date.now(),
       };
+      lastGoodResults.set(key, result);
+      return result;
     } catch (e: any) {
       // ✅ 2026-07-17: antes só tratava `BacktestDataUnavailableError` e
       // relançava qualquer outro erro (ex: `TypeError: Failed to fetch` de um
       // CORS/bloqueio geográfico no navegador do usuário) — isso propagava pro
       // caller sem nunca resolver a Promise de forma tratável, e a UI ficava
       // travada em "Calculando..." pra sempre, sem avisar nada. Agora qualquer
-      // falha de rede/dado vira um resultado explícito 'unavailable' (nunca
-      // finge dado real, mas também nunca trava mudo).
-      return this.unavailable(symbol, timeframe, parentTimeframe, e?.message);
+      // falha de rede/dado vira um resultado explícito 'stale'/'unavailable'
+      // (nunca finge dado real, mas também nunca trava mudo).
+      return this.unavailableOrStale(symbol, timeframe, parentTimeframe, e?.message);
     }
+  }
+
+  /** Reaproveita a última leitura real conhecida (marcada 'stale') se existir; senão, 'unavailable' honesto. */
+  private static unavailableOrStale(symbol: string, timeframe: Timeframe, parentTimeframe: Timeframe, reason?: string): MarketScoreResult {
+    const cached = lastGoodResults.get(cacheKey(symbol, timeframe));
+    if (cached) {
+      const ageSec = Math.round((Date.now() - cached.timestamp) / 1000);
+      return {
+        ...cached,
+        provenance: 'stale',
+        insight: `${cached.insight} (última leitura real há ${ageSec}s — atualização momentaneamente indisponível${reason ? `: ${reason}` : ''}.)`,
+      };
+    }
+    return this.unavailable(symbol, timeframe, parentTimeframe, reason);
   }
 
   static unavailable(symbol: string, timeframe: Timeframe, parentTimeframe: Timeframe, reason?: string): MarketScoreResult {
