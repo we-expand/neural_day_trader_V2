@@ -1,4 +1,71 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-17, continuação 5)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-18)
+
+## Sessão nova (2026-07-18): Order Book real (só cripto, Binance) conectado no MarketScoreEngine + na UI — auditoria completa do Nexus Quantum Advisor — NÃO COMMITADO AINDA
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu pra investigar se dava pra fazer o "Nexus Quantum Advisor" (painel 100% `Math.random()`, ver seção "Achado grave" mais abaixo) funcionar de verdade — em especial "Spoofing Detectado" e "Correlação Borboleta". Sessão de pesquisa + implementação real, terminando com uma feature nova em produção (pendente commit) e um mapa do que mais dá pra fazer real no resto do Nexus.
+
+### Auditoria: order book real em forex — testado e descartado, com prova
+
+Testado ao vivo contra a conta MetaAPI real do Cleber (rota de debug temporária, criada, testada e REMOVIDA na mesma sessão — nunca ficou exposta sem necessidade): `current-book` da MetaAPI pra EURUSD, GBPUSD, USDJPY, BTCUSD (via corretora) — **todos deram HTTP 404 "order book not found"**. Não é bug de código, é a Infinox rodando esses instrumentos em modo market-maker puro, sem DOM habilitado — confirmado pela própria API, não suposição. Testadas também alternativas de mercado (LMAX Exchange, Interactive Brokers/IdealPro, OANDA Position Book — descontinuado em 2024, IG Client Sentiment, Myfxbook Community Outlook, COT Report/CFTC) — ficam documentadas como substitutos honestos de *posicionamento* (não order book) pra uma sessão futura, nenhuma integrada ainda.
+
+**Conclusão**: order book real só existe pra **cripto** (Binance, pública, grátis, sem CORS — confirmado com fetch direto do browser).
+
+### Spoofing — tentado, testado a fundo, DESCARTADO por excesso de falso positivo
+
+Implementado [CryptoOrderBookAnalyzer.ts](src/app/services/orderbook/CryptoOrderBookAnalyzer.ts) com um `LargeOrderTracker` (heurística: ordem-outlier que aparece e some sem o preço alcançá-la). Testado contra BTC/SOL real por >2min de polling: mesmo depois de recalibrar (mediana LOCAL em vez do book inteiro, exigência de 2 confirmações consecutivas antes de rastrear), a taxa de falso positivo continuou alta (ratios de até 20.000x a mediana local). **Causa raiz real, não é questão de mais calibração**: REST polling a cada poucos segundos não é granular o bastante pra distinguir "ordem cancelada" de "ordem executada" entre dois snapshots — pra fazer direito precisaria do stream `@depth` cruzado com `@aggTrade` (WebSocket persistente, correlação de dois streams), um build bem maior. **Decisão**: heurística de "ordem puxada" não foi ligada em nada (nem UI, nem motor) — fica só a função `LargeOrderTracker` no código, não usada, documentada como item de roadmap futuro (stream, não polling).
+
+### O que foi conectado de verdade: desequilíbrio de book (imbalance)
+
+`computeDepthImbalance()` em [CryptoOrderBookAnalyzer.ts](src/app/services/orderbook/CryptoOrderBookAnalyzer.ts) — soma real de volume de compra/venda dentro de ±0.5% do preço médio, via `/api/v3/depth` da Binance. Testado contra BTC/ETH/SOL reais, valores plausíveis e organicamente variáveis (nada de padrão repetido).
+
+**Onde entra no motor** ([MarketScoreEngine.ts](src/app/services/MarketScoreEngine.ts)): novo campo `microstructure` no `MarketScoreResult` — **fora da fórmula ponderada** (`WEIGHTS`/`computeScoreFromCandles`) de propósito. Motivo técnico: a Binance não tem histórico de order book (só o presente), então esse sinal não pode ser validado pelo `MarketScoreValidator` (walk-forward sem look-ahead) do mesmo jeito rigoroso que Tendência/Momentum/Estrutura/Volume são. Misturar um fator não-validável na fórmula quebraria a garantia que sustenta todo o resto do Score. Em vez disso: contexto real adicional, anexado ao `insight` (texto), nunca contamina o número já validado. Confirmado que `MarketScoreValidator.ts` usa só `computeScoreFromCandles` (função pura, não tocada) — zero risco de regressão no que já está validado.
+
+`fetchMicrostructure()` só ativa pra ativo com categoria `CRYPTO` confirmada no catálogo (`assetDatabase.ts`) — nunca pra forex/índice/commodity. Falha (rede, símbolo sem correspondência) sempre vira `null` silencioso, nunca quebra o Score do ativo.
+
+### Bug real achado e corrigido testando ao vivo no navegador (não só em Node)
+
+Lógica isolada funcionava perfeito em teste unitário, mas **não aparecia no Dashboard de verdade**. Causa: `activeSymbol` pode chegar no motor no formato nativo da Binance (`BTCUSDT`, default de `TradingContext.selectedAsset`) em vez do formato de catálogo (`BTCUSD`) — `getAssetBySymbol('BTCUSDT')` sempre retorna `undefined` (catálogo só tem `'BTCUSD'`), então o gate de categoria bloqueava TODO ativo cripto selecionado via contexto global, silenciosamente. Fix: normaliza o sufixo `USDT` antes de checar categoria (mesmo tratamento já usado em `resolveBinanceTicker`/`normalizeForBroker` de `BacktestDataService.ts`). Confirmado depois do fix: `BTCUSDT` e `SOLUSD` (dois formatos) retornam `microstructure` corretamente; `EURUSD` continua `null`.
+
+### UI conectada — [MarketScoreBoard.tsx](src/app/components/dashboard/MarketScoreBoard.tsx)
+
+Nova linha "Book (Binance)" no grid de Indicadores do card "Análise Neural em Tempo Real" — só renderiza quando `scoreResult?.microstructure` existe (nunca mostra "—" pra ativo sem book, já que estruturalmente não existe pra eles). **Não mexido**: `NexusQuantumAdvisor.tsx` (painel mockado antigo, badge "SPOOFING DETECTADO" continua fake) — de propósito, já que está marcado pra extinção completa numa sessão futura; remendar antes de deletar seria trabalho perdido.
+
+### Verificação feita — testado ao vivo, logado, no navegador real (não só Node/curl)
+
+`npx esbuild` (bundle-check, import/export resolvem) em cada edição. Testado no preview local (`npm run dev`), logado (sessão salva do Cleber): BTC mostrando "Book (Binance): +53%" no card + insight citando "Book (tempo real) com pressão compradora de 53%"; EURUSD sem a linha (ausência correta, não erro). Zero erros novos no console (só o aviso pré-existente de MT5 Validator sem credenciais, esperado neste ambiente). Testado via `import()` direto no console do browser real (não just Node) pra confirmar CORS: fetch direto pra `api.binance.com/api/v3/depth` funciona sem bloqueio nesse ambiente.
+
+### Auditoria completa do Nexus Quantum Advisor — mapa do que mais dá pra fazer real (nenhum implementado ainda, só mapeado)
+
+| Fonte (das 9 originais) | Situação |
+|---|---|
+| Médias Móveis | ✅ Já real — já existe no `MarketScoreEngine` (fator Tendência). Só falta reaproveitar na UI. |
+| Fibonacci | ✅ Já real — já existe (fator Estrutura, `fibPosition`). Só falta reaproveitar na UI. |
+| Indicadores Técnicos | ✅ Já real — RSI/MACD/Estocástico/ADX já no motor. Só falta reaproveitar na UI. |
+| Pressão de Mercado | Redundante com Tendência+Momentum já reais — não precisa virar fonte nova. |
+| **Order Book** | 🆕 **Feito nesta sessão** — real só cripto (Binance), ver acima. |
+| Volume Profile | 🆕 Dá pra fazer real SEM custo — é matemática pura sobre candles já buscados (histograma volume×preço). Não implementado ainda. |
+| Fluxo Institucional | 🆕 Dá pra fazer real, 2 fontes grátis: COT Report (CFTC, semanal, forex/commodities) + whale trades via `@aggTrade` da Binance (cripto). Não implementado ainda. |
+| Notícias | 🔶 Parcial — calendário econômico real já raspado no backend, mas stub (`translateEconomicEvents()` sempre retorna vazio, bug documentado há sessões). Conserto é destravar o stub. Manchete com sentimento por ativo exigiria API paga — decisão separada. |
+| Redes Sociais | ❌ Decisão já tomada antes pelo Cleber (ROI duvidoso, Fase C) — mantida. |
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/orderbook/CryptoOrderBookAnalyzer.ts src/app/services/MarketScoreEngine.ts src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "feat: adiciona order book real (Binance, só cripto) ao MarketScoreEngine e à UI do card Analise Neural — desequilibrio de book real (imbalance) como contexto adicional no insight, fora da formula ponderada validada (Binance nao tem historico de book, nao da pra validar via MarketScoreValidator como os outros fatores). Card mostra 'Book (Binance): X%' so pra cripto com dado real, nunca '-' pra forex/indice/commodity. Fix: gate de categoria nao reconhecia simbolo em formato nativo Binance ('BTCUSDT'), so formato de catalogo ('BTCUSD') - Book nunca aparecia no Dashboard real apesar de funcionar isolado. Heuristica de spoofing (ordem puxada) implementada, testada a fundo (>2min contra BTC/SOL real) e descartada por excesso de falso positivo via REST polling - fica documentada como item futuro (precisa stream @depth + @aggTrade, nao polling)"
+git push origin main
+```
+2. Confirmar em produção: BTC (e outras criptos) mostrando "Book (Binance)" real no card; forex/índice sem a linha.
+3. Considerar as próximas features reais do Nexus, ordem sugerida por esforço: **Volume Profile** (zero custo, só matemática sobre candle já buscado) → **Fluxo Institucional via COT+whale trades** → **destravar stub de notícias**.
+4. **Spoofing real (não a heurística descartada)**: item maior, precisa WebSocket persistente (`@depth` + `@aggTrade` correlacionados) — não iniciado, avaliar se vale o esforço antes de embarcar.
+5. Extinção do `NexusQuantumAdvisor.tsx`/`MarketTendencyEngine.ts` (100% mock) continua pendente de execução — decisão já tomada em sessão anterior, ainda não feita.
+6. Tudo mais pendente de sessões anteriores (ver "Sessão nova (2026-07-17, continuação 5)" logo abaixo — viés de venda do SPX500 não investigado, teste visual do card com mercado aquecido) continua valendo.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-17, continuação 5)
 
 ## Sessão nova (2026-07-17, continuação 5): maratona de calibração do Market Score — 11 commits, todos já em produção — PAUSADA aguardando volume/volatilidade voltar pro mercado (sexta 19h, fim de semana)
 
