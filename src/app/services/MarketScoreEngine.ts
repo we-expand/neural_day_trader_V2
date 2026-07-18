@@ -30,10 +30,12 @@
 
 import {
   backtestDataService,
+  resolveBinanceTicker,
   type Timeframe,
   type CandleData,
   BacktestDataUnavailableError,
 } from './BacktestDataService';
+import { analyzeCryptoOrderBook, type DepthImbalanceResult } from './orderbook/CryptoOrderBookAnalyzer';
 import {
   calculateEMA,
   calculateSMA,
@@ -74,6 +76,20 @@ export interface MarketScoreIndicators {
   fibNearestLevel: number | null; // nível de Fib mais próximo (0.236, 0.382, ...)
 }
 
+/**
+ * Contexto de microestrutura de book — só cripto (Binance), tempo real.
+ * ⚠️ NUNCA entra na fórmula ponderada do score (`WEIGHTS`/`computeScoreFromCandles`):
+ * a Binance não tem histórico de order book, só estado atual — então este
+ * campo não pode ser validado pelo MarketScoreValidator (walk-forward sem
+ * look-ahead) como os outros fatores são. Fica como contexto adicional real,
+ * visível pra IA e pro insight, sem contaminar o número já validado.
+ */
+export interface MarketScoreMicrostructure {
+  imbalance: DepthImbalanceResult;
+  provenance: 'real';
+  fetchedAt: number;
+}
+
 export interface MarketScoreResult {
   score: number; // 1…99
   classification: ScoreClassification;
@@ -87,6 +103,8 @@ export interface MarketScoreResult {
   timeframe: Timeframe;
   parentTimeframe: Timeframe;
   timestamp: number;
+  /** null quando o ativo não é cripto ou a busca do book falhou. */
+  microstructure: MarketScoreMicrostructure | null;
 }
 
 // Pesos aprovados (Cleber, 2026-07-17). Somam 1.0.
@@ -543,6 +561,34 @@ function cacheKey(symbol: string, timeframe: Timeframe): string {
   return `${symbol}_${timeframe}`;
 }
 
+// ---------------------------------------------------------------------------
+// MICROESTRUTURA (order book) — só cripto, tempo real, fora da fórmula validada.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve o ticker Binance (se for cripto de verdade) e busca o desequilíbrio
+ * de book real. Nunca lança — falha silenciosa vira `null` (o Score continua
+ * funcionando normalmente pra qualquer ativo, cripto ou não).
+ */
+async function fetchMicrostructure(symbol: string): Promise<MarketScoreMicrostructure | null> {
+  try {
+    const binanceTicker = await resolveBinanceTicker(symbol);
+    if (!binanceTicker) return null; // não é cripto com correspondência real na Binance
+
+    const analysis = await analyzeCryptoOrderBook(binanceTicker, 0.5);
+    return { imbalance: analysis.imbalance, provenance: 'real', fetchedAt: analysis.fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+function describeMicrostructure(m: MarketScoreMicrostructure): string {
+  const { imbalance } = m.imbalance;
+  if (Math.abs(imbalance) < 15) return '';
+  const direction = imbalance > 0 ? 'compradora' : 'vendedora';
+  return `Book (tempo real) com pressão ${direction} de ${Math.abs(imbalance).toFixed(0)}%.`;
+}
+
 export class MarketScoreEngine {
   /**
    * Calcula o Market Score REAL do ativo no timeframe dado.
@@ -565,12 +611,17 @@ export class MarketScoreEngine {
       }
 
       const core = computeScoreFromCandles(userCandles, parentCandles || []);
+      const microstructure = await fetchMicrostructure(symbol);
       const result: MarketScoreResult = {
         ...core,
         symbol,
         timeframe,
         parentTimeframe,
         timestamp: Date.now(),
+        microstructure,
+        insight: microstructure
+          ? `${core.insight} ${describeMicrostructure(microstructure)}`
+          : core.insight,
       };
       lastGoodResults.set(key, result);
       return result;
@@ -617,6 +668,7 @@ export class MarketScoreEngine {
       timeframe,
       parentTimeframe,
       timestamp: Date.now(),
+      microstructure: null,
     };
   }
 }
