@@ -1388,6 +1388,25 @@ export const MarketScoreBoard = () => {
                                         {scoreResult ? `${scoreResult.confidence}%` : '—'}
                                     </span>
                                 </div>
+                                {/* 🎯 2026-07-18: Book real (Binance, order book) — SÓ cripto, só quando
+                                    a busca teve sucesso. Nunca renderiza "—" pra ativo sem book (forex/
+                                    índice/commodity): esse dado estruturalmente não existe pra eles
+                                    (Infinox/MetaAPI confirmado sem DOM, testado ao vivo em 2026-07-18)
+                                    — melhor ausente do que fingir indisponibilidade transitória. Fora da
+                                    fórmula ponderada do score (ver MarketScoreEngine.ts), só contexto. */}
+                                {scoreResult?.microstructure && (
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-400">Book (Binance):</span>
+                                        <span className={`font-bold ${
+                                            scoreResult.microstructure.imbalance.imbalance > 15 ? 'text-emerald-400'
+                                            : scoreResult.microstructure.imbalance.imbalance < -15 ? 'text-rose-400'
+                                            : 'text-white'
+                                        }`}>
+                                            {scoreResult.microstructure.imbalance.imbalance > 0 ? '+' : ''}
+                                            {scoreResult.microstructure.imbalance.imbalance.toFixed(0)}%
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                         

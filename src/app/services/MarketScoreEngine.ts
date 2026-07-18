@@ -36,6 +36,7 @@ import {
   BacktestDataUnavailableError,
 } from './BacktestDataService';
 import { analyzeCryptoOrderBook, type DepthImbalanceResult } from './orderbook/CryptoOrderBookAnalyzer';
+import { getAssetBySymbol } from '../config/assetDatabase';
 import {
   calculateEMA,
   calculateSMA,
@@ -572,6 +573,28 @@ function cacheKey(symbol: string, timeframe: Timeframe): string {
  */
 async function fetchMicrostructure(symbol: string): Promise<MarketScoreMicrostructure | null> {
   try {
+    // ✅ 2026-07-18: `resolveBinanceTicker` sozinho não basta — a Binance lista
+    // pares tipo 'EURUSDT' (Euro tokenizado) que resolvem pra símbolos de
+    // catálogo NÃO-cripto (ex: 'EURUSD', o CFD da Infinox). São dois mercados
+    // diferentes com nome parecido; misturar o book de um com os indicadores
+    // do outro no mesmo card é a mesma classe de inconsistência entre fontes
+    // já caçada no resto do projeto. Exige categoria CRYPTO confirmada no
+    // catálogo antes de sequer tentar resolver o ticker Binance.
+    //
+    // ✅ 2026-07-18 (2ª parte): `symbol` pode chegar aqui no formato NATIVO da
+    // Binance ('BTCUSDT', default de `TradingContext.selectedAsset` — mesma
+    // pegadinha já documentada em `resolveBinanceTicker`/`normalizeForBroker`
+    // em BacktestDataService.ts), não só no formato de catálogo ('BTCUSD').
+    // `getAssetBySymbol('BTCUSDT')` sempre retorna undefined (o catálogo só
+    // tem 'BTCUSD') — sem normalizar, TODO ativo cripto selecionado via
+    // TradingContext caía como "não-cripto" por engano, nunca mostrando o
+    // book real (achado testando ao vivo: BTCUSD isolado funcionava, o
+    // Dashboard de verdade não). Mesmo tratamento de sufixo USDT do resto do
+    // projeto: remove só o T final.
+    const catalogSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -1) : symbol;
+    const isCrypto = getAssetBySymbol(catalogSymbol)?.category === 'CRYPTO';
+    if (!isCrypto) return null;
+
     const binanceTicker = await resolveBinanceTicker(symbol);
     if (!binanceTicker) return null; // não é cripto com correspondência real na Binance
 
