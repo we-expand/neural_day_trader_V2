@@ -8,7 +8,7 @@ import { analyzeMarketStructure, makeSmartTradingDecision } from '@/app/services
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
-import { calculateRSI } from '@/app/services/indicators/TechnicalIndicators';
+import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { backtestDataService } from '@/app/services/BacktestDataService';
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
@@ -72,6 +72,20 @@ const RISK_PROFILE_ADJUSTMENTS: Record<string, { confidenceAdjust: number; sizeM
   INSTITUTIONAL_SMC: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
 };
 const DEFAULT_RISK_ADJUSTMENT = { confidenceAdjust: 0, sizeMultiplier: 1.0 };
+
+// Grupos de correlação estáticos (heurística, não é correlação de retornos calculada ao vivo —
+// ver research/RISK_MODULE_SPEC.md seção 3.5 para o plano de evoluir isso pra correlação real).
+const CORRELATION_GROUPS: Record<string, string> = {
+  EURUSD: 'USD_MAJORS', GBPUSD: 'USD_MAJORS', AUDUSD: 'USD_MAJORS', NZDUSD: 'USD_MAJORS',
+  USDJPY: 'USD_JPY_CHF', USDCHF: 'USD_JPY_CHF', USDCAD: 'USD_JPY_CHF',
+  XAUUSD: 'METALS', XAGUSD: 'METALS', XPTUSD: 'METALS', XPDUSD: 'METALS',
+  BTCUSD: 'CRYPTO_MAJOR', XBNUSD: 'CRYPTO_MAJOR', XETUSD: 'CRYPTO_MAJOR', XLCUSD: 'CRYPTO_MAJOR',
+  SPX500: 'US_INDICES', NAS100: 'US_INDICES', US30: 'US_INDICES', US2000: 'US_INDICES',
+  GER40: 'EU_INDICES', FRA40: 'EU_INDICES', UK100: 'EU_INDICES', ESP35: 'EU_INDICES',
+};
+function getCorrelationGroup(symbol: string): string | null {
+  return CORRELATION_GROUPS[symbol] || null;
+}
 
 // Definition of types for visual state
 export interface TradeVisual {
@@ -139,6 +153,18 @@ export interface AIConfig {
   // rodar exatamente essa estratégia via evaluateStrategyAt, a mesma função
   // usada pelo Backtest. null = nenhuma selecionada (ciclo é pulado).
   activeStrategyId: string | null;
+
+  // 🆕 Módulo de Gerenciamento de Risco (research/RISK_MODULE_SPEC.md) — regras
+  // adicionais, todas customizáveis pelo usuário na aba "Gerenciamento de Risco".
+  drawdownAnchor: 'INTRADAY_PEAK' | 'DAILY_CLOSE'; // FTMO/Topstep ancoram no fechamento diário
+  cooldownEnabled: boolean;
+  consecutiveLossesTrigger: number; // ex: 3 perdas seguidas ativa o cooldown
+  cooldownMinutes: number; // duração do bloqueio de novas entradas
+  maxTradesPerDay: number; // 0 = sem limite
+  positionSizingMode: 'FIXED' | 'ATR'; // FIXED = % linear (riskPerTrade); ATR = ajustado por volatilidade real
+  atrMultiplier: number; // só usado quando positionSizingMode === 'ATR'
+  correlationGuardEnabled: boolean;
+  correlationThreshold: number; // 0-1, acima disso reduz o tamanho da nova posição
 }
 
 export interface MarketContext {
@@ -272,6 +298,17 @@ const INITIAL_STATE: ApexLogicState = {
     dailyLossLimit: 5, // Limite de perda diária (%)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
     activeStrategyId: '2', // Padrão: "TDSM_98" (tendência + RSI), mesma estratégia disponível no Backtest
+
+    // Gerenciamento de Risco — defaults conservadores (modelo FTMO/Topstep)
+    drawdownAnchor: 'DAILY_CLOSE',
+    cooldownEnabled: true,
+    consecutiveLossesTrigger: 3,
+    cooldownMinutes: 60,
+    maxTradesPerDay: 0, // 0 = sem limite
+    positionSizingMode: 'FIXED',
+    atrMultiplier: 1.5,
+    correlationGuardEnabled: false,
+    correlationThreshold: 0.7,
   },
   mt5Credentials: null,
   executionMode: 'DEMO',
@@ -300,6 +337,8 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
   // precisam de histórico, não só do preço tick a tick). Renovado a cada 60s por
   // símbolo pra não bater a API a cada ciclo de 5s.
   const candleBufferRef = useRef<Map<string, { candles: import('../services/indicators/TechnicalIndicators').Candle[]; fetchedAt: number }>>(new Map());
+  // Gerenciamento de Risco: timestamp (ms) até quando novas entradas ficam bloqueadas por cooldown
+  const cooldownUntilRef = useRef<number>(0);
   // === STATE MANAGEMENT ===
   const [isActive, setIsActive] = useState(INITIAL_STATE.isActive);
   const [isPaused, setIsPaused] = useState(INITIAL_STATE.isPaused);
@@ -1122,7 +1161,44 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
             return;
           }
-          
+
+          // 🔒 GATE DE RISCO (research/RISK_MODULE_SPEC.md) — checado de forma síncrona
+          // logo antes de qualquer entrada, distinto do Health Check Guardian (que audita
+          // o estado geral a cada 5s e só pausa tudo via Safe Mode). Aqui é um veto
+          // pontual, por trade, sem desligar a IA.
+          const now = Date.now();
+
+          // Cooldown pós-perdas consecutivas
+          if (aiConfig.cooldownEnabled && now < cooldownUntilRef.current) {
+            const remainingMin = Math.ceil((cooldownUntilRef.current - now) / 60_000);
+            console.log(`[RISCO] 🧊 Cooldown ativo — ${remainingMin}min restantes (${aiConfig.consecutiveLossesTrigger} perdas seguidas)`);
+            return;
+          }
+          if (aiConfig.cooldownEnabled) {
+            const closedTrades = [...orderHistoryRef.current].filter(t => t.closedAt).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
+            let consecutiveLosses = 0;
+            for (const t of closedTrades) {
+              if ((t.currentProfit || 0) < 0) consecutiveLosses++;
+              else break;
+            }
+            if (consecutiveLosses >= aiConfig.consecutiveLossesTrigger) {
+              cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
+              console.log(`[RISCO] 🧊 Cooldown ATIVADO: ${consecutiveLosses} perdas seguidas — bloqueando novas entradas por ${aiConfig.cooldownMinutes}min`);
+              addLog(`🧊 Cooldown ativado: ${consecutiveLosses} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
+              return;
+            }
+          }
+
+          // Limite rígido de trades/dia
+          if (aiConfig.maxTradesPerDay > 0) {
+            const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
+            const tradesToday = orderHistoryRef.current.filter(t => (t.closedAt || t.timestamp) >= todayStart.getTime()).length + activeOrdersRef.current.length;
+            if (tradesToday >= aiConfig.maxTradesPerDay) {
+              console.log(`[RISCO] 🚫 Limite de trades/dia atingido: ${tradesToday}/${aiConfig.maxTradesPerDay}`);
+              return;
+            }
+          }
+
           console.log(`[DECISÃO FINAL] ${side === 'LONG' ? '🟢 COMPRA' : '🔴 VENDA'} | Estratégia: ${strategyName} | Confiança: ${confidenceScore}%`);
           
           // ✅ DETERMINAR DIREÇÃO BASEADA EM ESTRATÉGIA INTELIGENTE (não mais simplesmente priceChangePercent > 0)
@@ -1217,7 +1293,35 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
           
           // Capital para este trade (% do capital alocado)
           // 🔒 Ajustado pelo riskProfile do usuário (mesmo sizeMultiplier usado na confiança acima)
-          const tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+          let tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+
+          // 🆕 Position sizing por ATR (research/RISK_MODULE_SPEC.md, seção 3.2): em vez do
+          // % linear fixo, ajusta o capital arriscado pela volatilidade real do ativo —
+          // ativo mais volátil arrisca menos capital nominal pro mesmo % de risco.
+          if (aiConfig.positionSizingMode === 'ATR') {
+            const atrSeries = calculateATR(candles, 14);
+            const atrValue = atrSeries[atrSeries.length - 1];
+            if (atrValue && atrValue > 0) {
+              const atrDistance = atrValue * aiConfig.atrMultiplier;
+              const riskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+              // Normaliza contra o SL fixo já calculado (slDistance em preço), mantendo o
+              // mesmo capital de risco nominal mas escalando pelo tamanho real do stop em ATR
+              tradeCapital = slDistance > 0 ? riskCapital * (slDistance / atrDistance) : riskCapital;
+              console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} | capital ajustado: $${tradeCapital.toFixed(2)}`);
+            }
+          }
+
+          // 🆕 Alerta de correlação (research/RISK_MODULE_SPEC.md, seção 3.5): heurística por
+          // grupo estático (não é correlação de retornos calculada ao vivo — ver TODO na spec)
+          // reduz o tamanho pela metade se já existe posição aberta num ativo do mesmo grupo.
+          if (aiConfig.correlationGuardEnabled) {
+            const group = getCorrelationGroup(selectedSymbol);
+            const hasCorrelatedOpen = group && activeOrdersRef.current.some(o => o.symbol !== selectedSymbol && getCorrelationGroup(o.symbol) === group);
+            if (hasCorrelatedOpen) {
+              tradeCapital *= (1 - aiConfig.correlationThreshold * 0.5);
+              console.log(`[RISCO] 🔗 Correlação detectada (grupo "${group}") — tamanho reduzido para $${tradeCapital.toFixed(2)}`);
+            }
+          }
 
           // Garantir valor mínimo para evitar P&L zerado
           const minTradeCapital = 10; // Mínimo $10 por trade

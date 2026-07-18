@@ -1378,6 +1378,207 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                             </div>
                         </div>
 
+                        {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md */}
+                        <div className="mt-8 pt-6 border-t border-white/5">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
+                                    <Lock className="w-4 h-4" /> Gerenciamento de Risco
+                                </h3>
+                                <span className="text-[9px] text-slate-500">Você controla exatamente quando a IA para de operar</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+                                {/* Risco por trade + Max Drawdown */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Limites de Capital</span>
+
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Risco por Trade (%)</label>
+                                            <span className="text-xs font-mono text-red-400">{(config.riskPerTrade || 0).toFixed(1)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0.1" max="10" step="0.1"
+                                            value={config.riskPerTrade}
+                                            onChange={(e) => setConfig({ ...config, riskPerTrade: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Max Drawdown Aceito (%)</label>
+                                            <span className="text-xs font-mono text-red-400">{(config.maxDrawdown || 0).toFixed(0)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="5" max="50" step="1"
+                                            value={config.maxDrawdown}
+                                            onChange={(e) => setConfig({ ...config, maxDrawdown: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Ancoragem do Drawdown</label>
+                                        <div className="flex bg-black rounded-lg border border-white/10 p-1 gap-1">
+                                            <button
+                                                onClick={() => setConfig({ ...config, drawdownAnchor: 'DAILY_CLOSE' })}
+                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.drawdownAnchor === 'DAILY_CLOSE' ? 'bg-red-600 text-white' : 'text-slate-400'}`}
+                                            >Fechamento Diário</button>
+                                            <button
+                                                onClick={() => setConfig({ ...config, drawdownAnchor: 'INTRADAY_PEAK' })}
+                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.drawdownAnchor === 'INTRADAY_PEAK' ? 'bg-red-600 text-white' : 'text-slate-400'}`}
+                                            >Pico Intradiário</button>
+                                        </div>
+                                        <p className="text-[9px] text-slate-500">"Fechamento Diário" (padrão FTMO/Topstep) não pune lucro intradiário ainda não realizado.</p>
+                                    </div>
+                                </div>
+
+                                {/* Position Sizing */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Tamanho de Posição</span>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Modo de Cálculo</label>
+                                        <div className="flex bg-black rounded-lg border border-white/10 p-1 gap-1">
+                                            <button
+                                                onClick={() => setConfig({ ...config, positionSizingMode: 'FIXED' })}
+                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.positionSizingMode === 'FIXED' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                                            >% Fixo</button>
+                                            <button
+                                                onClick={() => setConfig({ ...config, positionSizingMode: 'ATR' })}
+                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.positionSizingMode === 'ATR' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                                            >Ajustado por ATR</button>
+                                        </div>
+                                        <p className="text-[9px] text-slate-500">ATR ajusta o tamanho pela volatilidade real do ativo no momento — mesmo risco em $, menos contratos em ativo mais volátil.</p>
+                                    </div>
+
+                                    {config.positionSizingMode === 'ATR' && (
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between">
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Multiplicador ATR</label>
+                                                <span className="text-xs font-mono text-blue-400">{(config.atrMultiplier || 0).toFixed(1)}x</span>
+                                            </div>
+                                            <input
+                                                type="range" min="0.5" max="4" step="0.1"
+                                                value={config.atrMultiplier}
+                                                onChange={(e) => setConfig({ ...config, atrMultiplier: parseFloat(e.target.value) })}
+                                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Taxa de Acerto Mínima (%)</label>
+                                            <span className="text-xs font-mono text-amber-400">{(config.minWinRate || 0).toFixed(0)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="30" max="80" step="1"
+                                            value={config.minWinRate}
+                                            onChange={(e) => setConfig({ ...config, minWinRate: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                        />
+                                        <p className="text-[9px] text-slate-500">Abaixo desta taxa de acerto (amostra ≥10 trades), a IA entra em Safe Mode.</p>
+                                    </div>
+                                </div>
+
+                                {/* Cooldown + Limite diário de trades */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Cooldown &amp; Frequência</span>
+
+                                    <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
+                                        <Zap className={`w-4 h-4 ${config.cooldownEnabled ? 'text-cyan-400' : 'text-slate-600'}`} />
+                                        <div className="flex-1">
+                                            <span className="text-xs font-bold text-white block">Cooldown pós-perdas</span>
+                                            <span className="text-[9px] text-slate-500">Pausa após N perdas seguidas</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setConfig({ ...config, cooldownEnabled: !config.cooldownEnabled })}
+                                            className={`w-10 h-5 rounded-full relative transition-colors ${config.cooldownEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                                        >
+                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.cooldownEnabled ? 'left-6' : 'left-1'}`} />
+                                        </button>
+                                    </div>
+
+                                    {config.cooldownEnabled && (
+                                        <>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Perdas Seguidas p/ Ativar</label>
+                                                    <span className="text-xs font-mono text-cyan-400">{config.consecutiveLossesTrigger}</span>
+                                                </div>
+                                                <input
+                                                    type="range" min="1" max="10" step="1"
+                                                    value={config.consecutiveLossesTrigger}
+                                                    onChange={(e) => setConfig({ ...config, consecutiveLossesTrigger: parseInt(e.target.value) })}
+                                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Duração do Cooldown (min)</label>
+                                                    <span className="text-xs font-mono text-cyan-400">{config.cooldownMinutes}min</span>
+                                                </div>
+                                                <input
+                                                    type="range" min="5" max="240" step="5"
+                                                    value={config.cooldownMinutes}
+                                                    onChange={(e) => setConfig({ ...config, cooldownMinutes: parseInt(e.target.value) })}
+                                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                                />
+                                            </div>
+                                        </>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Máx. Trades/Dia</label>
+                                            <span className="text-xs font-mono text-cyan-400">{config.maxTradesPerDay === 0 ? 'Sem limite' : config.maxTradesPerDay}</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0" max="50" step="1"
+                                            value={config.maxTradesPerDay}
+                                            onChange={(e) => setConfig({ ...config, maxTradesPerDay: parseInt(e.target.value) })}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                        />
+                                        <p className="text-[9px] text-slate-500">0 = sem limite. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
+                                    </div>
+                                </div>
+
+                                {/* Correlação entre posições */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4 lg:col-span-3">
+                                    <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
+                                        <Lock className={`w-4 h-4 ${config.correlationGuardEnabled ? 'text-purple-400' : 'text-slate-600'}`} />
+                                        <div className="flex-1">
+                                            <span className="text-xs font-bold text-white block">Alerta de Correlação entre Posições</span>
+                                            <span className="text-[9px] text-slate-500">Evita "diversificação disfarçada" — vários ativos que se movem juntos</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setConfig({ ...config, correlationGuardEnabled: !config.correlationGuardEnabled })}
+                                            className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${config.correlationGuardEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                                        >
+                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.correlationGuardEnabled ? 'left-6' : 'left-1'}`} />
+                                        </button>
+                                    </div>
+                                    {config.correlationGuardEnabled && (
+                                        <div className="space-y-2 max-w-md">
+                                            <div className="flex justify-between">
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Limiar de Correlação</label>
+                                                <span className="text-xs font-mono text-purple-400">{(config.correlationThreshold || 0).toFixed(2)}</span>
+                                            </div>
+                                            <input
+                                                type="range" min="0.3" max="1" step="0.05"
+                                                value={config.correlationThreshold}
+                                                onChange={(e) => setConfig({ ...config, correlationThreshold: parseFloat(e.target.value) })}
+                                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         {/* ASSET SELECTION REMOVED - REPLACED BY ASSET UNIVERSE COMPONENT */}
 
                         {/* SAVE ACTIONS FOOTER */}
