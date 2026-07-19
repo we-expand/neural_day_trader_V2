@@ -1778,19 +1778,24 @@ app.get("/debug-calendar-store", async (c) => {
 // ✅ NOVO: Economic Calendar - Trading Economics API
 app.get("/economic-calendar", async (c) => {
     try {
-        console.log('🔍 [AGENDA] === VERSÃO HARDCODED 2026-01-21 16:47 UTC ===');
-        console.log('🔍 [AGENDA] Iniciando busca de eventos econômicos...');
+        // ✅ 2026-07-19: filtro opcional por país/moeda (?country=US), usado
+        // pela Agenda Econômica Americana do Dashboard — não filtra por
+        // padrão pra não quebrar outros consumidores (ex: gate de notícias
+        // do useApexLogic.ts, que precisa de TODOS os eventos, não só EUA).
+        const countryFilter = c.req.query('country');
+        const filterByCountry = <T extends { currency?: string }>(events: T[]): T[] =>
+            countryFilter === 'US' ? events.filter(e => (e.currency || '').toUpperCase() === 'USD') : events;
+
+        console.log('🔍 [AGENDA] Iniciando busca de eventos econômicos...', countryFilter ? `(filtro: ${countryFilter})` : '');
         console.log('🔍 [AGENDA] Data atual:', new Date().toISOString());
-        console.log('🔍 [AGENDA] Dia da semana:', new Date().getDay());
-        console.log('🔍 [AGENDA] Dia do mês:', new Date().getDate());
-        
+
         // ✅ PRIORIDADE 1: MQL5 Economic Calendar (FONTE OFICIAL DO METATRADER!)
         console.log('📞 [AGENDA] Tentando MQL5 Economic Calendar...');
         const mql5Events = await fetchMQL5Calendar();
         if (mql5Events && mql5Events.length > 0) {
             console.log(`✅ [MQL5] ${mql5Events.length} eventos REAIS encontrados`);
-            const translatedMql5Events = translateEconomicEvents(mql5Events);
-            return c.json({ 
+            const translatedMql5Events = filterByCountry(translateEconomicEvents(mql5Events));
+            return c.json({
                 events: translatedMql5Events,
                 count: translatedMql5Events.length,
                 source: 'MQL5 Economic Calendar (MetaTrader)',
@@ -1798,17 +1803,26 @@ app.get("/economic-calendar", async (c) => {
             });
         }
         console.log('⚠️ [MQL5] Sem eventos ou falhou');
-        
+
         // ✅ PRIORIDADE 2: Investing.com (GRÁTIS - SEM KEY!)
+        // Mantido antes do Yahoo Finance (não reordenado nesta sessão): testei
+        // direto o endpoint do Yahoo (`query1.finance.yahoo.com/v1/finance/
+        // calendar/economic`) em 2026-07-19 e ele voltou uma página de erro
+        // interna do próprio Yahoo ("Unknown Host"/sad panda), sugerindo que
+        // esse endpoint não-documentado pode ter sido descontinuado — sem
+        // confirmação de que funciona melhor que o Investing.com hoje, não
+        // faz sentido promovê-lo. Cleber: se depois do deploy o Investing.com
+        // também falhar sempre (HTTP 403 — testei daqui e bati bloqueio, mas
+        // pode ser só IP de datacenter; precisa confirmar rodando na Edge
+        // Function real), considerar investigar uma 4ª fonte.
         console.log('📞 [AGENDA] Tentando Investing.com (Parser __NEXT_DATA__)...');
         const investingEvents = await fetchInvestingCalendarFromNextData();
         console.log('📊 [INVESTING.COM] Retornou:', investingEvents ? `${investingEvents.length} eventos` : 'null');
-        
+
         if (investingEvents && investingEvents.length > 0) {
             console.log(`✅ [INVESTING.COM] ${investingEvents.length} eventos encontrados`);
-            console.log('📋 [INVESTING.COM] Primeiros 3 eventos:', JSON.stringify(investingEvents.slice(0, 3), null, 2));
-            const translatedInvestingEvents = translateEconomicEvents(investingEvents);
-            return c.json({ 
+            const translatedInvestingEvents = filterByCountry(translateEconomicEvents(investingEvents));
+            return c.json({
                 events: translatedInvestingEvents,
                 count: translatedInvestingEvents.length,
                 source: 'Investing.com',
@@ -1817,13 +1831,13 @@ app.get("/economic-calendar", async (c) => {
         }
         console.log('⚠️ [INVESTING.COM] Sem eventos ou falhou');
 
-        // ✅ PRIORIDADE 3: Yahoo Finance (GRÁTIS, SEM KEY, CONFIÁVEL!)
+        // ✅ PRIORIDADE 3: Yahoo Finance (GRÁTIS, SEM KEY)
         console.log('📞 [AGENDA] Tentando Yahoo Finance...');
         const yahooEvents = await fetchYahooFinanceCalendar();
         if (yahooEvents && yahooEvents.length > 0) {
             console.log(`✅ [YAHOO FINANCE] ${yahooEvents.length} eventos encontrados`);
-            const translatedYahooEvents = translateEconomicEvents(yahooEvents);
-            return c.json({ 
+            const translatedYahooEvents = filterByCountry(translateEconomicEvents(yahooEvents));
+            return c.json({
                 events: translatedYahooEvents,
                 count: translatedYahooEvents.length,
                 source: 'Yahoo Finance',
@@ -4412,141 +4426,104 @@ app.route('/vix-proxy', vixProxyRoutes);
 // ========================================
 // 📰 NEWS RSS FEED PROXY (Evita CORS)
 // ========================================
+// Extraído em 2026-07-19 do handler original de `/news/rss` (única lógica de
+// fetch+parse, agora reaproveitada também pelo agregador `/news/aggregate`)
+// pra não duplicar o parser RSS/Atom em dois lugares.
+async function fetchAndParseRssFeed(feedUrl: string): Promise<{ title: string; items: { title: string; link: string; pubDate: string; guid: string }[] }> {
+  // TENTATIVA 1: RSS2JSON API
+  try {
+    const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
+    const response = await fetch(rss2jsonUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.status === 'ok' && data.items && data.items.length > 0) {
+        console.log(`[NEWS RSS] ✅ RSS2JSON OK: ${data.items.length} items (${feedUrl})`);
+        return { title: data.feed?.title || 'News Feed', items: data.items };
+      }
+    }
+    console.warn(`[NEWS RSS] ⚠️ RSS2JSON failed (HTTP ${response.status}), trying native parser... (${feedUrl})`);
+  } catch (rss2jsonError) {
+    console.warn(`[NEWS RSS] ⚠️ RSS2JSON error, trying native parser... (${feedUrl})`);
+  }
+
+  // TENTATIVA 2: PARSER NATIVO (XML direto) - com proteção contra erros
+  try {
+    console.log(`[NEWS RSS] 🔧 Using native XML parser... (${feedUrl})`);
+
+    const rssResponse = await fetch(feedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+      },
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!rssResponse.ok) {
+      console.warn(`[NEWS RSS] ⚠️ Native parser: HTTP ${rssResponse.status}`);
+      throw new Error(`HTTP ${rssResponse.status}`);
+    }
+
+    const xmlText = await rssResponse.text();
+    const items: { title: string; link: string; pubDate: string; guid: string }[] = [];
+    const isAtom = xmlText.includes('<feed') && xmlText.includes('xmlns="http://www.w3.org/2005/Atom"');
+
+    if (isAtom) {
+      const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+      const entries = xmlText.matchAll(entryRegex);
+
+      for (const entry of entries) {
+        const content = entry[1];
+        const title = content.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || '';
+        const link = content.match(/<link[^>]*href=["'](.*?)["']/)?.[1] || content.match(/<id[^>]*>(.*?)<\/id>/)?.[1] || '';
+        const pubDate = content.match(/<(?:updated|published)[^>]*>(.*?)<\/(?:updated|published)>/)?.[1] || new Date().toISOString();
+
+        if (title) {
+          items.push({ title: title.replace(/<[^>]*>/g, ''), link, pubDate, guid: link || `item-${items.length}` });
+        }
+        if (items.length >= 25) break;
+      }
+    } else {
+      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      const matches = xmlText.matchAll(itemRegex);
+
+      for (const match of matches) {
+        const itemContent = match[1];
+        const title = itemContent.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || '';
+        const link = itemContent.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || '';
+        const pubDate = itemContent.match(/<pubDate[^>]*>(.*?)<\/pubDate>/)?.[1] || itemContent.match(/<dc:date[^>]*>(.*?)<\/dc:date>/)?.[1] || new Date().toISOString();
+        const guid = itemContent.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1] || link || `item-${items.length}`;
+
+        if (title) {
+          items.push({ title: title.replace(/<[^>]*>/g, ''), link, pubDate, guid });
+        }
+        if (items.length >= 25) break;
+      }
+    }
+
+    const feedTitle = xmlText.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || 'News Feed';
+    console.log(`[NEWS RSS] ✅ Native parser OK: ${items.length} items from "${feedTitle}"`);
+    return { title: feedTitle.replace(/<[^>]*>/g, ''), items };
+  } catch (nativeParserError: any) {
+    console.warn(`[NEWS RSS] ⚠️ Native parser failed: ${nativeParserError.message} (${feedUrl})`);
+    return { title: 'News Feed', items: [] };
+  }
+}
+
 app.get('/news/rss', async (c) => {
   try {
     const feedUrl = c.req.query('url');
-    
+
     if (!feedUrl) {
-      // ✅ Mesmo sem URL, retornar feed vazio em vez de erro
-      return c.json({
-        status: 'ok',
-        feed: { title: 'Market News' },
-        items: []
-      });
+      return c.json({ status: 'ok', feed: { title: 'Market News' }, items: [] });
     }
-    
+
     console.log(`[NEWS RSS] 🔄 Fetching feed: ${feedUrl}`);
-    
-    // ✅ ESTRATÉGIA DUPLA: RSS2JSON primeiro, fallback para parser nativo
-    
-    // TENTATIVA 1: RSS2JSON API
-    try {
-      const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
-      const response = await fetch(rss2jsonUrl, { 
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: AbortSignal.timeout(5000) // 5s timeout
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'ok' && data.items && data.items.length > 0) {
-          console.log(`[NEWS RSS] ✅ RSS2JSON OK: ${data.items.length} items`);
-          return c.json(data);
-        }
-      }
-      console.warn(`[NEWS RSS] ⚠️ RSS2JSON failed (HTTP ${response.status}), trying native parser...`);
-    } catch (rss2jsonError) {
-      console.warn('[NEWS RSS] ⚠️ RSS2JSON error, trying native parser...');
-    }
-    
-    // TENTATIVA 2: PARSER NATIVO (XML direto) - com proteção contra erros
-    try {
-      console.log('[NEWS RSS] 🔧 Using native XML parser...');
-      
-      const rssResponse = await fetch(feedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'application/rss+xml, application/xml, text/xml, */*'
-        },
-        signal: AbortSignal.timeout(5000) // 5s timeout
-      });
-      
-      if (!rssResponse.ok) {
-        console.warn(`[NEWS RSS] ⚠️ Native parser: HTTP ${rssResponse.status}`);
-        throw new Error(`HTTP ${rssResponse.status}`);
-      }
-      
-      const xmlText = await rssResponse.text();
-      
-      // Parse XML manualmente (regex simples para RSS/Atom)
-      const items = [];
-      
-      // Detectar tipo de feed
-      const isAtom = xmlText.includes('<feed') && xmlText.includes('xmlns="http://www.w3.org/2005/Atom"');
-      
-      if (isAtom) {
-        // Parse Atom
-        const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-        const entries = xmlText.matchAll(entryRegex);
-        
-        for (const entry of entries) {
-          const content = entry[1];
-          const title = content.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || '';
-          const link = content.match(/<link[^>]*href=["'](.*?)["']/)?.[1] || content.match(/<id[^>]*>(.*?)<\/id>/)?.[1] || '';
-          const pubDate = content.match(/<(?:updated|published)[^>]*>(.*?)<\/(?:updated|published)>/)?.[1] || new Date().toISOString();
-          
-          if (title) {
-            items.push({
-              title: title.replace(/<[^>]*>/g, ''),
-              link,
-              pubDate,
-              guid: link || `item-${items.length}`
-            });
-          }
-          
-          if (items.length >= 25) break;
-        }
-      } else {
-        // Parse RSS 2.0
-        const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-        const matches = xmlText.matchAll(itemRegex);
-        
-        for (const match of matches) {
-          const itemContent = match[1];
-          const title = itemContent.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || '';
-          const link = itemContent.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1]?.trim() || '';
-          const pubDate = itemContent.match(/<pubDate[^>]*>(.*?)<\/pubDate>/)?.[1] || itemContent.match(/<dc:date[^>]*>(.*?)<\/dc:date>/)?.[1] || new Date().toISOString();
-          const guid = itemContent.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1] || link || `item-${items.length}`;
-          
-          if (title) {
-            items.push({
-              title: title.replace(/<[^>]*>/g, ''),
-              link,
-              pubDate,
-              guid
-            });
-          }
-          
-          if (items.length >= 25) break;
-        }
-      }
-      
-      // Extrair título do feed
-      const feedTitle = xmlText.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1').trim() || 'News Feed';
-      
-      console.log(`[NEWS RSS] ✅ Native parser OK: ${items.length} items from "${feedTitle}"`);
-      
-      // Retornar no formato compatível com RSS2JSON
-      return c.json({
-        status: 'ok',
-        feed: {
-          title: feedTitle.replace(/<[^>]*>/g, '')
-        },
-        items: items
-      });
-    } catch (nativeParserError: any) {
-      console.warn('[NEWS RSS] ⚠️ Native parser failed:', nativeParserError.message);
-      // Continua para o fallback final
-    }
-    
-    // ✅ FALLBACK FINAL: Se chegou aqui, TODOS os métodos falharam
-    console.log('[NEWS RSS] 📭 All methods failed, returning empty feed');
-    return c.json({
-      status: 'ok',
-      feed: { title: 'Market News' },
-      items: []
-    });
-    
+    const { title, items } = await fetchAndParseRssFeed(feedUrl);
+    return c.json({ status: 'ok', feed: { title }, items });
   } catch (error: any) {
     // ✅ Catch extremo: NUNCA retornar erro HTTP, sempre retornar feed válido
     console.error('[NEWS RSS] ❌ Unexpected error:', error.message);
@@ -4555,6 +4532,144 @@ app.get('/news/rss', async (c) => {
       feed: { title: 'Market News' },
       items: []
     });
+  }
+});
+
+// ========================================
+// 📰 NEWS AGGREGATOR — 15 notícias reais, categorizadas
+// (Cripto/Macro/Forex), com link real de saída e tradução
+// pro idioma do usuário. Criado em 2026-07-19: substitui o
+// NewsFeed.tsx antigo, que só tinha fonte real pra cripto
+// (as categorias "macro"/"forex" nunca eram populadas por
+// nada real) e caía num fallback de 25 manchetes fabricadas
+// atribuídas a veículos reais (Bloomberg/Reuters/etc) quando
+// a rede falhava — mesmo anti-padrão já eliminado em outras
+// partes do app (ver Nexus Quantum Advisor).
+// ========================================
+const NEWS_FEEDS: { url: string; category: 'crypto' | 'macro' | 'forex'; source: string }[] = [
+  { url: 'https://www.investing.com/rss/news_301.rss', category: 'crypto', source: 'Investing.com' },
+  { url: 'https://cointelegraph.com/rss', category: 'crypto', source: 'Cointelegraph' },
+  { url: 'https://www.investing.com/rss/news_1.rss', category: 'forex', source: 'Investing.com' },
+  { url: 'https://www.investing.com/rss/news_95.rss', category: 'macro', source: 'Investing.com' },
+  { url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html', category: 'macro', source: 'CNBC' },
+];
+
+// Cache de tradução em memória (dura enquanto a instância da Edge Function
+// ficar "quente" entre requisições — sem persistência, mas evita retraduzir
+// a mesma manchete a cada refresh de 10min já que a maioria dos itens se
+// repete entre um ciclo e o próximo).
+const translationCache = new Map<string, string>();
+
+async function translateText(text: string, targetLang: string): Promise<string> {
+  if (!text || targetLang === 'en') return text;
+  const cacheKey = `${targetLang}:${text}`;
+  const cached = translationCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return text;
+    const data = await response.json();
+    // Formato: [[["traduzido","original",null,null,3,...]], ...] — junta todos
+    // os segmentos (títulos longos às vezes vêm partidos em mais de um).
+    const segments = data?.[0];
+    if (!Array.isArray(segments)) return text;
+    const translated = segments.map((seg: any) => seg?.[0] ?? '').join('');
+    const result = translated.trim() || text;
+    translationCache.set(cacheKey, result);
+    return result;
+  } catch (e) {
+    console.warn('[NEWS TRANSLATE] ⚠️ Falhou, mantendo original:', (e as any)?.message);
+    return text;
+  }
+}
+
+app.get('/news/aggregate', async (c) => {
+  try {
+    const targetLang = (c.req.query('lang') || 'pt').split('-')[0].toLowerCase();
+
+    const perFeed = await Promise.allSettled(
+      NEWS_FEEDS.map(async (feed) => {
+        const { items } = await fetchAndParseRssFeed(feed.url);
+        return items.map((item) => {
+          const pubDateMs = Date.parse(item.pubDate);
+          return {
+            title: item.title,
+            url: item.link,
+            source: feed.source,
+            category: feed.category,
+            timestamp: Number.isFinite(pubDateMs) ? pubDateMs : Date.now(),
+          };
+        });
+      })
+    );
+
+    const allItems = perFeed.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+
+    // Dedup por URL (o mesmo evento pode aparecer em mais de um feed)
+    const seenUrls = new Set<string>();
+    const deduped = allItems.filter((item) => {
+      const key = item.url || item.title;
+      if (!key || seenUrls.has(key)) return false;
+      seenUrls.add(key);
+      return true;
+    });
+
+    // Cobertura balanceada: até 5 mais recentes por categoria primeiro,
+    // depois completa até 15 com o restante mais recente (evita cripto
+    // engolir todas as vagas se tiver mais itens disponíveis no dia).
+    const byCategory: Record<string, typeof deduped> = { crypto: [], macro: [], forex: [] };
+    for (const item of deduped) {
+      byCategory[item.category]?.push(item);
+    }
+    for (const cat of Object.keys(byCategory)) {
+      byCategory[cat].sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    const picked: typeof deduped = [];
+    const pickedUrls = new Set<string>();
+    for (const cat of ['crypto', 'macro', 'forex']) {
+      for (const item of byCategory[cat].slice(0, 5)) {
+        picked.push(item);
+        pickedUrls.add(item.url || item.title);
+      }
+    }
+    const remaining = deduped
+      .filter((item) => !pickedUrls.has(item.url || item.title))
+      .sort((a, b) => b.timestamp - a.timestamp);
+    for (const item of remaining) {
+      if (picked.length >= 15) break;
+      picked.push(item);
+    }
+    picked.sort((a, b) => b.timestamp - a.timestamp);
+    const final = picked.slice(0, 15);
+
+    // Tradução pro idioma do usuário (concorrência limitada, gentil com o
+    // endpoint público do Google Translate).
+    const translated = await mapWithConcurrency(final, 5, async (item) => ({
+      id: item.url || `${item.category}-${item.timestamp}`,
+      title: await translateText(item.title, targetLang),
+      titleOriginal: item.title,
+      source: item.source,
+      url: item.url,
+      category: item.category,
+      timestamp: item.timestamp,
+    }));
+
+    return c.json({
+      items: translated,
+      count: translated.length,
+      categories: {
+        crypto: byCategory.crypto.length,
+        macro: byCategory.macro.length,
+        forex: byCategory.forex.length,
+      },
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[NEWS AGGREGATE] ❌ Erro:', error.message);
+    return c.json({ items: [], count: 0, error: error.message }, 200);
   }
 });
 

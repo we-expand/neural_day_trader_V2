@@ -1440,7 +1440,7 @@ export const MarketScoreBoard = () => {
                  </Card>
             </div>
 
-            {/* COL 3: NEXUS QUANTUM ADVISOR - EXPANDIDO 25% */}
+            {/* COL 3: ANÁLISE POR FONTE - EXPANDIDO 25% */}
             <div className="col-span-1 lg:col-span-5 h-full flex flex-col min-h-[400px]">
                 {/* Usar displayPrice (preço atual) e displayTrend (% de mudança diária) */}
                 <NexusQuantumAdvisor
