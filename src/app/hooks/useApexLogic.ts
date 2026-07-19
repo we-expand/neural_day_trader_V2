@@ -1184,7 +1184,7 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             if (consecutiveLosses >= aiConfig.consecutiveLossesTrigger) {
               cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
               console.log(`[RISCO] 🧊 Cooldown ATIVADO: ${consecutiveLosses} perdas seguidas — bloqueando novas entradas por ${aiConfig.cooldownMinutes}min`);
-              addLog(`🧊 Cooldown ativado: ${consecutiveLosses} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
+              addLog(`🧊 Pausa ativada: ${consecutiveLosses} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
               return;
             }
           }

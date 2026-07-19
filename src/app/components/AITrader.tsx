@@ -1486,12 +1486,12 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
 
                                 {/* Cooldown + Limite diário de trades */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Cooldown &amp; Frequência</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Pausa &amp; Frequência</span>
 
                                     <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
                                         <Zap className={`w-4 h-4 ${config.cooldownEnabled ? 'text-cyan-400' : 'text-slate-600'}`} />
                                         <div className="flex-1">
-                                            <span className="text-xs font-bold text-white block">Cooldown pós-perdas</span>
+                                            <span className="text-xs font-bold text-white block">Pausa pós-perdas</span>
                                             <span className="text-[9px] text-slate-500">Pausa após N perdas seguidas</span>
                                         </div>
                                         <button
@@ -1518,7 +1518,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                                             </div>
                                             <div className="space-y-2">
                                                 <div className="flex justify-between">
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Duração do Cooldown (min)</label>
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Duração da Pausa (min)</label>
                                                     <span className="text-xs font-mono text-cyan-400">{config.cooldownMinutes}min</span>
                                                 </div>
                                                 <input
