@@ -1,4 +1,94 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-18, continuação)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-19)
+
+## Sessão nova (2026-07-19, continuação): Nexus Quantum Advisor reescrito — fim do mock, painel agora usa o MarketScoreEngine real — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de Gerenciamento de Risco logo abaixo (mesmo dia). Cleber pediu pra executar a decisão já tomada há sessões atrás: extinguir o Nexus Quantum Advisor (achado grave de 2026-07-17, ~30% da tela do Dashboard, 100% `Math.random()`), mas manter e tornar real a "Análise Detalhada por Fonte" — ele quer esses dados (de onde vêm as ordens, quem está se posicionando no mercado) pra embasar a IA na avaliação de risco de entrada.
+
+### O que foi deletado
+
+- [`MarketTendencyEngine.ts`](src/app/services/MarketTendencyEngine.ts) — **deletado por completo**. Era o motor de 9 "fontes" (Pressão, Fibonacci, Médias Móveis, Notícias, Redes Sociais, Order Book, Indicadores Técnicos, Volume Profile, Fluxo Institucional), 100% `Math.random()`, incluindo notícias fabricadas atribuídas a Bloomberg/WSJ/Reuters e um `spoofingDetected` sorteado.
+- Dentro de [`NexusQuantumAdvisor.tsx`](src/app/components/nexus/NexusQuantumAdvisor.tsx): removido o gráfico canvas inteiro (`TradingViewChart`, candles gerados por `Math.sin`/`Math.random()`, heatmaps fake, "escudos" 🛡️ decorativos, seta apontando pro preço), o badge "Spoofing Detectado" hardcoded sempre ligado, a caixa estática "Correlação Borboleta: Movimento US10Y indica queda iminente", e os botões de modo solo/híbrido/automático — confirmado via grep que o state `mode` nunca era lido por nada, botões 100% decorativos sem efeito real.
+
+### O que foi reconstruído com dado real
+
+[`MarketTendencyPanel.tsx`](src/app/components/nexus/MarketTendencyPanel.tsx) — reescrito pra consumir `MarketScoreResult` (o motor real do `MarketScoreEngine.ts`, já calculado no Dashboard) como **prop**, em vez de recalcular via engine mock. `NexusQuantumAdvisor` agora só recebe `activeSymbol` + `scoreResult` (passado por [`MarketScoreBoard.tsx`](src/app/components/dashboard/MarketScoreBoard.tsx), que já tinha esse estado calculado — nenhuma chamada de rede nova, só reaproveitamento). Fontes exibidas, todas reais:
+- **Tendência** (peso 40%): `factors.trend` + EMA9/SMA20/SMA200/ADX/regime.
+- **Momentum** (peso 25%): `factors.momentum` + RSI/Estocástico/MACD histograma.
+- **Estrutura/Fibonacci** (peso 20%): `factors.structure` + posição no swing + nível Fib mais próximo.
+- **Volume** (peso 15%): `factors.volume` + volume vs média.
+- **Fluxo de Ordens (Order Book)**: `microstructure.imbalance` — real, mas **só para criptomoedas** (Binance, já implementado em sessão anterior, 2026-07-19 mais cedo). Pra qualquer outro ativo, mostra nota explícita "disponível só para criptomoedas — este ativo não tem order book público", nunca um número fabricado.
+- **Fluxo Institucional/Posicionamento**: card presente mas marcado "em construção", com nota explícita do roadmap (COT Report/CFTC semanal pra forex-commodities + whale trades via stream `@aggTrade` da Binance pra cripto) — **isso é exatamente o que o Cleber pediu pra manter/aprofundar** ("de onde vêm as ordens de mercado, quem está se posicionando"), mas ainda não foi implementado com dado real nesta sessão. Nenhum valor sorteado aparece nesse card.
+
+**Removido de propósito, sem substituto** (redundante com o que já é real em outro lugar do Dashboard, ou decisão de escopo já tomada antes): Notícias (stub, backend `translateEconomicEvents()` sempre vazio, documentado há sessões), Redes Sociais (Twitter/Reddit/Telegram — decisão anterior do Cleber de não perseguir, ROI duvidoso; confirmado nesta sessão que a Landing Page também tem uma seção de marketing "Social Intelligence" toda fake com números como "87% acurácia"/"~250k tweets/dia" — **não tocada agora, fora do escopo pedido, mas é a mesma classe de problema e pode ser flagueada numa sessão de limpeza de marketing futura**), a recomendação STRONG_BUY/SELL (era gerada a partir dos scores fake das 9 fontes — o Dashboard já tem seu próprio veredito real em outro card, não duplicado aqui).
+
+### Verificação feita
+
+`npm run build` limpo (só os warnings de chunking pré-existentes, não relacionados). Preview local (`npm run dev`) sobe sem erro novo no console — landing page renderiza normal, só o aviso pré-existente de "MT5 Validator não inicializado" (esperado sem credenciais neste ambiente). **Não testado visualmente logado** — o painel Nexus fica atrás de login, sem credenciais reais neste ambiente (mesma limitação de sempre). Falta confirmar, logado: o painel abre sem erro, os 4 primeiros cards batem com os mesmos números já exibidos em outros lugares do Dashboard (mesma fonte, `scoreResult`), o card de Order Book mostra dado real pra cripto (ex: BTCUSD) e a nota de indisponibilidade pra forex/índice, e o card de Fluxo Institucional aparece só com a nota de "em construção", nunca um número.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketTendencyEngine.ts src/app/components/nexus/MarketTendencyPanel.tsx \
+  src/app/components/nexus/NexusQuantumAdvisor.tsx src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "refactor: extingue o Nexus Quantum Advisor mock — remove MarketTendencyEngine.ts (100% Math.random(), 9 fontes fake incluindo noticias fabricadas atribuidas a Bloomberg/WSJ e spoofing sorteado), remove o grafico canvas fake e o badge 'Spoofing Detectado' hardcoded de NexusQuantumAdvisor.tsx, remove botoes de modo solo/hibrido/automatico (decorativos, sem efeito real). Reescreve MarketTendencyPanel.tsx pra consumir MarketScoreResult real (mesmo motor do Dashboard, passado como prop) em vez de recalcular via engine mock: Tendencia/Momentum/Estrutura-Fibonacci/Volume reais, Order Book real so para cripto (Binance, com nota explicita de indisponibilidade pros demais ativos), Fluxo Institucional marcado como 'em construcao' (roadmap: COT Report + whale trades via Binance), nunca numero fabricado. Remove Noticias/Redes Sociais do painel (stub/decisao anterior de nao perseguir)"
+git push origin main
+```
+2. Confirmar visualmente logado, depois do deploy: painel abre sem erro pra pelo menos um ativo cripto (order book real aparece) e um forex/índice (nota de indisponibilidade aparece, sem quebrar).
+3. **Próximo passo real do roadmap combinado com o Cleber**: implementar Fluxo Institucional/Posicionamento de verdade — COT Report (CFTC, semanal, forex/commodities, fonte gratuita) + whale trades via stream `@aggTrade` da Binance (cripto, detecta prints grandes). Ficou fora do escopo desta sessão (é integração nova com fonte externa, não só faxina) — Cleber optou por fazer a faxina primeiro e tratar isso numa sessão dedicada.
+4. **Achado colateral, não tocado**: a Landing Page (`src/app/components/landing` ou equivalente) tem uma seção de marketing "Social Intelligence" com números fabricados (87% acurácia, ~250k tweets/dia, ~50k posts/dia Reddit, ~15k mensagens/dia Telegram) — mesma classe de problema do Nexus antigo, mas em copy de marketing, não em dado exibido como decisão de trade. Fora do escopo pedido nesta sessão; considerar limpar/revisar numa sessão futura se o Cleber achar relevante (risco: pode ser visto como propaganda enganosa se alguém verificar).
+
+---
+
+## Sessão nova (2026-07-19): auditoria do Gerenciamento de Risco (confirmado funcional) + tradução de "Cooldown" + "Modo Stop Loss" movido pra dentro do bloco de risco — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão "Gerenciamento de Risco customizável" logo abaixo (2026-07-18). Cleber perguntou se o módulo de risco criado naquela sessão "está totalmente pronto e funciona de verdade", e pediu pra traduzir termos em inglês (ex: "Cooldown") pra português.
+
+### Auditoria funcional — confirmado que o gate de risco funciona de verdade, não é só UI decorativa
+
+Lido [useApexLogic.ts](src/app/hooks/useApexLogic.ts) inteiro nesta sessão (via grep direcionado + leitura de trecho) pra confirmar, campo a campo, que os 6 campos novos de risco (introduzidos na sessão de 2026-07-18) são realmente consumidos, não só salvos/exibidos:
+- `cooldownEnabled`/`consecutiveLossesTrigger`/`cooldownMinutes` — usados de verdade no gate pré-trade (linhas 1172-1189): bloqueia nova entrada e escreve log real quando N perdas seguidas acontecem.
+- `maxTradesPerDay` — usado de verdade (linhas 1193-1197): conta trades fechados hoje + abertos, bloqueia acima do limite.
+- `positionSizingMode`/`atrMultiplier` — usado de verdade (linhas 1301-1310): recalcula o capital de risco pela ATR real do ativo quando `positionSizingMode === 'ATR'`.
+- `correlationGuardEnabled`/`correlationThreshold` — usado de verdade (linhas 1317-1321): reduz o tamanho da nova posição se já há posição aberta no mesmo grupo de correlação.
+- `maxDrawdown`/`minWinRate` (campos legados) — confirmados usados no Health Check Guardian (a cada 5s), já documentado em sessões anteriores.
+
+**Única ressalva confirmada, não é novidade** (já estava marcada como pendente desde 2026-07-18): `drawdownAnchor` ('INTRADAY_PEAK'/'DAILY_CLOSE') continua só salvo/exibido — o cálculo real de drawdown no Health Check Guardian ainda não diferencia os dois modos. Não mexido nesta sessão.
+
+### Tradução: "Cooldown" → "Pausa" (única string em inglês encontrada)
+
+Levantamento em [AITrader.tsx](src/app/components/AITrader.tsx) (seção "Gerenciamento de Risco" e arredores) mostrou que a tela já estava quase toda em português — só a palavra "Cooldown" aparecia em inglês, em 3 lugares. Corrigido:
+- Título do card: "Cooldown & Frequência" → "Pausa & Frequência".
+- Label do toggle: "Cooldown pós-perdas" → "Pausa pós-perdas".
+- Label do slider de duração: "Duração do Cooldown (min)" → "Duração da Pausa (min)".
+- [useApexLogic.ts](src/app/hooks/useApexLogic.ts) linha ~1187: a mensagem de `addLog` visível no log da IA na tela ("🧊 Cooldown ativado...") → "🧊 Pausa ativada...". (Os `console.log` equivalentes, só visíveis no DevTools, não foram tocados — não são vistos pelo usuário.)
+
+**Decisão explícita do Cleber, confirmada via pergunta**: manter "ATR" e "Drawdown" em inglês — são jargão de trading já familiar, usado sem tradução até em plataformas brasileiras. Só "Cooldown" destoava por não ter esse mesmo status de termo técnico universal.
+
+### "Modo Stop Loss" movido pra dentro do bloco Gerenciamento de Risco
+
+Cleber notou, olhando a tela, que "Modo Stop Loss" (Fixo % vs Dinâmico/AI-SMC) estava na coluna de **Estratégia** (COLUMN 1, junto com Alvo de Lucro/Target Points), fora do bloco full-width "Gerenciamento de Risco" logo abaixo — mesmo sendo um conceito de risco (como o SL se comporta), não de estratégia de entrada.
+
+**Fix**: bloco inteiro do "Modo Stop Loss" removido da coluna de Estratégia (linhas ~1201-1218 antigas) e recriado como o **primeiro card** dentro do grid do "Gerenciamento de Risco" (mesmo padrão visual dos outros cards ali — "Limites de Capital", "Tamanho de Posição", "Pausa & Frequência"), com uma descrição curta e precisa do comportamento real do modo Dinâmico ("ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade" — mesma redação já documentada em sessão anterior sobre o item 4 da conformidade da config da IA, 2026-07-07). Nenhuma mudança de lógica — só reposicionamento de UI, `stopLossMode` continua sendo o mesmo campo de sempre.
+
+**Verificação feita**: `npx esbuild` no `AITrader.tsx` isolado não acusou erro de sintaxe JSX (só os 2 erros esperados de resolução de path absoluto `/utils/supabase/info`, que o Vite resolve mas o esbuild standalone não — pré-existente, não relacionado). Conferido visualmente por leitura que a coluna de Estratégia fecha limpo depois da remoção (sem `<div>` órfã). **Não testado visualmente logado** — painel de risco fica atrás de login, sem credenciais reais neste ambiente.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/AITrader.tsx src/app/hooks/useApexLogic.ts CLAUDE.md
+git commit -m "fix: traduz 'Cooldown' para 'Pausa' no painel de Gerenciamento de Risco (título, toggle, duração, log da IA); move 'Modo Stop Loss' da coluna Estratégia pra dentro do bloco Gerenciamento de Risco, junto com Limites de Capital/Tamanho de Posição/Pausa"
+git push origin main
+```
+2. Confirmar visualmente logado, depois do deploy: bloco "Gerenciamento de Risco" mostra 4 cards agora (Modo Stop Loss, Limites de Capital, Tamanho de Posição, Pausa & Frequência), nenhum resíduo da coluna de Estratégia quebrado, e a palavra "Cooldown" não aparece mais em nenhum lugar da tela.
+3. Pendências de sessões anteriores continuam valendo (ver seção "Sessão nova (2026-07-18, continuação)" logo abaixo): testar o gate de risco em produção com trade real disparando; `drawdownAnchor` ainda não afeta o cálculo real do Health Check Guardian; correlação ainda é heurística estática por grupo, não correlação de retornos calculada ao vivo.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-18, continuação)
 
 ## Sessão nova (2026-07-18, continuação): spec técnica do módulo de risco + Gerenciamento de Risco customizável no AI Trader — TUDO COMMITADO E PUSHADO
 
