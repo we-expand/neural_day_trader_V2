@@ -1,5 +1,39 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-19)
 
+## Sessão nova (2026-07-19, continuação 5): Widget do VIX dizia "mercado fechado" com o MT5 mostrando o VIX se movendo ao vivo — causa raiz achada e corrigida — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou: VIX no app mostra "mercado fechado", mas no MT5 o gráfico do VIX está se movendo ao vivo.
+
+### Causa raiz: `VIXWidgetEnhanced.tsx` usava um relógio de pregão fixo, isolado do resto do projeto
+
+O preço do VIX já vinha de fonte real (`getRealMarketData('VIX')`, mesma função do Dashboard, confirmado em sessão anterior). Mas o badge de "aberto/fechado" vinha de uma função **completamente separada**: `checkVIXTradingHours()` em [`vixTradingHours.ts`](src/app/utils/vixTradingHours.ts) — um calendário **hardcoded do pregão à vista da CBOE** (9:30 AM–4:00 PM ET, segunda a sexta, com cálculo de DST embutido), que nunca olha se dado real chegou ou não.
+
+Isso viola a regra já estabelecida e documentada várias vezes neste arquivo (sessão de 2026-07-16, horário de mercado CFD): **nunca usar relógio fixo pra decidir se o mercado está aberto — sempre confiar na resposta real da corretora.** `marketHours.ts` (usado pelo Dashboard) já tinha sido corrigido pra isso e já classifica `VIX` corretamente como `US_STOCKS`/CFD de horário amplo (quase 24/5, via `isCfdMarketOpen()`) — mas o `VIXWidgetEnhanced.tsx` **nunca usava `marketHours.ts`**, importava esse módulo à parte (`vixTradingHours.ts`) que ninguém tinha migrado pra regra nova. A corretora oferece VIX como CFD (horário bem mais amplo que o pregão à vista da CBOE), por isso o MT5 mostra movimento fora do 9:30-16:00 ET enquanto o app dizia "fechado".
+
+### Fix
+
+[`VIXWidgetEnhanced.tsx`](src/app/components/tools/VIXWidgetEnhanced.tsx): removida toda a dependência de `checkVIXTradingHours()`/`vixTradingHours.ts`. Status "aberto/fechado" agora é derivado do próprio dado real: `isRealData` + idade do último tick (`isOpen = isRealData && (Date.now() - lastTickAt) < 10min`), mesmo padrão (mesmo limiar de 10min) já usado pelo Dashboard (`MarketScoreBoard.tsx`, sessão de 2026-07-16). Badge mostra "🟢 MERCADO ABERTO" / "🔒 MERCADO FECHADO — último negócio HH:MM" em vez do calendário fixo. Toast de mudança de status também migrado pra reagir a essa mesma condição.
+
+**Nota**: `vixTradingHours.ts` (o arquivo com o relógio fixo) não foi deletado — ainda é importado por `VIXWidget.tsx` (versão antiga, **não montada em lugar nenhum do app**, confirmado via grep em `App.tsx`/`ModularDashboard.tsx` — só `VIXWidgetEnhanced.tsx` é renderizado de verdade). Não mexido por estar fora do escopo (código morto).
+
+### Verificação feita
+
+`tsc --noEmit` limpo. Preview local sem erro novo de build. **Não testado visualmente logado** (Dashboard atrás de login, sem credenciais neste ambiente) — falta confirmar que o badge mostra "ABERTO" agora com o VIX se movendo, e que o último negócio (`lastTickAt`) bate com o horário real do tick mais recente.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push**:
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/tools/VIXWidgetEnhanced.tsx CLAUDE.md
+git commit -m "fix: VIXWidgetEnhanced.tsx dizia 'mercado fechado' com o VIX se movendo ao vivo no MT5 -- usava um calendario fixo do pregao a vista da CBOE (vixTradingHours.ts, 9:30-16:00 ET seg-sex), isolado da regra ja estabelecida no projeto (marketHours.ts) de nunca gatear status em relogio fixo, sempre na resposta real da corretora (que oferece VIX como CFD de horario bem mais amplo). Status agora deriva de isRealData + idade do ultimo tick real, mesmo padrao ja usado no Dashboard"
+git push origin main
+```
+2. Confirmar visualmente logado: badge do VIX mostra "ABERTO" com o mercado realmente negociando (mesmo fora do 9:30-16:00 ET), e "FECHADO" só quando o tick real realmente parar de chegar (>10min sem atualização).
+3. Considerar, numa sessão futura, deletar `vixTradingHours.ts` e `VIXWidget.tsx` (código morto, não usado) — não feito agora por não ser o pedido.
+
+---
+
 ## Sessão nova (2026-07-19, continuação 4): Agenda Econômica — fallback pro último dia útil com eventos (domingo/feriado sem divulgação mostra sexta-feira, com aviso na UI) — TESTADO E DEPLOYADO, PENDENTE COMMIT/PUSH
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da seção logo abaixo (mesmo dia). Depois do fix da 4ª fonte (TradingView), Cleber confirmou que Notícias já funcionava, mas a Agenda continuava vazia — esclareceu que hoje é domingo mesmo (sem divulgação real), e pediu explicitamente pra mostrar a agenda de sexta-feira nesse caso, em vez de ficar em branco.

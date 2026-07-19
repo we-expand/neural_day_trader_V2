@@ -30,7 +30,6 @@ import { Card } from '@/app/components/ui/card';
 import { Badge } from '@/app/components/ui/badge';
 import { Button } from '@/app/components/ui/button';
 import { fetchVIXData } from '@/app/utils/vixDataSources';
-import { checkVIXTradingHours } from '@/app/utils/vixTradingHours';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getRealMarketData } from '@/app/services/RealMarketDataService';
@@ -60,7 +59,20 @@ export function VIXWidgetEnhanced() {
     difference: null,
     divergence: false
   });
-  const [marketStatus, setMarketStatus] = useState<'OPEN' | 'CLOSED' | 'PRE_MARKET' | 'AFTER_HOURS'>('CLOSED');
+  // ✅ 2026-07-19: removido o cálculo de status baseado em relógio estático
+  // (checkVIXTradingHours/vixTradingHours.ts, calendário fixo 9:30-16:00 ET
+  // seg-sex, o horário de pregão À VISTA da CBOE) — Cleber reportou "mercado
+  // fechado" com o VIX se movendo ao vivo no MT5. Causa: a corretora oferece
+  // VIX como CFD (horário bem mais amplo, quase 24/5, igual a outros índices
+  // — ver marketHours.ts, que já classifica VIX como US_STOCKS/CFD e nunca
+  // usa esse relógio fixo), mas este widget ignorava isso e usava um módulo
+  // à parte com o calendário estreito da CBOE à vista, nunca migrado pra
+  // regra do resto do projeto ("status vem da resposta real da corretora,
+  // nunca de um calendário fixo" — mesma correção já aplicada no Dashboard
+  // em 2026-07-16). Agora o status é derivado do próprio isRealData/timestamp
+  // do tick real (mesmo padrão do Dashboard).
+  const [isRealData, setIsRealData] = useState(false);
+  const [lastTickAt, setLastTickAt] = useState<Date | null>(null);
   const [extremeVolatility, setExtremeVolatility] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
@@ -96,6 +108,10 @@ export function VIXWidgetEnhanced() {
       setCurrentVIX(primaryValue);
       setVixChange(primaryChange);
       setVixChangePercent(primaryChangePercent);
+      setIsRealData(marketData.isRealData);
+      if (marketData.isRealData) {
+        setLastTickAt(new Date(marketData.timestamp));
+      }
 
       // Adicionar ao histórico — ✅ 2026-07-16: era 48 pontos (comentário
       // antigo assumia refresh a cada 30min = 24h, mas o refresh real é a
@@ -166,19 +182,6 @@ export function VIXWidgetEnhanced() {
       setIsLoading(false);
     }
   };
-
-  // Atualizar status do mercado
-  useEffect(() => {
-    const updateMarketStatus = () => {
-      const status = checkVIXTradingHours();
-      setMarketStatus(status.marketSession);
-    };
-
-    updateMarketStatus();
-    const interval = setInterval(updateMarketStatus, 10000); // A cada 10s
-    
-    return () => clearInterval(interval);
-  }, []);
 
   // 🔥 AUTO-REFRESH (ATUALIZAÇÃO DINÂMICA)
   useEffect(() => {
@@ -298,36 +301,27 @@ export function VIXWidgetEnhanced() {
 
   }, [history]);
 
-  // 🔥 ANIMATION: Detectar mudanças de status do mercado
+  // 🔥 Toast quando o status (derivado do dado real, não de relógio) muda
+  const STALE_TICK_MS = 10 * 60 * 1000; // mesmo limiar já usado no Dashboard
+  const isOpen = isRealData && lastTickAt !== null && (Date.now() - lastTickAt.getTime()) < STALE_TICK_MS;
+  const prevIsOpenRef = useRef<boolean | null>(null);
   useEffect(() => {
-    let lastStatus = marketStatus;
-
-    const checkStatusChange = () => {
-      const status = checkVIXTradingHours();
-      
-      if (status.marketSession !== lastStatus) {
-        console.log('[VIX] 🔔 Mudança de status detectada:', lastStatus, '→', status.marketSession);
-
-        // Toast de notificação
-        if (status.isOpen) {
-          toast.success('🟢 Mercado VIX ABERTO!', {
-            description: `Trading iniciado às ${new Date().toLocaleTimeString('pt-BR')}`,
-            duration: 5000
-          });
-        } else {
-          toast.info('🔴 Mercado VIX FECHADO', {
-            description: status.reason,
-            duration: 5000
-          });
-        }
-
-        lastStatus = status.marketSession;
+    if (prevIsOpenRef.current !== null && prevIsOpenRef.current !== isOpen) {
+      console.log('[VIX] 🔔 Mudança de status detectada:', prevIsOpenRef.current, '→', isOpen);
+      if (isOpen) {
+        toast.success('🟢 Mercado VIX ABERTO', {
+          description: `Trading ao vivo — último negócio às ${new Date().toLocaleTimeString('pt-BR')}`,
+          duration: 5000
+        });
+      } else {
+        toast.info('🔒 Mercado VIX FECHADO', {
+          description: lastTickAt ? `Último negócio real: ${lastTickAt.toLocaleTimeString('pt-BR')}` : 'Nenhum negócio real recebido ainda',
+          duration: 5000
+        });
       }
-    };
-
-    const interval = setInterval(checkStatusChange, 2000); // 🚀 OTIMIZADO: Check a cada 2s (foi 5s)
-    return () => clearInterval(interval);
-  }, [marketStatus]);
+    }
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen]);
 
   // ✅ 2026-07-16 (2ª correção): a 1ª tentativa comparava o valor absoluto
   // com a média do próprio histórico — errado. O Cleber esclareceu: o que
@@ -350,7 +344,6 @@ export function VIXWidgetEnhanced() {
 
   const riskLevel = getRiskLevel(vixChangePercent);
   const isPositive = vixChangePercent >= 0;
-  const tradingStatus = checkVIXTradingHours();
 
   // ✅ 2026-07-16: o rótulo "Últimas 24h" ficou de uma versão antiga que
   // atualizava a cada 30min (48 pontos × 30min = 24h) — o refresh real hoje
@@ -413,29 +406,29 @@ export function VIXWidgetEnhanced() {
         </div>
       </div>
 
-      {/* Market Status Badge - Animated */}
-      <div 
+      {/* Market Status Badge — Animated. Status vem do dado real (isRealData +
+          idade do tick), nunca de um relógio de pregão fixo — ver comentário
+          acima de `isRealData`/`STALE_TICK_MS`. */}
+      <div
         className={`
           mb-4 px-4 py-2 rounded-lg border flex items-center gap-2 transition-all duration-300
-          ${tradingStatus.isOpen 
-            ? 'bg-emerald-500/20 border-emerald-500/30 animate-pulse' 
-            : marketStatus === 'PRE_MARKET'
-            ? 'bg-yellow-500/20 border-yellow-500/30'
+          ${isOpen
+            ? 'bg-emerald-500/20 border-emerald-500/30 animate-pulse'
             : 'bg-slate-500/20 border-slate-500/30'
           }
         `}
         style={{
-          transform: animationRef.current > 0 && animationRef.current < 30 
-            ? `scale(${1 + Math.sin(animationRef.current * 0.2) * 0.1})` 
+          transform: animationRef.current > 0 && animationRef.current < 30
+            ? `scale(${1 + Math.sin(animationRef.current * 0.2) * 0.1})`
             : 'scale(1)'
         }}
       >
         <Clock className="w-4 h-4" />
         <span className="text-xs font-bold uppercase tracking-wider">
-          {tradingStatus.isOpen ? '🟢 MERCADO ABERTO' : marketStatus === 'PRE_MARKET' ? '🟡 PRÉ-MERCADO' : '🔴 FECHADO'}
+          {isOpen ? '🟢 MERCADO ABERTO' : '🔒 MERCADO FECHADO'}
         </span>
         <span className="text-xs text-slate-400 ml-auto">
-          {tradingStatus.timeUntilNextEvent}
+          {lastTickAt ? `último negócio: ${lastTickAt.toLocaleTimeString('pt-BR')}` : 'aguardando...'}
         </span>
       </div>
 
@@ -570,11 +563,11 @@ export function VIXWidgetEnhanced() {
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
             <span className="text-slate-500 block mb-1">Sessão:</span>
-            <span className="font-mono font-bold text-white">{tradingStatus.marketSession}</span>
+            <span className="font-mono font-bold text-white">{isOpen ? 'ABERTO' : 'FECHADO'}</span>
           </div>
           <div>
-            <span className="text-slate-500 block mb-1">Próximo Evento:</span>
-            <span className="font-mono font-bold text-white">{tradingStatus.timeUntilNextEvent}</span>
+            <span className="text-slate-500 block mb-1">Fonte:</span>
+            <span className="font-mono font-bold text-white">{isRealData ? 'Corretora (real)' : 'sem dado real'}</span>
           </div>
         </div>
       </div>
