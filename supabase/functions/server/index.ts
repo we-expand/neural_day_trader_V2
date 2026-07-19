@@ -1789,7 +1789,30 @@ app.get("/economic-calendar", async (c) => {
         console.log('🔍 [AGENDA] Iniciando busca de eventos econômicos...', countryFilter ? `(filtro: ${countryFilter})` : '');
         console.log('🔍 [AGENDA] Data atual:', new Date().toISOString());
 
-        // ✅ PRIORIDADE 1: MQL5 Economic Calendar (FONTE OFICIAL DO METATRADER!)
+        // ✅ PRIORIDADE 1: TradingView Economic Calendar (confirmado real e
+        // funcionando em 2026-07-19, via /debug-economic-calendar contra a
+        // Edge Function de produção — ver detalhes no comentário da função
+        // `fetchTradingViewCalendar`). Promovido à frente dos outros 3
+        // porque, no mesmo teste, MQL5/Investing.com/Yahoo Finance estavam
+        // TODOS mortos ao mesmo tempo (não é fallback teórico, é o estado
+        // real observado).
+        console.log('📞 [AGENDA] Tentando TradingView Economic Calendar...');
+        const tvEvents = await fetchTradingViewCalendar();
+        if (tvEvents && tvEvents.length > 0) {
+            console.log(`✅ [TRADINGVIEW] ${tvEvents.length} eventos REAIS encontrados`);
+            const translatedTvEvents = filterByCountry(translateEconomicEvents(tvEvents));
+            return c.json({
+                events: translatedTvEvents,
+                count: translatedTvEvents.length,
+                source: 'TradingView Economic Calendar',
+                date: new Date().toISOString().split('T')[0]
+            });
+        }
+        console.log('⚠️ [TRADINGVIEW] Sem eventos ou falhou');
+
+        // ✅ PRIORIDADE 2: MQL5 Economic Calendar (FONTE OFICIAL DO METATRADER!)
+        // Mantido como fallback mesmo confirmado morto em 2026-07-19 (HTTP
+        // 404) — barato de tentar, pode voltar a funcionar sem aviso.
         console.log('📞 [AGENDA] Tentando MQL5 Economic Calendar...');
         const mql5Events = await fetchMQL5Calendar();
         if (mql5Events && mql5Events.length > 0) {
@@ -1804,17 +1827,7 @@ app.get("/economic-calendar", async (c) => {
         }
         console.log('⚠️ [MQL5] Sem eventos ou falhou');
 
-        // ✅ PRIORIDADE 2: Investing.com (GRÁTIS - SEM KEY!)
-        // Mantido antes do Yahoo Finance (não reordenado nesta sessão): testei
-        // direto o endpoint do Yahoo (`query1.finance.yahoo.com/v1/finance/
-        // calendar/economic`) em 2026-07-19 e ele voltou uma página de erro
-        // interna do próprio Yahoo ("Unknown Host"/sad panda), sugerindo que
-        // esse endpoint não-documentado pode ter sido descontinuado — sem
-        // confirmação de que funciona melhor que o Investing.com hoje, não
-        // faz sentido promovê-lo. Cleber: se depois do deploy o Investing.com
-        // também falhar sempre (HTTP 403 — testei daqui e bati bloqueio, mas
-        // pode ser só IP de datacenter; precisa confirmar rodando na Edge
-        // Function real), considerar investigar uma 4ª fonte.
+        // ✅ PRIORIDADE 3: Investing.com (GRÁTIS - SEM KEY!)
         console.log('📞 [AGENDA] Tentando Investing.com (Parser __NEXT_DATA__)...');
         const investingEvents = await fetchInvestingCalendarFromNextData();
         console.log('📊 [INVESTING.COM] Retornou:', investingEvents ? `${investingEvents.length} eventos` : 'null');
@@ -1831,7 +1844,7 @@ app.get("/economic-calendar", async (c) => {
         }
         console.log('⚠️ [INVESTING.COM] Sem eventos ou falhou');
 
-        // ✅ PRIORIDADE 3: Yahoo Finance (GRÁTIS, SEM KEY)
+        // ✅ PRIORIDADE 4: Yahoo Finance (GRÁTIS, SEM KEY)
         console.log('📞 [AGENDA] Tentando Yahoo Finance...');
         const yahooEvents = await fetchYahooFinanceCalendar();
         if (yahooEvents && yahooEvents.length > 0) {
@@ -2138,6 +2151,67 @@ async function scrapeMQL5HTML(html: string, today: Date) {
     } catch (e: any) {
         console.error('[MQL5 Scraping] ❌ Erro:', e.message);
         console.error('[MQL5 Scraping] Stack:', e.stack);
+        return null;
+    }
+}
+
+// ✅ FUNÇÃO: TradingView Economic Calendar (PÚBLICO - SEM KEY!)
+// Adicionada em 2026-07-19: depois do Cleber reportar a Agenda Econômica
+// vazia, testei os 3 provedores existentes direto contra a Edge Function
+// real (rota /debug-economic-calendar) — MQL5 dá HTTP 404 (endpoint
+// descontinuado), Yahoo Finance dá HTTP 500 (mesmo comportamento observado
+// fora da Supabase — o endpoint não-documentado parece ter sido
+// descontinuado de vez), e o parser __NEXT_DATA__ do Investing.com não
+// encontra mais eventos (site provavelmente mudou de estrutura). Os 3
+// estavam mortos ao mesmo tempo, não é falha transitória. Testado e
+// confirmado real: `economic-calendar.tradingview.com/events` — mesmo
+// endpoint que alimenta o widget de calendário econômico do TradingView,
+// sem chave, devolve actual/forecast/previous reais.
+async function fetchTradingViewCalendar() {
+    try {
+        const today = new Date();
+        const from = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0)).toISOString();
+        const to = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 1, 0, 0, 0)).toISOString();
+
+        const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}`;
+        console.log(`[TRADINGVIEW] URL: ${url}`);
+
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Origin': 'https://in.tradingview.com',
+                'Referer': 'https://in.tradingview.com/',
+                'Accept': 'application/json',
+            }
+        });
+
+        if (!response.ok) {
+            console.warn(`[TRADINGVIEW] HTTP ${response.status}`);
+            return null;
+        }
+
+        const data = await response.json();
+        if (!data.result || !Array.isArray(data.result) || data.result.length === 0) {
+            console.warn('[TRADINGVIEW] Sem eventos');
+            return null;
+        }
+
+        console.log(`[TRADINGVIEW] ${data.result.length} eventos encontrados`);
+
+        // Escala de importância do TradingView: -1 (baixa), 0 (média), 1 (alta)
+        return data.result.map((ev: any) => ({
+            time: ev.date || new Date().toISOString(),
+            currency: ev.currency || getCurrencyFromCountry(ev.country || 'US'),
+            importance: ev.importance >= 1 ? 3 : ev.importance === 0 ? 2 : 1,
+            event: ev.title || 'Economic Event',
+            actual: ev.actual !== null && ev.actual !== undefined ? String(ev.actual) : '',
+            forecast: ev.forecast !== null && ev.forecast !== undefined ? String(ev.forecast) : '',
+            previous: ev.previous !== null && ev.previous !== undefined ? String(ev.previous) : '',
+            country: ev.country || '',
+            period: ev.period || '',
+        }));
+    } catch (e: any) {
+        console.error('[TRADINGVIEW] ❌ Erro:', e.message);
         return null;
     }
 }

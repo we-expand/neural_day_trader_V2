@@ -1,5 +1,90 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-19)
 
+## Sessão nova (2026-07-19, continuação 3): Notícias e Agenda Econômica — CONFIRMADO EM PRODUÇÃO, 4ª fonte (TradingView) adicionada à agenda — PENDENTE COMMIT/PUSH da 4ª fonte
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão logo abaixo (mesmo dia). Cleber reportou "notícias não carregam, agenda vazia" depois do deploy da sessão anterior — investigado e resolvido nesta sessão.
+
+### Causa 1 (notícias): Edge Function nunca tinha sido deployada com o código da sessão anterior
+
+`/news/aggregate` respondia HTTP 404 em produção — a rota simplesmente não existia ainda no código publicado (só existia local/commitada, nunca rodou `supabase functions deploy`). Rodei `supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg` (autorizado pelo Cleber nesta sessão). **Confirmado funcionando em produção**: `/news/aggregate?lang=pt` retorna 15 itens reais, balanceados (crypto/macro/forex disponíveis: 20/20/10, cobertura garantida nas 3 categorias), traduzidos, com link real de saída.
+
+### Causa 2 (agenda econômica): as 3 fontes antigas (MQL5, Investing.com, Yahoo Finance) estão TODAS mortas em produção — não é bug do código novo
+
+Testado via a rota de debug já existente (`/debug-economic-calendar`), direto contra a Edge Function real (não é bloqueio de IP daqui, é o comportamento real em produção):
+- **MQL5**: HTTP 404 — endpoint (`mql5.com/en/economic-calendar/content?date=...`) parece descontinuado.
+- **Yahoo Finance**: HTTP 500 — o endpoint não-documentado (`query1.finance.yahoo.com/v1/finance/calendar/economic`) devolve uma página de erro interna do próprio Yahoo ("Unknown Host"), mesmo comportamento observado fora da Supabase — parece descontinuado de vez, não é bloqueio.
+- **Investing.com**: o parser `__NEXT_DATA__` não encontra mais eventos — o site provavelmente mudou de estrutura.
+
+**Fix**: adicionada uma **4ª fonte real, testada e confirmada funcionando**: `fetchTradingViewCalendar()` em [index.ts](supabase/functions/server/index.ts), consome `economic-calendar.tradingview.com/events` (o mesmo endpoint não-documentado que alimenta o widget de calendário econômico do TradingView, sem chave, JSON, `actual`/`forecast`/`previous`/`importance`/`country`/`currency` reais). Promovida a **Prioridade 1** na rota `/economic-calendar` (testado: os outros 3 estavam mortos ao mesmo tempo, não faz sentido tentá-los primeiro) — MQL5/Investing.com/Yahoo Finance mantidos como fallback depois dela (baratos de tentar, podem voltar a funcionar sem aviso). Escala de importância do TradingView (-1/0/1) mapeada pra 1/2/3 (baixa/média/alta) já usada pelo resto do pipeline.
+
+### Achado importante ao validar: o painel vazio de hoje é CORRETO, não bug
+
+19/07/2026 é **domingo**. Testado o novo endpoint pra hoje (`country=US`): 0 eventos — real, porque não há divulgação econômica americana em domingo. Testado pra amanhã (segunda): eventos reais aparecem normalmente (`NY Fed Bill Purchases`, `CB Leading Index MoM`, etc., com `forecast`/`previous` reais). **O painel "vazio" que o Cleber viu era, pelo menos em parte, esperado pro dia da semana** — mas antes de eu redeployar com a 4ª fonte, TODAS as fontes estavam mortas mesmo em dia de semana, então a causa raiz real (fontes descontinuadas) ainda precisava do fix.
+
+### Verificação feita
+
+`esbuild` sintático limpo (só erros de import Deno esperados). `supabase functions deploy server` rodado 2x nesta sessão (1º deploy: notícias voltaram a funcionar; 2º deploy: TradingView adicionado). Confirmado via curl direto em produção: notícias com 15 itens reais; agenda com fonte `"TradingView Economic Calendar"` retornando corretamente vazio hoje (domingo) e com eventos reais confirmados para amanhã (segunda) via teste direto do endpoint do TradingView (fora do app, mesma chamada).
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (a 4ª fonte/TradingView foi deployada direto via CLI nesta sessão, mas ainda não commitada no git):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add supabase/functions/server/index.ts CLAUDE.md
+git commit -m "fix: MQL5/Investing.com/Yahoo Finance (as 3 fontes da Agenda Economica) estavam todas mortas em producao ao mesmo tempo (404/500/parser sem eventos) -- adiciona fetchTradingViewCalendar() como 4a fonte real (economic-calendar.tradingview.com, sem chave, testada e confirmada), promovida a prioridade 1; as 3 antigas mantidas como fallback"
+git push origin main
+```
+2. Confirmar visualmente logado no Dashboard: aba Notícias mostrando 15 itens reais categorizados; aba Agenda Econômica mostrando "🟢 REAL • TradingView Economic Calendar" (hoje pode legitimamente aparecer vazia por ser domingo — testar de novo numa segunda-feira pra ver eventos de verdade na tela).
+3. Se o TradingView também degradar no futuro (é endpoint não-documentado, pode mudar sem aviso — mesmo risco que MQL5/Yahoo/Investing.com já tiveram), o padrão de investigação é o mesmo: `/debug-economic-calendar` já expõe o log de cada fonte, adaptar pra incluir TradingView nesse debug também (hoje só testa MQL5/Investing/Yahoo, não a nova).
+
+---
+
+## Sessão nova (2026-07-19, continuação 2): Notícias e Agenda Econômica — fim dos dois mocks, agregador real de 5 feeds RSS + agenda dos EUA reconectada ao endpoint real — COMMITADO, FALTA DEPLOY DA EDGE FUNCTION
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de extinção do Nexus Quantum Advisor logo abaixo (mesmo dia). Cleber pediu: canal de notícias real (15 notícias, atualizadas a cada 10min, traduzidas no idioma do usuário, cobrindo Cripto/Macro/Forex, clicável pra fonte real) + agenda econômica americana real, atualizada todo dia às 00:01h.
+
+### Achado antes de codar: o componente "de verdade" não é o que parecia
+
+O agente de exploração inicialmente relatou os componentes `src/app/components/market/EconomicCalendar.tsx`, `src/app/components/dashboard/LocalMarketNews.tsx` e `src/app/components/dashboard/MarketIntelligence.tsx` — **nenhum desses está montado no app**. Investigação manual (`grep` em `App.tsx`/`Dashboard.tsx`) achou o real: [`NewsAndAgenda.tsx`](src/app/components/dashboard/NewsAndAgenda.tsx) (montado de verdade, via `ModularDashboard.tsx`), que alterna entre [`EconomicCalendar.tsx`](src/app/components/dashboard/EconomicCalendar.tsx) e [`NewsFeed.tsx`](src/app/components/dashboard/NewsFeed.tsx) — **ambos em `dashboard/`, não em `market/`**. Lição: sempre confirmar o ponto de montagem real antes de reescrever, nomes de arquivo duplicados em pastas diferentes é um padrão recorrente neste projeto.
+
+### Diagnóstico do que havia antes
+
+- **`EconomicCalendar.tsx` (dashboard)**: `fetchRealEconomicData()` estava **hardcoded pra sempre `return null`** (comentário: "MODO OFFLINE: Supabase desabilitado — quota excedida", decisão de sessão antiga nunca revertida) — descartava por completo o endpoint real `/economic-calendar` (cascata MQL5 → Investing.com → Yahoo Finance, já existente e funcional desde sessões anteriores, com tradução real via `translate-events.ts`). Sempre caía em `generateMockEvents()`: ~15 eventos com Actual/Forecast/Previous **sorteados** (`Math.random()`), badge "🔴 MOCK" honesto na tela mas ainda assim dado fabricado.
+- **`NewsFeed.tsx` (dashboard)**: única fonte real era CryptoCompare (só cripto). "Macro" vinha de ticker da Binance sintetizado em frase + Fear&Greed Index (não é notícia real); **as abas "Macro" e "Forex" nunca tinham NENHUM item real** — `category` vinha sempre hardcoded `'crypto'` pros itens reais. Em qualquer falha de rede, caía em `generateFallbackNews()`: 25 manchetes **fabricadas, atribuídas a veículos reais** (Bloomberg Brasil, Reuters Brasil, InfoMoney, CoinDesk PT...) — mesmo anti-padrão já eliminado do extinto Nexus Quantum Advisor (achado grave de 2026-07-17).
+- Tradução: só existia um dicionário de ~70 termos financeiros isolados (regex), nunca uma tradução real de manchete inteira; e estava fixo em PT-BR, não no idioma do usuário.
+
+### O que foi construído
+
+**Backend (`supabase/functions/server/index.ts`)**:
+1. Lógica de fetch+parse de RSS (que já existia dentro de `/news/rss`) extraída pra `fetchAndParseRssFeed()` reaproveitável.
+2. **Bug real encontrado testando contra feed ao vivo (Cointelegraph)**: a extração de `<link>` não removia o wrapper `<![CDATA[...]]>` (diferente da extração de `<title>`, que já tratava isso) — o link de saída vinha literalmente como `<![CDATA[https://...]]>`, quebrando o clique pra qualquer feed nesse formato. Corrigido.
+3. Nova rota **`GET /news/aggregate`**: agrega 5 feeds RSS reais e confirmados via curl direto nesta sessão — Investing.com Cripto (`/rss/news_301.rss`), Cointelegraph, Investing.com Forex (`/rss/news_1.rss`), Investing.com Indicadores Econômicos (`/rss/news_95.rss`), CNBC Economy. Balanceia até 5 por categoria (nunca deixa Macro/Forex vazios), deduplica por URL, traduz a manchete pro idioma pedido (`?lang=`) via endpoint público do Google Translate (`translate.googleapis.com/translate_a/single`, sem chave, com cache em memória por instância), devolve até 15 itens `{id, title, titleOriginal, source, url, category, timestamp}`. Falha total retorna `{items:[], count:0, error}` — nunca dado fabricado.
+4. `/economic-calendar`: ganhou filtro opcional `?country=US` (aplicado nas 3 fontes reais — MQL5/Investing.com/Yahoo — via helper `filterByCountry`, compara `currency === 'USD'`). **Não filtra por padrão**, pra não quebrar o gate de notícias do `useApexLogic.ts` (que precisa de todos os eventos, não só EUA). Ordem das fontes mantida como estava (MQL5 → Investing.com → Yahoo) — cheguei a reordenar Yahoo pra 2º lugar por achar JSON mais confiável que HTML scraping, mas revertido depois de testar (ver "não verificado" abaixo).
+
+**Frontend**:
+- [`NewsFeed.tsx`](src/app/components/dashboard/NewsFeed.tsx) reescrito: busca `/news/aggregate?lang=<navigator.language>` a cada 10min, mescla com o que já está na tela (não zera — "atualizado de 10 em 10 min pra novas" significa acrescentar, não recomeçar), categoriza de verdade (Cripto/Macro/Forex agora têm itens reais nas 3 abas), clique abre `item.url` real em nova aba. Removido `generateFallbackNews()` por completo — falha mostra estado honesto com botão "Tentar novamente", nunca manchete inventada.
+- [`EconomicCalendar.tsx`](src/app/components/dashboard/EconomicCalendar.tsx) reescrito: chama `/economic-calendar?country=US` de verdade (mesmo padrão de fetch com `projectId`/`publicAnonKey` já usado no arquivo irmão morto de `market/`), mapeia os campos (`time`→`event_time`, sem `id` no backend → gerado como `${time}-${idx}`), mantém tradução de nome de evento (dicionário grande já existente, reaproveitado — o backend só traduz o país, não o nome do evento). Refresh automático de meia-noite movido pra **00:01** (era 00:00), mantido o refresh de 3min durante o dia. `generateMockEvents()` removido por completo — falha mostra "nenhuma fonte real respondeu", nunca número sorteado.
+
+### Verificação feita (testado de fato, não só lido)
+
+- `tsc --noEmit` limpo nos arquivos tocados; sintaxe do `index.ts` (Deno) verificada via `esbuild` isolado (só erros de import `npm:`/`jsr:` esperados, zero erro de sintaxe real).
+- **Agregador de notícias testado de ponta a ponta nesta sessão**, replicando a lógica exata em Node contra os 5 feeds reais: os 5 responderam (200), balanceamento 5/5/5 por categoria confirmado, tradução real funcionando (`"Bitcoin visa US$ 72.000..."`), e o bug do link CDATA foi pego e corrigido justamente rodando esse teste.
+- **Agenda econômica NÃO pôde ser confirmada da mesma forma**: testei os 3 provedores direto desta sessão — MQL5 deu HTTP 404, Investing.com bateu HTTP 403 (provável bloqueio de IP de datacenter deste ambiente, não necessariamente reproduz na rede da Supabase Edge Function), e o endpoint do Yahoo Finance (`query1.finance.yahoo.com/v1/finance/calendar/economic`) devolveu uma página de erro interna do próprio Yahoo ("Unknown Host"/sad panda) — sugere que esse endpoint não-documentado pode ter sido descontinuado. Por isso NÃO reordenei Yahoo pra frente do Investing.com (tentei, revertido ao constatar que Yahoo parece quebrado, não só bloqueado).
+- Preview local (`npm run dev`) subiu sem erro novo; Dashboard fica atrás de login, não testado visualmente logado.
+
+### Pendente real pra próxima sessão
+
+1. **Deploy da Edge Function** (mudança em `index.ts` não sobe pelo `git push`/Vercel sozinha):
+```bash
+supabase functions deploy server --project-ref wyvdsxtcmizettljxtbg
+```
+2. **Confirmar em produção, logado**: abrir a Agenda Econômica e ver qual fonte real respondeu (badge "🟢 REAL • nome da fonte" no header) — se todas as 3 falharem sempre a partir da rede da Supabase, considerar investigar uma 4ª fonte (a suspeita é que Yahoo Finance descontinuou esse endpoint específico; MQL5 já era sabido como não confiável a partir de infra cloud; Investing.com pode ou não ser bloqueado dependendo do IP da Supabase).
+3. Confirmar que as Notícias mostram 15 itens reais, cobrindo as 3 categorias, traduzidos, com clique abrindo a fonte real.
+4. Considerar cache/persistência do resultado do agregador de notícias (hoje é 100% stateless por requisição — cada refresh de 10min de cada usuário dispara os 5 fetches de novo; sem problema em baixa escala, mas se muitos usuários abrirem ao mesmo tempo pode valer cachear no KV store por ~5min).
+5. Achado de bônus, não tocado: `src/app/components/market/EconomicCalendar.tsx`, `LocalMarketNews.tsx`, `MarketIntelligence.tsx` são componentes mortos (não montados em lugar nenhum) — candidatos a limpeza futura, mesmo padrão de "dois catálogos duplicados" já visto em outras partes do projeto (preço de ativos, ver sessões antigas).
+
+---
+
 ## Sessão nova (2026-07-19, continuação): Nexus Quantum Advisor reescrito — fim do mock, painel agora usa o MarketScoreEngine real — PENDENTE COMMIT/PUSH
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de Gerenciamento de Risco logo abaixo (mesmo dia). Cleber pediu pra executar a decisão já tomada há sessões atrás: extinguir o Nexus Quantum Advisor (achado grave de 2026-07-17, ~30% da tela do Dashboard, 100% `Math.random()`), mas manter e tornar real a "Análise Detalhada por Fonte" — ele quer esses dados (de onde vêm as ordens, quem está se posicionando no mercado) pra embasar a IA na avaliação de risco de entrada.
