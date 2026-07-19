@@ -1197,25 +1197,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                                     ))}
                                 </div>
                             </div>
-
-                                {/* Stop Loss Mode */}
-                                <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase">Modo Stop Loss</label>
-                                <div className="flex gap-2">
-                                    <button 
-                                    onClick={() => setConfig({ ...config, stopLossMode: 'FIXO' })}
-                                    className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'FIXO' ? 'bg-white/10 border-white text-white' : 'border-white/10 text-slate-500'}`}
-                                    >
-                                    Fixo (%)
-                                    </button>
-                                    <button 
-                                    onClick={() => setConfig({ ...config, stopLossMode: 'DINAMICO' })}
-                                    className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'DINAMICO' ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-white/10 text-slate-500'}`}
-                                    >
-                                    Dinâmico (AI/SMC)
-                                    </button>
-                                </div>
-                            </div>
                             </div>
 
                             {/* COLUMN 2: VOLUMETRIA (Contracts/Assets) */}
@@ -1388,6 +1369,26 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+                                {/* Modo Stop Loss */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Modo Stop Loss</span>
+                                    <div className="flex gap-2">
+                                        <button
+                                        onClick={() => setConfig({ ...config, stopLossMode: 'FIXO' })}
+                                        className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'FIXO' ? 'bg-white/10 border-white text-white' : 'border-white/10 text-slate-500'}`}
+                                        >
+                                        Fixo (%)
+                                        </button>
+                                        <button
+                                        onClick={() => setConfig({ ...config, stopLossMode: 'DINAMICO' })}
+                                        className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'DINAMICO' ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-white/10 text-slate-500'}`}
+                                        >
+                                        Dinâmico (AI/SMC)
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-slate-500">"Dinâmico" ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade.</p>
+                                </div>
 
                                 {/* Risco por trade + Max Drawdown */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
