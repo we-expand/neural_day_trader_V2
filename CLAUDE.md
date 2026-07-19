@@ -1,4 +1,46 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-18)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-18, continuação)
+
+## Sessão nova (2026-07-18, continuação): spec técnica do módulo de risco + Gerenciamento de Risco customizável no AI Trader — TUDO COMMITADO E PUSHADO
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão "Order Book real" logo abaixo (mesmo dia). Cleber pediu pra seguir a partir da seção "5. Próximos passos" de [`research/RISK_MANAGEMENT_STRATEGY.md`](research/RISK_MANAGEMENT_STRATEGY.md) — item 2 (spec técnica do módulo de risco) era o primeiro pendente. Depois pediu explicitamente um painel visual de risco dentro das configs do AI Trader, com liberdade total de customização pro usuário.
+
+### Parte 1 — formalização produto/pesquisa + spec técnica (item 1 e 2 da seção 5)
+
+Criados 4 arquivos novos em `research/` (pasta nova, nunca existia):
+- [`research/CRITERIA.md`](research/CRITERIA.md) — critério de promoção pesquisa→produto (amostra ≥100 sinais, métrica líquida de custo, IC 95%, degradação máxima 30% out-of-sample, prazo de validade de 60 dias) — formaliza o processo já descrito na seção 2 do `RISK_MANAGEMENT_STRATEGY.md`.
+- [`research/CostModel.ts`](research/CostModel.ts) — estimativa de spread/comissão/slippage por classe de ativo, usada só por scripts de pesquisa (não chamado por nenhum caminho de produto hoje).
+- [`research/experiments/README.md`](research/experiments/README.md) — estrutura de pasta vazia, pronta pro primeiro experimento formal.
+- [`research/RISK_MODULE_SPEC.md`](research/RISK_MODULE_SPEC.md) — a spec técnica em si, escrita depois de mapear o código real (`useApexLogic.ts`, `TradeSizing.ts`, `RiskThermometer.tsx`, `NeuralRiskGuardian.ts`) via agente de exploração. **Achado chave da investigação**: o enforcement de risco (daily loss limit, max drawdown, min win rate) já existia no Health Check Guardian, mas é **reativo** (checagem a cada 5s, pode deixar 1-2 trades passarem) e só bloqueia tudo-ou-nada via Safe Mode — sem gate granular por trade. `RiskThermometer.tsx` e `NeuralRiskGuardian.ts` confirmados como cascas vazias (documentado desde sessão de 2026-07-11, ainda válido). A spec propõe um gate síncrono pré-trade (`useRiskGuardian`) cobrindo os itens que não existiam: cooldown pós-perdas, limite de trades/dia, correlação entre posições, position sizing por ATR.
+
+### Parte 2 — implementação real (não ficou só na spec): Gerenciamento de Risco no AI Trader
+
+Cleber pediu o painel visual customizável de verdade, então a Parte 1 da spec (`useRiskGuardian` embrionário) foi implementada direto em vez de ficar só documentada:
+
+**[`useApexLogic.ts`](src/app/hooks/useApexLogic.ts)**:
+- `AIConfig` ganhou 8 campos novos: `drawdownAnchor` ('INTRADAY_PEAK'/'DAILY_CLOSE', default DAILY_CLOSE — modelo Topstep), `cooldownEnabled`/`consecutiveLossesTrigger`/`cooldownMinutes` (default: 3 perdas seguidas → 60min de pausa), `maxTradesPerDay` (0 = sem limite), `positionSizingMode` ('FIXED'/'ATR') + `atrMultiplier`, `correlationGuardEnabled`/`correlationThreshold`.
+- Novo gate síncrono, inserido logo depois do filtro de `direction` e antes da decisão final de entrada — **distinto do Health Check Guardian** (que só audita a cada 5s e pausa tudo): checa cooldown (via `cooldownUntilRef`, calculado a partir de perdas consecutivas em `orderHistoryRef`) e limite de trades/dia (conta `orderHistoryRef` fechados hoje + `activeOrdersRef` abertos), vetando só aquele trade específico sem tocar em `isActive`/Safe Mode.
+- Position sizing por ATR: quando `positionSizingMode === 'ATR'`, usa `calculateATR(candles, 14)` (mesma função de `TechnicalIndicators.ts` já usada pelo motor de estratégia) pra escalar o capital de risco pela volatilidade real do ativo, em vez do % linear fixo de sempre.
+- Correlação entre posições: heurística por grupo estático (`CORRELATION_GROUPS` — USD majors, USD/JPY/CHF, metais, cripto major, índices US, índices EU) — **não é correlação de retornos calculada ao vivo** (documentado como próximo passo na spec); se há posição aberta no mesmo grupo do símbolo proposto, reduz o tamanho da nova posição pela metade do `correlationThreshold`.
+
+**[`AITrader.tsx`](src/app/components/AITrader.tsx)**: nova seção full-width "Gerenciamento de Risco" na tela de configuração da IA (`mode === 'ENGINEER'`), abaixo do grid de 3 colunas existente, no mesmo padrão visual (tailwind puro, sem shadcn, cores por contexto — vermelho=limites de capital, azul=position sizing, ciano=cooldown, roxo=correlação). Também preenchidos 3 campos que já existiam em `AIConfig` mas nunca tinham UI nenhuma: `riskPerTrade`, `maxDrawdown`, `minWinRate` (slider de taxa de acerto mínima).
+
+**Verificado ao vivo no navegador** (`npm run dev`, sessão demo já salva, sem precisar de login novo): naveguei até AI Trader → ícone de Sliders no header (`mode === 'ENGINEER'`) → seção "Gerenciamento de Risco" renderiza completa depois de scroll (o painel é alto, o botão "Ajustado por ATR" fica mais abaixo). Confirmado interativamente: alternar pra "Ajustado por ATR" revela o slider de multiplicador (1.5x default); ligar "Alerta de Correlação entre Posições" revela o slider de limiar (0.70 default); estado persiste em `localStorage` (`apex_logic_state_v15_FIXED`, confirmado via `positionSizingMode: "ATR"` gravado); "Salvar Configuração" volta ao modo Monitor sem erro no console. `npx tsc --noEmit` limpo nos 2 arquivos (só ruído pré-existente em `src/imports/pasted_text/`, não relacionado).
+
+### Commits desta sessão (já pushados)
+
+1. `cadccb384` — docs: `research/CRITERIA.md`, `CostModel.ts`, `experiments/`, `RISK_MODULE_SPEC.md`.
+2. Módulo de Gerenciamento de Risco (código + UI) — `useApexLogic.ts` + `AITrader.tsx`.
+
+### Pendente real pra próxima sessão
+
+1. **Testar em produção** (`neuraldaytrader.com`), logado com a conta real do Cleber: confirmar que o cooldown/limite de trades/ATR sizing/correlação realmente afetam o comportamento da IA ao vivo (só testado no preview local sem IA rodando de fato — nenhum trade real foi disparado pra validar o gate em ação).
+2. **Correlação é heurística estática, não calculada ao vivo** — `CORRELATION_GROUPS` em `useApexLogic.ts` é uma tabela fixa de pares/grupos conhecidos, não uma correlação de retornos real entre os candles dos ativos. Evoluir isso (seção 3.5 da spec) é trabalho futuro, não bloqueante.
+3. **`drawdownAnchor` só está no schema/UI, não afeta ainda o cálculo real do Health Check Guardian** — o campo é salvo e exibido, mas o cálculo de `maxDrawdown`/`dailyLossLimit` no Health Check continua com a lógica original (P&L desde 00:00 UTC via `orderHistoryRef`, que já se aproxima de "fechamento diário" na prática, mas não implementa de fato a distinção INTRADAY_PEAK vs DAILY_CLOSE). Fechar esse gap é o próximo passo mais importante da spec.
+4. Itens 3 e 4 da seção "5. Próximos passos" do `RISK_MANAGEMENT_STRATEGY.md` (confirmar se a estimativa de 3-5 semanas é realista; decidir sobre extinção do `NexusQuantumAdvisor.tsx`/`MarketTendencyEngine.ts`) continuam pendentes, não tocados nesta sessão.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-18)
 
 ## Sessão nova (2026-07-18): Order Book real (só cripto, Binance) conectado no MarketScoreEngine + na UI — auditoria completa do Nexus Quantum Advisor — NÃO COMMITADO AINDA
 
