@@ -97,6 +97,8 @@ export function EconomicCalendar() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [dataSource, setDataSource] = useState<string>('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [agendaDate, setAgendaDate] = useState<string | null>(null);
+  const [isToday, setIsToday] = useState(true);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 30000);
@@ -157,6 +159,8 @@ export function EconomicCalendar() {
 
       setEvents(mapped);
       setDataSource(data.source || '');
+      setAgendaDate(data.date || null);
+      setIsToday(data.isToday !== false); // ausente (fontes antigas) = trata como hoje
       setLoadError(mapped.length === 0 ? 'Nenhuma fonte real respondeu no momento' : null);
       setLoading(false);
     } catch (error: any) {
@@ -169,6 +173,15 @@ export function EconomicCalendar() {
   }
 
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  const formatAgendaDateLabel = (dateStr: string) => {
+    // ✅ evita bug de fuso: parseia YYYY-MM-DD como data local, não UTC
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const weekday = date.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const shortDate = date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return `${weekday} (${shortDate})`;
+  };
 
   const getCountdown = (target: string) => {
     const diff = new Date(target).getTime() - currentTime.getTime();
@@ -216,6 +229,15 @@ export function EconomicCalendar() {
           <span className="text-[8px] font-mono text-slate-500">{currentTime.toLocaleTimeString('pt-BR')}</span>
         </div>
       </div>
+
+      {/* Aviso quando a agenda exibida não é a de hoje (ex: domingo sem
+          divulgação econômica — mostra o último dia útil real, sexta-feira) */}
+      {!loading && !isToday && agendaDate && events.length > 0 && (
+        <div className="px-3 py-1 bg-amber-500/10 border-b border-amber-500/20 text-[9px] text-amber-400 flex items-center gap-1.5">
+          <Calendar className="w-3 h-3 shrink-0" />
+          <span>Hoje não há divulgação econômica americana — mostrando {formatAgendaDateLabel(agendaDate)}, o último dia com eventos reais.</span>
+        </div>
+      )}
 
       {/* Table Header */}
       <div className="grid grid-cols-12 gap-2 px-3 py-1 bg-white/[0.02] border-b border-white/5 text-[8px] font-bold text-slate-500 uppercase tracking-wider">

@@ -1,5 +1,37 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-19)
 
+## Sessão nova (2026-07-19, continuação 4): Agenda Econômica — fallback pro último dia útil com eventos (domingo/feriado sem divulgação mostra sexta-feira, com aviso na UI) — TESTADO E DEPLOYADO, PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da seção logo abaixo (mesmo dia). Depois do fix da 4ª fonte (TradingView), Cleber confirmou que Notícias já funcionava, mas a Agenda continuava vazia — esclareceu que hoje é domingo mesmo (sem divulgação real), e pediu explicitamente pra mostrar a agenda de sexta-feira nesse caso, em vez de ficar em branco.
+
+### Fix: `fetchTradingViewCalendar()` agora busca uma janela de 5 dias pra trás e escolhe o dia mais recente (≤ hoje) que tenha pelo menos 1 evento
+
+Antes buscava só o dia de hoje — em fim de semana/feriado americano (sem divulgação real) isso sempre voltava vazio, mesmo com a fonte funcionando perfeitamente. Agora: consulta `economic-calendar.tradingview.com` com `from=hoje-5dias` até `to=amanhã`, agrupa os eventos por data (UTC) e devolve o grupo do dia mais recente ≤ hoje. A função retorna `{date, events}` (antes só `events[]`) — a rota `/economic-calendar` propaga esse `date` real no JSON de resposta, mais um campo novo `isToday` (`false` quando a data devolvida é diferente de hoje).
+
+**Testado direto contra o endpoint real antes de implementar** (não só teoria): consultei a janela de 5 dias pra trás nesta sessão e confirmei que 2026-07-17 (sexta) tem 20 eventos reais dos EUA (Building Permits, Housing Starts, Import Prices...) com `actual`/`forecast`/`previous` genuínos — e que sábado/domingo (18-19) realmente não têm nenhum. A lógica de "pega o mais recente ≤ hoje" foi validada contra esse dado real antes do deploy.
+
+### Frontend: aviso amarelo quando a agenda exibida não é a de hoje
+
+[`EconomicCalendar.tsx`](src/app/components/dashboard/EconomicCalendar.tsx): novo estado `agendaDate`/`isToday` lido da resposta. Quando `isToday === false` e há eventos, mostra uma faixa amarela abaixo do header: *"Hoje não há divulgação econômica americana — mostrando sexta-feira (17/07), o último dia com eventos reais."* (dia da semana + data por extenso, formatado a partir de `YYYY-MM-DD` como data LOCAL, não UTC, pra não errar o dia por causa de fuso horário). Campo `isToday` ausente (resposta de uma das 3 fontes antigas, que não devolvem essa info) é tratado como `true` por segurança — não gera aviso falso.
+
+### Verificação feita
+
+`tsc --noEmit` e `esbuild` sintático limpos. **Deploy feito e confirmado em produção nesta sessão** (`supabase functions deploy server`, autorizado pelo Cleber): `curl` direto em `/economic-calendar?country=US` confirmou `count: 20, source: "TradingView Economic Calendar", date: "2026-07-17", isToday: false` — exatamente o comportamento esperado num domingo. Não testado visualmente logado (Dashboard atrás de login) — falta confirmar que a faixa amarela aparece certinha na tela.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (o backend já está deployado direto via CLI nesta sessão, falta só registrar no git):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add supabase/functions/server/index.ts src/app/components/dashboard/EconomicCalendar.tsx CLAUDE.md
+git commit -m "feat: Agenda Economica mostra o ultimo dia util com eventos reais quando hoje nao tem divulgacao (fim de semana/feriado) em vez de ficar vazia -- fetchTradingViewCalendar() busca janela de 5 dias pra tras e escolhe o dia mais recente <= hoje com pelo menos 1 evento; UI mostra aviso amarelo explicito quando a agenda exibida nao e a de hoje (dia da semana + data), nunca finge que e hoje"
+git push origin main
+```
+2. Confirmar visualmente logado: a faixa amarela de aviso aparece certa em dia sem divulgação (hoje, domingo) e desaparece automaticamente numa segunda-feira com evento real hoje.
+3. Tudo mais pendente da seção anterior (debug do TradingView não incluído em `/debug-economic-calendar` ainda) continua valendo.
+
+---
+
 ## Sessão nova (2026-07-19, continuação 3): Notícias e Agenda Econômica — CONFIRMADO EM PRODUÇÃO, 4ª fonte (TradingView) adicionada à agenda — PENDENTE COMMIT/PUSH da 4ª fonte
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão logo abaixo (mesmo dia). Cleber reportou "notícias não carregam, agenda vazia" depois do deploy da sessão anterior — investigado e resolvido nesta sessão.

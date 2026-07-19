@@ -1797,15 +1797,19 @@ app.get("/economic-calendar", async (c) => {
         // TODOS mortos ao mesmo tempo (não é fallback teórico, é o estado
         // real observado).
         console.log('📞 [AGENDA] Tentando TradingView Economic Calendar...');
-        const tvEvents = await fetchTradingViewCalendar();
-        if (tvEvents && tvEvents.length > 0) {
-            console.log(`✅ [TRADINGVIEW] ${tvEvents.length} eventos REAIS encontrados`);
-            const translatedTvEvents = filterByCountry(translateEconomicEvents(tvEvents));
+        const tvResult = await fetchTradingViewCalendar(countryFilter);
+        if (tvResult && tvResult.events.length > 0) {
+            console.log(`✅ [TRADINGVIEW] ${tvResult.events.length} eventos REAIS encontrados (dia: ${tvResult.date})`);
+            const translatedTvEvents = filterByCountry(translateEconomicEvents(tvResult.events));
+            const todayStr = new Date().toISOString().split('T')[0];
             return c.json({
                 events: translatedTvEvents,
                 count: translatedTvEvents.length,
                 source: 'TradingView Economic Calendar',
-                date: new Date().toISOString().split('T')[0]
+                date: tvResult.date,
+                // ✅ avisa a UI quando a data devolvida não é hoje (ex:
+                // domingo sem eventos, mostra a sexta-feira mais recente)
+                isToday: tvResult.date === todayStr,
             });
         }
         console.log('⚠️ [TRADINGVIEW] Sem eventos ou falhou');
@@ -2167,13 +2171,23 @@ async function scrapeMQL5HTML(html: string, today: Date) {
 // confirmado real: `economic-calendar.tradingview.com/events` — mesmo
 // endpoint que alimenta o widget de calendário econômico do TradingView,
 // sem chave, devolve actual/forecast/previous reais.
-async function fetchTradingViewCalendar() {
+//
+// 🔁 2026-07-19 (2ª correção, mesmo dia): domingo genuinamente não tem
+// divulgação econômica americana nenhuma — Cleber pediu que nesse caso a
+// agenda mostre o dia útil mais recente com eventos (sexta-feira) em vez de
+// ficar vazia. Busca uma janela de 5 dias pra trás, agrupa por data, e
+// devolve o dia mais recente (<= hoje) que tiver pelo menos 1 evento —
+// junto com essa data, pra a UI avisar claramente "mostrando sexta-feira"
+// em vez de fingir que é hoje.
+async function fetchTradingViewCalendar(countryFilter?: string): Promise<{ date: string; events: any[] } | null> {
     try {
         const today = new Date();
-        const from = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0)).toISOString();
+        const from = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - 5, 0, 0, 0)).toISOString();
         const to = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 1, 0, 0, 0)).toISOString();
+        const todayStr = today.toISOString().slice(0, 10);
 
-        const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}`;
+        const countryParam = countryFilter === 'US' ? '&countries=US' : '';
+        const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}${countryParam}`;
         console.log(`[TRADINGVIEW] URL: ${url}`);
 
         const response = await fetch(url, {
@@ -2192,24 +2206,43 @@ async function fetchTradingViewCalendar() {
 
         const data = await response.json();
         if (!data.result || !Array.isArray(data.result) || data.result.length === 0) {
-            console.warn('[TRADINGVIEW] Sem eventos');
+            console.warn('[TRADINGVIEW] Sem eventos na janela de 5 dias');
             return null;
         }
 
-        console.log(`[TRADINGVIEW] ${data.result.length} eventos encontrados`);
+        // Agrupa por data (UTC) e pega o dia mais recente <= hoje que tenha
+        // evento — cobre fim de semana/feriado sem eventos reais.
+        const byDate = new Map<string, any[]>();
+        for (const ev of data.result) {
+            const d = (ev.date || '').slice(0, 10);
+            if (!d || d > todayStr) continue;
+            if (!byDate.has(d)) byDate.set(d, []);
+            byDate.get(d)!.push(ev);
+        }
+        const pickedDate = [...byDate.keys()].sort().reverse()[0];
+        if (!pickedDate) {
+            console.warn('[TRADINGVIEW] Nenhum dia <= hoje com eventos na janela');
+            return null;
+        }
+
+        const events = byDate.get(pickedDate)!;
+        console.log(`[TRADINGVIEW] ${events.length} eventos encontrados pro dia ${pickedDate}${pickedDate !== todayStr ? ` (hoje, ${todayStr}, não tinha nenhum)` : ''}`);
 
         // Escala de importância do TradingView: -1 (baixa), 0 (média), 1 (alta)
-        return data.result.map((ev: any) => ({
-            time: ev.date || new Date().toISOString(),
-            currency: ev.currency || getCurrencyFromCountry(ev.country || 'US'),
-            importance: ev.importance >= 1 ? 3 : ev.importance === 0 ? 2 : 1,
-            event: ev.title || 'Economic Event',
-            actual: ev.actual !== null && ev.actual !== undefined ? String(ev.actual) : '',
-            forecast: ev.forecast !== null && ev.forecast !== undefined ? String(ev.forecast) : '',
-            previous: ev.previous !== null && ev.previous !== undefined ? String(ev.previous) : '',
-            country: ev.country || '',
-            period: ev.period || '',
-        }));
+        return {
+            date: pickedDate,
+            events: events.map((ev: any) => ({
+                time: ev.date || new Date().toISOString(),
+                currency: ev.currency || getCurrencyFromCountry(ev.country || 'US'),
+                importance: ev.importance >= 1 ? 3 : ev.importance === 0 ? 2 : 1,
+                event: ev.title || 'Economic Event',
+                actual: ev.actual !== null && ev.actual !== undefined ? String(ev.actual) : '',
+                forecast: ev.forecast !== null && ev.forecast !== undefined ? String(ev.forecast) : '',
+                previous: ev.previous !== null && ev.previous !== undefined ? String(ev.previous) : '',
+                country: ev.country || '',
+                period: ev.period || '',
+            })),
+        };
     } catch (e: any) {
         console.error('[TRADINGVIEW] ❌ Erro:', e.message);
         return null;
