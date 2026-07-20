@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Shield, Activity, Newspaper, Waves, Gauge } from 'lucide-react';
+import { AlertTriangle, Shield, Activity, Newspaper, Waves, Gauge, Settings } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import type { MarketScoreResult } from '@/app/services/MarketScoreEngine';
 import { getLastKnownRealPrice } from '@/app/services/RealMarketDataService';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { LunaInteractionSettings } from '../nexus/LunaInteractionSettings';
 
 interface EconomicEvent {
   event_time: string; // ISO
@@ -87,6 +88,12 @@ function computeNewsRisk(events: EconomicEvent[], currencies: string[]): NewsRis
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 export function RiskThermometer() {
+  // Botão de config da Luna migrado pra cá em 2026-07-20, quando o box do
+  // "Nexus Quantum Advisor" (que ficava logo acima, à direita) foi eliminado
+  // a pedido do Cleber — o Termômetro de Risco é o box abaixo, mesma posição
+  // vertical (coluna direita do Dashboard).
+  const [showLunaSettings, setShowLunaSettings] = useState(false);
+
   // scoreResult vem PRONTO do MarketScoreBoard (mesmo motor, mesmo cálculo já
   // exibido no Dashboard) — nunca recalculado aqui. Uma 2ª chamada ao
   // MarketScoreEngine pro mesmo ativo dobraria a carga na conta MetaAPI
@@ -176,11 +183,20 @@ export function RiskThermometer() {
             <Shield className="w-4 h-4" />
             Risco de Mercado — {symbol}
         </h2>
-        <div className="text-right">
-            <p className="text-[10px] text-slate-500 uppercase">ATR</p>
-            <p className={`text-xl font-mono font-bold ${riskColor}`}>
-                {atrPercent != null ? `${atrPercent.toFixed(2)}%` : '—'}
-            </p>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+              <p className="text-[10px] text-slate-500 uppercase">ATR</p>
+              <p className={`text-xl font-mono font-bold ${riskColor}`}>
+                  {atrPercent != null ? `${atrPercent.toFixed(2)}%` : '—'}
+              </p>
+          </div>
+          <button
+            onClick={() => setShowLunaSettings(true)}
+            className="p-2 rounded-lg bg-gradient-to-br from-cyan-500/10 to-purple-500/10 hover:from-cyan-500/20 hover:to-purple-500/20 border border-cyan-500/30 hover:border-cyan-500/50 transition-all group shrink-0"
+            title="Configurações da Luna"
+          >
+            <Settings className="w-4 h-4 text-cyan-400 group-hover:rotate-90 transition-transform duration-300" />
+          </button>
         </div>
       </div>
 
@@ -294,6 +310,11 @@ export function RiskThermometer() {
              </div>
         )}
       </div>
+
+      <LunaInteractionSettings
+        isOpen={showLunaSettings}
+        onClose={() => setShowLunaSettings(false)}
+      />
     </div>
   );
 }
