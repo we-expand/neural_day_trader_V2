@@ -28,6 +28,7 @@ import {
   Database, // 🔥 NOVO: Ícone para painel de dados
   Settings // ⚙️ NOVO: Ícone para configuração rápida
 } from 'lucide-react';
+import { NexusQuantumAdvisor } from '../nexus/NexusQuantumAdvisor';
 import { toast } from 'sonner';
 import { DepositModal } from '../wallet/DepositModal';
 import { InfinoxAssetsBrowser } from './InfinoxAssetsBrowser'; // ✅ NOVO: Import do navegador de ativos
@@ -1146,8 +1147,8 @@ export const MarketScoreBoard = () => {
         {/* MAIN LAYOUT */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-[500px] lg:h-auto lg:min-h-[600px]">
             
-            {/* COL 1: GAUGE */}
-            <div className="col-span-1 lg:col-span-4 flex flex-col gap-3 h-full">
+            {/* COL 1: GAUGE - REDUZIDO */}
+            <div className="col-span-1 lg:col-span-3 flex flex-col gap-3 h-full">
                 <Card className="flex-1 items-center justify-center gap-3">
                     <div className="w-full space-y-1">
                         <div className="flex justify-between text-[9px] font-bold uppercase tracking-widest">
@@ -1184,8 +1185,8 @@ export const MarketScoreBoard = () => {
                 </Card>
             </div>
 
-            {/* COL 2: NEURAL INSIGHT — expandido depois da remoção do Nexus Quantum Advisor (COL 3) */}
-            <div className="col-span-1 lg:col-span-8 flex flex-col gap-3 h-full">
+            {/* COL 2: NEURAL INSIGHT - REDUZIDO 20% */}
+            <div className="col-span-1 lg:col-span-4 flex flex-col gap-3 h-full">
                  <Card className="bg-gradient-to-br from-purple-950/20 to-black relative overflow-hidden group h-full flex flex-col">
                      <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
                         <Zap className="w-20 h-20 text-purple-500" />
@@ -1420,6 +1421,15 @@ export const MarketScoreBoard = () => {
                         </div>
                      </div>
                  </Card>
+            </div>
+
+            {/* COL 3: ANÁLISE POR FONTE - EXPANDIDO 25% */}
+            <div className="col-span-1 lg:col-span-5 h-full flex flex-col min-h-[400px]">
+                {/* Usar displayPrice (preço atual) e displayTrend (% de mudança diária) */}
+                <NexusQuantumAdvisor
+                  activeSymbol={activeSymbol}
+                  scoreResult={scoreResult}
+                />
             </div>
 
         </div>
