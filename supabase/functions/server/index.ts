@@ -4704,12 +4704,29 @@ app.get('/news/rss', async (c) => {
 // a rede falhava — mesmo anti-padrão já eliminado em outras
 // partes do app (ver Nexus Quantum Advisor).
 // ========================================
-const NEWS_FEEDS: { url: string; category: 'crypto' | 'macro' | 'forex'; source: string }[] = [
+type NewsFeedConfig = { url: string; category: 'crypto' | 'macro' | 'forex'; source: string };
+
+const NEWS_FEEDS_EN: NewsFeedConfig[] = [
   { url: 'https://www.investing.com/rss/news_301.rss', category: 'crypto', source: 'Investing.com' },
   { url: 'https://cointelegraph.com/rss', category: 'crypto', source: 'Cointelegraph' },
   { url: 'https://www.investing.com/rss/news_1.rss', category: 'forex', source: 'Investing.com' },
   { url: 'https://www.investing.com/rss/news_95.rss', category: 'macro', source: 'Investing.com' },
   { url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html', category: 'macro', source: 'CNBC' },
+];
+
+// ✅ 2026-07-20: em vez de traduzir manchete em inglês pro português (sempre
+// perde qualidade — "$70K" virava "$ 70 mil", tom de tradução automática),
+// usa as mesmas editoras só que na versão que JÁ publica nativamente em
+// português (br.investing.com é o mesmo Investing.com de sempre, domínio
+// brasileiro; cointelegraph.com.br é a redação BR do mesmo veículo; Money
+// Times cobre o mesmo tipo de notícia macro que o CNBC cobria em inglês).
+// Zero tradução automática pro caso comum (maioria dos usuários é PT-BR).
+const NEWS_FEEDS_PT: NewsFeedConfig[] = [
+  { url: 'https://br.investing.com/rss/news_301.rss', category: 'crypto', source: 'Investing.com' },
+  { url: 'https://cointelegraph.com.br/rss', category: 'crypto', source: 'Cointelegraph' },
+  { url: 'https://br.investing.com/rss/news_1.rss', category: 'forex', source: 'Investing.com' },
+  { url: 'https://br.investing.com/rss/news_95.rss', category: 'macro', source: 'Investing.com' },
+  { url: 'https://www.moneytimes.com.br/feed/', category: 'macro', source: 'Money Times' },
 ];
 
 // Cache de tradução em memória (dura enquanto a instância da Edge Function
@@ -4776,9 +4793,11 @@ async function translateText(text: string, targetLang: string): Promise<string> 
 app.get('/news/aggregate', async (c) => {
   try {
     const targetLang = (c.req.query('lang') || 'pt').split('-')[0].toLowerCase();
+    const isNativePt = targetLang === 'pt';
+    const feeds = isNativePt ? NEWS_FEEDS_PT : NEWS_FEEDS_EN;
 
     const perFeed = await Promise.allSettled(
-      NEWS_FEEDS.map(async (feed) => {
+      feeds.map(async (feed) => {
         const { items } = await fetchAndParseRssFeed(feed.url);
         return items.map((item) => {
           const pubDateMs = Date.parse(item.pubDate);
@@ -4833,17 +4852,28 @@ app.get('/news/aggregate', async (c) => {
     picked.sort((a, b) => b.timestamp - a.timestamp);
     const final = picked.slice(0, 15);
 
-    // Tradução pro idioma do usuário (concorrência limitada, gentil com o
-    // endpoint público do Google Translate).
-    const translated = await mapWithConcurrency(final, 5, async (item) => ({
-      id: item.url || `${item.category}-${item.timestamp}`,
-      title: await translateText(item.title, targetLang),
-      titleOriginal: item.title,
-      source: item.source,
-      url: item.url,
-      category: item.category,
-      timestamp: item.timestamp,
-    }));
+    // Fontes PT já vêm nativas no idioma — zero tradução automática (melhor
+    // qualidade). Só traduz de verdade quando a fonte é em inglês (qualquer
+    // idioma-alvo diferente de PT), concorrência limitada.
+    const translated = isNativePt
+      ? final.map((item) => ({
+          id: item.url || `${item.category}-${item.timestamp}`,
+          title: item.title,
+          titleOriginal: item.title,
+          source: item.source,
+          url: item.url,
+          category: item.category,
+          timestamp: item.timestamp,
+        }))
+      : await mapWithConcurrency(final, 5, async (item) => ({
+          id: item.url || `${item.category}-${item.timestamp}`,
+          title: await translateText(item.title, targetLang),
+          titleOriginal: item.title,
+          source: item.source,
+          url: item.url,
+          category: item.category,
+          timestamp: item.timestamp,
+        }));
 
     return c.json({
       items: translated,
