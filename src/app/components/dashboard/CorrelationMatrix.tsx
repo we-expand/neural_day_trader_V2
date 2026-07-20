@@ -1,236 +1,314 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Brain, Layers, ShieldAlert, RefreshCw, Plus, X, Search, Filter } from 'lucide-react';
+import {
+  Brain, Layers, ShieldAlert, RefreshCw, Plus, X, Search, Filter,
+  TrendingUp, TrendingDown, GitBranch, Target, Sparkles, AlertTriangle,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { ALL_ASSETS, type AssetCategory } from '@/app/config/assetDatabase';
+import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 
-// Presets populares
-const PRESET_PORTFOLIOS = {
-  'Crypto Leaders': ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD'],
-  'Forex Majors': ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD'],
-  'Market Mix': ['BTCUSD', 'EURUSD', 'XAUUSD', 'SPX500', 'US30'],
+// Presets populares (mais amplos, cobrindo mais classes de ativo por padrão)
+const PRESET_PORTFOLIOS: Record<string, string[]> = {
+  'Crypto Leaders': ['BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD'],
+  'Forex Majors': ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD'],
+  'Diversificado Global': ['BTCUSD', 'EURUSD', 'XAUUSD', 'SPX500', 'US30', 'USOUSD', 'GER40', 'AAPL'],
   'Safe Havens': ['XAUUSD', 'XAGUSD', 'USDJPY', 'USDCHF', 'BTCUSD'],
-  'Risk On': ['SPX500', 'US30', 'EURUSD', 'AUDUSD', 'BTCUSD'],
-  'Commodities': ['XAUUSD', 'XAGUSD', 'WTIUSD', 'XBRUSD', 'XNGUSD'],
-  'Tech Stocks': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'],
+  'Risk On': ['SPX500', 'US30', 'NAS100', 'EURUSD', 'AUDUSD', 'BTCUSD'],
+  'Commodities': ['XAUUSD', 'XAGUSD', 'USOUSD', 'UKOUSD', 'XNGUSD'],
+  'Tech Stocks + Cripto': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'BTCUSD', 'ETHUSD'],
+  'Índices Globais': ['SPX500', 'US30', 'NAS100', 'GER40', 'UK100', 'JP225'],
 };
 
-// Correlações base específicas (high-confidence)
-const baseCorrelations: Record<string, Record<string, number>> = {
-  'BTCUSD': { 'ETHUSD': 0.85, 'SOLUSD': 0.78, 'BNBUSD': 0.75, 'XRPUSD': 0.70, 'ADAUSD': 0.68, 'DOTUSD': 0.72, 'SPX500': 0.45, 'US30': 0.42, 'XAUUSD': 0.15, 'EURUSD': 0.25 },
-  'ETHUSD': { 'SOLUSD': 0.82, 'BNBUSD': 0.75, 'ADAUSD': 0.70, 'SPX500': 0.50, 'BTCUSD': 0.85, 'XRPUSD': 0.68 },
-  'SOLUSD': { 'ETHUSD': 0.82, 'BTCUSD': 0.78, 'BNBUSD': 0.72, 'ADAUSD': 0.68 },
-  'BNBUSD': { 'ETHUSD': 0.75, 'BTCUSD': 0.70, 'SOLUSD': 0.72 },
-  'XRPUSD': { 'BTCUSD': 0.70, 'ETHUSD': 0.68, 'ADAUSD': 0.65 },
-  'ADAUSD': { 'ETHUSD': 0.70, 'SOLUSD': 0.68, 'XRPUSD': 0.65, 'BTCUSD': 0.68 },
-  'EURUSD': { 'GBPUSD': 0.82, 'EURGBP': 0.45, 'USDJPY': -0.45, 'USDCHF': -0.85, 'XAUUSD': 0.35, 'SPX500': 0.30, 'BTCUSD': 0.25, 'AUDUSD': 0.65, 'NZDUSD': 0.55, 'EURJPY': 0.40, 'EURCHF': 0.35 },
-  'GBPUSD': { 'EURUSD': 0.82, 'EURGBP': -0.50, 'USDJPY': -0.35, 'XAUUSD': 0.25, 'AUDUSD': 0.60, 'GBPJPY': 0.45 },
-  'USDJPY': { 'EURUSD': -0.45, 'GBPUSD': -0.35, 'XAUUSD': -0.20, 'SPX500': 0.40, 'USDCHF': 0.70, 'AUDJPY': 0.55, 'EURJPY': 0.60 },
-  'USDCHF': { 'EURUSD': -0.85, 'USDJPY': 0.70, 'XAUUSD': -0.30, 'GBPCHF': 0.50 },
-  'AUDUSD': { 'NZDUSD': 0.88, 'EURUSD': 0.65, 'GBPUSD': 0.60, 'XAUUSD': 0.40, 'SPX500': 0.35, 'AUDCAD': 0.45, 'AUDJPY': 0.50 },
-  'NZDUSD': { 'AUDUSD': 0.88, 'EURUSD': 0.55, 'NZDJPY': 0.50 },
-  'XAUUSD': { 'XAGUSD': 0.75, 'XPTUSD': 0.65, 'XPDUSD': 0.60, 'EURUSD': 0.35, 'AUDUSD': 0.40, 'BTCUSD': 0.15, 'SPX500': 0.05, 'USDCHF': -0.30, 'USDJPY': -0.20 },
-  'XAGUSD': { 'XAUUSD': 0.75, 'XPTUSD': 0.68, 'EURUSD': 0.30 },
-  'SPX500': { 'US30': 0.92, 'NAS100': 0.85, 'BTCUSD': 0.45, 'ETHUSD': 0.50, 'EURUSD': 0.30, 'USDJPY': 0.40, 'AUDUSD': 0.35, 'AAPL': 0.75, 'MSFT': 0.72 },
-  'US30': { 'SPX500': 0.92, 'NAS100': 0.85, 'BTCUSD': 0.42 },
-  'NAS100': { 'SPX500': 0.85, 'US30': 0.85, 'AAPL': 0.80, 'MSFT': 0.78, 'GOOGL': 0.75 },
-  'WTIUSD': { 'XBRUSD': 0.95, 'AUDUSD': 0.40, 'USDCAD': -0.70, 'XNGUSD': 0.50 },
-  'XBRUSD': { 'WTIUSD': 0.95, 'XNGUSD': 0.48 },
-  'USDCAD': { 'WTIUSD': -0.70, 'XBRUSD': -0.68, 'AUDUSD': 0.50 },
-  'EURGBP': { 'EURUSD': 0.45, 'GBPUSD': -0.50 },
-  'EURJPY': { 'EURUSD': 0.40, 'USDJPY': 0.60 },
-  'GBPJPY': { 'GBPUSD': 0.45, 'USDJPY': 0.55 },
-  'AUDJPY': { 'AUDUSD': 0.50, 'USDJPY': 0.55 },
-  'AAPL': { 'MSFT': 0.70, 'SPX500': 0.75, 'NAS100': 0.80, 'GOOGL': 0.65 },
-  'MSFT': { 'AAPL': 0.70, 'SPX500': 0.72, 'NAS100': 0.78, 'GOOGL': 0.68, 'AMZN': 0.60 },
-  'GOOGL': { 'MSFT': 0.68, 'AAPL': 0.65, 'SPX500': 0.70, 'NAS100': 0.75, 'AMZN': 0.62 },
-  'AMZN': { 'MSFT': 0.60, 'SPX500': 0.68, 'NAS100': 0.73, 'GOOGL': 0.62 },
-  'NVDA': { 'MSFT': 0.55, 'SPX500': 0.65, 'NAS100': 0.72, 'BTCUSD': 0.40, 'AAPL': 0.58 },
-};
+const DEFAULT_ASSETS = ['BTCUSD', 'ETHUSD', 'EURUSD', 'GBPUSD', 'XAUUSD', 'SPX500', 'US30', 'USOUSD'];
+const MAX_ASSETS = 20;
+const MIN_ASSETS = 2;
+const LOOKBACK_DAYS = 120; // ~4 meses de candles diários — janela padrão de mercado para correlação
+const MIN_OVERLAP_POINTS = 15; // mínimo de retornos diários em comum para considerar a correlação confiável
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5min — correlação sobre 120 dias não muda em escala de segundos
 
-// 🧠 ALGORITMO INTELIGENTE: Calcula correlação baseado em categorias
-function calculateSmartCorrelation(symbolA: string, symbolB: string): number {
-  const assetA = ALL_ASSETS.find(a => a.symbol === symbolA);
-  const assetB = ALL_ASSETS.find(a => a.symbol === symbolB);
-  
-  if (!assetA || !assetB) return 0;
+interface CorrelationCell {
+  value: number | null; // null = dados insuficientes/indisponíveis
+  n: number; // tamanho da amostra usada (dias em comum)
+}
 
-  const catA = assetA.category;
-  const catB = assetB.category;
+type MatrixData = Record<string, Record<string, CorrelationCell>>;
 
-  // Mesma categoria = correlação positiva
-  if (catA === catB) {
-    if (catA === 'CRYPTO') return 0.70 + (Math.random() * 0.15); // Cryptos muito correlacionadas
-    if (catA === 'FOREX') {
-      // Pares com USD invertidos se correlacionam negativamente
-      if (symbolA.includes('USD') && symbolB.includes('USD')) {
-        const posA = symbolA.indexOf('USD');
-        const posB = symbolB.indexOf('USD');
-        if ((posA === 0 && posB === 3) || (posA === 3 && posB === 0)) {
-          return -0.60 + (Math.random() * 0.20); // Ex: EURUSD vs USDCHF
-        }
-      }
-      return 0.55 + (Math.random() * 0.15);
-    }
-    if (catA === 'INDICES') return 0.80 + (Math.random() * 0.12); // Índices muito correlacionados
-    if (catA === 'STOCKS') return 0.60 + (Math.random() * 0.18);
-    if (catA === 'COMMODITIES') {
-      // Metais preciosos entre si
-      const metals = ['XAUUSD', 'XAGUSD', 'XPTUSD', 'XPDUSD'];
-      if (metals.includes(symbolA) && metals.includes(symbolB)) return 0.70 + (Math.random() * 0.15);
-      // Petróleo entre si
-      const oils = ['WTIUSD', 'XBRUSD'];
-      if (oils.includes(symbolA) && oils.includes(symbolB)) return 0.92 + (Math.random() * 0.05);
-      return 0.50 + (Math.random() * 0.20);
+interface PairInsight {
+  pair: string;
+  value: number;
+  n: number;
+}
+
+interface AiInsight {
+  title: string;
+  description: string;
+  level: 'LOW' | 'MEDIUM' | 'HIGH';
+  strongPositive: PairInsight[];
+  relevant: PairInsight[];
+  strongNegative: PairInsight[];
+  diversificationScore: number; // 0-100, quanto maior mais diversificado (menos correlacionado)
+  mostIndependent: { symbol: string; avgAbsCorr: number } | null;
+  bestHedge: PairInsight | null;
+  cluster: string[] | null;
+}
+
+function dayKeyUTC(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Retorna diário (variação % dia-a-dia) a partir dos candles, indexado por dia (UTC). */
+function computeDailyReturns(candles: { time: number; close: number }[]): Map<string, number> {
+  const byDay = new Map<string, number>();
+  for (const c of candles) {
+    byDay.set(dayKeyUTC(c.time), c.close); // se houver mais de um candle no mesmo dia, fica o último
+  }
+  const days = Array.from(byDay.keys()).sort();
+  const returns = new Map<string, number>();
+  for (let i = 1; i < days.length; i++) {
+    const prevClose = byDay.get(days[i - 1])!;
+    const close = byDay.get(days[i])!;
+    if (prevClose > 0) {
+      returns.set(days[i], (close - prevClose) / prevClose);
     }
   }
+  return returns;
+}
 
-  // CRYPTO vs INDICES = correlação média (risk-on correlation)
-  if ((catA === 'CRYPTO' && catB === 'INDICES') || (catA === 'INDICES' && catB === 'CRYPTO')) {
-    return 0.35 + (Math.random() * 0.15);
+function pearsonCorrelation(a: number[], b: number[]): number {
+  const n = a.length;
+  if (n === 0) return 0;
+  const meanA = a.reduce((s, v) => s + v, 0) / n;
+  const meanB = b.reduce((s, v) => s + v, 0) / n;
+  let num = 0, denA = 0, denB = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - meanA;
+    const db = b[i] - meanB;
+    num += da * db;
+    denA += da * da;
+    denB += db * db;
   }
+  const den = Math.sqrt(denA * denB);
+  return den === 0 ? 0 : Math.max(-1, Math.min(1, num / den));
+}
 
-  // CRYPTO vs FOREX = correlação baixa
-  if ((catA === 'CRYPTO' && catB === 'FOREX') || (catA === 'FOREX' && catB === 'CRYPTO')) {
-    return 0.15 + (Math.random() * 0.15);
+function correlateReturnSeries(
+  returnsA: Map<string, number>,
+  returnsB: Map<string, number>
+): CorrelationCell {
+  const commonDays = Array.from(returnsA.keys()).filter(d => returnsB.has(d)).sort();
+  if (commonDays.length < MIN_OVERLAP_POINTS) {
+    return { value: null, n: commonDays.length };
   }
-
-  // COMMODITIES (Gold) vs FOREX (safe havens) = correlação positiva
-  if ((catA === 'COMMODITIES' && catB === 'FOREX') || (catA === 'FOREX' && catB === 'COMMODITIES')) {
-    if (symbolA.includes('XAU') || symbolB.includes('XAU')) {
-      return 0.25 + (Math.random() * 0.15);
-    }
-    return 0.10 + (Math.random() * 0.15);
-  }
-
-  // STOCKS vs INDICES = correlação alta (stocks seguem índices)
-  if ((catA === 'STOCKS' && catB === 'INDICES') || (catA === 'INDICES' && catB === 'STOCKS')) {
-    return 0.65 + (Math.random() * 0.15);
-  }
-
-  // Default: correlação baixa entre categorias não relacionadas
-  return 0.05 + (Math.random() * 0.15);
+  const seriesA = commonDays.map(d => returnsA.get(d)!);
+  const seriesB = commonDays.map(d => returnsB.get(d)!);
+  return { value: pearsonCorrelation(seriesA, seriesB), n: commonDays.length };
 }
 
 export function CorrelationMatrix() {
-  const [selectedAssets, setSelectedAssets] = useState<string[]>(['BTCUSD', 'ETHUSD', 'EURUSD', 'XAUUSD', 'SPX500']);
-  const [matrixData, setMatrixData] = useState<Record<string, Record<string, number>>>({});
+  const [selectedAssets, setSelectedAssets] = useState<string[]>(DEFAULT_ASSETS);
+  const [matrixData, setMatrixData] = useState<MatrixData>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
-  const [aiInsight, setAiInsight] = useState<any>(null);
+  const [aiInsight, setAiInsight] = useState<AiInsight | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<AssetCategory | 'ALL'>('ALL');
   const [showAssetPicker, setShowAssetPicker] = useState(false);
+  const [unavailable, setUnavailable] = useState<string[]>([]);
+  const requestIdRef = useRef(0);
 
-  // Assets disponíveis com filtros (TODOS os 300+ disponíveis!)
+  // Assets disponíveis com filtros (TODOS os 370+ disponíveis!)
   const availableAssets = ALL_ASSETS
     .filter(asset => filterCategory === 'ALL' || asset.category === filterCategory)
-    .filter(asset => 
-      searchTerm === '' || 
+    .filter(asset =>
+      searchTerm === '' ||
       asset.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
       asset.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-  const generateMatrix = () => {
+  const generateMatrix = useCallback(async () => {
+    const myRequestId = ++requestIdRef.current;
     setAnalyzing(true);
-    const newMatrix: Record<string, Record<string, number>> = {};
 
-    selectedAssets.forEach(a => { newMatrix[a] = {}; });
+    const endDate = new Date();
+    const startDate = new Date(endDate.getTime() - LOOKBACK_DAYS * 86_400_000);
 
-    selectedAssets.forEach(assetA => {
-      selectedAssets.forEach(assetB => {
+    // Busca sequencial com pequeno intervalo entre símbolos: evita sobrecarregar
+    // a conta MetaAPI compartilhada de plataforma (fonte real de forex/índices/
+    // commodities/ações) com rajadas concorrentes — mesmo cuidado documentado
+    // em outras partes do app para essa mesma conta.
+    const returnsBySymbol = new Map<string, Map<string, number>>();
+    const failed: string[] = [];
+
+    for (const symbol of selectedAssets) {
+      try {
+        const { candles } = await backtestDataService.fetchHistoricalData(symbol, startDate, endDate, '1d');
+        returnsBySymbol.set(symbol, computeDailyReturns(candles));
+      } catch (error) {
+        const reason = error instanceof BacktestDataUnavailableError ? error.message : String(error);
+        console.warn(`[CorrelationMatrix] ⚠️ Sem dado real para ${symbol}: ${reason}`);
+        failed.push(symbol);
+      }
+      await new Promise(resolve => setTimeout(resolve, 180));
+    }
+
+    // Se uma corrida mais nova já começou enquanto esta rodava, descarta o resultado.
+    if (myRequestId !== requestIdRef.current) return;
+
+    const availableSymbols = selectedAssets.filter(s => returnsBySymbol.has(s));
+    const newMatrix: MatrixData = {};
+    availableSymbols.forEach(a => { newMatrix[a] = {}; });
+
+    availableSymbols.forEach(assetA => {
+      availableSymbols.forEach(assetB => {
         if (assetA === assetB) {
-          newMatrix[assetA][assetB] = 1.0;
+          newMatrix[assetA][assetB] = { value: 1, n: returnsBySymbol.get(assetA)!.size };
         } else {
-          // 1. Tenta buscar correlação base específica
-          let base = baseCorrelations[assetA]?.[assetB] ?? baseCorrelations[assetB]?.[assetA];
-          
-          // 2. Se não existe, usa algoritmo inteligente
-          if (base === undefined) {
-            base = calculateSmartCorrelation(assetA, assetB);
-          }
-          
-          // 3. Adiciona ruído realístico (volatilidade intraday)
-          const noise = (Math.random() * 0.15) - 0.075;
-          let final = base + noise;
-          
-          // 4. Clamp entre -1 e 1
-          final = Math.max(-1, Math.min(1, final));
-          
-          newMatrix[assetA][assetB] = final;
+          newMatrix[assetA][assetB] = correlateReturnSeries(
+            returnsBySymbol.get(assetA)!,
+            returnsBySymbol.get(assetB)!
+          );
         }
       });
     });
 
     setMatrixData(newMatrix);
+    setUnavailable(failed);
     setLastUpdate(new Date());
-    generateInsight(newMatrix);
-    setTimeout(() => setAnalyzing(false), 800);
-  };
+    generateInsight(newMatrix, availableSymbols);
+    setAnalyzing(false);
+  }, [selectedAssets]);
 
-  const generateInsight = (matrix: any) => {
-    const allCorrelations: { pair: string; value: number }[] = [];
-    
-    Object.keys(matrix).forEach(assetA => {
-      Object.entries(matrix[assetA]).forEach(([assetB, val]) => {
+  const generateInsight = (matrix: MatrixData, assets: string[]) => {
+    const allPairs: PairInsight[] = [];
+    assets.forEach(assetA => {
+      assets.forEach(assetB => {
         if (assetA < assetB) {
-          allCorrelations.push({ pair: `${assetA}/${assetB}`, value: val as number });
+          const cell = matrix[assetA]?.[assetB];
+          if (cell && cell.value !== null) {
+            allPairs.push({ pair: `${assetA}/${assetB}`, value: cell.value, n: cell.n });
+          }
         }
       });
     });
 
-    const strongPositive = allCorrelations.filter(c => c.value > 0.75).slice(0, 5);
-    const strongNegative = allCorrelations.filter(c => c.value < -0.75).slice(0, 5);
+    const strongPositive = allPairs.filter(c => c.value > 0.7).sort((a, b) => b.value - a.value).slice(0, 8);
+    const strongNegative = allPairs.filter(c => c.value < -0.7).sort((a, b) => a.value - b.value).slice(0, 8);
+    const relevant = allPairs
+      .filter(c => Math.abs(c.value) >= 0.4 && Math.abs(c.value) <= 0.7)
+      .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+      .slice(0, 8);
 
-    let title = "Condição Normal";
-    let description = "Correlações dentro dos padrões históricos esperados.";
-    let level = "LOW";
+    // Diversificação: média da correlação absoluta entre todos os pares —
+    // quanto mais perto de 0, mais os ativos se movem de forma independente.
+    const avgAbsCorr = allPairs.length > 0
+      ? allPairs.reduce((s, c) => s + Math.abs(c.value), 0) / allPairs.length
+      : 0;
+    const diversificationScore = Math.round((1 - avgAbsCorr) * 100);
 
-    if (strongPositive.length > 2) {
-      title = "⚠️ Alerta de Exposição Múltipla";
-      description = `${strongPositive.length} pares com correlação positiva forte detectados. Posições na mesma direção multiplicam o risco.`;
-      level = "HIGH";
-    } else if (strongNegative.length > 2) {
-      title = "🔄 Correlações Inversas Detectadas";
-      description = `${strongNegative.length} pares com correlação inversa forte. Cuidado com hedging não intencional.`;
-      level = "MEDIUM";
-    } else if (strongPositive.length > 0 || strongNegative.length > 0) {
-      title = "ℹ️ Correlações Relevantes";
-      description = `${strongPositive.length + strongNegative.length} correlação(ões) forte(s) identificada(s).`;
-      level = "MEDIUM";
+    // Ativo mais independente: menor correlação média absoluta com o resto da seleção.
+    let mostIndependent: { symbol: string; avgAbsCorr: number } | null = null;
+    assets.forEach(symbol => {
+      const others = assets.filter(s => s !== symbol);
+      if (others.length === 0) return;
+      const vals = others
+        .map(o => matrix[symbol]?.[o]?.value)
+        .filter((v): v is number => v !== null && v !== undefined);
+      if (vals.length === 0) return;
+      const avg = vals.reduce((s, v) => s + Math.abs(v), 0) / vals.length;
+      if (!mostIndependent || avg < mostIndependent.avgAbsCorr) {
+        mostIndependent = { symbol, avgAbsCorr: avg };
+      }
+    });
+
+    // Melhor par para hedge: correlação mais negativa disponível.
+    const bestHedge = strongNegative[0] || (allPairs.length > 0
+      ? [...allPairs].sort((a, b) => a.value - b.value)[0]
+      : null);
+
+    // Cluster de risco: grupo de 3+ ativos todos mutuamente correlacionados > 0.75
+    // (concentração de risco — posições nesses ativos ao mesmo tempo multiplicam exposição).
+    let cluster: string[] | null = null;
+    const HIGH = 0.75;
+    for (let i = 0; i < assets.length && !cluster; i++) {
+      for (let j = i + 1; j < assets.length && !cluster; j++) {
+        const a = assets[i], b = assets[j];
+        if ((matrix[a]?.[b]?.value ?? 0) <= HIGH) continue;
+        for (let k = j + 1; k < assets.length; k++) {
+          const c = assets[k];
+          const ac = matrix[a]?.[c]?.value ?? 0;
+          const bc = matrix[b]?.[c]?.value ?? 0;
+          if (ac > HIGH && bc > HIGH) {
+            cluster = [a, b, c];
+            break;
+          }
+        }
+      }
     }
 
-    setAiInsight({ title, description, level, strongPositive, strongNegative });
+    let title = 'Condição Normal';
+    let description = 'Correlações dentro dos padrões históricos esperados, calculadas sobre retornos diários reais.';
+    let level: AiInsight['level'] = 'LOW';
+
+    if (cluster) {
+      title = '⚠️ Cluster de Concentração de Risco';
+      description = `${cluster.join(', ')} formam um grupo mutuamente correlacionado (>0.75). Operar vários ao mesmo tempo multiplica a exposição ao mesmo risco.`;
+      level = 'HIGH';
+    } else if (strongPositive.length > 2) {
+      title = '⚠️ Alerta de Exposição Múltipla';
+      description = `${strongPositive.length} pares com correlação positiva forte (>0.70). Posições na mesma direção multiplicam o risco.`;
+      level = 'HIGH';
+    } else if (strongNegative.length > 2) {
+      title = '🔄 Correlações Inversas Detectadas';
+      description = `${strongNegative.length} pares com correlação inversa forte. Cuidado com hedging não intencional.`;
+      level = 'MEDIUM';
+    } else if (strongPositive.length > 0 || strongNegative.length > 0 || relevant.length > 0) {
+      title = 'ℹ️ Correlações Relevantes';
+      description = `${strongPositive.length + strongNegative.length + relevant.length} correlação(ões) relevante(s) identificada(s) na seleção atual.`;
+      level = 'MEDIUM';
+    }
+
+    setAiInsight({
+      title, description, level,
+      strongPositive, relevant, strongNegative,
+      diversificationScore,
+      mostIndependent,
+      bestHedge,
+      cluster,
+    });
   };
 
   useEffect(() => {
     generateMatrix();
-    const interval = setInterval(generateMatrix, 60000);
+    const interval = setInterval(generateMatrix, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [selectedAssets]);
+  }, [generateMatrix]);
 
   const addAsset = (symbol: string) => {
-    if (!selectedAssets.includes(symbol) && selectedAssets.length < 15) {
+    if (!selectedAssets.includes(symbol) && selectedAssets.length < MAX_ASSETS) {
       setSelectedAssets([...selectedAssets, symbol]);
     }
   };
 
   const removeAsset = (symbol: string) => {
-    if (selectedAssets.length > 2) {
+    if (selectedAssets.length > MIN_ASSETS) {
       setSelectedAssets(selectedAssets.filter(a => a !== symbol));
     }
   };
 
   const loadPreset = (presetName: string) => {
-    setSelectedAssets(PRESET_PORTFOLIOS[presetName as keyof typeof PRESET_PORTFOLIOS] || []);
+    setSelectedAssets(PRESET_PORTFOLIOS[presetName] || []);
     setShowAssetPicker(false);
   };
 
-  const getColor = (val: number) => {
+  const getColor = (cell: CorrelationCell | undefined) => {
+    if (!cell || cell.value === null) return 'bg-slate-800/30 text-slate-600';
+    const val = cell.value;
     if (val === 1) return 'bg-slate-800 text-slate-600';
     if (val > 0.7) return 'bg-emerald-500/30 text-emerald-400 font-bold';
     if (val > 0.3) return 'bg-emerald-500/10 text-emerald-500/70';
@@ -239,10 +317,12 @@ export function CorrelationMatrix() {
     return 'bg-slate-800/50 text-slate-500';
   };
 
+  const displayedAssets = selectedAssets.filter(a => matrixData[a]);
+
   return (
     <Card className="bg-slate-950 border-0 backdrop-blur-sm shadow-xl h-full">
       <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="space-y-1">
             <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
               <Layers className="h-5 w-5 text-purple-400" />
@@ -250,27 +330,42 @@ export function CorrelationMatrix() {
               <Badge className="bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0 text-[10px] font-bold">
                 {ALL_ASSETS.length} ATIVOS DISPONÍVEIS
               </Badge>
+              <Badge className="bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                DADOS REAIS • {LOOKBACK_DAYS}D
+              </Badge>
             </CardTitle>
             <p className="text-xs text-slate-400">
-              {selectedAssets.length} selecionados • {availableAssets.length} disponíveis • Atualizado: {lastUpdate.toLocaleTimeString()}
+              {selectedAssets.length} selecionados • {availableAssets.length} filtrados • Atualizado: {lastUpdate.toLocaleTimeString()}
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowAssetPicker(!showAssetPicker)}
-            className="bg-purple-500/10 border-purple-500/30 text-purple-300 hover:bg-purple-500/20"
-          >
-            {showAssetPicker ? <X className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
-            {showAssetPicker ? 'Fechar' : 'Gerenciar'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => generateMatrix()}
+              disabled={analyzing}
+              className="bg-slate-800/50 border-slate-700 text-slate-300 hover:bg-slate-700"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${analyzing ? 'animate-spin' : ''}`} />
+              Recalcular
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAssetPicker(!showAssetPicker)}
+              className="bg-purple-500/10 border-purple-500/30 text-purple-300 hover:bg-purple-500/20"
+            >
+              {showAssetPicker ? <X className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+              {showAssetPicker ? 'Fechar' : 'Gerenciar'}
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      
+
       <CardContent>
         {/* Asset Picker */}
         {showAssetPicker && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
@@ -327,19 +422,28 @@ export function CorrelationMatrix() {
             {/* Selected Assets */}
             <div>
               <p className="text-xs text-slate-400 uppercase font-bold mb-2">
-                Selecionados ({selectedAssets.length}/15) • Min: 2 • Max: 15
+                Selecionados ({selectedAssets.length}/{MAX_ASSETS}) • Min: {MIN_ASSETS} • Max: {MAX_ASSETS}
               </p>
               <div className="flex flex-wrap gap-2">
                 {selectedAssets.map(symbol => (
                   <Badge
                     key={symbol}
-                    className="bg-purple-600 text-white cursor-pointer hover:bg-rose-600 transition-colors"
+                    className={`text-white cursor-pointer transition-colors ${
+                      unavailable.includes(symbol) ? 'bg-rose-700/70 hover:bg-rose-600' : 'bg-purple-600 hover:bg-rose-600'
+                    }`}
                     onClick={() => removeAsset(symbol)}
+                    title={unavailable.includes(symbol) ? 'Sem dado histórico real disponível' : undefined}
                   >
                     {symbol} <X className="h-3 w-3 ml-1" />
                   </Badge>
                 ))}
               </div>
+              {unavailable.length > 0 && (
+                <p className="text-[11px] text-rose-400 mt-2 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Sem fonte real de dados no momento: {unavailable.join(', ')} — excluídos da matriz (nunca preenchidos com valor sintético).
+                </p>
+              )}
             </div>
 
             {/* Available Assets Grid */}
@@ -352,7 +456,7 @@ export function CorrelationMatrix() {
                   {ALL_ASSETS.length} ATIVOS NO SISTEMA
                 </Badge>
               </div>
-              
+
               {/* Stats Grid */}
               <div className="grid grid-cols-3 gap-2 mb-3 p-2 bg-slate-800/50 rounded-lg">
                 <div className="text-center">
@@ -372,7 +476,7 @@ export function CorrelationMatrix() {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-64 overflow-y-auto custom-scrollbar p-1">
                 {availableAssets.map(asset => {
                   const isSelected = selectedAssets.includes(asset.symbol);
-                  const isMax = selectedAssets.length >= 15;
+                  const isMax = selectedAssets.length >= MAX_ASSETS;
                   return (
                     <Button
                       key={asset.symbol}
@@ -381,8 +485,8 @@ export function CorrelationMatrix() {
                       disabled={!isSelected && isMax}
                       onClick={() => isSelected ? removeAsset(asset.symbol) : addAsset(asset.symbol)}
                       className={`text-xs justify-between truncate ${
-                        isSelected 
-                          ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                        isSelected
+                          ? 'bg-purple-600 text-white hover:bg-purple-700'
                           : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
                       }`}
                       title={`${asset.symbol} - ${asset.name} (${asset.category})`}
@@ -401,54 +505,67 @@ export function CorrelationMatrix() {
           {/* MATRIX HEATMAP */}
           <div className="flex-1 overflow-x-auto">
             <div className="min-w-[400px]">
-              {/* Header */}
-              <div className="flex mb-1">
-                <div className="w-20"></div>
-                {selectedAssets.map(asset => (
-                  <div key={asset} className="w-16 text-center text-[10px] font-bold text-purple-400">
-                    {asset.length > 6 ? asset.substring(0, 6) : asset}
+              {analyzing && displayedAssets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                  <RefreshCw className="h-8 w-8 animate-spin mb-3" />
+                  <span className="text-sm">Buscando candles reais e calculando correlações...</span>
+                </div>
+              ) : (
+                <>
+                  {/* Header */}
+                  <div className="flex mb-1">
+                    <div className="w-20"></div>
+                    {displayedAssets.map(asset => (
+                      <div key={asset} className="w-16 text-center text-[10px] font-bold text-purple-400">
+                        {asset.length > 6 ? asset.substring(0, 6) : asset}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              {/* Rows */}
-              <div className="space-y-1">
-                {selectedAssets.map(rowAsset => (
-                  <div key={rowAsset} className="flex items-center">
-                    <div className="w-20 text-xs font-bold text-purple-400 truncate pr-2">
-                      {rowAsset}
-                    </div>
-                    <div className="flex gap-1">
-                      {selectedAssets.map(colAsset => {
-                        const val = matrixData[rowAsset]?.[colAsset] || 0;
-                        return (
-                          <motion.div 
-                            key={`${rowAsset}-${colAsset}`}
-                            initial={false}
-                            animate={{ opacity: analyzing ? 0.5 : 1 }}
-                            className={`w-16 h-10 rounded flex items-center justify-center text-xs font-semibold cursor-help transition-all ${getColor(val)}`}
-                            title={`${rowAsset} vs ${colAsset}: ${val.toFixed(3)}`}
-                          >
-                            {val.toFixed(2)}
-                          </motion.div>
-                        );
-                      })}
-                    </div>
+                  {/* Rows */}
+                  <div className="space-y-1">
+                    {displayedAssets.map(rowAsset => (
+                      <div key={rowAsset} className="flex items-center">
+                        <div className="w-20 text-xs font-bold text-purple-400 truncate pr-2">
+                          {rowAsset}
+                        </div>
+                        <div className="flex gap-1">
+                          {displayedAssets.map(colAsset => {
+                            const cell = matrixData[rowAsset]?.[colAsset];
+                            const label = cell?.value === null || cell === undefined ? '—' : cell.value.toFixed(2);
+                            const title = cell?.value === null || cell === undefined
+                              ? `${rowAsset} vs ${colAsset}: dados insuficientes (${cell?.n ?? 0} dias em comum)`
+                              : `${rowAsset} vs ${colAsset}: ${cell.value.toFixed(3)} (${cell.n} dias em comum)`;
+                            return (
+                              <motion.div
+                                key={`${rowAsset}-${colAsset}`}
+                                initial={false}
+                                animate={{ opacity: analyzing ? 0.5 : 1 }}
+                                className={`w-16 h-10 rounded flex items-center justify-center text-xs font-semibold cursor-help transition-all ${getColor(cell)}`}
+                                title={title}
+                              >
+                                {label}
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
             </div>
           </div>
 
           {/* AI ANALYSIS */}
-          <div className="lg:w-[300px] shrink-0">
-            <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-4 h-full">
+          <div className="lg:w-[340px] shrink-0">
+            <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-4 h-full overflow-y-auto custom-scrollbar max-h-[640px]">
               <div className="flex items-center gap-2">
                 <Brain className="h-4 w-4 text-purple-400" />
                 <h3 className="text-sm font-bold text-white">Análise IA</h3>
               </div>
 
-              {analyzing ? (
+              {analyzing && !aiInsight ? (
                 <div className="flex flex-col items-center justify-center py-8 text-slate-500">
                   <RefreshCw className="h-6 w-6 animate-spin mb-2" />
                   <span className="text-xs">Recalculando...</span>
@@ -477,13 +594,64 @@ export function CorrelationMatrix() {
                     </div>
                   </div>
 
+                  {/* Score de diversificação + ativo mais independente */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-800/50 rounded-lg p-2.5 border border-slate-700/50">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Sparkles className="h-3 w-3 text-blue-400" />
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Diversificação</p>
+                      </div>
+                      <p className={`text-lg font-bold ${
+                        aiInsight.diversificationScore >= 60 ? 'text-emerald-400' :
+                        aiInsight.diversificationScore >= 35 ? 'text-amber-400' : 'text-rose-400'
+                      }`}>
+                        {aiInsight.diversificationScore}%
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        {aiInsight.diversificationScore >= 60 ? 'Boa independência' : aiInsight.diversificationScore >= 35 ? 'Moderada' : 'Baixa (concentrado)'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-lg p-2.5 border border-slate-700/50">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Target className="h-3 w-3 text-cyan-400" />
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Mais Independente</p>
+                      </div>
+                      {aiInsight.mostIndependent ? (
+                        <>
+                          <p className="text-sm font-bold text-cyan-300 truncate">{aiInsight.mostIndependent.symbol}</p>
+                          <p className="text-[10px] text-slate-500">corr. média {aiInsight.mostIndependent.avgAbsCorr.toFixed(2)}</p>
+                        </>
+                      ) : <p className="text-[10px] text-slate-500">—</p>}
+                    </div>
+                  </div>
+
+                  {aiInsight.bestHedge && (
+                    <div className="bg-indigo-950/20 border border-indigo-900/50 rounded-lg p-2.5">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <GitBranch className="h-3 w-3 text-indigo-400" />
+                        <p className="text-[10px] text-indigo-300 uppercase font-bold">Melhor Par p/ Hedge</p>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-300">{aiInsight.bestHedge.pair}</span>
+                        <span className={`font-bold ${aiInsight.bestHedge.value < 0 ? 'text-indigo-300' : 'text-slate-400'}`}>
+                          {aiInsight.bestHedge.value.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        {aiInsight.bestHedge.value < -0.3
+                          ? 'Movem-se em direções opostas — útil para compensar risco.'
+                          : 'Nenhum par com correlação inversa relevante nesta seleção.'}
+                      </p>
+                    </div>
+                  )}
+
                   {aiInsight.strongPositive?.length > 0 && (
                     <div>
-                      <p className="text-[10px] text-emerald-400 uppercase font-bold mb-1.5">
-                        Correlações Positivas Fortes
+                      <p className="text-[10px] text-emerald-400 uppercase font-bold mb-1.5 flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3" /> Correlações Positivas Fortes ({aiInsight.strongPositive.length})
                       </p>
                       <div className="space-y-1">
-                        {aiInsight.strongPositive.map((item: any, idx: number) => (
+                        {aiInsight.strongPositive.map((item, idx) => (
                           <div key={idx} className="text-xs bg-emerald-950/20 border border-emerald-900/50 p-2 rounded flex justify-between">
                             <span className="text-slate-300">{item.pair}</span>
                             <span className="text-emerald-400 font-bold">{item.value.toFixed(2)}</span>
@@ -493,13 +661,29 @@ export function CorrelationMatrix() {
                     </div>
                   )}
 
-                  {aiInsight.strongNegative?.length > 0 && (
+                  {aiInsight.relevant?.length > 0 && (
                     <div>
-                      <p className="text-[10px] text-rose-400 uppercase font-bold mb-1.5">
-                        Correlações Negativas Fortes
+                      <p className="text-[10px] text-amber-400 uppercase font-bold mb-1.5 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" /> Correlações Relevantes ({aiInsight.relevant.length})
                       </p>
                       <div className="space-y-1">
-                        {aiInsight.strongNegative.map((item: any, idx: number) => (
+                        {aiInsight.relevant.map((item, idx) => (
+                          <div key={idx} className="text-xs bg-amber-950/20 border border-amber-900/50 p-2 rounded flex justify-between">
+                            <span className="text-slate-300">{item.pair}</span>
+                            <span className="text-amber-400 font-bold">{item.value.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {aiInsight.strongNegative?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-rose-400 uppercase font-bold mb-1.5 flex items-center gap-1">
+                        <TrendingDown className="h-3 w-3" /> Correlações Negativas Fortes ({aiInsight.strongNegative.length})
+                      </p>
+                      <div className="space-y-1">
+                        {aiInsight.strongNegative.map((item, idx) => (
                           <div key={idx} className="text-xs bg-rose-950/20 border border-rose-900/50 p-2 rounded flex justify-between">
                             <span className="text-slate-300">{item.pair}</span>
                             <span className="text-rose-400 font-bold">{item.value.toFixed(2)}</span>
@@ -511,7 +695,7 @@ export function CorrelationMatrix() {
 
                   <div className="pt-3 border-t border-slate-800/50">
                     <p className="text-[10px] text-slate-500 italic">
-                      *Sistema inteligente com {ALL_ASSETS.length} ativos: correlações base + algoritmo por categoria. Atualizado a cada 60s.
+                      *Correlação de Pearson sobre retornos diários reais (candles de até {LOOKBACK_DAYS} dias, mínimo {MIN_OVERLAP_POINTS} pregões em comum). Atualizado a cada {REFRESH_INTERVAL_MS / 60000} min.
                     </p>
                   </div>
                 </div>

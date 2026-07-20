@@ -47,16 +47,12 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="col-span-1 xl:col-span-8 min-h-[350px]">
+        <div className="col-span-1 xl:col-span-12 min-h-[350px]">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden h-full shadow-lg">
             <div className="h-full p-2 overflow-y-auto custom-scrollbar">
               <CorrelationMatrix />
             </div>
           </div>
-        </div>
-        
-        <div className="col-span-1 xl:col-span-4 min-h-[350px] bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex items-center justify-center">
-          <p className="text-slate-500">Report Exporter</p>
         </div>
       </div>
     </div>
