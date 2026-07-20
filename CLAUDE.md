@@ -1,8 +1,56 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-20)
 
-## Sessão nova (2026-07-20): Matriz de Correlação (loading lento/travado + altura + badge) + Nexus Quantum Advisor — remoção equivocada revertida, só o título mudou — PENDENTE COMMIT/PUSH
+## Sessão nova (2026-07-20, continuação): Agenda Econômica + Notícias em inglês (2 causas raiz corrigidas) + VIX zerado/sem variação no Dashboard (2 causas raiz corrigidas) — PARCIALMENTE COMMITADO, FALTA O ÚLTIMO FIX (VIX)
 
-> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** A partir desta sessão, Claude passa a se comunicar só em português brasileiro (pedido explícito do Cleber).
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de hoje mais cedo (Matriz de Correlação/Nexus, ver seção logo abaixo). Cleber reportou 2 problemas em sequência: "Agenda Econômica entrega notícias em inglês, tem que ser no idioma do usuário" e, depois, "o índice VIX está entregando zerado no Dashboard".
+
+### 1. Agenda Econômica — nome do evento nunca era traduzido, só o país (COMMITADO)
+
+Causa raiz: `translateEconomicEvents()` (`translate-events.ts`) sempre traduziu o país (`COUNTRY_MAP`), mas nunca o nome do evento (`event.Event || event.event`) — vinha cru em inglês de toda fonte (MQL5/TradingView/Investing.com/Yahoo). O frontend (`EconomicCalendar.tsx`) tinha um dicionário estático de ~55 termos tentando cobrir isso, mas qualquer evento fora da lista ficava em inglês.
+
+**Fix**: nova função `translateEventNames()` em `index.ts`, aplicada nas 4 fontes da rota `/economic-calendar` — traduz o nome do evento de verdade no backend, no idioma pedido via `?lang=` (mesmo mecanismo do `/news/aggregate`). `EconomicCalendar.tsx` agora detecta `navigator.language` (mesmo padrão do `NewsFeed.tsx`) e manda no request.
+
+### 2. Ao testar o fix acima, achado que o Google Translate está bloqueado (HTTP 429) pro IP do Supabase — mesma causa por trás das Notícias em inglês (COMMITADO)
+
+`/debug-translate` (rota de diagnóstico temporária, criada e ainda no ar) confirmou: `translate.googleapis.com` devolve **HTTP 429** (página HTML de erro, não JSON) pro IP compartilhado do Supabase — mesmo padrão de bloqueio de endpoint não-oficial já documentado neste projeto pra outras fontes (Yahoo, MQL5). O `catch` de `translateText()` mascarava isso, devolvendo o texto original em inglês silenciosamente — por isso Notícias e Agenda pareciam "não traduzir", mesmo com o código de tradução certo.
+
+**Fix 1 (fallback de tradução)**: `translateText()` agora tenta Google primeiro (rápido quando funciona, pode voltar sem aviso) e cai pra **MyMemory** (`api.mymemory.translated.net`, API feita pra uso programático, testada e confirmada funcionando do mesmo tipo de IP) em vez de só devolver o texto em inglês.
+
+**Fix 2, melhor (fontes nativas em PT, sem tradução nenhuma)**: pra Notícias especificamente, Cleber perguntou "não dá pra entregar só no idioma do usuário?" — em vez de traduzir manchete em inglês (qualidade sempre ruim, ex: "$70K" virava "$ 70 mil"), o agregador agora busca as MESMAS editoras (Investing.com, Cointelegraph) na versão que já publica nativamente em português (`br.investing.com`, `cointelegraph.com.br`) + Money Times como 2ª fonte macro, quando `lang=pt`. Zero tradução automática pro caso comum (maioria dos usuários é PT-BR); tradução (Google→MyMemory) só entra pra outros idiomas. `NEWS_FEEDS` virou `NEWS_FEEDS_EN`/`NEWS_FEEDS_PT`, escolhido por `isNativePt` na rota `/news/aggregate`.
+
+**Verificado em produção via curl, confirmado pelo Cleber**: manchetes 100% nativas em português (`title === titleOriginal`, sem sotaque de tradução automática), evento econômico traduzido (`"NY Fed Bill Purchases"` → `"Compras de títulos do Fed de NY..."`).
+
+**Commits já feitos e pushados pelo Cleber**: `a2306b08f`, `3b1be881f`, `ec3dc3e9b` (o último é o estado final, com fontes nativas PT).
+
+### 3. VIX "zerado" no Dashboard — 2 causas reais, distintas (FALTA COMMIT)
+
+Testado `/mt5-prices` direto pra `VIX` repetidas vezes:
+
+- **Causa A (intermitente, sem fix possível — infraestrutura)**: a conta MetaAPI compartilhada de plataforma dá timeout (`HTTP 504`) em ~metade das tentativas sob carga — mesmo padrão crônico já documentado dezenas de vezes neste arquivo. Quando isso acontece na primeira vez que o VIX é selecionado numa sessão de navegador (sem preço em cache ainda), `getFallbackOrLastKnown()` devolve `price:0, isRealData:false` — a tela zera até o próximo ciclo funcionar sozinho. Não é bug de código, é a mesma limitação de sempre.
+- **Causa B (bug real, corrigido)**: a variação (`change`/`changePercent`) do VIX vinha **sempre 0**, mesmo com preço real. Achado via `/debug-translate`-like instrumentação (`EXTRA_DEBUG_SYMBOLS`, incluído `VIX`): a série de candles D1 tinha um buraco real (só quinta 16/07 e domingo 19/07 — faltando sexta e sábado, gap sob rate-limit da conta compartilhada). A lógica de seleção de candle (`candles[length-2]`, presume que o ÚLTIMO candle do array é sempre "hoje, ainda aberto") descartava o candle de domingo (que já estava fechado de verdade) e usava o de quinta como referência — só que quinta já tinha mais de 4 dias, falhava a checagem de recência, e `change` ficava preso em 0 pra sempre.
+
+**Fix**: em `index.ts` (rota `/mt5-prices`), se a escolha por posição falhar a checagem de recência, mas o ÚLTIMO candle do array já tiver mais de ~20h (quase certo que a sessão dele já fechou, não está "em aberto"), usa ele como referência real em vez de descartar. Fix isolado (só entra quando a lógica de sempre falharia de qualquer forma) — não deveria afetar nenhum ativo que já funcionava.
+
+**Verificado em produção via curl, confirmado pelo Cleber ("funciona")**: `previousCandleUsed` passou a usar o candle de domingo (18.934) em vez do de quinta (19.189), variação real aparecendo (`+0.21%` a `+0.23%` em ticks sucessivos), preço com timestamp mudando a cada chamada (não mais travado).
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push do fix do VIX** (só `index.ts` modificado, nada mais pendente):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add supabase/functions/server/index.ts
+git commit -m "fix: VIX sem variacao no Dashboard (change/changePercent sempre 0, mesmo com preco real) -- causa raiz: gap real na serie de candles D1 (faltava sexta/sabado, sob rate-limit da conta MetaAPI compartilhada) fazia a selecao por posicao (candles[length-2], que presume o ultimo candle do array = hoje ainda aberto) descartar o candle de domingo (ja fechado de verdade) e usar um de mais de 4 dias como referencia, falhando a checagem de recencia e travando change em 0 pra sempre. Fallback: se a escolha por posicao falhar a checagem de recencia mas o ultimo candle do array ja tiver mais de ~20h (sessao quase certamente ja fechada), usa ele como referencia real. Adiciona VIX a EXTRA_DEBUG_SYMBOLS e rota /debug-translate (diagnostico temporario, ainda no ar)"
+git push origin main
+```
+2. **Zerado por timeout intermitente (Causa A) continua sem fix** — é a mesma limitação crônica de rate-limit da conta MetaAPI compartilhada já documentada extensivamente neste arquivo. Sem ação possível além de esperar/evitar rajadas de teste.
+3. **Considerar remover a instrumentação de debug temporária** quando não precisar mais: `/debug-translate` (rota nova) e `VIX` em `EXTRA_DEBUG_SYMBOLS` (`index.ts`) — deixados no ar de propósito por enquanto, custo baixo, úteis se o problema voltar.
+4. **Considerar generalizar o fix da Causa B** pra outros ativos que possam ter o mesmo tipo de gap na série de candles (fim de semana longo, feriado, rate-limit) — só corrigido pro caminho específico que já existia (`/mt5-prices`), mas a lógica é genérica o bastante pra valer pra qualquer símbolo, não só VIX.
+
+---
+
+## Sessão nova (2026-07-20): Matriz de Correlação (loading lento/travado + altura + badge) + Nexus Quantum Advisor — remoção equivocada revertida, só o título mudou — COMMITADO
+
+Claude passa a se comunicar só em português brasileiro (pedido explícito do Cleber).
 
 ### 1. Matriz de Correlação Inteligente (`CorrelationMatrix.tsx`) — 3 pedidos em sequência
 

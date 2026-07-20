@@ -3596,7 +3596,7 @@ const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADA
 // sob rate-limit da conta compartilhada (mesma causa já documentada pra
 // UKOUSD/AUDJPY/HKG33). Instrumentado aqui pra capturar o candle bruto na
 // próxima vez que acontecer.
-const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33', 'BVSPX']);
+const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33', 'BVSPX', 'VIX']);
 
 app.post('/mt5-prices', async (c) => {
     try {
@@ -3784,9 +3784,45 @@ app.post('/mt5-prices', async (c) => {
                             const retry = await fetchCandles(5);
                             candles = retry.candles;
                         }
-                        const previousCandle = candles && candles.length >= 2
+                        let previousCandle = candles && candles.length >= 2
                             ? candles[candles.length - 2]
                             : null;
+
+                        // ✅ 2026-07-20 (achado real: VIX): a posição fixa `length-2` assume
+                        // que o ÚLTIMO candle do array é sempre "hoje, ainda aberto" — só
+                        // funciona se a série vier sem buraco. Quando falta um dia no meio
+                        // (ex: VIX testado nesta sessão: candles de quinta e domingo, sem
+                        // sexta/sábado — gap de dado sob rate-limit da conta compartilhada,
+                        // mesma causa já documentada pra UKOUSD/AUDJPY/HKG33/BVSPX), o
+                        // "penúltimo" vira um candle de dias atrás (falha a checagem de
+                        // recência abaixo, `change` fica preso em 0), enquanto o ÚLTIMO
+                        // candle do array — na real já uma sessão FECHADA, só rotulado
+                        // errado como "hoje" pela posição — é descartado à toa. Fallback:
+                        // se a escolha por posição falhar a checagem de recência, mas o
+                        // último candle do array já tem mais de ~20h (quase certo que a
+                        // sessão dele já fechou, não está mais "em aberto") e ainda cabe
+                        // na janela de 4 dias, usa ele como referência real em vez de
+                        // desistir e mostrar variação zerada.
+                        if (candles && candles.length >= 1) {
+                            const isStale = (c: any) => {
+                                const t = c?.time ? new Date(c.time).getTime() : null;
+                                return t === null || (now.getTime() - t) > 4 * 86_400_000;
+                            };
+                            if (!previousCandle || isStale(previousCandle)) {
+                                const lastCandle = candles[candles.length - 1];
+                                const lastTime = lastCandle?.time ? new Date(lastCandle.time).getTime() : null;
+                                const SESSION_LIKELY_CLOSED_MS = 20 * 60 * 60 * 1000; // 20h
+                                if (
+                                    lastCandle &&
+                                    lastTime !== null &&
+                                    (now.getTime() - lastTime) > SESSION_LIKELY_CLOSED_MS &&
+                                    (now.getTime() - lastTime) <= 4 * 86_400_000
+                                ) {
+                                    previousCandle = lastCandle;
+                                }
+                            }
+                        }
+
                         candlesUsedForDebug = candles;
                         previousCandleForDebug = previousCandle;
 
