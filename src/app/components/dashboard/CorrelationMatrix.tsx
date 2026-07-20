@@ -24,7 +24,7 @@ const PRESET_PORTFOLIOS: Record<string, string[]> = {
   'Índices Globais': ['SPX500', 'US30', 'NAS100', 'GER40', 'UK100', 'JP225'],
 };
 
-const DEFAULT_ASSETS = ['BTCUSD', 'ETHUSD', 'EURUSD', 'GBPUSD', 'XAUUSD', 'SPX500', 'US30', 'USOUSD'];
+const DEFAULT_ASSETS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'EURUSD', 'GBPUSD', 'XAUUSD', 'SPX500', 'US30', 'USOUSD', 'AAPL'];
 const MAX_ASSETS = 20;
 const MIN_ASSETS = 2;
 const LOOKBACK_DAYS = 120; // ~4 meses de candles diários — janela padrão de mercado para correlação
@@ -345,11 +345,11 @@ export function CorrelationMatrix() {
   const displayedAssets = selectedAssets.filter(a => matrixData[a]);
 
   return (
-    <Card className="bg-slate-950 border-0 backdrop-blur-sm shadow-xl h-full">
-      <CardHeader className="pb-4">
+    <Card className="bg-slate-950 border-0 backdrop-blur-sm shadow-xl">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="space-y-1">
-            <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
+            <CardTitle className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
               <Layers className="h-5 w-5 text-purple-400" />
               Matriz de Correlação Inteligente
               <Badge className="bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0 text-[10px] font-bold">
@@ -361,6 +361,9 @@ export function CorrelationMatrix() {
             </CardTitle>
             <p className="text-xs text-slate-400">
               {selectedAssets.length} selecionados • {availableAssets.length} filtrados • Atualizado: {lastUpdate.toLocaleTimeString()}
+              {unavailable.length > 0 && (
+                <span className="text-rose-400"> • {unavailable.length} sem dado real agora ({unavailable.join(', ')})</span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -526,35 +529,35 @@ export function CorrelationMatrix() {
           </motion.div>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
           {/* MATRIX HEATMAP */}
-          <div className="flex-1 overflow-x-auto">
-            <div className="min-w-[400px]">
-              {analyzing && displayedAssets.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                  <RefreshCw className="h-8 w-8 animate-spin mb-3" />
-                  <span className="text-sm">Buscando candles reais e calculando correlações...</span>
-                </div>
-              ) : (
-                <>
+          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-3">
+            {analyzing && displayedAssets.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                <RefreshCw className="h-7 w-7 animate-spin mb-3" />
+                <span className="text-sm">Buscando candles reais e calculando correlações...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto custom-scrollbar">
+                <div className="inline-block min-w-full">
                   {/* Header */}
                   <div className="flex mb-1">
-                    <div className="w-20"></div>
+                    <div className="w-14 shrink-0"></div>
                     {displayedAssets.map(asset => (
-                      <div key={asset} className="w-16 text-center text-[10px] font-bold text-purple-400">
+                      <div key={asset} className="w-11 shrink-0 text-center text-[9px] font-bold text-purple-400 truncate px-0.5">
                         {asset.length > 6 ? asset.substring(0, 6) : asset}
                       </div>
                     ))}
                   </div>
 
                   {/* Rows */}
-                  <div className="space-y-1">
+                  <div className="space-y-0.5">
                     {displayedAssets.map(rowAsset => (
                       <div key={rowAsset} className="flex items-center">
-                        <div className="w-20 text-xs font-bold text-purple-400 truncate pr-2">
+                        <div className="w-14 shrink-0 text-[11px] font-bold text-purple-400 truncate pr-1.5">
                           {rowAsset}
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex gap-0.5">
                           {displayedAssets.map(colAsset => {
                             const cell = matrixData[rowAsset]?.[colAsset];
                             const label = cell?.value === null || cell === undefined ? '—' : cell.value.toFixed(2);
@@ -566,7 +569,7 @@ export function CorrelationMatrix() {
                                 key={`${rowAsset}-${colAsset}`}
                                 initial={false}
                                 animate={{ opacity: analyzing ? 0.5 : 1 }}
-                                className={`w-16 h-10 rounded flex items-center justify-center text-xs font-semibold cursor-help transition-all ${getColor(cell)}`}
+                                className={`w-11 h-8 shrink-0 rounded flex items-center justify-center text-[10px] font-semibold cursor-help transition-all ${getColor(cell)}`}
                                 title={title}
                               >
                                 {label}
@@ -577,155 +580,161 @@ export function CorrelationMatrix() {
                       </div>
                     ))}
                   </div>
-                </>
-              )}
+                </div>
+              </div>
+            )}
+
+            {/* Legenda de cores — usabilidade */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 pt-2 border-t border-slate-800/50 text-[10px] text-slate-500">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/30" /> Positiva forte</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/10" /> Positiva fraca</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500/30" /> Negativa forte</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500/10" /> Negativa fraca</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-800/30" /> Sem dado (—)</span>
             </div>
           </div>
 
           {/* AI ANALYSIS */}
-          <div className="lg:w-[340px] shrink-0">
-            <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-4 h-full overflow-y-auto custom-scrollbar max-h-[640px]">
-              <div className="flex items-center gap-2">
-                <Brain className="h-4 w-4 text-purple-400" />
-                <h3 className="text-sm font-bold text-white">Análise IA</h3>
+          <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-3 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <Brain className="h-4 w-4 text-purple-400" />
+              <h3 className="text-sm font-bold text-white">Análise IA</h3>
+            </div>
+
+            {analyzing && !aiInsight ? (
+              <div className="flex flex-col items-center justify-center py-6 text-slate-500">
+                <RefreshCw className="h-5 w-5 animate-spin mb-2" />
+                <span className="text-xs">Recalculando...</span>
               </div>
-
-              {analyzing && !aiInsight ? (
-                <div className="flex flex-col items-center justify-center py-8 text-slate-500">
-                  <RefreshCw className="h-6 w-6 animate-spin mb-2" />
-                  <span className="text-xs">Recalculando...</span>
+            ) : aiInsight && (
+              <div className="space-y-2.5">
+                <div className={`p-2.5 rounded-lg border ${
+                  aiInsight.level === 'HIGH' ? 'bg-rose-950/30 border-rose-500/30' :
+                  aiInsight.level === 'MEDIUM' ? 'bg-amber-950/30 border-amber-500/30' :
+                  'bg-emerald-950/30 border-emerald-500/30'
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <ShieldAlert className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${
+                      aiInsight.level === 'HIGH' ? 'text-rose-400' :
+                      aiInsight.level === 'MEDIUM' ? 'text-amber-400' : 'text-emerald-400'
+                    }`} />
+                    <div>
+                      <p className={`text-xs font-bold ${
+                        aiInsight.level === 'HIGH' ? 'text-rose-100' :
+                        aiInsight.level === 'MEDIUM' ? 'text-amber-100' : 'text-emerald-100'
+                      }`}>{aiInsight.title}</p>
+                      <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                        {aiInsight.description}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              ) : aiInsight && (
-                <div className="space-y-3">
-                  <div className={`p-3 rounded-lg border ${
-                    aiInsight.level === 'HIGH' ? 'bg-rose-950/30 border-rose-500/30' :
-                    aiInsight.level === 'MEDIUM' ? 'bg-amber-950/30 border-amber-500/30' :
-                    'bg-emerald-950/30 border-emerald-500/30'
-                  }`}>
-                    <div className="flex items-start gap-2 mb-2">
-                      <ShieldAlert className={`h-4 w-4 shrink-0 mt-0.5 ${
-                        aiInsight.level === 'HIGH' ? 'text-rose-400' :
-                        aiInsight.level === 'MEDIUM' ? 'text-amber-400' : 'text-emerald-400'
-                      }`} />
-                      <div>
-                        <p className={`text-sm font-bold ${
-                          aiInsight.level === 'HIGH' ? 'text-rose-100' :
-                          aiInsight.level === 'MEDIUM' ? 'text-amber-100' : 'text-emerald-100'
-                        }`}>{aiInsight.title}</p>
-                        <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                          {aiInsight.description}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Score de diversificação + ativo mais independente */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-slate-800/50 rounded-lg p-2.5 border border-slate-700/50">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Sparkles className="h-3 w-3 text-blue-400" />
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Diversificação</p>
-                      </div>
-                      <p className={`text-lg font-bold ${
-                        aiInsight.diversificationScore >= 60 ? 'text-emerald-400' :
-                        aiInsight.diversificationScore >= 35 ? 'text-amber-400' : 'text-rose-400'
-                      }`}>
-                        {aiInsight.diversificationScore}%
-                      </p>
-                      <p className="text-[10px] text-slate-500">
-                        {aiInsight.diversificationScore >= 60 ? 'Boa independência' : aiInsight.diversificationScore >= 35 ? 'Moderada' : 'Baixa (concentrado)'}
-                      </p>
+                {/* Score de diversificação + ativo mais independente */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <Sparkles className="h-3 w-3 text-blue-400" />
+                      <p className="text-[9px] text-slate-400 uppercase font-bold">Diversificação</p>
                     </div>
-                    <div className="bg-slate-800/50 rounded-lg p-2.5 border border-slate-700/50">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Target className="h-3 w-3 text-cyan-400" />
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Mais Independente</p>
-                      </div>
-                      {aiInsight.mostIndependent ? (
-                        <>
-                          <p className="text-sm font-bold text-cyan-300 truncate">{aiInsight.mostIndependent.symbol}</p>
-                          <p className="text-[10px] text-slate-500">corr. média {aiInsight.mostIndependent.avgAbsCorr.toFixed(2)}</p>
-                        </>
-                      ) : <p className="text-[10px] text-slate-500">—</p>}
-                    </div>
-                  </div>
-
-                  {aiInsight.bestHedge && (
-                    <div className="bg-indigo-950/20 border border-indigo-900/50 rounded-lg p-2.5">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <GitBranch className="h-3 w-3 text-indigo-400" />
-                        <p className="text-[10px] text-indigo-300 uppercase font-bold">Melhor Par p/ Hedge</p>
-                      </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-300">{aiInsight.bestHedge.pair}</span>
-                        <span className={`font-bold ${aiInsight.bestHedge.value < 0 ? 'text-indigo-300' : 'text-slate-400'}`}>
-                          {aiInsight.bestHedge.value.toFixed(2)}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        {aiInsight.bestHedge.value < -0.3
-                          ? 'Movem-se em direções opostas — útil para compensar risco.'
-                          : 'Nenhum par com correlação inversa relevante nesta seleção.'}
-                      </p>
-                    </div>
-                  )}
-
-                  {aiInsight.strongPositive?.length > 0 && (
-                    <div>
-                      <p className="text-[10px] text-emerald-400 uppercase font-bold mb-1.5 flex items-center gap-1">
-                        <TrendingUp className="h-3 w-3" /> Correlações Positivas Fortes ({aiInsight.strongPositive.length})
-                      </p>
-                      <div className="space-y-1">
-                        {aiInsight.strongPositive.map((item, idx) => (
-                          <div key={idx} className="text-xs bg-emerald-950/20 border border-emerald-900/50 p-2 rounded flex justify-between">
-                            <span className="text-slate-300">{item.pair}</span>
-                            <span className="text-emerald-400 font-bold">{item.value.toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {aiInsight.relevant?.length > 0 && (
-                    <div>
-                      <p className="text-[10px] text-amber-400 uppercase font-bold mb-1.5 flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" /> Correlações Relevantes ({aiInsight.relevant.length})
-                      </p>
-                      <div className="space-y-1">
-                        {aiInsight.relevant.map((item, idx) => (
-                          <div key={idx} className="text-xs bg-amber-950/20 border border-amber-900/50 p-2 rounded flex justify-between">
-                            <span className="text-slate-300">{item.pair}</span>
-                            <span className="text-amber-400 font-bold">{item.value.toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {aiInsight.strongNegative?.length > 0 && (
-                    <div>
-                      <p className="text-[10px] text-rose-400 uppercase font-bold mb-1.5 flex items-center gap-1">
-                        <TrendingDown className="h-3 w-3" /> Correlações Negativas Fortes ({aiInsight.strongNegative.length})
-                      </p>
-                      <div className="space-y-1">
-                        {aiInsight.strongNegative.map((item, idx) => (
-                          <div key={idx} className="text-xs bg-rose-950/20 border border-rose-900/50 p-2 rounded flex justify-between">
-                            <span className="text-slate-300">{item.pair}</span>
-                            <span className="text-rose-400 font-bold">{item.value.toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pt-3 border-t border-slate-800/50">
-                    <p className="text-[10px] text-slate-500 italic">
-                      *Correlação de Pearson sobre retornos diários reais (candles de até {LOOKBACK_DAYS} dias, mínimo {MIN_OVERLAP_POINTS} pregões em comum). Atualizado a cada {REFRESH_INTERVAL_MS / 60000} min.
+                    <p className={`text-base font-bold leading-tight ${
+                      aiInsight.diversificationScore >= 60 ? 'text-emerald-400' :
+                      aiInsight.diversificationScore >= 35 ? 'text-amber-400' : 'text-rose-400'
+                    }`}>
+                      {aiInsight.diversificationScore}%
+                    </p>
+                    <p className="text-[9px] text-slate-500 leading-tight">
+                      {aiInsight.diversificationScore >= 60 ? 'Boa independência' : aiInsight.diversificationScore >= 35 ? 'Moderada' : 'Baixa (concentrado)'}
                     </p>
                   </div>
+                  <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <Target className="h-3 w-3 text-cyan-400" />
+                      <p className="text-[9px] text-slate-400 uppercase font-bold">Mais Independente</p>
+                    </div>
+                    {aiInsight.mostIndependent ? (
+                      <>
+                        <p className="text-xs font-bold text-cyan-300 truncate leading-tight">{aiInsight.mostIndependent.symbol}</p>
+                        <p className="text-[9px] text-slate-500 leading-tight">corr. média {aiInsight.mostIndependent.avgAbsCorr.toFixed(2)}</p>
+                      </>
+                    ) : <p className="text-[9px] text-slate-500">—</p>}
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {aiInsight.bestHedge && (
+                  <div className="bg-indigo-950/20 border border-indigo-900/50 rounded-lg p-2">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <GitBranch className="h-3 w-3 text-indigo-400" />
+                      <p className="text-[9px] text-indigo-300 uppercase font-bold">Melhor Par p/ Hedge</p>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-slate-300">{aiInsight.bestHedge.pair}</span>
+                      <span className={`font-bold ${aiInsight.bestHedge.value < 0 ? 'text-indigo-300' : 'text-slate-400'}`}>
+                        {aiInsight.bestHedge.value.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {(aiInsight.strongPositive?.length > 0 || aiInsight.relevant?.length > 0 || aiInsight.strongNegative?.length > 0) && (
+                  <div className="grid grid-cols-1 gap-2">
+                    {aiInsight.strongPositive?.length > 0 && (
+                      <div>
+                        <p className="text-[9px] text-emerald-400 uppercase font-bold mb-1 flex items-center gap-1">
+                          <TrendingUp className="h-3 w-3" /> Positivas Fortes ({aiInsight.strongPositive.length})
+                        </p>
+                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
+                          {aiInsight.strongPositive.map((item, idx) => (
+                            <div key={idx} className="text-[11px] bg-emerald-950/20 border border-emerald-900/50 px-2 py-1 rounded flex justify-between">
+                              <span className="text-slate-300">{item.pair}</span>
+                              <span className="text-emerald-400 font-bold">{item.value.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {aiInsight.relevant?.length > 0 && (
+                      <div>
+                        <p className="text-[9px] text-amber-400 uppercase font-bold mb-1 flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" /> Relevantes ({aiInsight.relevant.length})
+                        </p>
+                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
+                          {aiInsight.relevant.map((item, idx) => (
+                            <div key={idx} className="text-[11px] bg-amber-950/20 border border-amber-900/50 px-2 py-1 rounded flex justify-between">
+                              <span className="text-slate-300">{item.pair}</span>
+                              <span className="text-amber-400 font-bold">{item.value.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {aiInsight.strongNegative?.length > 0 && (
+                      <div>
+                        <p className="text-[9px] text-rose-400 uppercase font-bold mb-1 flex items-center gap-1">
+                          <TrendingDown className="h-3 w-3" /> Negativas Fortes ({aiInsight.strongNegative.length})
+                        </p>
+                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
+                          {aiInsight.strongNegative.map((item, idx) => (
+                            <div key={idx} className="text-[11px] bg-rose-950/20 border border-rose-900/50 px-2 py-1 rounded flex justify-between">
+                              <span className="text-slate-300">{item.pair}</span>
+                              <span className="text-rose-400 font-bold">{item.value.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-slate-800/50">
+                  <p className="text-[9px] text-slate-500 italic leading-snug">
+                    *Correlação de Pearson sobre retornos diários reais (candles de até {LOOKBACK_DAYS} dias, mínimo {MIN_OVERLAP_POINTS} pregões em comum). Atualizado a cada {REFRESH_INTERVAL_MS / 60000} min.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
