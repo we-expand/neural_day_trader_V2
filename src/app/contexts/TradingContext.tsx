@@ -55,6 +55,13 @@ interface TradingContextType {
   setAssetSelectionMode: (mode: 'AI' | 'MANUAL') => void;
   selectedAsset: string;
   setSelectedAsset: (asset: string) => void;
+  // Ativo REALMENTE exibido no Dashboard agora (MarketScoreBoard.tsx tem seu
+  // próprio estado local pra ficar independente do Gráfico — ver histórico do
+  // projeto — então `selectedAsset` acima não reflete o que o usuário está
+  // vendo no Dashboard). Widgets irmãos do Dashboard (ex: RiskThermometer)
+  // devem ler ESTE campo, não `selectedAsset`, pra acompanhar a troca de ativo.
+  dashboardActiveSymbol: string;
+  setDashboardActiveSymbol: (asset: string) => void;
   syncWallet: () => Promise<boolean>;
   panicClose: () => Promise<void>;
   applyCommission: (percentage: number) => void;
@@ -72,6 +79,10 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // ✅ CORREÇÃO: Todos useState ANTES de custom hooks (Rules of Hooks)
   // Legacy state for compatibility
   const [assetSelectionMode, setAssetSelectionMode] = useState<'AI' | 'MANUAL'>('AI');
+
+  // Espelha o estado local de ativo do MarketScoreBoard (Dashboard) — session-only,
+  // sem localStorage (não precisa sobreviver a reload, só sincronizar irmãos vivos).
+  const [dashboardActiveSymbol, setDashboardActiveSymbol] = useState<string>('BTCUSD');
   
   // 🔥 PERSISTÊNCIA GLOBAL: Ativo selecionado sincronizado entre todas as páginas
   const [selectedAsset, setSelectedAsset] = useState<string>(() => {
@@ -197,6 +208,8 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     setAssetSelectionMode,
     selectedAsset,
     setSelectedAsset: setSelectedAssetPersistent,
+    dashboardActiveSymbol,
+    setDashboardActiveSymbol,
     syncWallet,
     panicClose,
     applyCommission,
@@ -244,6 +257,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     setAssetSelectionMode,
     selectedAsset,
     setSelectedAssetPersistent,
+    dashboardActiveSymbol,
     syncWallet,
     panicClose,
     applyCommission,

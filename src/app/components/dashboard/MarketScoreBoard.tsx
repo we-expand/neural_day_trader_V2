@@ -171,7 +171,7 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
 }
 
 export const MarketScoreBoard = () => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset } = useTradingContext();
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
@@ -182,6 +182,13 @@ export const MarketScoreBoard = () => {
     lastDashboardSymbol = symbol;
     setActiveSymbolState(symbol);
   };
+
+  // Publica o ativo real do Dashboard no contexto pra widgets irmãos (ex:
+  // RiskThermometer) acompanharem a troca — antes só existia como state local
+  // deste componente, então nenhum outro widget sabia o que estava selecionado.
+  useEffect(() => {
+    setDashboardActiveSymbol(activeSymbol);
+  }, [activeSymbol, setDashboardActiveSymbol]);
 
   const [timeframe, setTimeframe] = useState<'1m'|'5m'|'15m'|'1h'|'1d'>('15m');
   const [candleTimeLeft, setCandleTimeLeft] = useState('00:00');
