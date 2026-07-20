@@ -1786,6 +1786,24 @@ app.get("/economic-calendar", async (c) => {
         const filterByCountry = <T extends { currency?: string }>(events: T[]): T[] =>
             countryFilter === 'US' ? events.filter(e => (e.currency || '').toUpperCase() === 'USD') : events;
 
+        // ✅ Nome do EVENTO em si (ex: "Building Permits") sempre vem cru em
+        // inglês da fonte (MQL5/TradingView/Investing.com/Yahoo) —
+        // translateEconomicEvents() só traduz o país, nunca o evento. Antes
+        // disso, o frontend tentava cobrir isso com um dicionário estático
+        // de ~55 termos (EconomicCalendar.tsx), incompleto por natureza —
+        // qualquer evento fora da lista ficava em inglês. Agora traduz de
+        // verdade pro idioma do usuário aqui no backend, mesmo mecanismo
+        // (Google Translate público, sem chave, com cache em memória) já
+        // usado e confirmado funcionando em /news/aggregate.
+        const targetLang = (c.req.query('lang') || 'pt').split('-')[0].toLowerCase();
+        const translateEventNames = async <T extends { event?: string }>(events: T[]): Promise<T[]> => {
+            if (targetLang === 'en') return events;
+            return mapWithConcurrency(events, 5, async (ev) => ({
+                ...ev,
+                event: await translateText(ev.event || '', targetLang),
+            }));
+        };
+
         console.log('🔍 [AGENDA] Iniciando busca de eventos econômicos...', countryFilter ? `(filtro: ${countryFilter})` : '');
         console.log('🔍 [AGENDA] Data atual:', new Date().toISOString());
 
@@ -1800,7 +1818,7 @@ app.get("/economic-calendar", async (c) => {
         const tvResult = await fetchTradingViewCalendar(countryFilter);
         if (tvResult && tvResult.events.length > 0) {
             console.log(`✅ [TRADINGVIEW] ${tvResult.events.length} eventos REAIS encontrados (dia: ${tvResult.date})`);
-            const translatedTvEvents = filterByCountry(translateEconomicEvents(tvResult.events));
+            const translatedTvEvents = await translateEventNames(filterByCountry(translateEconomicEvents(tvResult.events)));
             const todayStr = new Date().toISOString().split('T')[0];
             return c.json({
                 events: translatedTvEvents,
@@ -1821,7 +1839,7 @@ app.get("/economic-calendar", async (c) => {
         const mql5Events = await fetchMQL5Calendar();
         if (mql5Events && mql5Events.length > 0) {
             console.log(`✅ [MQL5] ${mql5Events.length} eventos REAIS encontrados`);
-            const translatedMql5Events = filterByCountry(translateEconomicEvents(mql5Events));
+            const translatedMql5Events = await translateEventNames(filterByCountry(translateEconomicEvents(mql5Events)));
             return c.json({
                 events: translatedMql5Events,
                 count: translatedMql5Events.length,
@@ -1838,7 +1856,7 @@ app.get("/economic-calendar", async (c) => {
 
         if (investingEvents && investingEvents.length > 0) {
             console.log(`✅ [INVESTING.COM] ${investingEvents.length} eventos encontrados`);
-            const translatedInvestingEvents = filterByCountry(translateEconomicEvents(investingEvents));
+            const translatedInvestingEvents = await translateEventNames(filterByCountry(translateEconomicEvents(investingEvents)));
             return c.json({
                 events: translatedInvestingEvents,
                 count: translatedInvestingEvents.length,
@@ -1853,7 +1871,7 @@ app.get("/economic-calendar", async (c) => {
         const yahooEvents = await fetchYahooFinanceCalendar();
         if (yahooEvents && yahooEvents.length > 0) {
             console.log(`✅ [YAHOO FINANCE] ${yahooEvents.length} eventos encontrados`);
-            const translatedYahooEvents = filterByCountry(translateEconomicEvents(yahooEvents));
+            const translatedYahooEvents = await translateEventNames(filterByCountry(translateEconomicEvents(yahooEvents)));
             return c.json({
                 events: translatedYahooEvents,
                 count: translatedYahooEvents.length,

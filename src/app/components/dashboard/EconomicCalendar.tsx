@@ -91,6 +91,16 @@ function translateEventName(name: string): string {
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/server/economic-calendar`;
 
+// Detecta o idioma do usuário (navigator.language, ex: "pt-BR" → "pt") pra
+// pedir a tradução do NOME do evento no idioma certo — mesmo padrão já
+// usado em NewsFeed.tsx. O backend agora traduz de verdade (Google
+// Translate), não só o dicionário estático local abaixo (que cobre só
+// termos comuns, como resposta instantânea antes do backend responder).
+function detectUserLang(): string {
+  const lang = (navigator.language || 'pt-BR').split('-')[0].toLowerCase();
+  return lang || 'pt';
+}
+
 export function EconomicCalendar() {
   const [events, setEvents] = useState<EconomicEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +109,7 @@ export function EconomicCalendar() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [agendaDate, setAgendaDate] = useState<string | null>(null);
   const [isToday, setIsToday] = useState(true);
+  const userLang = React.useRef(detectUserLang()).current;
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 30000);
@@ -138,7 +149,7 @@ export function EconomicCalendar() {
 
   async function loadEvents() {
     try {
-      const response = await fetch(`${API_URL}?country=US&t=${Date.now()}`, {
+      const response = await fetch(`${API_URL}?country=US&lang=${userLang}&t=${Date.now()}`, {
         headers: { 'Authorization': `Bearer ${publicAnonKey}` },
         signal: AbortSignal.timeout(15000),
       });
