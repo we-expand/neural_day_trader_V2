@@ -324,7 +324,7 @@ export const QuantumAnalysis: React.FC<QuantumAnalysisProps> = ({
             <Brain className="w-6 h-6 text-white flex-shrink-0" />
             <div>
               <div className="text-sm font-bold text-white mb-1">
-                Nexus Quantum Advisor Online
+                Assistente de Voz Online
               </div>
               <p className="text-xs text-white/90 leading-relaxed">
                 Sistema de voz ativado. Clique no ícone do microfone para começar a interagir comigo.

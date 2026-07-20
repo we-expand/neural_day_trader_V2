@@ -86,7 +86,7 @@ export const OperationModeSelector: React.FC<OperationModeSelectorProps> = ({
           Modo de Operação
         </h3>
         <p className="text-xs text-slate-400">
-          Selecione como você deseja interagir com o Nexus Quantum Advisor
+          Selecione como você deseja interagir com a Análise Neural
         </p>
       </div>
 
