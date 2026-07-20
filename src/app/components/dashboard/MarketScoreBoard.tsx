@@ -882,36 +882,7 @@ export const MarketScoreBoard = () => {
                      </span>
                 </div>
 
-                {/* 🔥 NOVO: Badge de Fonte de Dados */}
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
-                  dataSource.includes('Real-Time') || dataSource.includes('WebSocket')
-                    ? 'bg-emerald-500/10 border-emerald-500/30'
-                    : dataSource.includes('Fallback')
-                    ? 'bg-yellow-500/10 border-yellow-500/30'
-                    : 'bg-blue-500/10 border-blue-500/30'
-                }`}>
-                  <div className={`w-1.5 h-1.5 rounded-full ${
-                    dataSource.includes('Real-Time') || dataSource.includes('WebSocket')
-                      ? 'bg-emerald-400 animate-pulse'
-                      : dataSource.includes('Fallback')
-                      ? 'bg-yellow-400'
-                      : 'bg-blue-400'
-                  }`} />
-                  <span className={`text-[10px] font-bold uppercase tracking-widest ${
-                    dataSource.includes('Real-Time') || dataSource.includes('WebSocket')
-                      ? 'text-emerald-400'
-                      : dataSource.includes('Fallback')
-                      ? 'text-yellow-400'
-                      : 'text-blue-400'
-                  }`}>
-                    {dataSource.includes('Real-Time') ? '🌐 REAL-TIME' : 
-                     dataSource.includes('WebSocket') ? '🌐 LIVE' : 
-                     dataSource.includes('Fallback') ? '📊 FALLBACK' : 
-                     '📊 DATA'}
-                  </span>
-                </div>
-
-                {/* ✅ REMOVIDOS: Botões DADOS, AJUSTAR, CONECTAR e OFFLINE - Causavam confusão no Dashboard */}
+                {/* ✅ REMOVIDOS: Badge de Fonte de Dados (📊 DATA/FALLBACK/REAL-TIME) e os botões DADOS, AJUSTAR, CONECTAR e OFFLINE - Causavam confusão no Dashboard */}
 
                 <div className="flex items-center gap-4">
                     <div className="hidden md:flex flex-col items-end">
