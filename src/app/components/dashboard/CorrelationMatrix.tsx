@@ -80,6 +80,20 @@ function computeDailyReturns(candles: { time: number; close: number }[]): Map<st
   return returns;
 }
 
+/** Corrida contra um limite de tempo — sem isso, um fetch travado (rede/CORS/conta
+ * MetaAPI compartilhada sob rate-limit, já documentado neste projeto) prendia a
+ * matriz inteira em "carregando" para sempre, já que o loop nunca avançava para o
+ * próximo símbolo nem chegava a `setAnalyzing(false)`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Tempo esgotado (${ms}ms) buscando ${label}`)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 function pearsonCorrelation(a: number[], b: number[]): number {
   const n = a.length;
   if (n === 0) return 0;
@@ -145,43 +159,54 @@ export function CorrelationMatrix() {
     const returnsBySymbol = new Map<string, Map<string, number>>();
     const failed: string[] = [];
 
-    for (const symbol of selectedAssets) {
-      try {
-        const { candles } = await backtestDataService.fetchHistoricalData(symbol, startDate, endDate, '1d');
-        returnsBySymbol.set(symbol, computeDailyReturns(candles));
-      } catch (error) {
-        const reason = error instanceof BacktestDataUnavailableError ? error.message : String(error);
-        console.warn(`[CorrelationMatrix] ⚠️ Sem dado real para ${symbol}: ${reason}`);
-        failed.push(symbol);
-      }
-      await new Promise(resolve => setTimeout(resolve, 180));
-    }
-
-    // Se uma corrida mais nova já começou enquanto esta rodava, descarta o resultado.
-    if (myRequestId !== requestIdRef.current) return;
-
-    const availableSymbols = selectedAssets.filter(s => returnsBySymbol.has(s));
-    const newMatrix: MatrixData = {};
-    availableSymbols.forEach(a => { newMatrix[a] = {}; });
-
-    availableSymbols.forEach(assetA => {
-      availableSymbols.forEach(assetB => {
-        if (assetA === assetB) {
-          newMatrix[assetA][assetB] = { value: 1, n: returnsBySymbol.get(assetA)!.size };
-        } else {
-          newMatrix[assetA][assetB] = correlateReturnSeries(
-            returnsBySymbol.get(assetA)!,
-            returnsBySymbol.get(assetB)!
+    try {
+      for (const symbol of selectedAssets) {
+        try {
+          const { candles } = await withTimeout(
+            backtestDataService.fetchHistoricalData(symbol, startDate, endDate, '1d'),
+            15000,
+            symbol
           );
+          returnsBySymbol.set(symbol, computeDailyReturns(candles));
+        } catch (error) {
+          const reason = error instanceof BacktestDataUnavailableError ? error.message : String(error);
+          console.warn(`[CorrelationMatrix] ⚠️ Sem dado real para ${symbol}: ${reason}`);
+          failed.push(symbol);
         }
-      });
-    });
+        // Se uma corrida mais nova já começou (troca de seleção/refresh manual),
+        // aborta esta e deixa a nova assumir — evita duas buscas concorrentes.
+        if (myRequestId !== requestIdRef.current) return;
+        await new Promise(resolve => setTimeout(resolve, 180));
+      }
 
-    setMatrixData(newMatrix);
-    setUnavailable(failed);
-    setLastUpdate(new Date());
-    generateInsight(newMatrix, availableSymbols);
-    setAnalyzing(false);
+      if (myRequestId !== requestIdRef.current) return;
+
+      const availableSymbols = selectedAssets.filter(s => returnsBySymbol.has(s));
+      const newMatrix: MatrixData = {};
+      availableSymbols.forEach(a => { newMatrix[a] = {}; });
+
+      availableSymbols.forEach(assetA => {
+        availableSymbols.forEach(assetB => {
+          if (assetA === assetB) {
+            newMatrix[assetA][assetB] = { value: 1, n: returnsBySymbol.get(assetA)!.size };
+          } else {
+            newMatrix[assetA][assetB] = correlateReturnSeries(
+              returnsBySymbol.get(assetA)!,
+              returnsBySymbol.get(assetB)!
+            );
+          }
+        });
+      });
+
+      setMatrixData(newMatrix);
+      setUnavailable(failed);
+      setLastUpdate(new Date());
+      generateInsight(newMatrix, availableSymbols);
+    } finally {
+      // Garante que o spinner nunca fica preso, mesmo se algo inesperado
+      // acima lançar uma exceção não prevista.
+      if (myRequestId === requestIdRef.current) setAnalyzing(false);
+    }
   }, [selectedAssets]);
 
   const generateInsight = (matrix: MatrixData, assets: string[]) => {
