@@ -301,27 +301,12 @@ export function VIXWidgetEnhanced() {
 
   }, [history]);
 
-  // 🔥 Toast quando o status (derivado do dado real, não de relógio) muda
+  // ✅ 2026-07-20: removido o toast/banner de mudança de status ("Mercado VIX
+  // ABERTO/FECHADO", pop-up no canto da tela) a pedido do Cleber — poluía o
+  // Dashboard. O badge de status dentro do próprio card do VIX (mais abaixo
+  // no JSX) continua refletindo aberto/fechado normalmente, só o pop-up saiu.
   const STALE_TICK_MS = 10 * 60 * 1000; // mesmo limiar já usado no Dashboard
   const isOpen = isRealData && lastTickAt !== null && (Date.now() - lastTickAt.getTime()) < STALE_TICK_MS;
-  const prevIsOpenRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (prevIsOpenRef.current !== null && prevIsOpenRef.current !== isOpen) {
-      console.log('[VIX] 🔔 Mudança de status detectada:', prevIsOpenRef.current, '→', isOpen);
-      if (isOpen) {
-        toast.success('🟢 Mercado VIX ABERTO', {
-          description: `Trading ao vivo — último negócio às ${new Date().toLocaleTimeString('pt-BR')}`,
-          duration: 5000
-        });
-      } else {
-        toast.info('🔒 Mercado VIX FECHADO', {
-          description: lastTickAt ? `Último negócio real: ${lastTickAt.toLocaleTimeString('pt-BR')}` : 'Nenhum negócio real recebido ainda',
-          duration: 5000
-        });
-      }
-    }
-    prevIsOpenRef.current = isOpen;
-  }, [isOpen]);
 
   // ✅ 2026-07-16 (2ª correção): a 1ª tentativa comparava o valor absoluto
   // com a média do próprio histórico — errado. O Cleber esclareceu: o que
