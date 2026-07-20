@@ -160,13 +160,14 @@ export function CorrelationMatrix() {
     const startDate = new Date(endDate.getTime() - LOOKBACK_DAYS * 86_400_000);
 
     // ✅ 2026-07-20: busca era SEQUENCIAL (1 símbolo por vez, timeout 15s cada) —
-    // com os DEFAULT_ASSETS (16 símbolos) o pior caso batia ~16×15s = 4min,
-    // exatamente o "demora demais / não carrega" reportado. Trocado para um
-    // pool de concorrência limitada (4 em voo por vez) — rápido o bastante pra
-    // não travar a UI, mas ainda gentil com a conta MetaAPI compartilhada de
-    // plataforma (mesmo cuidado documentado em outras partes do app).
-    const CONCURRENCY = 4;
-    const FETCH_TIMEOUT_MS = 12000;
+    // com os DEFAULT_ASSETS (16 símbolos) o pior caso batia ~16×15s = 4min.
+    // Trocado pra pool de concorrência (16 símbolos / 4 em voo = ~30s reportado
+    // pelo Cleber). Subido pra 8 em voo — dobra o paralelismo (16 símbolos em
+    // só 2 lotes em vez de 4), ainda dentro do mesmo limite de concorrência já
+    // usado com segurança pela conta MetaAPI compartilhada em outras partes do
+    // backend (mapWithConcurrency em /mt5-prices usa o mesmo valor).
+    const CONCURRENCY = 8;
+    const FETCH_TIMEOUT_MS = 10000;
     const returnsBySymbol = new Map<string, Map<string, number>>();
     const failed: string[] = [];
 
@@ -372,9 +373,6 @@ export function CorrelationMatrix() {
               Matriz de Correlação Inteligente
               <Badge className="bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0 text-[10px] font-bold">
                 {ALL_ASSETS.length} ATIVOS DISPONÍVEIS
-              </Badge>
-              <Badge className="bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
-                DADOS REAIS • {LOOKBACK_DAYS}D
               </Badge>
             </CardTitle>
             <p className="text-xs text-slate-400">
