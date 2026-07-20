@@ -696,67 +696,75 @@ export function CorrelationMatrix() {
                   </div>
                 </div>
 
-                {/* Linha 2: as 3 listas de pares lado a lado (era empilhado) */}
-                {(aiInsight.strongPositive?.length > 0 || aiInsight.relevant?.length > 0 || aiInsight.strongNegative?.length > 0) && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {aiInsight.strongPositive?.length > 0 && (
-                      <div>
-                        <p className="text-[9px] text-emerald-400 uppercase font-bold mb-1 flex items-center gap-1">
-                          <TrendingUp className="h-3 w-3" /> Positivas Fortes ({aiInsight.strongPositive.length})
-                        </p>
-                        <div className="space-y-1">
-                          {aiInsight.strongPositive.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
-                            <div key={idx} className="text-[11px] bg-emerald-950/20 border border-emerald-900/50 px-2 py-1 rounded flex justify-between">
-                              <span className="text-slate-300">{item.pair}</span>
-                              <span className="text-emerald-400 font-bold">{item.value.toFixed(2)}</span>
-                            </div>
-                          ))}
-                          {aiInsight.strongPositive.length > INSIGHT_LIST_VISIBLE && (
-                            <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.strongPositive.length - INSIGHT_LIST_VISIBLE} mais</p>
-                          )}
-                        </div>
+                {/* Linha 2: as 3 listas de pares lado a lado (era empilhado). As 3
+                    colunas SEMPRE aparecem (com estado vazio explícito quando a
+                    categoria não tem par nenhum) — antes, uma categoria vazia
+                    (ex: "Relevantes", em amarelo) sumia o <div> inteiro, quebrando
+                    o grid de 3 colunas pra 2 e dando a impressão de coluna sumida. */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-[9px] text-emerald-400 uppercase font-bold mb-1 flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" /> Positivas Fortes ({aiInsight.strongPositive?.length || 0})
+                    </p>
+                    {aiInsight.strongPositive?.length > 0 ? (
+                      <div className="space-y-1">
+                        {aiInsight.strongPositive.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
+                          <div key={idx} className="text-[11px] bg-emerald-950/20 border border-emerald-900/50 px-2 py-1 rounded flex justify-between">
+                            <span className="text-slate-300">{item.pair}</span>
+                            <span className="text-emerald-400 font-bold">{item.value.toFixed(2)}</span>
+                          </div>
+                        ))}
+                        {aiInsight.strongPositive.length > INSIGHT_LIST_VISIBLE && (
+                          <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.strongPositive.length - INSIGHT_LIST_VISIBLE} mais</p>
+                        )}
                       </div>
-                    )}
-
-                    {aiInsight.relevant?.length > 0 && (
-                      <div>
-                        <p className="text-[9px] text-amber-400 uppercase font-bold mb-1 flex items-center gap-1">
-                          <Sparkles className="h-3 w-3" /> Relevantes ({aiInsight.relevant.length})
-                        </p>
-                        <div className="space-y-1">
-                          {aiInsight.relevant.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
-                            <div key={idx} className="text-[11px] bg-amber-950/20 border border-amber-900/50 px-2 py-1 rounded flex justify-between">
-                              <span className="text-slate-300">{item.pair}</span>
-                              <span className="text-amber-400 font-bold">{item.value.toFixed(2)}</span>
-                            </div>
-                          ))}
-                          {aiInsight.relevant.length > INSIGHT_LIST_VISIBLE && (
-                            <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.relevant.length - INSIGHT_LIST_VISIBLE} mais</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {aiInsight.strongNegative?.length > 0 && (
-                      <div>
-                        <p className="text-[9px] text-rose-400 uppercase font-bold mb-1 flex items-center gap-1">
-                          <TrendingDown className="h-3 w-3" /> Negativas Fortes ({aiInsight.strongNegative.length})
-                        </p>
-                        <div className="space-y-1">
-                          {aiInsight.strongNegative.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
-                            <div key={idx} className="text-[11px] bg-rose-950/20 border border-rose-900/50 px-2 py-1 rounded flex justify-between">
-                              <span className="text-slate-300">{item.pair}</span>
-                              <span className="text-rose-400 font-bold">{item.value.toFixed(2)}</span>
-                            </div>
-                          ))}
-                          {aiInsight.strongNegative.length > INSIGHT_LIST_VISIBLE && (
-                            <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.strongNegative.length - INSIGHT_LIST_VISIBLE} mais</p>
-                          )}
-                        </div>
-                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-600 italic px-2 py-1">Nenhum par &gt;0.70 nesta seleção.</p>
                     )}
                   </div>
-                )}
+
+                  <div>
+                    <p className="text-[9px] text-amber-400 uppercase font-bold mb-1 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3" /> Relevantes ({aiInsight.relevant?.length || 0})
+                    </p>
+                    {aiInsight.relevant?.length > 0 ? (
+                      <div className="space-y-1">
+                        {aiInsight.relevant.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
+                          <div key={idx} className="text-[11px] bg-amber-950/20 border border-amber-900/50 px-2 py-1 rounded flex justify-between">
+                            <span className="text-slate-300">{item.pair}</span>
+                            <span className="text-amber-400 font-bold">{item.value.toFixed(2)}</span>
+                          </div>
+                        ))}
+                        {aiInsight.relevant.length > INSIGHT_LIST_VISIBLE && (
+                          <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.relevant.length - INSIGHT_LIST_VISIBLE} mais</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-600 italic px-2 py-1">Nenhum par entre 0.40–0.70 nesta seleção.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-[9px] text-rose-400 uppercase font-bold mb-1 flex items-center gap-1">
+                      <TrendingDown className="h-3 w-3" /> Negativas Fortes ({aiInsight.strongNegative?.length || 0})
+                    </p>
+                    {aiInsight.strongNegative?.length > 0 ? (
+                      <div className="space-y-1">
+                        {aiInsight.strongNegative.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
+                          <div key={idx} className="text-[11px] bg-rose-950/20 border border-rose-900/50 px-2 py-1 rounded flex justify-between">
+                            <span className="text-slate-300">{item.pair}</span>
+                            <span className="text-rose-400 font-bold">{item.value.toFixed(2)}</span>
+                          </div>
+                        ))}
+                        {aiInsight.strongNegative.length > INSIGHT_LIST_VISIBLE && (
+                          <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.strongNegative.length - INSIGHT_LIST_VISIBLE} mais</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-600 italic px-2 py-1">Nenhum par &lt;-0.70 nesta seleção.</p>
+                    )}
+                  </div>
+                </div>
 
                 <div className="pt-2 border-t border-slate-800/50">
                   <p className="text-[9px] text-slate-500 italic leading-snug">
