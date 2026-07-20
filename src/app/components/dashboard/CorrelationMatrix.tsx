@@ -159,32 +159,43 @@ export function CorrelationMatrix() {
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - LOOKBACK_DAYS * 86_400_000);
 
-    // Busca sequencial com pequeno intervalo entre símbolos: evita sobrecarregar
-    // a conta MetaAPI compartilhada de plataforma (fonte real de forex/índices/
-    // commodities/ações) com rajadas concorrentes — mesmo cuidado documentado
-    // em outras partes do app para essa mesma conta.
+    // ✅ 2026-07-20: busca era SEQUENCIAL (1 símbolo por vez, timeout 15s cada) —
+    // com os DEFAULT_ASSETS (16 símbolos) o pior caso batia ~16×15s = 4min,
+    // exatamente o "demora demais / não carrega" reportado. Trocado para um
+    // pool de concorrência limitada (4 em voo por vez) — rápido o bastante pra
+    // não travar a UI, mas ainda gentil com a conta MetaAPI compartilhada de
+    // plataforma (mesmo cuidado documentado em outras partes do app).
+    const CONCURRENCY = 4;
+    const FETCH_TIMEOUT_MS = 12000;
     const returnsBySymbol = new Map<string, Map<string, number>>();
     const failed: string[] = [];
 
-    try {
-      for (const symbol of selectedAssets) {
-        try {
-          const { candles } = await withTimeout(
-            backtestDataService.fetchHistoricalData(symbol, startDate, endDate, '1d'),
-            15000,
-            symbol
-          );
-          returnsBySymbol.set(symbol, computeDailyReturns(candles));
-        } catch (error) {
-          const reason = error instanceof BacktestDataUnavailableError ? error.message : String(error);
-          console.warn(`[CorrelationMatrix] ⚠️ Sem dado real para ${symbol}: ${reason}`);
-          failed.push(symbol);
-        }
-        // Se uma corrida mais nova já começou (troca de seleção/refresh manual),
-        // aborta esta e deixa a nova assumir — evita duas buscas concorrentes.
-        if (myRequestId !== requestIdRef.current) return;
-        await new Promise(resolve => setTimeout(resolve, 180));
+    async function fetchOne(symbol: string) {
+      try {
+        const { candles } = await withTimeout(
+          backtestDataService.fetchHistoricalData(symbol, startDate, endDate, '1d'),
+          FETCH_TIMEOUT_MS,
+          symbol
+        );
+        returnsBySymbol.set(symbol, computeDailyReturns(candles));
+      } catch (error) {
+        const reason = error instanceof BacktestDataUnavailableError ? error.message : String(error);
+        console.warn(`[CorrelationMatrix] ⚠️ Sem dado real para ${symbol}: ${reason}`);
+        failed.push(symbol);
       }
+    }
+
+    try {
+      const queue = [...selectedAssets];
+      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        while (queue.length > 0) {
+          if (myRequestId !== requestIdRef.current) return; // corrida mais nova assumiu
+          const symbol = queue.shift();
+          if (!symbol) return;
+          await fetchOne(symbol);
+        }
+      });
+      await Promise.all(workers);
 
       if (myRequestId !== requestIdRef.current) return;
 
@@ -536,9 +547,13 @@ export function CorrelationMatrix() {
           </motion.div>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+        {/* ✅ 2026-07-20: items-stretch (era items-start) + h-full/flex nos dois
+            painéis — matriz e Análise IA agora sempre têm a mesma altura
+            (altura = a do painel mais alto), com scroll interno independente
+            em vez de crescer soltos e ficar desalinhados. */}
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-stretch">
           {/* MATRIX HEATMAP */}
-          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-4">
+          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-4 flex flex-col h-full max-h-[640px] overflow-y-auto custom-scrollbar">
             {analyzing && displayedAssets.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
                 <RefreshCw className="h-8 w-8 animate-spin mb-3" />
@@ -600,7 +615,7 @@ export function CorrelationMatrix() {
           </div>
 
           {/* AI ANALYSIS */}
-          <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-3 space-y-2.5">
+          <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-3 space-y-2.5 flex flex-col h-full max-h-[640px] overflow-y-auto custom-scrollbar">
             <div className="flex items-center gap-2">
               <Brain className="h-4 w-4 text-purple-400" />
               <h3 className="text-sm font-bold text-white">Análise IA</h3>
