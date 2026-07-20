@@ -1559,6 +1559,39 @@ app.get("/debug-raw-events", async (c) => {
     }
 });
 
+// 🔧 DEBUG TEMPORÁRIO: diagnosticar por que translateText() (usada por
+// /news/aggregate e /economic-calendar) está devolvendo texto igual ao
+// original em produção, mesmo com o endpoint público do Google Translate
+// respondendo normalmente quando testado fora do Supabase. Console.log não
+// é acessível pelas ferramentas de log disponíveis (só log de acesso HTTP),
+// então expõe o diagnóstico direto na resposta JSON. Remover depois de
+// confirmar a causa raiz.
+app.get("/debug-translate", async (c) => {
+    const text = c.req.query('text') || "Here's what happened in crypto today";
+    const targetLang = c.req.query('lang') || 'pt';
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+    try {
+        const start = Date.now();
+        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const elapsedMs = Date.now() - start;
+        const bodyText = await response.text();
+        let parsed: any = null;
+        let parseError: string | null = null;
+        try { parsed = JSON.parse(bodyText); } catch (e: any) { parseError = e.message; }
+        return c.json({
+            requestedUrl: url,
+            httpStatus: response.status,
+            httpOk: response.ok,
+            elapsedMs,
+            bodyPreview: bodyText.slice(0, 500),
+            parseError,
+            extractedTranslation: Array.isArray(parsed?.[0]) ? parsed[0].map((s: any) => s?.[0] ?? '').join('') : null,
+        });
+    } catch (e: any) {
+        return c.json({ requestedUrl: url, fetchError: e.message, fetchErrorName: e.name });
+    }
+});
+
 // 🔧 DEBUG: Testar APIs da agenda econômica
 app.get("/debug-economic-calendar", async (c) => {
     const logs: string[] = [];
@@ -4685,29 +4718,59 @@ const NEWS_FEEDS: { url: string; category: 'crypto' | 'macro' | 'forex'; source:
 // repete entre um ciclo e o próximo).
 const translationCache = new Map<string, string>();
 
+// ✅ 2026-07-20: confirmado via /debug-translate que translate.googleapis.com
+// devolve HTTP 429 (página HTML de erro, não JSON) pro IP compartilhado do
+// Supabase — mesmo padrão de bloqueio de endpoint não-oficial já visto neste
+// projeto pra outras fontes (Yahoo, MQL5). Google tentado primeiro (rápido
+// quando funciona, pode voltar a funcionar sem aviso), com fallback real pra
+// MyMemory (api.mymemory.translated.net — API pública feita pra uso
+// programático, testada e confirmada funcionando a partir do mesmo tipo de
+// IP compartilhado) em vez de só devolver o texto original em inglês.
+async function translateViaGoogle(text: string, targetLang: string): Promise<string | null> {
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    // Formato: [[["traduzido","original",null,null,3,...]], ...] — junta todos
+    // os segmentos (títulos longos às vezes vêm partidos em mais de um).
+    const segments = data?.[0];
+    if (!Array.isArray(segments)) return null;
+    const translated = segments.map((seg: any) => seg?.[0] ?? '').join('');
+    return translated.trim() || null;
+  } catch (e) {
+    console.warn('[TRANSLATE] ⚠️ Google Translate falhou:', (e as any)?.message);
+    return null;
+  }
+}
+
+async function translateViaMyMemory(text: string, targetLang: string): Promise<string | null> {
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|${encodeURIComponent(targetLang)}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data?.responseStatus && data.responseStatus !== 200) return null;
+    const translated = data?.responseData?.translatedText;
+    if (!translated || typeof translated !== 'string') return null;
+    return translated.trim() || null;
+  } catch (e) {
+    console.warn('[TRANSLATE] ⚠️ MyMemory falhou:', (e as any)?.message);
+    return null;
+  }
+}
+
 async function translateText(text: string, targetLang: string): Promise<string> {
   if (!text || targetLang === 'en') return text;
   const cacheKey = `${targetLang}:${text}`;
   const cached = translationCache.get(cacheKey);
   if (cached) return cached;
 
-  try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    if (!response.ok) return text;
-    const data = await response.json();
-    // Formato: [[["traduzido","original",null,null,3,...]], ...] — junta todos
-    // os segmentos (títulos longos às vezes vêm partidos em mais de um).
-    const segments = data?.[0];
-    if (!Array.isArray(segments)) return text;
-    const translated = segments.map((seg: any) => seg?.[0] ?? '').join('');
-    const result = translated.trim() || text;
-    translationCache.set(cacheKey, result);
-    return result;
-  } catch (e) {
-    console.warn('[NEWS TRANSLATE] ⚠️ Falhou, mantendo original:', (e as any)?.message);
-    return text;
-  }
+  const result = (await translateViaGoogle(text, targetLang)) || (await translateViaMyMemory(text, targetLang));
+  if (!result) return text;
+
+  translationCache.set(cacheKey, result);
+  return result;
 }
 
 app.get('/news/aggregate', async (c) => {
