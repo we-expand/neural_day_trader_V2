@@ -2,14 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Shield, Activity, Newspaper, Waves, Gauge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useTradingContext } from '../../contexts/TradingContext';
-import { MarketScoreEngine, type MarketScoreResult, type Timeframe } from '@/app/services/MarketScoreEngine';
+import type { MarketScoreResult } from '@/app/services/MarketScoreEngine';
 import { getLastKnownRealPrice } from '@/app/services/RealMarketDataService';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-
-// Timeframe de referência do termômetro — mesmo default do Dashboard (15m),
-// bom equilíbrio entre reagir rápido e não virar ruído a cada tick.
-const RISK_TIMEFRAME: Timeframe = '15m';
 
 interface EconomicEvent {
   event_time: string; // ISO
@@ -91,28 +87,17 @@ function computeNewsRisk(events: EconomicEvent[], currencies: string[]): NewsRis
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 export function RiskThermometer() {
-  const { dashboardActiveSymbol } = useTradingContext();
+  // scoreResult vem PRONTO do MarketScoreBoard (mesmo motor, mesmo cálculo já
+  // exibido no Dashboard) — nunca recalculado aqui. Uma 2ª chamada ao
+  // MarketScoreEngine pro mesmo ativo dobraria a carga na conta MetaAPI
+  // compartilhada (rate-limit documentado no projeto) e podia falhar mesmo com
+  // o Dashboard funcionando normalmente — era a causa real do "sem dados".
+  const { dashboardActiveSymbol, dashboardScoreResult } = useTradingContext();
   const symbol = dashboardActiveSymbol || 'BTCUSD';
+  const scoreResult = dashboardScoreResult as MarketScoreResult | null;
 
-  const [scoreResult, setScoreResult] = useState<MarketScoreResult | null>(null);
   const [newsRisk, setNewsRisk] = useState<NewsRisk>({ tier: 'none' });
   const [newsError, setNewsError] = useState(false);
-
-  // Score real do ativo selecionado — mesmo motor/cache que o Dashboard usa.
-  useEffect(() => {
-    let cancelled = false;
-    const compute = async () => {
-      try {
-        const result = await MarketScoreEngine.compute(symbol, RISK_TIMEFRAME);
-        if (!cancelled) setScoreResult(result);
-      } catch (e: any) {
-        if (!cancelled) setScoreResult(MarketScoreEngine.unavailable(symbol, RISK_TIMEFRAME, RISK_TIMEFRAME, e?.message));
-      }
-    };
-    compute();
-    const interval = setInterval(compute, 15000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [symbol]);
 
   // Calendário econômico real (cacheado 5min) — filtrado pela(s) moeda(s) do ativo.
   useEffect(() => {
@@ -140,12 +125,13 @@ export function RiskThermometer() {
   }, [symbol]);
 
   const hasRealScore = !!scoreResult && (scoreResult.provenance === 'real' || scoreResult.provenance === 'stale') && scoreResult.symbol === symbol;
+  const isLoading = !scoreResult || scoreResult.symbol !== symbol;
 
   const price = getLastKnownRealPrice(symbol)?.price ?? 0;
   const atr = hasRealScore ? scoreResult!.indicators.atr : null;
   const atrPercent = atr != null && price > 0 ? (atr / price) * 100 : null;
 
-  const regime = hasRealScore ? scoreResult!.regime : 'INDEFINIDO';
+  const regime = scoreResult?.symbol === symbol ? scoreResult!.regime : 'INDEFINIDO';
   const confidence = hasRealScore ? scoreResult!.confidence : null;
 
   // Cada fator vira um score 0-100 independente; o risco geral é o PIOR deles
@@ -156,7 +142,6 @@ export function RiskThermometer() {
   const confidenceScore = confidence != null ? clamp((100 - confidence) * 0.5, 0, 100) : 0;
   const newsScore = newsRisk.tier === 'high' ? 85 : newsRisk.tier === 'medium' ? 45 : 0;
 
-  const isLoading = !hasRealScore && scoreResult?.provenance !== 'unavailable';
   const riskScore = isLoading ? 0 : Math.max(volatilityScore, regimeScore, confidenceScore, newsScore);
 
   let riskLevel = isLoading ? 'Calculando…' : 'Seguro';
@@ -178,92 +163,94 @@ export function RiskThermometer() {
   }, [symbol, newsRisk, newsError]);
 
   return (
-    <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 h-full flex flex-col">
-      <div className="flex justify-between items-start mb-4">
+    <div className="bg-neutral-950 border border-white/5 rounded-xl p-4 h-full flex flex-col overflow-y-auto custom-scrollbar">
+      <div className="flex justify-between items-start mb-3">
         <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
             <Shield className="w-4 h-4" />
             Risco de Mercado — {symbol}
         </h2>
         <div className="text-right">
-            <p className="text-[10px] text-slate-500 uppercase">Volatilidade (ATR)</p>
-            <p className={`text-lg font-mono font-bold ${riskColor}`}>
+            <p className="text-[10px] text-slate-500 uppercase">ATR</p>
+            <p className={`text-base font-mono font-bold ${riskColor}`}>
                 {atrPercent != null ? `${atrPercent.toFixed(2)}%` : '—'}
             </p>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col justify-center space-y-6">
+      <div className="flex-1 flex flex-col justify-center space-y-3">
         <div className="text-center">
             <motion.div
                 key={riskLevel}
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className={`text-5xl font-bold tracking-tight mb-2 ${riskColor}`}
+                className={`text-3xl font-bold tracking-tight mb-1 ${riskColor}`}
             >
                 {riskLevel}
             </motion.div>
-            <p className="text-xs text-slate-500 tracking-wide">
-              Risco de operar {symbol} agora (volatilidade, lateralização, confiança do motor e notícias)
+            <p className="text-[11px] text-slate-500 tracking-wide leading-tight">
+              Risco de operar {symbol} agora
             </p>
         </div>
 
         {/* Gauge Visual */}
-        <div className="relative pt-2">
-           <div className="flex justify-between text-[10px] text-slate-600 uppercase tracking-widest font-bold mb-2 px-1">
+        <div className="relative pt-1">
+           <div className="flex justify-between text-[9px] text-slate-600 uppercase tracking-widest font-bold mb-1 px-1">
               <span>Seguro</span>
               <span>Crítico</span>
            </div>
 
-           <div className="relative h-4 bg-white/5 rounded-full overflow-hidden border border-white/5">
+           <div className="relative h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
               <div className="absolute inset-0 opacity-80 bg-gradient-to-r from-emerald-500 via-yellow-500 to-red-600" />
            </div>
 
            <motion.div
-              className="absolute top-6 w-0.5 h-6 bg-white shadow-[0_0_10px_rgba(255,255,255,1)] z-10"
+              className="absolute w-0.5 h-5 bg-white shadow-[0_0_10px_rgba(255,255,255,1)] z-10"
               initial={{ left: '0%' }}
               animate={{ left: `${riskScore}%` }}
               transition={{ type: "spring", stiffness: 50, damping: 10 }}
-              style={{ transform: 'translateX(-50%)', top: '24px' }}
+              style={{ transform: 'translateX(-50%)', top: '17px' }}
            >
-              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_5px_rgba(255,255,255,0.8)]" />
+              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_5px_rgba(255,255,255,0.8)]" />
            </motion.div>
         </div>
 
-        {/* Breakdown real dos 4 fatores */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-white/5 rounded-lg p-2 flex items-center gap-2">
-            <Waves className={`w-4 h-4 shrink-0 ${volatilityScore > 60 ? 'text-orange-400' : 'text-slate-400'}`} />
-            <div>
+        {/* Breakdown real dos 4 fatores. "Lateralização": mede se o preço está
+            andando de lado (sem direção clara) em vez de em tendência — nesse
+            caso, estratégias de rompimento erram mais (falso sinal). */}
+        <div className="grid grid-cols-2 gap-1.5">
+          <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
+            <Waves className={`w-3.5 h-3.5 shrink-0 ${volatilityScore > 60 ? 'text-orange-400' : 'text-slate-400'}`} />
+            <div className="min-w-0">
               <p className="text-[9px] text-slate-500 uppercase tracking-wide">Volatilidade</p>
-              <p className="text-xs font-mono font-bold text-slate-200">
-                {atrPercent != null ? `ATR ${atrPercent.toFixed(2)}%` : '—'}
+              <p className="text-[11px] font-mono font-bold text-slate-200">
+                {atrPercent != null ? `${atrPercent.toFixed(2)}%` : '—'}
               </p>
             </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-2 flex items-center gap-2">
-            <Gauge className={`w-4 h-4 shrink-0 ${regime === 'LATERAL' ? 'text-orange-400' : 'text-slate-400'}`} />
-            <div>
-              <p className="text-[9px] text-slate-500 uppercase tracking-wide">Regime</p>
-              <p className="text-xs font-mono font-bold text-slate-200">
-                {regime === 'TENDENCIA' ? 'Tendência' : regime === 'LATERAL' ? 'Lateralizado' : '—'}
+          <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
+            <Gauge className={`w-3.5 h-3.5 shrink-0 ${regime === 'LATERAL' ? 'text-orange-400' : 'text-slate-400'}`} />
+            <div className="min-w-0">
+              <p className="text-[9px] text-slate-500 uppercase tracking-wide">Lateralização</p>
+              <p className="text-[11px] font-mono font-bold text-slate-200">
+                {regime === 'TENDENCIA' ? 'Em tendência' : regime === 'LATERAL' ? 'Lateralizado' : '—'}
               </p>
             </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-2 flex items-center gap-2">
-            <Activity className={`w-4 h-4 shrink-0 ${confidenceScore > 60 ? 'text-orange-400' : 'text-slate-400'}`} />
-            <div>
+          <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
+            <Activity className={`w-3.5 h-3.5 shrink-0 ${confidenceScore > 60 ? 'text-orange-400' : 'text-slate-400'}`} />
+            <div className="min-w-0">
               <p className="text-[9px] text-slate-500 uppercase tracking-wide">Confiança do Motor</p>
-              <p className="text-xs font-mono font-bold text-slate-200">
+              <p className="text-[11px] font-mono font-bold text-slate-200">
                 {confidence != null ? `${confidence}%` : '—'}
               </p>
             </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-2 flex items-center gap-2">
-            <Newspaper className={`w-4 h-4 shrink-0 ${newsRisk.tier === 'high' ? 'text-red-400' : newsRisk.tier === 'medium' ? 'text-orange-400' : 'text-slate-400'}`} />
-            <div>
+          <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
+            <Newspaper className={`w-3.5 h-3.5 shrink-0 ${newsRisk.tier === 'high' ? 'text-red-400' : newsRisk.tier === 'medium' ? 'text-orange-400' : 'text-slate-400'}`} />
+            <div className="min-w-0">
               <p className="text-[9px] text-slate-500 uppercase tracking-wide">Notícias</p>
-              <p className="text-[10px] font-mono font-bold text-slate-200 leading-tight" title={newsLabel}>
-                {newsLabel.length > 26 ? `${newsLabel.slice(0, 26)}…` : newsLabel}
+              <p className="text-[10px] font-mono font-bold text-slate-200 leading-tight truncate" title={newsLabel}>
+                {newsLabel}
               </p>
             </div>
           </div>
@@ -271,11 +258,11 @@ export function RiskThermometer() {
 
         {/* Info Box */}
         {!isLoading && riskScore > 50 && (
-            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4 flex items-start gap-3 mt-2">
-            <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0" />
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-2.5 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
             <div>
-                <h4 className="text-xs font-bold text-orange-400 uppercase mb-1">Atenção ao Operar {symbol}</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
+                <h4 className="text-[10px] font-bold text-orange-400 uppercase mb-0.5">Atenção ao Operar {symbol}</h4>
+                <p className="text-[11px] text-slate-400 leading-snug">
                     {newsRisk.tier !== 'none'
                       ? `Evento de alto impacto (${newsLabel}) pode gerar movimento brusco fora do padrão técnico.`
                       : regime === 'LATERAL'
@@ -289,12 +276,12 @@ export function RiskThermometer() {
         )}
 
         {!isLoading && riskScore <= 50 && (
-             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4 flex items-start gap-3 mt-2">
-                <Activity className="w-5 h-5 text-emerald-400 shrink-0" />
+             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2.5 flex items-start gap-2">
+                <Activity className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                    <h4 className="text-xs font-bold text-emerald-400 uppercase mb-1">Condições Favoráveis</h4>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                        Volatilidade, regime, confiança do motor e agenda econômica sem sinal de risco elevado para {symbol} agora.
+                    <h4 className="text-[10px] font-bold text-emerald-400 uppercase mb-0.5">Condições Favoráveis</h4>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                        Volatilidade, lateralização, confiança do motor e agenda econômica sem sinal de risco elevado para {symbol} agora.
                     </p>
                 </div>
              </div>

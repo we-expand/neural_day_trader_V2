@@ -171,7 +171,7 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
 }
 
 export const MarketScoreBoard = () => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol } = useTradingContext();
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol, setDashboardScoreResult } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
@@ -618,7 +618,10 @@ export const MarketScoreBoard = () => {
         // e sempre resolve (nunca lança) — retorna provenance:'unavailable' em
         // vez de travar a Promise. O catch aqui é só rede de segurança extra.
         const result = await MarketScoreEngine.compute(activeSymbol, timeframe);
-        if (!cancelled) setScoreResult(result);
+        if (!cancelled) {
+          setScoreResult(result);
+          setDashboardScoreResult(result); // publica pro RiskThermometer (e outros widgets irmãos) — nunca recalcular por conta própria, dobraria carga na conta MetaAPI compartilhada
+        }
       } catch (e: any) {
         console.warn('[MarketScoreBoard] Falha ao calcular Score real:', e?.message);
         // ✅ 2026-07-17: antes só logava e deixava `scoreResult` como estava —
@@ -626,7 +629,9 @@ export const MarketScoreBoard = () => {
         // travava em "Calculando..." mudo, sem nunca avisar o usuário. Agora
         // sempre emite um estado explícito 'unavailable' (nunca inventa dado).
         if (!cancelled) {
-          setScoreResult(MarketScoreEngine.unavailable(activeSymbol, timeframe, timeframe, e?.message));
+          const fallback = MarketScoreEngine.unavailable(activeSymbol, timeframe, timeframe, e?.message);
+          setScoreResult(fallback);
+          setDashboardScoreResult(fallback);
         }
       }
     };

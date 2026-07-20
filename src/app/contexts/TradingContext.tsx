@@ -62,6 +62,13 @@ interface TradingContextType {
   // devem ler ESTE campo, não `selectedAsset`, pra acompanhar a troca de ativo.
   dashboardActiveSymbol: string;
   setDashboardActiveSymbol: (asset: string) => void;
+  // Score real já calculado pelo Dashboard pro ativo acima — widgets irmãos
+  // (ex: RiskThermometer) devem LER isto, nunca recalcular por conta própria:
+  // uma segunda chamada ao MarketScoreEngine pro mesmo símbolo/timeframe dobra
+  // a carga na conta MetaAPI compartilhada (rate-limit documentado no projeto)
+  // e pode falhar mesmo com o Dashboard principal funcionando normalmente.
+  dashboardScoreResult: any | null;
+  setDashboardScoreResult: (result: any | null) => void;
   syncWallet: () => Promise<boolean>;
   panicClose: () => Promise<void>;
   applyCommission: (percentage: number) => void;
@@ -83,6 +90,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // Espelha o estado local de ativo do MarketScoreBoard (Dashboard) — session-only,
   // sem localStorage (não precisa sobreviver a reload, só sincronizar irmãos vivos).
   const [dashboardActiveSymbol, setDashboardActiveSymbol] = useState<string>('BTCUSD');
+  const [dashboardScoreResult, setDashboardScoreResult] = useState<any | null>(null);
   
   // 🔥 PERSISTÊNCIA GLOBAL: Ativo selecionado sincronizado entre todas as páginas
   const [selectedAsset, setSelectedAsset] = useState<string>(() => {
@@ -210,6 +218,8 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     setSelectedAsset: setSelectedAssetPersistent,
     dashboardActiveSymbol,
     setDashboardActiveSymbol,
+    dashboardScoreResult,
+    setDashboardScoreResult,
     syncWallet,
     panicClose,
     applyCommission,
@@ -258,6 +268,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     selectedAsset,
     setSelectedAssetPersistent,
     dashboardActiveSymbol,
+    dashboardScoreResult,
     syncWallet,
     panicClose,
     applyCommission,
