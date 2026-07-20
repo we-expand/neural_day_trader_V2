@@ -28,11 +28,12 @@ const DEFAULT_ASSETS = [
   'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD',
   'EURUSD', 'GBPUSD', 'USDJPY',
   'XAUUSD', 'XAGUSD', 'USOUSD',
-  'SPX500', 'US30', 'GER40',
-  'AAPL',
+  'SPX500', 'US30', 'NAS100', 'GER40',
+  'AAPL', 'MSFT',
 ];
 const MAX_ASSETS = 24;
 const MIN_ASSETS = 2;
+const INSIGHT_LIST_VISIBLE = 4; // linhas mostradas por lista antes do "+N mais" — evita clipping/overlap visual
 const LOOKBACK_DAYS = 120; // ~4 meses de candles diários — janela padrão de mercado para correlação
 const MIN_OVERLAP_POINTS = 15; // mínimo de retornos diários em comum para considerar a correlação confiável
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5min — correlação sobre 120 dias não muda em escala de segundos
@@ -545,47 +546,45 @@ export function CorrelationMatrix() {
               </div>
             ) : (
               <div className="overflow-x-auto custom-scrollbar pb-1">
-                <div className="inline-block min-w-full">
-                  {/* Header */}
-                  <div className="flex mb-1.5">
-                    <div className="w-20 shrink-0"></div>
-                    {displayedAssets.map(asset => (
-                      <div key={asset} className="w-16 shrink-0 text-center text-[11px] font-bold text-purple-400 truncate px-0.5">
-                        {asset.length > 7 ? asset.substring(0, 7) : asset}
-                      </div>
-                    ))}
-                  </div>
+                <div
+                  className="grid gap-1"
+                  style={{ gridTemplateColumns: `76px repeat(${displayedAssets.length}, minmax(52px, 1fr))` }}
+                >
+                  {/* Canto vazio */}
+                  <div />
+                  {/* Header (linha de rótulos das colunas) */}
+                  {displayedAssets.map(asset => (
+                    <div key={`col-${asset}`} className="text-center text-[11px] font-bold text-purple-400 truncate px-0.5 flex items-end justify-center pb-1">
+                      {asset.length > 7 ? asset.substring(0, 7) : asset}
+                    </div>
+                  ))}
 
-                  {/* Rows */}
-                  <div className="space-y-1">
-                    {displayedAssets.map(rowAsset => (
-                      <div key={rowAsset} className="flex items-center">
-                        <div className="w-20 shrink-0 text-xs font-bold text-purple-400 truncate pr-2">
-                          {rowAsset}
-                        </div>
-                        <div className="flex gap-1">
-                          {displayedAssets.map(colAsset => {
-                            const cell = matrixData[rowAsset]?.[colAsset];
-                            const label = cell?.value === null || cell === undefined ? '—' : cell.value.toFixed(2);
-                            const title = cell?.value === null || cell === undefined
-                              ? `${rowAsset} vs ${colAsset}: dados insuficientes (${cell?.n ?? 0} dias em comum)`
-                              : `${rowAsset} vs ${colAsset}: ${cell.value.toFixed(3)} (${cell.n} dias em comum)`;
-                            return (
-                              <motion.div
-                                key={`${rowAsset}-${colAsset}`}
-                                initial={false}
-                                animate={{ opacity: analyzing ? 0.5 : 1 }}
-                                className={`w-16 h-10 shrink-0 rounded-md flex items-center justify-center text-xs font-semibold cursor-help transition-all ${getColor(cell)}`}
-                                title={title}
-                              >
-                                {label}
-                              </motion.div>
-                            );
-                          })}
-                        </div>
+                  {/* Linhas: rótulo + células */}
+                  {displayedAssets.map(rowAsset => (
+                    <React.Fragment key={rowAsset}>
+                      <div className="text-xs font-bold text-purple-400 truncate pr-2 flex items-center">
+                        {rowAsset}
                       </div>
-                    ))}
-                  </div>
+                      {displayedAssets.map(colAsset => {
+                        const cell = matrixData[rowAsset]?.[colAsset];
+                        const label = cell?.value === null || cell === undefined ? '—' : cell.value.toFixed(2);
+                        const title = cell?.value === null || cell === undefined
+                          ? `${rowAsset} vs ${colAsset}: dados insuficientes (${cell?.n ?? 0} dias em comum)`
+                          : `${rowAsset} vs ${colAsset}: ${cell.value.toFixed(3)} (${cell.n} dias em comum)`;
+                        return (
+                          <motion.div
+                            key={`${rowAsset}-${colAsset}`}
+                            initial={false}
+                            animate={{ opacity: analyzing ? 0.5 : 1 }}
+                            className={`h-10 rounded-md flex items-center justify-center text-xs font-semibold cursor-help transition-all ${getColor(cell)}`}
+                            title={title}
+                          >
+                            {label}
+                          </motion.div>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
                 </div>
               </div>
             )}
@@ -683,19 +682,22 @@ export function CorrelationMatrix() {
                 )}
 
                 {(aiInsight.strongPositive?.length > 0 || aiInsight.relevant?.length > 0 || aiInsight.strongNegative?.length > 0) && (
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-1 gap-3">
                     {aiInsight.strongPositive?.length > 0 && (
                       <div>
                         <p className="text-[9px] text-emerald-400 uppercase font-bold mb-1 flex items-center gap-1">
                           <TrendingUp className="h-3 w-3" /> Positivas Fortes ({aiInsight.strongPositive.length})
                         </p>
-                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
-                          {aiInsight.strongPositive.map((item, idx) => (
+                        <div className="space-y-1">
+                          {aiInsight.strongPositive.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
                             <div key={idx} className="text-[11px] bg-emerald-950/20 border border-emerald-900/50 px-2 py-1 rounded flex justify-between">
                               <span className="text-slate-300">{item.pair}</span>
                               <span className="text-emerald-400 font-bold">{item.value.toFixed(2)}</span>
                             </div>
                           ))}
+                          {aiInsight.strongPositive.length > INSIGHT_LIST_VISIBLE && (
+                            <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.strongPositive.length - INSIGHT_LIST_VISIBLE} mais</p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -705,13 +707,16 @@ export function CorrelationMatrix() {
                         <p className="text-[9px] text-amber-400 uppercase font-bold mb-1 flex items-center gap-1">
                           <Sparkles className="h-3 w-3" /> Relevantes ({aiInsight.relevant.length})
                         </p>
-                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
-                          {aiInsight.relevant.map((item, idx) => (
+                        <div className="space-y-1">
+                          {aiInsight.relevant.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
                             <div key={idx} className="text-[11px] bg-amber-950/20 border border-amber-900/50 px-2 py-1 rounded flex justify-between">
                               <span className="text-slate-300">{item.pair}</span>
                               <span className="text-amber-400 font-bold">{item.value.toFixed(2)}</span>
                             </div>
                           ))}
+                          {aiInsight.relevant.length > INSIGHT_LIST_VISIBLE && (
+                            <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.relevant.length - INSIGHT_LIST_VISIBLE} mais</p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -721,13 +726,16 @@ export function CorrelationMatrix() {
                         <p className="text-[9px] text-rose-400 uppercase font-bold mb-1 flex items-center gap-1">
                           <TrendingDown className="h-3 w-3" /> Negativas Fortes ({aiInsight.strongNegative.length})
                         </p>
-                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
-                          {aiInsight.strongNegative.map((item, idx) => (
+                        <div className="space-y-1">
+                          {aiInsight.strongNegative.slice(0, INSIGHT_LIST_VISIBLE).map((item, idx) => (
                             <div key={idx} className="text-[11px] bg-rose-950/20 border border-rose-900/50 px-2 py-1 rounded flex justify-between">
                               <span className="text-slate-300">{item.pair}</span>
                               <span className="text-rose-400 font-bold">{item.value.toFixed(2)}</span>
                             </div>
                           ))}
+                          {aiInsight.strongNegative.length > INSIGHT_LIST_VISIBLE && (
+                            <p className="text-[9px] text-slate-500 pl-1">+{aiInsight.strongNegative.length - INSIGHT_LIST_VISIBLE} mais</p>
+                          )}
                         </div>
                       </div>
                     )}
