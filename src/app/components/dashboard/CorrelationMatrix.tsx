@@ -24,8 +24,14 @@ const PRESET_PORTFOLIOS: Record<string, string[]> = {
   'Índices Globais': ['SPX500', 'US30', 'NAS100', 'GER40', 'UK100', 'JP225'],
 };
 
-const DEFAULT_ASSETS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'EURUSD', 'GBPUSD', 'XAUUSD', 'SPX500', 'US30', 'USOUSD', 'AAPL'];
-const MAX_ASSETS = 20;
+const DEFAULT_ASSETS = [
+  'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'XAUUSD', 'XAGUSD', 'USOUSD',
+  'SPX500', 'US30', 'GER40',
+  'AAPL',
+];
+const MAX_ASSETS = 24;
 const MIN_ASSETS = 2;
 const LOOKBACK_DAYS = 120; // ~4 meses de candles diários — janela padrão de mercado para correlação
 const MIN_OVERLAP_POINTS = 15; // mínimo de retornos diários em comum para considerar a correlação confiável
@@ -529,35 +535,35 @@ export function CorrelationMatrix() {
           </motion.div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
           {/* MATRIX HEATMAP */}
-          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-3">
+          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-4">
             {analyzing && displayedAssets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-                <RefreshCw className="h-7 w-7 animate-spin mb-3" />
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <RefreshCw className="h-8 w-8 animate-spin mb-3" />
                 <span className="text-sm">Buscando candles reais e calculando correlações...</span>
               </div>
             ) : (
-              <div className="overflow-x-auto custom-scrollbar">
+              <div className="overflow-x-auto custom-scrollbar pb-1">
                 <div className="inline-block min-w-full">
                   {/* Header */}
-                  <div className="flex mb-1">
-                    <div className="w-14 shrink-0"></div>
+                  <div className="flex mb-1.5">
+                    <div className="w-20 shrink-0"></div>
                     {displayedAssets.map(asset => (
-                      <div key={asset} className="w-11 shrink-0 text-center text-[9px] font-bold text-purple-400 truncate px-0.5">
-                        {asset.length > 6 ? asset.substring(0, 6) : asset}
+                      <div key={asset} className="w-16 shrink-0 text-center text-[11px] font-bold text-purple-400 truncate px-0.5">
+                        {asset.length > 7 ? asset.substring(0, 7) : asset}
                       </div>
                     ))}
                   </div>
 
                   {/* Rows */}
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {displayedAssets.map(rowAsset => (
                       <div key={rowAsset} className="flex items-center">
-                        <div className="w-14 shrink-0 text-[11px] font-bold text-purple-400 truncate pr-1.5">
+                        <div className="w-20 shrink-0 text-xs font-bold text-purple-400 truncate pr-2">
                           {rowAsset}
                         </div>
-                        <div className="flex gap-0.5">
+                        <div className="flex gap-1">
                           {displayedAssets.map(colAsset => {
                             const cell = matrixData[rowAsset]?.[colAsset];
                             const label = cell?.value === null || cell === undefined ? '—' : cell.value.toFixed(2);
@@ -569,7 +575,7 @@ export function CorrelationMatrix() {
                                 key={`${rowAsset}-${colAsset}`}
                                 initial={false}
                                 animate={{ opacity: analyzing ? 0.5 : 1 }}
-                                className={`w-11 h-8 shrink-0 rounded flex items-center justify-center text-[10px] font-semibold cursor-help transition-all ${getColor(cell)}`}
+                                className={`w-16 h-10 shrink-0 rounded-md flex items-center justify-center text-xs font-semibold cursor-help transition-all ${getColor(cell)}`}
                                 title={title}
                               >
                                 {label}
@@ -585,12 +591,12 @@ export function CorrelationMatrix() {
             )}
 
             {/* Legenda de cores — usabilidade */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 pt-2 border-t border-slate-800/50 text-[10px] text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/30" /> Positiva forte</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/10" /> Positiva fraca</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500/30" /> Negativa forte</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500/10" /> Negativa fraca</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-800/30" /> Sem dado (—)</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-4 pt-3 border-t border-slate-800/50 text-xs text-slate-500">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-500/30" /> Positiva forte</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-500/10" /> Positiva fraca</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-rose-500/30" /> Negativa forte</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-rose-500/10" /> Negativa fraca</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-slate-800/30" /> Sem dado (—)</span>
             </div>
           </div>
 
