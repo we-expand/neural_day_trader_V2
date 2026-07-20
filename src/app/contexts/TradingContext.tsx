@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect } from 'react';
-import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats } from '../hooks/useApexLogic';
+import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
 import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { useMarketContext } from './MarketContext';
@@ -25,7 +25,8 @@ interface TradingContextType {
   safeModeReason: string | null;
   candlesSinceLastTrade: number;
   maxCandlesBeforeForceEntry: number;
-  
+  equityHistory: EquityPoint[];
+
   // Actions from useApexLogic
   startLogic: () => void;
   stopLogic: () => void;
@@ -185,7 +186,8 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     safeModeReason: logic.safeModeReason,
     candlesSinceLastTrade: logic.candlesSinceLastTrade,
     maxCandlesBeforeForceEntry: logic.maxCandlesBeforeForceEntry,
-    
+    equityHistory: logic.equityHistory,
+
     // Actions from useApexLogic
     startLogic: logic.startLogic,
     stopLogic: logic.stopLogic,
@@ -244,6 +246,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.safeModeReason,
     logic.candlesSinceLastTrade,
     logic.maxCandlesBeforeForceEntry,
+    logic.equityHistory,
     logic.startLogic,
     logic.stopLogic,
     logic.pauseLogic,

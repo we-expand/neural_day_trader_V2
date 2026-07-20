@@ -171,7 +171,7 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
 }
 
 export const MarketScoreBoard = () => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol, setDashboardScoreResult } = useTradingContext();
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
@@ -800,10 +800,18 @@ export const MarketScoreBoard = () => {
 
   const activePnL = activeOrders.reduce((acc, o) => acc + (o.currentProfit || 0), 0);
   const profitAi = (portfolio?.equity || 0) - (config.initialBalance || 100);
-  
-  const currentDrawdown = Math.abs(Math.min(activePnL, 0));
-  const balance = portfolio?.balance || 0;
-  const riskPercent = balance > 0 ? Math.min((currentDrawdown / balance) * 100, 5) : 0;
+
+  // ✅ 2026-07-20: "Risco da Conta" usava só o P&L flutuante das posições
+  // ABERTAS agora (activePnL) — zerava sempre que não havia posição aberta,
+  // ignorando o drawdown real acumulado da conta e o limite de fato
+  // configurado (aiConfig.maxDrawdown, o mesmo usado pelo Health Check
+  // Guardian em useApexLogic.ts). Passa a usar portfolio.currentDrawdown
+  // (pico real de drawdown desde o início da sessão, persistido) contra o
+  // limite real configurado, e reflete o Safe Mode quando ativo.
+  const maxDrawdownLimit = config.maxDrawdown && config.maxDrawdown > 0 ? config.maxDrawdown : 15;
+  const realDrawdownPercent = portfolio?.currentDrawdown || 0;
+  const riskPercent = Math.min(realDrawdownPercent, maxDrawdownLimit);
+  const riskRatio = maxDrawdownLimit > 0 ? riskPercent / maxDrawdownLimit : 0;
 
   return (
     <div className="h-full bg-black text-white p-4 font-sans overflow-hidden relative flex flex-col">
@@ -999,21 +1007,23 @@ export const MarketScoreBoard = () => {
                         RISCO DA CONTA
                     </div>
                     <div className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[9px] font-bold font-mono border border-blue-500/20">
-                        {(riskPercent || 0).toFixed(2)}% / 5.00%
+                        {(riskPercent || 0).toFixed(2)}% / {maxDrawdownLimit.toFixed(2)}%
                     </div>
                 </div>
-                
+
                 <div className="w-full h-2 bg-neutral-900 rounded-full overflow-hidden border border-white/5 mb-2 relative">
-                    <div 
-                        className={`h-full transition-all duration-500 ${riskPercent > 4 ? 'bg-rose-500 shadow-[0_0_10px_#f43f5e]' : 'bg-blue-600 shadow-[0_0_10px_#2563eb]'}`} 
-                        style={{ width: `${(riskPercent / 5) * 100}%` }}
+                    <div
+                        className={`h-full transition-all duration-500 ${riskRatio > 0.8 ? 'bg-rose-500 shadow-[0_0_10px_#f43f5e]' : 'bg-blue-600 shadow-[0_0_10px_#2563eb]'}`}
+                        style={{ width: `${Math.min(riskRatio, 1) * 100}%` }}
                     />
                 </div>
-                
+
                 <div className="text-2xl font-bold tracking-tight text-white font-mono">
-                    {riskPercent > 4 ? (
+                    {isSafeMode ? (
+                        <span className="text-rose-400" title={safeModeReason || undefined}>SAFE MODE</span>
+                    ) : riskRatio > 0.8 ? (
                         <span className="text-rose-400">RISCO ALTO</span>
-                    ) : riskPercent > 2.5 ? (
+                    ) : riskRatio > 0.5 ? (
                         <span className="text-amber-400">MODERADO</span>
                     ) : (
                         <span className="text-emerald-400">SEGURO</span>
@@ -1040,7 +1050,7 @@ export const MarketScoreBoard = () => {
                     <TrendingUp className="w-3 h-3 text-cyan-400" />
                 </div>
                 <div className="relative z-10 h-12">
-                    <MiniEquityChart />
+                    <MiniEquityChart data={equityHistory.map(p => p.equity)} />
                 </div>
             </Card>
         </div>

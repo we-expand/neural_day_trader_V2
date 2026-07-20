@@ -120,6 +120,15 @@ export interface PortfolioState {
   initialBalance?: number; // Added to track profit
 }
 
+// Ponto real de equity ao longo do tempo, pra alimentar a Curva de Equity —
+// nunca dado mockado. Amostrado a cada 10s a partir do portfolio real
+// (mesmo valor que os cards de patrimônio mostram), com semente inicial a
+// partir dos snapshots já persistidos no Supabase quando disponíveis.
+export interface EquityPoint {
+  t: number; // epoch ms
+  equity: number;
+}
+
 const STORAGE_KEY = 'apex_logic_state_v15_FIXED';
 
 export interface MetaApiCredentials {
@@ -234,6 +243,9 @@ export interface ApexLogicState {
   // Candle Counter Control
   candlesSinceLastTrade: number;  // Count of candles since last trade
   maxCandlesBeforeForceEntry: number; // Max candles to wait (user configurable)
+
+  // Curva de equity real (amostras reais do portfolio, não mock)
+  equityHistory: EquityPoint[];
 }
 
 const INITIAL_STATE: ApexLogicState = {
@@ -326,6 +338,7 @@ const INITIAL_STATE: ApexLogicState = {
   safeModeReason: null,
   candlesSinceLastTrade: 0,
   maxCandlesBeforeForceEntry: 5, // Default: force entry after 5 candles
+  equityHistory: [],
 };
 
 export function useApexLogic(initialMarketContext?: MarketContext, strategies: StrategyDef[] = PRESET_STRATEGIES) {
@@ -367,6 +380,10 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
   const [safeModeReason, setSafeModeReason] = useState<string | null>(INITIAL_STATE.safeModeReason);
   const [candlesSinceLastTrade, setCandlesSinceLastTrade] = useState(INITIAL_STATE.candlesSinceLastTrade);
   const [maxCandlesBeforeForceEntry, setMaxCandlesBeforeForceEntry] = useState(INITIAL_STATE.maxCandlesBeforeForceEntry);
+  const [equityHistory, setEquityHistory] = useState<EquityPoint[]>(INITIAL_STATE.equityHistory);
+  const lastEquitySampleAtRef = useRef<number>(0);
+  const EQUITY_SAMPLE_INTERVAL_MS = 10000; // amostra real a cada 10s
+  const MAX_EQUITY_POINTS = 180; // ~30min de janela
 
   // === VIX CACHE CONFIG ===
   // 🔥 CORREÇÃO CRÍTICA: useRef DEPOIS de useState (Rules of Hooks)
@@ -540,6 +557,7 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
         setSafeModeReason(parsed.safeModeReason || null);
         setCandlesSinceLastTrade(parsed.candlesSinceLastTrade || 0);
         setMaxCandlesBeforeForceEntry(parsed.maxCandlesBeforeForceEntry || 5);
+        setEquityHistory(Array.isArray(parsed.equityHistory) ? parsed.equityHistory : []);
         assetExposureRef.current = parsed.assetExposure || {};
         lastAssetClassRef.current = parsed.lastAssetClass || null;
         cycleIntervalRef.current = parsed.cycleInterval || 60000;
@@ -588,7 +606,25 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             equity: lastSnapshot.equity,
             currentDrawdown: lastSnapshot.drawdown || 0,
           }));
-        } else if (session.initial_balance) {
+        }
+
+        // Curva de equity real: reconstrói a partir dos snapshots já
+        // persistidos desta sessão (nunca mock) — dá continuidade depois de
+        // um reload, em vez de a curva "zerar" e mostrar 1 ponto só.
+        try {
+          const sessionSnapshots = await persistenceRef.current.getSessionSnapshots(session.id);
+          if (sessionSnapshots.length > 0) {
+            setEquityHistory(
+              sessionSnapshots
+                .map(s => ({ t: new Date(s.timestamp).getTime(), equity: s.equity }))
+                .slice(-MAX_EQUITY_POINTS)
+            );
+          }
+        } catch (e) {
+          console.warn('[useApexLogic] Falha ao restaurar curva de equity real:', e);
+        }
+
+        if (!lastSnapshot && session.initial_balance) {
           setPortfolio(prev => ({
             ...prev,
             balance: session.initial_balance!,
@@ -632,12 +668,13 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
       safeModeReason,
       candlesSinceLastTrade,
       maxCandlesBeforeForceEntry,
+      equityHistory,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [
     isActive, isPaused, activeOrders, portfolio, recentLogs, orderHistory,
     houseStats, performanceMetrics, healthStatus, aiConfig, mt5Credentials,
-    executionMode, isConnectedToMT5, mt5AccountId, isSafeMode, safeModeReason,
+    executionMode, isConnectedToMT5, mt5AccountId, isSafeMode, safeModeReason, equityHistory,
     candlesSinceLastTrade, maxCandlesBeforeForceEntry
   ]);
 
@@ -1567,6 +1604,26 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             });
           }
         }
+
+        // Curva de equity real (Dashboard, "Curva de Equity"): amostra o
+        // equity real do portfolio a cada 10s — nunca dado mockado/aleatório.
+        // Independente do executionMode (funciona em DEMO e LIVE).
+        {
+          const now = Date.now();
+          if (now - lastEquitySampleAtRef.current >= EQUITY_SAMPLE_INTERVAL_MS) {
+            lastEquitySampleAtRef.current = now;
+            const realEquity = portfolioRef.current.equity;
+            setEquityHistory(prev => {
+              const last = prev[prev.length - 1];
+              // Evita ponto duplicado se o equity não mudou nada
+              if (last && last.equity === realEquity && now - last.t < EQUITY_SAMPLE_INTERVAL_MS * 2) {
+                return prev;
+              }
+              const next = [...prev, { t: now, equity: realEquity }];
+              return next.length > MAX_EQUITY_POINTS ? next.slice(-MAX_EQUITY_POINTS) : next;
+            });
+          }
+        }
         })();
     }, 1000); // Update every 1 second
 
@@ -1955,7 +2012,8 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
     safeModeReason,
     candlesSinceLastTrade,
     maxCandlesBeforeForceEntry,
-    
+    equityHistory,
+
     // Actions
     startLogic,
     stopLogic,

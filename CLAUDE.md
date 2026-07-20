@@ -1,8 +1,94 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-19)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-20)
 
-## Sessão nova (2026-07-19, continuação 5): Widget do VIX dizia "mercado fechado" com o MT5 mostrando o VIX se movendo ao vivo — causa raiz achada e corrigida — PENDENTE COMMIT/PUSH
+## Sessão nova (2026-07-20): Matriz de Correlação (loading lento/travado + altura + badge) + Nexus Quantum Advisor — remoção equivocada revertida, só o título mudou — PENDENTE COMMIT/PUSH
 
-> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou: VIX no app mostra "mercado fechado", mas no MT5 o gráfico do VIX está se movendo ao vivo.
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** A partir desta sessão, Claude passa a se comunicar só em português brasileiro (pedido explícito do Cleber).
+
+### 1. Matriz de Correlação Inteligente (`CorrelationMatrix.tsx`) — 3 pedidos em sequência
+
+- **Loading travado/lento (~30s)**: a busca de candles era sequencial (1 ativo por vez, timeout de 15s cada) — com os 16 ativos padrão, o pior caso batia ~4min, e o Cleber mediu ~30s reais. Trocado pra pool de concorrência: primeiro 4 em voo (timeout 12s), depois subido pra **8 em voo** (timeout 10s) — 16 ativos em só 2 lotes em vez de 4/16, reduzindo o tempo pela metade.
+- **Altura**: o heatmap (coluna esquerda) e o painel "Análise IA" (coluna direita, dentro do mesmo componente) agora esticam pra mesma altura (`items-stretch` + `h-full max-h-[640px]`, scroll interno independente em cada um) — antes cada coluna crescia solta e ficavam desalinhadas.
+- **Badge removido**: "DADOS REAIS • 120D" tirado do cabeçalho, a pedido do Cleber.
+
+### 2. Nexus Quantum Advisor — pedido era só trocar o TÍTULO, não remover o box inteiro (erro corrigido)
+
+Cleber pediu "retire este box Nexus Quantum Advisor" — interpretei errado como "remova o box inteiro" e cheguei a: deletar `NexusQuantumAdvisor.tsx`/`MarketTendencyPanel.tsx`, tirar a COL 3 do `MarketScoreBoard.tsx` (expandindo Gauge/Insight Neural pra preencher o espaço), e mover o botão de Configurações da Luna pro `RiskThermometer.tsx` (o box logo abaixo). **Essa mudança chegou a ser commitada pelo Cleber (commit `24d71112a`)** antes dele esclarecer que só queria trocar o TEXTO do título, não apagar o box.
+
+**Correção**: restaurados os 4 arquivos (`MarketScoreBoard.tsx`, `RiskThermometer.tsx`, `NexusQuantumAdvisor.tsx`, `MarketTendencyPanel.tsx`) pro estado de antes do commit `24d71112a` (via `git show b1bc74db2:<arquivo>`, o commit pai). A única mudança que ficou: o `<h2>` do painel, que dizia literalmente **"Nexus Quantum Advisor"**, virou **"Análise por Fonte"** (nome que o resto do código/docstring já usava internamente pra descrever o painel).
+
+**Lição pra próximas sessões**: quando o pedido for ambíguo entre "remover elemento visual X" vs "remover o componente inteiro que contém X", confirmar antes de apagar arquivo — statement como "retire o escrito Y" é sobre TEXTO, não sobre o container.
+
+### Verificação feita
+
+`npx tsc --noEmit` limpo em todos os arquivos tocados (`CorrelationMatrix.tsx`, `MarketScoreBoard.tsx`, `RiskThermometer.tsx`, `NexusQuantumAdvisor.tsx`, `MarketTendencyPanel.tsx`). Não testado visualmente logado (Dashboard atrás de login, sem credenciais neste ambiente).
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão — o commit `24d71112a` da remoção equivocada já está em produção, esta sessão precisa de um commit NOVO revertendo/corrigindo por cima, não um amend):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/dashboard/CorrelationMatrix.tsx \
+  src/app/components/dashboard/MarketScoreBoard.tsx src/app/components/dashboard/RiskThermometer.tsx \
+  src/app/components/nexus/NexusQuantumAdvisor.tsx src/app/components/nexus/MarketTendencyPanel.tsx CLAUDE.md
+git commit -m "fix: Matriz de Correlacao Inteligente demorava ~30s (busca sequencial, 16 ativos) -- concorrencia de 8 em voo (era 4), corta o tempo pela metade. Iguala altura do heatmap e do painel Analise IA (items-stretch). Remove badge 'DADOS REAIS 120D' do cabecalho.
+revert: desfaz remocao do box Nexus Quantum Advisor (commit 24d71112a) -- pedido do Cleber era so trocar o titulo do box, nao remove-lo. Renomeia titulo 'Nexus Quantum Advisor' para 'Analise por Fonte'"
+git push origin main
+```
+2. Confirmar visualmente logado, depois do deploy: Matriz de Correlação carrega mais rápido e sem travar, heatmap e Análise IA com mesma altura, badge sumiu; box "Análise por Fonte" (ex-Nexus) de volta no lugar de sempre, ao lado do Gauge/Insight Neural, com o botão de Configurações da Luna de volta nele (não mais no Termômetro de Risco).
+
+---
+
+## Sessão nova (2026-07-19, continuação 6): Termômetro de Risco vira "Risco de Mercado" por ativo + remove código morto do VIX + remove badge "📊 DATA" — PENDENTE COMMIT/PUSH (exceto VIX, já commitado pelo Cleber)
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão do VIX logo abaixo (mesmo dia, mesma janela). 3 pedidos em sequência do Cleber.
+
+### 1. Código morto do VIX deletado (confirmado sem uso em lugar nenhum do app)
+
+Depois do fix do VIX (seção abaixo, já commitado pelo Cleber), deletados os 2 arquivos que ficaram órfãos: [`vixTradingHours.ts`](src/app/utils/vixTradingHours.ts) (o calendário fixo da CBOE, causa raiz do bug) e [`VIXWidget.tsx`](src/app/components/tools/VIXWidget.tsx) (versão antiga, nunca montada em lugar nenhum do app — só `VIXWidgetEnhanced.tsx` é renderizado de verdade). Confirmado via grep que nenhum import restante referencia os dois antes de apagar.
+
+### 2. Termômetro de Risco — pivô completo: de "drawdown da conta" pra "risco de operar o ativo selecionado agora"
+
+Cleber pediu investigação + correção do Termômetro de Risco (`RiskThermometer.tsx`), que era casca visual (só `portfolio.maxDrawdownLimit`, hardcoded 15, nunca sincronizado com a config real do usuário). 1ª rodada: religado aos limites REAIS que o Health Check Guardian de `useApexLogic.ts` já aplica (`aiConfig.maxDrawdown`/`dailyLossLimit`/`minWinRate`, `isSafeMode`/`safeModeReason`) em vez do campo morto.
+
+**Depois o Cleber redirecionou o objetivo** ("Refaça!"): o termômetro deveria ser sobre o **mercado do ativo selecionado**, não a conta — um alerta de risco de operar aquele ativo específico agora (lateralização, notícias iminentes, volatilidade excessiva). Reescrito do zero:
+- **Volatilidade**: ATR% real do `MarketScoreEngine` (mesmo motor do Dashboard) vs. preço atual.
+- **Lateralização** (renomeado de "Regime", que confundia o Cleber — mede se o preço está andando de lado sem direção clara, via ADX): `regime` do motor (`TENDENCIA`/`LATERAL`).
+- **Confiança do motor**: `scoreResult.confidence`.
+- **Notícias iminentes**: consulta `/economic-calendar` real (cacheado 5min), filtra evento de alto impacto na moeda relevante do ativo (extraída do próprio símbolo — pares forex, mapa de moeda por índice, USD como fallback macro; cripto marcado "N/D" de propósito, sem fonte confiável hoje).
+- Score final = **pior dos 4 fatores** (gate, não média).
+
+**Bug 1 achado depois do 1º deploy visual (print do Cleber)**: o ativo nunca mudava porque `MarketScoreBoard.tsx` guarda o ativo do Dashboard num `useState` **local**, isolado de propósito do resto do app (pra não afetar o Gráfico — decisão de sessão anterior) — o Termômetro não tinha acesso a esse valor. Fix: novo campo `dashboardActiveSymbol` no `TradingContext`, publicado pelo `MarketScoreBoard` a cada troca.
+
+**Bug 2 achado no mesmo print**: ATR/Volatilidade sempre "—", mesmo com Lateralização/Confiança funcionando. Causa raiz real: eu tinha feito o Termômetro chamar `MarketScoreEngine.compute()` por conta própria — **duplicando** a mesma chamada que o `MarketScoreBoard` já faz, dobrando a carga na conta MetaAPI compartilhada (rate-limit crônico, documentado dezenas de vezes neste arquivo) e podendo falhar só nessa 2ª chamada. Fix: novo campo `dashboardScoreResult` no `TradingContext`, publicado pelo `MarketScoreBoard` com o resultado JÁ calculado — o Termômetro só lê, nunca recalcula.
+
+**Bug 3, achado no 2º print**: mesmo com o fix acima, ATR/Volatilidade continuaram "—" (Regime/Confiança OK, pois não dependem de preço). Causa: o Dashboard mostrava o ativo no formato nativo da Binance (`BTCUSDT`), mas o cache de preço real (`RealMarketDataService.lastRealPriceCache`) grava cripto roteada pela corretora sob o símbolo **unificado sem o "T"** (`BTCUSD` — mesmo padrão de bug de formato de símbolo já documentado várias vezes neste arquivo). `getLastKnownRealPrice('BTCUSDT')` nunca batia com a chave certa. Fix: tenta o símbolo cru primeiro, cai pro formato `USD` (`.replace(/USDT$/, 'USD')`) como fallback.
+
+**Ajuste de layout** (2 rodadas): 1ª por estar estourando o box de 490px (`ModularDashboard.tsx`) — compactado + `overflow-y-auto` como rede de segurança. 2ª, depois que os dados voltaram a aparecer, o Cleber pediu mais conteúdo/melhor distribuição vertical — aumentados textos/paddings e trocado `justify-center` por `justify-between` (conteúdo do topo ao rodapé, não agrupado no meio).
+
+**Verificação feita**: `npm run build` limpo em todas as 4 rodadas. **Não testado visualmente logado** além dos prints que o próprio Cleber mandou durante a sessão (que já confirmaram os bugs 1/2/3 sendo corrigidos em sequência) — falta uma confirmação final pós-deploy com o fix do bug 3 + layout.
+
+### 3. Removido badge "📊 DATA" do cabeçalho do Dashboard
+
+Cleber pediu pra remover o badge de "Fonte de Dados" (mostrava "🌐 REAL-TIME"/"🌐 LIVE"/"📊 FALLBACK"/"📊 DATA" conforme a fonte do preço) do cabeçalho do `MarketScoreBoard.tsx` — código morto/visual, sem lógica própria além de exibição. Removido o bloco inteiro; variável `dataSource` continua em uso em outros lugares do arquivo (painel de debug, indicador LIVE), não foi tocada.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão, exceto o fix do VIX em si, que o Cleber já commitou antes desta):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/utils/vixTradingHours.ts src/app/components/tools/VIXWidget.tsx \
+  src/app/components/dashboard/RiskThermometer.tsx src/app/contexts/TradingContext.tsx \
+  src/app/components/dashboard/MarketScoreBoard.tsx CLAUDE.md
+git commit -m "chore: remove codigo morto do VIX (vixTradingHours.ts, VIXWidget.tsx, nao usados). refactor: Termometro de Risco vira Risco de Mercado por ativo selecionado -- volatilidade (ATR real), lateralizacao (regime/ADX), confianca do motor, noticias de alto impacto iminentes (calendario economico real filtrado por moeda do ativo); score = pior dos 4 fatores. Corrige dessincronia de ativo (dashboardActiveSymbol no TradingContext) e chamada duplicada ao MarketScoreEngine (dashboardScoreResult no TradingContext, publicado pronto pelo MarketScoreBoard) e bug de formato de simbolo cripto (BTCUSDT vs BTCUSD) que deixava ATR sempre vazio. Ajusta layout (overflow-y-auto, espacamento top-a-rodape). chore: remove badge 'Fonte de Dados' (DATA/FALLBACK/REAL-TIME) do cabecalho do Dashboard"
+git push origin main
+```
+2. Confirmar visualmente logado, depois do deploy: trocar de ativo no Dashboard e ver o Termômetro acompanhar (ATR/Lateralização/Confiança/Notícias preenchidos, sem "—"), layout sem estourar e bem distribuído, badge "DATA" sumiu do cabeçalho.
+
+---
+
+## Sessão nova (2026-07-19, continuação 5): Widget do VIX dizia "mercado fechado" com o MT5 mostrando o VIX se movendo ao vivo — causa raiz achada e corrigida — CONFIRMADO COMMITADO PELO CLEBER
+
+> Cleber reportou: VIX no app mostra "mercado fechado", mas no MT5 o gráfico do VIX está se movendo ao vivo.
 
 ### Causa raiz: `VIXWidgetEnhanced.tsx` usava um relógio de pregão fixo, isolado do resto do projeto
 
