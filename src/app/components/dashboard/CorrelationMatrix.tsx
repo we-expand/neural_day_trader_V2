@@ -545,13 +545,13 @@ export function CorrelationMatrix() {
           </motion.div>
         )}
 
-        {/* ✅ 2026-07-20: items-stretch (era items-start) + h-full/flex nos dois
-            painéis — matriz e Análise IA agora sempre têm a mesma altura
-            (altura = a do painel mais alto), com scroll interno independente
-            em vez de crescer soltos e ficar desalinhados. */}
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-stretch">
+        {/* ✅ 2026-07-20: Análise IA desce pra baixo da matriz (era coluna lateral
+            de 320px) — mesma largura da matriz, layout empilhado verticalmente em
+            vez de lado a lado. Conteúdo interno da Análise IA reorganizado em
+            linhas horizontais (grid), aproveitando a largura extra disponível. */}
+        <div className="flex flex-col gap-4">
           {/* MATRIX HEATMAP */}
-          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-4 flex flex-col h-full max-h-[640px] overflow-y-auto custom-scrollbar">
+          <div className="bg-slate-900/30 rounded-xl border border-slate-800/70 p-4 flex flex-col max-h-[640px] overflow-y-auto custom-scrollbar">
             {analyzing && displayedAssets.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
                 <RefreshCw className="h-8 w-8 animate-spin mb-3" />
@@ -612,8 +612,9 @@ export function CorrelationMatrix() {
             </div>
           </div>
 
-          {/* AI ANALYSIS */}
-          <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-3 space-y-2.5 flex flex-col h-full max-h-[640px] overflow-y-auto custom-scrollbar">
+          {/* AI ANALYSIS — mesma largura da matriz (era coluna lateral estreita),
+              conteúdo reorganizado em linhas horizontais pra aproveitar a largura. */}
+          <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <Brain className="h-4 w-4 text-purple-400" />
               <h3 className="text-sm font-bold text-white">Análise IA</h3>
@@ -625,31 +626,31 @@ export function CorrelationMatrix() {
                 <span className="text-xs">Recalculando...</span>
               </div>
             ) : aiInsight && (
-              <div className="space-y-2.5">
-                <div className={`p-2.5 rounded-lg border ${
-                  aiInsight.level === 'HIGH' ? 'bg-rose-950/30 border-rose-500/30' :
-                  aiInsight.level === 'MEDIUM' ? 'bg-amber-950/30 border-amber-500/30' :
-                  'bg-emerald-950/30 border-emerald-500/30'
-                }`}>
-                  <div className="flex items-start gap-2">
-                    <ShieldAlert className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${
-                      aiInsight.level === 'HIGH' ? 'text-rose-400' :
-                      aiInsight.level === 'MEDIUM' ? 'text-amber-400' : 'text-emerald-400'
-                    }`} />
-                    <div>
-                      <p className={`text-xs font-bold ${
-                        aiInsight.level === 'HIGH' ? 'text-rose-100' :
-                        aiInsight.level === 'MEDIUM' ? 'text-amber-100' : 'text-emerald-100'
-                      }`}>{aiInsight.title}</p>
-                      <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
-                        {aiInsight.description}
-                      </p>
+              <div className="space-y-3">
+                {/* Linha 1: alerta principal (largura total) + 3 stat cards lado a lado */}
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.4fr)_1fr_1fr_1fr] gap-2">
+                  <div className={`p-2.5 rounded-lg border ${
+                    aiInsight.level === 'HIGH' ? 'bg-rose-950/30 border-rose-500/30' :
+                    aiInsight.level === 'MEDIUM' ? 'bg-amber-950/30 border-amber-500/30' :
+                    'bg-emerald-950/30 border-emerald-500/30'
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <ShieldAlert className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${
+                        aiInsight.level === 'HIGH' ? 'text-rose-400' :
+                        aiInsight.level === 'MEDIUM' ? 'text-amber-400' : 'text-emerald-400'
+                      }`} />
+                      <div>
+                        <p className={`text-xs font-bold ${
+                          aiInsight.level === 'HIGH' ? 'text-rose-100' :
+                          aiInsight.level === 'MEDIUM' ? 'text-amber-100' : 'text-emerald-100'
+                        }`}>{aiInsight.title}</p>
+                        <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                          {aiInsight.description}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Score de diversificação + ativo mais independente */}
-                <div className="grid grid-cols-2 gap-2">
                   <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
                     <div className="flex items-center gap-1 mb-0.5">
                       <Sparkles className="h-3 w-3 text-blue-400" />
@@ -665,6 +666,7 @@ export function CorrelationMatrix() {
                       {aiInsight.diversificationScore >= 60 ? 'Boa independência' : aiInsight.diversificationScore >= 35 ? 'Moderada' : 'Baixa (concentrado)'}
                     </p>
                   </div>
+
                   <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
                     <div className="flex items-center gap-1 mb-0.5">
                       <Target className="h-3 w-3 text-cyan-400" />
@@ -677,25 +679,26 @@ export function CorrelationMatrix() {
                       </>
                     ) : <p className="text-[9px] text-slate-500">—</p>}
                   </div>
-                </div>
 
-                {aiInsight.bestHedge && (
-                  <div className="bg-indigo-950/20 border border-indigo-900/50 rounded-lg p-2">
+                  <div className={`rounded-lg p-2 border ${aiInsight.bestHedge ? 'bg-indigo-950/20 border-indigo-900/50' : 'bg-slate-800/50 border-slate-700/50'}`}>
                     <div className="flex items-center gap-1 mb-0.5">
                       <GitBranch className="h-3 w-3 text-indigo-400" />
                       <p className="text-[9px] text-indigo-300 uppercase font-bold">Melhor Par p/ Hedge</p>
                     </div>
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-slate-300">{aiInsight.bestHedge.pair}</span>
-                      <span className={`font-bold ${aiInsight.bestHedge.value < 0 ? 'text-indigo-300' : 'text-slate-400'}`}>
-                        {aiInsight.bestHedge.value.toFixed(2)}
-                      </span>
-                    </div>
+                    {aiInsight.bestHedge ? (
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-slate-300">{aiInsight.bestHedge.pair}</span>
+                        <span className={`font-bold ${aiInsight.bestHedge.value < 0 ? 'text-indigo-300' : 'text-slate-400'}`}>
+                          {aiInsight.bestHedge.value.toFixed(2)}
+                        </span>
+                      </div>
+                    ) : <p className="text-[9px] text-slate-500">—</p>}
                   </div>
-                )}
+                </div>
 
+                {/* Linha 2: as 3 listas de pares lado a lado (era empilhado) */}
                 {(aiInsight.strongPositive?.length > 0 || aiInsight.relevant?.length > 0 || aiInsight.strongNegative?.length > 0) && (
-                  <div className="grid grid-cols-1 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     {aiInsight.strongPositive?.length > 0 && (
                       <div>
                         <p className="text-[9px] text-emerald-400 uppercase font-bold mb-1 flex items-center gap-1">
