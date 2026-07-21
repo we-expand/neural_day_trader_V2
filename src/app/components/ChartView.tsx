@@ -537,7 +537,83 @@ const NonParallelChannelOverlay: OverlayTemplate = {
   }
 };
 
+// ℹ️ Linha com Informações real (2 cliques — reta de tendência normal, MAS com
+// Δ preço, Δ %, nº de barras e ângulo grudados na própria linha, sempre visíveis,
+// não só ao passar o mouse). Antes mapeava pra 'segment' — traçava só a linha,
+// sem nenhuma informação anexada (o mesmo bug reportado, "só traça uma linha").
+const InfoLineOverlay: OverlayTemplate = {
+  name: 'infoLine',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const [pa, pb] = overlay.points ?? [];
+    const color = overlay.styles?.line?.color || '#3b82f6';
+
+    const priceDelta = pb?.value != null && pa?.value != null ? pb.value - pa.value : 0;
+    const pricePct = pa?.value ? (priceDelta / pa.value) * 100 : 0;
+    const bars =
+      pb?.dataIndex != null && pa?.dataIndex != null ? Math.abs(pb.dataIndex - pa.dataIndex) : 0;
+    const angleDeg = (Math.atan2(-(b.y - a.y), b.x - a.x) * 180) / Math.PI;
+    const isUp = priceDelta >= 0;
+    const decimals = Math.abs(priceDelta) >= 1 ? 2 : 5;
+
+    return [
+      { type: 'line', attrs: { coordinates: [a, b] }, styles: { style: 'solid', color, size: 2 } },
+      {
+        type: 'text',
+        attrs: {
+          x: (a.x + b.x) / 2,
+          y: (a.y + b.y) / 2 - 12,
+          align: 'center',
+          baseline: 'bottom',
+          text: `${isUp ? '▲' : '▼'} ${priceDelta.toFixed(decimals)} (${pricePct.toFixed(2)}%) · ${bars}b · ${angleDeg.toFixed(1)}°`
+        },
+        styles: {
+          color: '#ffffff',
+          size: 11,
+          backgroundColor: isUp ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)',
+          paddingLeft: 6,
+          paddingRight: 6,
+          paddingTop: 3,
+          paddingBottom: 3,
+          borderRadius: 4
+        }
+      }
+    ];
+  }
+};
+
+// 📐 Ângulo de Tendência real (2 cliques — mesma reta, com o ângulo grudado nela).
+// Antes também caía em 'segment', sem mostrar ângulo nenhum.
+const TrendAngleOverlay: OverlayTemplate = {
+  name: 'trendAngleLine',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const color = overlay.styles?.line?.color || '#f59e0b';
+    const angleDeg = (Math.atan2(-(b.y - a.y), b.x - a.x) * 180) / Math.PI;
+    return [
+      { type: 'line', attrs: { coordinates: [a, b] }, styles: { style: 'solid', color, size: 2 } },
+      {
+        type: 'text',
+        attrs: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10, align: 'center', baseline: 'bottom', text: `${angleDeg.toFixed(1)}°` },
+        styles: { color: '#000000', size: 11, backgroundColor: 'rgba(245,158,11,0.9)', paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }
+      }
+    ];
+  }
+};
+
 const CUSTOM_DRAWING_OVERLAYS: OverlayTemplate[] = [
+  InfoLineOverlay,
+  TrendAngleOverlay,
   PitchforkOverlay,
   RectShapeOverlay,
   CircleShapeOverlay,
@@ -1817,9 +1893,11 @@ export function ChartView() {
       // Lines
       'trendline': 'segment',
       'ray': 'rayLine',
-      'info-line': 'segment',
+      // 🔧 FIX: caíam em 'segment' (só traça a linha, sem nenhuma informação) — agora
+      // usam overlays customizados reais com Δ preço/%/barras/ângulo grudados na linha.
+      'info-line': 'infoLine',
       'extended-line': 'straightLine',
-      'trend-angle': 'segment',
+      'trend-angle': 'trendAngleLine',
       'horizontal-line': 'horizontalStraightLine',
       'horizontal-ray': 'horizontalRayLine',
       'vertical-line': 'verticalStraightLine',
