@@ -1,5 +1,50 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-20)
 
+## Sessão nova (2026-07-20, continuação 5): fluidez de candles do Gráfico + bug de candle zerando + padronização do catálogo de ativos + diagnóstico de instabilidade transitória da MetaAPI — PENDENTE COMMIT/PUSH (exceto o 1º item, já commitado `0fc0694ca`)
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão "fluidez dos candles" (ver ontem/mais cedo hoje). Cleber reportou 3 problemas em sequência nesta janela: candles em "soquinho"/degrau, gráfico "demorando demais" e "achatado", e pediu pra padronizar o catálogo de ativos do Gráfico com o do Dashboard.
+
+### 1. Fluidez de candles + bug real de candle zerando (COMMITADO, `0fc0694ca`)
+
+Causa raiz do "soquinho": o streaming de preço em tempo real (`subscribeToSymbol`) só existia pra BTC/ETH/SOL — todo outro ativo só recebia atualização via refetch completo dos candles a cada 30s (`chart.applyNewData` trocando tudo de uma vez). Fix: estendido o streaming pra todo ativo (2s, reaproveitando o cache de 2s do `getRealMarketData`), com debounce de 100ms e animação suave do preço via `requestAnimationFrame`.
+
+**Bug real achado testando AO VIVO, logado, com vídeo do Cleber**: `getFallbackOrLastKnown` pode devolver `isRealData:false`/`price:0` — sem guarda, isso zerava o candle na hora (`close=0`, `low=0`, pavio gigante até a base, reproduzido com BTC no vídeo). Corrigida: guarda no callback do WS que ignora tick sem `isRealData:true`/`price>0`.
+
+### 2. Lentidão/"achatado" — causa real: eu mesmo tinha piorado (PENDENTE COMMIT)
+
+Depois do fix acima, Cleber reportou o Gráfico "demorando demais" e "achatado" (candles espremidos numa faixa pequena do gráfico). Causa: eu tinha reduzido o intervalo do painel demonstrativo de ativos (busca ~300-500 ativos numa única chamada em lote) de 5s pra 1s na sessão anterior — 5x mais chamadas na conta MetaAPI compartilhada, competindo com o carregamento do próprio Gráfico selecionado. **Revertido de volta pra 5s.** Também corrigido, na mesma leva, o formato quebrado do badge de variação (mostrava `-0000.00246` — a regra de "4 dígitos antes do ponto" era só pro preço principal, aplicada por engano no valor de variação/delta).
+
+### 3. Padronização do catálogo de ativos do Gráfico com o do Dashboard (PENDENTE COMMIT)
+
+Cleber pediu pra padronizar a janela de busca de ativos do Gráfico com os mesmos ativos do Dashboard (Navegador de Ativos, `InfinoxAssetsBrowser.tsx`, derivado de `assetDatabase.ts`+`brokerRegistry.ts`, 367 ativos reais confirmados). Comparação programática revelou: **262 ativos faltavam** no catálogo hardcoded do Gráfico (`staticAssetsBase` em `ChartView.tsx`, tinha só 287) — quase todos ações europeias/UK (o Gráfico nunca teve categoria própria pra elas), mais alguns forex exóticos/cripto/commodities. Gerado e inserido as 262 entradas automaticamente (nome/categoria vindos de `assetDatabase.ts`, evitando erro de digitação manual) + adicionadas 2 abas novas no filtro (**Stocks UK**, **Stocks EU**). Total: 287 → **549 ativos**, testado ao vivo ("549 de 549 ativos disponíveis", sem duplicata, `tsc` limpo).
+
+**Não removido**: os 182 ativos que o Gráfico tem e o Dashboard não (ações US/BR, cripto extra) — não foi pedido, e são cobertos por fonte alternativa (Yahoo) que o Dashboard's Navegador de Ativos exclui de propósito.
+
+### 4. "Gráfico aparece em branco" (SPX500) — diagnosticado como instabilidade transitória real da MetaAPI, NÃO é bug de código
+
+Cleber mandou print de produção com SPX500 zerado/gráfico vazio. Testado direto contra o backend via curl (sem passar pelo navegador): `/mt5-prices` devolveu `HTTP 429` (rate limit) e `/mt5-candles-history` devolveu `HTTP 504` com `"account bb99f865-... is not connected to broker yet"`. Esperei ~40s e testei de novo: `/mt5-candles-history` já respondia com 1000 candles reais — confirmando que é a mesma instabilidade crônica da conta MetaAPI compartilhada já documentada extensivamente neste arquivo (rate-limit/reconexão), não um bug introduzido pelas mudanças desta sessão. Confirmado visualmente no preview local que o gráfico se recupera sozinho assim que a conta MetaAPI volta a responder, sem precisar de nenhuma mudança de código.
+
+### Verificação feita
+
+Item 1 já commitado e testado ao vivo (ver histórico do commit). Itens 2 e 3: `npx tsc --noEmit` limpo em `ChartView.tsx`; testado ao vivo no preview local (`npm run dev`) logado — badge de variação formatado corretamente, busca de ativos mostrando 549/549 com abas Stocks UK/Stocks EU funcionando. Item 4: sem mudança de código, só diagnóstico confirmado via curl direto + reprodução visual da recuperação automática.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (itens 2 e 3, ainda não commitados):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/ChartView.tsx CLAUDE.md
+git commit -m "fix: reverte intervalo do painel demonstrativo de ativos de 1s pra 5s -- sobrecarregava a conta MetaAPI compartilhada (lote de ~300-500 ativos 5x mais frequente) e competia com o carregamento do Grafico selecionado, causando lentidao/achatamento reportado pelo Cleber. fix: formato do badge de variacao (-0000.00246 -> -0.00246) -- regra de 4 digitos zero-padded era so pro preco principal, aplicada por engano no valor de variacao (delta).
+
+feat: padroniza catalogo de ativos do seletor do Grafico com o do Dashboard (InfinoxAssetsBrowser) -- adiciona 262 ativos que faltavam (maioria acoes europeias/UK, sem categoria propria ate agora, mais forex exoticos/cripto/commodities). Adiciona abas Stocks UK e Stocks EU no filtro de categoria. Total: 287 -> 549 ativos, gerado por comparacao automatica dos dois catalogos (getInfinoxAssetsByCategory vs staticAssetsBase), nome/categoria vindos de assetDatabase.ts"
+git push origin main
+```
+2. Confirmar em produção, depois do deploy: Gráfico não fica mais lento/achatado ao trocar de ativo; busca de símbolo mostra os novos ativos europeus/UK; badge de variação sem o formato quebrado.
+3. Instabilidade da MetaAPI (item 4) — sem ação de código possível, é infraestrutura do provedor. Se persistir por muito tempo (minutos, não segundos), considerar checar o painel da MetaAPI diretamente.
+4. Considerar (não pedido ainda): avaliar se os 182 ativos exclusivos do Gráfico (US/BR stocks) deveriam também aparecer no Navegador de Ativos do Dashboard, pra padronização completa nos dois sentidos.
+
+---
+
 ## Sessão nova (2026-07-20, continuação 3): CHINA50 zerado (causa raiz achada e corrigida) + cache de preço compartilhado (KV) + diagnóstico de instabilidade da própria MetaAPI — DEPLOYADO, GIT PENDENTE
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de hoje mais cedo (Matriz de Correlação, ver seção logo abaixo). Cleber reportou CHINA50 com variação diária zerada e pediu auditoria em todo o catálogo.
