@@ -992,6 +992,36 @@ export function ChartView() {
   const [infoLineEditor, setInfoLineEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
   const [infoLineText, setInfoLineText] = useState('');
   const infoLineCancelledRef = useRef(false); // 🛡️ evita o onBlur salvar de novo depois do Esc já ter cancelado
+  const infoLineInputRef = useRef<HTMLInputElement>(null);
+  const infoLineTextRef = useRef(''); // espelha infoLineText p/ o listener de clique-fora ler o valor mais recente
+
+  // 🔧 FIX: "só entra dando Enter" — clicar no canvas do gráfico (klinecharts previne o
+  // comportamento padrão do mousedown pra permitir arrastar/desenhar), então o navegador
+  // NUNCA dispara blur no input (blur-ao-clicar-fora depende desse padrão, que a lib
+  // bloqueia). onBlur sozinho não é suficiente. Fix real: ouvir mousedown/pointerdown no
+  // documento inteiro, na fase de CAPTURA (antes do canvas processar o evento e travar o
+  // foco) — qualquer clique fora do input (canvas, sidebar, qualquer lugar da página)
+  // salva e fecha o editor, sem depender do navegador mover o foco de verdade.
+  useEffect(() => {
+    if (!infoLineEditor) return;
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      if (infoLineInputRef.current && !infoLineInputRef.current.contains(event.target as Node)) {
+        try {
+          chartInstanceRef.current?.overrideOverlay({
+            id: infoLineEditor.overlayId,
+            extendData: infoLineTextRef.current
+          });
+        } catch (err) {
+          console.error('[ChartView] ❌ Error saving info-line text (click outside):', err);
+        }
+        infoLineCancelledRef.current = true; // evita o onBlur, se disparar depois, salvar de novo
+        setInfoLineEditor(null);
+        setInfoLineText('');
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDownOutside, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
+  }, [infoLineEditor]);
   const [chartTexts, setChartTexts] = useState<Array<{ id: string; text: string; x: number; y: number }>>([]); // Textos no gráfico
   
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -2015,7 +2045,9 @@ export function ChartView() {
         groupId: USER_DRAWINGS_GROUP,
         onClick: (event: any) => {
           if (overlayType === 'infoLine') {
-            setInfoLineText(typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '');
+            const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
+            setInfoLineText(existingText);
+            infoLineTextRef.current = existingText;
             setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
           } else {
             setSelectedDrawing({
@@ -3327,6 +3359,10 @@ export function ChartView() {
         console.log('[ChartView] 🔍 Usuário deu zoom');
       });
 
+      // 🛡️ Só limpar o overlay "bolinha preta misteriosa" residual na PRIMEIRA carga desta
+      // troca de símbolo/timeframe — ver fix logo abaixo, dentro de fetchData.
+      let didCleanMysteryOverlay = false;
+
       // Fetch real data
       const fetchData = async () => {
         console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe);
@@ -3550,9 +3586,18 @@ export function ChartView() {
           });
           console.log('[ChartView] 📊 Y-axis number format customized (no thousands separator)');
           
-          // 🧹 LIMPAR OVERLAYS NOVAMENTE após aplicar dados (garantir remoção de bolinha preta)
-          chart.removeOverlay();
-          console.log('[ChartView] 🧹 Overlays cleared after data load');
+          // 🔧 FIX GRAVE: chart.removeOverlay() SEM argumento apaga TODOS os overlays —
+          // esse código rodava a cada ciclo do auto-refresh de 30s (fetchData é chamado em
+          // loop, ver setInterval logo abaixo), então TODO desenho do usuário (linhas,
+          // textos anexados na Linha com Informações, formas, garfos...) sumia sozinho a
+          // cada 30 segundos, mesmo sem o usuário tocar em nada. Agora só limpa a "bolinha
+          // preta misteriosa" residual UMA VEZ, na primeira carga desta troca de
+          // símbolo/timeframe — nunca mais nos refreshs automáticos seguintes.
+          if (!didCleanMysteryOverlay) {
+            chart.removeOverlay();
+            didCleanMysteryOverlay = true;
+            console.log('[ChartView] 🧹 Overlays cleared after data load (só na 1ª carga)');
+          }
           
           console.log('[ChartView] ✅ Data applied successfully!');
           console.log('[ChartView] 🎉 Chart fully initialized and ready!');
@@ -4706,9 +4751,13 @@ export function ChartView() {
                 style={{ left: infoLineEditor.x, top: infoLineEditor.y }}
               >
                 <input
+                  ref={infoLineInputRef}
                   type="text"
                   value={infoLineText}
-                  onChange={(e) => setInfoLineText(e.target.value)}
+                  onChange={(e) => {
+                    setInfoLineText(e.target.value);
+                    infoLineTextRef.current = e.target.value;
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       // 🔧 FIX: Enter só fechava o editor (blur do input dispara em seguida) —
