@@ -291,6 +291,280 @@ try {
   console.warn('[ChartView] ⚠️ Emoji Marker overlay já registrado ou erro:', e);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎯 OVERLAYS CUSTOMIZADOS DE DESENHO — a klinecharts 9.8 só traz 15 overlays
+// nativos (linhas/canais paralelos/fib retracement/anotações). O mapa antigo
+// referenciava overlays que NÃO EXISTEM na lib ('rect', 'circle', 'triangle',
+// 'fibonacciCircle', 'fibonacciSpiral', 'fibonacciSpeedResistanceFan') — toda
+// forma geométrica, garfo, círculo/leque de Fibonacci caía no erro "Overlay não
+// suportado". Os templates abaixo implementam essas ferramentas DE VERDADE.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Estende uma reta (definida por 2 pontos) até a borda direita do painel
+const extendLineRight = (
+  from: { x: number; y: number },
+  through: { x: number; y: number },
+  boundingWidth: number
+): { x: number; y: number } => {
+  const dx = through.x - from.x;
+  if (dx === 0) return { x: through.x, y: through.y };
+  const slope = (through.y - from.y) / dx;
+  return { x: boundingWidth, y: through.y + slope * (boundingWidth - through.x) };
+};
+
+// 🍴 Andrews Pitchfork REAL (3 cliques: pivô A, depois B e C — mediana de A pelo
+// ponto médio de BC + duas hastes paralelas passando por B e C)
+const PitchforkOverlay: OverlayTemplate = {
+  name: 'pitchforkLine',
+  totalStep: 3,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
+    const color = overlay.styles?.line?.color || '#a855f7';
+    if (coordinates.length < 2) return [];
+    const [a, b, c] = coordinates;
+    if (coordinates.length === 2) {
+      return [{ type: 'line', attrs: { coordinates: [a, b] }, styles: { style: 'dashed', color, dashedValue: [4, 4] } }];
+    }
+    const mid = { x: (b.x + c.x) / 2, y: (b.y + c.y) / 2 };
+    const dx = mid.x - a.x;
+    const dy = mid.y - a.y;
+    // ponto final da mediana estendida até a borda direita
+    const medianEnd = dx !== 0 ? extendLineRight(a, mid, bounding.width) : mid;
+    // hastes paralelas à mediana, partindo de B e de C
+    const tineEnd = (p: { x: number; y: number }) => {
+      if (dx === 0) return p;
+      const t = (bounding.width - p.x) / dx;
+      return { x: bounding.width, y: p.y + dy * t };
+    };
+    return [
+      { type: 'line', attrs: { coordinates: [b, c] }, styles: { style: 'dashed', color, dashedValue: [3, 3] } },
+      { type: 'line', attrs: { coordinates: [a, medianEnd] }, styles: { style: 'solid', color } },
+      { type: 'line', attrs: { coordinates: [b, tineEnd(b)] }, styles: { style: 'solid', color } },
+      { type: 'line', attrs: { coordinates: [c, tineEnd(c)] }, styles: { style: 'solid', color } }
+    ];
+  }
+};
+
+// ▭ Retângulo real (2 cliques)
+const RectShapeOverlay: OverlayTemplate = {
+  name: 'rectShape',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const color = overlay.styles?.rect?.color || 'rgba(59,130,246,0.15)';
+    const borderColor = overlay.styles?.rect?.borderColor || '#3b82f6';
+    return {
+      type: 'rect',
+      attrs: {
+        x: Math.min(a.x, b.x),
+        y: Math.min(a.y, b.y),
+        width: Math.abs(b.x - a.x),
+        height: Math.abs(b.y - a.y)
+      },
+      styles: { style: 'stroke_fill', color, borderColor, borderSize: 1 }
+    };
+  }
+};
+
+// ◯ Círculo/Elipse real (2 cliques: centro + raio)
+const CircleShapeOverlay: OverlayTemplate = {
+  name: 'circleShape',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const r = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+    return {
+      type: 'circle',
+      attrs: { x: a.x, y: a.y, r },
+      styles: {
+        style: 'stroke_fill',
+        color: overlay.styles?.circle?.color || 'rgba(59,130,246,0.12)',
+        borderColor: overlay.styles?.circle?.borderColor || '#3b82f6',
+        borderSize: 1
+      }
+    };
+  }
+};
+
+// △ Triângulo real (3 cliques)
+const TriangleShapeOverlay: OverlayTemplate = {
+  name: 'triangleShape',
+  totalStep: 3,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 2) return [];
+    if (coordinates.length === 2) {
+      return [{ type: 'line', attrs: { coordinates }, styles: { style: 'dashed', color: '#3b82f6', dashedValue: [4, 4] } }];
+    }
+    return {
+      type: 'polygon',
+      attrs: { coordinates },
+      styles: {
+        style: 'stroke_fill',
+        color: overlay.styles?.polygon?.color || 'rgba(59,130,246,0.12)',
+        borderColor: overlay.styles?.polygon?.borderColor || '#3b82f6',
+        borderSize: 1
+      }
+    };
+  }
+};
+
+// 🌀 Círculos de Fibonacci reais (2 cliques — círculos concêntricos nos raios fib)
+const FIB_RATIOS = [0.236, 0.382, 0.5, 0.618, 0.786, 1];
+const FIB_COLORS = ['#f23645', '#ff9800', '#fbbf24', '#26a69a', '#3b82f6', '#a855f7'];
+const FibCirclesOverlay: OverlayTemplate = {
+  name: 'fibCircles',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const baseR = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+    return FIB_RATIOS.map((ratio, i) => ({
+      type: 'circle',
+      attrs: { x: a.x, y: a.y, r: baseR * ratio },
+      styles: { style: 'stroke', borderColor: FIB_COLORS[i], borderSize: 1 }
+    }));
+  }
+};
+
+// 📐 Leque de Fibonacci real (2 cliques — raios saindo do 1º ponto pelas frações
+// fib da distância vertical até o 2º ponto, estendidos até a borda direita)
+const FibFanOverlay: OverlayTemplate = {
+  name: 'fibFan',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, bounding }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const figures: any[] = [];
+    [0.382, 0.5, 0.618, 1].forEach((ratio, i) => {
+      const target = { x: b.x, y: a.y + (b.y - a.y) * ratio };
+      const end = extendLineRight(a, target, bounding.width);
+      figures.push({
+        type: 'line',
+        attrs: { coordinates: [a, end] },
+        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: FIB_COLORS[i + 1], dashedValue: [4, 4] }
+      });
+      figures.push({
+        type: 'text',
+        attrs: { x: end.x - 4, y: end.y, align: 'right', baseline: 'bottom', text: `${(ratio * 100).toFixed(1)}%` },
+        styles: { color: FIB_COLORS[i + 1], size: 10, backgroundColor: 'transparent' }
+      });
+    });
+    return figures;
+  }
+};
+
+// 🌈 Arcos de Fibonacci reais (2 cliques — semicírculos nos raios fib, abertos
+// pro lado do 1º ponto, como no TradingView)
+const FibArcsOverlay: OverlayTemplate = {
+  name: 'fibArcs',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const baseR = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+    // arco abre pro lado de onde veio o movimento (acima se b está abaixo de a, e vice-versa)
+    const opensUp = b.y >= a.y;
+    return [0.382, 0.5, 0.618, 1].map((ratio, i) => ({
+      type: 'arc',
+      attrs: {
+        x: b.x,
+        y: b.y,
+        r: baseR * ratio,
+        startAngle: opensUp ? Math.PI : 0,
+        endAngle: opensUp ? Math.PI * 2 : Math.PI
+      },
+      // 🔧 o overlay nativo 'arc' usa style/color/size (LineType), não borderColor/borderSize
+      styles: { style: 'solid', color: FIB_COLORS[i + 1], size: 1 }
+    }));
+  }
+};
+
+// ⫽ Canal não-paralelo real (4 cliques — duas retas independentes estendidas à direita)
+const NonParallelChannelOverlay: OverlayTemplate = {
+  name: 'nonParallelChannel',
+  totalStep: 4,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
+    const color = overlay.styles?.line?.color || '#3b82f6';
+    const figures: any[] = [];
+    if (coordinates.length >= 2) {
+      const [a, b] = coordinates;
+      figures.push({
+        type: 'line',
+        attrs: { coordinates: [a, extendLineRight(a, b, bounding.width)] },
+        styles: { style: 'solid', color }
+      });
+    }
+    if (coordinates.length >= 4) {
+      const [, , c, d] = coordinates;
+      figures.push({
+        type: 'line',
+        attrs: { coordinates: [c, extendLineRight(c, d, bounding.width)] },
+        styles: { style: 'solid', color }
+      });
+    } else if (coordinates.length === 3) {
+      figures.push({
+        type: 'circle',
+        attrs: { x: coordinates[2].x, y: coordinates[2].y, r: 3 },
+        styles: { style: 'fill', color }
+      });
+    }
+    return figures;
+  }
+};
+
+const CUSTOM_DRAWING_OVERLAYS: OverlayTemplate[] = [
+  PitchforkOverlay,
+  RectShapeOverlay,
+  CircleShapeOverlay,
+  TriangleShapeOverlay,
+  FibCirclesOverlay,
+  FibFanOverlay,
+  FibArcsOverlay,
+  NonParallelChannelOverlay
+];
+CUSTOM_DRAWING_OVERLAYS.forEach((tpl) => {
+  try {
+    registerOverlay(tpl);
+  } catch (e) {
+    console.warn(`[ChartView] ⚠️ Overlay ${tpl.name} já registrado ou erro:`, e);
+  }
+});
+console.log('[ChartView] ✅ Overlays customizados de desenho registrados:', CUSTOM_DRAWING_OVERLAYS.map((t) => t.name).join(', '));
+
+// Nomes de todos os overlays customizados (pra checagem de suporte no handler)
+const CUSTOM_OVERLAY_NAMES = new Set([
+  'pointMarker',
+  'fibonacciExtension',
+  'measureRuler',
+  'emojiMarker',
+  ...CUSTOM_DRAWING_OVERLAYS.map((t) => t.name)
+]);
+
 // 🆕 Grupo de overlays criados PELO USUÁRIO via toolbar de desenho — separa os desenhos
 // do usuário dos overlays de sistema (linhas de S/R, sinais), permitindo travar/ocultar/
 // apagar só os desenhos sem afetar o resto do gráfico.
@@ -1556,36 +1830,43 @@ export function ChartView() {
       'regression-trend': 'priceChannelLine',
       'flat-top-bottom': 'parallelStraightLine',
       'disjoint-channel': 'priceChannelLine',
-      
-      // Pitchfork (usando segment por enquanto)
-      'pitchfork': 'segment',
-      'schiff-pitchfork': 'segment',
-      'modified-schiff-pitchfork': 'segment',
-      'modified-schiff': 'segment', // 🔧 FIX: id real emitido pelo submenu
-      'inside-pitchfork': 'segment',
+      'non-parallel-channel': 'nonParallelChannel', // 🔧 FIX: id emitido pelo submenu nunca esteve mapeado
+
+      // Pitchfork — garfo de Andrews REAL (overlay customizado: mediana + 2 hastes),
+      // antes desenhava só um segmento reto
+      'pitchfork': 'pitchforkLine',
+      'schiff-pitchfork': 'pitchforkLine',
+      'modified-schiff-pitchfork': 'pitchforkLine',
+      'modified-schiff': 'pitchforkLine',
+      'inside-pitchfork': 'pitchforkLine',
       
       // Fibonacci
       'fib-retracement': 'fibonacciLine',
       'fib-extension': 'fibonacciExtension', // Será tratado com fallback para fibonacciLine
       'fib-channel': 'fibonacciLine', // Usa fibonacciLine como base
       'fib-timezone': 'fibonacciLine',
-      'fib-speedfan': 'fibonacciLine',
-      // 🔧 FIX: o submenu emite 'fib-speed-fan'/'fib-speed-arcs' (com hífen), mas o mapa
-      // só tinha 'fib-speedfan'/'fib-speedarcs' — essas 2 ferramentas nunca funcionaram
-      // apesar da implementação existir na lib.
-      'fib-speed-fan': 'fibonacciSpeedResistanceFan',
-      'fib-speed-arcs': 'fibonacciSpeedResistanceFan',
       'fib-time': 'fibonacciLine',
-      'fib-circles': 'fibonacciCircle',
-      'fib-spiral': 'fibonacciSpiral',
-      'fib-speedarcs': 'fibonacciSpeedResistanceFan',
       'fib-wedge': 'fibonacciLine',
-      'fib-fan': 'fibonacciSpeedResistanceFan',
+      // 🔧 FIX: círculos/leques/arcos de Fibonacci apontavam pra overlays que NÃO EXISTEM
+      // na klinecharts 9.8 ('fibonacciCircle'/'fibonacciSpiral'/'fibonacciSpeedResistanceFan')
+      // — sempre caíam em "Overlay não suportado". Agora usam overlays customizados reais.
+      'fib-circles': 'fibCircles',
+      'fib-fan': 'fibFan',
+      'fib-speed-fan': 'fibFan',
+      'fib-speedfan': 'fibFan',
+      'fib-speed-arcs': 'fibArcs',
+      'fib-speedarcs': 'fibArcs',
+      // 'fib-spiral' deliberadamente SEM mapeamento — espiral real ainda não implementada;
+      // cai no aviso honesto "em desenvolvimento" em vez de erro ou desenho errado.
       
-      // Shapes
-      'rectangle': 'rect',
-      'ellipse': 'circle',
-      'triangle': 'triangle',
+      // Shapes — overlays customizados reais (a klinecharts 9.8 não tem 'rect'/'circle'/
+      // 'triangle' nativos como overlay de desenho; o mapa antigo apontava pra nomes que
+      // não existem na lib, sempre caindo em "Overlay não suportado")
+      'rectangle': 'rectShape',
+      'rotated-rectangle': 'rectShape', // rotação real fica pra uma próxima iteração
+      'ellipse': 'circleShape',
+      'circle': 'circleShape',
+      'triangle': 'triangleShape',
       'arrow': 'simpleAnnotation',
       'path': 'segment',
       'brush': 'segment',
@@ -1624,7 +1905,7 @@ export function ChartView() {
       console.log('[ChartView] ✏️ Creating overlay:', overlayType);
       
       // Verificar se o overlay é suportado (incluindo overlays customizados)
-      const isCustomOverlay = overlayType === 'pointMarker' || overlayType === 'fibonacciExtension' || overlayType === 'measureRuler';
+      const isCustomOverlay = CUSTOM_OVERLAY_NAMES.has(overlayType);
       
       if (!supportedOverlays.includes(overlayType) && !isCustomOverlay) {
         console.warn('[ChartView] ⚠️ Overlay não suportado:', overlayType);
