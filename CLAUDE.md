@@ -1,4 +1,49 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21, continuação 2)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21, continuação 3)
+
+## Sessão nova (2026-07-21, continuação 3): toolbar de desenho — camada 3 completa (EmojiPicker, toolbar de contexto real), e 4 bugs graves e reais achados testando a Linha com Informações — TUDO COMMITADO E PUSHADO
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão anterior (logo abaixo, mesma leva de trabalho na toolbar de desenho do Gráfico). O Cleber testou ao vivo e reportou, em sequência, 4 problemas reais — cada um investigado a fundo até achar a causa raiz (nunca "parece que é isso"), com prova via leitura do código-fonte da própria klinecharts (`node_modules/klinecharts/dist/index.esm.js`/`index.d.ts`) antes de qualquer fix.
+
+### 1. Camada 3 da toolbar: EmojiPicker ligado + toolbar de contexto (Bloquear/Ocultar/Estilo/Duplicar/Copiar) real
+
+`EmojiPicker` (existia pronto em `DrawingToolDropdown.tsx`, nunca renderizado) agora abre ao clicar em Ícones; emoji escolhido vira overlay customizado `emojiMarker` (1 clique ancora no gráfico). Os 5 handlers da toolbar de contexto que eram só `console.log`+toast falso agora fazem de verdade via `overrideOverlay`/`getOverlayById`: Bloquear/Ocultar por id, Estilo (espessura/tracejado/fonte), Duplicar (clona com offset de 5 barras), Copiar (JSON tipo+pontos pro clipboard do sistema).
+
+### 2. "Linhas/canais/garfos não funcionam" — causa raiz sistêmica: `totalStep` é pontos+1, não o nº de pontos
+
+Confirmado lendo o código-fonte da klinecharts: `segment`/2 pontos usa `totalStep:3`; `parallelStraightLine`/3 pontos usa `totalStep:4`; `horizontalStraightLine`/1 ponto usa `totalStep:2` (fórmula: `totalStep = pontosNecessários + 1`, verificado em `OverlayImp.nextStep`/`isDrawing`). **Todos os 12 overlays customizados criados nas sessões anteriores** (incluindo a Extensão de Fibonacci, de ANTES desta leva de trabalho) estavam com `totalStep` = nº de pontos, sem o +1 — cada um travava exatamente 1 clique antes do fim. Corrigidos todos: Linha com Informações, Ângulo de Tendência, Régua de Medição, Retângulo, Círculo/Elipse, Triângulo, Garfo de Andrews, Círculos/Leque/Arcos de Fibonacci, Canal Não-Paralelo, Extensão de Fibonacci.
+
+### 3. Linha com Informações: "clique para escrever" aparece, mas clicar na linha não abre o editor
+
+Causa raiz, achada lendo o `ActionType` real da lib: `chart.subscribeAction('onOverlayClick', ...)` **nunca funcionou, em nenhuma sessão** — o enum `ActionType` desta versão só tem `OnDataReady/OnZoom/OnScroll/OnVisibleRangeChange/OnTooltipIconClick/OnCrosshairChange/OnCandleBarClick/OnPaneDrag`, sem `onOverlayClick`. Isso também explica por que a toolbar de contexto do item 1 provavelmente nunca abria em nenhuma sessão anterior, mesmo com os handlers certos. **Fix real**: o clique em overlay funciona via `onClick` **por instância**, atribuído na própria criação (`Overlay.onClick`, confirmado na tipagem da lib) — movida a lógica pra lá (tanto pro editor da infoLine quanto pra toolbar de contexto genérica). O `subscribeAction('onOverlayClick', ...)` morto foi removido.
+
+### 4. Editor da Linha com Informações: texto sumia ao clicar fora, e só salvava com Enter
+
+Dois bugs, achados em sequência ao testar:
+- **`onBlur` descartava sem salvar** (só o Enter salvava) — corrigido: blur também salva.
+- **Mas blur nunca disparava ao clicar no canvas**: a klinecharts previne o `mousedown` padrão (pra suportar arrastar/desenhar), e o navegador só tira foco do input através desse comportamento padrão — bloqueado, o input nunca perdia foco de verdade. **Fix real**: listener de `pointerdown` no `document` inteiro, em fase de **captura** (antes do canvas processar o clique) — qualquer clique fora do input (canvas ou qualquer lugar da página) salva e fecha, sem depender do navegador mover o foco.
+
+### 5. ACHADO MAIS GRAVE DA SESSÃO: `chart.removeOverlay()` sem argumento, dentro do auto-refresh de candles de 30s, apagava TODO desenho do usuário sozinho, a cada ciclo
+
+Cleber reportou "ao deixar o mouse em descanso, ela some da tela sozinha" — não era só a Linha com Informações. `fetchData()` (que já roda em loop a cada 30s pra atualizar candles) tinha, no fim de cada ciclo, uma limpeza (`chart.removeOverlay()`, pensada originalmente só pra tirar uma "bolinha preta residual" da primeira carga) rodando **sem escopo, em TODO refresh**, apagando literalmente qualquer desenho (linha, forma, garfo, texto anexado) que o usuário tivesse feito, sozinho, a cada 30 segundos. **Fix**: essa limpeza agora roda só uma vez, na primeira carga do símbolo/timeframe (`didCleanMysteryOverlay`, variável local do efeito) — nunca mais nos refreshs automáticos seguintes. Desenho agora só some se apagado explicitamente (lixeira/toolbar de contexto), como pedido.
+
+### Verificação feita
+
+`npx tsc --noEmit` limpo em `ChartView.tsx`/`DrawingToolbar.tsx` após cada fix, verificado a cada rodada. **Não testado no browser desta sessão** (login + outro dev server de outra janela rodando na pasta) — todos os 4 problemas reportados pelo Cleber foram confirmados por ELE ao vivo em produção, sessão a sessão, guiando os próximos fixes.
+
+### Commits desta sessão (já pushados pelo Cleber, confirmar com `git log --oneline -8` se precisar dos hashes)
+
+Camada 3 (EmojiPicker + toolbar de contexto) → fix dos 12 `totalStep` → fix do `onClick` por instância (editor + toolbar de contexto) → fix do onBlur salvando → fix do listener de pointerdown em captura → **fix do `removeOverlay()` sem escopo no auto-refresh de 30s** (o mais crítico).
+
+### Pendente real pra próxima sessão
+
+1. **Confirmar em produção, depois do deploy**: desenhar Linha com Informações (2 cliques completa a linha agora), clicar nela, escrever, clicar fora (deve salvar), esperar >30s parado (nada deve sumir sozinho — nem essa linha nem qualquer outro desenho). Testar também pelo menos 1 garfo (3 cliques) e o canal não-paralelo (4 cliques), que eram os mais afetados pelo bug de `totalStep`. Testar EmojiPicker (Ícones → escolher emoji → clicar no gráfico) e a toolbar de contexto (clicar numa linha → Bloquear/Ocultar/Estilo/Duplicar/Copiar).
+2. **Camada 4 da toolbar — decisão de produto ainda pendente do Cleber**: Padrões (XABCD/Cypher/OCO), Elliott, GANN (box/fan/square), Ciclos continuam 100% inertes ("em desenvolvimento"). Decidir entre construir os overlays reais (trabalho grande, mesmo padrão dos 12 já feitos) ou remover esses itens do menu até existirem de verdade (critério anti-mock do projeto).
+3. **Modo Magnético** (snapping em high/low) e **pincel de desenho livre** (hoje vira segmento reto) continuam não implementados — trabalho maior, ficou de fora da camada 3.
+4. Migration 008 (`chart_preferences`) já foi aplicada em produção numa sessão anterior — não é mais pendência.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-21, continuação 2)
 
 ## Sessão nova (2026-07-21, continuação 2): S/R do Gráfico por proximidade + macro SMC, fix do candle gigante no carregamento, auditoria e conserto da toolbar de desenho — PENDENTE COMMIT/PUSH
 
