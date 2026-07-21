@@ -145,13 +145,13 @@ export function LiquidityDetectorCard() {
           {/* Order Blocks */}
           <div>
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <Box className="w-3 h-3" /> Order Blocks
+              <Box className="w-3 h-3" /> Blocos de Ordem
             </p>
             <div className="space-y-1.5">
               {loading && orderBlocks.length === 0 && <EmptyRow text="Calculando..." />}
-              {!loading && orderBlocks.length === 0 && <EmptyRow text="Nenhum Order Block relevante nesta janela." />}
+              {!loading && orderBlocks.length === 0 && <EmptyRow text="Nenhum Bloco de Ordem relevante nesta janela." />}
               {orderBlocks.map((z) => (
-                <ZoneRow key={z.id} zone={z} label="Order Block" bullish={z.type === 'order_block_bullish'} />
+                <ZoneRow key={z.id} zone={z} label="Bloco de Ordem" bullish={z.type === 'order_block_bullish'} />
               ))}
             </div>
           </div>
@@ -159,7 +159,7 @@ export function LiquidityDetectorCard() {
           {/* Fair Value Gaps */}
           <div>
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <GitBranch className="w-3 h-3" /> Fair Value Gaps
+              <GitBranch className="w-3 h-3" /> Gaps de Valor Justo
             </p>
             <div className="space-y-1.5">
               {loading && fairValueGaps.length === 0 && <EmptyRow text="Calculando..." />}
@@ -173,7 +173,7 @@ export function LiquidityDetectorCard() {
           {/* Liquidity Pools */}
           <div>
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <Waves className="w-3 h-3" /> Liquidity Pools
+              <Waves className="w-3 h-3" /> Piscinas de Liquidez
             </p>
             <div className="space-y-1.5">
               {loading && liquidityPools.length === 0 && <EmptyRow text="Calculando..." />}
@@ -182,7 +182,7 @@ export function LiquidityDetectorCard() {
                 <ZoneRow
                   key={z.id}
                   zone={z}
-                  label={z.type === 'liquidity_pool_buyside' ? 'Buyside' : 'Sellside'}
+                  label={z.type === 'liquidity_pool_buyside' ? 'Lado Comprador' : 'Lado Vendedor'}
                   bullish={z.type === 'liquidity_pool_buyside'}
                 />
               ))}
