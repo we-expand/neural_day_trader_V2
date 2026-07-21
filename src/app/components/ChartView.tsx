@@ -991,6 +991,7 @@ export function ChartView() {
   // 🆕 Editor de texto da "Linha com Informações" — clique na linha abre este input
   const [infoLineEditor, setInfoLineEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
   const [infoLineText, setInfoLineText] = useState('');
+  const infoLineCancelledRef = useRef(false); // 🛡️ evita o onBlur salvar de novo depois do Esc já ter cancelado
   const [chartTexts, setChartTexts] = useState<Array<{ id: string; text: string; x: number; y: number }>>([]); // Textos no gráfico
   
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -4710,6 +4711,11 @@ export function ChartView() {
                   onChange={(e) => setInfoLineText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
+                      // 🔧 FIX: Enter só fechava o editor (blur do input dispara em seguida) —
+                      // sem marcar "já resolvido", o onBlur rodava de novo e sobrescrevia com
+                      // uma extendData vazia (React ainda não tinha comitado o setInfoLineText('')
+                      // do fechamento anterior), apagando o texto que acabou de ser salvo.
+                      infoLineCancelledRef.current = true;
                       try {
                         chartInstanceRef.current?.overrideOverlay({
                           id: infoLineEditor.overlayId,
@@ -4723,11 +4729,29 @@ export function ChartView() {
                       setInfoLineEditor(null);
                       setInfoLineText('');
                     } else if (e.key === 'Escape') {
+                      infoLineCancelledRef.current = true;
                       setInfoLineEditor(null);
                       setInfoLineText('');
                     }
                   }}
                   onBlur={() => {
+                    // 🔧 FIX: antes o onBlur (clicar fora do input) SEMPRE descartava sem
+                    // salvar — era isso que fazia o texto digitado sumir da linha. Agora,
+                    // clicar fora salva o texto (mesmo comportamento de "confirmar ao sair
+                    // do campo"); só Enter/Escape (que já tratam o save/cancelamento antes)
+                    // pulam esse salvamento duplicado via infoLineCancelledRef.
+                    if (infoLineCancelledRef.current) {
+                      infoLineCancelledRef.current = false;
+                      return;
+                    }
+                    try {
+                      chartInstanceRef.current?.overrideOverlay({
+                        id: infoLineEditor.overlayId,
+                        extendData: infoLineText
+                      });
+                    } catch (err) {
+                      console.error('[ChartView] ❌ Error saving info-line text on blur:', err);
+                    }
                     setInfoLineEditor(null);
                     setInfoLineText('');
                   }}
