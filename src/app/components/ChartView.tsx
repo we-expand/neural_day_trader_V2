@@ -186,6 +186,83 @@ try {
   console.warn('[ChartView] ⚠️ Fibonacci Extension overlay já registrado ou erro:', e);
 }
 
+// 🎯 CUSTOM OVERLAY: Régua de Medição (2 cliques — mostra Δ preço, Δ %, nº de barras)
+// Antes o botão "Medir" da toolbar era decorativo (callback vazio) — este overlay
+// torna a ferramenta real, no mesmo padrão dos outros overlays customizados acima.
+const MeasureRulerOverlay: OverlayTemplate = {
+  name: 'measureRuler',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 2) return [];
+    const [a, b] = coordinates;
+    const [pa, pb] = overlay.points ?? [];
+    const figures: any[] = [];
+
+    const priceDelta = pb?.value != null && pa?.value != null ? pb.value - pa.value : 0;
+    const pricePct = pa?.value ? (priceDelta / pa.value) * 100 : 0;
+    const bars =
+      pb?.dataIndex != null && pa?.dataIndex != null ? Math.abs(pb.dataIndex - pa.dataIndex) : 0;
+    const isUp = priceDelta >= 0;
+    const color = isUp ? '#22c55e' : '#ef4444';
+
+    // Área medida (retângulo translúcido)
+    figures.push({
+      type: 'rect',
+      attrs: {
+        x: Math.min(a.x, b.x),
+        y: Math.min(a.y, b.y),
+        width: Math.abs(b.x - a.x),
+        height: Math.abs(b.y - a.y)
+      },
+      styles: { style: 'fill', color: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)' }
+    });
+    // Diagonal entre os dois pontos
+    figures.push({
+      type: 'line',
+      attrs: { coordinates: [{ x: a.x, y: a.y }, { x: b.x, y: b.y }] },
+      styles: { style: 'dashed', color, dashValue: [4, 4] }
+    });
+    // Caixa de resultado, acima/abaixo do 2º ponto conforme a direção
+    const decimals = Math.abs(priceDelta) >= 1 ? 2 : 5;
+    figures.push({
+      type: 'text',
+      attrs: {
+        x: (a.x + b.x) / 2,
+        y: isUp ? Math.min(a.y, b.y) - 10 : Math.max(a.y, b.y) + 10,
+        align: 'center',
+        baseline: isUp ? 'bottom' : 'top',
+        text: `${isUp ? '▲' : '▼'} ${priceDelta.toFixed(decimals)} (${pricePct.toFixed(2)}%) · ${bars} barra${bars === 1 ? '' : 's'}`
+      },
+      styles: {
+        color: '#ffffff',
+        size: 12,
+        backgroundColor: isUp ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)',
+        paddingLeft: 8,
+        paddingRight: 8,
+        paddingTop: 4,
+        paddingBottom: 4,
+        borderRadius: 4
+      }
+    });
+    return figures;
+  }
+};
+
+try {
+  registerOverlay(MeasureRulerOverlay);
+  console.log('[ChartView] ✅ Measure Ruler overlay registrado');
+} catch (e) {
+  console.warn('[ChartView] ⚠️ Measure Ruler overlay já registrado ou erro:', e);
+}
+
+// 🆕 Grupo de overlays criados PELO USUÁRIO via toolbar de desenho — separa os desenhos
+// do usuário dos overlays de sistema (linhas de S/R, sinais), permitindo travar/ocultar/
+// apagar só os desenhos sem afetar o resto do gráfico.
+const USER_DRAWINGS_GROUP = 'user_drawings';
+
 type Timeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '2H' | '4H' | '1D' | '1W' | '1M';
 
 type DrawingTool = 
@@ -1451,6 +1528,7 @@ export function ChartView() {
       'pitchfork': 'segment',
       'schiff-pitchfork': 'segment',
       'modified-schiff-pitchfork': 'segment',
+      'modified-schiff': 'segment', // 🔧 FIX: id real emitido pelo submenu
       'inside-pitchfork': 'segment',
       
       // Fibonacci
@@ -1459,6 +1537,11 @@ export function ChartView() {
       'fib-channel': 'fibonacciLine', // Usa fibonacciLine como base
       'fib-timezone': 'fibonacciLine',
       'fib-speedfan': 'fibonacciLine',
+      // 🔧 FIX: o submenu emite 'fib-speed-fan'/'fib-speed-arcs' (com hífen), mas o mapa
+      // só tinha 'fib-speedfan'/'fib-speedarcs' — essas 2 ferramentas nunca funcionaram
+      // apesar da implementação existir na lib.
+      'fib-speed-fan': 'fibonacciSpeedResistanceFan',
+      'fib-speed-arcs': 'fibonacciSpeedResistanceFan',
       'fib-time': 'fibonacciLine',
       'fib-circles': 'fibonacciCircle',
       'fib-spiral': 'fibonacciSpiral',
@@ -1486,8 +1569,9 @@ export function ChartView() {
       'price-label': 'priceLine',
       'price-note': 'simpleTag',
       
-      // Measure
-      'measure': 'segment'
+      // Measure — régua real (Δ preço/%/barras), overlay customizado registrado no topo
+      'measure': 'measureRuler',
+      'measurement': 'measureRuler'
     };
 
     const overlayType = overlayTypeMap[tool];
@@ -1507,7 +1591,7 @@ export function ChartView() {
       console.log('[ChartView] ✏️ Creating overlay:', overlayType);
       
       // Verificar se o overlay é suportado (incluindo overlays customizados)
-      const isCustomOverlay = overlayType === 'pointMarker' || overlayType === 'fibonacciExtension';
+      const isCustomOverlay = overlayType === 'pointMarker' || overlayType === 'fibonacciExtension' || overlayType === 'measureRuler';
       
       if (!supportedOverlays.includes(overlayType) && !isCustomOverlay) {
         console.warn('[ChartView] ⚠️ Overlay não suportado:', overlayType);
@@ -1520,7 +1604,9 @@ export function ChartView() {
       }
       
       // Use the createOverlay method with proper overlay name
-      const overlayId = chartInstanceRef.current.createOverlay(overlayType);
+      // 🆕 groupId separa desenhos do usuário dos overlays de sistema (S/R, sinais) —
+      // travar/ocultar/apagar da toolbar agora age SÓ neste grupo.
+      const overlayId = chartInstanceRef.current.createOverlay({ name: overlayType, groupId: USER_DRAWINGS_GROUP });
       
       if (overlayId) {
         console.log('[ChartView] ✅ Overlay created with ID:', overlayId);
@@ -2018,14 +2104,38 @@ export function ChartView() {
 
     try {
       const chart = chartInstanceRef.current;
-      
-      // Remove todos os overlays (desenhos) do gráfico
-      chart.removeOverlay();
-      
-      console.log('[ChartView] ✅ All drawings removed successfully');
+
+      // 🔧 FIX: remove SÓ os desenhos do usuário (groupId) — antes o removeOverlay()
+      // sem argumento apagava também os overlays de sistema (linhas de S/R, sinais).
+      chart.removeOverlay({ groupId: USER_DRAWINGS_GROUP });
+
+      console.log('[ChartView] ✅ All user drawings removed successfully');
     } catch (error) {
       console.error('[ChartView] ❌ Error removing drawings:', error);
       toast.error('Erro ao remover desenhos');
+    }
+  };
+
+  // 🆕 Travar/destravar TODOS os desenhos do usuário — antes o botão da toolbar só
+  // alternava um estado local com toast, sem efeito real no gráfico.
+  const handleToggleLockDrawings = (locked: boolean) => {
+    if (!chartInstanceRef.current) return;
+    try {
+      chartInstanceRef.current.overrideOverlay({ groupId: USER_DRAWINGS_GROUP, lock: locked });
+      console.log('[ChartView] 🔒 Desenhos do usuário', locked ? 'travados' : 'destravados');
+    } catch (error) {
+      console.error('[ChartView] ❌ Error locking drawings:', error);
+    }
+  };
+
+  // 🆕 Ocultar/mostrar TODOS os desenhos do usuário — mesmo caso do lock acima.
+  const handleToggleHideDrawings = (hidden: boolean) => {
+    if (!chartInstanceRef.current) return;
+    try {
+      chartInstanceRef.current.overrideOverlay({ groupId: USER_DRAWINGS_GROUP, visible: !hidden });
+      console.log('[ChartView] 👁️ Desenhos do usuário', hidden ? 'ocultos' : 'visíveis');
+    } catch (error) {
+      console.error('[ChartView] ❌ Error hiding drawings:', error);
     }
   };
 
@@ -4027,14 +4137,26 @@ export function ChartView() {
           isReplayMode ? 'ring-2 ring-orange-500/50 animate-pulse-slow' : ''
         }`}>
           {/* ✅ PROFESSIONAL DRAWING TOOLBAR - Barra vertical esquerda */}
-          <DrawingToolbar 
+          <DrawingToolbar
             onToolSelect={(tool) => {
               console.log('[ChartView] 🎨 Drawing tool category selected:', tool);
+              // 🔧 FIX: Medir e Zoom eram decorativos (este callback era só console.log)
+              if (tool === 'measure') {
+                handleDrawingToolSelect('measure');
+              } else if (tool === 'zoom') {
+                try {
+                  chartInstanceRef.current?.zoomAtCoordinate(1.25, undefined, 200);
+                } catch (e) {
+                  console.warn('[ChartView] ⚠️ Zoom falhou:', e);
+                }
+              }
             }}
             onSubToolSelect={handleDrawingToolSelect}
             onCrosshairModeChange={handleCrosshairModeChange}
             onDataWindowToggle={handleDataWindowToggle}
             onDeleteAll={handleDeleteAllDrawings}
+            onLockToggle={handleToggleLockDrawings}
+            onHideToggle={handleToggleHideDrawings}
             className="shrink-0"
           />
 

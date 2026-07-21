@@ -83,10 +83,12 @@ interface DrawingToolbarProps {
   onCrosshairModeChange?: (mode: 'crosshair' | 'point' | 'arrow' | 'presentation' | 'eraser') => void;
   onDataWindowToggle?: (enabled: boolean) => void;
   onDeleteAll?: () => void; // 🆕 Callback para apagar todos os desenhos
+  onLockToggle?: (locked: boolean) => void; // 🆕 Travar/destravar desenhos de verdade no gráfico
+  onHideToggle?: (hidden: boolean) => void; // 🆕 Ocultar/mostrar desenhos de verdade no gráfico
   className?: string;
 }
 
-export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeChange, onDataWindowToggle, onDeleteAll, className = '' }: DrawingToolbarProps) {
+export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeChange, onDataWindowToggle, onDeleteAll, onLockToggle, onHideToggle, className = '' }: DrawingToolbarProps) {
   const [activeTool, setActiveTool] = useState<DrawingTool | null>(null);
   const [isMagneticMode, setIsMagneticMode] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
@@ -111,26 +113,31 @@ export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeC
 
     // Toggle tools especiais
     if (tool === 'magnet') {
-      setIsMagneticMode(!isMagneticMode);
-      toast.success(`Modo Magnético ${!isMagneticMode ? 'Ativado' : 'Desativado'}`, {
-        description: !isMagneticMode ? 'Desenhos se encaixam automaticamente' : '',
-        duration: 2000
+      // 🚧 Snapping ainda não implementado — ser honesto em vez de fingir sucesso
+      // (antes mostrava "Ativado · desenhos se encaixam automaticamente" sem nenhum efeito real).
+      toast.warning('Modo Magnético em desenvolvimento', {
+        description: 'O encaixe automático de desenhos ainda não está disponível.',
+        duration: 2500
       });
       return;
     }
 
     if (tool === 'lock') {
-      setIsLocked(!isLocked);
-      toast.success(`Desenhos ${!isLocked ? 'Travados' : 'Destravados'}`, {
-        description: !isLocked ? 'Não é possível mover ou editar' : 'Agora você pode editar',
+      const next = !isLocked;
+      setIsLocked(next);
+      onLockToggle?.(next); // 🔧 FIX: antes só alternava estado local — agora trava de verdade no gráfico
+      toast.success(`Desenhos ${next ? 'Travados' : 'Destravados'}`, {
+        description: next ? 'Não é possível mover ou editar' : 'Agora você pode editar',
         duration: 2000
       });
       return;
     }
 
     if (tool === 'hide') {
-      setIsHidden(!isHidden);
-      toast.success(`Desenhos ${!isHidden ? 'Ocultos' : 'Visíveis'}`, {
+      const next = !isHidden;
+      setIsHidden(next);
+      onHideToggle?.(next); // 🔧 FIX: antes só alternava estado local — agora oculta de verdade no gráfico
+      toast.success(`Desenhos ${next ? 'Ocultos' : 'Visíveis'}`, {
         duration: 2000
       });
       return;
