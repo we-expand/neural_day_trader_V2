@@ -104,7 +104,7 @@ try {
 // 🎯 CUSTOM OVERLAY: Fibonacci Extension (Extensão de Fibonacci com 3 pontos)
 const FibonacciExtensionOverlay: OverlayTemplate = {
   name: 'fibonacciExtension',
-  totalStep: 3, // 3 pontos necessários (A, B, C)
+  totalStep: 4, // 🔧 FIX: totalStep = pontos + 1 na klinecharts (3 pontos A/B/C -> 4, era 3 e travava no 2º clique)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
@@ -191,7 +191,7 @@ try {
 // torna a ferramenta real, no mesmo padrão dos outros overlays customizados acima.
 const MeasureRulerOverlay: OverlayTemplate = {
   name: 'measureRuler',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -316,7 +316,7 @@ const extendLineRight = (
 // ponto médio de BC + duas hastes paralelas passando por B e C)
 const PitchforkOverlay: OverlayTemplate = {
   name: 'pitchforkLine',
-  totalStep: 3,
+  totalStep: 4, // 🔧 FIX: totalStep = pontos + 1 (3 pontos -> 4)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -350,7 +350,7 @@ const PitchforkOverlay: OverlayTemplate = {
 // ▭ Retângulo real (2 cliques)
 const RectShapeOverlay: OverlayTemplate = {
   name: 'rectShape',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -375,7 +375,7 @@ const RectShapeOverlay: OverlayTemplate = {
 // ◯ Círculo/Elipse real (2 cliques: centro + raio)
 const CircleShapeOverlay: OverlayTemplate = {
   name: 'circleShape',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -399,7 +399,7 @@ const CircleShapeOverlay: OverlayTemplate = {
 // △ Triângulo real (3 cliques)
 const TriangleShapeOverlay: OverlayTemplate = {
   name: 'triangleShape',
-  totalStep: 3,
+  totalStep: 4, // 🔧 FIX: totalStep = pontos + 1 (3 pontos -> 4)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -426,7 +426,7 @@ const FIB_RATIOS = [0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const FIB_COLORS = ['#f23645', '#ff9800', '#fbbf24', '#26a69a', '#3b82f6', '#a855f7'];
 const FibCirclesOverlay: OverlayTemplate = {
   name: 'fibCircles',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -446,7 +446,7 @@ const FibCirclesOverlay: OverlayTemplate = {
 // fib da distância vertical até o 2º ponto, estendidos até a borda direita)
 const FibFanOverlay: OverlayTemplate = {
   name: 'fibFan',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -476,7 +476,7 @@ const FibFanOverlay: OverlayTemplate = {
 // pro lado do 1º ponto, como no TradingView)
 const FibArcsOverlay: OverlayTemplate = {
   name: 'fibArcs',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -504,7 +504,7 @@ const FibArcsOverlay: OverlayTemplate = {
 // ⫽ Canal não-paralelo real (4 cliques — duas retas independentes estendidas à direita)
 const NonParallelChannelOverlay: OverlayTemplate = {
   name: 'nonParallelChannel',
-  totalStep: 4,
+  totalStep: 5, // 🔧 FIX: totalStep = pontos + 1 (4 pontos -> 5)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -544,7 +544,7 @@ const NonParallelChannelOverlay: OverlayTemplate = {
 // nenhum jeito de anexar informação nela depois — exatamente o bug reportado.
 const InfoLineOverlay: OverlayTemplate = {
   name: 'infoLine',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX real do bug reportado: totalStep = pontos + 1 na klinecharts (2 pontos -> 3), não so o numero de pontos -- por isso travava depois do 1o clique e nunca chegava ao 2o
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -592,7 +592,7 @@ const InfoLineOverlay: OverlayTemplate = {
 // Antes também caía em 'segment', sem mostrar ângulo nenhum.
 const TrendAngleOverlay: OverlayTemplate = {
   name: 'trendAngleLine',
-  totalStep: 2,
+  totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
