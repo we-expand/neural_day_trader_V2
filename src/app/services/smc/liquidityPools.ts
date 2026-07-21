@@ -40,10 +40,16 @@ function clusterAndBuildZones(
   let current: SwingPoint[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
-    const prev = current[current.length - 1];
+    // Compara sempre contra o ÂNCORA do cluster (primeiro ponto), nunca contra
+    // o último adicionado — encadear contra o "prev" permite que o cluster vá
+    // "andando" (drift) e agrupe pontos bem distantes entre si (ex: 1.1408 e
+    // 1.1487, 79 pips de diferença) desde que a cadeia intermediária seja densa,
+    // o que produzia zonas de liquidez artificialmente largas (sempre contendo
+    // o preço atual, nunca um nível específico) em vez de "topos/fundos iguais".
+    const anchor = current[0];
     const point = sorted[i];
-    const tolerance = prev.price * tolerancePct;
-    if (Math.abs(point.price - prev.price) <= tolerance) {
+    const tolerance = anchor.price * tolerancePct;
+    if (Math.abs(point.price - anchor.price) <= tolerance) {
       current.push(point);
     } else {
       clusters.push(current);
