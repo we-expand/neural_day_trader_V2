@@ -53,6 +53,7 @@ import { BacktestDecisionsPanel } from '@/app/components/backtest/BacktestDecisi
 import { BacktestErrorBoundary } from '@/app/components/backtest/BacktestErrorBoundary';
 import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
+import { useChartPreferences } from '@/app/hooks/useChartPreferences';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
@@ -489,6 +490,7 @@ export function ChartView() {
   // 🎯 BACKTEST LIVE PROGRESS (motor real: estratégia + candles históricos reais)
   const backtestProgress = useBacktestLiveProgress(10000);
   const { strategies, saveStrategy, deleteStrategy, error: strategiesError } = useStrategies();
+  const { showSrOverlay, showSrOverlayRef, setShowSrOverlay } = useChartPreferences(selectedSymbol);
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
   const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string; symbol: string } | null>(null);
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
@@ -529,6 +531,7 @@ export function ChartView() {
   const chartInstanceRef = useRef<any>(null);
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
+  const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
 
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'];
   const visibleTimeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1H'];
@@ -2219,6 +2222,70 @@ export function ChartView() {
     return { type, strength, reasons, rsi, trend };
   };
 
+  // 🆕 Desenha (ou limpa) as linhas de Suporte/Resistência direto no gráfico.
+  // Sempre limpa os overlays anteriores antes de criar os novos — evita
+  // vazamento de linhas de um ativo pro outro e permite ligar/desligar via
+  // recriação (klinecharts nesta versão não tem flag nativa de visibilidade).
+  const MAX_SR_OVERLAYS = 6;
+  const renderSrOverlays = (zones: LiquidityZone[], visible: boolean) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+
+    srOverlayIdsRef.current.forEach((id) => {
+      try {
+        chart.removeOverlay(id);
+      } catch (e) {
+        // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+      }
+    });
+    srOverlayIdsRef.current = [];
+
+    if (!visible || zones.length === 0) return;
+
+    const supports = zones.filter((z) => z.type === 'support').sort((a, b) => b.strength - a.strength).slice(0, MAX_SR_OVERLAYS / 2);
+    const resistances = zones.filter((z) => z.type === 'resistance').sort((a, b) => b.strength - a.strength).slice(0, MAX_SR_OVERLAYS / 2);
+    const selected = [...supports, ...resistances];
+
+    selected.forEach((zone) => {
+      const isSupport = zone.type === 'support';
+      const isSolid = zone.significance === 'critical' || zone.significance === 'strong';
+      const overlayId = `sr_${zone.type}_${zone.price.toFixed(5)}`;
+
+      try {
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: overlayId,
+          points: [{ value: zone.price }],
+          styles: {
+            line: {
+              color: isSupport ? '#22c55e' : '#ef4444',
+              style: isSolid ? 'solid' : 'dashed',
+              size: isSolid ? 2 : 1
+            },
+            text: {
+              color: '#ffffff',
+              backgroundColor: isSupport ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)',
+              size: 11
+            }
+          },
+          text: `${isSupport ? 'S' : 'R'} ${zone.price.toFixed(2)} · ${zone.touches}x`
+        });
+        srOverlayIdsRef.current.push(overlayId);
+      } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de S/R:', e);
+      }
+    });
+  };
+
+  // 🆕 Re-desenha (ou limpa) as linhas de S/R só quando o toggle muda — as
+  // zonas em si já são desenhadas no momento em que são calculadas (dentro do
+  // efeito de fetch de candles, via showSrOverlayRef pra sempre ler o valor
+  // mais recente sem precisar recriar o gráfico inteiro a cada toggle).
+  useEffect(() => {
+    renderSrOverlays(liquidityZones, showSrOverlay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- liquidityZones intencionalmente fora: já é redesenhado no momento do cálculo
+  }, [showSrOverlay]);
+
   // ❌ REMOVIDO: useEffect que buscava preços de API externa
   // Agora os preços vêm diretamente dos candles carregados no gráfico (100% alinhado)
 
@@ -2831,6 +2898,7 @@ export function ChartView() {
           const currentPriceForZones = lastCandle.close;
           const zones = detectLiquidityZones(candles, currentPriceForZones);
           setLiquidityZones(zones);
+          renderSrOverlays(zones, showSrOverlayRef.current);
           console.log('[ChartView] 🎯 Detected', zones.length, 'liquidity zones');
           
           // Generate trading signal
@@ -4131,9 +4199,22 @@ export function ChartView() {
             <span>Redefinir visão do gráfico</span>
             <span className="ml-auto text-xs text-gray-500">⌘ R</span>
           </button>
-          
+
+          {/* Suporte/Resistência (toggle) */}
+          <button
+            onClick={() => {
+              setShowSrOverlay(!showSrOverlay);
+              setContextMenu(null);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3"
+          >
+            <Target className="w-4 h-4 text-gray-400" />
+            <span>Suporte/Resistência</span>
+            {showSrOverlay && <span className="ml-auto text-green-400">✓</span>}
+          </button>
+
           <div className="h-px bg-gray-700 my-2"></div>
-          
+
           {/* Copiar preço */}
           <button 
             onClick={() => {

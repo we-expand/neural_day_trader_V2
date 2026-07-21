@@ -1,6 +1,62 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-20)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21)
 
-## Sessão nova (2026-07-20, continuação 6): remove o botão/modal "AI vs Trader" da página do Gráfico — PENDENTE COMMIT/PUSH
+## Sessão nova (2026-07-21): Suporte/Resistência desenhado no Gráfico + Detector de Liquidez SMC no Dashboard — PENDENTE COMMIT/PUSH + PENDENTE APLICAR MIGRATION 008
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu duas frentes: (1) Suporte/Resistência desenhado direto no gráfico ao trocar de ativo, ligável/desligável pelo menu de botão direito, layout limpo; (2) um Detector de Liquidez "real e preditivo" — "onde o dinheiro está" — com espaço fixo no Dashboard. Decisões confirmadas com ele via pergunta: metodologia = Smart Money Concepts completo (Order Blocks, Fair Value Gaps, Liquidity Pools, BOS/CHoCH), local = novo card fixo no Dashboard, persistência do toggle = Supabase por usuário. Planejado via EnterPlanMode antes de codar (plano salvo em `~/.claude/plans/lazy-honking-umbrella.md`).
+
+### Motor novo: `src/app/services/smc/` — determinístico, zero `Math.random()`, nunca prevê preço
+
+Identifica zonas de alta probabilidade de reação institucional a partir de candle real, sem nenhuma fabricação de dado (mesma disciplina anti-mock já documentada extensivamente neste arquivo):
+- [marketStructure.ts](src/app/services/smc/marketStructure.ts): `detectSwingPoints` (fractal, topo/fundo local) + `detectStructureEvents` (BOS = rompimento a favor da tendência vigente; CHoCH = rompimento contra a tendência vigente, sinaliza reversão).
+- [orderBlocks.ts](src/app/services/smc/orderBlocks.ts): última vela de cor oposta antes de uma perna impulsiva que rompeu estrutura (filtro: deslocamento > 1.5x a amplitude média de 14 velas), com status de mitigação.
+- [fairValueGaps.ts](src/app/services/smc/fairValueGaps.ts): gap clássico de 3 velas, com status de preenchimento.
+- [liquidityPools.ts](src/app/services/smc/liquidityPools.ts): topos/fundos iguais (tolerância configurável) a partir dos swing points — liquidez do lado comprador/vendedor, com status de "varrida" (sweep).
+- [index.ts](src/app/services/smc/index.ts): `analyzeSmc(candles, symbol, timeframe)` orquestra tudo, marca confluência entre categorias, corta por top N.
+- [__validate__.ts](src/app/services/smc/__validate__.ts): 12 asserções sobre candles sintéticos com resultado conhecido de antemão (mesmo padrão do `TechnicalIndicators/__validate__.ts` já existente). **Rodado e confirmado 12/12 passando** antes de qualquer wiring com dado real:
+```bash
+npx esbuild src/app/services/smc/__validate__.ts --bundle --platform=node --outfile=/tmp/validate-smc.js && node /tmp/validate-smc.js
+```
+
+### Frente 1 — Suporte/Resistência desenhado no Gráfico
+
+Reaproveita a função `detectLiquidityZones` já existente em [ChartView.tsx](src/app/components/ChartView.tsx) (não foi trocada pelo motor SMC novo — decisão deliberada, ver seção "Decisão de arquitetura" no plano salvo). Nova função `renderSrOverlays` desenha até 6 linhas horizontais (`horizontalStraightLine`, overlay nativo do klinecharts) — 3 suportes + 3 resistências mais fortes — verde/vermelho, sólida pra `critical`/`strong`, tracejada pra `moderate`/`weak`, com label `S 1.0834 · 4x`. Sempre limpa overlays antigos antes de criar novos (`srOverlayIdsRef`), evitando vazamento entre trocas de ativo.
+
+Novo item no menu de botão direito (já existente, reaproveitado): "Suporte/Resistência", com `✓` quando ligado — mesmo padrão visual dos outros itens do menu.
+
+Persistência: novo hook [useChartPreferences.ts](src/app/hooks/useChartPreferences.ts) (modelado em `useStrategies.ts`) lê/grava a preferência na tabela nova `chart_preferences` (Supabase, por usuário+ativo), com fallback local gracioso se a tabela ainda não existir ou o Supabase falhar — nunca trava a UI.
+
+### Frente 2 — Detector de Liquidez (SMC) no Dashboard
+
+Novo card [LiquidityDetectorCard.tsx](src/app/components/dashboard/LiquidityDetectorCard.tsx): lê `dashboardActiveSymbol` do `TradingContext` (mesmo valor que `RiskThermometer.tsx` já consome — sem criar seletor de ativo próprio, mantém a independência Dashboard/Gráfico já estabelecida no projeto). Busca candles via `backtestDataService.fetchHistoricalData` (1h, janela de 14 dias), roda `analyzeSmc`, mostra 4 colunas: Order Blocks (top 3), Fair Value Gaps (top 3), Liquidity Pools (top 3), último evento de Estrutura (BOS/CHoCH). Erro explícito ("Sem fonte de dados real disponível") em vez de zona fabricada quando `BacktestDataUnavailableError` é lançado. Recalcula a cada 5min.
+
+Plugado em [ModularDashboard.tsx](src/app/components/dashboard/ModularDashboard.tsx) como nova linha full-width ("Row 6"), entre o `AIPredictiveCard` e o `LiveLogTerminal` do rodapé.
+
+### Migration nova: `008_chart_preferences.sql` — AINDA NÃO APLICADA
+
+Tabela `chart_preferences` (`user_id`, `symbol`, `show_sr_overlay`, RLS "dono só vê o próprio", mesmo padrão de `006_strategies.sql`). **Enquanto não for aplicada, o toggle de S/R funciona só localmente na sessão do navegador (default `true`), sem persistir entre dispositivos** — degradação aceitável, nunca quebra a UI (mesmo padrão de fallback gracioso do resto do projeto).
+
+### Verificação feita
+
+`tsc --noEmit` limpo em todos os arquivos tocados. `npm run build` limpo (só os warnings de chunk-size pré-existentes, não relacionados). Motor SMC: 12/12 testes sintéticos passando. Preview local (`npm run dev`) sobe sem erro novo no console (só os avisos pré-existentes de "MT5 Validator não inicializado"/CORS, esperados sem login/credenciais neste ambiente). **Não testado visualmente logado** — Dashboard e Gráfico ficam atrás de login, sem credenciais reais neste ambiente (mesma limitação de sempre, documentada em dezenas de sessões anteriores).
+
+### Pendente real pra próxima sessão
+
+1. **Aplicar a migration** no SQL Editor do Supabase (projeto `wyvdsxtcmizettljxtbg`) — colar o conteúdo de [supabase/migrations/008_chart_preferences.sql](supabase/migrations/008_chart_preferences.sql) e rodar. Confirmar depois com `select * from public.chart_preferences limit 1;` (deve retornar 0 linhas, sem erro) e checar RLS habilitado em Database → Tables.
+2. **Commit + push**:
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/smc src/app/hooks/useChartPreferences.ts \
+  src/app/components/ChartView.tsx src/app/components/dashboard/LiquidityDetectorCard.tsx \
+  src/app/components/dashboard/ModularDashboard.tsx supabase/migrations/008_chart_preferences.sql CLAUDE.md
+git commit -m "feat: Suporte/Resistencia desenhado automaticamente no Grafico (linhas horizontais no klinecharts, ate 6, toggle via menu de botao direito, persistido por usuario+ativo no Supabase). feat: novo motor Smart Money Concepts (src/app/services/smc) -- Order Blocks, Fair Value Gaps, Liquidity Pools, deteccao de estrutura BOS/CHoCH, 100% deterministico sobre candle real, validado com 12 asseroes sinteticas antes do wiring. feat: novo card Detector de Liquidez no Dashboard, consumindo o motor SMC pro ativo selecionado"
+git push origin main
+```
+3. Confirmar visualmente logado, depois do deploy: no Gráfico, trocar de ativo e ver as linhas de S/R aparecerem automaticamente; testar o toggle no menu de botão direito (some/aparece, e persiste depois de F5); no Dashboard, confirmar que o card "Detector de Liquidez" aparece na Row 6, mostrando Order Blocks/FVG/Liquidity Pools/Estrutura pro ativo ativo no `MarketScoreBoard`.
+4. **Escopo consciente, não implementado**: o S/R do Gráfico continua usando `detectLiquidityZones` (não foi trocado pelo motor SMC novo) — decisão deliberada pra não acoplar as duas frentes nem arriscar o sinal de trading já validado que depende dessa função. Se o Cleber quiser unificar no futuro, é um passo separado, trocando só a fonte de dado por trás do `renderSrOverlays` sem tocar na parte de overlay/toggle.
+
+---
+
+## Sessão nova (2026-07-20, continuação 6): remove o botão/modal "AI vs Trader" da página do Gráfico — ✅ COMMITADO (`240e07669`)
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu pra eliminar do projeto o "AI vs Trader" da página do Gráfico.
 

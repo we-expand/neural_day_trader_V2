@@ -9,6 +9,7 @@ import { MarketScoreBoard } from './MarketScoreBoard';
 import { NewsAndAgenda } from './NewsAndAgenda';
 import { ContextualNews } from '../ContextualNews';
 import { AIPredictiveCard } from './AIPredictiveCard';
+import { LiquidityDetectorCard } from './LiquidityDetectorCard';
 import { useTradingContext } from '../../contexts/TradingContext'; // 🔥 NOVO
 
 export function ModularDashboard() {
@@ -87,6 +88,15 @@ export function ModularDashboard() {
              <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden h-full shadow-lg">
                 <div className="h-full p-2 overflow-y-auto custom-scrollbar">
                    <AIPredictiveCard />
+                </div>
+             </div>
+          </div>
+
+          {/* Row 6: Detector de Liquidez (SMC, full width) */}
+          <div className="col-span-1 xl:col-span-12 min-h-[420px]">
+             <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden h-full shadow-lg">
+                <div className="h-full p-2 overflow-y-auto custom-scrollbar">
+                   <LiquidityDetectorCard />
                 </div>
              </div>
           </div>
