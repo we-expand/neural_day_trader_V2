@@ -537,10 +537,11 @@ const NonParallelChannelOverlay: OverlayTemplate = {
   }
 };
 
-// ℹ️ Linha com Informações real (2 cliques — reta de tendência normal, MAS com
-// Δ preço, Δ %, nº de barras e ângulo grudados na própria linha, sempre visíveis,
-// não só ao passar o mouse). Antes mapeava pra 'segment' — traçava só a linha,
-// sem nenhuma informação anexada (o mesmo bug reportado, "só traça uma linha").
+// ℹ️ Linha com Informações real: desenha a reta normal e, depois de desenhada,
+// um clique nela abre um input (wiring em ChartView, ver handleOverlayClick/
+// infoLineEditor) pra digitar texto livre — que fica anexado à linha (guardado em
+// overlay.extendData). Antes mapeava pra 'segment': só traçava a linha, sem
+// nenhum jeito de anexar informação nela depois — exatamente o bug reportado.
 const InfoLineOverlay: OverlayTemplate = {
   name: 'infoLine',
   totalStep: 2,
@@ -550,40 +551,40 @@ const InfoLineOverlay: OverlayTemplate = {
   createPointFigures: ({ coordinates, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
-    const [pa, pb] = overlay.points ?? [];
     const color = overlay.styles?.line?.color || '#3b82f6';
+    const figures: any[] = [
+      { type: 'line', attrs: { coordinates: [a, b] }, styles: { style: 'solid', color, size: 2 } }
+    ];
 
-    const priceDelta = pb?.value != null && pa?.value != null ? pb.value - pa.value : 0;
-    const pricePct = pa?.value ? (priceDelta / pa.value) * 100 : 0;
-    const bars =
-      pb?.dataIndex != null && pa?.dataIndex != null ? Math.abs(pb.dataIndex - pa.dataIndex) : 0;
-    const angleDeg = (Math.atan2(-(b.y - a.y), b.x - a.x) * 180) / Math.PI;
-    const isUp = priceDelta >= 0;
-    const decimals = Math.abs(priceDelta) >= 1 ? 2 : 5;
+    const infoText = typeof overlay.extendData === 'string' ? overlay.extendData : '';
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
 
-    return [
-      { type: 'line', attrs: { coordinates: [a, b] }, styles: { style: 'solid', color, size: 2 } },
-      {
+    if (infoText) {
+      figures.push({
         type: 'text',
-        attrs: {
-          x: (a.x + b.x) / 2,
-          y: (a.y + b.y) / 2 - 12,
-          align: 'center',
-          baseline: 'bottom',
-          text: `${isUp ? '▲' : '▼'} ${priceDelta.toFixed(decimals)} (${pricePct.toFixed(2)}%) · ${bars}b · ${angleDeg.toFixed(1)}°`
-        },
+        attrs: { x: midX, y: midY - 12, align: 'center', baseline: 'bottom', text: infoText },
         styles: {
           color: '#ffffff',
-          size: 11,
-          backgroundColor: isUp ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)',
-          paddingLeft: 6,
-          paddingRight: 6,
-          paddingTop: 3,
-          paddingBottom: 3,
+          size: 12,
+          backgroundColor: 'rgba(59,130,246,0.9)',
+          paddingLeft: 8,
+          paddingRight: 8,
+          paddingTop: 4,
+          paddingBottom: 4,
           borderRadius: 4
         }
-      }
-    ];
+      });
+    } else {
+      // Dica sutil de que dá pra clicar na linha e escrever algo — some assim que houver texto
+      figures.push({
+        type: 'text',
+        attrs: { x: midX, y: midY - 10, align: 'center', baseline: 'bottom', text: 'clique para escrever' },
+        styles: { color: 'rgba(148,163,184,0.7)', size: 10, backgroundColor: 'transparent' }
+      });
+    }
+
+    return figures;
   }
 };
 
@@ -986,6 +987,10 @@ export function ChartView() {
   const [isAddingText, setIsAddingText] = useState(false); // Modo de adicionar texto
   const [textInput, setTextInput] = useState(''); // Texto sendo digitado
   const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null); // Posição do texto
+
+  // 🆕 Editor de texto da "Linha com Informações" — clique na linha abre este input
+  const [infoLineEditor, setInfoLineEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
+  const [infoLineText, setInfoLineText] = useState('');
   const [chartTexts, setChartTexts] = useState<Array<{ id: string; text: string; x: number; y: number }>>([]); // Textos no gráfico
   
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -3266,15 +3271,27 @@ export function ChartView() {
       // 🆕 Subscribe to overlay click events
       chart.subscribeAction('onOverlayClick', (data: any) => {
         console.log('[ChartView] 🎨 Overlay clicked:', data);
-        
+
         if (data && data.overlay) {
+          // 🆕 Clicar numa "Linha com Informações" abre o editor de texto livre em vez
+          // da toolbar de contexto genérica — é a interação pedida: desenha a linha,
+          // clica nela, escreve a informação.
+          if (data.overlay.name === 'infoLine') {
+            const chartRect = chartContainerRef.current?.getBoundingClientRect();
+            const clickX = data.x ?? (chartRect ? chartRect.width / 2 : 0);
+            const clickY = data.y ?? (chartRect ? chartRect.height / 2 : 0);
+            setInfoLineText(typeof data.overlay.extendData === 'string' ? data.overlay.extendData : '');
+            setInfoLineEditor({ overlayId: data.overlay.id, x: clickX, y: clickY });
+            return;
+          }
+
           setSelectedDrawing({
             id: data.overlay.id,
             type: data.overlay.name,
             isLocked: false,
             isHidden: false
           });
-          
+
           // Position toolbar near the click
           const chartRect = chartContainerRef.current?.getBoundingClientRect();
           if (chartRect) {
@@ -3283,7 +3300,7 @@ export function ChartView() {
               y: chartRect.top + 50 // 50px do topo
             });
           }
-          
+
           setShowContextToolbar(true);
           toast.info('Desenho selecionado - use a toolbar para editar');
         }
@@ -4680,6 +4697,46 @@ export function ChartView() {
                 {formatCountdown(candleCountdown)}
               </span>
             </div>
+
+            {/* 📝 INPUT DE TEXTO DA LINHA COM INFORMAÇÕES — abre ao clicar numa infoLine */}
+            {infoLineEditor && (
+              <div
+                className="absolute z-[80]"
+                style={{ left: infoLineEditor.x, top: infoLineEditor.y }}
+              >
+                <input
+                  type="text"
+                  value={infoLineText}
+                  onChange={(e) => setInfoLineText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      try {
+                        chartInstanceRef.current?.overrideOverlay({
+                          id: infoLineEditor.overlayId,
+                          extendData: infoLineText
+                        });
+                        toast.success('Informação salva na linha');
+                      } catch (err) {
+                        console.error('[ChartView] ❌ Error saving info-line text:', err);
+                        toast.error('Erro ao salvar informação');
+                      }
+                      setInfoLineEditor(null);
+                      setInfoLineText('');
+                    } else if (e.key === 'Escape') {
+                      setInfoLineEditor(null);
+                      setInfoLineText('');
+                    }
+                  }}
+                  onBlur={() => {
+                    setInfoLineEditor(null);
+                    setInfoLineText('');
+                  }}
+                  autoFocus
+                  placeholder="Digite a informação..."
+                  className="px-2 py-1 rounded bg-gray-900 border border-blue-500 text-white text-xs outline-none min-w-[180px]"
+                />
+              </div>
+            )}
 
             {/* 📝 INPUT DE TEXTO FLUTUANTE */}
             {textPosition && (
