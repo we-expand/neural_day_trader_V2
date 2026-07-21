@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Waves, Box, GitBranch, ArrowUpRight, ArrowDownRight, RefreshCw, History, Target } from 'lucide-react';
+import { Waves, Box, GitBranch, ArrowUpRight, ArrowDownRight, RefreshCw, History, Target, Info } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 import { analyzeSmc } from '@/app/services/smc';
@@ -185,16 +185,23 @@ export function LiquidityDetectorCard() {
     return [...result.orderBlocks, ...result.fairValueGaps, ...result.liquidityPools];
   }, [result]);
 
+  // Todas as zonas não testadas, com direção calculada — base pra contagem por lado
+  // e pro corte de exibição (upcomingTargets), sem perder a informação de quantas
+  // existem de cada lado quando o corte de MAX_TARGETS deixa alguma de fora.
+  const allUpcoming = useMemo(() => {
+    if (!currentPrice) return [];
+    return allZones.filter((z) => !z.mitigated).map((z) => computeDistance(z, currentPrice));
+  }, [allZones, currentPrice]);
+
   // Alvos futuros: zonas que o preço ainda não visitou, ordenadas da mais
   // próxima pra mais distante — é a leitura de "pra onde a liquidez tende a puxar o preço a seguir".
-  const upcomingTargets = useMemo(() => {
-    if (!currentPrice) return [];
-    return allZones
-      .filter((z) => !z.mitigated)
-      .map((z) => computeDistance(z, currentPrice))
-      .sort((a, b) => a.distanceAbs - b.distanceAbs)
-      .slice(0, MAX_TARGETS);
-  }, [allZones, currentPrice]);
+  const upcomingTargets = useMemo(
+    () => [...allUpcoming].sort((a, b) => a.distanceAbs - b.distanceAbs).slice(0, MAX_TARGETS),
+    [allUpcoming]
+  );
+
+  const countAbove = allUpcoming.filter((t) => t.direction === 'acima').length;
+  const countBelow = allUpcoming.filter((t) => t.direction === 'abaixo').length;
 
   const historyZones = useMemo(() => {
     return allZones
@@ -235,9 +242,30 @@ export function LiquidityDetectorCard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Próximos alvos (preditivo) */}
             <div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-                <Target className="w-3 h-3" /> Próximos Alvos de Liquidez
-              </p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                  <Target className="w-3 h-3" /> Próximos Alvos de Liquidez
+                </p>
+                {!loading && (countAbove > 0 || countBelow > 0) && (
+                  <p className="text-[10px] font-semibold shrink-0">
+                    <span className="text-emerald-400">▲ {countAbove} acima</span>
+                    <span className="text-slate-600"> · </span>
+                    <span className="text-red-400">▼ {countBelow} abaixo</span>
+                  </p>
+                )}
+              </div>
+
+              {!loading && (countAbove === 0 || countBelow === 0) && (countAbove > 0 || countBelow > 0) && (
+                <div className="flex items-start gap-2 rounded-lg px-3 py-2 mb-2 bg-blue-500/10 border border-blue-500/20">
+                  <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-blue-300 leading-relaxed">
+                    {countAbove === 0
+                      ? 'Nenhuma zona identificada acima do preço nesta janela — o mercado fez máxima recente sem deixar estrutura de reversão pra trás. Isso é esperado numa tendência de alta forte sem pullback; não é uma previsão de queda, só ausência de dado histórico ali.'
+                      : 'Nenhuma zona identificada abaixo do preço nesta janela — o mercado fez mínima recente sem deixar estrutura de reversão pra trás. Isso é esperado numa tendência de baixa forte sem repique; não é uma previsão de alta, só ausência de dado histórico ali.'}
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 {loading && upcomingTargets.length === 0 && <EmptyRow text="Calculando..." />}
                 {!loading && upcomingTargets.length === 0 && (
