@@ -962,11 +962,15 @@ export function ChartView() {
     // Buscar na primeira vez
     updateLivePrices();
     
-    // 1s (reduzido de 5s pra melhorar fluidez de animação de candles): este painel
-    // busca preços em lote (getBatchedMT5Data com chunking interno de 40 símbolos)
-    // contra a conta MetaAPI compartilhada — chunk pequeno + intervalo curto = taxa
-    // de atualização fluída sem sobrecarga excessiva
-    const interval = setInterval(updateLivePrices, 1000);
+    // ⚠️ REVERTIDO 2026-07-20: tinha reduzido de 5s pra 1s achando que ajudaria
+    // a fluidez, mas esse painel busca TODOS os ~300 ativos do catálogo numa
+    // única chamada em lote (getBatchedMT5Data) contra a conta MetaAPI
+    // compartilhada — rodar isso 5x mais rápido sobrecarrega a conta e disputa
+    // recursos com o carregamento do próprio Gráfico selecionado (achado real:
+    // Cleber reportou Gráfico "demorando demais" e "achatado" logo depois desta
+    // mudança). A fluidez do candle selecionado já vem do streaming de preço
+    // (subscribeToSymbol, 2s) — não depende deste painel demonstrativo.
+    const interval = setInterval(updateLivePrices, 5000);
     
     return () => clearInterval(interval);
   }, []); // Executar apenas uma vez ao montar
@@ -3464,12 +3468,17 @@ export function ChartView() {
                   <div className={`text-2xl font-bold tracking-tight tabular-nums ${
                     isPositive ? 'text-green-400' : 'text-red-400'
                   }`} style={{fontFamily: 'ui-monospace, monospace'}}>
-                    {isPositive ? '+' : '-'}{formatBrazilianPrice(Math.abs(dailyChange), getPrecisionForSymbol(selectedSymbol, displayedPrice ?? Math.abs(dailyChange)))}
+                    {/* ✅ 2026-07-20: NÃO usar formatBrazilianPrice/padIntegerPart aqui —
+                        essa regra de "4 dígitos antes do ponto" foi pensada só pro preço
+                        PRINCIPAL (fazer o número "parecer vivo"), aplicada por engano
+                        também no valor de VARIAÇÃO (delta), que é naturalmente pequeno
+                        (ex: 0.00246) — resultava em "-0000.00246", ilegível. */}
+                    {isPositive ? '+' : '-'}{Math.abs(dailyChange).toFixed(getPrecisionForSymbol(selectedSymbol, displayedPrice ?? Math.abs(dailyChange)))}
                   </div>
                   <div className={`text-sm font-medium ${
                     isPositive ? 'text-green-400' : 'text-red-400'
                   }`}>
-                    {isPositive ? '+' : '-'}{formatBrazilianPrice(Math.abs(dailyChangePercent || 0), 2)}% hoje
+                    {isPositive ? '+' : '-'}{Math.abs(dailyChangePercent || 0).toFixed(2)}% hoje
                   </div>
                 </div>
               </div>
