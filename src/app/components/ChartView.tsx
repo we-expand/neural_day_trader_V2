@@ -2003,7 +2003,38 @@ export function ChartView() {
       // Use the createOverlay method with proper overlay name
       // 🆕 groupId separa desenhos do usuário dos overlays de sistema (S/R, sinais) —
       // travar/ocultar/apagar da toolbar agora age SÓ neste grupo.
-      const overlayId = chartInstanceRef.current.createOverlay({ name: overlayType, groupId: USER_DRAWINGS_GROUP });
+      // 🔧 FIX: chart.subscribeAction('onOverlayClick', ...) NUNCA funcionou — o ActionType
+      // desta versão da klinecharts (ver enum: OnDataReady/OnZoom/OnScroll/...) nem tem esse
+      // membro, então o clique num desenho não disparava nada (nem o editor da Linha com
+      // Informações, nem a toolbar de contexto de Bloquear/Ocultar/Estilo/Duplicar/Copiar).
+      // O jeito real de ouvir clique em overlay é o handler onClick por instância, atribuído
+      // na própria criação (ver Overlay.onClick na tipagem da lib).
+      const overlayId = chartInstanceRef.current.createOverlay({
+        name: overlayType,
+        groupId: USER_DRAWINGS_GROUP,
+        onClick: (event: any) => {
+          if (overlayType === 'infoLine') {
+            setInfoLineText(typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '');
+            setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
+          } else {
+            setSelectedDrawing({
+              id: event.overlay.id,
+              type: event.overlay.name,
+              isLocked: !!event.overlay.lock,
+              isHidden: event.overlay.visible === false
+            });
+            const chartRect = chartContainerRef.current?.getBoundingClientRect();
+            if (chartRect) {
+              setContextToolbarPosition({
+                x: chartRect.left + chartRect.width / 2 - 200,
+                y: chartRect.top + 50
+              });
+            }
+            setShowContextToolbar(true);
+          }
+          return true;
+        }
+      });
       
       if (overlayId) {
         console.log('[ChartView] ✅ Overlay created with ID:', overlayId);
@@ -3268,43 +3299,12 @@ export function ChartView() {
         }
       }
 
-      // 🆕 Subscribe to overlay click events
-      chart.subscribeAction('onOverlayClick', (data: any) => {
-        console.log('[ChartView] 🎨 Overlay clicked:', data);
-
-        if (data && data.overlay) {
-          // 🆕 Clicar numa "Linha com Informações" abre o editor de texto livre em vez
-          // da toolbar de contexto genérica — é a interação pedida: desenha a linha,
-          // clica nela, escreve a informação.
-          if (data.overlay.name === 'infoLine') {
-            const chartRect = chartContainerRef.current?.getBoundingClientRect();
-            const clickX = data.x ?? (chartRect ? chartRect.width / 2 : 0);
-            const clickY = data.y ?? (chartRect ? chartRect.height / 2 : 0);
-            setInfoLineText(typeof data.overlay.extendData === 'string' ? data.overlay.extendData : '');
-            setInfoLineEditor({ overlayId: data.overlay.id, x: clickX, y: clickY });
-            return;
-          }
-
-          setSelectedDrawing({
-            id: data.overlay.id,
-            type: data.overlay.name,
-            isLocked: false,
-            isHidden: false
-          });
-
-          // Position toolbar near the click
-          const chartRect = chartContainerRef.current?.getBoundingClientRect();
-          if (chartRect) {
-            setContextToolbarPosition({
-              x: chartRect.left + chartRect.width / 2 - 200, // Centro horizontal menos metade da largura da toolbar
-              y: chartRect.top + 50 // 50px do topo
-            });
-          }
-
-          setShowContextToolbar(true);
-          toast.info('Desenho selecionado - use a toolbar para editar');
-        }
-      });
+      // ❌ REMOVIDO: chart.subscribeAction('onOverlayClick', ...) — nunca funcionou
+      // (ActionType desta versão da klinecharts não tem esse membro; ver o enum real:
+      // OnDataReady/OnZoom/OnScroll/OnVisibleRangeChange/OnTooltipIconClick/
+      // OnCrosshairChange/OnCandleBarClick/OnPaneDrag). O clique num desenho agora é
+      // tratado pelo onClick por instância, atribuído na criação de cada overlay
+      // (ver handleDrawingToolSelect).
 
       // Fechar toolbar ao clicar no gráfico (não em overlay)
       chart.subscribeAction('onClick', (data: any) => {
