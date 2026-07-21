@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Waves, Box, GitBranch, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react';
+import { Waves, Box, GitBranch, ArrowUpRight, ArrowDownRight, RefreshCw, History, Target } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 import { analyzeSmc } from '@/app/services/smc';
-import type { SmcAnalysisResult, SmcZone } from '@/app/services/smc';
+import type { SmcAnalysisResult, SmcZone, SmcZoneType } from '@/app/services/smc';
 
 const TIMEFRAME = '1h' as const;
 const CANDLE_WINDOW_DAYS = 14; // ~336 candles de 1h — janela suficiente pra swings/estrutura
+const MAX_TARGETS = 8;
 
 function formatPrice(value: number): string {
   return value >= 100 ? value.toFixed(2) : value.toFixed(5);
@@ -21,38 +22,101 @@ function timeAgo(ms: number): string {
   return `há ${Math.round(diffH / 24)}d`;
 }
 
-function ZoneRow({ zone, label, bullish }: { zone: SmcZone; label: string; bullish: boolean }) {
+const ZONE_META: Record<SmcZoneType, { category: string; icon: typeof Box; bullish: boolean }> = {
+  order_block_bullish: { category: 'Bloco de Ordem', icon: Box, bullish: true },
+  order_block_bearish: { category: 'Bloco de Ordem', icon: Box, bullish: false },
+  fvg_bullish: { category: 'FVG', icon: GitBranch, bullish: true },
+  fvg_bearish: { category: 'FVG', icon: GitBranch, bullish: false },
+  liquidity_pool_buyside: { category: 'Piscina de Liquidez · Lado Comprador', icon: Waves, bullish: true },
+  liquidity_pool_sellside: { category: 'Piscina de Liquidez · Lado Vendedor', icon: Waves, bullish: false }
+};
+
+type ZoneDirection = 'acima' | 'abaixo' | 'dentro';
+
+interface ZoneWithDistance {
+  zone: SmcZone;
+  direction: ZoneDirection;
+  distanceAbs: number;
+  distancePct: number;
+}
+
+function computeDistance(zone: SmcZone, currentPrice: number): ZoneWithDistance {
+  let direction: ZoneDirection;
+  let distanceAbs: number;
+
+  if (currentPrice < zone.priceLow) {
+    direction = 'acima';
+    distanceAbs = zone.priceLow - currentPrice;
+  } else if (currentPrice > zone.priceHigh) {
+    direction = 'abaixo';
+    distanceAbs = currentPrice - zone.priceHigh;
+  } else {
+    direction = 'dentro';
+    distanceAbs = 0;
+  }
+
+  return { zone, direction, distanceAbs, distancePct: (distanceAbs / currentPrice) * 100 };
+}
+
+function EmptyRow({ text }: { text: string }) {
+  return <p className="text-xs text-slate-600 italic px-3 py-2">{text}</p>;
+}
+
+function TargetRow({ item }: { item: ZoneWithDistance }) {
+  const { zone, direction, distancePct } = item;
+  const meta = ZONE_META[zone.type];
+  const Icon = meta.icon;
+
   return (
-    <div
-      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border ${
-        zone.mitigated ? 'bg-white/[0.02] border-white/5 opacity-50' : 'bg-white/5 border-white/10'
-      }`}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        {bullish ? (
-          <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-        ) : (
-          <ArrowDownRight className="w-3.5 h-3.5 text-red-400 shrink-0" />
-        )}
+    <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 border bg-white/5 border-white/10">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div
+          className={`shrink-0 w-7 h-7 rounded-md flex items-center justify-center ${
+            meta.bullish ? 'bg-emerald-500/10' : 'bg-red-500/10'
+          }`}
+        >
+          <Icon className={`w-3.5 h-3.5 ${meta.bullish ? 'text-emerald-400' : 'text-red-400'}`} />
+        </div>
         <div className="min-w-0">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</p>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide truncate">{meta.category}</p>
           <p className="text-xs font-mono font-bold text-slate-200 truncate">
             {formatPrice(zone.priceLow)} — {formatPrice(zone.priceHigh)}
           </p>
         </div>
       </div>
       <div className="text-right shrink-0">
-        <p className="text-[10px] text-slate-500">{zone.strength.toFixed(0)}%</p>
-        <p className={`text-[9px] font-semibold ${zone.mitigated ? 'text-slate-600' : 'text-cyan-400'}`}>
-          {zone.mitigated ? 'mitigado' : 'ativo'}
-        </p>
+        {direction === 'dentro' ? (
+          <p className="text-[10px] font-semibold text-amber-400">preço dentro da zona</p>
+        ) : (
+          <p className={`text-xs font-bold ${direction === 'acima' ? 'text-emerald-400' : 'text-red-400'}`}>
+            {direction === 'acima' ? '▲' : '▼'} {distancePct.toFixed(2)}%
+          </p>
+        )}
+        <p className="text-[10px] text-slate-500">força {zone.strength.toFixed(0)}%</p>
       </div>
     </div>
   );
 }
 
-function EmptyRow({ text }: { text: string }) {
-  return <p className="text-xs text-slate-600 italic px-3 py-2">{text}</p>;
+function HistoryRow({ zone }: { zone: SmcZone }) {
+  const meta = ZONE_META[zone.type];
+  const Icon = meta.icon;
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 border bg-white/[0.02] border-white/5 opacity-60">
+      <div className="flex items-center gap-2 min-w-0">
+        <Icon className={`w-3.5 h-3.5 shrink-0 ${meta.bullish ? 'text-emerald-400' : 'text-red-400'}`} />
+        <div className="min-w-0">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide truncate">{meta.category}</p>
+          <p className="text-xs font-mono font-bold text-slate-300 truncate">
+            {formatPrice(zone.priceLow)} — {formatPrice(zone.priceHigh)}
+          </p>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-600 shrink-0">
+        testada {zone.mitigatedAt ? timeAgo(zone.mitigatedAt) : ''}
+      </p>
+    </div>
+  );
 }
 
 export function LiquidityDetectorCard() {
@@ -60,11 +124,14 @@ export function LiquidityDetectorCard() {
   const symbol = dashboardActiveSymbol || 'BTCUSD';
 
   const [result, setResult] = useState<SmcAnalysisResult | null>(null);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setShowHistory(false);
 
     const load = async () => {
       setLoading(true);
@@ -87,6 +154,7 @@ export function LiquidityDetectorCard() {
 
         const analysis = analyzeSmc(candles, symbol, TIMEFRAME);
         setResult(analysis);
+        setCurrentPrice(candles.length > 0 ? candles[candles.length - 1].close : null);
       } catch (err) {
         if (cancelled) return;
         const message =
@@ -97,6 +165,7 @@ export function LiquidityDetectorCard() {
             : 'Erro desconhecido ao buscar candles.';
         setErrorMsg(message);
         setResult(null);
+        setCurrentPrice(null);
         console.warn('[LiquidityDetectorCard] ⚠️ Falha ao carregar/analisar SMC', err);
       } finally {
         if (!cancelled) setLoading(false);
@@ -111,11 +180,29 @@ export function LiquidityDetectorCard() {
     };
   }, [symbol]);
 
-  const orderBlocks = result?.orderBlocks.slice(0, 3) ?? [];
-  const fairValueGaps = result?.fairValueGaps.slice(0, 3) ?? [];
-  const liquidityPools = result?.liquidityPools.slice(0, 3) ?? [];
-  const lastEvent = result?.lastStructureEvent ?? null;
+  const allZones = useMemo(() => {
+    if (!result) return [];
+    return [...result.orderBlocks, ...result.fairValueGaps, ...result.liquidityPools];
+  }, [result]);
 
+  // Alvos futuros: zonas que o preço ainda não visitou, ordenadas da mais
+  // próxima pra mais distante — é a leitura de "pra onde a liquidez tende a puxar o preço a seguir".
+  const upcomingTargets = useMemo(() => {
+    if (!currentPrice) return [];
+    return allZones
+      .filter((z) => !z.mitigated)
+      .map((z) => computeDistance(z, currentPrice))
+      .sort((a, b) => a.distanceAbs - b.distanceAbs)
+      .slice(0, MAX_TARGETS);
+  }, [allZones, currentPrice]);
+
+  const historyZones = useMemo(() => {
+    return allZones
+      .filter((z) => z.mitigated)
+      .sort((a, b) => (b.mitigatedAt ?? 0) - (a.mitigatedAt ?? 0));
+  }, [allZones]);
+
+  const lastEvent = result?.lastStructureEvent ?? null;
   const structureLabel = useMemo(() => {
     if (!lastEvent) return null;
     const kindLabel = lastEvent.kind === 'CHoCH' ? 'Mudança de Caráter (CHoCH)' : 'Rompimento de Estrutura (BOS)';
@@ -125,7 +212,7 @@ export function LiquidityDetectorCard() {
 
   return (
     <div className="bg-neutral-950 border border-white/5 rounded-xl p-5 h-full flex flex-col overflow-y-auto custom-scrollbar">
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex justify-between items-start mb-1">
         <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
           <Waves className="w-4 h-4" />
           Detector de Liquidez — {symbol}
@@ -135,86 +222,80 @@ export function LiquidityDetectorCard() {
           {result && !loading && <span>calculado {timeAgo(result.computedAt)}</span>}
         </div>
       </div>
+      <p className="text-[10px] text-slate-600 mb-4">
+        Zonas de liquidez que o preço ainda não visitou — pra onde ele tende a ser puxado a seguir, não onde já esteve.
+      </p>
 
       {errorMsg ? (
         <div className="flex-1 flex items-center justify-center text-center px-4">
           <p className="text-xs text-slate-500">{errorMsg}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 flex-1">
-          {/* Order Blocks */}
-          <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <Box className="w-3 h-3" /> Blocos de Ordem
-            </p>
-            <div className="space-y-1.5">
-              {loading && orderBlocks.length === 0 && <EmptyRow text="Calculando..." />}
-              {!loading && orderBlocks.length === 0 && <EmptyRow text="Nenhum Bloco de Ordem relevante nesta janela." />}
-              {orderBlocks.map((z) => (
-                <ZoneRow key={z.id} zone={z} label="Bloco de Ordem" bullish={z.type === 'order_block_bullish'} />
-              ))}
+        <div className="flex-1 flex flex-col gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Próximos alvos (preditivo) */}
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
+                <Target className="w-3 h-3" /> Próximos Alvos de Liquidez
+              </p>
+              <div className="space-y-1.5">
+                {loading && upcomingTargets.length === 0 && <EmptyRow text="Calculando..." />}
+                {!loading && upcomingTargets.length === 0 && (
+                  <EmptyRow text="Nenhuma zona não testada nesta janela." />
+                )}
+                {upcomingTargets.map((item) => (
+                  <TargetRow key={item.zone.id} item={item} />
+                ))}
+              </div>
             </div>
-          </div>
 
-          {/* Fair Value Gaps */}
-          <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <GitBranch className="w-3 h-3" /> Gaps de Valor Justo
-            </p>
-            <div className="space-y-1.5">
-              {loading && fairValueGaps.length === 0 && <EmptyRow text="Calculando..." />}
-              {!loading && fairValueGaps.length === 0 && <EmptyRow text="Nenhum FVG relevante nesta janela." />}
-              {fairValueGaps.map((z) => (
-                <ZoneRow key={z.id} zone={z} label="FVG" bullish={z.type === 'fvg_bullish'} />
-              ))}
-            </div>
-          </div>
-
-          {/* Liquidity Pools */}
-          <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <Waves className="w-3 h-3" /> Piscinas de Liquidez
-            </p>
-            <div className="space-y-1.5">
-              {loading && liquidityPools.length === 0 && <EmptyRow text="Calculando..." />}
-              {!loading && liquidityPools.length === 0 && <EmptyRow text="Nenhuma piscina de liquidez relevante." />}
-              {liquidityPools.map((z) => (
-                <ZoneRow
-                  key={z.id}
-                  zone={z}
-                  label={z.type === 'liquidity_pool_buyside' ? 'Lado Comprador' : 'Lado Vendedor'}
-                  bullish={z.type === 'liquidity_pool_buyside'}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Estrutura */}
-          <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
-              <ArrowUpRight className="w-3 h-3" /> Estrutura
-            </p>
-            {loading && !structureLabel && <EmptyRow text="Calculando..." />}
-            {!loading && !structureLabel && <EmptyRow text="Sem evento de estrutura detectado." />}
-            {structureLabel && lastEvent && (
-              <div
-                className={`rounded-lg px-3 py-2.5 border ${
-                  lastEvent.direction === 'bullish'
-                    ? 'bg-emerald-500/10 border-emerald-500/20'
-                    : 'bg-red-500/10 border-red-500/20'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  {lastEvent.direction === 'bullish' ? (
-                    <ArrowUpRight className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <ArrowDownRight className="w-4 h-4 text-red-400" />
-                  )}
-                  <p className="text-xs font-bold text-slate-200">{structureLabel.kindLabel}</p>
+            {/* Estrutura */}
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5">
+                <ArrowUpRight className="w-3 h-3" /> Estrutura (contexto de tendência)
+              </p>
+              {loading && !structureLabel && <EmptyRow text="Calculando..." />}
+              {!loading && !structureLabel && <EmptyRow text="Sem evento de estrutura detectado." />}
+              {structureLabel && lastEvent && (
+                <div
+                  className={`rounded-lg px-3 py-2.5 border ${
+                    lastEvent.direction === 'bullish'
+                      ? 'bg-emerald-500/10 border-emerald-500/20'
+                      : 'bg-red-500/10 border-red-500/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    {lastEvent.direction === 'bullish' ? (
+                      <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <ArrowDownRight className="w-4 h-4 text-red-400" />
+                    )}
+                    <p className="text-xs font-bold text-slate-200">{structureLabel.kindLabel}</p>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    {structureLabel.dirLabel} · {formatPrice(lastEvent.price)} · {timeAgo(lastEvent.time)}
+                  </p>
                 </div>
-                <p className="text-[10px] text-slate-500">
-                  {structureLabel.dirLabel} · {formatPrice(lastEvent.price)} · {timeAgo(lastEvent.time)}
-                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Histórico (zonas já testadas) — escondido por padrão */}
+          <div className="border-t border-white/5 pt-3">
+            <button
+              type="button"
+              onClick={() => setShowHistory((v) => !v)}
+              className="text-[10px] text-slate-500 hover:text-slate-300 uppercase tracking-widest font-bold flex items-center gap-1.5 transition-colors"
+            >
+              <History className="w-3 h-3" />
+              {showHistory ? 'Ocultar' : 'Ver'} histórico ({historyZones.length} zona{historyZones.length === 1 ? '' : 's'} já testada{historyZones.length === 1 ? '' : 's'})
+            </button>
+            {showHistory && (
+              <div className="space-y-1.5 mt-2">
+                {historyZones.length === 0 && <EmptyRow text="Nenhuma zona testada nesta janela." />}
+                {historyZones.map((z) => (
+                  <HistoryRow key={z.id} zone={z} />
+                ))}
               </div>
             )}
           </div>
