@@ -3118,6 +3118,12 @@ export function ChartView() {
     
     // 🔄 RESET da flag de primeira carga quando símbolo/timeframe mudam
     isInitialLoadRef.current = true;
+    // 🛡️ Limpa o buffer de candles da carga anterior — sem isso, o tick de streaming
+    // que chega ANTES do histórico novo carregar via um candle velho (de outro
+    // símbolo/timeframe) no ref, passava na checagem length > 0 e aplicava
+    // chart.updateData num gráfico vazio → um único candle gigante na tela até o
+    // applyNewData do fetch substituir tudo ("gráfico buga e depois volta").
+    chartDataRef.current = [];
     console.log('[ChartView] 🔄 Flag isInitialLoad resetada (novo símbolo/timeframe)');
   }, [timeframe, selectedSymbol]); // Removed currentPrice and openPrice to avoid circular dependency
 
@@ -3212,7 +3218,10 @@ export function ChartView() {
       
       // 🚀 Atualizar último candle do gráfico em tempo real COM DEBOUNCE
       // Debounce evita sobrecarregar o gráfico com muitas atualizações/segundo
-      if (chartInstanceRef.current && chartDataRef.current.length > 0) {
+      // 🛡️ isInitialLoadRef: enquanto o histórico do símbolo/timeframe atual ainda não
+      // carregou, nunca aplicar tick no gráfico — updateData num gráfico vazio cria um
+      // candle órfão gigante (o "bug que depois volta ao normal").
+      if (chartInstanceRef.current && chartDataRef.current.length > 0 && !isInitialLoadRef.current) {
         const chart = chartInstanceRef.current;
         const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
 
