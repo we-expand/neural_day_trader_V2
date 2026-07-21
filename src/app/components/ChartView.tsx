@@ -258,6 +258,39 @@ try {
   console.warn('[ChartView] ⚠️ Measure Ruler overlay já registrado ou erro:', e);
 }
 
+// 🎯 CUSTOM OVERLAY: Marcador de Emoji (1 clique — o emoji escolhido no picker fica
+// ancorado no candle/preço clicado). O EmojiPicker já existia pronto no código
+// (DrawingToolDropdown.tsx) mas nunca era renderizado — este overlay fecha o circuito.
+const EmojiMarkerOverlay: OverlayTemplate = {
+  name: 'emojiMarker',
+  totalStep: 1,
+  needDefaultPointFigure: false,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length === 0) return [];
+    const point = coordinates[0];
+    return {
+      type: 'text',
+      attrs: {
+        x: point.x,
+        y: point.y,
+        align: 'center',
+        baseline: 'middle',
+        text: typeof overlay.extendData === 'string' && overlay.extendData ? overlay.extendData : '📍'
+      },
+      styles: { size: 24, backgroundColor: 'transparent' }
+    };
+  }
+};
+
+try {
+  registerOverlay(EmojiMarkerOverlay);
+  console.log('[ChartView] ✅ Emoji Marker overlay registrado');
+} catch (e) {
+  console.warn('[ChartView] ⚠️ Emoji Marker overlay já registrado ou erro:', e);
+}
+
 // 🆕 Grupo de overlays criados PELO USUÁRIO via toolbar de desenho — separa os desenhos
 // do usuário dos overlays de sistema (linhas de S/R, sinais), permitindo travar/ocultar/
 // apagar só os desenhos sem afetar o resto do gráfico.
@@ -2022,6 +2055,28 @@ export function ChartView() {
     }
   };
 
+  // 🆕 Emoji escolhido no picker → próximo clique no gráfico ancora o emoji ali
+  const handleEmojiSelect = (emoji: string) => {
+    if (!chartInstanceRef.current) {
+      toast.error('Aguarde o carregamento do gráfico');
+      return;
+    }
+    try {
+      chartInstanceRef.current.createOverlay({
+        name: 'emojiMarker',
+        groupId: USER_DRAWINGS_GROUP,
+        extendData: emoji
+      });
+      toast.success(`${emoji} selecionado`, {
+        description: 'Clique no gráfico para posicionar',
+        duration: 2500
+      });
+    } catch (error) {
+      console.error('[ChartView] ❌ Error creating emoji marker:', error);
+      toast.error('Erro ao criar marcador');
+    }
+  };
+
   // 🆕 CONTEXT TOOLBAR HANDLERS
   const handleDrawingDelete = () => {
     if (!chartInstanceRef.current || !selectedDrawing) return;
@@ -2038,20 +2093,50 @@ export function ChartView() {
   };
 
   const handleDrawingLockToggle = () => {
-    if (!selectedDrawing) return;
-    
+    if (!chartInstanceRef.current || !selectedDrawing) return;
+
     const newLockState = !selectedDrawing.isLocked;
-    setSelectedDrawing({ ...selectedDrawing, isLocked: newLockState });
-    toast.success(newLockState ? 'Desenho bloqueado' : 'Desenho desbloqueado');
+    try {
+      // 🔧 FIX: antes só mudava estado local + toast — agora trava o overlay de verdade
+      chartInstanceRef.current.overrideOverlay({ id: selectedDrawing.id, lock: newLockState });
+      setSelectedDrawing({ ...selectedDrawing, isLocked: newLockState });
+      toast.success(newLockState ? 'Desenho bloqueado' : 'Desenho desbloqueado');
+    } catch (error) {
+      console.error('[ChartView] ❌ Error locking drawing:', error);
+      toast.error('Erro ao bloquear desenho');
+    }
   };
 
   const handleDrawingStyleChange = (style: any) => {
     if (!chartInstanceRef.current || !selectedDrawing) return;
-    
+
     try {
-      // Atualizar estilo do overlay
-      console.log('[ChartView] 🎨 Updating drawing style:', style);
-      toast.success('Estilo atualizado');
+      // 🔧 FIX: antes era só console.log + toast falso de sucesso — agora aplica de verdade.
+      // Payload vem da DrawingContextToolbar: { lineWidth } | { fontSize } | { lineStyle }
+      const styles: any = {};
+      if (typeof style.lineWidth === 'number') {
+        styles.line = { ...(styles.line || {}), size: style.lineWidth };
+      }
+      if (style.lineStyle === 'solid' || style.lineStyle === 'dashed' || style.lineStyle === 'dotted') {
+        styles.line = {
+          ...(styles.line || {}),
+          style: style.lineStyle === 'solid' ? 'solid' : 'dashed',
+          dashedValue: style.lineStyle === 'dotted' ? [2, 4] : [4, 4]
+        };
+      }
+      if (typeof style.fontSize === 'number') {
+        styles.text = { ...(styles.text || {}), size: style.fontSize };
+      }
+      if (typeof style.color === 'string') {
+        styles.line = { ...(styles.line || {}), color: style.color };
+        styles.text = { ...(styles.text || {}), color: style.color };
+      }
+      if (Object.keys(styles).length === 0) {
+        console.warn('[ChartView] ⚠️ Estilo não reconhecido:', style);
+        return;
+      }
+      chartInstanceRef.current.overrideOverlay({ id: selectedDrawing.id, styles });
+      console.log('[ChartView] 🎨 Drawing style applied:', styles);
     } catch (error) {
       console.error('[ChartView] ❌ Error updating style:', error);
       toast.error('Erro ao atualizar estilo');
@@ -2060,10 +2145,27 @@ export function ChartView() {
 
   const handleDrawingDuplicate = () => {
     if (!chartInstanceRef.current || !selectedDrawing) return;
-    
+
     try {
-      // Duplicar overlay
-      console.log('[ChartView] 📋 Duplicating drawing');
+      // 🔧 FIX: antes era só console.log + toast falso — agora clona o overlay de verdade,
+      // deslocado algumas barras pra direita pra não ficar exatamente em cima do original.
+      const chart = chartInstanceRef.current;
+      const original = chart.getOverlayById(selectedDrawing.id);
+      if (!original) {
+        toast.error('Desenho original não encontrado');
+        return;
+      }
+      const shiftedPoints = (original.points ?? []).map((p: any) => ({
+        dataIndex: typeof p.dataIndex === 'number' ? p.dataIndex + 5 : undefined,
+        value: p.value
+      }));
+      chart.createOverlay({
+        name: original.name,
+        groupId: USER_DRAWINGS_GROUP,
+        points: shiftedPoints,
+        styles: original.styles,
+        extendData: original.extendData
+      });
       toast.success('Desenho duplicado');
     } catch (error) {
       console.error('[ChartView] ❌ Error duplicating drawing:', error);
@@ -2072,12 +2174,25 @@ export function ChartView() {
   };
 
   const handleDrawingCopy = () => {
-    if (!selectedDrawing) return;
-    
+    if (!chartInstanceRef.current || !selectedDrawing) return;
+
     try {
-      // Copiar para clipboard
-      console.log('[ChartView] 📋 Copying drawing');
-      toast.success('Desenho copiado');
+      // 🔧 FIX: antes era toast falso — agora copia os dados reais do desenho
+      // (tipo + pontos preço/tempo) pro clipboard do sistema, como JSON.
+      const original = chartInstanceRef.current.getOverlayById(selectedDrawing.id);
+      if (!original) {
+        toast.error('Desenho não encontrado');
+        return;
+      }
+      const payload = JSON.stringify(
+        { name: original.name, points: original.points, extendData: original.extendData },
+        null,
+        2
+      );
+      navigator.clipboard
+        .writeText(payload)
+        .then(() => toast.success('Desenho copiado', { description: 'Dados (tipo + pontos) no clipboard' }))
+        .catch(() => toast.error('Clipboard indisponível neste navegador'));
     } catch (error) {
       console.error('[ChartView] ❌ Error copying drawing:', error);
       toast.error('Erro ao copiar desenho');
@@ -2085,11 +2200,18 @@ export function ChartView() {
   };
 
   const handleDrawingHideToggle = () => {
-    if (!selectedDrawing) return;
-    
+    if (!chartInstanceRef.current || !selectedDrawing) return;
+
     const newHiddenState = !selectedDrawing.isHidden;
-    setSelectedDrawing({ ...selectedDrawing, isHidden: newHiddenState });
-    toast.success(newHiddenState ? 'Desenho oculto' : 'Desenho visível');
+    try {
+      // 🔧 FIX: antes só mudava estado local + toast — agora oculta o overlay de verdade
+      chartInstanceRef.current.overrideOverlay({ id: selectedDrawing.id, visible: !newHiddenState });
+      setSelectedDrawing({ ...selectedDrawing, isHidden: newHiddenState });
+      toast.success(newHiddenState ? 'Desenho oculto' : 'Desenho visível');
+    } catch (error) {
+      console.error('[ChartView] ❌ Error hiding drawing:', error);
+      toast.error('Erro ao ocultar desenho');
+    }
   };
 
   // 🆕 HANDLE DELETE ALL DRAWINGS
@@ -4157,6 +4279,7 @@ export function ChartView() {
             onDeleteAll={handleDeleteAllDrawings}
             onLockToggle={handleToggleLockDrawings}
             onHideToggle={handleToggleHideDrawings}
+            onEmojiSelect={handleEmojiSelect}
             className="shrink-0"
           />
 

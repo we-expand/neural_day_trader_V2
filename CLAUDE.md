@@ -1,4 +1,52 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21, continuação)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21, continuação 2)
+
+## Sessão nova (2026-07-21, continuação 2): S/R do Gráfico por proximidade + macro SMC, fix do candle gigante no carregamento, auditoria e conserto da toolbar de desenho — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão do Detector de Liquidez (logo abaixo, mesmo dia — aquele trabalho AINDA NÃO FOI COMMITADO e está incluído no comando de commit desta seção). 3 frentes nesta janela, todas em cima do Gráfico.
+
+### 1. S/R do Gráfico: linhas ficavam longe demais do preço — 2 causas corrigidas (`ChartView.tsx`)
+
+Cleber: "resistências têm que funcionar próximo ao preço... temos que ter projeções futuras, como no Detector de Liquidez do Dashboard."
+- **Seleção por força → por proximidade**: `renderSrOverlays` escolhia os 3+3 níveis de maior força/volume (podiam estar longíssimo). Agora ordena por distância absoluta ao preço atual em cada lado.
+- **Janela curta → combinada com macro SMC**: novo `fetchMacroSrZones` (cache 30min por símbolo, `macroSrZonesRef`) busca 1D/~5 anos via `backtestDataService` + `analyzeSmc` (mesmo motor do Detector do Dashboard), filtra só zonas **não mitigadas** (= projeções futuras) e mescla com as zonas da janela curta via `buildSrZonesWithMacro` (dedupe de níveis a <0.15% um do outro). Roda em paralelo, redesenha quando chega; falha macro nunca quebra (segue só com a janela curta). Guarda contra troca de ativo no meio do fetch.
+
+### 2. Gráfico "bugava" com um único candle gigante ao carregar e depois voltava ao normal — corrida corrigida
+
+Print do Cleber: um candelão vermelho ocupando a tela toda, resolvia sozinho segundos depois. Causa: ao trocar ativo/timeframe o gráfico é recriado vazio, mas `chartDataRef` ainda tinha candle da carga anterior — o tick de streaming (2s) passava na checagem `length > 0` e aplicava `chart.updateData(candleVelho+preçoNovo)` num gráfico vazio → candle órfão único até o `applyNewData` do fetch substituir tudo. **Fix em 2 camadas**: (a) `chartDataRef.current = []` no efeito de reset de símbolo/timeframe; (b) o callback de streaming também exige `!isInitialLoadRef.current` antes de tocar no desenho (preço/variação do header seguem atualizando).
+
+### 3. Auditoria completa da toolbar de desenho (pedido: "existe algo mocado?") — 5 de 13 botões eram decorativos; camadas 1-2 consertadas
+
+Mapa completo está na conversa; resumo do que ERA mock: Medir, Zoom, Magnético, Travar, Ocultar (só toast+estado local, zero efeito no gráfico); Padrões/Elliott/GANN/Ciclos/Ícones 100% inertes ("em desenvolvimento"); toolbar de contexto com Duplicar/Copiar/Estilo falsos; 3 IDs de submenu quebrados por mismatch de nome.
+
+**Consertado nesta sessão** (`ChartView.tsx` + `DrawingToolbar.tsx`):
+- **Medir**: novo overlay customizado `measureRuler` (2 cliques → Δ preço, Δ %, nº de barras, verde/vermelho) — registrado no topo do arquivo, mesmo padrão do `PointMarkerOverlay`.
+- **Zoom**: `zoomAtCoordinate(1.25)` real com animação.
+- **Travar/Ocultar**: novos callbacks `onLockToggle`/`onHideToggle` → `overrideOverlay({ groupId, lock/visible })` — efeito real.
+- **Grupo `user_drawings`**: todo desenho da toolbar nasce com esse `groupId`; lixeira/travar/ocultar agem SÓ nos desenhos do usuário. Antes a lixeira (`removeOverlay()` sem arg) apagava também as linhas de S/R e sinais do sistema.
+- **IDs quebrados**: `fib-speed-fan`/`fib-speed-arcs` → `fibonacciSpeedResistanceFan` e `modified-schiff` → mapeado (nunca funcionaram por mismatch, implementação existia).
+- **Magnético**: parou de fingir sucesso — toast honesto de "em desenvolvimento" (snapping real = camada 3).
+
+### Verificação feita
+
+`npx tsc --noEmit` limpo em todos os arquivos tocados após cada frente. **Nada testado visualmente** — gráfico atrás de login e havia outro dev server de outra janela rodando nesta pasta durante a sessão inteira.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (acumula TUDO: esta sessão + a sessão do Detector de Liquidez logo abaixo, nada commitado ainda):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/Dashboard.tsx src/app/components/dashboard/LiquidityDetectorCard.tsx src/app/services/smc/liquidityPools.ts src/app/components/ChartView.tsx src/app/components/chart/DrawingToolbar.tsx CLAUDE.md
+git commit -m "fix: toolbar de desenho do Grafico -- torna reais Medir (overlay de regua delta preco/%/barras), Zoom, Travar e Ocultar; desenhos do usuario em grupo proprio (lixeira nao apaga mais S/R do sistema); corrige 3 IDs de submenu quebrados; Magnetico com aviso honesto. fix: candle gigante unico ao carregar/trocar ativo (corrida streaming vs historico). feat: S/R do Grafico por proximidade ao preco + estrutura macro SMC (1D/5 anos, zonas nao mitigadas = projecoes futuras). Inclui sessao do Detector de Liquidez (move pro Dashboard real, preditivo, fix clustering, janela macro, i18n)"
+git push origin main
+```
+2. ~~Migration 008~~ — ✅ **aplicada em produção nesta sessão** (via MCP do Supabase, autorizada pelo Cleber; confirmado: tabela existe com RLS habilitado). A persistência do toggle de S/R por usuário+ativo está destravada.
+3. **Confirmar em produção após deploy**: (a) Detector de Liquidez no fim do Dashboard com alvos dos 2 lados; (b) S/R do Gráfico com linhas perto do preço, atualizando ~1-2s depois quando o macro chega; (c) nunca mais o candle gigante ao trocar ativo/timeframe; (d) toolbar: Medir/Zoom/Travar/Ocultar funcionando, lixeira preservando S/R, os 2 leques de Fibonacci funcionando.
+4. **Camada 3 da toolbar — MAIOR PARTE FEITA na mesma sessão (continuação 3, pendente do MESMO commit acima + `DrawingToolbar.tsx`)**: EmojiPicker agora renderizado de verdade (botão de Ícones abre o picker; emoji vira overlay customizado `emojiMarker`, 1 clique ancora no gráfico); toolbar de contexto real — Bloquear/Ocultar desenho individual (`overrideOverlay` por id), Estilo (espessura/estilo de linha/fonte aplicados via `overrideOverlay`, obs: klinecharts usa `dashedValue`, não `dashValue`), Duplicar (clona overlay real com +5 barras de offset), Copiar (JSON tipo+pontos pro clipboard do sistema). **Ainda não feito da camada 3**: Modo Magnético real (snapping) e pincel de desenho livre (hoje vira segmento reto) — trabalho maior, fica pra sessão dedicada.
+5. **Camada 4 — decisão de produto pendente do Cleber**: Padrões (XABCD/Cypher/OCO), Elliott, GANN, Ciclos — construir overlays reais (trabalho grande) ou remover do menu até existirem (critério anti-mock do projeto).
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-21, continuação)
 
 ## Sessão nova (2026-07-21, continuação): Detector de Liquidez — 4 bugs reais corrigidos (não aparecia, largura artificial, sem alvos acima do preço em tendência de alta) + tornado de fato preditivo — PENDENTE COMMIT/PUSH
 

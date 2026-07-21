@@ -85,21 +85,36 @@ interface DrawingToolbarProps {
   onDeleteAll?: () => void; // 🆕 Callback para apagar todos os desenhos
   onLockToggle?: (locked: boolean) => void; // 🆕 Travar/destravar desenhos de verdade no gráfico
   onHideToggle?: (hidden: boolean) => void; // 🆕 Ocultar/mostrar desenhos de verdade no gráfico
+  onEmojiSelect?: (emoji: string) => void; // 🆕 Emoji escolhido no picker → marcador real no gráfico
   className?: string;
 }
 
-export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeChange, onDataWindowToggle, onDeleteAll, onLockToggle, onHideToggle, className = '' }: DrawingToolbarProps) {
+export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeChange, onDataWindowToggle, onDeleteAll, onLockToggle, onHideToggle, onEmojiSelect, className = '' }: DrawingToolbarProps) {
   const [activeTool, setActiveTool] = useState<DrawingTool | null>(null);
   const [isMagneticMode, setIsMagneticMode] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<DrawingTool | null>(null);
   const [dropdownAnchor, setDropdownAnchor] = useState<HTMLElement | null>(null);
+  const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null); // 🆕 âncora do EmojiPicker
 
   const handleToolClick = (tool: DrawingTool, event: React.MouseEvent<HTMLButtonElement>) => {
+    // 🔧 FIX: o botão de Ícones abria um dropdown de itens sem mapeamento (nada funcionava)
+    // enquanto o EmojiPicker pronto nunca era renderizado — agora abre o picker real.
+    if (tool === 'icons') {
+      if (emojiAnchor) {
+        setEmojiAnchor(null);
+      } else {
+        setEmojiAnchor(event.currentTarget);
+        setOpenDropdown(null);
+        setDropdownAnchor(null);
+      }
+      return;
+    }
+
     // Tools com submenus
-    const toolsWithSubmenus: DrawingTool[] = ['crosshair', 'trendline', 'fibonacci', 'forecast', 'shapes', 'text', 'icons'];
-    
+    const toolsWithSubmenus: DrawingTool[] = ['crosshair', 'trendline', 'fibonacci', 'forecast', 'shapes', 'text'];
+
     if (toolsWithSubmenus.includes(tool)) {
       if (openDropdown === tool) {
         setOpenDropdown(null);
@@ -399,6 +414,16 @@ export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeC
           onDataWindowToggle={onDataWindowToggle}
         />
       )}
+
+      {/* 🆕 Emoji Picker (botão de Ícones) — componente já existia pronto, agora renderizado */}
+      <EmojiPicker
+        anchorEl={emojiAnchor}
+        onClose={() => setEmojiAnchor(null)}
+        onSelectEmoji={(emoji) => {
+          onEmojiSelect?.(emoji);
+          setEmojiAnchor(null);
+        }}
+      />
     </div>
   );
 }
