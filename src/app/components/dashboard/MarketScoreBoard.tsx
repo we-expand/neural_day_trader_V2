@@ -1452,7 +1452,6 @@ export const MarketScoreBoard = () => {
         onSelectAsset={(symbol) => {
           setActiveSymbol(symbol); // Só o Dashboard muda — não afeta o Gráfico
           setIsAssetsBrowserOpen(false);
-          toast.success(`Ativo alterado para ${symbol}`);
         }}
       />
       <MarketDataUpdatePanel 

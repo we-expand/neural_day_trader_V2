@@ -47,12 +47,7 @@ export const BrokerConnectionStatus: React.FC = () => {
   }, [isMT5Connected]);
 
   if (!isConnected) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs">
-        <WifiOff className="w-3 h-3" />
-        <span>Nenhum broker conectado</span>
-      </div>
-    );
+    return null; // Sem aviso de broker não conectado
   }
 
   return (
