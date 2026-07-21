@@ -3596,7 +3596,38 @@ const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADA
 // sob rate-limit da conta compartilhada (mesma causa já documentada pra
 // UKOUSD/AUDJPY/HKG33). Instrumentado aqui pra capturar o candle bruto na
 // próxima vez que acontecer.
-const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33', 'BVSPX', 'VIX']);
+const EXTRA_DEBUG_SYMBOLS = new Set(['AUDJPY', 'UKOUSD', 'HKG33', 'BVSPX', 'VIX', 'CHINA50']);
+
+// ✅ 2026-07-20: cache de preço COMPARTILHADO entre todos os usuários da
+// plataforma (não por sessão/request) — a conta MetaAPI é uma só, usada por
+// todo mundo. Sem isso, N usuários com o Dashboard/ticker abertos no mesmo
+// ativo, dentro da mesma janela de poucos segundos, viram N chamadas reais
+// idênticas à corretora — causa real da saturação (HTTP 504 em rajada)
+// observada nesta sessão ao investigar o CHINA50.
+//
+// Camada L1 (`priceCache`, em memória): só ajuda requisições que caem no
+// MESMO isolate Deno já aquecido — testado nesta sessão e confirmado que
+// requisições concorrentes podem cair em isolates DIFERENTES do Edge
+// Runtime, cada um com sua própria cópia do Map (o comportamento de
+// "change" divergindo entre 2 respostas simultâneas pro mesmo tick, testado
+// via curl em paralelo, expôs isso). Mantida como otimização best-effort
+// (grátis, sem round-trip), mas não é a garantia real.
+//
+// Camada L2 (KV store real, `kv` — mesma tabela Postgres já usada pro token
+// MetaAPI): compartilhada de verdade entre QUALQUER isolate/instância, é a
+// garantia real de que N usuários pedindo o mesmo símbolo na mesma janela
+// viram só 1 chamada de verdade à corretora. Custa um round-trip a mais
+// (ao banco, não à MetaAPI — muito mais barato e sem rate-limit da conta
+// compartilhada), mas evita a saturação de verdade.
+//
+// TTL curto o bastante pra não atrasar visivelmente o preço (mais rápido
+// que o polling mais agressivo do Dashboard hoje, 2s), longo o bastante pra
+// absorver rajadas concorrentes.
+const PRICE_CACHE_TTL_MS = 2500;
+type CachedPriceEntry = { data: Record<string, unknown>; expiresAt: number };
+const priceCache = new Map<string, CachedPriceEntry>();
+const inFlightPriceFetches = new Map<string, Promise<Record<string, unknown>>>();
+const priceCacheKvKey = (symbol: string) => `mt5price_cache_${symbol}`;
 
 app.post('/mt5-prices', async (c) => {
     try {
@@ -3705,7 +3736,38 @@ app.post('/mt5-prices', async (c) => {
         // mapWithConcurrency acima — evita rate-limit por excesso de chamadas
         // simultâneas à mesma conta MetaAPI compartilhada dentro de um chunk).
         const results = await mapWithConcurrency(symbols, 8, async (symbol: string) => {
+                // Cache compartilhado entre TODOS os usuários (ver comentário acima da
+                // rota) — se outro usuário já buscou esse símbolo há pouco, reaproveita
+                // sem bater na corretora de novo.
+                const cached = priceCache.get(symbol);
+                if (cached && cached.expiresAt > Date.now()) {
+                    return cached.data;
+                }
+                // Dedupe de chamadas concorrentes: se já existe uma busca em voo pro
+                // mesmo símbolo (2 usuários pedindo ao mesmo tempo, cache ainda vazio),
+                // aguarda essa mesma promise em vez de disparar outra idêntica.
+                const inFlight = inFlightPriceFetches.get(symbol);
+                if (inFlight) {
+                    return inFlight;
+                }
+
+                const fetchPromise = (async () => {
                 try {
+                    // Camada L2: KV store real (Postgres), compartilhado entre TODOS os
+                    // isolates/instâncias da Edge Function — pega o cache mesmo quando a
+                    // requisição concorrente caiu num isolate diferente (L1 em memória
+                    // não cobre esse caso, ver comentário acima da rota).
+                    try {
+                        const kvCached = await kv.get(priceCacheKvKey(symbol));
+                        if (kvCached && typeof kvCached.expiresAt === 'number' && kvCached.expiresAt > Date.now()) {
+                            priceCache.set(symbol, { data: kvCached.data, expiresAt: kvCached.expiresAt });
+                            return kvCached.data;
+                        }
+                    } catch (kvError) {
+                        // KV indisponível não deve travar o preço — segue pro fetch real.
+                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: leitura do cache KV falhou, buscando direto da corretora:`, kvError);
+                    }
+
                     // 1️⃣ Buscar TICKER (preço atual)
                     const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick`;
                     const tickerRes = await fetch(tickerUrl, {
@@ -3777,16 +3839,38 @@ app.post('/mt5-prices', async (c) => {
 
                     if (firstTry.ok) {
                         let candles = firstTry.candles;
-                        if (!candles || candles.length < 2) {
-                            // Só refaz a chamada (janela maior) quando a primeira veio curta
-                            // — na prática só acontece com BTCUSD hoje, não custa latência
-                            // extra pra nenhum outro ativo.
-                            const retry = await fetchCandles(5);
-                            candles = retry.candles;
-                        }
                         let previousCandle = candles && candles.length >= 2
                             ? candles[candles.length - 2]
                             : null;
+
+                        const isStale = (c: any) => {
+                            const t = c?.time ? new Date(c.time).getTime() : null;
+                            return t === null || (now.getTime() - t) > 4 * 86_400_000;
+                        };
+
+                        // ✅ 2026-07-20 (achado real: CHINA50, corrige regressão do fix do
+                        // VIX feito mais cedo no mesmo dia): antes de recorrer ao candle
+                        // MAIS RECENTE como referência (ver bloco abaixo), tenta primeiro
+                        // uma janela maior de candles — um índice que fecha no fim de
+                        // semana (ex: CHINA50, só sexta e segunda no array) sempre marca a
+                        // referência certa (sexta) como "stale" só por ter passado por um
+                        // fim de semana normal de 2 dias (a checagem conta a partir do
+                        // INÍCIO do candle, não do fechamento — um candle D1 de 24h já
+                        // soma quase 1 dia a mais de "idade aparente"), SEM que haja buraco
+                        // real nenhum de dado. Usar o candle mais recente nesse caso está
+                        // ERRADO: pra CHINA50 esse candle É o de hoje, e comparar o preço
+                        // com o candle de hoje sempre dá ~0% (compara o preço com ele
+                        // mesmo) — foi exatamente esse bug reproduzido e corrigido aqui.
+                        // Buscar mais candles (`limit=5`) resolve isso pra qualquer símbolo
+                        // que fecha fim de semana, sem precisar do hack de usar hoje como
+                        // referência de ontem.
+                        if (!candles || candles.length < 2 || !previousCandle || isStale(previousCandle)) {
+                            const retry = await fetchCandles(5);
+                            if (retry.ok && retry.candles && retry.candles.length >= 2) {
+                                candles = retry.candles;
+                                previousCandle = candles[candles.length - 2];
+                            }
+                        }
 
                         // ✅ 2026-07-20 (achado real: VIX): a posição fixa `length-2` assume
                         // que o ÚLTIMO candle do array é sempre "hoje, ainda aberto" — só
@@ -3798,16 +3882,14 @@ app.post('/mt5-prices', async (c) => {
                         // recência abaixo, `change` fica preso em 0), enquanto o ÚLTIMO
                         // candle do array — na real já uma sessão FECHADA, só rotulado
                         // errado como "hoje" pela posição — é descartado à toa. Fallback:
-                        // se a escolha por posição falhar a checagem de recência, mas o
-                        // último candle do array já tem mais de ~20h (quase certo que a
-                        // sessão dele já fechou, não está mais "em aberto") e ainda cabe
-                        // na janela de 4 dias, usa ele como referência real em vez de
-                        // desistir e mostrar variação zerada.
+                        // se a escolha por posição falhar a checagem de recência MESMO
+                        // depois de tentar a janela maior acima (ou seja, o buraco é real,
+                        // não só um fim de semana normal), mas o último candle do array já
+                        // tem mais de ~20h (quase certo que a sessão dele já fechou, não
+                        // está mais "em aberto") e ainda cabe na janela de 4 dias, usa ele
+                        // como referência real em vez de desistir e mostrar variação
+                        // zerada. Isso agora é o ÚLTIMO recurso, não a primeira tentativa.
                         if (candles && candles.length >= 1) {
-                            const isStale = (c: any) => {
-                                const t = c?.time ? new Date(c.time).getTime() : null;
-                                return t === null || (now.getTime() - t) > 4 * 86_400_000;
-                            };
                             if (!previousCandle || isStale(previousCandle)) {
                                 const lastCandle = candles[candles.length - 1];
                                 const lastTime = lastCandle?.time ? new Date(lastCandle.time).getTime() : null;
@@ -3893,7 +3975,7 @@ app.post('/mt5-prices', async (c) => {
                         }
                         : {};
 
-                    return {
+                    const result = {
                         symbol,
                         price: currentPrice,
                         change,
@@ -3903,7 +3985,20 @@ app.post('/mt5-prices', async (c) => {
                         timestamp: tickerData.time || new Date().toISOString(),
                         ...debugCandles
                     };
-                    
+                    // Só cacheia resultado com preço real — nunca guarda erro/preço nulo,
+                    // senão uma falha transitória (429/504) ficaria "presa" no cache pro
+                    // próximo usuário até o TTL expirar.
+                    const cacheExpiresAt = Date.now() + PRICE_CACHE_TTL_MS;
+                    priceCache.set(symbol, { data: result, expiresAt: cacheExpiresAt });
+                    try {
+                        await kv.set(priceCacheKvKey(symbol), { data: result, expiresAt: cacheExpiresAt });
+                    } catch (kvError) {
+                        // Falha ao gravar no KV não deve derrubar a resposta — só perde o
+                        // benefício de compartilhar esse preço com outros isolates.
+                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: escrita no cache KV falhou:`, kvError);
+                    }
+                    return result;
+
                 } catch (error: any) {
                     console.error(`[MT5 PRICES] ❌ ${symbol}: ${error.message}`);
                     return {
@@ -3913,7 +4008,13 @@ app.post('/mt5-prices', async (c) => {
                         changePercent: 0,
                         error: error.message
                     };
+                } finally {
+                    inFlightPriceFetches.delete(symbol);
                 }
+                })();
+
+                inFlightPriceFetches.set(symbol, fetchPromise);
+                return fetchPromise;
         });
 
         const successCount = results.filter(r => r.price !== null).length;

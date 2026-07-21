@@ -1,6 +1,84 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-20)
 
-## Sessão nova (2026-07-20, continuação): Agenda Econômica + Notícias em inglês (2 causas raiz corrigidas) + VIX zerado/sem variação no Dashboard (2 causas raiz corrigidas) — PARCIALMENTE COMMITADO, FALTA O ÚLTIMO FIX (VIX)
+## Sessão nova (2026-07-20, continuação 3): CHINA50 zerado (causa raiz achada e corrigida) + cache de preço compartilhado (KV) + diagnóstico de instabilidade da própria MetaAPI — DEPLOYADO, GIT PENDENTE
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de hoje mais cedo (Matriz de Correlação, ver seção logo abaixo). Cleber reportou CHINA50 com variação diária zerada e pediu auditoria em todo o catálogo.
+
+### 1. CHINA50 zerado — causa raiz real: regressão do próprio fix do VIX de hoje mais cedo
+
+Com `EXTRA_DEBUG_SYMBOLS` (rota `/mt5-prices`, `supabase/functions/server/index.ts`) incluindo `CHINA50` temporariamente, confirmado via `_debug` na resposta: só 2 candles D1 disponíveis (sexta 16/07 — referência CORRETA, fechamento antes do fim de semana — e o candle de HOJE). O candle de sexta era descartado por "stale" (checagem de `isStale` conta a partir do INÍCIO do candle, não do fechamento — um candle D1 de 24h já soma quase 1 dia a mais de "idade aparente"; um fim de semana normal de 2 dias, testado tarde da noite de segunda, já ultrapassa o limiar de 4 dias sem nenhum buraco real de dado). O fallback introduzido no fix do VIX de mais cedo hoje (usar o candle mais recente do array quando o de posição fixa falha a checagem) então usava o candle de **hoje mesmo** como se fosse "ontem" — comparando o preço com ele mesmo, dando sempre ~0%. Índices que fecham no fim de semana (CHINA50 e provavelmente outros — HK50, JP225, AUS200, ESP35 etc.) são exatamente o caso que expõe esse bug; o fix original do VIX foi pensado pra um buraco real de dado (gap sob rate-limit), não pra ausência normal de candle de fim de semana.
+
+**Fix**: antes de recorrer ao candle mais recente como referência (agora só um último recurso, não a primeira tentativa), busca uma janela maior de candles (`limit=5`, mecanismo que já existia só pra quando vinham <2 candles, agora também acionado quando a referência de posição fixa vem "stale"). Isso resolve pra qualquer índice que fecha fim de semana, sem alterar o comportamento que já funcionava pra VIX/UKOUSD/HKG33/BVSPX (buraco real de dado). Confirmado via `_debug`: a janela maior trouxe candles de dias úteis anteriores, e a lógica passou a escolher corretamente entre "candle de ontem real" (quando "hoje" já virou terça) vs. o fallback de último recurso.
+
+### 2. Cache de preço compartilhado (2 camadas) — reduz volume de chamadas reais à conta MetaAPI
+
+Pedido do Cleber depois de perguntar se uma conta MetaAPI dedicada resolveria a saturação: implementado cache pra que N usuários pedindo o mesmo símbolo na mesma janela virem 1 chamada real, não N. Dois níveis, ambos em `/mt5-prices`:
+- **L1 (memória, `priceCache`/`inFlightPriceFetches`)**: rápido, mas só vale dentro do MESMO isolate Deno já aquecido — testado e confirmado que requisições concorrentes podem cair em isolates diferentes (Edge Runtime), cada um com sua própria cópia do `Map`. Mantido como otimização best-effort, não é garantia.
+- **L2 (KV store real, `kv_store_resilient.tsx`, mesma tabela Postgres já usada pro token MetaAPI)**: compartilhado de verdade entre qualquer isolate/instância — a garantia real. TTL de 2,5s. Nunca cacheia erro/preço nulo (senão uma falha transitória ficaria "presa" no cache pro próximo usuário).
+
+**Achado ao testar**: com chamadas em paralelo reais (curl simultâneo), 2 das 3 respostas vieram com timestamp/preço idênticos (cache L2 funcionando), mas o campo `change` divergiu entre elas nessa mesma leva — sinal de que múltiplos isolates concorrentes podem computar a variação de forma ligeiramente distinta antes do cache convergir. Não investigado a fundo (baixo impacto, diferença de casas decimais), fica como nota pra próxima sessão se reaparecer de forma mais séria.
+
+### 3. Auditoria em lote de variação zerada — inconclusiva, script feito ficou pra reuso
+
+Criado [scripts/audit-zero-variation.mjs](scripts/audit-zero-variation.mjs) (mesmo padrão do `audit-broker-symbols.mjs` já existente): testa todo o catálogo canônico em 2 passadas espaçadas, reporta símbolos com preço real mas variação travada em 0 nas DUAS passadas (não é rate-limit pontual). Rodado uma vez nesta sessão: cobertura baixa (só 99/478 símbolos responderam com preço em qualquer passada, o resto 504 — a própria conta estava saturada durante o teste, agravado pelos meus próprios testes em sequência). Nenhum símbolo ficou zerado nas duas passadas, mas a amostra é pequena demais pra concluir "não existe mais nenhum caso" — script fica pronto pra rodar de novo quando a MetaAPI estiver estável e fora de horário de pico.
+
+### 4. Achado mais importante da sessão: a instabilidade não é (só) da nossa conta/código — parece ser da própria MetaAPI
+
+Depois de 30 minutos SEM nenhum acesso à plataforma (eliminando qualquer rate-limit transitório causado por testes), um lote de apenas 5 símbolos forex ainda deu 4x HTTP 504 + 1x HTTP 429 — mesmo com o limite de concorrência de 8 já existente no código. Uma chamada isolada (1 símbolo) às vezes funciona, lotes pequenos (5, 25) falham quase por completo. Cleber confirmou: o site da MetaAPI (app.metaapi.cloud) **não estava nem deixando fazer login**, enquanto o MT5 real (conexão direta com a corretora, sem passar pela MetaAPI) segue funcionando normal. Pesquisa web não achou confirmação oficial em tempo real (não existe página de status pública fácil de acessar), mas achou histórico de a MetaAPI já ter tido apagões reais de até 48h no passado (motivo documentado: a MetaQuotes restringiu versões de terminal suportadas sem aviso, quebrando conexões hospedadas na nuvem da MetaAPI).
+
+**Conclusão**: o padrão observado (login do painel deles fora do ar + falha até em lotes pequenos mesmo após repouso total) aponta pra uma instabilidade do lado da infraestrutura da MetaAPI, não um bug de código nosso nem limite de capacidade específico da conta do Cleber. Nesse cenário, nem uma 2ª conta MetaAPI dedicada resolveria — o serviço inteiro pode estar degradado. **Nenhuma ação de código foi tomada pra esse item** (não haveria o que corrigir do nosso lado) — só diagnóstico e comunicação clara pro Cleber.
+
+### Verificação feita
+
+CHINA50: `_debug` confirmou o fix funcionando (candle de referência corrigido) numa janela em que a MetaAPI respondia. Cache: `npx esbuild` sintático limpo antes de cada deploy; testado via curl paralelo, confirmado cache L2 funcionando (2 de 3 respostas idênticas). Auditoria em lote: rodada, mas cobertura baixa demais pra ser conclusiva (documentado acima). **Não testado visualmente logado** — a instabilidade da MetaAPI (item 4) impediu confirmação visual estável em produção durante a sessão.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (2 deploys de Edge Function já feitos direto via CLI nesta sessão, autorizados pelo Cleber — falta só registrar no git):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add supabase/functions/server/index.ts scripts/audit-zero-variation.mjs CLAUDE.md
+git commit -m "fix: CHINA50 (e qualquer indice que fecha fim de semana) com variacao diaria sempre zerada -- regressao do fix do VIX de hoje mais cedo, que usava o candle de HOJE como referencia de 'ontem' quando a referencia correta (ex: sexta-feira) era descartada por 'stale' so por atravessar um fim de semana normal (checagem de idade contava do inicio do candle, nao do fechamento). Busca janela maior de candles (limit=5) antes de recorrer a esse fallback de ultimo recurso, agora so acionado quando ha buraco real de dado (nao so ausencia normal de fim de semana). feat: cache de preco compartilhado em /mt5-prices (memoria + KV store real, 2.5s TTL) -- reduz N usuarios pedindo o mesmo simbolo pra 1 chamada real a conta MetaAPI compartilhada. chore: adiciona scripts/audit-zero-variation.mjs (auditoria em lote de variacao zerada em todo o catalogo, 2 passadas)"
+git push origin main
+```
+2. **Confirmar quando a MetaAPI estabilizar** (sem ação possível além de esperar, ver item 4 acima): testar CHINA50 e outros índices que fecham fim de semana (HK50, JP225, AUS200, ESP35) mostrando variação real; reabrir o Navegador de Ativos e confirmar que a maioria dos 367 instrumentos aparece com preço/variação reais (não mais zerado em massa); rodar `node scripts/audit-zero-variation.mjs` de novo fora de horário de pico pra uma varredura conclusiva do catálogo inteiro.
+3. **Considerar remover o debug temporário do CHINA50** de `EXTRA_DEBUG_SYMBOLS` quando não precisar mais (mesmo padrão de instrumentação temporária já usado pra VIX/UKOUSD/HKG33/BVSPX).
+4. **Pequena divergência de `change` entre respostas concorrentes do cache** (item 2 acima) — baixo impacto, não investigada a fundo, considerar revisitar se o Cleber notar inconsistência visual entre abas/usuários simultâneos.
+5. Se a MetaAPI confirmar instabilidade prolongada de novo no futuro: considerar contatar o suporte deles diretamente (Cleber tem a conta paga) em vez de investigar mais pelo nosso lado — não há mitigação de código pra uma indisponibilidade do provedor.
+
+---
+
+## Sessão nova (2026-07-20, continuação 2): Análise IA da Matriz de Correlação — layout horizontal, mesma largura da matriz + fix da coluna amarela "Relevantes" sumindo + banner de status do VIX removido — TUDO COMMITADO
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de hoje mais cedo (fix do VIX zerado, ver seção logo abaixo). 3 pedidos em sequência do Cleber.
+
+### 1. Análise IA da Matriz de Correlação — layout horizontal, mesma largura da matriz
+
+Cleber pediu pra tirar o painel "Análise IA" da coluna lateral estreita (320px, ao lado da matriz) e colocar embaixo dela, com a mesma largura, em layout horizontal. [CorrelationMatrix.tsx](src/app/components/dashboard/CorrelationMatrix.tsx): grid `xl:grid-cols-[minmax(0,1fr)_320px]` (lado a lado) virou `flex flex-col` (empilhado) — matriz em cima, Análise IA embaixo, largura total igual. Conteúdo interno da Análise IA reorganizado pra aproveitar a largura nova: alerta principal + os 3 stat cards (Diversificação/Mais Independente/Melhor Par p/ Hedge) lado a lado numa linha só (antes: alerta full-width, depois 2 cards empilhados abaixo); as 3 listas de pares (Positivas Fortes/Relevantes/Negativas Fortes) lado a lado em `md:grid-cols-3` (antes: empilhadas verticalmente).
+
+### 2. Bug achado pelo Cleber ao testar: coluna amarela "Relevantes" sumia do grid
+
+Cada uma das 3 listas de pares (Positivas/Relevantes/Negativas) só renderizava o `<div>` inteiro se tivesse pelo menos 1 item (`aiInsight.relevant?.length > 0 && (...)`). No layout novo em 3 colunas lado a lado, sempre que a categoria "Relevantes" (correlação entre 0.40–0.70) não tinha nenhum par na seleção atual de ativos, o `<div>` inteiro sumia — o grid colapsava de 3 pra 2 colunas, dando a impressão de "coluna de dados sumiu" (era a coluna amarela, cor da categoria "Relevantes"). **Fix**: as 3 colunas agora SEMPRE renderizam (nunca mais `<div>` condicional inteiro) — quando uma categoria não tem par nenhum, mostra uma mensagem de estado vazio explícita ("Nenhum par >0.70 nesta seleção.", etc.) em vez de sumir a coluna.
+
+### 3. Banner/toast "Mercado VIX ABERTO/FECHADO" removido do Dashboard
+
+Cleber mandou print: pop-up "🟢 Mercado VIX ABERTO — Trading ao vivo — último negócio às HH:MM:SS" aparecendo no canto da tela, achou poluição visual. [VIXWidgetEnhanced.tsx](src/app/components/tools/VIXWidgetEnhanced.tsx): removido o `useEffect` que disparava `toast.success`/`toast.info` a cada mudança de status aberto/fechado. **O badge de status dentro do próprio card do VIX continua funcionando normalmente** (não tocado) — só o pop-up/toast saiu. Outros toasts do mesmo arquivo (volatilidade extrema, divergência de fontes) não foram tocados, continuam ativos.
+
+### Verificação feita
+
+`tsc --noEmit` limpo nos 2 arquivos. Preview local (`npm run dev`) sobe sem erro novo no console. **Não testado visualmente logado** (Dashboard atrás de login, sem credenciais neste ambiente) — Cleber confirmou funcionando via print/teste real depois do deploy.
+
+### Commits desta sessão (já pushados, confirmado pelo Cleber)
+
+`21bc13160` (layout horizontal), `6631f03c5` (fix coluna amarela sumindo), `8376dde57` (remove banner VIX).
+
+### Pendente real pra próxima sessão
+
+Nada pendente de commit desta continuação. Seguem valendo os pendentes já documentados nas seções anteriores (deploy backend do VIX já confirmado funcionando; considerar remover a instrumentação de debug temporária `/debug-translate` e `VIX` em `EXTRA_DEBUG_SYMBOLS` quando não precisar mais).
+
+---
+
+## Sessão nova (2026-07-20, continuação): Agenda Econômica + Notícias em inglês (2 causas raiz corrigidas) + VIX zerado/sem variação no Dashboard (2 causas raiz corrigidas) — TUDO COMMITADO
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão de hoje mais cedo (Matriz de Correlação/Nexus, ver seção logo abaixo). Cleber reportou 2 problemas em sequência: "Agenda Econômica entrega notícias em inglês, tem que ser no idioma do usuário" e, depois, "o índice VIX está entregando zerado no Dashboard".
 
@@ -35,13 +113,7 @@ Testado `/mt5-prices` direto pra `VIX` repetidas vezes:
 
 ### Pendente real pra próxima sessão
 
-1. **Commit + push do fix do VIX** (só `index.ts` modificado, nada mais pendente):
-```bash
-cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
-git add supabase/functions/server/index.ts
-git commit -m "fix: VIX sem variacao no Dashboard (change/changePercent sempre 0, mesmo com preco real) -- causa raiz: gap real na serie de candles D1 (faltava sexta/sabado, sob rate-limit da conta MetaAPI compartilhada) fazia a selecao por posicao (candles[length-2], que presume o ultimo candle do array = hoje ainda aberto) descartar o candle de domingo (ja fechado de verdade) e usar um de mais de 4 dias como referencia, falhando a checagem de recencia e travando change em 0 pra sempre. Fallback: se a escolha por posicao falhar a checagem de recencia mas o ultimo candle do array ja tiver mais de ~20h (sessao quase certamente ja fechada), usa ele como referencia real. Adiciona VIX a EXTRA_DEBUG_SYMBOLS e rota /debug-translate (diagnostico temporario, ainda no ar)"
-git push origin main
-```
+1. ~~Commit + push do fix do VIX~~ — ✅ commitado e pushado (confirmado pelo Cleber).
 2. **Zerado por timeout intermitente (Causa A) continua sem fix** — é a mesma limitação crônica de rate-limit da conta MetaAPI compartilhada já documentada extensivamente neste arquivo. Sem ação possível além de esperar/evitar rajadas de teste.
 3. **Considerar remover a instrumentação de debug temporária** quando não precisar mais: `/debug-translate` (rota nova) e `VIX` em `EXTRA_DEBUG_SYMBOLS` (`index.ts`) — deixados no ar de propósito por enquanto, custo baixo, úteis se o problema voltar.
 4. **Considerar generalizar o fix da Causa B** pra outros ativos que possam ter o mesmo tipo de gap na série de candles (fim de semana longo, feriado, rate-limit) — só corrigido pro caminho específico que já existia (`/mt5-prices`), mas a lógica é genérica o bastante pra valer pra qualquer símbolo, não só VIX.
