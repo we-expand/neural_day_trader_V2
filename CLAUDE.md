@@ -1,6 +1,28 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-20)
 
-## Sessão nova (2026-07-20, continuação 5): fluidez de candles do Gráfico + bug de candle zerando + padronização do catálogo de ativos + diagnóstico de instabilidade transitória da MetaAPI — PENDENTE COMMIT/PUSH (exceto o 1º item, já commitado `0fc0694ca`)
+## Sessão nova (2026-07-20, continuação 6): remove o botão/modal "AI vs Trader" da página do Gráfico — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu pra eliminar do projeto o "AI vs Trader" da página do Gráfico.
+
+Removido por completo: era um modal auto-contido ([AIvsTraderMode.tsx](src/app/components/backtest/AIvsTraderMode.tsx), deletado) com lógica de trade placeholder inerte (métricas zeradas, `onBuy`/`onSell` só `console.log`, "gráfico" era um `div` estático) — nunca ligado ao motor de IA real, P&L ou persistência. Removidos: botão da toolbar + render do modal + import + state (`showAIvsTrader`) em [ChartView.tsx](src/app/components/ChartView.tsx); o botão decorativo equivalente (sem `onClick`, nunca fazia nada) em [StandaloneChartPage.tsx](src/app/components/StandaloneChartPage.tsx); export órfão `LazyAIvsTraderMode` em [LazyComponents.tsx](src/app/components/LazyComponents.tsx) (não era usado por ninguém). `PerformanceComparison.tsx` (outro componente com "AI vs Trader" no nome/docstring) não foi tocado — já estava órfão antes desta sessão, fora do escopo do pedido.
+
+**Verificação feita**: `tsc --noEmit` limpo (só os erros pré-existentes em `src/imports/pasted_text/`, arquivo de log colado não relacionado). Dev server sobe sem erro novo no console. **Não testado visualmente logado** — página do Gráfico fica atrás de login, sem credenciais neste ambiente.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push**:
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/ChartView.tsx src/app/components/StandaloneChartPage.tsx \
+  src/app/components/LazyComponents.tsx src/app/components/backtest/AIvsTraderMode.tsx CLAUDE.md
+git commit -m "chore: remove o botão/modal 'AI vs Trader' da página do Gráfico e do Gráfico standalone -- era um modal placeholder isolado, nunca ligado ao motor de IA real/P&L/persistência (métricas sempre zeradas, onBuy/onSell só console.log, gráfico era um div estático). Remove também o export órfão LazyAIvsTraderMode"
+git push origin main
+```
+2. Confirmar visualmente logado, depois do deploy: o botão "AI vs Trader" não aparece mais na toolbar do Gráfico (nem no Gráfico standalone), e nenhum erro de console relacionado.
+
+---
+
+## Sessão nova (2026-07-20, continuação 5): fluidez de candles do Gráfico + bug de candle zerando + padronização do catálogo de ativos + diagnóstico de instabilidade transitória da MetaAPI — ✅ COMMITADO (`0fc0694ca`, `f9250f81b`, `ce3664500`, `d1bbfab4c`)
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão "fluidez dos candles" (ver ontem/mais cedo hoje). Cleber reportou 3 problemas em sequência nesta janela: candles em "soquinho"/degrau, gráfico "demorando demais" e "achatado", e pediu pra padronizar o catálogo de ativos do Gráfico com o do Dashboard.
 

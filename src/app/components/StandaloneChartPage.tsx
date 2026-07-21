@@ -45,7 +45,6 @@ import {
   Zap,
   RotateCcw,
   X,
-  Trophy,
   TrendingUpDown,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
@@ -1223,12 +1222,6 @@ export default function StandaloneChartPage() {
           <button className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded border bg-black text-gray-400 hover:text-white hover:bg-gray-800 border-gray-700 transition-all">
             <Zap className="w-3.5 h-3.5" />
             <span>Backtest</span>
-          </button>
-
-          {/* Trophy placeholder */}
-          <button className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded border bg-gradient-to-r from-purple-600 to-orange-600 text-white border-purple-500 hover:opacity-90 transition-all">
-            <Trophy className="w-3.5 h-3.5" />
-            <span>AI vs Trader</span>
           </button>
 
           {/* Countdown */}

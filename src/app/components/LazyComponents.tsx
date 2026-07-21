@@ -69,10 +69,6 @@ export const LazyAITraderVoice = lazy(() =>
 );
 
 // 🎯 BACKTEST COMPONENTS
-export const LazyAIvsTraderMode = lazy(() => 
-  import('@/app/components/backtest/AIvsTraderMode').then(m => ({ default: m.AIvsTraderMode }))
-);
-
 export const LazyBacktestDecisionsPanel = lazy(() => 
   import('@/app/components/backtest/BacktestDecisionsPanel').then(m => ({ default: m.BacktestDecisionsPanel }))
 );

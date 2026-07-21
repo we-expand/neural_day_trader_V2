@@ -36,8 +36,7 @@ import {
   Zap,
   Move,
   RotateCcw,
-  X,
-  Trophy
+  X
 } from 'lucide-react';
 
 // 🚀 LAZY LOAD: LiquidityDetector carrega apenas quando necessário
@@ -51,7 +50,6 @@ import { StrategyBuilderPro } from '@/app/components/backtest/StrategyBuilderPro
 import { BacktestLiveProgress } from '@/app/components/backtest/BacktestLiveProgress';
 import { BacktestResultsModal } from '@/app/components/backtest/BacktestResultsModal';
 import { BacktestDecisionsPanel } from '@/app/components/backtest/BacktestDecisionsPanel';
-import { AIvsTraderMode } from '@/app/components/backtest/AIvsTraderMode';
 import { BacktestErrorBoundary } from '@/app/components/backtest/BacktestErrorBoundary';
 import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
@@ -493,7 +491,6 @@ export function ChartView() {
   const { strategies, saveStrategy, deleteStrategy, error: strategiesError } = useStrategies();
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
   const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string; symbol: string } | null>(null);
-  const [showAIvsTrader, setShowAIvsTrader] = useState(false);
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
   const [priceLinePosition, setPriceLinePosition] = useState<number | null>(null);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set()); // 🆕 Indicadores ativos
@@ -504,7 +501,6 @@ export function ChartView() {
   useEffect(() => {
     return () => {
       setShowDecisionsPanel(false);
-      setShowAIvsTrader(false);
       setShowBacktestReplay(false);
       setShowBacktestConfig(false);
       setShowStrategyBuilder(false);
@@ -3838,15 +3834,6 @@ export function ChartView() {
             <span>Backtest</span>
           </button>
 
-          {/* 🥊 AI vs TRADER Button - Purple/Gold Style */}
-          <button 
-            onClick={() => setShowAIvsTrader(true)}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all bg-gradient-to-r from-purple-600 to-orange-600 text-white border border-purple-500 hover:from-purple-700 hover:to-orange-700 shadow-lg shadow-purple-500/20"
-            title="AI vs Trader - Compare sua performance com a IA"
-          >
-            <Trophy className="w-3.5 h-3.5" />
-            <span>AI vs Trader</span>
-          </button>
         </div>
 
         {/* Chart Area with Countdown Overlay + Replay Mode Effect */}
@@ -4442,16 +4429,6 @@ export function ChartView() {
         />
       </BacktestErrorBoundary>
 
-      {/* 🥊 AI vs TRADER MODE - Competição */}
-      <BacktestErrorBoundary>
-        <AIvsTraderMode
-          isOpen={showAIvsTrader}
-          onClose={() => setShowAIvsTrader(false)}
-          initialCapital={10000}
-          symbol={selectedSymbol}
-          timeframe={timeframe}
-        />
-      </BacktestErrorBoundary>
     </div>
     </>
   );
