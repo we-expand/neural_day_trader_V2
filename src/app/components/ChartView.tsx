@@ -479,6 +479,7 @@ export function ChartView() {
   });
   const [chartData, setChartData] = useState<KLineData[]>([]);
   const chartDataRef = useRef<KLineData[]>([]); // 🆕 Ref para evitar loop infinito no useEffect
+  const chartUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Debounce de updateData
   const [dataSource, setDataSource] = useState<'metaapi' | 'generated' | 'loading'>('loading');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
@@ -961,11 +962,11 @@ export function ChartView() {
     // Buscar na primeira vez
     updateLivePrices();
     
-    // 5s (ajustado a pedido do Cleber, ciente do risco): este painel busca até
-    // 50 ativos EM PARALELO (Promise.all abaixo, um símbolo por chamada) contra
-    // a conta MetaAPI compartilhada — se notar lentidão geral, subir de novo
-    // (já houve sobrecarga real nesse padrão antes, ver CLAUDE.md)
-    const interval = setInterval(updateLivePrices, 5000);
+    // 1s (reduzido de 5s pra melhorar fluidez de animação de candles): este painel
+    // busca preços em lote (getBatchedMT5Data com chunking interno de 40 símbolos)
+    // contra a conta MetaAPI compartilhada — chunk pequeno + intervalo curto = taxa
+    // de atualização fluída sem sobrecarga excessiva
+    const interval = setInterval(updateLivePrices, 1000);
     
     return () => clearInterval(interval);
   }, []); // Executar apenas uma vez ao montar
@@ -2694,19 +2695,33 @@ export function ChartView() {
   }, []);
 
   // 🚀 Streaming de preço (via pipeline único RealMarketDataService, com cache de 2s)
+  // Estendido pra TODO ativo (antes só crypto) — forex/índices/commodities
+  // ficavam sem nenhuma atualização suave, só o refetch completo de 30s
+  // (applyNewData substituindo tudo de uma vez), causando o efeito de
+  // "soquinho"/degrau em vez de animação fluida.
   useEffect(() => {
-    if (!selectedSymbol.includes('BTC') && !selectedSymbol.includes('ETH') && !selectedSymbol.includes('SOL')) {
-      return; // Só usa esse polling rápido para crypto
-    }
-
     console.log(`[ChartView] 📡 Iniciando polling de preço para ${selectedSymbol}`);
 
     // Subscribe ao preço em tempo real (mesmo pipeline real usado no resto do app)
+    // Intervalo de 2s: getRealMarketData já cacheia por símbolo por 2s, então
+    // isso não gera chamada de rede nova a cada tick — só reflete o cache mais
+    // recente com mais frequência, suavizando a animação sem sobrecarregar a
+    // conta MetaAPI compartilhada (é 1 único símbolo, não um lote).
     const unsubscribe = subscribeToSymbol(selectedSymbol, (marketData) => {
+      // 🛡️ GUARDA: getFallbackOrLastKnown pode devolver isRealData:false com
+      // price:0 (nunca teve dado real ainda, ou falha transitória) — sem essa
+      // checagem, esse valor zerado era aplicado direto no candle (close=0,
+      // low=0), gerando um pavio gigante até a base do gráfico. Ignora
+      // silenciosamente esse tick e mantém o último valor real conhecido.
+      if (!marketData.isRealData || !marketData.price || marketData.price <= 0) {
+        console.warn('[ChartView] ⚠️ Tick sem dado real (price<=0 ou isRealData:false) — ignorado, mantendo último valor conhecido.');
+        return;
+      }
+
       const newPrice = marketData.price;
       const change = marketData.change || 0;
       const changePercent = marketData.changePercent || 0;
-      
+
       // 🔥 LOG FORÇADO (não depende de DEBUG)
       console.log(`[🎯 CHARTVIEW] 🚨🚨🚨 CALLBACK EXECUTADO!`, {
         timestamp: new Date().toISOString(),
@@ -2743,11 +2758,12 @@ export function ChartView() {
         '🔗 Comparar com': `https://api.binance.com/api/v3/ticker/24hr?symbol=${selectedSymbol.replace('USD', 'USDT')}`
       });
       
-      // 🚀 Atualizar último candle do gráfico em tempo real
+      // 🚀 Atualizar último candle do gráfico em tempo real COM DEBOUNCE
+      // Debounce evita sobrecarregar o gráfico com muitas atualizações/segundo
       if (chartInstanceRef.current && chartDataRef.current.length > 0) {
         const chart = chartInstanceRef.current;
         const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
-        
+
         // Atualizar o último candle com o novo preço
         const updatedCandle = {
           ...lastCandle,
@@ -2755,39 +2771,76 @@ export function ChartView() {
           high: Math.max(lastCandle.high, newPrice),
           low: Math.min(lastCandle.low, newPrice)
         };
-        
+
         try {
           // Atualizar o array inteiro
           const updatedData = [...chartDataRef.current];
           updatedData[updatedData.length - 1] = updatedCandle;
-          
-          // 🔥 FIX: Usar updateData ao invés de applyNewData para NÃO resetar scroll
-          // updateData preserva a posição do usuário, applyNewData reseta tudo
-          chart.updateData(updatedCandle);
-          console.log('[ChartView] 🔄 Último candle atualizado via WebSocket (sem reset de scroll)');
-          
-          // Atualizar a ref
           chartDataRef.current = updatedData;
+
+          // 🔥 DEBOUNCE: Agrupar atualizações para não sobrecarregar o gráfico
+          // Se há uma atualização pendente, cancelar e agendar a nova
+          if (chartUpdateTimeoutRef.current) {
+            clearTimeout(chartUpdateTimeoutRef.current);
+          }
+
+          chartUpdateTimeoutRef.current = setTimeout(() => {
+            try {
+              // Usar updateData ao invés de applyNewData para preservar scroll
+              chart.updateData(updatedCandle);
+              console.log('[ChartView] 🔄 Candle atualizado (debounced - mantém scroll do usuário)');
+            } catch (err) {
+              console.error('[ChartView] ❌ ERROR updateData:', err);
+            }
+            chartUpdateTimeoutRef.current = null;
+          }, 100); // Agrupa atualizações a cada 100ms
         } catch (err) {
-          console.error('[ChartView] ❌ ERROR updateData:', err);
+          console.error('[ChartView] ❌ ERROR ao processar candle:', err);
         }
       }
-    });
+    }, 2000);
 
     // Cleanup ao desmontar
     return () => {
       console.log(`[ChartView] 🔌 Desconectando polling: ${selectedSymbol}`);
       unsubscribe();
+      if (chartUpdateTimeoutRef.current) {
+        clearTimeout(chartUpdateTimeoutRef.current);
+        chartUpdateTimeoutRef.current = null;
+      }
     };
   }, [selectedSymbol]);
 
-  // 🎯 THROTTLE: Atualizar preço EXIBIDO a cada 1 segundo (estilo Binance - não corre como louco)
+  // 🎯 SMOOTH ANIMATION: Animar preço com transição suave via requestAnimationFrame
   useEffect(() => {
-    const throttleInterval = setInterval(() => {
-      setDisplayedPrice(currentPrice);
-    }, 1000); // Atualiza display a cada 1 segundo
+    let animationFrameId: number | null = null;
+    let animationStartTime = Date.now();
+    const animationDuration = 300; // 300ms para transição suave
+    const startPrice = displayedPrice;
 
-    return () => clearInterval(throttleInterval);
+    const animate = () => {
+      const now = Date.now();
+      const elapsed = now - animationStartTime;
+      const progress = Math.min(elapsed / animationDuration, 1);
+
+      // Interpolação linear: startPrice → currentPrice
+      const interpolatedPrice = startPrice + (currentPrice - startPrice) * progress;
+      setDisplayedPrice(interpolatedPrice);
+
+      if (progress < 1) {
+        // Continuar animando
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    };
+
+    // Iniciar animação quando currentPrice mudar
+    animationFrameId = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [currentPrice]);
 
   // ❌ BIBLIOTECA LIMITATION: KLineChart uses Canvas rendering (not SVG)
