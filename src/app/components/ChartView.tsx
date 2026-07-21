@@ -63,6 +63,8 @@ import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarke
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
 import { toast } from 'sonner';
+import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
+import { analyzeSmc, type SmcZone } from '@/app/services/smc';
 
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
@@ -532,6 +534,10 @@ export function ChartView() {
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
+  // 🆕 Cache da estrutura de longo prazo (SMC, 1D/~5 anos) por símbolo — mesma ideia do
+  // Detector de Liquidez do Dashboard: sem isso, S/R só enxerga a janela curta do gráfico
+  // e nunca acha zona real acima/abaixo quando o preço está longe de qualquer extremo recente.
+  const macroSrZonesRef = useRef<Map<string, { zones: SmcZone[]; fetchedAt: number }>>(new Map());
 
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'];
   const visibleTimeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1H'];
@@ -2138,6 +2144,92 @@ export function ChartView() {
     return zones.sort((a, b) => b.price - a.price);
   };
 
+  const MACRO_SR_WINDOW_DAYS = 1825; // ~5 anos, mesma janela do Detector de Liquidez do Dashboard
+  const MACRO_SR_REFRESH_MS = 30 * 60 * 1000; // dado diário muda pouco — não precisa refazer a cada troca de candle
+
+  // 🆕 Busca (com cache por símbolo) a estrutura de longo prazo via o mesmo motor SMC
+  // (Order Blocks/FVG/Piscinas de Liquidez, 1D/~5 anos) usado no Detector de Liquidez do
+  // Dashboard. Sem isso, o S/R do gráfico só via o que estava dentro da janela curta
+  // carregada na tela — por isso as linhas nunca refletiam níveis reais mais distantes
+  // no tempo, mesmo quando esses níveis são exatamente os mais próximos do preço atual.
+  const fetchMacroSrZones = async (symbol: string): Promise<SmcZone[]> => {
+    const cached = macroSrZonesRef.current.get(symbol);
+    if (cached && Date.now() - cached.fetchedAt < MACRO_SR_REFRESH_MS) {
+      return cached.zones;
+    }
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - MACRO_SR_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      const response = await backtestDataService.fetchHistoricalData(symbol, start, end, '1d');
+      const candles = response.candles.map((c) => ({
+        timestamp: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume
+      }));
+      const analysis = analyzeSmc(candles, symbol, '1d');
+      const zones = [...analysis.orderBlocks, ...analysis.fairValueGaps, ...analysis.liquidityPools].filter(
+        (z) => !z.mitigated
+      );
+      macroSrZonesRef.current.set(symbol, { zones, fetchedAt: Date.now() });
+      return zones;
+    } catch (err) {
+      if (!(err instanceof BacktestDataUnavailableError)) {
+        console.warn('[ChartView] ⚠️ Falha ao buscar estrutura macro (SMC 1D) pro S/R:', err);
+      }
+      return cached?.zones ?? [];
+    }
+  };
+
+  // 🆕 Combina as zonas de S/R detectadas na janela curta do gráfico com as zonas
+  // macro (SMC, longo prazo) — sempre priorizando as mais PRÓXIMAS do preço atual em
+  // cada lado (suporte abaixo / resistência acima), não as de maior força/volume, que é
+  // o que fazia as linhas aparecerem longe demais do preço.
+  const buildSrZonesWithMacro = (
+    intradayZones: LiquidityZone[],
+    macroZones: SmcZone[],
+    currentPrice: number
+  ): LiquidityZone[] => {
+    const macroAsLiquidity: LiquidityZone[] = macroZones.map((z, i) => {
+      const price = (z.priceLow + z.priceHigh) / 2;
+      const isSupport = price < currentPrice;
+      const distance = ((price - currentPrice) / currentPrice) * 100;
+      let significance: LiquidityZone['significance'];
+      if (z.strength >= 80) significance = 'critical';
+      else if (z.strength >= 60) significance = 'strong';
+      else if (z.strength >= 40) significance = 'moderate';
+      else significance = 'weak';
+      return {
+        id: `macro-${z.id}-${i}`,
+        price,
+        strength: z.strength,
+        type: isSupport ? 'support' : 'resistance',
+        touches: 1,
+        volume: 0,
+        distance,
+        significance
+      };
+    });
+
+    const combined = [...intradayZones, ...macroAsLiquidity];
+
+    // Descarta duplicatas (zonas de fontes diferentes representando o mesmo nível,
+    // dentro de 0.15% de preço uma da outra) — mantém a de maior força.
+    const deduped: LiquidityZone[] = [];
+    combined
+      .sort((a, b) => b.strength - a.strength)
+      .forEach((zone) => {
+        const isDuplicate = deduped.some(
+          (existing) => Math.abs(existing.price - zone.price) / currentPrice < 0.0015
+        );
+        if (!isDuplicate) deduped.push(zone);
+      });
+
+    return deduped;
+  };
+
   // Generate Trading Signal based on technical analysis
   const generateTradingSignal = (data: KLineData[]): TradingSignal => {
     if (data.length < 50) {
@@ -2242,8 +2334,11 @@ export function ChartView() {
 
     if (!visible || zones.length === 0) return;
 
-    const supports = zones.filter((z) => z.type === 'support').sort((a, b) => b.strength - a.strength).slice(0, MAX_SR_OVERLAYS / 2);
-    const resistances = zones.filter((z) => z.type === 'resistance').sort((a, b) => b.strength - a.strength).slice(0, MAX_SR_OVERLAYS / 2);
+    // 🔥 FIX: prioriza as zonas mais PRÓXIMAS do preço atual (não as de maior força/volume)
+    // — é isso que garante que as linhas desenhadas sejam projeções relevantes pro próximo
+    // movimento, não níveis distantes que o preço só tocaria depois de um movimento grande.
+    const supports = zones.filter((z) => z.type === 'support').sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance)).slice(0, MAX_SR_OVERLAYS / 2);
+    const resistances = zones.filter((z) => z.type === 'resistance').sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance)).slice(0, MAX_SR_OVERLAYS / 2);
     const selected = [...supports, ...resistances];
 
     selected.forEach((zone) => {
@@ -2900,6 +2995,20 @@ export function ChartView() {
           setLiquidityZones(zones);
           renderSrOverlays(zones, showSrOverlayRef.current);
           console.log('[ChartView] 🎯 Detected', zones.length, 'liquidity zones');
+
+          // 🆕 Busca a estrutura de longo prazo (SMC, 1D/~5 anos) em paralelo e, quando
+          // chegar, re-desenha o S/R combinando com a janela curta acima — sem isso as
+          // linhas nunca refletiam níveis reais mais distantes no tempo (ex: uma máxima
+          // histórica) mesmo quando esses níveis são os mais próximos do preço atual.
+          const macroSymbolAtFetch = selectedSymbol;
+          fetchMacroSrZones(macroSymbolAtFetch).then((macroZones) => {
+            if (macroSymbolAtFetch !== selectedSymbol) return; // ativo já trocou, descarta
+            if (macroZones.length === 0) return;
+            const merged = buildSrZonesWithMacro(zones, macroZones, currentPriceForZones);
+            setLiquidityZones(merged);
+            renderSrOverlays(merged, showSrOverlayRef.current);
+            console.log('[ChartView] 🎯 S/R combinado com estrutura macro (SMC):', merged.length, 'zonas');
+          });
           
           // Generate trading signal
           const signal = generateTradingSignal(candles);

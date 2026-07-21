@@ -1,4 +1,59 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21, continuação)
+
+## Sessão nova (2026-07-21, continuação): Detector de Liquidez — 4 bugs reais corrigidos (não aparecia, largura artificial, sem alvos acima do preço em tendência de alta) + tornado de fato preditivo — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão "Suporte/Resistência + Detector de Liquidez SMC" logo abaixo (mesmo dia). O Cleber testou o card em produção e reportou, em sequência: (1) não conseguia achar o card em lugar nenhum do Dashboard; (2) depois de traduzido pra português, reclamou que os "alvos" pareciam retrospectivos, não preditivos; (3) testando com BTC em forte tendência de alta, viu SÓ alvos abaixo do preço (parecia estar "torcendo pra queda"); (4) argumentou, corretamente, que o motor deveria olhar bem mais pra trás no histórico (ex: a máxima histórica do BTC) pra achar zonas acima do preço também — sessão inteira foi diagnosticar e corrigir essas 4 camadas do mesmo problema, uma de cada vez, sempre com o Cleber confirmando/contestando o resultado antes de eu seguir pra próxima.
+
+### 1. Causa raiz do "não encontro o card em lugar nenhum": ligado ao componente errado
+
+O card (`LiquidityDetectorCard.tsx`) tinha sido criado e conectado dentro de [ModularDashboard.tsx](src/app/components/dashboard/ModularDashboard.tsx) — só que esse componente **nunca é montado pelo app real**, é órfão (só referenciado dinamicamente dentro de uma ferramenta de debug, `ModuleHealthCheck.tsx`). Quem renderiza a tela "Dashboard" de verdade é [Dashboard.tsx](src/app/components/Dashboard.tsx) (import de `App.tsx:217`, `case 'dashboard': return <Dashboard />`) — um arquivo **diferente**, com seu próprio grid de cards (`MarketScoreBoard`, `NewsAndAgenda`, `VIXWidgetEnhanced`, `RiskThermometer`, `CorrelationMatrix`). Fix: `LiquidityDetectorCard` importado e renderizado no fim do grid de `Dashboard.tsx` (linha full-width, depois da Matriz de Correlação). Confirmado no preview local rolando até o fim da página — card aparece e calcula de verdade.
+
+### 2. i18n: termos em inglês traduzidos
+
+"Order Blocks" → "Blocos de Ordem", "Fair Value Gaps" → "Gaps de Valor Justo", "Liquidity Pools" → "Piscinas de Liquidez", "Buyside"/"Sellside" → "Lado Comprador"/"Lado Vendedor". Mantido "FVG" em inglês de propósito — mesmo critério já usado pra ATR/RSI/BOS/CHoCH no resto do projeto (jargão técnico universal, sem tradução natural).
+
+### 3. Card virou de fato preditivo (era só histórico com rótulos confusos)
+
+Cleber apontou o objetivo certo: o usuário precisa saber **pra onde o preço tende a ser puxado**, não só onde ele já esteve. Como o motor SMC nunca inventa preço (é 100% determinístico sobre candle real), "preditivo" aqui significa: zonas **não mitigadas** (que o preço ainda não voltou a testar) SÃO os alvos futuros por definição da própria metodologia — o problema era a UI misturar mitigadas e não-mitigadas, ordenadas por "força" em vez de proximidade.
+
+Fix (`LiquidityDetectorCard.tsx`, reescrito): lista única "Próximos Alvos de Liquidez", só com zonas não mitigadas, ordenada da mais próxima do preço atual pra mais distante, com direção (▲ acima / ▼ abaixo / "preço dentro da zona") e distância em %. Zonas já mitigadas (histórico) ficam escondidas por padrão atrás de um toggle "Ver histórico (N zonas já testadas)".
+
+**Bug real achado nesse meio-tempo, causa de zonas de liquidez artificialmente largas**: [liquidityPools.ts](src/app/services/smc/liquidityPools.ts) — o algoritmo de agrupamento de topos/fundos iguais comparava cada ponto candidato contra o **último ponto adicionado** ao cluster (`prev`), não contra o **âncora** (primeiro ponto) — isso permitia "deriva em cadeia" (chaining): pontos bem distantes entre si (ex: 1.1408 e 1.1487, 79 pips, bem mais que a tolerância de 0.1%) acabavam no mesmo cluster porque a cadeia intermediária era densa. Resultado: zonas de 60-80 pips de largura que sempre "continham o preço atual", em vez de representar um nível específico. Fix: comparação trocada pra sempre contra `current[0]` (âncora do cluster). Validado: os 12 testes sintéticos de `__validate__.ts` continuam passando; zonas voltaram a ter largura realista (~5-10 pips) e nenhuma mais aparece "contendo o preço atual" por acaso.
+
+### 4. Janela de análise era curta demais — corrigido combinando 2 timeframes
+
+Cleber testou de novo com BTC em tendência de alta forte (ADX 52, RSI 72) e viu **zero zonas acima do preço**, achando que o card estava "apostando na queda". Expliquei a causa real (SMC só marca zona onde o preço já esteve e recuou; numa subida em linha reta sem pullback, não existe zona acima porque é território inexplorado NA JANELA analisada) — Cleber contestou corretamente: "o BTC já foi a 130.000 pontos um dia, temos como calcular isso, é função da plataforma olhar mais pra trás". Ele estava certo: a limitação não era conceitual do SMC, era só a janela curta demais (`CANDLE_WINDOW_DAYS = 14`, só 1H).
+
+**Fix**: card agora combina DUAS análises independentes — janela "micro" (1H, 14 dias, é também a fonte do preço atual, sempre a mais fresca, recalculada a cada 5min) + janela "macro" (**1D, ~5 anos**, recalculada só a cada 30min já que dado diário muda pouco). Cada zona carrega uma tag de origem (`sourceTimeframe: '1h' | '1d'`), exibida na linha ("1H · recente" / "1D · longo prazo"). Se a busca macro falhar (raro), o card não quebra — mostra aviso amarelo explícito ("histórico de longo prazo indisponível, mostrando só os últimos 14 dias") e segue só com a janela curta, nunca finge ter olhado mais longe do que olhou.
+
+Testado ao vivo com BTCUSD: antes do fix, "▲ 0 acima · ▼ 7 abaixo"; depois do fix (janela de 5 anos incluída), "▲ 9 acima · ▼ 18 abaixo" — apareceram zonas reais acima do preço (ex: Piscina de Liquidez 1D em ~67.232-67.298, +1.05%; FVG 1D em ~74.590-75.677, +12.11%), todas vindas de estrutura real capturada só na janela longa.
+
+**Efeito colateral também corrigido nesta mesma leva**: o aviso "nenhuma zona identificada acima/abaixo do preço" (adicionado numa iteração intermediária desta sessão, antes do fix da janela longa) agora só aparece quando **mesmo depois de olhar 5 anos pra trás** não há zona real daquele lado — situação genuína de máxima/mínima histórica da janela, não mais um artefato de janela curta.
+
+### Verificação feita
+
+`npx tsc --noEmit` limpo em todos os arquivos tocados. Suite de validação do motor SMC (12 testes sintéticos, `src/app/services/smc/__validate__.ts`) continua 12/12 passando depois do fix de clustering:
+```bash
+npx esbuild src/app/services/smc/__validate__.ts --bundle --platform=node --outfile=/tmp/validate-smc.js && node /tmp/validate-smc.js
+```
+Testado visualmente no preview local (`npm run dev`), logado, com o Browser pane: card aparecendo no Dashboard real (item 1), termos em português (item 2), lista de alvos por proximidade com toggle de histórico funcionando (item 3), contagem "▲ N acima · ▼ N abaixo" mudando de 0/7 pra 9/18 depois do fix da janela longa (item 4) — confirmado com screenshot em cada etapa. **Não testado em produção** (só preview local) — falta o deploy.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão — inclui os 3 arquivos tocados: componente movido de lugar, reescrito pra preditivo+macro/micro, e o fix de clustering):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/Dashboard.tsx src/app/components/dashboard/LiquidityDetectorCard.tsx src/app/services/smc/liquidityPools.ts
+git commit -m "fix: Detector de Liquidez não aparecia (componente órfão ModularDashboard.tsx -> move pro Dashboard.tsx real). feat: torna preditivo -- lista unificada de zonas não mitigadas por proximidade ao preço atual, histórico oculto por padrão. fix: bug no agrupamento de Piscinas de Liquidez (deriva em cadeia produzia zonas artificialmente largas). feat: combina janela recente (1H/14 dias) com janela de longo prazo (1D/5 anos) -- sem isso, zonas formadas há meses/anos (ex: uma máxima histórica) ficavam invisíveis, fazendo o card mostrar só alvos de baixa numa tendência de alta forte por falta de dado, não por ausência real de estrutura. Cada zona agora mostra sua origem (1H recente vs 1D longo prazo). i18n: traduz termos em inglês do card"
+git push origin main
+```
+2. Aplicar a **migration 008** (`chart_preferences`, pendente desde a sessão anterior, ver seção logo abaixo) no SQL Editor do Supabase, projeto `wyvdsxtcmizettljxtbg` — ainda não feita, segue bloqueando só a persistência do toggle de S/R no Gráfico (não afeta o Detector de Liquidez).
+3. Confirmar em produção, depois do deploy: card aparece no fim do Dashboard real; trocar de ativo (especialmente um em tendência forte, tipo BTC no momento desta sessão) e conferir que aparecem alvos dos dois lados quando existir estrutura histórica real; toggle de histórico funciona; nenhum termo em inglês sobrou (exceto FVG, mantido de propósito).
+4. **Escopo consciente, não feito**: a janela macro de 5 anos é fixa — não há ajuste de usuário (ex: escolher "10 anos" ou "1 ano"). Se o Cleber quiser configurável, é extensão futura simples (mover as 2 constantes `MACRO_WINDOW_DAYS`/`MICRO_WINDOW_DAYS` pra prop/estado). Também não foi feita nenhuma deduplicação entre zonas 1H e 1D que se sobreponham no mesmo range de preço (podem aparecer como 2 linhas próximas em vez de 1 só) — baixo impacto visual, não reportado como problema ainda.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-21)
 
 ## Sessão nova (2026-07-21): Suporte/Resistência desenhado no Gráfico + Detector de Liquidez SMC no Dashboard — PENDENTE COMMIT/PUSH + PENDENTE APLICAR MIGRATION 008
 
