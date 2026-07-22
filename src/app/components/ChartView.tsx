@@ -2025,8 +2025,9 @@ export function ChartView() {
   const createIndicatorInstance = (chart: any, indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
     const config: any = {
       name: indicator.klinechartsName,
-      id: indicator.id,
-      styles: { tooltip: { icons: [INDICATOR_CLOSE_ICON] } }
+      id: indicator.id
+      // ✅ Ícone de excluir (✕) vem do estilo global setado em chart.setStyles() no init
+      // (styles.tooltip.icons por instância é ignorado pela klinecharts — ver comentário lá)
     };
     if (indicator.defaultParams && indicator.defaultParams.length > 0) {
       config.calcParams = indicator.defaultParams;
@@ -3430,6 +3431,17 @@ export function ChartView() {
               borderColor: 'transparent',
               color: 'transparent'
             }
+          }
+        },
+        // ✅ Ícone de excluir (✕) na legenda de TODO indicador — precisa ser setado aqui
+        // (estilo global), não no config de criação de cada indicador: a klinecharts só lê
+        // chart.getStyles().indicator.tooltip.icons para desenhar/registrar clique dos ícones
+        // da legenda, ignorando por completo qualquer `styles.tooltip.icons` passado por
+        // instância em createIndicator() (confirmado lendo IndicatorTooltipView.drawIndicatorTooltip
+        // em node_modules/klinecharts/dist/index.esm.js — por isso o ícone nunca aparecia/clicava).
+        indicator: {
+          tooltip: {
+            icons: [INDICATOR_CLOSE_ICON]
           }
         },
         grid: {
