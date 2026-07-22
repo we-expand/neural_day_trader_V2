@@ -4966,55 +4966,38 @@ export function ChartView() {
             className="shrink-0"
           />
 
-          {/* Chart Container */}
-          <div 
-            ref={chartContainerRef} 
-            id={chartIdRef.current}
-            className="flex-1 bg-black relative"
-            style={{ 
-              minHeight: '600px',
-              height: '100%',
-              willChange: 'transform',
-              transform: 'translateZ(0)',
-              paddingLeft: '0px', // 🎯 Sem padding - deixamos o yAxis size controlar
-            }}
-            onClick={(e) => {
-              // 🆕 MODO TEXTO: Clicar no gráfico abre input de texto
-              if (isAddingText) {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                setTextPosition({ x, y });
-                console.log('[ChartView] 📝 Posição do texto:', { x, y });
-              }
-            }}
-          >
-
-            {/* ✅ Excluir indicador DIRETO no gráfico — chips reais em HTML (não depende do
-                clique no ícone desenhado no canvas pela klinecharts, que tem hit-testing
-                próprio e não é confiável nesse setup). Sempre visível, sempre clicável. */}
-            {activeIndicators.size > 0 && (
-              <div className="absolute top-2 left-2 z-[55] flex flex-col gap-1 pointer-events-none">
-                {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
-                  <div
-                    key={indicator.id}
-                    className="pointer-events-auto flex items-center gap-1.5 bg-black/75 backdrop-blur-sm border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 shadow-lg"
-                  >
-                    <span className="font-medium">{indicator.name.split(' - ')[0]}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleIndicator(indicator);
-                      }}
-                      title="Remover indicador"
-                      className="text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-0.5 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+          {/* ✅ Wrapper NOVO, dedicado só ao chart+overlays React — a klinecharts manipula o
+              DOM de dentro de #chartIdRef diretamente (fora do controle do React). Overlays
+              React que entram/saem condicionalmente (como os chips de indicador abaixo) NÃO
+              podem ser filhos desse mesmo div: React perde a referência de onde inserir/mover
+              nós quando a klinecharts já reordenou os filhos por fora, gerando
+              "NotFoundError: insertBefore ... not a child of this node" — que derruba a
+              árvore inteira via ErrorBoundary (era a causa real do "pisca e reinicia" ao
+              adicionar indicador). Os chips agora são um IRMÃO do container da klinecharts,
+              nunca um filho dele. */}
+          <div className="flex-1 relative">
+            {/* Chart Container */}
+            <div
+              ref={chartContainerRef}
+              id={chartIdRef.current}
+              className="w-full h-full bg-black relative"
+              style={{
+                minHeight: '600px',
+                willChange: 'transform',
+                transform: 'translateZ(0)',
+                paddingLeft: '0px', // 🎯 Sem padding - deixamos o yAxis size controlar
+              }}
+              onClick={(e) => {
+                // 🆕 MODO TEXTO: Clicar no gráfico abre input de texto
+                if (isAddingText) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = e.clientX - rect.left;
+                  const y = e.clientY - rect.top;
+                  setTextPosition({ x, y });
+                  console.log('[ChartView] 📝 Posição do texto:', { x, y });
+                }
+              }}
+            >
 
             {/* 🔥 CANDLE COUNTDOWN - COLADO NA LINHA DO PREÇO */}
             <div 
@@ -5200,6 +5183,35 @@ export function ChartView() {
                   </div>
                 )}
               </>
+            )}
+            </div>
+
+            {/* ✅ Excluir indicador DIRETO no gráfico — chips reais em HTML (não depende do
+                clique no ícone desenhado no canvas pela klinecharts, que tem hit-testing
+                próprio e não é confiável nesse setup). Sempre visível, sempre clicável.
+                IRMÃO do container da klinecharts (não filho) — ver comentário na abertura
+                do wrapper acima explicando o bug de insertBefore que isso corrige. */}
+            {activeIndicators.size > 0 && (
+              <div className="absolute top-2 left-2 z-[55] flex flex-col gap-1 pointer-events-none">
+                {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
+                  <div
+                    key={indicator.id}
+                    className="pointer-events-auto flex items-center gap-1.5 bg-black/75 backdrop-blur-sm border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 shadow-lg"
+                  >
+                    <span className="font-medium">{indicator.name.split(' - ')[0]}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleIndicator(indicator);
+                      }}
+                      title="Remover indicador"
+                      className="text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-0.5 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
