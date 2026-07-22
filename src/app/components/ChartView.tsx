@@ -1067,18 +1067,31 @@ export function ChartView() {
   const [dataSource, setDataSource] = useState<'metaapi' | 'generated' | 'loading'>('loading');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
-  // 🆕 Maximizar a tela do Gráfico — cobre sidebar/header/rodapé/ticker via posição
-  // fixa de alto z-index (mesmo padrão já usado pelos modais desta tela), sem exigir
-  // Fullscreen API do navegador (não precisa de permissão, funciona em iframe também).
+  // 🆕 Maximizar a tela do Gráfico — usa a Fullscreen API real do navegador (o gráfico
+  // cobre o monitor inteiro, por cima do próprio browser, igual TradingView/YouTube),
+  // com fallback pro modo "cobre só o app" (fixed inset-0) se o navegador negar/não
+  // suportar (ex: dentro de um iframe sem allow="fullscreen").
+  const chartRootRef = useRef<HTMLDivElement>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   useEffect(() => {
-    if (!isMaximized) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsMaximized(false);
-    };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isMaximized]);
+    const handleFullscreenChange = () => setIsMaximized(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+  const toggleMaximize = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await chartRootRef.current?.requestFullscreen?.();
+      } else {
+        await document.exitFullscreen?.();
+      }
+    } catch (err) {
+      // Navegador negou/não suporta (ex: iframe sem allow="fullscreen") — cai pro
+      // modo CSS (cobre só o app, não o browser inteiro).
+      console.warn('[ChartView] Fullscreen API indisponível, usando modo CSS:', err);
+      setIsMaximized((prev) => !prev);
+    }
+  };
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
   const [showBacktestConfig, setShowBacktestConfig] = useState(false); // 🆕 Modal de configuração do Backtest
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
@@ -4620,7 +4633,19 @@ export function ChartView() {
           animation: pulse-slow 1.5s ease-in-out;
         }
       `}</style>
-      <div className={`bg-black flex relative ${isMaximized ? 'fixed inset-0 z-[200] h-screen w-screen' : 'h-full w-full'}`}>
+      <div
+        ref={chartRootRef}
+        className={`bg-black flex relative ${isMaximized ? 'fixed inset-0 z-[200] h-screen w-screen' : 'h-full w-full'}`}
+      >
+      {/* 🆕 Botão de Maximizar/Restaurar — flutuante na borda direita da janela,
+          verticalmente centralizado, sempre visível por cima do gráfico. */}
+      <button
+        onClick={toggleMaximize}
+        className="fixed right-3 top-1/2 -translate-y-1/2 z-[210] p-2.5 rounded-full bg-black/70 border border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800 backdrop-blur-sm shadow-lg transition-all"
+        title={isMaximized ? 'Sair da tela cheia (Esc)' : 'Maximizar em tela cheia'}
+      >
+        {isMaximized ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+      </button>
       {/* Asset List Modal - Flutuante Centralizado */}
       {showAssetList && (
         <>
@@ -4858,19 +4883,6 @@ export function ChartView() {
           >
             <Activity className="w-3.5 h-3.5" />
             <span>Indicadores</span>
-          </button>
-
-          {/* 🆕 Maximizar tela do Gráfico */}
-          <button
-            onClick={() => setIsMaximized(!isMaximized)}
-            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all ${
-              isMaximized
-                ? 'bg-gray-700 text-white border border-gray-600'
-                : 'bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-            }`}
-            title={isMaximized ? 'Restaurar tela (Esc)' : 'Maximizar gráfico'}
-          >
-            {isMaximized ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </button>
 
           {/* 🆕 Backtest/Replay Button - Orange Style */}
