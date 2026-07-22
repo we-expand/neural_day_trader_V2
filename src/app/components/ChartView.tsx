@@ -5042,13 +5042,29 @@ export function ChartView() {
 
         </div>
 
-        {/* Indicators Sidebar */}
+        {/* Indicators Modal — centralizado na tela, maior que a antiga sidebar de 320px */}
         {showIndicators && (
-          <div className="w-80 border-l border-gray-800 bg-[#0a0a0a] flex flex-col shrink-0 h-full max-h-screen overflow-hidden">
+        <div
+          className="fixed inset-0 z-[90] bg-black/60 flex items-center justify-center p-6"
+          onClick={() => setShowIndicators(false)}
+        >
+          <div
+            className="w-full max-w-3xl h-[80vh] max-h-[820px] bg-[#0a0a0a] border border-gray-800 rounded-xl flex flex-col overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header */}
-            <div className="p-4 border-b border-gray-800 shrink-0">
-              <h3 className="text-sm font-bold text-white">Indicadores Técnicos</h3>
-              <p className="text-xs text-gray-500 mt-1">{filteredIndicators.length} indicadores disponíveis</p>
+            <div className="p-4 border-b border-gray-800 shrink-0 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">Indicadores Técnicos</h3>
+                <p className="text-xs text-gray-500 mt-1">{filteredIndicators.length} indicadores disponíveis</p>
+              </div>
+              <button
+                onClick={() => setShowIndicators(false)}
+                className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
             {/* Search Bar */}
@@ -5112,38 +5128,44 @@ export function ChartView() {
 
             {/* Indicators List */}
             <div className="flex-1 overflow-y-auto min-h-0">
-              <div className="p-3 space-y-1">
+              <div className="p-3 grid grid-cols-2 gap-2">
               {filteredIndicators.map((indicator) => {
                 const isActive = activeIndicators.has(indicator.id);
-                
+
                 return (
-                  <button
+                  <div
                     key={indicator.id}
-                    onClick={() => toggleIndicator(indicator)}
-                    className={`w-full flex items-center justify-between p-3 rounded-lg transition-all group ${
+                    className={`relative w-full flex items-center justify-between p-3 rounded-lg transition-all group ${
                       isActive
                         ? 'bg-blue-500/20 border border-blue-500/40'
                         : 'bg-gray-900 hover:bg-gray-800 border border-transparent'
                     }`}
                   >
-                    <div className="flex flex-col items-start">
+                    <button
+                      onClick={() => toggleIndicator(indicator)}
+                      className="flex-1 flex flex-col items-start text-left min-w-0 pr-2"
+                    >
                       <span className={`text-sm font-medium ${isActive ? 'text-blue-300' : 'text-white'}`}>
                         {indicator.name}
                       </span>
-                      <span className="text-xs text-gray-500">{indicator.description}</span>
-                    </div>
-                    <div className={`text-lg font-bold transition-colors ${
-                      isActive ? 'text-red-400' : 'text-gray-600 group-hover:text-blue-400'
-                    }`}>
-                      {isActive ? '−' : '+'}
-                    </div>
-                  </button>
+                      <span className="text-xs text-gray-500 truncate w-full">{indicator.description}</span>
+                    </button>
+                    {isActive && (
+                      <button
+                        onClick={() => toggleIndicator(indicator)}
+                        title="Excluir indicador"
+                        className="p-1.5 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
 
               {/* No results */}
               {filteredIndicators.length === 0 && (
-                <div className="text-center py-8">
+                <div className="col-span-2 text-center py-8">
                   <Activity className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                   <p className="text-sm text-gray-500">Nenhum indicador encontrado</p>
                 </div>
@@ -5151,6 +5173,7 @@ export function ChartView() {
               </div>
             </div>
           </div>
+        </div>
         )}
       </div>
 
