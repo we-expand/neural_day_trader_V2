@@ -850,7 +850,13 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Simple Moving Average',
     category: 'trend',
     klinechartsName: 'SMA',
-    defaultParams: [20],
+    // ⚠️ O 'SMA' embutido na klinecharts (index.esm.js) exige EXATAMENTE 2 parâmetros
+    // -- calcParams[0] = período, calcParams[1] = fator de suavização (M) -- e usa os
+    // dois dentro da fórmula de cálculo (params[0] - params[1] + 1). Só desenha 1 linha
+    // sempre (figures tem 1 único item), então não sofre do bug de "várias linhas de
+    // uma vez"; reduzir pra 1 parâmetro (como fizemos em MA/EMA/WMA) deixa params[1]
+    // undefined -> NaN em todo o cálculo, quebrando o desenho do indicador.
+    defaultParams: [20, 2],
     isPaneIndicator: false
   },
   {
@@ -3554,15 +3560,13 @@ export function ChartView() {
       // 🎯 ZOOM E SCROLL SUAVE - Configurar barSpace inicial otimizado
       chart.setBarSpace(8); // Espaçamento padrão mais confort��vel
 
-      // 🆕 Aplicar modo ponto inicial (j�� que o estado inicial é 'point')
+      // 🎯 Aplica o modo inicial de verdade (seta, por padrão) — antes só tratava o
+      // caso 'point' (comentário desatualizado dizia que o estado inicial era 'point',
+      // mas o default já é 'arrow' há tempos). Sem chamar handleCrosshairModeChange aqui,
+      // o cursor do mouse ficava com a cruz padrão da própria klinecharts até o usuário
+      // clicar manualmente em "Seta" no menu de Cruz.
       console.log('[ChartView] 🎯 Aplicando modo inicial:', crosshairMode);
-      if (crosshairMode === 'point') {
-        const chartContainer = chart.getDom();
-        if (chartContainer) {
-          chartContainer.style.cursor = 'none';
-          chartContainer.classList.add('cursor-dot');
-        }
-      }
+      handleCrosshairModeChange(crosshairMode);
 
       // ❌ REMOVIDO: chart.subscribeAction('onOverlayClick', ...) — nunca funcionou
       // (ActionType desta versão da klinecharts não tem esse membro; ver o enum real:
