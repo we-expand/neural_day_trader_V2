@@ -163,7 +163,9 @@ import {
   Zap,
   Move,
   RotateCcw,
-  X
+  X,
+  Maximize,
+  Minimize
 } from 'lucide-react';
 
 
@@ -1065,6 +1067,18 @@ export function ChartView() {
   const [dataSource, setDataSource] = useState<'metaapi' | 'generated' | 'loading'>('loading');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
+  // 🆕 Maximizar a tela do Gráfico — cobre sidebar/header/rodapé/ticker via posição
+  // fixa de alto z-index (mesmo padrão já usado pelos modais desta tela), sem exigir
+  // Fullscreen API do navegador (não precisa de permissão, funciona em iframe também).
+  const [isMaximized, setIsMaximized] = useState(false);
+  useEffect(() => {
+    if (!isMaximized) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMaximized(false);
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isMaximized]);
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
   const [showBacktestConfig, setShowBacktestConfig] = useState(false); // 🆕 Modal de configuração do Backtest
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
@@ -4580,7 +4594,7 @@ export function ChartView() {
           animation: pulse-slow 1.5s ease-in-out;
         }
       `}</style>
-      <div className="h-full w-full bg-black flex relative">
+      <div className={`bg-black flex relative ${isMaximized ? 'fixed inset-0 z-[200] h-screen w-screen' : 'h-full w-full'}`}>
       {/* Asset List Modal - Flutuante Centralizado */}
       {showAssetList && (
         <>
@@ -4818,6 +4832,19 @@ export function ChartView() {
           >
             <Activity className="w-3.5 h-3.5" />
             <span>Indicadores</span>
+          </button>
+
+          {/* 🆕 Maximizar tela do Gráfico */}
+          <button
+            onClick={() => setIsMaximized(!isMaximized)}
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all ${
+              isMaximized
+                ? 'bg-gray-700 text-white border border-gray-600'
+                : 'bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+            }`}
+            title={isMaximized ? 'Restaurar tela (Esc)' : 'Maximizar gráfico'}
+          >
+            {isMaximized ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </button>
 
           {/* 🆕 Backtest/Replay Button - Orange Style */}
