@@ -1,6 +1,127 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
-import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis } from 'klinecharts';
+import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerIndicator, getIndicatorClass } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate } from 'klinecharts';
+
+// 🆕 Indicadores customizados reais (WMA/ATR/Donchian/Pivot Points não existem nos
+// built-ins do klinecharts — antes o app tentava criá-los mesmo assim, o que falhava
+// silenciosamente (createIndicator loga um warning e retorna null, sem desenhar nada),
+// deixando o toggle marcado como "ativo" na UI sem nenhum efeito real no gráfico.
+if (getIndicatorClass('WMA') === null) {
+  registerIndicator<number>({
+    name: 'WMA',
+    shortName: 'WMA',
+    series: 'price' as any,
+    precision: 2,
+    calcParams: [5, 10, 20, 60],
+    shouldOhlc: true,
+    figures: [],
+    calc: (dataList, indicator) => {
+      const params = (indicator.calcParams as number[]).filter(p => p > 0);
+      const figures = params.map(p => ({ key: `wma${p}`, title: `WMA${p}: `, type: 'line' }));
+      indicator.regenerateFigures?.(indicator.calcParams);
+      (indicator as any).figures = figures;
+      return dataList.map((_, i) => {
+        const result: Record<string, number | undefined> = {};
+        params.forEach(period => {
+          if (i < period - 1) return;
+          let weightedSum = 0;
+          let weightTotal = 0;
+          for (let j = 0; j < period; j++) {
+            const weight = period - j;
+            weightedSum += dataList[i - j].close * weight;
+            weightTotal += weight;
+          }
+          result[`wma${period}`] = weightedSum / weightTotal;
+        });
+        return result as any;
+      });
+    },
+    regenerateFigures: (calcParams: number[]) => calcParams.filter(p => p > 0).map(p => ({ key: `wma${p}`, title: `WMA${p}: `, type: 'line' }))
+  });
+}
+
+if (getIndicatorClass('ATR') === null) {
+  registerIndicator<number>({
+    name: 'ATR',
+    shortName: 'ATR',
+    series: 'normal' as any,
+    precision: 4,
+    calcParams: [14],
+    shouldOhlc: false,
+    figures: [{ key: 'atr', title: 'ATR: ', type: 'line' }],
+    calc: (dataList, indicator) => {
+      const period = (indicator.calcParams as number[])[0] || 14;
+      const trueRanges: number[] = [];
+      return dataList.map((bar, i) => {
+        if (i === 0) {
+          trueRanges.push(bar.high - bar.low);
+          return { atr: undefined } as any;
+        }
+        const prevClose = dataList[i - 1].close;
+        const tr = Math.max(bar.high - bar.low, Math.abs(bar.high - prevClose), Math.abs(bar.low - prevClose));
+        trueRanges.push(tr);
+        if (i < period) return { atr: undefined } as any;
+        const window = trueRanges.slice(i - period + 1, i + 1);
+        const atr = window.reduce((a, b) => a + b, 0) / period;
+        return { atr } as any;
+      });
+    }
+  });
+}
+
+if (getIndicatorClass('DC') === null) {
+  registerIndicator<number>({
+    name: 'DC',
+    shortName: 'DC',
+    series: 'price' as any,
+    precision: 2,
+    calcParams: [20],
+    shouldOhlc: false,
+    figures: [
+      { key: 'upper', title: 'UPPER: ', type: 'line' },
+      { key: 'middle', title: 'MIDDLE: ', type: 'line' },
+      { key: 'lower', title: 'LOWER: ', type: 'line' }
+    ],
+    calc: (dataList, indicator) => {
+      const period = (indicator.calcParams as number[])[0] || 20;
+      return dataList.map((_, i) => {
+        if (i < period - 1) return {} as any;
+        const window = dataList.slice(i - period + 1, i + 1);
+        const upper = Math.max(...window.map(d => d.high));
+        const lower = Math.min(...window.map(d => d.low));
+        return { upper, middle: (upper + lower) / 2, lower } as any;
+      });
+    }
+  });
+}
+
+// Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
+// Trend, um indicador completamente diferente) e chamava isso de "Pivot Points" na UI.
+if (getIndicatorClass('PIVOT_POINTS') === null) {
+  registerIndicator<number>({
+    name: 'PIVOT_POINTS',
+    shortName: 'PIVOT',
+    series: 'price' as any,
+    precision: 2,
+    calcParams: [],
+    shouldOhlc: false,
+    figures: [
+      { key: 'r1', title: 'R1: ', type: 'line' },
+      { key: 'pp', title: 'PP: ', type: 'line' },
+      { key: 's1', title: 'S1: ', type: 'line' }
+    ],
+    calc: (dataList) => {
+      return dataList.map((_, i) => {
+        if (i === 0) return {} as any;
+        const prev = dataList[i - 1];
+        const pp = (prev.high + prev.low + prev.close) / 3;
+        const r1 = 2 * pp - prev.low;
+        const s1 = 2 * pp - prev.high;
+        return { pp, r1, s1 } as any;
+      });
+    }
+  });
+}
 import { 
   TrendingUp, 
   TrendingDown,
@@ -885,22 +1006,17 @@ const INDICATORS: IndicatorConfig[] = [
   {
     id: 'pivot',
     name: 'Pivot Points',
-    description: 'Pontos de Pivô',
+    description: 'Pontos de Pivô (clássico, período anterior)',
     category: 'support_resistance',
-    klinechartsName: 'PVT',
-    defaultParams: [],
-    isPaneIndicator: false
-  },
-  {
-    id: 'fibonacci',
-    name: 'Fibonacci Retracement',
-    description: 'Retração de Fibonacci',
-    category: 'support_resistance',
-    klinechartsName: 'FIBONACCIRETRACEMENT',
+    klinechartsName: 'PIVOT_POINTS',
     defaultParams: [],
     isPaneIndicator: false
   },
 ];
+// Nota: "Fibonacci Retracement" foi removido desta lista — não é um indicador
+// calculado sobre candle (não existe como built-in do klinecharts e não faz sentido
+// registrar via calc()), é uma ferramenta de DESENHO com 2 pontos definidos pelo
+// usuário. Já existe como overlay na toolbar de desenho do gráfico (Fibonacci).
 
 // ✅ FUNÇÃO DE FORMATAÇÃO INTERNACIONAL (estilo TradingView/Binance)
 function formatBrazilianPrice(price: number, decimals: number = 2): string {
@@ -957,6 +1073,11 @@ export function ChartView() {
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
   const [priceLinePosition, setPriceLinePosition] = useState<number | null>(null);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set()); // 🆕 Indicadores ativos
+  // 🆕 paneId real usado por cada indicador criado — removeIndicator(paneId, name) exige
+  // o paneId exato de onde o indicador foi criado ('candle_pane' pra overlay, 'pane_<id>'
+  // pra painel próprio); sem isso, removeIndicator(indicator.id) nunca casava com nada e
+  // o "Remover" nunca tirava o desenho de verdade da tela (só mudava o estado da UI).
+  const indicatorPaneIdRef = useRef<Record<string, string>>({});
   const [indicatorSearchTerm, setIndicatorSearchTerm] = useState(''); // 🆕 Busca de indicadores
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // 🆕 Filtro por categoria
   
@@ -1843,8 +1964,10 @@ export function ChartView() {
       if (isActive) {
         // Remover indicador
         console.log('[ChartView] 🗑️ Removing indicator:', indicator.name);
-        chart.removeIndicator(indicator.id);
-        
+        const paneId = indicatorPaneIdRef.current[indicator.id] || (indicator.isPaneIndicator ? `pane_${indicator.id}` : 'candle_pane');
+        chart.removeIndicator(paneId, indicator.id);
+        delete indicatorPaneIdRef.current[indicator.id];
+
         const newActiveIndicators = new Set(activeIndicators);
         newActiveIndicators.delete(indicator.id);
         setActiveIndicators(newActiveIndicators);
@@ -1867,8 +1990,10 @@ export function ChartView() {
         // Create indicator on main pane or new pane
         if (indicator.isPaneIndicator) {
           chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
+          indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
         } else {
           chart.createIndicator(config, true); // true = overlay on main pane
+          indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
         }
 
         const newActiveIndicators = new Set(activeIndicators);
