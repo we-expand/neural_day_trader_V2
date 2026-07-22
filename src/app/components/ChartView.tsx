@@ -4702,15 +4702,6 @@ export function ChartView() {
         ref={chartRootRef}
         className={`bg-black flex relative ${isMaximized ? 'fixed inset-0 z-[200] h-screen w-screen' : 'h-full w-full'}`}
       >
-      {/* 🆕 Botão de Maximizar/Restaurar — flutuante na borda direita da janela,
-          verticalmente centralizado, sempre visível por cima do gráfico. */}
-      <button
-        onClick={toggleMaximize}
-        className="fixed right-3 top-1/2 -translate-y-1/2 z-[210] p-2.5 rounded-full bg-black/70 border border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800 backdrop-blur-sm shadow-lg transition-all"
-        title={isMaximized ? 'Sair da tela cheia (Esc)' : 'Maximizar em tela cheia'}
-      >
-        {isMaximized ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-      </button>
       {/* Asset List Modal - Flutuante Centralizado */}
       {showAssetList && (
         <>
@@ -4976,6 +4967,17 @@ export function ChartView() {
           >
             <Zap className="w-3.5 h-3.5" />
             <span>Backtest</span>
+          </button>
+
+          {/* 🆕 Maximizar/Restaurar — canto direito do topo do gráfico (era um botão
+              flutuante na borda da janela; movido pra dentro da barra de timeframes
+              a pedido do Cleber, pra ficar sempre visível junto dos outros controles). */}
+          <button
+            onClick={toggleMaximize}
+            className="ml-auto flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700"
+            title={isMaximized ? 'Sair da tela cheia (Esc)' : 'Maximizar em tela cheia'}
+          >
+            {isMaximized ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </button>
 
         </div>
