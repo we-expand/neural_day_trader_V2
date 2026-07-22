@@ -2035,7 +2035,10 @@ export function ChartView() {
       chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
       indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
     } else {
-      chart.createIndicator(config, true); // true = overlay on main pane
+      // paneOptions.id precisa apontar pro pane existente (candle_pane) -- sem isso,
+      // createIndicator faz getDrawPaneById('') = null e cai no ramo de criar um pane NOVO
+      // (ver ChartImp.prototype.createIndicator em node_modules/klinecharts/dist/index.esm.js)
+      chart.createIndicator(config, true, { id: 'candle_pane' });
       indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
     }
   };
