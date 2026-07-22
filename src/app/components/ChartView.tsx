@@ -5404,13 +5404,16 @@ export function ChartView() {
                 IRMÃO do container da klinecharts (não filho) — ver comentário na abertura
                 do wrapper acima explicando o bug de insertBefore que isso corrige. */}
             {activeIndicators.size > 0 && (
-              <div className="absolute top-2 left-2 z-[55] flex flex-col gap-1 pointer-events-none">
+              // 🆕 Sem "box flutuante" — só os ícones, alinhados na mesma linha que a
+              // klinecharts desenha o nome/valor do indicador (canto superior direito do
+              // gráfico), na mesma ordem/altura de linha que a legenda nativa usa (~20px
+              // por indicador, offsetTop inicial ~26px para acomodar a linha de OHLC).
+              <div className="absolute top-[26px] right-2 z-[55] flex flex-col items-end pointer-events-none">
                 {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
                   <div
                     key={indicator.id}
-                    className="pointer-events-auto flex items-center gap-1.5 bg-black/75 backdrop-blur-sm border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 shadow-lg"
+                    className="pointer-events-auto flex items-center gap-1 h-5"
                   >
-                    <span className="font-medium">{indicator.name.split(' - ')[0]}</span>
                     {(indicator.defaultParams?.length ?? 0) > 0 && (
                       <button
                         onClick={(e) => {
@@ -5418,7 +5421,7 @@ export function ChartView() {
                           isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
                         }}
                         title="Editar parâmetros"
-                        className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-0.5 transition-colors"
+                        className="text-gray-400/70 hover:text-blue-400 hover:bg-blue-500/10 rounded p-0.5 transition-colors"
                       >
                         <Settings className="w-3 h-3" />
                       </button>
@@ -5429,7 +5432,7 @@ export function ChartView() {
                         toggleIndicator(indicator);
                       }}
                       title="Remover indicador"
-                      className="text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-0.5 transition-colors"
+                      className="text-gray-400/70 hover:text-red-400 hover:bg-red-500/10 rounded p-0.5 transition-colors"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -5442,7 +5445,7 @@ export function ChartView() {
                 menu de botão direito) */}
             {indicatorEditor && (
               <div
-                className="absolute top-10 left-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
+                className="absolute top-[26px] right-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-2">
@@ -5488,7 +5491,7 @@ export function ChartView() {
                 Estilo (cor/traço/espessura). */}
             {maEditor && (
               <div
-                className="absolute top-10 left-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
+                className="absolute top-[26px] right-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-3">
