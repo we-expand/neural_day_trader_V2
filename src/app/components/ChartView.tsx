@@ -8,43 +8,135 @@ import type { KLineData, OverlayTemplate, AxisTemplate } from 'klinecharts';
 // getSupportedIndicators() é a alternativa realmente exportada em runtime.
 const isIndicatorRegistered = (name: string) => getSupportedIndicators().includes(name);
 
+// 🆕 Médias móveis no padrão MT5/MetaTrader — Período, Deslocar (shift), Método
+// (Simples/Exponencial/Suavizada/Ponderada Linear) e Aplicar a (Fechamento/Abertura/
+// Máxima/Mínima/Mediana/Típico/Ponderado), pedido explícito do Cleber com print do
+// diálogo real do MT5 anexado. 'MA'/'EMA'/'SMA' são indicadores BUILT-IN do klinecharts
+// (cálculo fixo, sem essas opções) — registerIndicator() com o MESMO nome SUBSTITUI
+// a definição built-in inteira (indicators[name] = ..., é só um objeto — ver
+// registerIndicator() em index.esm.js), então as 4 passam a ser variantes do mesmo
+// motor completo, cada uma só com um "Método" padrão diferente (mas trocável no editor).
+export type MAMethod = 'SIMPLE' | 'EXPONENTIAL' | 'SMOOTHED' | 'LINEAR_WEIGHTED';
+export type AppliedPrice = 'CLOSE' | 'OPEN' | 'HIGH' | 'LOW' | 'MEDIAN' | 'TYPICAL' | 'WEIGHTED';
+
+const getAppliedPriceValue = (bar: KLineData, appliedPrice: AppliedPrice): number => {
+  switch (appliedPrice) {
+    case 'OPEN': return bar.open;
+    case 'HIGH': return bar.high;
+    case 'LOW': return bar.low;
+    case 'MEDIAN': return (bar.high + bar.low) / 2;
+    case 'TYPICAL': return (bar.high + bar.low + bar.close) / 3;
+    case 'WEIGHTED': return (bar.high + bar.low + 2 * bar.close) / 4;
+    case 'CLOSE':
+    default: return bar.close;
+  }
+};
+
+// Calcula a média móvel sobre uma série de preços já resolvida (applied price),
+// pro método escolhido. Retorna undefined nos índices sem dado suficiente ainda.
+const computeMovingAverageSeries = (values: number[], period: number, method: MAMethod): (number | undefined)[] => {
+  const result: (number | undefined)[] = new Array(values.length).fill(undefined);
+  if (period <= 0) return result;
+  switch (method) {
+    case 'SIMPLE': {
+      let sum = 0;
+      for (let i = 0; i < values.length; i++) {
+        sum += values[i];
+        if (i >= period) sum -= values[i - period];
+        if (i >= period - 1) result[i] = sum / period;
+      }
+      break;
+    }
+    case 'LINEAR_WEIGHTED': {
+      const weightTotal = (period * (period + 1)) / 2;
+      for (let i = period - 1; i < values.length; i++) {
+        let weightedSum = 0;
+        for (let j = 0; j < period; j++) {
+          weightedSum += values[i - j] * (period - j);
+        }
+        result[i] = weightedSum / weightTotal;
+      }
+      break;
+    }
+    case 'EXPONENTIAL': {
+      const alpha = 2 / (period + 1);
+      let prev: number | undefined;
+      for (let i = 0; i < values.length; i++) {
+        if (i < period - 1) continue;
+        if (prev === undefined) {
+          let sum = 0;
+          for (let j = i - period + 1; j <= i; j++) sum += values[j];
+          prev = sum / period;
+        } else {
+          prev = values[i] * alpha + prev * (1 - alpha);
+        }
+        result[i] = prev;
+      }
+      break;
+    }
+    case 'SMOOTHED': {
+      // SMMA/RMA (suavização de Wilder) — mesma lógica do ATR/RSI clássico
+      let prev: number | undefined;
+      for (let i = 0; i < values.length; i++) {
+        if (i < period - 1) continue;
+        if (prev === undefined) {
+          let sum = 0;
+          for (let j = i - period + 1; j <= i; j++) sum += values[j];
+          prev = sum / period;
+        } else {
+          prev = (prev * (period - 1) + values[i]) / period;
+        }
+        result[i] = prev;
+      }
+      break;
+    }
+  }
+  return result;
+};
+
+interface MAExtendData {
+  method: MAMethod;
+  appliedPrice: AppliedPrice;
+  shift: number;
+}
+
+const registerMovingAverageIndicator = (name: string, defaultMethod: MAMethod) => {
+  registerIndicator<number>({
+    name,
+    shortName: name,
+    series: 'price' as any,
+    precision: 2,
+    calcParams: [20],
+    shouldOhlc: true,
+    figures: [{ key: 'ma', title: `${name}: `, type: 'line' }],
+    calc: (dataList, indicator) => {
+      const period = ((indicator.calcParams as number[])[0]) || 20;
+      const ext: Partial<MAExtendData> = (indicator.extendData as MAExtendData) || {};
+      const method = ext.method ?? defaultMethod;
+      const appliedPrice = ext.appliedPrice ?? 'CLOSE';
+      const shift = ext.shift ?? 0;
+      const values = dataList.map(bar => getAppliedPriceValue(bar, appliedPrice));
+      const maValues = computeMovingAverageSeries(values, period, method);
+      // Deslocar (shift): positivo empurra a linha pra frente no tempo (mostra o valor
+      // calculado N barras atrás na posição atual), negativo puxa pra trás -- mesmo
+      // comportamento do campo "Deslocar" no MT5.
+      return dataList.map((_, i) => {
+        const srcIndex = i - shift;
+        const value = srcIndex >= 0 && srcIndex < maValues.length ? maValues[srcIndex] : undefined;
+        return { ma: value } as any;
+      });
+    }
+  });
+};
+
 // 🆕 Indicadores customizados reais (WMA/ATR/Donchian/Pivot Points não existem nos
 // built-ins do klinecharts — antes o app tentava criá-los mesmo assim, o que falhava
 // silenciosamente (createIndicator loga um warning e retorna null, sem desenhar nada),
 // deixando o toggle marcado como "ativo" na UI sem nenhum efeito real no gráfico.
-if (!isIndicatorRegistered('WMA')) {
-  registerIndicator<number>({
-    name: 'WMA',
-    shortName: 'WMA',
-    series: 'price' as any,
-    precision: 2,
-    calcParams: [5, 10, 20, 60],
-    shouldOhlc: true,
-    figures: [],
-    calc: (dataList, indicator) => {
-      const params = (indicator.calcParams as number[]).filter(p => p > 0);
-      const figures = params.map(p => ({ key: `wma${p}`, title: `WMA${p}: `, type: 'line' }));
-      indicator.regenerateFigures?.(indicator.calcParams);
-      (indicator as any).figures = figures;
-      return dataList.map((_, i) => {
-        const result: Record<string, number | undefined> = {};
-        params.forEach(period => {
-          if (i < period - 1) return;
-          let weightedSum = 0;
-          let weightTotal = 0;
-          for (let j = 0; j < period; j++) {
-            const weight = period - j;
-            weightedSum += dataList[i - j].close * weight;
-            weightTotal += weight;
-          }
-          result[`wma${period}`] = weightedSum / weightTotal;
-        });
-        return result as any;
-      });
-    },
-    regenerateFigures: (calcParams: number[]) => calcParams.filter(p => p > 0).map(p => ({ key: `wma${p}`, title: `WMA${p}: `, type: 'line' }))
-  });
-}
+registerMovingAverageIndicator('MA', 'SIMPLE');
+registerMovingAverageIndicator('SMA', 'SIMPLE');
+registerMovingAverageIndicator('EMA', 'EXPONENTIAL');
+registerMovingAverageIndicator('WMA', 'LINEAR_WEIGHTED');
 
 if (!isIndicatorRegistered('ATR')) {
   registerIndicator<number>({
@@ -829,9 +921,13 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Simple Moving Average',
     category: 'trend',
     klinechartsName: 'MA',
-    // ⚠️ Só 1 período por padrão -- klinecharts cria uma linha por valor em
-    // calcParams; com [5,10,20,60] inseria 4 médias de uma vez (bug reportado
-    // pelo Cleber). Usuário pode adicionar outros períodos manualmente depois.
+    // ✅ 'MA' foi re-registrado do zero (ver registerMovingAverageIndicator no topo do
+    // arquivo) como motor completo no padrão MT5: Período, Deslocar, Método (Simples/
+    // Exponencial/Suavizada/Ponderada Linear) e Aplicar a (Fechamento/Abertura/Máxima/
+    // Mínima/Mediana/Típico/Ponderado) -- editável no popover do chip ou no menu de
+    // botão direito. Sempre 1 linha por instância (não sofre do bug de "várias de
+    // uma vez"); usuário pode inserir a mesma média mais de uma vez com métodos/
+    // períodos diferentes, igual no MT5.
     defaultParams: [20],
     isPaneIndicator: false
   },
@@ -850,13 +946,7 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Simple Moving Average',
     category: 'trend',
     klinechartsName: 'SMA',
-    // ⚠️ O 'SMA' embutido na klinecharts (index.esm.js) exige EXATAMENTE 2 parâmetros
-    // -- calcParams[0] = período, calcParams[1] = fator de suavização (M) -- e usa os
-    // dois dentro da fórmula de cálculo (params[0] - params[1] + 1). Só desenha 1 linha
-    // sempre (figures tem 1 único item), então não sofre do bug de "várias linhas de
-    // uma vez"; reduzir pra 1 parâmetro (como fizemos em MA/EMA/WMA) deixa params[1]
-    // undefined -> NaN em todo o cálculo, quebrando o desenho do indicador.
-    defaultParams: [20, 2],
+    defaultParams: [20],
     isPaneIndicator: false
   },
   {
@@ -2031,6 +2121,74 @@ export function ChartView() {
   const getIndicatorParams = (indicator: IndicatorConfig): number[] =>
     indicatorParamsById[indicator.id] ?? (indicator.defaultParams ?? []);
 
+  // 🆕 Médias móveis (MA/EMA/SMA/WMA) têm um editor completo no padrão MT5 — Período,
+  // Deslocar, Método, Aplicar a e Estilo (ver registerMovingAverageIndicator no topo
+  // do arquivo). As demais continuam com o editor genérico (só período) acima.
+  interface MAUISettings {
+    period: number;
+    shift: number;
+    method: MAMethod;
+    appliedPrice: AppliedPrice;
+    color: string;
+    lineStyle: 'solid' | 'dashed';
+    lineWidth: number;
+  }
+  const MA_DEFAULT_METHOD: Record<string, MAMethod> = { ma: 'SIMPLE', sma: 'SIMPLE', ema: 'EXPONENTIAL', wma: 'LINEAR_WEIGHTED' };
+  const isMovingAverageIndicator = (indicator: IndicatorConfig): boolean => indicator.id in MA_DEFAULT_METHOD;
+
+  const [indicatorMASettings, setIndicatorMASettings] = useState<Record<string, MAUISettings>>({});
+  const getMASettings = (indicator: IndicatorConfig): MAUISettings =>
+    indicatorMASettings[indicator.id] ?? {
+      period: indicator.defaultParams?.[0] ?? 20,
+      shift: 0,
+      method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
+      appliedPrice: 'CLOSE',
+      color: '#f97316',
+      lineStyle: 'solid',
+      lineWidth: 1
+    };
+
+  const applyMASettingsToChart = (chart: any, indicator: IndicatorConfig, settings: MAUISettings) => {
+    const paneId = indicatorPaneIdRef.current[indicator.id];
+    if (!chart || !paneId) return;
+    chart.overrideIndicator({
+      name: indicator.klinechartsName,
+      calcParams: [settings.period],
+      extendData: { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift },
+      styles: { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth }] }
+    }, paneId);
+  };
+
+  const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; settings: MAUISettings } | null>(null);
+
+  const openMAEditor = (indicator: IndicatorConfig) => {
+    setMaEditor({ indicator, settings: { ...getMASettings(indicator) } });
+  };
+
+  const saveMAEditor = () => {
+    if (!maEditor) return;
+    const { indicator, settings } = maEditor;
+    if (!Number.isFinite(settings.period) || settings.period <= 0) {
+      toast.error('Período precisa ser um número válido maior que zero');
+      return;
+    }
+    if (!Number.isFinite(settings.shift)) {
+      toast.error('Deslocar precisa ser um número válido');
+      return;
+    }
+    setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: settings }));
+    const chart = chartInstanceRef.current;
+    if (chart && activeIndicators.has(indicator.id)) {
+      try {
+        applyMASettingsToChart(chart, indicator, settings);
+      } catch (error) {
+        console.error('[ChartView] ❌ Error updating moving average settings:', error);
+      }
+    }
+    setMaEditor(null);
+    toast.success(`${indicator.name.split(' - ')[0]} atualizada`);
+  };
+
   // 🆕 Popover de edição de parâmetros, aberto pela engrenagem do chip ou pelo menu
   // de botão direito.
   const [indicatorEditor, setIndicatorEditor] = useState<{ indicator: IndicatorConfig; values: string[] } | null>(null);
@@ -2080,9 +2238,18 @@ export function ChartView() {
       // ✅ Ícone de excluir (✕) vem do estilo global setado em chart.setStyles() no init
       // (styles.tooltip.icons por instância é ignorado pela klinecharts — ver comentário lá)
     };
-    const params = getIndicatorParams(indicator);
-    if (params.length > 0) {
-      config.calcParams = params;
+    if (isMovingAverageIndicator(indicator)) {
+      // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo já
+      // na criação (não só via editor depois) — ver registerMovingAverageIndicator.
+      const settings = getMASettings(indicator);
+      config.calcParams = [settings.period];
+      config.extendData = { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift };
+      config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth }] };
+    } else {
+      const params = getIndicatorParams(indicator);
+      if (params.length > 0) {
+        config.calcParams = params;
+      }
     }
     if (placement === 'pane') {
       chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
@@ -5248,7 +5415,7 @@ export function ChartView() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          openIndicatorEditor(indicator);
+                          isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
                         }}
                         title="Editar parâmetros"
                         className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-0.5 transition-colors"
@@ -5308,6 +5475,114 @@ export function ChartView() {
                   </button>
                   <button
                     onClick={() => setIndicatorEditor(null)}
+                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded px-3 py-1.5 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 🆕 Popover completo de médias móveis (MA/EMA/SMA/WMA) — mesmos campos do
+                diálogo "Moving Average" do MT5: Período, Deslocar, Método, Aplicar a,
+                Estilo (cor/traço/espessura). */}
+            {maEditor && (
+              <div
+                className="absolute top-10 left-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="text-xs font-semibold text-white mb-3">
+                  {maEditor.indicator.name.split(' - ')[0]} — Parâmetros
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Período</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={maEditor.settings.period}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, period: Number(e.target.value) } })}
+                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Deslocar</label>
+                    <input
+                      type="number"
+                      value={maEditor.settings.shift}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, shift: Number(e.target.value) } })}
+                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Método</label>
+                  <select
+                    value={maEditor.settings.method}
+                    onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, method: e.target.value as MAMethod } })}
+                    className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="SIMPLE">Simples</option>
+                    <option value="EXPONENTIAL">Exponencial</option>
+                    <option value="SMOOTHED">Suavizada</option>
+                    <option value="LINEAR_WEIGHTED">Ponderada Linear</option>
+                  </select>
+                </div>
+                <div className="mt-2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Aplicar a</label>
+                  <select
+                    value={maEditor.settings.appliedPrice}
+                    onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, appliedPrice: e.target.value as AppliedPrice } })}
+                    className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="CLOSE">Fechamento</option>
+                    <option value="OPEN">Abertura</option>
+                    <option value="HIGH">Máxima</option>
+                    <option value="LOW">Mínima</option>
+                    <option value="MEDIAN">Mediana (A+B)/2</option>
+                    <option value="TYPICAL">Típico (A+B+F)/3</option>
+                    <option value="WEIGHTED">Ponderado (A+B+2F)/4</option>
+                  </select>
+                </div>
+                <div className="mt-2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Estilo</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={maEditor.settings.color}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, color: e.target.value } })}
+                      className="w-8 h-7 bg-black border border-gray-700 rounded cursor-pointer"
+                      title="Cor da linha"
+                    />
+                    <select
+                      value={maEditor.settings.lineStyle}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lineStyle: e.target.value as 'solid' | 'dashed' } })}
+                      className="flex-1 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="solid">Sólida</option>
+                      <option value="dashed">Tracejada</option>
+                    </select>
+                    <select
+                      value={maEditor.settings.lineWidth}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lineWidth: Number(e.target.value) } })}
+                      className="w-16 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value={1}>1px</option>
+                      <option value={2}>2px</option>
+                      <option value={3}>3px</option>
+                      <option value={4}>4px</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={saveMAEditor}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded px-3 py-1.5 transition-colors"
+                  >
+                    Salvar
+                  </button>
+                  <button
+                    onClick={() => setMaEditor(null)}
                     className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded px-3 py-1.5 transition-colors"
                   >
                     Cancelar
@@ -5599,7 +5874,7 @@ export function ChartView() {
                     {(indicator.defaultParams?.length ?? 0) > 0 && (
                       <button
                         onClick={() => {
-                          openIndicatorEditor(indicator);
+                          isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
                           setContextMenu(null);
                         }}
                         title="Editar parâmetros"
