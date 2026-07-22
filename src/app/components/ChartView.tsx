@@ -2300,12 +2300,21 @@ export function ChartView() {
 
   // 🆕 Muda onde o indicador é desenhado (gráfico principal vs painel próprio). Se o
   // indicador já estiver ativo, remove e recria na hora na nova posição escolhida —
-  // nunca deixa duas instâncias do mesmo indicador na tela ao mesmo tempo.
+  // nunca deixa duas instâncias do mesmo indicador na tela ao mesmo tempo. Se o
+  // indicador AINDA NÃO estiver ativo, os botões "No gráfico"/"Painel abaixo" também
+  // servem pra ligá-lo ali mesmo (antes só reposicionava um indicador já ligado —
+  // clicar em "No gráfico" num indicador desligado não fazia nada, bug real: o usuário
+  // clicava achando que estava adicionando o indicador e ele nunca aparecia no gráfico).
   const changeIndicatorPlacement = (indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
     setIndicatorPlacement(prev => ({ ...prev, [indicator.id]: placement }));
     const chart = chartInstanceRef.current;
-    if (!chart || !activeIndicators.has(indicator.id)) return;
+    if (!chart) return;
     try {
+      if (!activeIndicators.has(indicator.id)) {
+        createIndicatorInstance(chart, indicator, placement);
+        setActiveIndicators(prev => new Set(prev).add(indicator.id));
+        return;
+      }
       removeIndicatorInstance(chart, indicator);
       createIndicatorInstance(chart, indicator, placement);
     } catch (error) {
