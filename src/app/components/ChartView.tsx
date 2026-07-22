@@ -2025,9 +2025,51 @@ export function ChartView() {
   const getIndicatorPlacement = (indicator: IndicatorConfig): 'overlay' | 'pane' =>
     indicatorPlacement[indicator.id] ?? (indicator.isPaneIndicator ? 'pane' : 'overlay');
 
+  // 🆕 Parâmetros atuais de cada indicador ativo (período, etc.) — editáveis via
+  // engrenagem no chip ou no menu de botão direito. Sem entrada aqui, usa defaultParams.
+  const [indicatorParamsById, setIndicatorParamsById] = useState<Record<string, number[]>>({});
+  const getIndicatorParams = (indicator: IndicatorConfig): number[] =>
+    indicatorParamsById[indicator.id] ?? (indicator.defaultParams ?? []);
+
+  // 🆕 Popover de edição de parâmetros, aberto pela engrenagem do chip ou pelo menu
+  // de botão direito.
+  const [indicatorEditor, setIndicatorEditor] = useState<{ indicator: IndicatorConfig; values: string[] } | null>(null);
+
+  const openIndicatorEditor = (indicator: IndicatorConfig) => {
+    const current = getIndicatorParams(indicator);
+    setIndicatorEditor({ indicator, values: current.map(v => String(v)) });
+  };
+
+  const saveIndicatorEditor = () => {
+    if (!indicatorEditor) return;
+    const { indicator, values } = indicatorEditor;
+    const parsed = values.map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
+    if (parsed.length !== values.length) {
+      toast.error('Todos os parâmetros precisam ser números válidos maiores que zero');
+      return;
+    }
+    setIndicatorParamsById(prev => ({ ...prev, [indicator.id]: parsed }));
+    const chart = chartInstanceRef.current;
+    const paneId = indicatorPaneIdRef.current[indicator.id];
+    if (chart && paneId && activeIndicators.has(indicator.id)) {
+      try {
+        chart.overrideIndicator({ name: indicator.klinechartsName, calcParams: parsed }, paneId);
+      } catch (error) {
+        console.error('[ChartView] ❌ Error updating indicator params:', error);
+      }
+    }
+    setIndicatorEditor(null);
+    toast.success(`Parâmetros de ${indicator.name.split(' - ')[0]} atualizados`);
+  };
+
   const removeIndicatorInstance = (chart: any, indicator: IndicatorConfig) => {
     const paneId = indicatorPaneIdRef.current[indicator.id] || (indicator.isPaneIndicator ? `pane_${indicator.id}` : 'candle_pane');
-    chart.removeIndicator(paneId, indicator.id);
+    // ⚠️ klinecharts não tem conceito de "id" de instância -- IndicatorStore.removeInstance
+    // casa por `ins.name === name`, e `name` é sempre o klinechartsName (ex: 'MA'), nunca
+    // o nosso id interno (ex: 'ma'). Passar indicator.id aqui nunca dava match (diferença
+    // de maiúsculas) e o removeIndicator falhava silenciosamente -- o indicador "removido"
+    // continuava desenhado no gráfico como órfão, mesmo com o estado React já limpo.
+    chart.removeIndicator(paneId, indicator.klinechartsName);
     delete indicatorPaneIdRef.current[indicator.id];
   };
 
@@ -2038,8 +2080,9 @@ export function ChartView() {
       // ✅ Ícone de excluir (✕) vem do estilo global setado em chart.setStyles() no init
       // (styles.tooltip.icons por instância é ignorado pela klinecharts — ver comentário lá)
     };
-    if (indicator.defaultParams && indicator.defaultParams.length > 0) {
-      config.calcParams = indicator.defaultParams;
+    const params = getIndicatorParams(indicator);
+    if (params.length > 0) {
+      config.calcParams = params;
     }
     if (placement === 'pane') {
       chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
@@ -5199,6 +5242,18 @@ export function ChartView() {
                     className="pointer-events-auto flex items-center gap-1.5 bg-black/75 backdrop-blur-sm border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 shadow-lg"
                   >
                     <span className="font-medium">{indicator.name.split(' - ')[0]}</span>
+                    {(indicator.defaultParams?.length ?? 0) > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openIndicatorEditor(indicator);
+                        }}
+                        title="Editar parâmetros"
+                        className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-0.5 transition-colors"
+                      >
+                        <Settings className="w-3 h-3" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -5211,6 +5266,51 @@ export function ChartView() {
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* 🆕 Popover de edição de parâmetros do indicador (engrenagem do chip ou
+                menu de botão direito) */}
+            {indicatorEditor && (
+              <div
+                className="absolute top-10 left-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="text-xs font-semibold text-white mb-2">
+                  {indicatorEditor.indicator.name.split(' - ')[0]} — Parâmetros
+                </div>
+                <div className="space-y-2">
+                  {indicatorEditor.values.map((value, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <label className="text-[11px] text-gray-400 w-16 shrink-0">Período {idx + 1}</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={value}
+                        onChange={(e) => {
+                          const newValues = [...indicatorEditor.values];
+                          newValues[idx] = e.target.value;
+                          setIndicatorEditor({ ...indicatorEditor, values: newValues });
+                        }}
+                        className="flex-1 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={saveIndicatorEditor}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded px-3 py-1.5 transition-colors"
+                  >
+                    Salvar
+                  </button>
+                  <button
+                    onClick={() => setIndicatorEditor(null)}
+                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded px-3 py-1.5 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -5486,21 +5586,53 @@ export function ChartView() {
           
           <div className="h-px bg-gray-700 my-2"></div>
           
-          {/* Remover indicadores */}
+          {/* 🆕 Indicadores ativos — Editar parâmetros / Remover, individualmente */}
           {activeIndicators.size > 0 && (
-            <button 
-              onClick={() => {
-                activeIndicators.forEach(id => {
-                  const indicator = INDICATORS.find(ind => ind.id === id);
-                  if (indicator) toggleIndicator(indicator);
-                });
-                toast.success(`${activeIndicators.size} indicadores removidos`);
-                setContextMenu(null);
-              }}
-              className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors"
-            >
-              Remover {activeIndicators.size} indicador{activeIndicators.size > 1 ? 'es' : ''}
-            </button>
+            <>
+              <div className="px-4 py-1 text-[11px] uppercase tracking-wide text-gray-500">Indicadores ativos</div>
+              {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
+                <div key={indicator.id} className="w-full px-4 py-1.5 flex items-center justify-between text-sm text-white">
+                  <span className="truncate">{indicator.name.split(' - ')[0]}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {(indicator.defaultParams?.length ?? 0) > 0 && (
+                      <button
+                        onClick={() => {
+                          openIndicatorEditor(indicator);
+                          setContextMenu(null);
+                        }}
+                        title="Editar parâmetros"
+                        className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-1 transition-colors"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        toggleIndicator(indicator);
+                        setContextMenu(null);
+                      }}
+                      title="Remover indicador"
+                      className="text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  activeIndicators.forEach(id => {
+                    const indicator = INDICATORS.find(ind => ind.id === id);
+                    if (indicator) toggleIndicator(indicator);
+                  });
+                  toast.success(`${activeIndicators.size} indicadores removidos`);
+                  setContextMenu(null);
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors"
+              >
+                Remover todos ({activeIndicators.size})
+              </button>
+            </>
           )}
           
           <div className="h-px bg-gray-700 my-2"></div>
