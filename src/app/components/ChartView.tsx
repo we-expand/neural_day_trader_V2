@@ -39,8 +39,6 @@ import {
   X
 } from 'lucide-react';
 
-// 🚀 LAZY LOAD: LiquidityDetector carrega apenas quando necessário
-const LiquidityDetector = lazy(() => import('@/app/components/LiquidityDetector').then(m => ({ default: m.LiquidityDetector })));
 
 import { DrawingToolbar } from '@/app/components/chart/DrawingToolbar';
 import { DrawingContextToolbar } from '@/app/components/chart/DrawingContextToolbar';
@@ -4917,14 +4915,6 @@ export function ChartView() {
             )}
           </div>
 
-          {/* Professional Liquidity Detector - LAZY LOADED ⚡ */}
-          <Suspense fallback={
-            <div className="flex items-center justify-center py-4">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-500" />
-            </div>
-          }>
-            <LiquidityDetector zones={liquidityZones} currentPrice={currentPrice} />
-          </Suspense>
         </div>
 
         {/* Indicators Sidebar */}
