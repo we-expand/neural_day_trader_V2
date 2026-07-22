@@ -829,7 +829,10 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Simple Moving Average',
     category: 'trend',
     klinechartsName: 'MA',
-    defaultParams: [5, 10, 20, 60],
+    // ⚠️ Só 1 período por padrão -- klinecharts cria uma linha por valor em
+    // calcParams; com [5,10,20,60] inseria 4 médias de uma vez (bug reportado
+    // pelo Cleber). Usuário pode adicionar outros períodos manualmente depois.
+    defaultParams: [20],
     isPaneIndicator: false
   },
   {
@@ -838,7 +841,7 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Exponential Moving Average',
     category: 'trend',
     klinechartsName: 'EMA',
-    defaultParams: [6, 12, 20],
+    defaultParams: [20],
     isPaneIndicator: false
   },
   {
@@ -847,7 +850,7 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Simple Moving Average',
     category: 'trend',
     klinechartsName: 'SMA',
-    defaultParams: [12, 26],
+    defaultParams: [20],
     isPaneIndicator: false
   },
   {
@@ -856,7 +859,7 @@ const INDICATORS: IndicatorConfig[] = [
     description: 'Weighted Moving Average',
     category: 'trend',
     klinechartsName: 'WMA',
-    defaultParams: [5, 10, 20, 60],
+    defaultParams: [20],
     isPaneIndicator: false
   },
   {
