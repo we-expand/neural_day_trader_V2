@@ -5,7 +5,6 @@ import { NewsAndAgenda } from './dashboard/NewsAndAgenda';
 import { VIXWidgetEnhanced } from './tools/VIXWidgetEnhanced';
 import { RiskThermometer } from './dashboard/RiskThermometer';
 import { CorrelationMatrix } from './dashboard/CorrelationMatrix';
-import { LiquidityDetectorCard } from './dashboard/LiquidityDetectorCard';
 
 export function Dashboard() {
   return (
@@ -50,14 +49,6 @@ export function Dashboard() {
 
         <div className="col-span-1 xl:col-span-12">
           <CorrelationMatrix />
-        </div>
-
-        <div className="col-span-1 xl:col-span-12 min-h-[420px]">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden h-full shadow-lg">
-            <div className="h-full p-2 overflow-y-auto custom-scrollbar">
-              <LiquidityDetectorCard />
-            </div>
-          </div>
         </div>
       </div>
     </div>
