@@ -1993,6 +1993,40 @@ export function ChartView() {
     marginBottom: 0
   };
 
+  // 🆕 Escolha do usuário de onde cada indicador é desenhado: 'overlay' (direto em cima
+  // do preço, no gráfico principal) ou 'pane' (painel próprio, exclusivo, embaixo do
+  // gráfico — como RSI/MACD normalmente precisam, já que a escala deles não tem nada
+  // a ver com a escala de preço). Sem escolha explícita do usuário, cai no padrão de
+  // cada indicador (`indicator.isPaneIndicator`) — osciladores nascem em painel próprio,
+  // médias/bandas nascem sobre o preço.
+  const [indicatorPlacement, setIndicatorPlacement] = useState<Record<string, 'overlay' | 'pane'>>({});
+  const getIndicatorPlacement = (indicator: IndicatorConfig): 'overlay' | 'pane' =>
+    indicatorPlacement[indicator.id] ?? (indicator.isPaneIndicator ? 'pane' : 'overlay');
+
+  const removeIndicatorInstance = (chart: any, indicator: IndicatorConfig) => {
+    const paneId = indicatorPaneIdRef.current[indicator.id] || (indicator.isPaneIndicator ? `pane_${indicator.id}` : 'candle_pane');
+    chart.removeIndicator(paneId, indicator.id);
+    delete indicatorPaneIdRef.current[indicator.id];
+  };
+
+  const createIndicatorInstance = (chart: any, indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
+    const config: any = {
+      name: indicator.klinechartsName,
+      id: indicator.id,
+      styles: { tooltip: { icons: [INDICATOR_CLOSE_ICON] } }
+    };
+    if (indicator.defaultParams && indicator.defaultParams.length > 0) {
+      config.calcParams = indicator.defaultParams;
+    }
+    if (placement === 'pane') {
+      chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
+      indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
+    } else {
+      chart.createIndicator(config, true); // true = overlay on main pane
+      indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
+    }
+  };
+
   // 🆕 FUNÇÃO PARA ADICIONAR/REMOVER INDICADOR
   const toggleIndicator = (indicator: IndicatorConfig) => {
     if (!chartInstanceRef.current) {
@@ -2005,11 +2039,8 @@ export function ChartView() {
 
     try {
       if (isActive) {
-        // Remover indicador
         console.log('[ChartView] 🗑️ Removing indicator:', indicator.name);
-        const paneId = indicatorPaneIdRef.current[indicator.id] || (indicator.isPaneIndicator ? `pane_${indicator.id}` : 'candle_pane');
-        chart.removeIndicator(paneId, indicator.id);
-        delete indicatorPaneIdRef.current[indicator.id];
+        removeIndicatorInstance(chart, indicator);
 
         const newActiveIndicators = new Set(activeIndicators);
         newActiveIndicators.delete(indicator.id);
@@ -2017,28 +2048,8 @@ export function ChartView() {
 
         console.log('[ChartView] ✅ Indicator removed successfully');
       } else {
-        // Adicionar indicador
-        console.log('[ChartView] ➕ Adding indicator:', indicator.name);
-
-        const config: any = {
-          name: indicator.klinechartsName,
-          id: indicator.id,
-          styles: { tooltip: { icons: [INDICATOR_CLOSE_ICON] } }
-        };
-
-        // Add parameters if available
-        if (indicator.defaultParams && indicator.defaultParams.length > 0) {
-          config.calcParams = indicator.defaultParams;
-        }
-
-        // Create indicator on main pane or new pane
-        if (indicator.isPaneIndicator) {
-          chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
-          indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
-        } else {
-          chart.createIndicator(config, true); // true = overlay on main pane
-          indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
-        }
+        console.log('[ChartView] ➕ Adding indicator:', indicator.name, 'placement:', getIndicatorPlacement(indicator));
+        createIndicatorInstance(chart, indicator, getIndicatorPlacement(indicator));
 
         const newActiveIndicators = new Set(activeIndicators);
         newActiveIndicators.add(indicator.id);
@@ -2048,6 +2059,21 @@ export function ChartView() {
       }
     } catch (error) {
       console.error('[ChartView] ❌ Error toggling indicator:', error);
+    }
+  };
+
+  // 🆕 Muda onde o indicador é desenhado (gráfico principal vs painel próprio). Se o
+  // indicador já estiver ativo, remove e recria na hora na nova posição escolhida —
+  // nunca deixa duas instâncias do mesmo indicador na tela ao mesmo tempo.
+  const changeIndicatorPlacement = (indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
+    setIndicatorPlacement(prev => ({ ...prev, [indicator.id]: placement }));
+    const chart = chartInstanceRef.current;
+    if (!chart || !activeIndicators.has(indicator.id)) return;
+    try {
+      removeIndicatorInstance(chart, indicator);
+      createIndicatorInstance(chart, indicator, placement);
+    } catch (error) {
+      console.error('[ChartView] ❌ Error changing indicator placement:', error);
     }
   };
 
@@ -5209,34 +5235,63 @@ export function ChartView() {
               <div className="p-3 grid grid-cols-2 gap-2">
               {filteredIndicators.map((indicator) => {
                 const isActive = activeIndicators.has(indicator.id);
+                const placement = getIndicatorPlacement(indicator);
 
                 return (
                   <div
                     key={indicator.id}
-                    className={`relative w-full flex items-center justify-between p-3 rounded-lg transition-all group ${
+                    className={`relative w-full flex flex-col gap-2 p-3 rounded-lg transition-all group ${
                       isActive
                         ? 'bg-blue-500/20 border border-blue-500/40'
                         : 'bg-gray-900 hover:bg-gray-800 border border-transparent'
                     }`}
                   >
-                    <button
-                      onClick={() => toggleIndicator(indicator)}
-                      className="flex-1 flex flex-col items-start text-left min-w-0 pr-2"
-                    >
-                      <span className={`text-sm font-medium ${isActive ? 'text-blue-300' : 'text-white'}`}>
-                        {indicator.name}
-                      </span>
-                      <span className="text-xs text-gray-500 truncate w-full">{indicator.description}</span>
-                    </button>
-                    {isActive && (
+                    <div className="flex items-start justify-between gap-2">
                       <button
                         onClick={() => toggleIndicator(indicator)}
-                        title="Excluir indicador"
-                        className="p-1.5 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
+                        className="flex-1 flex flex-col items-start text-left min-w-0"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <span className={`text-sm font-medium ${isActive ? 'text-blue-300' : 'text-white'}`}>
+                          {indicator.name}
+                        </span>
+                        <span className="text-xs text-gray-500 truncate w-full">{indicator.description}</span>
                       </button>
-                    )}
+                      {isActive && (
+                        <button
+                          onClick={() => toggleIndicator(indicator)}
+                          title="Excluir indicador"
+                          className="p-1.5 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 🆕 Onde desenhar: no gráfico principal (sobre o preço) ou em painel próprio abaixo */}
+                    <div className="flex items-center gap-1 text-xs" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => changeIndicatorPlacement(indicator, 'overlay')}
+                        title="Desenhar em cima do gráfico de preço"
+                        className={`px-2 py-1 rounded transition-colors ${
+                          placement === 'overlay'
+                            ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
+                            : 'bg-black/40 text-gray-500 hover:text-gray-300 border border-gray-700'
+                        }`}
+                      >
+                        No gráfico
+                      </button>
+                      <button
+                        onClick={() => changeIndicatorPlacement(indicator, 'pane')}
+                        title="Desenhar em painel próprio, embaixo do gráfico"
+                        className={`px-2 py-1 rounded transition-colors ${
+                          placement === 'pane'
+                            ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
+                            : 'bg-black/40 text-gray-500 hover:text-gray-300 border border-gray-700'
+                        }`}
+                      >
+                        Painel abaixo
+                      </button>
+                    </div>
                   </div>
                 );
               })}
