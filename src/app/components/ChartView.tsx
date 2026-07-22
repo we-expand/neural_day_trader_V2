@@ -4983,6 +4983,31 @@ export function ChartView() {
             }}
           >
 
+            {/* ✅ Excluir indicador DIRETO no gráfico — chips reais em HTML (não depende do
+                clique no ícone desenhado no canvas pela klinecharts, que tem hit-testing
+                próprio e não é confiável nesse setup). Sempre visível, sempre clicável. */}
+            {activeIndicators.size > 0 && (
+              <div className="absolute top-2 left-2 z-[55] flex flex-col gap-1 pointer-events-none">
+                {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
+                  <div
+                    key={indicator.id}
+                    className="pointer-events-auto flex items-center gap-1.5 bg-black/75 backdrop-blur-sm border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 shadow-lg"
+                  >
+                    <span className="font-medium">{indicator.name.split(' - ')[0]}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleIndicator(indicator);
+                      }}
+                      title="Remover indicador"
+                      className="text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-0.5 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* 🔥 CANDLE COUNTDOWN - COLADO NA LINHA DO PREÇO */}
             <div 
