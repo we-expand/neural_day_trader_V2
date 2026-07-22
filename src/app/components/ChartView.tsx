@@ -1956,6 +1956,29 @@ export function ChartView() {
     */
   }, [crosshairMode]);
 
+  // 🆕 Ícone de fechar ("✕") que aparece na legenda do indicador, direto no gráfico —
+  // clicável (via ActionType.OnTooltipIconClick da própria klinecharts) pra remover o
+  // indicador sem precisar abrir o modal de Indicadores Técnicos.
+  const INDICATOR_CLOSE_ICON = {
+    id: 'remove',
+    position: 'right',
+    color: '#76808F',
+    activeColor: '#F92855',
+    size: 13,
+    fontFamily: 'Arial',
+    icon: '✕',
+    backgroundColor: 'transparent',
+    activeBackgroundColor: 'rgba(247, 40, 85, 0.15)',
+    paddingLeft: 6,
+    paddingRight: 2,
+    paddingTop: 2,
+    paddingBottom: 2,
+    marginLeft: 6,
+    marginRight: 2,
+    marginTop: 6,
+    marginBottom: 0
+  };
+
   // 🆕 FUNÇÃO PARA ADICIONAR/REMOVER INDICADOR
   const toggleIndicator = (indicator: IndicatorConfig) => {
     if (!chartInstanceRef.current) {
@@ -1977,15 +2000,16 @@ export function ChartView() {
         const newActiveIndicators = new Set(activeIndicators);
         newActiveIndicators.delete(indicator.id);
         setActiveIndicators(newActiveIndicators);
-        
+
         console.log('[ChartView] ✅ Indicator removed successfully');
       } else {
         // Adicionar indicador
         console.log('[ChartView] ➕ Adding indicator:', indicator.name);
-        
+
         const config: any = {
           name: indicator.klinechartsName,
-          id: indicator.id
+          id: indicator.id,
+          styles: { tooltip: { icons: [INDICATOR_CLOSE_ICON] } }
         };
 
         // Add parameters if available
@@ -2005,13 +2029,21 @@ export function ChartView() {
         const newActiveIndicators = new Set(activeIndicators);
         newActiveIndicators.add(indicator.id);
         setActiveIndicators(newActiveIndicators);
-        
+
         console.log('[ChartView] ✅ Indicator added successfully');
       }
     } catch (error) {
       console.error('[ChartView] ❌ Error toggling indicator:', error);
     }
   };
+
+  // Refs pra chamar a lógica de toggle/remoção a partir do listener de clique no ícone
+  // (subscrito uma única vez, no efeito de criação do chart — precisa ver sempre o
+  // estado/indicadores mais recentes, não os do momento em que o efeito rodou).
+  const toggleIndicatorRef = useRef(toggleIndicator);
+  useEffect(() => {
+    toggleIndicatorRef.current = toggleIndicator;
+  });
 
   // 🆕 FILTRAR INDICADORES POR CATEGORIA E BUSCA
   const filteredIndicators = INDICATORS.filter(indicator => {
@@ -3486,6 +3518,19 @@ export function ChartView() {
       // 🆕 Detectar zoom do usuário
       chart.subscribeAction('onZoom', () => {
         console.log('[ChartView] 🔍 Usuário deu zoom');
+      });
+
+      // 🆕 Ícone "✕" na legenda do indicador (ver INDICATOR_CLOSE_ICON) — clicar remove
+      // o indicador direto no gráfico, sem precisar abrir o modal de Indicadores.
+      // data = { paneId, indicatorName (nome real na klinecharts, ex: 'RSI'), iconId }.
+      chart.subscribeAction('onTooltipIconClick', (data: any) => {
+        if (data?.iconId !== 'remove') return;
+        const matched = INDICATORS.find(
+          (ind) => ind.klinechartsName === data.indicatorName && indicatorPaneIdRef.current[ind.id] === data.paneId
+        );
+        if (matched) {
+          toggleIndicatorRef.current(matched);
+        }
       });
 
       // 🛡️ Só limpar o overlay "bolinha preta misteriosa" residual na PRIMEIRA carga desta
