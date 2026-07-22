@@ -1,12 +1,18 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
-import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerIndicator, getIndicatorClass } from 'klinecharts';
+import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerIndicator, getSupportedIndicators } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate } from 'klinecharts';
+
+// getIndicatorClass() existe na tipagem (.d.ts) mas NÃO é exportada pelo bundle
+// ESM real da lib (confirmado: build da Vercel falhou com "not exported by
+// klinecharts/dist/index.esm.js" — tsc não pegou porque só checa o .d.ts).
+// getSupportedIndicators() é a alternativa realmente exportada em runtime.
+const isIndicatorRegistered = (name: string) => getSupportedIndicators().includes(name);
 
 // 🆕 Indicadores customizados reais (WMA/ATR/Donchian/Pivot Points não existem nos
 // built-ins do klinecharts — antes o app tentava criá-los mesmo assim, o que falhava
 // silenciosamente (createIndicator loga um warning e retorna null, sem desenhar nada),
 // deixando o toggle marcado como "ativo" na UI sem nenhum efeito real no gráfico.
-if (getIndicatorClass('WMA') === null) {
+if (!isIndicatorRegistered('WMA')) {
   registerIndicator<number>({
     name: 'WMA',
     shortName: 'WMA',
@@ -40,7 +46,7 @@ if (getIndicatorClass('WMA') === null) {
   });
 }
 
-if (getIndicatorClass('ATR') === null) {
+if (!isIndicatorRegistered('ATR')) {
   registerIndicator<number>({
     name: 'ATR',
     shortName: 'ATR',
@@ -69,7 +75,7 @@ if (getIndicatorClass('ATR') === null) {
   });
 }
 
-if (getIndicatorClass('DC') === null) {
+if (!isIndicatorRegistered('DC')) {
   registerIndicator<number>({
     name: 'DC',
     shortName: 'DC',
@@ -97,7 +103,7 @@ if (getIndicatorClass('DC') === null) {
 
 // Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
 // Trend, um indicador completamente diferente) e chamava isso de "Pivot Points" na UI.
-if (getIndicatorClass('PIVOT_POINTS') === null) {
+if (!isIndicatorRegistered('PIVOT_POINTS')) {
   registerIndicator<number>({
     name: 'PIVOT_POINTS',
     shortName: 'PIVOT',
