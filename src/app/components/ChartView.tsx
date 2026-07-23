@@ -257,7 +257,8 @@ import {
   RotateCcw,
   X,
   Maximize,
-  Minimize
+  Minimize,
+  Grid3x3
 } from 'lucide-react';
 
 
@@ -1200,6 +1201,16 @@ export function ChartView() {
   const backtestProgress = useBacktestLiveProgress(10000);
   const { strategies, saveStrategy, deleteStrategy, error: strategiesError } = useStrategies();
   const { showSrOverlay, showSrOverlayRef, setShowSrOverlay } = useChartPreferences(selectedSymbol);
+  // 🆕 Toggle de grade de fundo (guias horizontais/verticais) — persistido localmente
+  // (preferência de exibição, não precisa ser por usuário+ativo no Supabase como o S/R).
+  const [showGridOverlay, setShowGridOverlay] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('chart_grid_visible');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
   const [showDecisionsPanel, setShowDecisionsPanel] = useState(false);
   const [lastBacktestRun, setLastBacktestRun] = useState<{ strategy: StrategyDef; timeframe: string; symbol: string } | null>(null);
   const [timeframeExpanded, setTimeframeExpanded] = useState(false);
@@ -1278,6 +1289,25 @@ export function ChartView() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartIdRef = useRef<string>('chart-' + Math.random().toString(36).substring(7));
   const chartInstanceRef = useRef<any>(null);
+  // 🆕 Toggle de grade de fundo: reage sem recriar o gráfico inteiro (init já usa
+  // showGridOverlay como valor inicial; este efeito cobre a mudança em tempo real
+  // e persiste a preferência).
+  useEffect(() => {
+    try {
+      localStorage.setItem('chart_grid_visible', String(showGridOverlay));
+    } catch {
+      // localStorage indisponível (modo privado, etc.) — só não persiste entre sessões.
+    }
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    chart.setStyles({
+      grid: {
+        show: showGridOverlay,
+        horizontal: { show: showGridOverlay },
+        vertical: { show: showGridOverlay },
+      },
+    });
+  }, [showGridOverlay]);
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
@@ -3789,15 +3819,15 @@ export function ChartView() {
         // JS: a segunda sobrescreve a primeira por completo, perdendo `tooltip.icons` sem
         // nenhum aviso em runtime; só apareceu porque o build denunciou "Duplicate key").
         grid: {
-          show: true,
+          show: showGridOverlay,
           horizontal: {
-            show: true,
+            show: showGridOverlay,
             size: 1,
             color: '#2a2a2a',
             style: 'solid',
           },
           vertical: {
-            show: true,
+            show: showGridOverlay,
             size: 1,
             color: '#1a1a1a',
             style: 'solid',
@@ -5920,6 +5950,19 @@ export function ChartView() {
             <Target className="w-4 h-4 text-gray-400" />
             <span>Suporte/Resistência</span>
             {showSrOverlay && <span className="ml-auto text-green-400">✓</span>}
+          </button>
+
+          {/* Guias de fundo / Grade (toggle) */}
+          <button
+            onClick={() => {
+              setShowGridOverlay(!showGridOverlay);
+              setContextMenu(null);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3"
+          >
+            <Grid3x3 className="w-4 h-4 text-gray-400" />
+            <span>Guias de Fundo</span>
+            {showGridOverlay && <span className="ml-auto text-green-400">✓</span>}
           </button>
 
           <div className="h-px bg-gray-700 my-2"></div>
