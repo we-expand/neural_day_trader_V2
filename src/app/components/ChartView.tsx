@@ -4420,13 +4420,31 @@ export function ChartView() {
         const chart = chartInstanceRef.current;
         const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
 
-        // Atualizar o último candle com o novo preço
-        const updatedCandle = {
-          ...lastCandle,
-          close: newPrice,
-          high: Math.max(lastCandle.high, newPrice),
-          low: Math.min(lastCandle.low, newPrice)
-        };
+        // 🛡️ GUARDA: se o preço novo desviar mais de 10% do candle existente,
+        // esse candle não pertence a este ativo/período (resíduo de troca de
+        // símbolo/timeframe que escapou do reset) — em vez de esticar high/low
+        // a partir de um open/low completamente desconectado (gerava um candle
+        // gigante indo do preço antigo até o novo, ex: open~1900 + close~65000
+        // no BTCUSD), reinicia o candle inteiro no preço atual.
+        const deviatesTooMuch = lastCandle.close > 0 &&
+          Math.abs(newPrice - lastCandle.close) / lastCandle.close > 0.10;
+
+        const updatedCandle = deviatesTooMuch
+          ? { ...lastCandle, open: newPrice, high: newPrice, low: newPrice, close: newPrice }
+          : {
+              ...lastCandle,
+              close: newPrice,
+              high: Math.max(lastCandle.high, newPrice),
+              low: Math.min(lastCandle.low, newPrice)
+            };
+
+        if (deviatesTooMuch) {
+          console.warn('[ChartView] ⚠️ Candle com desvio >10% detectado (provável resíduo de troca de ativo/timeframe) — candle reiniciado no preço atual em vez de esticado.', {
+            symbol: selectedSymbol,
+            oldClose: lastCandle.close,
+            newPrice
+          });
+        }
 
         try {
           // Atualizar o array inteiro
