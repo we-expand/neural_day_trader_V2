@@ -644,6 +644,14 @@ const TriangleShapeOverlay: OverlayTemplate = {
 // 🌀 Círculos de Fibonacci reais (2 cliques — círculos concêntricos nos raios fib)
 const FIB_RATIOS = [0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const FIB_COLORS = ['#f23645', '#ff9800', '#fbbf24', '#26a69a', '#3b82f6', '#a855f7'];
+// 🎯 Largura/altura FIXA dos eixos (preço/tempo), em pixels — usadas tanto no
+// `chart.setStyles` (yAxis.size/xAxis.size) quanto nas faixas de fundo coloridas
+// (CHART_Y_AXIS_WIDTH/CHART_X_AXIS_HEIGHT) desenhadas atrás do canvas, que dão a
+// "barra de preço"/"barra de tempo" um tom de cor próprio até a borda real do
+// gráfico (pedido do Cleber). Precisam bater exatamente com o valor passado pra
+// klinecharts, senão a faixa colorida fica maior/menor que a área real do eixo.
+const CHART_Y_AXIS_WIDTH = 85;
+const CHART_X_AXIS_HEIGHT = 32;
 const FibCirclesOverlay: OverlayTemplate = {
   name: 'fibCircles',
   totalStep: 3, // 🔧 FIX: totalStep = pontos + 1 (2 pontos -> 3)
@@ -3871,6 +3879,10 @@ export function ChartView() {
           },
         },
         xAxis: {
+          // 🎯 Altura fixa (era 'auto') pra bater exatamente com a faixa cinza
+          // desenhada atrás do canvas (CHART_X_AXIS_HEIGHT) — com 'auto' a lib podia
+          // calcular uma altura um pouco diferente da faixa, descolando a cor do texto.
+          size: CHART_X_AXIS_HEIGHT,
           axisLine: {
             show: true,
             size: 1,
@@ -3890,7 +3902,7 @@ export function ChartView() {
         },
         yAxis: {
           show: true,
-          size: 85,
+          size: CHART_Y_AXIS_WIDTH,
           axisLine: {
             show: true,
             size: 1,
@@ -5389,16 +5401,34 @@ export function ChartView() {
               adicionar indicador). Os chips agora são um IRMÃO do container da klinecharts,
               nunca um filho dele. */}
           <div className="flex-1 relative">
+            {/* 🎯 Faixas de fundo da barra de preço (direita) e da barra de tempo (embaixo) --
+                desenhadas ATRÁS do canvas da klinecharts (que é transparente onde não pinta
+                grade/candle/texto -- confirmado lendo o fonte da lib, só 1 clearRect por
+                widget, nunca um fillRect de fundo). Como o container da klinecharts abaixo
+                perdeu o bg-black próprio, essas faixas aparecem exatamente na área do eixo
+                de preço/tempo, dando o "tom de cor" pedido pelo Cleber, sempre até a borda
+                real do gráfico (largura/altura batendo com yAxis.size/xAxis.size passados
+                pro chart.setStyles). Pointer-events desligado -- são só decoração, nunca
+                devem roubar clique/drag do canvas por cima. */}
+            <div
+              className="absolute top-0 right-0 bottom-0 pointer-events-none"
+              style={{ width: CHART_Y_AXIS_WIDTH, backgroundColor: '#161b26', zIndex: 0 }}
+            />
+            <div
+              className="absolute bottom-0 left-0 right-0 pointer-events-none"
+              style={{ height: CHART_X_AXIS_HEIGHT, backgroundColor: '#1f1f1f', zIndex: 0 }}
+            />
             {/* Chart Container */}
             <div
               ref={chartContainerRef}
               id={chartIdRef.current}
-              className="w-full h-full bg-black relative"
+              className="w-full h-full bg-transparent relative"
               style={{
                 minHeight: '600px',
                 willChange: 'transform',
                 transform: 'translateZ(0)',
                 paddingLeft: '0px', // 🎯 Sem padding - deixamos o yAxis size controlar
+                zIndex: 1,
               }}
               onClick={(e) => {
                 // 🆕 MODO TEXTO: Clicar no gráfico abre input de texto
