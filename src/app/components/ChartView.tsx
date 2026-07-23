@@ -3779,6 +3779,17 @@ export function ChartView() {
           axisLine: {
             show: false,
           },
+          // 🎯 tickText.size aqui controla o espaçamento MÍNIMO entre marcações
+          // tanto do eixo de tempo quanto (particularidade interna da klinecharts,
+          // AxisImp.optimalTicks usa xAxis.tickText.size como referência de altura
+          // mesmo pro eixo Y) do eixo de preço — reduzido de 12 (default) pra 8
+          // pra caber mais marcações de preço/tempo (pedido do Cleber: "65.600 →
+          // 68.400 de uma vez só" no BTCUSD, poucos pontos no eixo de tempo).
+          tickText: {
+            size: 8,
+            marginStart: 2,
+            marginEnd: 2,
+          },
         },
         yAxis: {
           show: true,
