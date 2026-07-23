@@ -1942,7 +1942,20 @@ export function ChartView() {
   const [liveAssets, setLiveAssets] = useState<MarketAsset[]>(staticAssetsBase);
 
   // 🔥 NOVO: Buscar preços REAIS para os principais ativos ao carregar
+  // ✅ 2026-07-23: achado real — este painel buscava os ~271 ativos do
+  // catálogo inteiro A CADA 5s o tempo TODO que a tela do Gráfico estivesse
+  // montada (deps vazias, sem gate nenhum), mesmo com o modal "Pesquisa de
+  // Símbolo" (showAssetList) fechado — os dados só são exibidos DENTRO desse
+  // modal (filteredAssets/liveAssets só aparecem lá). Uma única aba esquecida
+  // aberta na tela do Gráfico (mesmo sem ninguém interagindo) gerava
+  // dezenas de chamadas por segundo à conta MetaAPI compartilhada
+  // indefinidamente — causa raiz real de rate-limit (429) persistente por
+  // dias, sem relação com volume de usuário algum (achado investigando por
+  // que o problema persistia "há 3 dias sem uso"). Agora só busca/faz
+  // polling enquanto o modal está de fato aberto.
   useEffect(() => {
+    if (!showAssetList) return;
+
     const updateLivePrices = async () => {
       console.log('[ChartView] 💰 Buscando preços REAIS para demonstrativo...');
       
@@ -1998,9 +2011,9 @@ export function ChartView() {
     // mudança). A fluidez do candle selecionado já vem do streaming de preço
     // (subscribeToSymbol, 2s) — não depende deste painel demonstrativo.
     const interval = setInterval(updateLivePrices, 5000);
-    
+
     return () => clearInterval(interval);
-  }, []); // Executar apenas uma vez ao montar
+  }, [showAssetList]); // ✅ 2026-07-23: só roda enquanto o modal de busca está aberto
 
   const filteredAssets = liveAssets.filter(asset => {
     const matchesSearch = asset.symbol.toLowerCase().includes(assetSearch.toLowerCase()) ||
