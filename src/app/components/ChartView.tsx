@@ -3837,7 +3837,9 @@ export function ChartView() {
         },
         xAxis: {
           axisLine: {
-            show: false,
+            show: true,
+            size: 1,
+            color: '#4a4a4a',
           },
           // 🎯 tickText.size aqui controla o espaçamento MÍNIMO entre marcações
           // tanto do eixo de tempo quanto (particularidade interna da klinecharts,
