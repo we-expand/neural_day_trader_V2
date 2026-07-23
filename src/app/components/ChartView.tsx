@@ -2082,9 +2082,30 @@ export function ChartView() {
     */
   }, [crosshairMode]);
 
-  // 🆕 Ícone de fechar ("✕") que aparece na legenda do indicador, direto no gráfico —
-  // clicável (via ActionType.OnTooltipIconClick da própria klinecharts) pra remover o
-  // indicador sem precisar abrir o modal de Indicadores Técnicos.
+  // 🆕 Ícones de editar ("⚙") e fechar ("✕") que aparecem na legenda do indicador, direto
+  // no gráfico — clicáveis (via ActionType.OnTooltipIconClick da própria klinecharts) pra
+  // editar parâmetros ou remover o indicador sem precisar abrir o modal de Indicadores
+  // Técnicos nem depender do box flutuante em HTML (removido -- ver comentário onde ele
+  // era renderizado antes, virava um "box flutuante" duplicado do lado direito do gráfico).
+  const INDICATOR_SETTINGS_ICON = {
+    id: 'settings',
+    position: 'right',
+    color: '#76808F',
+    activeColor: '#3B82F6',
+    size: 13,
+    fontFamily: 'Arial',
+    icon: '⚙',
+    backgroundColor: 'transparent',
+    activeBackgroundColor: 'rgba(59, 130, 246, 0.15)',
+    paddingLeft: 6,
+    paddingRight: 2,
+    paddingTop: 2,
+    paddingBottom: 2,
+    marginLeft: 6,
+    marginRight: 2,
+    marginTop: 6,
+    marginBottom: 0
+  };
   const INDICATOR_CLOSE_ICON = {
     id: 'remove',
     position: 'right',
@@ -2099,7 +2120,7 @@ export function ChartView() {
     paddingRight: 2,
     paddingTop: 2,
     paddingBottom: 2,
-    marginLeft: 6,
+    marginLeft: 2,
     marginRight: 2,
     marginTop: 6,
     marginBottom: 0
@@ -2335,6 +2356,17 @@ export function ChartView() {
   const toggleIndicatorRef = useRef(toggleIndicator);
   useEffect(() => {
     toggleIndicatorRef.current = toggleIndicator;
+  });
+
+  // Mesmo padrão acima, agora pro ícone de editar (⚙) — abre o editor de MA ou o
+  // genérico conforme o tipo do indicador clicado.
+  const openMAEditorRef = useRef(openMAEditor);
+  useEffect(() => {
+    openMAEditorRef.current = openMAEditor;
+  });
+  const openIndicatorEditorRef = useRef(openIndicatorEditor);
+  useEffect(() => {
+    openIndicatorEditorRef.current = openIndicatorEditor;
   });
 
   // 🆕 FILTRAR INDICADORES POR CATEGORIA E BUSCA
@@ -3771,7 +3803,7 @@ export function ChartView() {
         // em node_modules/klinecharts/dist/index.esm.js — por isso o ícone nunca aparecia/clicava).
         indicator: {
           tooltip: {
-            icons: [INDICATOR_CLOSE_ICON],
+            icons: [INDICATOR_SETTINGS_ICON, INDICATOR_CLOSE_ICON],
             text: {
               format: (value: number) => value.toFixed(2)
             }
@@ -3827,16 +3859,23 @@ export function ChartView() {
         console.log('[ChartView] 🔍 Usuário deu zoom');
       });
 
-      // 🆕 Ícone "✕" na legenda do indicador (ver INDICATOR_CLOSE_ICON) — clicar remove
-      // o indicador direto no gráfico, sem precisar abrir o modal de Indicadores.
+      // 🆕 Ícones "⚙"/"✕" na legenda do indicador (ver INDICATOR_SETTINGS_ICON/
+      // INDICATOR_CLOSE_ICON) — clicar edita parâmetros ou remove o indicador direto no
+      // gráfico, sem precisar abrir o modal de Indicadores nem o antigo box flutuante.
       // data = { paneId, indicatorName (nome real na klinecharts, ex: 'RSI'), iconId }.
       chart.subscribeAction('onTooltipIconClick', (data: any) => {
-        if (data?.iconId !== 'remove') return;
         const matched = INDICATORS.find(
-          (ind) => ind.klinechartsName === data.indicatorName && indicatorPaneIdRef.current[ind.id] === data.paneId
+          (ind) => ind.klinechartsName === data?.indicatorName && indicatorPaneIdRef.current[ind.id] === data?.paneId
         );
-        if (matched) {
+        if (!matched) return;
+        if (data.iconId === 'remove') {
           toggleIndicatorRef.current(matched);
+        } else if (data.iconId === 'settings') {
+          if (isMovingAverageIndicator(matched)) {
+            openMAEditorRef.current(matched);
+          } else if ((matched.defaultParams?.length ?? 0) > 0) {
+            openIndicatorEditorRef.current(matched);
+          }
         }
       });
 
@@ -5420,48 +5459,12 @@ export function ChartView() {
             )}
             </div>
 
-            {/* ✅ Excluir indicador DIRETO no gráfico — chips reais em HTML (não depende do
-                clique no ícone desenhado no canvas pela klinecharts, que tem hit-testing
-                próprio e não é confiável nesse setup). Sempre visível, sempre clicável.
-                IRMÃO do container da klinecharts (não filho) — ver comentário na abertura
-                do wrapper acima explicando o bug de insertBefore que isso corrige. */}
-            {activeIndicators.size > 0 && (
-              // 🆕 Sem "box flutuante" — só os ícones, alinhados na mesma linha que a
-              // klinecharts desenha o nome/valor do indicador (canto superior direito do
-              // gráfico), na mesma ordem/altura de linha que a legenda nativa usa (~20px
-              // por indicador, offsetTop inicial ~26px para acomodar a linha de OHLC).
-              <div className="absolute top-[26px] right-2 z-[55] flex flex-col items-end pointer-events-none">
-                {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
-                  <div
-                    key={indicator.id}
-                    className="pointer-events-auto flex items-center gap-1 h-5"
-                  >
-                    {(indicator.defaultParams?.length ?? 0) > 0 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
-                        }}
-                        title="Editar parâmetros"
-                        className="text-gray-400/70 hover:text-blue-400 hover:bg-blue-500/10 rounded p-0.5 transition-colors"
-                      >
-                        <Settings className="w-3 h-3" />
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleIndicator(indicator);
-                      }}
-                      title="Remover indicador"
-                      className="text-gray-400/70 hover:text-red-400 hover:bg-red-500/10 rounded p-0.5 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* ❌ Removido o box flutuante em HTML que replicava editar/remover por
+                indicador no canto direito do gráfico — duplicava os ícones "⚙"/"✕" que a
+                própria klinecharts já desenha na legenda de cada indicador (canvas nativo,
+                clique tratado em onTooltipIconClick, ver efeito de criação do chart). Editar
+                e remover agora só existem ali e no menu de botão direito ("Indicadores
+                ativos"), sem o box duplicado do lado direito. */}
 
             {/* 🆕 Popover de edição de parâmetros do indicador (engrenagem do chip ou
                 menu de botão direito) */}
