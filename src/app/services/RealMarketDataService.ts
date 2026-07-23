@@ -495,6 +495,12 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
   const brokerSymbol = getBrokerSymbol(symbol, 'infinox');
 
   try {
+    // ✅ 2026-07-23: sem timeout, uma conta MetaAPI compartilhada saturada
+    // podia deixar essa chamada pendurada por MINUTOS (fetch nativo não tem
+    // timeout próprio) — o preço do Dashboard ficava em 0000.00 esperando
+    // uma resposta que nunca vinha rápido, em vez de cair no último preço
+    // real conhecido em segundos. 8s é generoso (latência normal já
+    // documentada é 3-8s) mas nunca deixa a UI travada indefinidamente.
     const res = await fetch(MT5_PRICES_URL, {
       method: 'POST',
       headers: {
@@ -502,6 +508,7 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ symbols: [brokerSymbol] }),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!res.ok) {
@@ -785,6 +792,10 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
       const chunk = brokerNames.slice(i, i + CHUNK_SIZE);
 
       try {
+        // ✅ 2026-07-23: mesmo timeout do fetchMT5Data single-symbol — sem
+        // isso, um chunk pendurado numa conta MetaAPI saturada bloqueava os
+        // chunks seguintes por minutos (chunks rodam em sequência, não em
+        // paralelo, ver o for acima).
         const res = await fetch(MT5_PRICES_URL, {
           method: 'POST',
           headers: {
@@ -792,6 +803,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ symbols: chunk }),
+          signal: AbortSignal.timeout(10000),
         });
 
         const body = res.ok ? await res.json() : null;

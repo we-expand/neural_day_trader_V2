@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import { MarketScoreBoard } from './dashboard/MarketScoreBoard';
 import { NewsAndAgenda } from './dashboard/NewsAndAgenda';
@@ -6,6 +6,36 @@ import { VIXWidgetEnhanced } from './tools/VIXWidgetEnhanced';
 import { RiskThermometer } from './dashboard/RiskThermometer';
 import { CorrelationMatrix } from './dashboard/CorrelationMatrix';
 import { LiquidityDetectorCard } from './dashboard/LiquidityDetectorCard';
+
+// ✅ 2026-07-23: CorrelationMatrix (candles de ~16 ativos) e LiquidityDetectorCard
+// (candles 1H + até 5 anos de 1D) são os consumidores mais pesados de candle da
+// conta MetaAPI compartilhada em todo o Dashboard — um atraso fixo de tempo não
+// basta (5 minutos de espera reportados pelo Cleber mesmo com o atraso de 2.5s,
+// porque esses 2 widgets continuam disparando a busca pesada de qualquer forma,
+// só mais tarde). Fix real: só montam (e só então buscam candle) quando o
+// usuário rola a tela até eles — a maioria dos usuários nem chega a ver essas
+// duas seções na maior parte do tempo que passa no Dashboard olhando o preço.
+function LazyMount({ children }: { children: React.ReactNode }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [shouldMount, setShouldMount] = useState(false);
+
+  useEffect(() => {
+    if (shouldMount || !containerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setShouldMount(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' } // começa a carregar um pouco antes de entrar na tela
+    );
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [shouldMount]);
+
+  return <div ref={containerRef}>{shouldMount ? children : null}</div>;
+}
 
 export function Dashboard() {
   // ✅ 2026-07-23: causa raiz real de "preço zerado no Dashboard, mas normal
@@ -72,13 +102,17 @@ export function Dashboard() {
             </div>
 
             <div className="col-span-1 xl:col-span-12">
-              <CorrelationMatrix />
+              <LazyMount>
+                <CorrelationMatrix />
+              </LazyMount>
             </div>
 
             <div className="col-span-1 xl:col-span-12 min-h-[420px]">
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden h-full shadow-lg">
                 <div className="h-full p-2 overflow-y-auto custom-scrollbar">
-                  <LiquidityDetectorCard />
+                  <LazyMount>
+                    <LiquidityDetectorCard />
+                  </LazyMount>
                 </div>
               </div>
             </div>
