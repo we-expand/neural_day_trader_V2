@@ -184,14 +184,35 @@ export function VIXWidgetEnhanced() {
   };
 
   // 🔥 AUTO-REFRESH (ATUALIZAÇÃO DINÂMICA)
+  // ✅ 2026-07-23: CAUSA RAIZ REAL do "preço zerado no Dashboard, normal no
+  // Gráfico" (achada com evidência real: logs da Edge Function mostraram 44
+  // chamadas a /mt5-prices em 29s, vindas de UMA ÚNICA aba). Este widget
+  // (só renderizado no Dashboard, nunca no Gráfico — por isso a diferença)
+  // disparava fetchAllSources() a cada 1.5s SEM NENHUMA trava contra
+  // sobreposição — como a resposta real da MetaAPI leva 5-9s (confirmado nos
+  // logs), a cada 1.5s uma chamada NOVA empilhava em cima de 4-6 anteriores
+  // ainda em voo, só desse widget, continuamente, sozinho gerando a maior
+  // parte da carga real na conta compartilhada. O comentário antigo "1.5s
+  // pra alta volatilidade" era uma otimização que piorou tudo — mais rápido
+  // que o próprio round-trip nunca ajuda, só empilha requisição.
+  // Fix: mesma trava "pula o próximo tick se o anterior ainda não respondeu"
+  // já usada no MarketScoreBoard, com intervalo realista (5s).
   useEffect(() => {
-    // Primeira busca imediata
-    fetchAllSources();
+    let isFetching = false;
 
-    // 🚀 OTIMIZADO: Refresh a cada 1.5 segundos (foi 5s)
-    const refreshInterval = setInterval(() => {
-      fetchAllSources();
-    }, 1500); // ⚡ 1.5s para alta volatilidade
+    const tick = async () => {
+      if (isFetching) return;
+      isFetching = true;
+      try {
+        await fetchAllSources();
+      } finally {
+        isFetching = false;
+      }
+    };
+
+    tick(); // Primeira busca imediata
+
+    const refreshInterval = setInterval(tick, 5000);
 
     return () => clearInterval(refreshInterval);
   }, []);
