@@ -3667,11 +3667,10 @@ export function ChartView() {
         // da legenda, ignorando por completo qualquer `styles.tooltip.icons` passado por
         // instância em createIndicator() (confirmado lendo IndicatorTooltipView.drawIndicatorTooltip
         // em node_modules/klinecharts/dist/index.esm.js — por isso o ícone nunca aparecia/clicava).
-        indicator: {
-          tooltip: {
-            icons: [INDICATOR_CLOSE_ICON]
-          }
-        },
+        // (config completa de `indicator` fica só na chave abaixo, perto de `separator` --
+        // ter duas chaves `indicator:` neste mesmo objeto literal é um erro silencioso em
+        // JS: a segunda sobrescreve a primeira por completo, perdendo `tooltip.icons` sem
+        // nenhum aviso em runtime; só apareceu porque o build denunciou "Duplicate key").
         grid: {
           show: true,
           horizontal: {
@@ -3757,8 +3756,15 @@ export function ChartView() {
             marginEnd: 2,
           },
         },
+        // ✅ Ícone de excluir (✕) na legenda de TODO indicador — precisa ser setado aqui
+        // (estilo global), não no config de criação de cada indicador: a klinecharts só lê
+        // chart.getStyles().indicator.tooltip.icons para desenhar/registrar clique dos ícones
+        // da legenda, ignorando por completo qualquer `styles.tooltip.icons` passado por
+        // instância em createIndicator() (confirmado lendo IndicatorTooltipView.drawIndicatorTooltip
+        // em node_modules/klinecharts/dist/index.esm.js — por isso o ícone nunca aparecia/clicava).
         indicator: {
           tooltip: {
+            icons: [INDICATOR_CLOSE_ICON],
             text: {
               format: (value: number) => value.toFixed(2)
             }
