@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
-import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerIndicator, getSupportedIndicators } from 'klinecharts';
-import type { KLineData, OverlayTemplate, AxisTemplate } from 'klinecharts';
+import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators } from 'klinecharts';
+import type { KLineData, OverlayTemplate, AxisTemplate, AxisTick } from 'klinecharts';
 
 // getIndicatorClass() existe na tipagem (.d.ts) mas NÃO é exportada pelo bundle
 // ESM real da lib (confirmado: build da Vercel falhou com "not exported by
@@ -3554,39 +3554,95 @@ export function ChartView() {
     console.log('[ChartView] ✅ Container found:', chartContainerRef.current);
     console.log('[ChartView] 📋 Chart ID:', chartIdRef.current);
 
-    // 🎯 REGISTER CUSTOM Y-AXIS with MORE TICKS (tighter spacing)
+    // 🎯 Eixo de PREÇO com mais marcações — versão anterior nunca funcionava:
+    // (a) usava `coord: 0` fixo achando que a klinecharts recalculava a posição
+    //     (não recalcula — o coord retornado por createTicks é usado direto pra
+    //     desenhar, então todo tick "denso" era desenhado empilhado em y=0);
+    // (b) `chart.setPaneOptions({axisOptions:{name:'dense-ticks'}})` era chamado
+    //     SEM `id` — `_setPaneOptions` da lib descarta a chamada inteira quando
+    //     `options.id` não é string (visto lendo node_modules/klinecharts/dist/
+    //     index.esm.js), então o eixo denso nunca era de fato ativado.
+    // Fix: deriva o mapeamento linear valor→pixel a partir de 2 ticks que a
+    // própria klinecharts já calculou certo (extremos de defaultTicks), gera
+    // ~1 marcação a cada 28px (era só ~8 no total, o range/8.0 fixo da lib) e
+    // ativa o eixo custom no pane certo (candle_pane) via setPaneOptions({id}).
     try {
       registerYAxis({
         name: 'dense-ticks',
         createTicks: (params) => {
-          const { range, bounding, defaultTicks } = params;
-          const { from, to } = range;
-          const priceRange = to - from;
-          
-          // 🎯 Calculate MANY more ticks (aim for tick every 15-20 pixels)
-          const targetTickCount = Math.floor(bounding.height / 18); // A tick every 18 pixels
-          const ticks: any[] = [];
-          
-          if (targetTickCount > 0) {
-            const step = priceRange / targetTickCount;
-            
-            for (let i = 0; i <= targetTickCount; i++) {
-              const value = from + (step * i);
-              ticks.push({
-                coord: 0, // Will be calculated by library
-                value: value,
-                text: value.toFixed(2)
-              });
-            }
+          const { bounding, defaultTicks } = params;
+          if (defaultTicks.length < 2) return defaultTicks;
+
+          const first = defaultTicks[0];
+          const last = defaultTicks[defaultTicks.length - 1];
+          const firstValue = Number(first.value);
+          const lastValue = Number(last.value);
+          if (!isFinite(firstValue) || !isFinite(lastValue) || firstValue === lastValue) {
+            return defaultTicks;
           }
-          
-          console.log(`[ChartView] 🎯 Generated ${ticks.length} Y-axis ticks (default was ${defaultTicks.length})`);
-          return ticks.length > 0 ? ticks : defaultTicks;
+
+          const coordAt = (value: number) =>
+            first.coord + ((value - firstValue) / (lastValue - firstValue)) * (last.coord - first.coord);
+
+          // mesma quantidade de casas decimais que a klinecharts já escolheu
+          const decimals = (first.text.split('.')[1] || '').length;
+
+          const targetCount = Math.max(defaultTicks.length, Math.floor(bounding.height / 28));
+          const step = (lastValue - firstValue) / (targetCount - 1);
+          if (!isFinite(step) || step === 0) return defaultTicks;
+
+          const ticks: AxisTick[] = [];
+          for (let i = 0; i < targetCount; i++) {
+            const value = firstValue + step * i;
+            ticks.push({ coord: coordAt(value), value, text: value.toFixed(decimals) });
+          }
+          return ticks;
         }
       });
-      console.log('[ChartView] ✅ Custom dense Y-Axis registered');
+
+      // 🎯 Eixo de TEMPO com mais marcações — mesma técnica, aplicada ao eixo X
+      registerXAxis({
+        name: 'dense-ticks',
+        createTicks: (params) => {
+          const { bounding, defaultTicks } = params;
+          if (defaultTicks.length < 2) return defaultTicks;
+
+          const first = defaultTicks[0];
+          const last = defaultTicks[defaultTicks.length - 1];
+          const firstValue = Number(first.value);
+          const lastValue = Number(last.value);
+          if (!isFinite(firstValue) || !isFinite(lastValue) || firstValue === lastValue) {
+            return defaultTicks;
+          }
+
+          const coordAt = (value: number) =>
+            first.coord + ((value - firstValue) / (lastValue - firstValue)) * (last.coord - first.coord);
+
+          // rótulo de data ocupa mais espaço horizontal que o de preço —
+          // espaçamento mínimo maior (~90px em vez de 28px)
+          const targetCount = Math.max(defaultTicks.length, Math.floor(bounding.width / 90));
+          const step = (lastValue - firstValue) / (targetCount - 1);
+          if (!isFinite(step) || step === 0) return defaultTicks;
+
+          const useShortTime = step < 20 * 60 * 60 * 1000; // <20h entre marcações: mostra hora, não só data
+          const pad = (n: number) => String(n).padStart(2, '0');
+
+          const ticks: AxisTick[] = [];
+          for (let i = 0; i < targetCount; i++) {
+            const value = firstValue + step * i;
+            const d = new Date(value);
+            const text = useShortTime
+              ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+              : `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            ticks.push({ coord: coordAt(value), value, text });
+          }
+          return ticks;
+        }
+      });
+
+      console.log('[ChartView] ✅ Eixos densos (preço + tempo) registrados');
     } catch (e) {
-      console.log('[ChartView] ℹ️ Y-Axis registration:', e);
+      console.log('[ChartView] ℹ️ Registro de eixo denso:', e);
     }
 
     try {
@@ -3625,13 +3681,17 @@ export function ChartView() {
 
       console.log('[ChartView] ✅ Chart object created successfully:', chart);
 
-      // 🎯 Activate custom dense Y-axis
+      // 🎯 Ativa os eixos densos — `id` é obrigatório (sem ele, setPaneOptions
+      // não faz NADA, ver comentário acima de onde o eixo é registrado).
       chart.setPaneOptions({
-        axisOptions: {
-          name: 'dense-ticks'
-        }
+        id: 'candle_pane',
+        axisOptions: { name: 'dense-ticks' }
       });
-      console.log('[ChartView] ✅ Dense Y-axis activated');
+      chart.setPaneOptions({
+        id: 'x_axis_pane',
+        axisOptions: { name: 'dense-ticks' }
+      });
+      console.log('[ChartView] ✅ Eixos densos (preço + tempo) ativados');
 
       // Apply styles after initialization
       console.log('[ChartView] 🎨 Applying styles...');
@@ -4527,13 +4587,6 @@ export function ChartView() {
       }
     };
   }, [currentPrice]);
-
-  // ❌ BIBLIOTECA LIMITATION: KLineChart uses Canvas rendering (not SVG)
-  // Y-axis tick intervals are calculated automatically based on visible price range
-  // Cannot override to fixed 20-unit intervals - the library doesn't support:
-  // • Custom tick generators (registerYAxis ignored)
-  // • DOM manipulation (Canvas-based, not SVG)
-  // • Interval control (setPriceVolumePrecision only affects decimal places)
 
   // Handle right-click context menu
   useEffect(() => {
