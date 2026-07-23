@@ -3685,7 +3685,12 @@ export function ChartView() {
       // não faz NADA, ver comentário acima de onde o eixo é registrado).
       chart.setPaneOptions({
         id: 'candle_pane',
-        axisOptions: { name: 'dense-ticks' }
+        axisOptions: { name: 'dense-ticks' },
+        // 🎯 default da klinecharts é gap.top:0.2/gap.bottom:0.1 (20%/10% da
+        // amplitude de preço reservados como espaço vazio acima/abaixo dos
+        // candles antes do primeiro/último grid) — reduzido pra o gráfico
+        // ocupar quase toda a altura do painel, sem espaço morto em cima.
+        gap: { top: 0.04, bottom: 0.04 },
       });
       chart.setPaneOptions({
         id: 'x_axis_pane',
@@ -3844,18 +3849,18 @@ export function ChartView() {
           // 🎯 tickText.size aqui controla o espaçamento MÍNIMO entre marcações
           // tanto do eixo de tempo quanto (particularidade interna da klinecharts,
           // AxisImp.optimalTicks usa xAxis.tickText.size como referência de altura
-          // mesmo pro eixo Y) do eixo de preço — reduzido de 12 (default) pra 8
-          // pra caber mais marcações de preço/tempo (pedido do Cleber: "65.600 →
-          // 68.400 de uma vez só" no BTCUSD, poucos pontos no eixo de tempo).
+          // mesmo pro eixo Y) do eixo de preço. Subido de volta pra 11 (Cleber achou
+          // 8 pequeno demais pra ler) — ainda menor que o default 12 da lib, então
+          // continua cabendo mais marcações que o padrão original.
           tickText: {
-            size: 8,
-            marginStart: 2,
-            marginEnd: 2,
+            size: 11,
+            marginStart: 4,
+            marginEnd: 4,
           },
         },
         yAxis: {
           show: true,
-          size: 75,
+          size: 85,
           axisLine: {
             show: true,
             size: 1,
@@ -3873,12 +3878,12 @@ export function ChartView() {
           },
           tickText: {
             show: true,
-            size: 8,
+            size: 11,
             family: 'Arial, sans-serif',
             weight: 'normal',
             color: '#e0e0e0',
-            marginStart: 2,
-            marginEnd: 2,
+            marginStart: 4,
+            marginEnd: 4,
           },
         },
         // ✅ Ícone de excluir (✕) na legenda de TODO indicador — precisa ser setado aqui
@@ -4192,9 +4197,9 @@ export function ChartView() {
           chart.setStyles({
             yAxis: {
               tickText: {
-                size: 8,
-                marginStart: 2,
-                marginEnd: 2,
+                size: 11,
+                marginStart: 4,
+                marginEnd: 4,
               }
             }
           });
