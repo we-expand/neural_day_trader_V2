@@ -2155,7 +2155,13 @@ export function ChartView() {
       name: indicator.klinechartsName,
       calcParams: [settings.period],
       extendData: { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift },
-      styles: { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth }] }
+      // ⚠️ dashedValue é obrigatório aqui -- a própria klinecharts acessa
+      // `styles.dashedValue[0]/[1]` sem nenhum fallback ao mesclar segmentos consecutivos
+      // da linha antes de desenhar (ver eachChildren/mergeLines em IndicatorView.drawImp,
+      // node_modules/klinecharts/dist/index.esm.js:8027) -- sem essa chave o acesso lança
+      // TypeError e a linha inteira do indicador nunca chega a ser desenhada (só o rótulo
+      // aparece, que vem de um caminho separado). [4,4] é só usado quando style='dashed'.
+      styles: { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] }
     }, paneId);
   };
 
@@ -2244,7 +2250,8 @@ export function ChartView() {
       const settings = getMASettings(indicator);
       config.calcParams = [settings.period];
       config.extendData = { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift };
-      config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth }] };
+      // ⚠️ dashedValue obrigatório -- ver comentário idêntico em applyMASettingsToChart.
+      config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] };
     } else {
       const params = getIndicatorParams(indicator);
       if (params.length > 0) {
