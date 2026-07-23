@@ -61,7 +61,27 @@ async function fetchOne(url: string): Promise<any> {
   return data;
 }
 
+// ✅ 2026-07-23: circuit breaker por path — sem isso, cada ciclo de polling
+// (ticker do rodapé a cada 10s + painel demonstrativo do Dashboard a cada 5s)
+// disparava de novo as 3 tentativas (direto + 2 proxies) pra QUALQUER cripto
+// sem CFD na corretora (ETH, POL, etc — ver CRYPTO_CFD_AVAILABLE), mesmo
+// sabendo que os 2 proxies estão mortos há sessões (403/408 confirmados em
+// toda tentativa, nunca voltam a funcionar sozinhos no meio de uma sessão).
+// Isso inundava a fila de conexões do navegador com dezenas de requisições
+// fadadas ao fracasso por ciclo, atrasando/starvando chamadas legítimas em
+// voo ao mesmo tempo (ex: /mt5-prices do BTCUSD) — causa raiz confirmada do
+// "Dashboard fica zerado por minutos e corrige sozinho" (Cleber, 2026-07-23).
+// Depois de uma falha total, pula a rede por 60s pra esse path específico —
+// mesma degradação graciosa de sempre (cai no fallback), sem martelar rede.
+const FAILURE_COOLDOWN_MS = 60_000;
+const recentFailures = new Map<string, number>();
+
 async function fetchWithFallback(path: string): Promise<any | null> {
+  const lastFailureAt = recentFailures.get(path);
+  if (lastFailureAt && Date.now() - lastFailureAt < FAILURE_COOLDOWN_MS) {
+    return null;
+  }
+
   const directUrl = `${BINANCE_BASE}${path}`;
 
   // 🚀 PERF: direto + proxies CORS disparados EM PARALELO (Promise.any) em vez de
@@ -71,8 +91,11 @@ async function fetchWithFallback(path: string): Promise<any | null> {
   const urls = [directUrl, ...CORS_PROXIES.map(build => build(directUrl))];
 
   try {
-    return await Promise.any(urls.map(fetchOne));
+    const result = await Promise.any(urls.map(fetchOne));
+    recentFailures.delete(path); // sucesso — reseta o cooldown se tinha algum
+    return result;
   } catch {
+    recentFailures.set(path, Date.now()); // ativa o cooldown pra esse path
     return null; // Todas as tentativas falharam — retorna null sem lançar erro
   }
 }
