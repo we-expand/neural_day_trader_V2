@@ -3804,7 +3804,15 @@ export function ChartView() {
         indicator: {
           tooltip: {
             icons: [INDICATOR_SETTINGS_ICON, INDICATOR_CLOSE_ICON],
+            // ⚠️ marginTop igual ao marginTop dos ícones (6, ver INDICATOR_SETTINGS_ICON/
+            // INDICATOR_CLOSE_ICON) -- a klinecharts desenha o texto e cada ícone em
+            // `y: coordinate.y + marginTop` de forma independente (mesmo baseline "y" de
+            // topo, sem centralização automática entre os dois); com marginTop diferente
+            // (o default do texto é 4, o dos ícones é 6) o texto laranja ficava ~2px acima
+            // dos ícones ⚙/✕. Descer o texto pra bater com o marginTop dos ícones alinha
+            // os dois na mesma linha de base.
             text: {
+              marginTop: 6,
               format: (value: number) => value.toFixed(2)
             }
           }
@@ -5470,7 +5478,7 @@ export function ChartView() {
                 menu de botão direito) */}
             {indicatorEditor && (
               <div
-                className="absolute top-[26px] right-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-2">
@@ -5516,7 +5524,7 @@ export function ChartView() {
                 Estilo (cor/traço/espessura). */}
             {maEditor && (
               <div
-                className="absolute top-[26px] right-2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-3">
