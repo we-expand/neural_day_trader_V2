@@ -3613,17 +3613,32 @@ export function ChartView() {
 
           const coordAt = (value: number) =>
             first.coord + ((value - firstValue) / (lastValue - firstValue)) * (last.coord - first.coord);
+          const valueAt = (coord: number) =>
+            firstValue + ((coord - first.coord) / (last.coord - first.coord)) * (lastValue - firstValue);
 
           // mesma quantidade de casas decimais que a klinecharts já escolheu
           const decimals = (first.text.split('.')[1] || '').length;
 
+          // 🎯 A klinecharts sempre deixa uma margem própria entre o `defaultTicks[0]`/
+          // `[last]` e a borda REAL do painel (bounding.height) -- é essa margem
+          // interna da lib (não o gap.top/bottom do pane, já reduzido a 1.5%) que
+          // fazia a régua de preço "não chegar" nas pontas, mesmo com mais ticks
+          // interpolados entre os 2 extremos antigos. Fix: extrapola o valor de
+          // preço nas bordas de verdade (coord 0 e bounding.height, com 6px de
+          // respiro pra não cortar o texto do 1º/último tick) e gera a régua densa
+          // a partir DESSAS bordas, não mais dos 2 ticks default (que já vinham
+          // encolhidos).
+          const edgeMargin = 6;
+          const topValue = valueAt(edgeMargin);
+          const bottomValue = valueAt(bounding.height - edgeMargin);
+
           const targetCount = Math.max(defaultTicks.length, Math.floor(bounding.height / 28));
-          const step = (lastValue - firstValue) / (targetCount - 1);
+          const step = (bottomValue - topValue) / (targetCount - 1);
           if (!isFinite(step) || step === 0) return defaultTicks;
 
           const ticks: AxisTick[] = [];
           for (let i = 0; i < targetCount; i++) {
-            const value = firstValue + step * i;
+            const value = topValue + step * i;
             ticks.push({ coord: coordAt(value), value, text: value.toFixed(decimals) });
           }
           return ticks;
