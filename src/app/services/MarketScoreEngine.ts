@@ -60,6 +60,9 @@ export interface MarketScoreFactors {
   momentum: number;
   structure: number;
   volume: number;
+  /** Magnitude do movimento líquido recente (retorno/ATR), decorrelacionada
+   *  de ADX/alinhamento de médias — ver `netMoveFactor`. */
+  netMove: number;
 }
 
 export interface MarketScoreIndicators {
@@ -108,8 +111,34 @@ export interface MarketScoreResult {
   microstructure: MarketScoreMicrostructure | null;
 }
 
-// Pesos aprovados (Cleber, 2026-07-17). Somam 1.0.
+// Pesos aprovados (Cleber, 2026-07-17). Somam 1.0. ⚠️ NÃO alterar direto —
+// ver `effectiveWeights` abaixo: uma primeira tentativa de já nascer com
+// `netMove` "encaixado" aqui (tirando peso fixo de trend/momentum/structure)
+// foi validada com o MarketScoreValidator e destruiu o intraday (BTC 15m,
+// que tinha edge real de 78%, desabou pra amostra inconclusiva) — mesmo sem
+// o valor de `netMove` em si mudar nada em barra curta (fica em 0), só
+// REDISTRIBUIR peso fixo pra um fator que não existia ainda mexe no
+// intraday já calibrado. `netMove` só existe de verdade em timeframe 1D+
+// (ver `netMoveFactor`), então seu peso PRECISA vir de uma redistribuição
+// dinâmica que também é 0 em timeframe curto — nunca de uma constante fixa.
 const WEIGHTS = { trend: 0.4, momentum: 0.25, structure: 0.2, volume: 0.15 };
+
+// Peso do `netMove`, escalado pela mesma relevância por duração de barra que
+// o próprio fator já usa (0 intraday…1 diário+) — carve-out proporcional dos
+// outros 4 pesos, preservando EXATAMENTE os pesos originais em timeframe
+// curto (netMoveWeight=0 ⇒ remaining=1 ⇒ pesos idênticos aos de 2026-07-17).
+const NET_MOVE_MAX_WEIGHT = 0.2;
+function effectiveWeights(dailyRelevance: number) {
+  const netMove = NET_MOVE_MAX_WEIGHT * dailyRelevance;
+  const remaining = 1 - netMove;
+  return {
+    trend: WEIGHTS.trend * remaining,
+    momentum: WEIGHTS.momentum * remaining,
+    structure: WEIGHTS.structure * remaining,
+    volume: WEIGHTS.volume * remaining,
+    netMove,
+  };
+}
 
 // TF-mãe usado pra ancorar a tendência maior (multi-timeframe).
 const PARENT_TF: Record<Timeframe, Timeframe> = {
@@ -208,10 +237,34 @@ function trendOfTimeframe(candles: Candle[]): { value: number; ema9: number | nu
   }
 
   // Força da tendência: ADX<15 quase não conta, ADX>=50 conta cheio.
-  const adxStrength = adx !== null ? clamp((adx - 15) / 35, 0, 1) : 0.4;
+  //
+  // ✅ 2026-07-24 (calibração): ADX mede ESTRUTURA de tendência já
+  // estabelecida — indicador atrasado por natureza. Usá-lo como
+  // multiplicador de MAGNITUDE penaliza o caso "movimento direcional FRESCO e
+  // forte que ainda não teve tempo de confirmar via ADX" (achado real: BTC
+  // caindo -1,48%/dia, ADX 20/indefinido, motor lateralizava). PRIMEIRA
+  // TENTATIVA: relaxar o piso globalmente (0.4→0.65) — testada com o
+  // MarketScoreValidator e foi um desastre no intraday (BTC 15m, que tinha
+  // edge real de 78% de acerto, caiu pra ~amostra inconclusiva) — em
+  // timeframe curto, ADX baixo genuinamente significa "mercado de rastejo,
+  // não confie no alinhamento de médias", e relaxar esse piso deixa passar
+  // ruído que o ADX corretamente filtrava. Mesma lição do `shock`/`netMove`:
+  // o remédio certo pra "ADX atrasado" só vale em timeframe longo (1D+),
+  // onde 1 candle já representa um dia inteiro de negociação real. Fix
+  // certo: o piso só sobe conforme a duração da barra se aproxima de 1 dia
+  // (`dailyRelevance`, mesma técnica de `momentumFactor.shock`) — intraday
+  // mantém o comportamento ORIGINAL (validado, não mexido), só diário+ ganha
+  // o piso mais alto.
+  const barDurationMs = inferBarDurationMs(candles);
+  const ONE_HOUR = 3_600_000, ONE_DAY = 86_400_000;
+  const dailyRelevance = clamp((barDurationMs - ONE_HOUR) / (ONE_DAY - ONE_HOUR), 0, 1);
+  const floor = 0.4 + 0.25 * dailyRelevance; // 0.4 intraday … 0.65 diário+
+  const range = 35 - 10 * dailyRelevance; // 35 intraday … 25 diário+
+
+  const adxStrength = adx !== null ? clamp((adx - 15) / range, 0, 1) : 0.4 + 0.15 * dailyRelevance;
 
   const raw = clamp(0.7 * alignment + 0.3 * slopeNorm, -1, 1);
-  const value = raw * (0.4 + 0.6 * adxStrength);
+  const value = raw * (floor + (1 - floor) * adxStrength);
   return { value: clamp(value, -1, 1), ema9, sma20, sma200, adx, atr };
 }
 
@@ -317,6 +370,43 @@ function structureFactor(candles: Candle[]): { value: number; fibPosition: numbe
   return { value, fibPosition: pos, fibNearestLevel };
 }
 
+/**
+ * Magnitude de movimento líquido: retorno das últimas N barras / (ATR ×
+ * √N) — mede "quanto e quão rápido o preço já se moveu", SEM depender de
+ * ADX, alinhamento de médias ou RSI/MACD (todos indicadores suavizados por
+ * natureza, que diluem um movimento concentrado em poucas barras). -1…+1.
+ *
+ * ✅ 2026-07-24 (calibração): achado real — BTC caindo -1,48% no dia (candle
+ * diário único) tinha RSI(14)=50 (neutro, suavizado por 14 dias) e o fator de
+ * Tendência amortecido pelo ADX baixo (indicador atrasado) — o motor
+ * classificava "lateralizado" com o ativo caindo forte.
+ *
+ * ⚠️ Primeira versão (sem trava por timeframe) foi testada com o
+ * MarketScoreValidator e PIOROU muito o intraday (BTC 15m caiu de 78%→54% de
+ * acerto nas leituras de convicção) — a mesma lição já documentada pro
+ * `shock` do momentum: um "choque" cru de poucas barras é majoritariamente
+ * RUÍDO em timeframe curto, não sinal (osciladores suavizados existem
+ * exatamente pra filtrar isso). `netMove` agora usa a MESMA trava de
+ * relevância por duração de barra que `momentumFactor.shock` já usa e já
+ * validou: zero em intraday curto (≤1h), rampa em 4h, cheio em diário+ —
+ * onde o problema original (RSI/ADX atrasados mascarando queda/alta forte de
+ * 1 dia) realmente acontece. Normalizado por ATR×√N (regra de random-walk).
+ */
+function netMoveFactor(candles: Candle[], atr: number | null): number {
+  const N = 5;
+  if (candles.length <= N || !atr || atr <= 0) return 0;
+
+  const barDurationMs = inferBarDurationMs(candles);
+  const ONE_HOUR = 3_600_000, ONE_DAY = 86_400_000;
+  const relevance = clamp((barDurationMs - ONE_HOUR) / (ONE_DAY - ONE_HOUR), 0, 1);
+  if (relevance <= 0) return 0;
+
+  const lastClose = candles[candles.length - 1].close;
+  const pastClose = candles[candles.length - 1 - N].close;
+  const netReturn = lastClose - pastClose;
+  return clamp(netReturn / (atr * Math.sqrt(N) * 0.9), -1, 1) * relevance;
+}
+
 /** Volume / Fluxo: inclinação do OBV (direção de acumulação) escalada pela força do volume. -1…+1. */
 function volumeFactor(candles: Candle[]): { value: number; volumeRatio: number | null } {
   const vols = candles.map(c => c.volume);
@@ -353,6 +443,7 @@ function buildInsight(
   classification: ScoreClassification,
   regime: MarketRegime,
   ind: MarketScoreIndicators,
+  lastBarChangePct: number | null,
 ): string {
   const regimeTxt = regime === 'TENDENCIA' ? 'mercado em tendência' : regime === 'LATERAL' ? 'mercado lateralizado' : 'regime indefinido';
   const rsiTxt = ind.rsi !== null ? `RSI ${ind.rsi.toFixed(0)}` : 'RSI n/d';
@@ -376,9 +467,26 @@ function buildInsight(
   // sem consenso forte), não bug — mas a frase antiga ("Mercado sem direção
   // definida (mercado em tendência)") lia como autocontraditória. Reescrita
   // pra deixar claro que são dois sinais distintos, não uma contradição.
+  //
+  // ✅ 2026-07-24 (calibração): achado real — BTC caindo -1,48% no dia
+  // classificava LATERAL (score 42, dentro da faixa neutra 40-60) e o texto
+  // dizia "mercado sem direção definida", que soava contraditório com o
+  // preço caindo visivelmente na tela. Investigado com o MarketScoreValidator
+  // ANTES de mudar o texto: essa faixa (score 35-50) tem retorno futuro médio
+  // historicamente POSITIVO pra BTC diário (dado real, não é bug do motor) —
+  // ou seja, "não é uma queda com continuação estatisticamente confiável" é
+  // uma leitura genuína, não um erro de cálculo. O problema real era só o
+  // TEXTO escondendo o "porquê": agora, quando há um movimento líquido notável
+  // no candle mais recente (só relevante em 1D+, mesma trava do `netMove`),
+  // o insight cita o número — deixa claro que o motor VIU o movimento, só não
+  // tem confirmação estrutural (ADX/tendência) suficiente pra tratá-lo como
+  // sinal forte de continuação.
+  const moveTxt = lastBarChangePct !== null && Math.abs(lastBarChangePct) >= 0.8
+    ? ` Candle mais recente moveu ${lastBarChangePct > 0 ? '+' : ''}${lastBarChangePct.toFixed(2)}%, mas sem estrutura de tendência confirmada ainda.`
+    : '';
   return regime === 'TENDENCIA'
-    ? `Estrutura de tendência presente (${adxTxt || 'ADX moderado'}), mas os fatores não convergem o bastante pra um consenso direcional forte. ${parts}. Aguardando confirmação.`
-    : `Mercado sem direção definida (${regimeTxt}). ${parts}. Aguardando rompimento.`;
+    ? `Estrutura de tendência presente (${adxTxt || 'ADX moderado'}), mas os fatores não convergem o bastante pra um consenso direcional forte. ${parts}.${moveTxt} Aguardando confirmação.`
+    : `Mercado sem direção definida (${regimeTxt}).${moveTxt} ${parts}. Aguardando rompimento.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,12 +510,24 @@ export interface ScoreComputation {
  */
 export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Candle[]): ScoreComputation {
   const t = trendOfTimeframe(userCandles);
+  // ✅ 2026-07-24 (calibração): o score deixa de misturar 60%/40% com o
+  // TF-mãe — pedido explícito do Cleber é que o Score seja EXCLUSIVO do
+  // timeframe escolhido (um gráfico de 5min tem que refletir só 5min, não
+  // uma média com 1h). O TF-mãe continua sendo buscado e usado só como
+  // CONFIRMAÇÃO na confiança (`multiTFAgree`, abaixo) — nunca mais entra no
+  // número do score/classification em si.
   const parentTrend = parentCandles.length >= 30 ? trendOfTimeframe(parentCandles).value : t.value;
-  const trend = clamp(0.6 * t.value + 0.4 * parentTrend, -1, 1);
+  const trend = t.value;
 
   const m = momentumFactor(userCandles, t.atr);
   const s = structureFactor(userCandles);
   const v = volumeFactor(userCandles);
+  const netMove = netMoveFactor(userCandles, t.atr);
+
+  const barDurationMs = inferBarDurationMs(userCandles);
+  const ONE_HOUR = 3_600_000, ONE_DAY = 86_400_000;
+  const dailyRelevance = clamp((barDurationMs - ONE_HOUR) / (ONE_DAY - ONE_HOUR), 0, 1);
+  const W = effectiveWeights(dailyRelevance);
 
   const bb = calculateBollingerBands(userCandles, 20, 2);
   const bbUpper = lastNonNull(bb.upper);
@@ -477,11 +597,15 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
   // por ser RARA — exigir alinhamento genuíno é o que a torna preditiva). O
   // score fica naturalmente concentrado no meio; a IA opera só nas leituras
   // extremas + alta confiança, que é onde o edge real está.
+  // `netMove` NUNCA é amortecido por regime — é justamente o fator pensado
+  // pra não depender de ADX/estrutura já madura (ver doc da função). Sem
+  // isso, ele cairia no mesmo problema que motivou sua criação.
   const bruto =
-    WEIGHTS.trend * trend * regimeTrendScale +
-    WEIGHTS.momentum * momentumEff +
-    WEIGHTS.structure * structureEff +
-    WEIGHTS.volume * v.value;
+    W.trend * trend * regimeTrendScale +
+    W.momentum * momentumEff +
+    W.structure * structureEff +
+    W.volume * v.value +
+    W.netMove * netMove;
 
   const score = clamp(Math.round(50 + bruto * 50), 1, 99);
   // ✅ 2026-07-17: thresholds alinhados com o rótulo visual do Dashboard
@@ -497,10 +621,11 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
   // Confiança: concordância entre fatores + força da leitura + alinhamento multi-TF + clareza de regime.
   const netDir = Math.sign(bruto) || 1;
   const weighted: Array<[number, number]> = [
-    [WEIGHTS.trend, trend * regimeTrendScale],
-    [WEIGHTS.momentum, momentumEff],
-    [WEIGHTS.structure, structureEff],
-    [WEIGHTS.volume, v.value],
+    [W.trend, trend * regimeTrendScale],
+    [W.momentum, momentumEff],
+    [W.structure, structureEff],
+    [W.volume, v.value],
+    [W.netMove, netMove],
   ];
   const agreementScore = weighted.reduce((acc, [w, f]) => acc + w * (Math.sign(f) === netDir ? 1 : -1), 0); // -1…+1
   const multiTFAgree = Math.sign(t.value) === Math.sign(parentTrend) ? 1 : 0;
@@ -531,14 +656,20 @@ export function computeScoreFromCandles(userCandles: Candle[], parentCandles: Ca
     fibNearestLevel: s.fibNearestLevel,
   };
 
+  // Só relevante como texto quando netMove de fato atua (1D+, ver gating em
+  // `netMoveFactor`) — em intraday, um único candle não representa "o dia".
+  const lastBarChangePct = dailyRelevance > 0 && userCandles.length >= 2
+    ? ((userCandles[userCandles.length - 1].close - userCandles[userCandles.length - 2].close) / userCandles[userCandles.length - 2].close) * 100
+    : null;
+
   return {
     score,
     classification,
     confidence,
     regime,
-    factors: { trend, momentum: momentumEff, structure: structureEff, volume: v.value },
+    factors: { trend, momentum: momentumEff, structure: structureEff, volume: v.value, netMove },
     indicators,
-    insight: buildInsight(classification, regime, indicators),
+    insight: buildInsight(classification, regime, indicators, lastBarChangePct),
     provenance,
   };
 }
@@ -680,7 +811,7 @@ export class MarketScoreEngine {
       classification: 'LATERAL',
       confidence: 0,
       regime: 'INDEFINIDO',
-      factors: { trend: 0, momentum: 0, structure: 0, volume: 0 },
+      factors: { trend: 0, momentum: 0, structure: 0, volume: 0, netMove: 0 },
       indicators: {
         rsi: null, stochK: null, stochD: null, ema9: null, sma20: null, sma200: null,
         macdHistogram: null, adx: null, atr: null, volumeRatio: null, fibPosition: null, fibNearestLevel: null,

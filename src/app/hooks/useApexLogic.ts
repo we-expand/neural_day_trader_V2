@@ -10,6 +10,20 @@ import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
 import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { backtestDataService } from '@/app/services/BacktestDataService';
+import { MarketScoreEngine } from '@/app/services/MarketScoreEngine';
+import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
+
+/**
+ * Normaliza o timeframe operacional escolhido na UI (aiConfig.timeframe, ex:
+ * '1H'/'4H') pro tipo que o MarketScoreEngine/BacktestDataService esperam
+ * (minúsculo). Sem isso, o Score seria calculado sempre no timeframe errado
+ * (ou falharia silenciosamente) sempre que o usuário escolhesse 1H/4H.
+ */
+function normalizeAiTimeframe(tf: string | undefined): ScoreTimeframe {
+  const valid: ScoreTimeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
+  const lower = (tf || '5m').toLowerCase() as ScoreTimeframe;
+  return valid.includes(lower) ? lower : '5m';
+}
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -1093,46 +1107,15 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             source: priceData.source
           });
           
-          // ✅ SCORE DE CONFIANÇA BASEADO EM DADOS REAIS
-          let confidenceScore = 50;
-          
-          // Adicionar confiança baseado em volatilidade
-          const absChange = Math.abs(priceChangePercent);
-          if (absChange > 3) confidenceScore += 30; // 🆕 AUMENTADO: Alta volatilidade = MUITO mais confiança
-          else if (absChange > 1.5) confidenceScore += 20; // 🆕 AUMENTADO
-          else if (absChange > 0.8) confidenceScore += 10; // 🆕 NOVO TIER
-          else if (absChange < 0.5) confidenceScore -= 10; // 🆕 REDUZIDO PENALIDADE (era -15)
-          
-          // Adicionar confiança baseado em volume
-          if (volume24h > 100000) confidenceScore += 15;
-          else if (volume24h > 50000) confidenceScore += 10; // 🆕 NOVO TIER
-          else if (volume24h < 10000) confidenceScore -= 10;
-          
-          // 🆕 BOOST: Se VIX > 20, adicionar confiança extra
-          if (globalVolatility) {
-            confidenceScore += 10;
-            console.log(`[BOOST] 🔥 +10% confiança (VIX Alto!)`);
-          }
-          
-          // ✅ FILTRO DE QUALIDADE: Apenas trades com confiança razoável
-          // 🔒 Ajustado pelo riskProfile do usuário (conservador exige mais confiança, agressivo exige menos)
+          // 🔒 2026-07-24: o "score de confiança" antigo aqui era uma heurística
+          // caseira (volatilidade%+volume+VIX), sem nenhuma relação com o Market
+          // Score real/calibrado que o Dashboard usa (MarketScoreEngine.ts) — a
+          // IA e o Dashboard liam dois "cérebros" diferentes e podiam discordar.
+          // Removido o pré-filtro cego daqui; a confiança real (estratégia +
+          // Score calibrado, no MESMO timeframe operado) é checada mais abaixo,
+          // depois que a estratégia já sugeriu um lado — ver "GATE DO SCORE".
           const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
           const MIN_CONFIDENCE = 45 + riskAdjustment.confidenceAdjust; // 🚀 BASE REDUZIDA DE 60% PARA 45% - Muito mais oportunidades!
-          
-          if (confidenceScore < MIN_CONFIDENCE) {
-            console.log(`[QUALIDADE] ❌ Setup rejeitado: ${selectedSymbol} - Score ${confidenceScore}% (mínimo ${MIN_CONFIDENCE}%)`);
-            
-            // 🔔 Notificar usuário sobre setup rejeitado (apenas 1 a cada 3 para não poluir)
-            if (Math.random() < 0.33) {
-              toastOriginal.info('⏭️ Setup Rejeitado', {
-                description: `${selectedSymbol} - Confiança muito baixa (${confidenceScore}%)`,
-                duration: 2000
-              });
-            }
-            return;
-          }
-          
-          console.log(`[QUALIDADE] ✅ Setup aprovado: ${selectedSymbol} - Score ${confidenceScore}% (volatilidade: ${absChange.toFixed(2)}%)`);
 
           // 🆕 ESTRATÉGIA REAL: mesma função (evaluateStrategyAt) e mesmos indicadores
           // reais (RSI/MACD/EMA/etc.) usados pelo Backtest — a IA ao vivo roda
@@ -1146,17 +1129,29 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             return;
           }
 
-          // Buffer de candles reais do ativo (renovado a cada 60s por símbolo)
-          let bufferEntry = candleBufferRef.current.get(selectedSymbol);
+          // 🔒 2026-07-24: timeframe operacional deixa de ser fixo em 5m —
+          // usa o que o próprio usuário escolheu na UI (aiConfig.timeframe,
+          // já existia como campo selecionável mas era ignorado aqui). Isso
+          // é o que torna o Score (chamado logo abaixo) e a estratégia
+          // exclusivos do timeframe pedido, essencial pro modo Scalper (1m)
+          // não operar em cima de candle de 5m.
+          const opTimeframe = normalizeAiTimeframe(aiConfig.timeframe);
+          const barMs: Record<ScoreTimeframe, number> = {
+            '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
+          };
+          const bufferKey = `${selectedSymbol}_${opTimeframe}`;
+
+          // Buffer de candles reais do ativo+timeframe (renovado a cada 60s)
+          let bufferEntry = candleBufferRef.current.get(bufferKey);
           if (!bufferEntry || Date.now() - bufferEntry.fetchedAt > 60_000) {
             try {
               const end = new Date();
-              const start = new Date(end.getTime() - 100 * 5 * 60_000); // ~100 candles de 5m
-              const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, '5m');
+              const start = new Date(end.getTime() - 100 * barMs[opTimeframe]); // ~100 candles do TF operado
+              const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, opTimeframe);
               bufferEntry = { candles: history.candles, fetchedAt: Date.now() };
-              candleBufferRef.current.set(selectedSymbol, bufferEntry);
+              candleBufferRef.current.set(bufferKey, bufferEntry);
             } catch (error) {
-              console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} agora, pulando ciclo`, error);
+              console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} (${opTimeframe}) agora, pulando ciclo`, error);
               return;
             }
           }
@@ -1175,7 +1170,7 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
 
           const side: 'LONG' | 'SHORT' = strategySignal.signal === 'BUY' ? 'LONG' : 'SHORT';
           const strategyName = activeStrategy.name;
-          confidenceScore = strategySignal.confidence;
+          let confidenceScore = strategySignal.confidence;
           const rsiSeries = calculateRSI(candles, 14);
           const rsiValue = rsiSeries[rsiSeries.length - 1] ?? 50; // RSI real do ativo, mesmo cálculo usado no evaluator
 
@@ -1186,6 +1181,46 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
           if (confidenceScore < MIN_CONFIDENCE) {
             console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
             return;
+          }
+
+          // 🔒 GATE DO MARKET SCORE (2026-07-24) — o motor recalibrado do
+          // Dashboard (MarketScoreEngine.ts, mesmo usado no card "Análise
+          // Neural") passa a ser consultado aqui como CONFIRMAÇÃO/VETO do
+          // sinal da estratégia, no MESMO timeframe operado (`opTimeframe`)
+          // — nunca decide sozinho, nunca substitui o gatilho de entrada da
+          // estratégia (`evaluateStrategyAt`, já validado via
+          // MarketScoreValidator). Se o Score classificar o ativo pro lado
+          // OPOSTO do que a estratégia sugeriu, o setup é descartado — é
+          // exatamente o cenário que motivou este gate: a IA não deve
+          // comprar quando o Score (mesmo motor que o usuário vê na tela)
+          // está classificando o ativo como VENDEDOR, e vice-versa. LATERAL
+          // não veta (o Score genuinamente não tem opinião forte o bastante
+          // pra contradizer a estratégia). Isso é um passo intermediário —
+          // ainda não é o "cérebro definitivo" da IA, só a conexão real
+          // entre os dois motores que hoje existiam desconectados.
+          let scoreConfidence: number | null = null;
+          try {
+            const scoreResult = await MarketScoreEngine.compute(selectedSymbol, opTimeframe);
+            if (scoreResult.provenance !== 'unavailable') {
+              const expectedClassification = side === 'LONG' ? 'COMPRADOR' : 'VENDEDOR';
+              const opposite = side === 'LONG' ? 'VENDEDOR' : 'COMPRADOR';
+              if (scoreResult.classification === opposite) {
+                console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`);
+                return;
+              }
+              scoreConfidence = scoreResult.confidence;
+              console.log(`[SCORE] ✅ Market Score (${opTimeframe}) confirma/não contradiz: ${scoreResult.classification} (confiança ${scoreResult.confidence}%)${scoreResult.classification === expectedClassification ? ' — concorda' : ' — neutro'}`);
+            }
+          } catch (error) {
+            console.warn(`[SCORE] ⚠️ Falha ao consultar o Market Score pra ${selectedSymbol} (${opTimeframe}) — seguindo só com a confiança da estratégia`, error);
+          }
+          // Confiança final = a mais conservadora entre estratégia e Score (quando disponível).
+          if (scoreConfidence !== null) {
+            confidenceScore = Math.min(confidenceScore, scoreConfidence);
+            if (confidenceScore < MIN_CONFIDENCE) {
+              console.log(`[SEGURANÇA] ❌ Confiança combinada (estratégia+Score) abaixo do mínimo: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
+              return;
+            }
           }
 
           // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção (aiConfig.direction = 'AUTO' | 'LONG' | 'SHORT')

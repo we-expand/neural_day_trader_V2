@@ -1,5 +1,92 @@
 # Neural Day Trader — Estado do Projeto (atualizado 2026-07-24)
 
+## Sessão nova (2026-07-24, continuação 2): calibração do Market Score + IA passa a consultar o Score real como confirmação/veto — PENDENTE COMMIT/PUSH
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou que o Score do Dashboard estava lateralizando ativos com queda/alta forte (ex: BTC -1,48%/dia mostrando "regime indefinido") e perguntou se valia colocar uma AI/LLM decidindo junto com o algoritmo. Resposta dada e alinhada com ele: **não** — LLM no loop do Score quebraria o scalper (latência), a validação walk-forward já estabelecida (`MarketScoreValidator`) e escalaria caro; o problema real era calibração determinística, corrigível sem LLM.
+
+### 1. Calibração do `MarketScoreEngine.ts` (Dashboard) — 3 mudanças, todas validadas antes/depois com o `MarketScoreValidator`
+
+- **Score deixa de misturar com o TF-mãe** (`computeScoreFromCandles`): removida a blend 60%/40% com o timeframe maior no cálculo do score/classification — o TF-mãe agora só entra como confirmação de *confiança* (`multiTFAgree`), nunca mais no número. Atende o pedido explícito de "Score exclusivo pro timeframe que o usuário escolheu".
+- **Novo fator `netMove`**: magnitude do deslocamento líquido recente (retorno/ATR), decorrelacionada de ADX/alinhamento de médias — captura queda/alta forte e recente que ADX (indicador atrasado) ainda não "percebeu". **Só atua em timeframe 1D+** (mesma trava de relevância por duração de barra já usada no `shock` do momentum) — uma 1ª tentativa sem essa trava foi testada e **destruiu o intraday** (BTC 15m caiu de 78%→54% de acerto no validador), confirmando a mesma lição já documentada no código pro `shock`. Peso do `netMove` é redistribuído dinamicamente (`effectiveWeights`), nunca uma constante fixa — isso preserva os pesos originais validados em timeframe curto byte-a-byte.
+- **Insight honesto**: quando há movimento líquido notável (≥0,8%) num timeframe 1D+ sem estrutura confirmada, o texto agora cita o número (`"Candle mais recente moveu -1,40%, mas sem estrutura de tendência confirmada ainda."`) em vez de só "mercado sem direção definida" — resolve a aparente contradição sem forçar a classificação, já que o validador mostrou que essa faixa (score 35-50) tem retorno futuro historicamente flat/levemente positivo pro BTC diário — tratar como "sem edge de continuação forte" é estatisticamente honesto, não um bug.
+
+**Resultado da validação**: intraday (BTC 1h/15m/5m, ETH 1h, SPX500 1h/15m) ficou **idêntico ao baseline** antes/depois — zero regressão. Diário teve leve trade-off aceito por Cleber: 54% de acerto vs 56% antes, mas quase o dobro de amostras/sensibilidade a movimentos reais.
+
+### 2. IA passa a consultar o Score real (`useApexLogic.ts`) — antes eram dois cérebros desconectados
+
+Achado antes de codar: a IA **nunca** consultava o `MarketScoreEngine` — a decisão de entrada vinha só de `evaluateStrategyAt` (estratégia escolhida), e existia um "score de confiança" caseiro (heurística de %variação do dia + volume + VIX) sem relação nenhuma com o Score calibrado do Dashboard. O timeframe operacional também estava **hardcoded em 5min pra qualquer configuração** — o campo `aiConfig.timeframe` (seletor 1m/5m/15m/1H/4H já existente na UI do AI Trader) era ignorado.
+
+Decisão de arquitetura combinada com Cleber (não é o "cérebro definitivo" ainda — isso fica pra uma sessão futura dedicada): **Score = confirmação/veto, Estratégia continua sendo o gatilho de entrada.**
+
+- Buffer de candles da estratégia agora busca no timeframe real escolhido pelo usuário (`normalizeAiTimeframe(aiConfig.timeframe)`), não mais fixo em 5m — cache por `symbol+timeframe`.
+- Depois que a estratégia sugere um lado (LONG/SHORT), a IA chama `MarketScoreEngine.compute(symbol, timeframe)` **no mesmo timeframe operado** — se o Score classificar o ativo pro lado OPOSTO (ex: estratégia manda comprar, Score diz VENDEDOR), o setup é descartado. LATERAL não veta. Falha ao consultar o Score nunca bloqueia a entrada (segue só com a confiança da estratégia).
+- Confiança final = a mais conservadora entre estratégia e Score (quando disponível).
+- Removido o "score de confiança" caseiro (heurística de %variação+volume+VIX que rejeitava setup ANTES de sequer buscar a estratégia) — não tinha relação com o Score real, era um pré-filtro cego.
+
+**Verificação feita**: `tsc --noEmit` limpo em `MarketScoreEngine.ts` e `useApexLogic.ts`. Validação matemática do Score feita via `MarketScoreValidator` (script Node/esbuild, não integrado ao build). **Não testado ao vivo com a IA rodando** (sem credenciais MT5 reais neste ambiente) — falta confirmar em produção que a IA realmente veta/confirma setups conforme o Score, e que trocar o timeframe operacional na UI (1m/5m/15m/1H/4H) muda de fato o candle usado.
+
+### Pendente real pra próxima sessão
+
+1. **Commit + push** (nada commitado ainda nesta sessão):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/services/MarketScoreEngine.ts src/app/hooks/useApexLogic.ts CLAUDE.md
+git commit -m "fix: Market Score lateralizava ativos com queda/alta forte e recente (ex: BTC -1.48%/dia = 'regime indefinido') -- ADX (indicador atrasado) amortecia demais o fator de tendencia e nao havia fator dedicado a magnitude de movimento recente. Adiciona fator netMove (retorno/ATR, decorrelacionado de ADX), so ativo em timeframe 1D+ (mesma trava do shock do momentum -- testado sem trava e destruiu o intraday, revertido). Remove a mistura 60/40 com o TF-mae do score principal -- Score agora e exclusivo do timeframe escolhido, TF-mae so entra na confianca. Insight cita o movimento liquido recente quando relevante em vez de so dizer 'sem direcao definida'. Validado com MarketScoreValidator antes/depois: intraday identico ao baseline, diario com trade-off aceito (mais sensibilidade a movimentos reais).\n\nfeat: liga a IA ao vivo (useApexLogic.ts) ao Market Score real como confirmacao/veto do sinal da estrategia (nao substitui o gatilho de entrada) -- veta o setup se o Score classificar o ativo pro lado oposto do que a estrategia sugeriu, no MESMO timeframe operado. Timeframe operacional deixa de ser fixo em 5min -- usa aiConfig.timeframe (ja selecionavel na UI, antes ignorado). Remove o 'score de confianca' caseiro (heuristica de variacao%+volume+VIX sem relacao com o Score real)"
+git push origin main
+```
+2. Confirmar em produção: trocar timeframe operacional da IA (1m/5m/15m/1H/4H) e ver que o candle buscado muda de verdade; deixar a IA rodar e conferir no log/console que aparecem rejeições `[SCORE] 🚫` quando o Score discorda da estratégia; confirmar que o BTC diário no Dashboard não mostra mais "regime indefinido" com o insight escondendo um movimento forte recente.
+3. **Próximo passo combinado com o Cleber, ainda não iniciado**: "cérebro definitivo" da IA (redesenho maior do motor de decisão — possivelmente dar mais peso ao Score, repensar o `evaluateStrategyAt`) — fica pra uma sessão futura dedicada.
+4. Scalper (1m/5m) — validação/calibração específica pro modo scalper ainda não feita (Cleber pediu pra deixar pra depois, "chegaremos lá").
+
+---
+
+## Sessão nova (2026-07-24, continuação): régua de tempo até o candle real + histórico mínimo de 5 anos + fix do candle gigante ao trocar timeframe — COMMITADO, CONFIRMAR DEPLOY
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão logo abaixo (mesmo dia). Cleber apontou, em sequência, 3 problemas reais no Gráfico (`ChartView.tsx` / `market-service.ts`), cada um investigado até a causa raiz — o último achado (candle gigante ao trocar timeframe) só apareceu por causa do fix anterior (mais histórico carregado), não é regressão nova isolada.
+
+### 1. Régua de tempo parava antes do candle mais recente (penúltimo candle exibido) — corrigido em 2 rodadas
+
+Cleber mostrou print com linha azul desenhada por ele: a régua de tempo (eixo X) não chegava até o candle em formação, sobrando espaço vazio na borda direita. Mesma causa raiz já corrigida antes no eixo de preço (eixo Y): a klinecharts sempre deixa uma margem própria entre o último tick "default" e a borda real do painel.
+
+- **1ª tentativa**: extrapolar por slope médio (interpolação linear de tempo) até a borda direita real (`bounding.width`) — igual ao fix do eixo Y. Funcionou pra "chegar na borda", mas o Cleber corrigiu o requisito: **a régua de tempo não é decorativa, tem que bater com o relógio real do usuário** (ex: "agora são 05:02, o candle em formação tem que mostrar 05:02"). Slope médio é impreciso quando há gaps reais de tempo entre os 2 ticks de referência (fim de semana, pausa de pregão) — o slope do range inteiro não bate com o slope local perto de "agora".
+- **Fix real**: como o gráfico já usa `offsetRight: 0` (candle mais recente sempre encosta na borda direita), a régua agora usa o **timestamp real do último candle carregado** (`chartDataRef.current`, sempre atualizado a cada tick) como referência da borda, em vez de qualquer extrapolação — só cai de volta na extrapolação por slope se, por algum motivo, não houver candle carregado ainda.
+
+### 2. Histórico do Gráfico ao vivo tinha só ~200 candles fixos, independente do timeframe — pedido: mínimo 5 anos pra análise
+
+Cleber percebeu que, ao dar zoom-out, sobrava muito espaço "vazio" à esquerda com datas de anos atrás — mas não era histórico real ausente mostrado como vazio: era só 200 candles carregados (padrão fixo antigo), e a régua (já corrigida no item 1) extrapolava marcações de tempo fictícias pro espaço em branco além desse range, dando a falsa impressão de anos de histórico onde não havia dado nenhum.
+
+**Fix** (`market-service.ts`): nova função `resolveLookbackMs()` — tenta sempre buscar pelo menos **5 anos de histórico real**, com teto de `MAX_CANDLES=10.000` (proteção de performance/rede pra timeframes finos, onde 5 anos literais seriam milhões de barras). Binance: chunking real em páginas de 1000 candles (mesma técnica já validada em `BacktestDataService.ts`), testado ao vivo contra a API real (5 anos de candle diário do BTC, 1825 candles, 2 páginas, sem loop/duplicata). MetaAPI: só alarga a janela pedida — o backend (`/mt5-candles-history`) já pagina sozinho (até 60 iterações de 1000 candles).
+
+Resultado por timeframe: **Diário/Semanal/Mensal chegam aos 5+ anos completos** (o que foi pedido); 4H ~4,6 anos; 1H ~1,1 ano (antes só 8 dias); timeframes finos (1m/5m/15m/30m) melhoram bastante mas ficam limitados pelo teto de 10 mil candles (limite físico de performance, não é bug).
+
+### 3. Bug real e grave, exposto pelo fix do item 2: gráfico virava 1 candle gigante ao trocar de timeframe
+
+Depois do fix de histórico, Cleber reportou (com print) que trocar de timeframe (ex: 1H → 15m) fazia o gráfico mostrar **um único candle** ocupando a tela inteira, com o resto em branco. Reproduzido ao vivo no preview local (logado, sessão demo) e investigado via console — não era problema de dado (`Data COUNT in chart: 10000`, `Chart should now display 10000 candles from ... to ...`, tudo carregando certo).
+
+**Causa raiz real**: o código que reseta `isInitialLoadRef.current = true` (flag que decide se o gráfico deve fazer `chart.scrollToRealTime()` depois de carregar) estava posicionado **depois de um `return` incondicional** dentro do mesmo bloco `try` do efeito principal de inicialização — ou seja, no caminho normal (sem erro), a função do efeito já retornava (o `return () => {...}` de cleanup) antes do código alcançar esse reset. Era código morto no caminho feliz. Resultado: depois da primeira carga bem-sucedida da sessão, a flag virava `false` (marcando "primeira carga concluída") e **nunca mais voltava a `true`** em nenhuma troca de símbolo/timeframe seguinte — confirmado no console: `"⏭️ Skipping auto-scroll - não é primeira carga (mantendo posição do usuário)"` aparecia mesmo depois de um gráfico **novo** ser recriado do zero (dispose+init) pra cada troca. Sem nenhum `scrollToRealTime()` aplicado, o chart novo ficava na posição/zoom padrão da própria lib pra um dataset recém-carregado — que, com milhares de candles (efeito do fix do item 2), renderizava como 1 candle só ocupando a tela inteira.
+
+**Fix**: reset movido pra ANTES do `return`, logo no início do efeito (antes até do registro dos eixos densos e da chamada de `fetchData()`) — garante que rode de verdade em toda troca de símbolo/timeframe, não só na primeira carga da sessão.
+
+**Verificado ao vivo, ponta a ponta, no preview local (logado, sessão demo persistida)**: reproduzido o bug ANTES do fix (1H → 15m gerava o candle gigante, confirmado via console e screenshot); aplicado o fix; testado de novo trocando 1H → 15m → 1D em sequência — todas as trocas carregaram e posicionaram corretamente, sem o candle gigante em nenhuma.
+
+### Achado colateral, não corrigido (baixo risco, fora do escopo desta sessão)
+
+No console apareceu um warning pré-existente, não relacionado: `ReferenceError: binanceData is not defined` dentro de um bloco de log (`fetchData`, ~linha 3391) — é só um `console.log` de debug quebrado (variável renomeada/removida em alguma sessão anterior, nunca atualizada nesse log específico), envolto em `try/catch` que já captura e ignora o erro (`⚠️ Error in logging, continuing...`). Não afeta o funcionamento do gráfico. Considerar limpar numa sessão de faxina futura.
+
+### Pendente real pra próxima sessão
+
+1. **Cleber precisa rodar os commits** (comandos já entregues no chat, em 2 rodadas — régua de tempo real + histórico de 5 anos; fix do candle gigante):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/ChartView.tsx src/app/services/market-service.ts CLAUDE.md
+git commit -m "fix: régua de tempo do gráfico usava extrapolação por slope médio, imprecisa com gaps reais de tempo -- agora usa o timestamp real do último candle carregado como referência da borda direita, sempre batendo com o relógio real do usuário. feat: histórico do Gráfico ao vivo buscava só ~200 candles fixos -- agora tenta sempre pelo menos 5 anos (teto de 10 mil candles pra timeframes finos, proteção de performance), com chunking real (Binance pagina em blocos de 1000; MetaAPI só alarga a janela, backend já pagina sozinho). fix: gráfico virava 1 candle gigante ao trocar de timeframe -- reset de isInitialLoadRef.current (reativa o scrollToRealTime) ficava depois de um return incondicional no mesmo bloco try, virando codigo morto no caminho normal; a flag nunca mais voltava a true apos a 1a carga da sessao, entao nenhuma troca seguinte de timeframe/simbolo aplicava scroll, deixando o chart novo no zoom padrao da lib (que com milhares de candles carregados aparecia como 1 candle so). Move o reset pra antes do return"
+git push origin main
+```
+2. Confirmar em produção, depois do deploy: régua de tempo com horário batendo exatamente com o relógio real ao vivo; Diário/Semanal/Mensal mostrando 5+ anos de histórico real ao dar zoom-out; trocar de timeframe repetidamente (1m↔1H↔1D↔1W) sem nunca mais aparecer o candle gigante único.
+3. Considerar limpar o `ReferenceError: binanceData is not defined` (achado colateral acima) numa sessão de faxina futura — não urgente, já capturado por try/catch, não afeta o usuário.
+
+---
+
 ## Sessão nova (2026-07-24): régua de preço/tempo do Gráfico chegando até a borda + toggle de guias de fundo + cor da fonte dos preços — COMMITADO EM VÁRIAS RODADAS, CONFIRMAR DEPLOY
 
 > **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu, em sequência, vários ajustes visuais no Gráfico (`ChartView.tsx`). Regra nova confirmada nesta sessão: **Claude passa a se comunicar sempre em português do Brasil** (já tinha sido pedido antes, reforçado agora — salvo em memória de longo prazo do Claude, `feedback_comunicacao_pt_br.md`).
