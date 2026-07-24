@@ -3668,10 +3668,27 @@ export function ChartView() {
           // 🎯 Mesma margem embutida da klinecharts já corrigida no eixo Y: o
           // `defaultTicks[last]` para antes do candle mais recente (penúltimo
           // candle exibido em tela), deixando o trecho final da régua de tempo
-          // sem marcação nenhuma. Extrapola até a borda direita real do painel
-          // (bounding.width, com respiro de 6px pra não cortar o texto).
+          // sem marcação nenhuma.
+          //
+          // IMPORTANTE: a régua de tempo não é decorativa -- o horário exibido
+          // na borda direita tem que ser o horário REAL do candle em formação
+          // agora (relógio do usuário), não uma extrapolação por slope médio.
+          // Extrapolar usando o delta de tempo entre os 2 ticks default mais
+          // distantes (`first`/`last`) é impreciso quando há gaps reais no
+          // tempo (fim de semana, pausa de pregão) entre eles -- o slope médio
+          // do range inteiro não bate com o slope local perto da borda "agora".
+          // offsetRight:0 (configurado no chart) garante que o último candle
+          // real sempre encosta na borda direita do painel -- por isso usamos
+          // o timestamp REAL do último candle carregado (chartDataRef, sempre
+          // atualizado a cada tick do candle em formação) como referência da
+          // borda, em vez de extrapolar. Só cai na extrapolação por slope se,
+          // por algum motivo, não houver candle carregado ainda.
           const edgeMargin = 6;
-          const rightValue = valueAt(bounding.width - edgeMargin);
+          const lastRealCandle = chartDataRef.current[chartDataRef.current.length - 1];
+          const lastRealTimestamp = lastRealCandle ? Number(lastRealCandle.timestamp) : NaN;
+          const rightValue = isFinite(lastRealTimestamp) && lastRealTimestamp > firstValue
+            ? lastRealTimestamp
+            : valueAt(bounding.width - edgeMargin);
 
           // rótulo de data ocupa mais espaço horizontal que o de preço —
           // espaçamento mínimo maior (~90px em vez de 28px)
