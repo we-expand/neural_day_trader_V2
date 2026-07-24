@@ -402,6 +402,29 @@ e só então decidir. Latência de execução real só é mensurável depois da 
 manualmente), mas NÃO é o `activeStrategyId` default de nenhum fluxo, e não deve
 ser recomendado ao usuário como "pronto" até os 3 passos acima acontecerem.
 
+## 11.2 Decisão: "Rompimento de Topo com Fibonacci" NÃO virou 6º arquétipo (2026-07-24)
+
+Cleber perguntou se valia contemplar um arquétipo de rompimento usando Fibonacci.
+Avaliação honesta, para não ser relitigada sem contexto numa sessão futura:
+
+Fibonacci de retração/extensão é o item de análise técnica com evidência mais
+fraca entre os candidatos considerados nesta rodada — o mecanismo real por trás
+não é lei de mercado, é profecia autorrealizável (gente suficiente observa o
+mesmo nível e coloca ordem ali), categoria mais próxima de "número redondo"/pivot
+clássico do que de trend-following/mean-reversion com décadas de replicação
+(Turtle/AQR, Quantpedia) usados nos arquétipos 1-4. Adicionar um 6º arquétipo
+"Fibonacci breakout" com a mesma pretensão de evidência dos outros cinco quebraria
+a disciplina usada para desenhá-los.
+
+**Decisão**: não adicionado como arquétipo próprio. Fibonacci já existe no sistema
+do jeito que é defensável — como um dos 4 fatores do `MarketScoreEngine`
+(`fibPosition`, peso 20%, validado indiretamente pelo walk-forward do
+`MarketScoreValidator`), nunca como sinal isolado. Se no futuro fizer sentido usar
+extensão de Fibonacci (127,2%/161,8%) como alvo de saída alternativo do Arquétipo 1
+(rompimento Donchian, hoje `takeProfitMode:'TRAILING_ONLY'`), isso é uma extensão
+pontual do arquétipo existente — não um arquétipo novo com pretensão de evidência
+própria. Não implementado; revisitar só com pesquisa real se o Cleber pedir de novo.
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
