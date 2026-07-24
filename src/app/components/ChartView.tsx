@@ -3584,6 +3584,33 @@ export function ChartView() {
     console.log('[ChartView] ✅ Container found:', chartContainerRef.current);
     console.log('[ChartView] 📋 Chart ID:', chartIdRef.current);
 
+    // 🔄 RESET da flag de primeira carga quando símbolo/timeframe mudam.
+    //
+    // 🐛 BUG REAL encontrado nesta sessão: este reset ficava depois de um
+    // `return () => {...}` (cleanup) incondicional dentro do `try` mais abaixo
+    // -- ou seja, no caminho feliz (sem exceção), esse `return` já encerra a
+    // função do efeito antes do código chegar aqui. Resultado: depois da
+    // primeira carga bem-sucedida, `isInitialLoadRef.current` virava `false`
+    // (linha que marca "primeira carga concluída") e NUNCA MAIS voltava a
+    // `true` em nenhuma troca de símbolo/timeframe seguinte -- o código de
+    // scroll (`chart.scrollToRealTime()`) então pulava pra sempre em toda
+    // troca subsequente ("Skipping auto-scroll - não é primeira carga",
+    // confirmado no console), mesmo com um chart NOVO (dispose+init) sendo
+    // recriado do zero a cada troca. Sem nenhum scroll aplicado, o chart novo
+    // ficava com o zoom/posição padrão da lib pra um dataset recém-criado --
+    // que, com milhares de candles carregados (fix da régua de 5 anos),
+    // aparecia como um único candle gigante ocupando a tela inteira. Fix:
+    // reset movido pra ANTES do `return` -- roda sempre, de verdade, a cada
+    // troca de símbolo/timeframe, antes até de `fetchData()` ser chamado.
+    isInitialLoadRef.current = true;
+    // 🛡️ Limpa o buffer de candles da carga anterior — sem isso, o tick de streaming
+    // que chega ANTES do histórico novo carregar via um candle velho (de outro
+    // símbolo/timeframe) no ref, passava na checagem length > 0 e aplicava
+    // chart.updateData num gráfico vazio → um único candle gigante na tela até o
+    // applyNewData do fetch substituir tudo ("gráfico buga e depois volta").
+    chartDataRef.current = [];
+    console.log('[ChartView] 🔄 Flag isInitialLoad resetada (novo símbolo/timeframe)');
+
     // 🎯 Eixo de PREÇO com mais marcações — versão anterior nunca funcionava:
     // (a) usava `coord: 0` fixo achando que a klinecharts recalculava a posição
     //     (não recalcula — o coord retornado por createTicks é usado direto pra
@@ -4462,16 +4489,6 @@ export function ChartView() {
         stack: error instanceof Error ? error.stack : undefined
       });
     }
-    
-    // 🔄 RESET da flag de primeira carga quando símbolo/timeframe mudam
-    isInitialLoadRef.current = true;
-    // 🛡️ Limpa o buffer de candles da carga anterior — sem isso, o tick de streaming
-    // que chega ANTES do histórico novo carregar via um candle velho (de outro
-    // símbolo/timeframe) no ref, passava na checagem length > 0 e aplicava
-    // chart.updateData num gráfico vazio → um único candle gigante na tela até o
-    // applyNewData do fetch substituir tudo ("gráfico buga e depois volta").
-    chartDataRef.current = [];
-    console.log('[ChartView] 🔄 Flag isInitialLoad resetada (novo símbolo/timeframe)');
   }, [timeframe, selectedSymbol]); // Removed currentPrice and openPrice to avoid circular dependency
 
   // 🧹 MONITOR E LIMPAR OVERLAYS INDESEJADOS (Remove bolinha preta periodicamente)
