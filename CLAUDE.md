@@ -1,4 +1,232 @@
-# Neural Day Trader — Estado do Projeto (atualizado 2026-07-21, continuação 3)
+# Neural Day Trader — Estado do Projeto (atualizado 2026-07-24)
+
+## Sessão nova (2026-07-24): régua de preço/tempo do Gráfico chegando até a borda + toggle de guias de fundo + cor da fonte dos preços — COMMITADO EM VÁRIAS RODADAS, CONFIRMAR DEPLOY
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber pediu, em sequência, vários ajustes visuais no Gráfico (`ChartView.tsx`). Regra nova confirmada nesta sessão: **Claude passa a se comunicar sempre em português do Brasil** (já tinha sido pedido antes, reforçado agora — salvo em memória de longo prazo do Claude, `feedback_comunicacao_pt_br.md`).
+
+### 1. Toggle de "Guias de Fundo" (grid) no menu de contexto do gráfico — novo, funcional
+
+Adicionado item "Guias de Fundo" no menu de botão direito do gráfico (mesmo padrão do já existente "Suporte/Resistência", com `✓` quando ligado). Novo state `showGridOverlay` (persistido em `localStorage`, chave `chart_grid_visible`) + `useEffect` dedicado que chama `chart.setStyles({ grid: {...} })` sem recriar o gráfico inteiro ao alternar. Testado ao vivo: liga/desliga a grade na hora, preferência sobrevive a reload.
+
+### 2. Barra de preço/tempo não iam até o final do gráfico — 3 causas reais, corrigidas em rodadas
+
+Pedido inicial: "as barras de preço/tempo têm que ir até o final do gráfico". Investigação e fixes, na ordem:
+
+- **Linha do eixo de tempo desativada**: `xAxis.axisLine.show` estava `false` (só os textos de tick apareciam) — ativada (`show:true`), passou a cobrir 100% da largura por design da própria klinecharts.
+- **Espaço vazio reservado por padrão pela lib acima/abaixo dos candles**: `gap.top`/`gap.bottom` (default da klinecharts, nunca configurado antes: 20%/10% da amplitude de preço) reduzido em 2 etapas até **1.5%** (`chart.setPaneOptions({ id: 'candle_pane', gap: {...} })`) — bem menor que o buraco preto original.
+- **Fonte pequena**: `tickText.size` dos dois eixos, que tinha sido reduzido pra 8px numa sessão anterior, subido pra 11px (existia também um SEGUNDO ponto no código que reaplicava 8px a cada 30s no auto-refresh de candles — achado e corrigido também, senão desfaria o ajuste sozinho).
+
+**Tentativa errada, revertida**: cheguei a adicionar 2 faixas de fundo coloridas (HTML/CSS atrás do canvas, já que a klinecharts não suporta cor de fundo de eixo nativamente) pra dar um "tom de cor" à barra de preço/tempo — Cleber pediu pra reverter, o fundo tem que continuar preto puro, igual o resto. Revertido (`bg-black` restaurado no container, faixas removidas).
+
+**Pedido separado, mantido**: cor da FONTE dos números de preço mudada de branco (`#e0e0e0`) pra cinza (`#9ca3af`) — só o texto, nunca o fundo/linhas da régua.
+
+### 3. Causa raiz REAL do "números da régua de preço não chegam nas bordas" (a mais importante desta sessão)
+
+Depois dos fixes acima, Cleber mandou um print anotado (linha vermelha desenhada por ele no topo e embaixo da régua de preço) mostrando que ainda faltava alcance — os fixes de `gap`/fonte não eram a causa raiz completa.
+
+**Achado real**: o gerador de ticks densos (`registerYAxis({name:'dense-ticks', createTicks...})`, criado numa sessão anterior pra ter mais marcações no eixo) só interpolava valores **entre os 2 ticks que a própria klinecharts já calculava** (`defaultTicks[0]`/`[last]`) — só que esses 2 ticks "default" da lib já vêm com uma margem própria embutida, afastados da borda REAL do painel (por design da klinecharts, pra o texto do primeiro/último tick nunca ficar cortado). Gerar mais números "no meio" desse intervalo nunca resolvia, porque o intervalo em si já estava encolhido.
+
+**Fix**: a função de tick agora extrapola o valor de preço que corresponderia às bordas reais do painel (`coord=0` no topo, `coord=bounding.height` embaixo, com só 6px de respiro pra não cortar o texto) via `valueAt(coord)` (inverso do `coordAt` já existente), e gera a régua densa a partir DESSAS bordas, não mais dos 2 ticks default. Aplicado só no eixo Y (preço) — eixo X (tempo) não mexido por esta rodada (não foi o que o Cleber reclamou desta vez, e esticar tempo além do range real de candle traria risco de mostrar data sem candle embaixo).
+
+**Verificado ao vivo no preview local**: antes o topo da régua parava em `66600.00` (com vazio depois) e o fundo em `63000.00`; depois do fix, o topo mostra `66678.02` (colado embaixo da toolbar) e o fundo `63062.78` (colado em cima da linha de datas) — bate com o que o Cleber desenhou no print.
+
+### Verificação feita
+
+Todos os itens testados ao vivo no preview local (`npm run dev`), com o Browser pane, em cada rodada — não só leitura de código. Console sem erros novos em nenhum teste (só os avisos pré-existentes de MT5 Validator sem credenciais/CORS Supabase, esperados sem login real neste ambiente). **Não testado em produção** — pendente confirmar depois do deploy.
+
+### Pendente real pra próxima sessão
+
+1. **Cleber precisa rodar os commits** (comandos já entregues no chat, em 4 rodadas separadas — toggle de grid, gap+fonte, revert do fundo colorido + cor cinza, fix da extrapolação de borda):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/ChartView.tsx CLAUDE.md
+git commit -m "feat: toggle de guias de fundo no menu de contexto do grafico, persistido em localStorage. fix: barra de tempo (axisLine) desativada, reduz gap interno da klinecharts (20%/10% -> 1.5%), aumenta fonte dos eixos (8px -> 11px, incluindo ponto que reaplicava 8px a cada 30s). revert: remove fundo colorido dos eixos (Cleber pediu preto puro). fix: cor da fonte dos precos de branco pra cinza. fix: regua de preco nao chegava na borda real do painel -- gerador de ticks densos so interpolava entre os 2 ticks default da klinecharts (que ja vem com margem propria da lib), agora extrapola o valor de preco nas bordas reais (coord 0 e bounding.height) e gera a regua a partir delas"
+git push origin main
+```
+2. Confirmar em produção, depois do deploy: régua de preço com números até bem perto do topo/fundo do painel, fundo preto puro (sem faixa colorida), números em cinza, toggle de "Guias de Fundo" funcionando no menu de contexto.
+3. Se ainda sobrar espaço vazio perceptível: pedir print da tela CHEIA do navegador (sem recorte/zoom manual) — recortes esticados distorcem a proporção real e dificultam saber se o gap remanescente é real ou só artefato do recorte.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-23, continuação 3)
+
+## Sessão nova (2026-07-23, continuação 3): causa raiz REAL do "preço zerado no Dashboard, normal no Gráfico" — confirmada com logs reais da Edge Function (44 chamadas a /mt5-prices em 29s vindas de 1 única aba) — VIXWidgetEnhanced martelando sem trava — TUDO COMMITADO, PENDENTE PUSH/DEPLOY
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou que o preço do Dashboard ficava zerado (às vezes por até 5 minutos, uma vez ele desistiu antes de entrar) enquanto o Gráfico sempre mostrava o preço certo e rápido. Investigação em várias rodadas, a última com prova real (logs da Edge Function via MCP do Supabase), não só leitura de código — encerrando de vez a investigação que já vinha de sessões anteriores sem conclusão.
+
+### Investigação, em ordem (tentativas anteriores nesta mesma sessão, cada uma real mas insuficiente sozinha)
+
+1. **Eixos do gráfico com poucas marcações** (pedido separado, resolvido primeiro): já existia uma tentativa de eixo denso no código, nunca funcionava — `coord: 0` fixo (a klinecharts não recalcula, usa o coord retornado direto) e `chart.setPaneOptions({axisOptions:{name:'dense-ticks'}})` chamado **sem `id`** (confirmado lendo `node_modules/klinecharts/dist/index.esm.js`: sem `id`, a lib descarta a chamada inteira). Corrigido: gerador de ticks reescrito (mapeamento linear a partir de 2 ticks que a lib já calcula certo) + `id: 'candle_pane'`/`id: 'x_axis_pane'` na ativação. **Bug separado, sem relação com o preço zerado** — resolvido e confirmado funcionando pelo Cleber.
+2. **Candle gigante ao trocar de ativo**: streaming aplicava tick novo em cima de um candle de outro ativo/timeframe que sobrou no `chartDataRef` (open/low de ~1900 esticado até o preço atual de ~65000). Fix: guarda de desvio >10% — reinicia o candle em vez de esticar.
+3. **Tentativa 1 (insuficiente)**: circuit breaker no `DirectBinanceService.ts` (ETHUSDT/POLUSDT martelando os 2 proxies CORS mortos, corsproxy.io/allorigins.win, 403/408 sempre) — real, mas não era a causa do preço zerado (BTCUSD nem passa por ali, é roteado via broker).
+4. **Tentativa 2 (insuficiente)**: percebido que o Dashboard monta 6 widgets pesados ao mesmo tempo (`MarketScoreBoard`, `NewsAndAgenda`, `VIXWidgetEnhanced`, `RiskThermometer`, `CorrelationMatrix`, `LiquidityDetectorCard`) vs. o Gráfico que monta só 1 — escalonada a montagem (2,5s de atraso pros 5 mais pesados) + lazy-load real por `IntersectionObserver` pro `CorrelationMatrix`/`LiquidityDetectorCard` (só buscam candle quando o usuário rola até eles). Redução real de carga, mas Cleber reportou depois **5 minutos de espera** — confirmando que a causa de fundo ainda não tinha sido achada.
+5. **Tentativa 3 (insuficiente)**: adicionado `AbortSignal.timeout(8s/10s)` nas chamadas de `/mt5-prices` (single e batch) em `RealMarketDataService.ts` — nenhuma tinha timeout antes, então uma resposta lenta podia (em teoria) travar o `fetch` sem limite. Correto de se ter, mas não era a causa raiz (as respostas *chegavam*, só que lentas e em excesso).
+
+### A investigação real (a que resolveu, com prova via `get_logs`)
+
+Cleber contestou corretamente a hipótese de "múltiplas abas" (só tinha 1 aba aberta) e pediu investigação de verdade em vez de mais um patch — citando, com razão, que "se isso é o que 1 usuário causa, vou precisar de uma API por usuário? Não faz sentido." Puxei os logs reais da Edge Function (`mcp__supabase__get_logs`, `service: edge-function`, projeto `wyvdsxtcmizettljxtbg`) — não simulação, tráfego real de produção no momento:
+
+**Achado**: em janelas de ~29 segundos, `/mt5-prices` recebia **44 chamadas POST**, cada uma levando **1,3 a 14,3 segundos** pra responder (a maioria 5-9s — bate com a latência real conhecida da conta MetaAPI compartilhada). Em vários pontos, **8 chamadas simultâneas** chegavam com menos de 260ms de diferença entre si. Isso é muito mais volume do que qualquer coisa que o `MarketScoreBoard` (1 chamada a cada ~2s, com trava `isFetching`) ou o `MarketTicker` do rodapé (1 lote a cada 10s) deveriam gerar somados — mesmo com múltiplos widgets.
+
+Descartados como causa (código morto, confirmado via busca no projeto inteiro — não importados em lugar nenhum que renderiza): `MiniCharts.tsx` e o hook `useMT5Prices.ts`, que também chamam `/mt5-prices` direto mas são órfãos.
+
+**Causa raiz real, achada lendo `VIXWidgetEnhanced.tsx`**: o widget de VIX — que só existe no Dashboard, **nunca é renderizado no Gráfico** (essa é a explicação literal da pergunta do Cleber "por que funciona no Gráfico mas não no Dash") — tinha:
+```js
+const refreshInterval = setInterval(() => { fetchAllSources(); }, 1500); // ⚡ 1.5s para alta volatilidade
+```
+Sem NENHUMA trava contra sobreposição. Como `fetchAllSources()` chama `getRealMarketData('VIX')` → `/mt5-prices`, e a resposta real leva 5-9s (confirmado nos mesmos logs), a cada 1,5s uma chamada NOVA disparava em cima de 4-6 anteriores ainda em voo — só esse widget, sozinho, insistentemente, gerando a maior parte do volume observado. O comentário no código ("🚀 OTIMIZADO: Refresh a cada 1.5 segundos, foi 5s") era uma "otimização" de uma sessão anterior que na verdade piorou tudo: intervalo mais curto que o próprio round-trip nunca ajuda, só empilha requisição sem trava.
+
+### Fix
+
+`VIXWidgetEnhanced.tsx`: adicionada a mesma trava `isFetching` (pula o próximo tick se o anterior ainda não respondeu) já usada no `MarketScoreBoard.tsx`, e o intervalo subiu de 1,5s pra 5s.
+
+### ✅ CONFIRMADO PELO CLEBER: "agora está perfeito"
+
+Depois do deploy de todos os fixes desta sessão (eixos densos + candle gigante + circuit breaker Binance + escalonamento/lazy-load do Dashboard + timeout + trava do VIX), o preço do Dashboard passou a entrar rápido, igual ao Gráfico.
+
+### Lição pra próximas sessões (a mais importante desta)
+
+**Quando um sintoma de performance/rede não faz sentido pelo volume esperado do código lido, puxar os logs REAIS da Edge Function (`get_logs`/MCP do Supabase) antes de continuar patcheando às cegas.** Foram 3 tentativas de mitigação (todas reais e válidas, mas insuficientes) antes de olhar o dado de produção de verdade — que revelou o número exato (44 chamadas/29s) e, a partir daí, a causa ficou óbvia ao procurar quem poderia gerar esse volume. Vale generalizar: qualquer `setInterval` que chama uma API de rede **precisa sempre de uma trava contra sobreposição** (`isFetching`-style) quando o intervalo pode ser mais curto que a latência real da chamada — esse é exatamente o padrão de bug que já tinha sido corrigido no loop de P&L da IA (2026-07-08) e no `MarketScoreBoard` (2026-07-11), mas que passou despercebido no `VIXWidgetEnhanced` porque ele foi escrito/"otimizado" numa sessão diferente, sem o mesmo cuidado. Vale auditar os outros `setInterval` do projeto (lista longa, ver `grep -rln "setInterval" src/app`) por esse mesmo padrão antes que apareça de novo em outro widget.
+
+### Pendente real pra próxima sessão
+
+Nada bloqueante — tudo funcionando e confirmado. Itens de limpeza/dívida técnica, não urgentes:
+1. Auditar os outros componentes com `setInterval` de poll de preço/candle (lista em `grep -rln "setInterval" src/app`) por overlap sem trava, mesmo padrão do VIX — não feito sistematicamente nesta sessão, só o VIX foi corrigido (era o pior ofensor, confirmado pelos logs).
+2. `MiniCharts.tsx` e `useMT5Prices.ts` (hook) são código morto confirmado (chamam `/mt5-prices` mas não são importados por nada que renderiza) — candidatos a remoção numa sessão de limpeza futura.
+3. Considerar se o intervalo de 5s do VIX ainda é baixo demais dado que a resposta real leva 5-9s — na prática a trava `isFetching` já lida com isso graciosamente (só o próximo tick fica mais espaçado que 5s quando a resposta demora), então não é urgente, mas vale revisitar se o Cleber notar o VIX "atualizando devagar".
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-23, continuação 2)
+
+## Sessão nova (2026-07-23, continuação 2): causa raiz real do "ativos zerados no Dashboard" — não era rate-limit por tráfego de usuários, era o `streaming-relay` local em loop infinito de reconexão martelando a conta MetaAPI sozinho — RESOLVIDO, sem código pra subir
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Cleber reportou que a maioria dos ativos aparecia com variação diária zerada no Dashboard, e que isso persistia **há 3 dias mesmo sem nenhum usuário além dele e do Claude testando**. Esse detalhe ("não é possível que a API seja tão fraca assim, somos só nós dois") foi o que abriu a investigação certa — a hipótese óbvia de "rate-limit por volume de usuários reais" (padrão crônico documentado dezenas de vezes neste arquivo) não fazia sentido sem tráfego de terceiros.
+
+### Diagnóstico
+
+Testado `/mt5-prices` direto via curl (sem passar pela UI): **HTTP 429 mesmo pedindo 1 único símbolo isolado**, sem nenhuma concorrência. Os logs da Edge Function (`get_logs`, Supabase) mostraram dezenas de chamadas a `/mt5-prices` chegando concorrentemente no mesmo segundo — tráfego que não vinha dos meus testes. Investigado o processo local `streaming-relay` (criado numa sessão de 2026-07-14, configurado pra rodar 24/7 no Mac do Cleber via `launchd`/`KeepAlive`, nunca desligado desde então): o log de atividade dele (`streaming-relay/relay.log`) já estava com **141 MB**, cheio de erros repetidos a cada poucos segundos, sem parar:
+
+```
+Failed to subscribe TimeoutError: It seems like the account ... is not connected to broker yet
+```
+
+**Causa raiz confirmada**: o relay está preso num loop infinito de falha de reconexão/ressincronização com a conta MetaAPI — nunca conseguia se conectar de verdade (mesmo problema já documentado como "nunca tinha ficado de pé de verdade" na sessão que o criou), mas o `launchd` com `KeepAlive` mantinha ele tentando de novo sem parar, 24 horas por dia, sozinho, mesmo com a plataforma sem nenhum usuário ativo. Isso consumia a cota de requisições da conta MetaAPI compartilhada por conta própria — daí qualquer chamada normal (`/mt5-prices` do Dashboard) caía em 429, mesmo sem tráfego real de usuário nenhum.
+
+### Fix
+
+Processo parado (`launchctl unload`) e o agent removido de vez (`rm ~/Library/LaunchAgents/com.neuralday.streaming-relay.plist`) — não volta a ligar sozinho no próximo login/reboot. Confirmado via curl imediatamente depois: `/mt5-prices` voltou a responder com preço E variação reais pra EURUSD, XAUUSD, BTCUSD, GBPUSD, GER40, SPX500, USDJPY. **Nenhuma mudança de código** — é infraestrutura local, fora do repositório e fora do deploy da Vercel. Nada para commitar/subir.
+
+### Nota pra próxima sessão
+
+O `streaming-relay/` (código-fonte em `streaming-relay/src/index.ts`, ver seção "Sessão nova (2026-07-14, continuação)" mais abaixo) continua existindo no repositório, só o serviço local que o mantinha rodando foi desligado. O Dashboard já busca preço direto via `/mt5-prices` (polling), sem depender do relay — a arquitetura de streaming via WebSocket nunca chegou a funcionar de verdade e não é mais necessária pro funcionamento atual. Se o Cleber quiser reviver essa ideia no futuro, precisa antes investigar por que a conta não sincroniza (`not connected to broker yet` — possível problema de região/conexão da conta com a corretora, não só rate-limit) antes de deixar rodando 24/7 de novo. O arquivo `streaming-relay/relay.log` (141 MB) ficou no disco do Cleber, sem custo, pode ser apagado a qualquer momento (`rm streaming-relay/relay.log`).
+
+---
+
+## Sessão nova (2026-07-23, continuação): MA/EMA/SMA/WMA não desenhavam no gráfico (causa raiz achada no código-fonte da klinecharts) + ícone de configuração no canvas + box flutuante duplicado removido + alinhamento visual — ✅ COMMITADO E DEPLOYADO
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação direta da sessão "parametrização MT5 completa das médias móveis" logo abaixo (mesmo dia). Cleber reportou, em sequência: (1) "ao inserir um indicador no gráfico, o mesmo não aparece no gráfico"; (2) depois de resolvido, pediu ícone de configuração ao lado do ✕ desenhado no gráfico + eliminar um box flutuante duplicado; (3) alinhamento do popup de parâmetros e dos ícones.
+
+### 1. Bug real e grave: linha de MA/EMA/SMA/WMA nunca era desenhada — só o rótulo aparecia (`ChartView.tsx`)
+
+Reproduzido em produção (print do Cleber) e no preview local: inserir MA mostrava o rótulo correto ("MA: 65.901,42") no canto superior esquerdo do gráfico, mas nenhuma linha era traçada sobre os candles — em nenhum ambiente, mesmo com o deploy mais recente já no ar.
+
+**Causa raiz encontrada lendo o código-fonte da própria `klinecharts`** (`node_modules/klinecharts/dist/index.esm.js:8027`), não por tentativa e erro: o app passa um estilo de linha customizado na criação/edição de MA (`styles.lines[0] = { color, style, size }`), sem o campo `dashedValue`. A klinecharts, ao mesclar segmentos consecutivos da linha antes de desenhar (evita centenas de mini-segmentos separados), compara `estiloAtual.dashedValue[0]`/`[1]` **sem nenhum fallback** nesse ponto específico do código (diferente de outros lugares da lib, que têm default `[2,2]`). Sem esse campo, `TypeError: Cannot read properties of undefined (reading '0')` era lançado sempre que o indicador tinha mais de 1 ponto — ou seja, sempre — abortando silenciosamente o desenho da linha inteira. O rótulo continuava aparecendo porque vem de um caminho totalmente separado (tooltip lê o valor calculado direto do `indicator.result`, não depende do desenho).
+
+**Fix**: adicionado `dashedValue: [4, 4]` nos dois pontos onde o app constrói esse objeto de estilo (`createIndicatorInstance` e `applyMASettingsToChart`). Confirmado ao vivo no preview: a linha laranja da MA passou a aparecer traçada sobre os candles, sem nenhum erro no console.
+
+**Achado colateral corrigido no caminho**: havia também **duas chaves `indicator:` duplicadas** no mesmo objeto de `chart.setStyles()` (denunciado pelo próprio `vite build`, warning "Duplicate key `indicator` in object literal") — a segunda sobrescrevia a primeira silenciosamente, perdendo a config do ícone de fechar (✕) sem nenhum aviso em runtime. Consolidadas numa única chave.
+
+### 2. Ícone de configuração (⚙) ao lado do ✕ no gráfico + remoção do box flutuante duplicado
+
+Cleber pediu: (a) ao lado do ✕ desenhado no gráfico (a legenda nativa da klinecharts, ex: "MA: 65.901,11 ✕"), também deveria haver um ícone de configuração; (b) o box flutuante em HTML no canto superior direito do gráfico (que replicava os mesmos botões editar/remover por indicador) é duplicado e deve ser eliminado.
+
+- Novo `INDICATOR_SETTINGS_ICON` (⚙), registrado junto com `INDICATOR_CLOSE_ICON` em `chart.getStyles().indicator.tooltip.icons` — clique tratado no mesmo `chart.subscribeAction('onTooltipIconClick', ...)` que já existia pro ✕. Abre `openMAEditor` (médias móveis) ou `openIndicatorEditor` (genérico) conforme o tipo do indicador, via novos refs (`openMAEditorRef`/`openIndicatorEditorRef`, mesmo padrão do `toggleIndicatorRef` já existente).
+- Box flutuante em HTML do canto superior direito (`absolute top-[26px] right-2`, com botões de engrenagem/✕ por indicador ativo) **removido por completo** — era resíduo de uma sessão anterior que desconfiava do clique nativo no canvas ("hit-testing não confiável"), mas o clique nativo já funciona corretamente (confirmado testando).
+
+### 3. Alinhamento: popup de parâmetros centralizado + ícones alinhados ao texto
+
+- Os dois popups de edição (genérico e o completo de MA) tinham `className="absolute top-[26px] right-2 ..."` (canto superior direito) — trocado por `left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2` (centro do gráfico), a pedido do Cleber.
+- Ícones ⚙/✕ apareciam ~2px mais baixos que o texto laranja da legenda. Causa: a klinecharts desenha texto e cada ícone em `y: coordinate.y + marginTop` de forma independente, sem centralização automática entre os dois — o texto usa o `marginTop` padrão da lib (4), os ícones tinham `marginTop: 6` explícito. Fix: `marginTop: 6` também no estilo do texto (`chart.getStyles().indicator.tooltip.text`), descendo o texto pra bater com os ícones — confirmado ao vivo, alinhamento correto.
+
+### Verificação feita
+
+Todos os 3 itens testados ao vivo no preview local (`npm run dev`), logado, com o Browser pane — reproduzido o bug original antes do fix (linha ausente, só rótulo), depois confirmado corrigido; ícone ⚙ clicado de verdade e abrindo o editor completo de MA; popup centralizado no gráfico confirmado visualmente. `npx tsc --noEmit`/`npm run build` limpos em cada rodada (sem o warning de chave duplicada depois do fix), zero erros novos de console. **Não testado em produção** — os 3 commits abaixo ainda não foram deployados.
+
+### Pendente real pra próxima sessão
+
+1. **Cleber precisa rodar** (3 commits desta sessão, comandos já entregues no chat):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+git add src/app/components/ChartView.tsx
+git commit -m "fix: linha da MA/EMA/SMA/WMA nunca era desenhada no gráfico (só o rótulo aparecia) -- estilo customizado passado na criação/edição não incluía dashedValue, e a klinecharts acessa esse campo sem fallback ao mesclar segmentos consecutivos da linha antes de desenhar, lançando exceção silenciosa que abortava o desenho inteiro. fix: chave 'indicator:' duplicada em chart.setStyles() sobrescrevia silenciosamente a config do ícone de fechar (tooltip.icons) do indicador -- consolida numa única chave"
+git commit -am "feat: adiciona ícone de configuração (⚙) ao lado do ✕ na legenda do indicador desenhada pela klinecharts -- clicar abre o editor de parâmetros direto, sem precisar do box flutuante. fix: remove o box flutuante em HTML do canto superior direito do gráfico, duplicado com os ícones nativos ⚙/✕ que a própria klinecharts já desenha na legenda de cada indicador"
+git commit -am "fix: centraliza o popup de parametros do indicador (generico e MA completo) no meio do grafico, em vez do canto superior direito. fix: alinha verticalmente os icones de editar/remover (⚙/✕) com o texto laranja da legenda do indicador -- iguala o marginTop do texto (6) ao dos icones"
+git push origin main
+vercel --prod
+```
+(Nota: os 3 commits foram feitos em sequência nesta sessão como snapshots separados — se ainda não existirem como commits reais no repo do Cleber, os comandos acima criam os 3 de uma vez a partir do estado atual do arquivo; conferir `git log --oneline -5` antes de rodar pra não duplicar.)
+2. Confirmar em produção, depois do deploy: adicionar qualquer MA/EMA/SMA/WMA e ver a linha desenhada de verdade sobre os candles; clicar no ⚙ ao lado do ✕ na legenda do indicador abre o editor certo (MA completo ou genérico); nenhum box flutuante sobra no canto direito; popup de edição abre centralizado no gráfico; texto e ícones da legenda alinhados na mesma linha.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-23)
+
+## Sessão nova (2026-07-23): parametrização MT5 completa das médias móveis (MA/EMA/SMA/WMA) + edição/remoção de indicador via chip e menu de contexto + 3 bugs reais corrigidos — PENDENTE COMMIT/PUSH (comandos já entregues ao Cleber)
+
+> **⚠️ ESTA É A SEÇÃO DE HANDOFF MAIS RECENTE.** Continuação de uma sessão anterior compactada (mesmo dia/leva de trabalho: fix do crosshair, fix do crash ao adicionar SMA). Cleber anexou print do diálogo nativo "Moving Average" do MT5/MetaTrader e pediu que MA/EMA/SMA/WMA tivessem TODOS os mesmos parâmetros (Período, Deslocar, Método, Aplicar a, Estilo) e que estivesse tudo funcionando de verdade, não só na UI.
+
+### 1. Motor completo de médias móveis no padrão MT5 (`ChartView.tsx`)
+
+`MA`, `SMA`, `EMA`, `WMA` foram **re-registradas do zero** via `registerIndicator` da klinecharts (substituindo por completo as definições nativas da lib) através de `registerMovingAverageIndicator()`. Cada uma agora suporta:
+- **Método de cálculo**: Simples, Exponencial, Suavizada (Wilder/SMMA), Ponderada Linear — implementados à mão (sem lib externa): SMA (média móvel simples), EMA (`alpha=2/(period+1)`, seed pela SMA dos primeiros N valores), SMMA (`(prev*(period-1)+novo)/period`), WMA (pesos `period..1`, dividido por `period*(period+1)/2`).
+- **Aplicar a**: Fechamento/Abertura/Máxima/Mínima/Mediana `(H+L)/2`/Típico `(H+L+C)/3`/Ponderado `(H+L+2C)/4`.
+- **Deslocar (shift)**: desloca a linha no tempo (`result[i] = maValues[i-shift]`), igual ao MT5.
+- **Estilo**: cor, traço (sólido/tracejado), espessura — via `chart.overrideIndicator({styles:{lines:[...]}})`.
+
+Novo state `indicatorMASettings`/editor completo (`maEditor`/`openMAEditor`/`saveMAEditor`/`applyMASettingsToChart`), com popover próprio (`MAUISettings`) separado do editor genérico de período único (usado por RSI/MACD/etc, que continua existindo). Testado ao vivo: os 4 indicadores adicionados simultaneamente, cada um com valor calculado distinto e correto; editor testado end-to-end (mudar Método pra Exponencial + cor, salvar, confirmar recálculo e cor aplicados no gráfico, sem erro de console) para MA e EMA; WMA/SMA confirmados abrindo o editor certo com o Método padrão pré-selecionado certo.
+
+### 2. Bug real: `chart.removeIndicator()` nunca removia de verdade (usava id interno em vez do nome real)
+
+klinecharts casa instância por `name` (o `klinechartsName`, ex: `'MA'`), não por `id` interno do app (ex: `'ma'`) — não existe conceito de "id de instância" na lib. `removeIndicatorInstance` chamava `chart.removeIndicator(paneId, indicator.id)`, que nunca batia com nada — o indicador sumia do estado React/UI mas continuava desenhado no gráfico pra sempre (órfão). Fix: `chart.removeIndicator(paneId, indicator.klinechartsName)`. Confirmado ao vivo: remover pelo chip (✕) e pelo menu de contexto agora realmente apaga a linha/label do gráfico.
+
+### 3. Editar/remover indicador direto no gráfico — chip (canto superior direito) + menu de botão direito
+
+Cada indicador ativo ganhou botões de editar parâmetros (engrenagem) e remover (✕), tanto no chip quanto na seção "Indicadores ativos" do menu de botão direito — roteando pra `openMAEditor` (médias móveis) ou `openIndicatorEditor` (genérico, período único) conforme o tipo.
+
+### 4. Botão de maximizar tela cheia tinha sumido — realocado pro topo direito do gráfico
+
+Estava como botão flutuante solto (`fixed`), removido numa sessão anterior sem querer. Reintroduzido dentro da própria toolbar de timeframes, `ml-auto` (empurrado pro canto direito), ícone Maximize/Minimize conforme o estado.
+
+### 5. Bug de UX real, achado testando: box preto flutuante dos controles de indicador sobrepunha a legenda OHLC/nome do indicador
+
+Cleber pediu pra tirar o "box flutuante" (fundo preto/borda/blur) dos ícones de editar/remover e colocá-los "no próprio gráfico", ao lado do texto laranja do indicador (ex: "MA: 65.988,35", desenhado pela própria klinecharts no canvas). Como não dá pra medir a largura exata desse texto renderizado em canvas pra alinhar em HTML com precisão de pixel, a solução aplicada foi: remover o fundo/borda (ícones agora transparentes, sem "caixa"), e mover o container pro canto superior DIREITO do gráfico (`top-[26px] right-2`, empilhado por indicador com `h-5`/linha, aproximando a altura de linha que a klinecharts usa pra desenhar cada legenda — `text.size:12 + marginTop:4 + marginBottom:4 = 20px`) — nunca mais sobrepõe o texto/OHLC do lado esquerdo. Os popovers de edição (`indicatorEditor`/`maEditor`) foram realinhados junto, abrindo também do canto direito.
+
+### 6. Bug real achado depois, reportado pelo Cleber: "ao inserir indicador o mesmo não aparece no gráfico"
+
+Causa raiz: os botões "No gráfico"/"Painel abaixo" do modal "Indicadores Técnicos" chamam `changeIndicatorPlacement`, que **só reposiciona um indicador JÁ ativo** — `if (!chart || !activeIndicators.has(indicator.id)) return;` fazia o clique não fazer NADA quando o indicador ainda estava desligado (só o clique no card em si, via `toggleIndicator`, realmente ligava um indicador do zero). Visualmente o botão ficava "destacado" (mudava de estilo), dando a falsa impressão de que tinha funcionado. Fix: `changeIndicatorPlacement` agora cria a instância de verdade (`createIndicatorInstance` + `setActiveIndicators`) quando o indicador ainda não está ativo, em vez de só retornar sem fazer nada. Confirmado ao vivo: clicar em "No gráfico"/"Painel abaixo" num indicador nunca antes ativado (testado com RSI) agora liga ele de verdade na hora, sem precisar clicar no card primeiro.
+
+### Verificação feita
+
+Todos os itens testados ao vivo, logado, no preview local (`npm run dev`), com o Browser pane — não só leitura de código. Zero erros novos de console em qualquer teste (só os avisos pré-existentes de MT5 Validator sem credenciais / AI Persistence, esperados sem login MT5 real neste ambiente). `npx vite build` **ainda não confirmado pelo Cleber** (comando entregue, aguardando ele rodar no terminal dele).
+
+### Pendente real pra próxima sessão
+
+1. **Cleber precisa rodar** (comandos já entregues no chat, aguardando confirmação):
+```bash
+cd /Users/clebercouto/Projects/we-expand/Neural-Day-Trader
+npx vite build
+rm -rf dist
+git add src/app/components/ChartView.tsx
+git commit -m "feat: parametrização completa estilo MT5 para médias móveis (MA/EMA/SMA/WMA) -- Período, Deslocar, Método (Simples/Exponencial/Suavizada/Ponderada Linear), Aplicar a (Fechamento/Abertura/Máxima/Mínima/Mediana/Típico/Ponderado) e Estilo (cor/traço/espessura), editável via chip ou menu de botão direito. fix: remove indicador via klinecharts usava id interno em vez do nome real (klinechartsName), nunca funcionava de verdade. feat: menu de botão direito e chip ganham botões de editar parâmetros/remover para cada indicador ativo. fix: reposiciona botão de maximizar tela cheia para o lado direito do topo do gráfico (tinha sumido). fix: remove o box flutuante preto dos controles de indicador -- ícones (editar/remover) agora ficam minimalistas, sem fundo, alinhados no canto superior direito do gráfico, na mesma linha do texto do indicador desenhado pela klinecharts. fix: botão 'No gráfico'/'Painel abaixo' do modal de indicadores só reposicionava indicador já ativo -- clicar nele num indicador ainda desligado não fazia nada; agora também liga o indicador na hora se ele ainda não estiver ativo"
+git push origin main
+```
+2. Confirmar em produção, depois do deploy: adicionar MA/EMA/SMA/WMA e testar o editor completo de cada uma (Método/Aplicar a/Deslocar/Estilo); remover indicador pelo chip e pelo menu de contexto (linha deve sumir de verdade do gráfico); posição dos ícones no canto superior direito sem sobrepor a legenda; botão de maximizar visível no topo direito da toolbar; adicionar um indicador clicando direto em "No gráfico"/"Painel abaixo" (sem clicar no card antes) e confirmar que aparece.
+3. **Escopo consciente, não mexido**: o editor genérico de período único (`indicatorEditor`, usado por RSI/MACD/etc — indicadores não-MA) não ganhou os campos extras (Aplicar a/Deslocar/Estilo) — só as 4 médias móveis têm a parametrização completa MT5, por ser o que foi pedido explicitamente.
+
+---
+
+# Neural Day Trader — Estado anterior (atualizado 2026-07-21, continuação 3)
 
 ## Sessão nova (2026-07-21, continuação 3): toolbar de desenho — camada 3 completa (EmojiPicker, toolbar de contexto real), e 4 bugs graves e reais achados testando a Linha com Informações — TUDO COMMITADO E PUSHADO
 
