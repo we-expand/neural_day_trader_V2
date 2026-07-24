@@ -3913,7 +3913,7 @@ export function ChartView() {
             size: 11,
             family: 'Arial, sans-serif',
             weight: 'normal',
-            color: '#e0e0e0',
+            color: '#9ca3af', // 🎯 Cinza (era branco #e0e0e0) -- só a fonte, fundo continua preto
             marginStart: 4,
             marginEnd: 4,
           },
