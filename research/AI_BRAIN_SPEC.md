@@ -425,6 +425,53 @@ extensão de Fibonacci (127,2%/161,8%) como alvo de saída alternativo do Arqué
 pontual do arquétipo existente — não um arquétipo novo com pretensão de evidência
 própria. Não implementado; revisitar só com pesquisa real se o Cleber pedir de novo.
 
+## 11.3 Validação real das 5 estratégias — resultado e decomposição por motivo de saída (2026-07-24)
+
+Primeira medição real (não teórica) das 5 estratégias-preset redesenhadas: candle
+real (backend do produto/MetaAPI para EURUSD, Binance pública paginada para
+BTCUSDT, ~3 anos em 1h/4h), motor de backtest real (`BacktestEngine.runBacktest`,
+extraído do hook pra módulo puro reutilizável em script Node — antes só existia
+dentro do hook React, sem forma de medir fora do navegador), custo real descontado
+(`CostModel.ts`, calibração da seção 11). Script em
+`research/experiments/2026-07-24-strategy-validation/run.ts`.
+
+**Resultado, nos 3 datasets com amostra grande o bastante pra não ser ruído (79,
+101 e 872 trades — este último claramente estatisticamente robusto)**: nenhuma
+das três mostrou retorno líquido positivo. Isso não é veredito final de "essas
+estratégias não funcionam" (amostra ainda curta em calendário, um único ativo
+testável em profundidade neste ambiente) — é o resultado real medido até agora,
+e a Fase 1 existe justamente para produzir esse tipo de resposta honesta antes de
+qualquer promoção a produto.
+
+**Decomposição por motivo de saída revelou DOIS problemas diferentes, não um só**
+(pedido do Cleber depois da 1ª rodada, que só mostrava o resultado agregado):
+
+- **Trend-following (Rompimento Donchian, Cruzamento EMA+ADX)**: 89-91% dos
+  trades fecham por STOP LOSS, não por regra de saída. Não é saída prematura — é
+  taxa de acerto real baixa. A causa mais provável é o filtro de entrada deixando
+  passar ruído, ou o stop (2×ATR / 2,5×ATR) estreito demais pra sobreviver ao
+  ruído normal antes de uma tendência real se desenvolver. Quando o TP é
+  atingido (raro, 5% no Cruzamento), o resultado é ótimo (+4,83%) — mas raro
+  demais pra compensar o resto.
+- **Rompimento Confirmado (Volume)**: 67-82% dos trades fecham pela regra "ATR em
+  contração" (exitBlock), com retorno médio ~0% (872 trades no BTC 1h) — a
+  regra de saída fecha o trade num empate sistemático ANTES dele ter chance de
+  valer o R:R desenhado (1,5×ATR stop / 3×ATR alvo). Só 4-18% chegam a bater
+  TP/SL de verdade.
+
+**Nenhuma recalibração foi feita a partir deste achado** — decisão consciente,
+consistente com a regra já estabelecida de nunca ajustar parâmetro pra "melhorar
+o número" no mesmo dado que serviu de diagnóstico (isso seria otimização
+retroativa/overfitting, exatamente o que o Deflated Sharpe da seção 8 existe para
+proteger contra). Próximo passo é decisão do Cleber: (a) investigar/ajustar a
+regra de saída do Arquétipo 4 (permitir o trade rodar mais antes de fechar por
+contração de ATR) e o stop dos Arquétipos 1-2 (testar múltiplos maiores de ATR),
+sempre validando de novo com este mesmo script antes de aceitar qualquer mudança;
+ou (b) aceitar que as 5 estratégias ficam marcadas como "em pesquisa, não
+validadas" até uma rodada de calibração formal acontecer.
+
+**Reprodução**: `npx esbuild research/experiments/2026-07-24-strategy-validation/run.ts --bundle --platform=node --format=esm --outfile=/tmp/validate-strategies.mjs && node /tmp/validate-strategies.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

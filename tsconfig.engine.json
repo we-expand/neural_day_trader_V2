@@ -27,6 +27,7 @@
     "src/app/services/BacktestDataService.ts",
     "src/app/services/BrokerClient.ts",
     "src/app/services/strategy/**/*.ts",
+    "research/**/*.ts",
     "src/app/services/indicators/**/*.ts",
     "src/app/services/smc/**/*.ts",
     "src/app/types/strategy.ts",

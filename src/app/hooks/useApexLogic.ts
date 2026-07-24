@@ -1388,21 +1388,30 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
           // Para Ouro: 1 ponto = $0.10
           
           let pointValue = 1.0; // Padrão: 1 ponto = $1
-          
-          // FOREX: 1 ponto = 1 pip = 0.0001
-          if (selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') || 
+
+          // 🔒 2026-07-24: BUG REAL EM PRODUÇÃO — todo par cripto cotado em
+          // dólar (BTCUSDT, BTCUSD, ETHUSD...) também contém a substring
+          // "USD", batendo por engano na regra de forex abaixo (pointValue
+          // 0.0001) antes desta checagem existir. Isso fazia um alvo de "400
+          // pontos" em BTC virar 400*0.0001 = US$0,04 de distância — o TP
+          // fechava o trade quase no candle de entrada. Checar cripto ANTES
+          // do bloco forex resolve pra qualquer símbolo com base conhecida ou
+          // sufixo USDT (mesmo fix aplicado em TradeSizing.getPointValue).
+          const pointValueCryptoBases = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'LTC', 'DOGE', 'AVAX', 'MATIC', 'POL', 'BAT', 'LINK', 'UNI', 'XLM'];
+          const upperSymbolForPointValue = selectedSymbol.toUpperCase();
+          const isCryptoForPointValue = upperSymbolForPointValue.endsWith('USDT') || pointValueCryptoBases.some(base => upperSymbolForPointValue.startsWith(base));
+
+          if (isCryptoForPointValue) {
+            pointValue = 1.0; // preço já em dólares cheios
+          } else if (selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ||
               selectedSymbol.includes('USD') || selectedSymbol.includes('JPY') ||
               selectedSymbol.includes('AUD') || selectedSymbol.includes('CAD') ||
               selectedSymbol.includes('CHF') || selectedSymbol.includes('NZD')) {
-            pointValue = 0.0001; // 1 pip
+            pointValue = 0.0001; // 1 pip (FOREX)
+          } else if (selectedSymbol.includes('XAU') || selectedSymbol.includes('GOLD')) {
+            pointValue = 0.1; // OURO: 1 ponto = $0.10
           }
-          
-          // OURO (XAU): 1 ponto = $0.10
-          if (selectedSymbol.includes('XAU') || selectedSymbol.includes('GOLD')) {
-            pointValue = 0.1;
-          }
-          
-          // ÍNDICES E CRYPTO: 1 ponto = $1 (já é o padrão)
+          // ÍNDICES: 1 ponto = $1 (já é o padrão)
           
           // Calcular TP e SL baseado em PONTOS
           const tpDistance = targetPointsValue * pointValue;

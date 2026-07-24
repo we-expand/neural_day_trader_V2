@@ -41,8 +41,24 @@ export interface TpSlResult {
   riskRewardRatio: number;
 }
 
+// Bases cripto conhecidas — checadas ANTES do bloco genérico "contém USD/EUR/
+// GBP/etc" porque todo par cripto cotado em dólar (BTCUSDT, BTCUSD, ETHUSD...)
+// também contém a substring "USD" e batia por engano na regra de forex (pip
+// 0.0001), tratando um preço em dólares CHEIOS como se fosse cotação forex de
+// 4-5 casas decimais. Achado testando resolveTpSl em modo POINTS (fallback)
+// contra BTCUSDT: dava alvo de US$0,016 de distância — fecharia o trade no
+// próprio candle de entrada, sempre.
+const CRYPTO_BASES = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'LTC', 'DOGE', 'AVAX', 'MATIC', 'POL', 'BAT', 'LINK', 'UNI', 'XLM'];
+
+function isCryptoSymbolForSizing(symbol: string): boolean {
+  const s = symbol.toUpperCase();
+  if (s.endsWith('USDT')) return true;
+  return CRYPTO_BASES.some(base => s.startsWith(base));
+}
+
 /** Mesma tabela de pip/ponto por classe de ativo usada em useApexLogic.ts. */
 export function getPointValue(symbol: string): number {
+  if (isCryptoSymbolForSizing(symbol)) return 1.0; // preço já em dólares cheios, "ponto" = US$1
   let pointValue = 1.0;
   if (
     symbol.includes('EUR') || symbol.includes('GBP') || symbol.includes('USD') ||
