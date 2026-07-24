@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { toast as toastOriginal } from 'sonner';
-import { ApexLogicCore } from '../../lib/modules/ApexLogicCore';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
 import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
-import { analyzeMarketStructure, makeSmartTradingDecision } from '@/app/services/KeyLevelsEngine'; // 🎯 KEY LEVELS ENGINE
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
@@ -63,12 +61,9 @@ const toast = {
   }
 };
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
-import { ApexScoreEngine } from '../services/ApexScoreEngine'; // Added Import
 import { getLiquiditySignal } from '../logic/liquiditySignals'; // Shared Liquidity Logic
-import { logMT5AccountInfo, extractBalance } from '../utils/mt5Debug'; // MT5 Debug
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
-import { wrapMT5Connection } from '../utils/mt5ConnectionWrapper'; // MT5 Wrapper
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -76,6 +71,9 @@ import { wrapMT5Connection } from '../utils/mt5ConnectionWrapper'; // MT5 Wrappe
 // oficiais de RiskProfileType (NeuralRiskGuardian.ts) quanto os legados já em uso na
 // UI (EQUILIBRADO/DEGEN, ver MarketScore.tsx e o default de INITIAL_STATE), pra não
 // quebrar configs já salvas no localStorage de quem já usa o app.
+/** Rótulos de perfil de risco de versões antigas, ainda presentes no localStorage. */
+export type LegacyRiskProfile = 'EQUILIBRADO' | 'DEGEN';
+
 const RISK_PROFILE_ADJUSTMENTS: Record<string, { confidenceAdjust: number; sizeMultiplier: number }> = {
   CONSERVATIVE: { confidenceAdjust: 15, sizeMultiplier: 0.7 },
   MODERATE: { confidenceAdjust: 0, sizeMultiplier: 1.0 },
@@ -132,6 +130,38 @@ export interface PortfolioState {
   currentDrawdown: number;
   openPositionsValue: number;
   initialBalance?: number; // Added to track profit
+  // Âncoras reais de drawdown. Antes o "drawdown" era calculado como
+  // (balance - equity)/balance e acumulado com Math.max() sem nunca resetar —
+  // media só o P&L não-realizado negativo das posições abertas (não é drawdown)
+  // e, uma vez estourado o limite, travava o Safe Mode pra sempre mesmo com a
+  // conta recuperada e em novo topo. Agora existem as duas âncoras reais que o
+  // campo aiConfig.drawdownAnchor seleciona (padrão FTMO/Topstep):
+  peakEquity?: number;        // high-water mark do equity (âncora INTRADAY_PEAK)
+  dayAnchorEquity?: number;   // equity no início do dia UTC (âncora DAILY_CLOSE)
+  dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity se refere
+  maxDrawdownReached?: number; // pior drawdown já atingido (só métrica/histórico,
+                               // NUNCA usado como gate — o gate usa currentDrawdown)
+}
+
+/**
+ * Re-ancora o drawdown quando o capital muda por um salto que NÃO é resultado de
+ * trade (conexão com a corretora, reset manual de saldo, troca de conta).
+ * Sem isso, sair do saldo default de $100 pra uma conta real de $10.000 deixaria
+ * o high-water mark defasado; e o caminho inverso (conta menor que o pico antigo)
+ * dispararia um drawdown falso de dezenas de por cento no primeiro tick, jogando
+ * a IA em Safe Mode sem nenhuma perda ter acontecido.
+ */
+function reanchorDrawdown(equity: number): Pick<
+  PortfolioState,
+  'currentDrawdown' | 'maxDrawdownReached' | 'peakEquity' | 'dayAnchorEquity' | 'dayAnchorUtcDay'
+> {
+  return {
+    currentDrawdown: 0,
+    maxDrawdownReached: 0,
+    peakEquity: equity,
+    dayAnchorEquity: equity,
+    dayAnchorUtcDay: 0, // força re-ancoragem do dia no próximo tick
+  };
 }
 
 // Ponto real de equity ao longo do tempo, pra alimentar a Curva de Equity —
@@ -163,7 +193,11 @@ export interface AIConfig {
   maxDrawdown: number;
   riskPerTrade: number;
   minWinRate: number;
-  riskProfile: RiskProfileType; // NEW: Risk Guardian Integration
+  // Inclui os rótulos legados ('EQUILIBRADO'/'DEGEN') porque eles EXISTEM de fato
+  // no localStorage de usuários antigos e são tratados em RISK_PROFILE_ADJUSTMENTS.
+  // Declarar só RiskProfileType deixava o tipo mentir sobre o valor real em uso
+  // (o próprio default do projeto é 'EQUILIBRADO').
+  riskProfile: RiskProfileType | LegacyRiskProfile;
   
   // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
   activeAssets: string[]; // ✅ Lista de ativos selecionados (Infinox válidos)
@@ -276,6 +310,9 @@ const INITIAL_STATE: ApexLogicState = {
     currentDrawdown: 0,
     openPositionsValue: 0,
     initialBalance: 100,
+    peakEquity: 100,
+    dayAnchorEquity: 100,
+    dayAnchorUtcDay: 0,
   },
   houseStats: {
     totalRevenue: 0,
@@ -451,9 +488,6 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
     persistenceRef.current = persistence;
   });
 
-  // === APEX LOGIC CORE ===
-  const apexLogicCoreRef = useRef(new ApexLogicCore());
-
   // === MUTEX LOCK (Prevent Race Conditions) ===
   const mutexRef = useRef(false);
 
@@ -619,6 +653,13 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             balance: lastSnapshot.balance,
             equity: lastSnapshot.equity,
             currentDrawdown: lastSnapshot.drawdown || 0,
+            maxDrawdownReached: Math.max(prev.maxDrawdownReached ?? 0, lastSnapshot.drawdown || 0),
+            // Re-semeia as âncoras de drawdown a partir do equity restaurado.
+            // Sem isso, depois de um reload o peak/âncora diária ficariam no
+            // valor default (100) e o drawdown sairia absurdo no primeiro tick.
+            peakEquity: Math.max(prev.peakEquity ?? lastSnapshot.equity, lastSnapshot.equity),
+            dayAnchorEquity: lastSnapshot.equity,
+            dayAnchorUtcDay: 0, // força re-ancoragem no próximo tick do dia corrente
           }));
         }
 
@@ -626,7 +667,11 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
         // persistidos desta sessão (nunca mock) — dá continuidade depois de
         // um reload, em vez de a curva "zerar" e mostrar 1 ponto só.
         try {
-          const sessionSnapshots = await persistenceRef.current.getSessionSnapshots(session.id);
+          // O hook useAIPersistence expõe esses snapshots como getEquityCurve()
+          // (que internamente chama aiPersistence.getSessionSnapshots). Chamar
+          // getSessionSnapshots aqui dava undefined em runtime — o TypeError caía
+          // no catch abaixo e a curva de equity nunca reconstruía após um reload.
+          const sessionSnapshots = await persistenceRef.current.getEquityCurve(session.id);
           if (sessionSnapshots.length > 0) {
             setEquityHistory(
               sessionSnapshots
@@ -727,15 +772,23 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
     setPerformanceMetrics({
       totalTrades: closedTrades.length,
       winRate,
-      totalProfit,
+      // A interface PerformanceMetrics declara totalPnL/avgWin/avgLoss, mas este
+      // objeto escrevia 'totalProfit' (campo inexistente) e simplesmente não
+      // passava avgWin/avgLoss — que já eram calculados logo acima e descartados.
+      // Os três campos ficavam undefined em runtime para quem lesse a métrica.
+      totalPnL: totalProfit,
+      avgWin,
+      avgLoss,
       profitFactor: avgLoss > 0 ? avgWin / avgLoss : 0,
       sharpeRatio: 0, // Simplified
-      maxDrawdown: portfolio.currentDrawdown,
+      // Métrica histórica: o PIOR drawdown já atingido, não o drawdown do momento
+      // (currentDrawdown agora recupera quando a conta recupera, por design).
+      maxDrawdown: portfolio.maxDrawdownReached ?? portfolio.currentDrawdown,
       avgHoldTime: avgHoldTime / 1000 / 60, // minutes
       bestTrade,
       worstTrade,
     });
-  }, [orderHistory, portfolio.currentDrawdown]);
+  }, [orderHistory, portfolio.maxDrawdownReached]);
 
   // === LOG HELPER (MUST BE BEFORE ANY useEffect THAT USES IT) ===
   const addLog = useCallback((message: string) => {
@@ -1627,13 +1680,36 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
            const { realizedPnL, totalUnrealizedPnL, totalExposure } = pnlLoopRef.current;
            const newBalance = prev.balance + realizedPnL;
            const newEquity = newBalance + totalUnrealizedPnL;
-           const drawdown = newEquity < newBalance ? ((newBalance - newEquity) / newBalance) * 100 : 0;
+
+           // === DRAWDOWN REAL (peak-to-trough), respeitando aiConfig.drawdownAnchor ===
+           // High-water mark do equity: sobe com novo topo, nunca desce.
+           const peakEquity = Math.max(prev.peakEquity ?? newEquity, newEquity);
+
+           // Âncora diária: equity registrado na primeira avaliação de cada dia UTC.
+           const nowDate = new Date();
+           const utcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
+           const isNewUtcDay = prev.dayAnchorUtcDay !== utcDay;
+           const dayAnchorEquity = isNewUtcDay ? newEquity : (prev.dayAnchorEquity ?? newEquity);
+
+           // INTRADAY_PEAK mede a queda desde o maior equity já atingido (mais rígido).
+           // DAILY_CLOSE mede a queda desde o equity de abertura do dia (padrão FTMO/
+           // Topstep) e por isso zera a cada novo dia UTC — lucro do dia protege.
+           const anchor = configRef.current.drawdownAnchor === 'INTRADAY_PEAK'
+             ? peakEquity
+             : dayAnchorEquity;
+           const drawdown = anchor > 0 && newEquity < anchor
+             ? ((anchor - newEquity) / anchor) * 100
+             : 0;
 
            return {
               ...prev,
               balance: newBalance,
               equity: newEquity,
-              currentDrawdown: Math.max(drawdown, prev.currentDrawdown),
+              currentDrawdown: drawdown,
+              maxDrawdownReached: Math.max(prev.maxDrawdownReached ?? 0, drawdown),
+              peakEquity,
+              dayAnchorEquity,
+              dayAnchorUtcDay: utcDay,
               openPositionsValue: totalExposure,
            };
         });
@@ -1864,7 +1940,14 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
       mt5CredentialsRef.current = credentials;
 
       // 🔥 BUSCAR SALDO REAL VIA BACKEND (Fase 1: credenciais nunca mais no client)
-      const result = await wrapMT5Connection(async () => {
+      // NOTA: este bloco já foi envolvido em wrapMT5Connection(), um decorator de
+      // debug da arquitetura ANTIGA (SDK MetaAPI rodando no client, extinta na
+      // Fase 1). Ele fazia `connection.getAccountInformation.bind(connection)` —
+      // recebendo uma função async no lugar do objeto de conexão da SDK, isso
+      // lançava TypeError na primeira linha, SEMPRE. Resultado: connectToMT5()
+      // nunca chegava a rodar o código de verdade, caía direto no catch externo
+      // e reportava falha de conexão qualquer que fosse o estado real da conta.
+      const result = await (async () => {
         try {
           console.log('[useApexLogic] 🌐 Buscando saldo real via backend...');
 
@@ -1897,7 +1980,7 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             error: error.message || 'Erro ao conectar ao MT5'
           };
         }
-      });
+      })();
 
       if (result.success) {
         setIsConnectedToMT5(true);
@@ -1913,6 +1996,7 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
             balance: result.balance,
             equity: result.equity || result.balance,
             initialBalance: result.balance,
+            ...reanchorDrawdown(result.equity || result.balance),
           }));
           
           addLog(`💰 Saldo carregado: ${result.currency || 'USD'} ${result.balance.toFixed(2)}`);
@@ -1972,6 +2056,7 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
         balance: newBalance,
         equity: newBalance,
         initialBalance: newBalance,
+        ...reanchorDrawdown(newBalance),
       };
       console.log('[updateBalance] ✅ Portfolio ATUALIZADO:', updated);
       return updated;
@@ -1995,6 +2080,11 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
         balance: data.balance,
         equity: data.equity,
         initialBalance: prev.initialBalance || data.balance, // Manter initialBalance original se existir
+        // Sync recorrente (não é reset): NÃO re-ancora, só deixa o high-water mark
+        // acompanhar um novo topo vindo da corretora. Se as âncoras ainda não
+        // existem (primeiro sync), semeia com o equity real em vez do default.
+        peakEquity: Math.max(prev.peakEquity ?? data.equity, data.equity),
+        dayAnchorEquity: prev.dayAnchorEquity ?? data.equity,
       };
       console.log('[updatePortfolioFromMT5] ✅ Portfolio ATUALIZADO:', updated);
       return updated;

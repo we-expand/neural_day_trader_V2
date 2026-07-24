@@ -54,7 +54,9 @@ export interface BrokerCredentialsStatus {
   updatedAt?: string;
 }
 
-async function invokeBroker(path: string, options: { method?: string; body?: Record<string, any> } = {}) {
+type BrokerHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+async function invokeBroker(path: string, options: { method?: BrokerHttpMethod; body?: Record<string, any> } = {}) {
   if (!supabase) throw new Error('Supabase não inicializado');
 
   const { data, error } = await supabase.functions.invoke(`server/broker/${path}`, {

@@ -9,7 +9,9 @@
  * ✅ Logs estruturados para monitoramento
  */
 
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+// Caminho relativo de propósito: '/utils/...' só resolve no Vite e deixava o
+// type-check cego para este módulo (fonte de preço de todo o motor).
+import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { PriceValidator } from './PriceValidator';
 import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';

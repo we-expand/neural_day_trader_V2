@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // ES2021: o código já usa Promise.any (DirectBinanceService, corrida entre a
+    // Binance direta e os proxies CORS). Com lib ES2020 o type-check nem enxergava
+    // esse método — funcionava em runtime e passava batido na verificação.
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
@@ -21,5 +24,9 @@
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "supabase/functions"]
+  // src/imports/pasted_text/ são LOGS/trechos colados durante sessões antigas,
+  // não código do app — nada os importa (verificado por grep). Sozinhos geravam
+  // ~695 erros de sintaxe que afogavam qualquer erro real e tornavam
+  // `tsc --noEmit` inútil como sinal de qualidade.
+  "exclude": ["node_modules", "dist", "supabase/functions", "src/imports/pasted_text"]
 }

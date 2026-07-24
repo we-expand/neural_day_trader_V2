@@ -10,7 +10,7 @@ export type AssetCategory = 'FOREX' | 'CRYPTO' | 'INDICES' | 'COMMODITIES' | 'ST
 export type AssetSubCategory = 
   | 'Major Pairs' | 'Minor Pairs' | 'Exotic Pairs'
   | 'Bitcoin' | 'Altcoins' | 'DeFi' | 'Meme Coins'
-  | 'US Indices' | 'European Indices' | 'Asian Indices'
+  | 'US Indices' | 'European Indices' | 'Asian Indices' | 'LatAm Indices'
   | 'Precious Metals' | 'Energy' | 'Agriculture'
   | 'UK Stocks' | 'French Stocks' | 'German Stocks' | 'Spanish Stocks' | 'Portuguese Stocks' | 'Dutch Stocks' | 'Scandinavian Stocks' | 'US Stocks'
   | 'European Bonds' | 'US Bonds';

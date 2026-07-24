@@ -259,7 +259,7 @@ export function SmartDataExample() {
           <li>✅ Roteamento automático: Crypto → Binance, Forex/Índices → MT5/Yahoo</li>
           <li>✅ Fallback inteligente: Se fonte primária falhar, usa alternativa</li>
           <li>✅ Validação contínua: Compara dados entre fontes</li>
-          <li>✅ Alertas automáticos: Notifica se discrepância > 5%</li>
+          <li>✅ Alertas automáticos: Notifica se discrepância &gt; 5%</li>
         </ul>
       </div>
     </div>

@@ -1,0 +1,33 @@
+{
+  // Type-check ESTRITO restrito ao caminho crítico do motor de decisão/execução.
+  //
+  // Por que existe separado do tsconfig.json: o app inteiro carrega ~625 erros de
+  // tipo herdados (componentes, telas de admin, arquivos *_BACKUP_*), e um gate que
+  // sempre falha é um gate que todo mundo aprende a ignorar. Este arquivo cerca
+  // exatamente o código que decide trades e mexe em dinheiro, e mantém ele em ZERO
+  // erros — inclusive com `strict: true`, que o tsconfig do app não liga.
+  //
+  // Regra: se um arquivo entra no caminho de decisão/risco/execução, ele entra aqui.
+  //
+  // TODO (Fase A do plano do cérebro): ligar "strict": true aqui. Hoje isso acusa
+  // 29 erros — a maioria `supabase is possibly null`, que o app inteiro ignora por
+  // rodar com strict desligado. Apertar exige tratar esses nulos de verdade, um
+  // arquivo por vez; é trabalho planejado, não uma flag pra virar às pressas.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/app/hooks/useApexLogic.ts",
+    "src/app/hooks/useAIPersistence.ts",
+    "src/app/services/MarketScoreEngine.ts",
+    "src/app/services/MarketScoreValidator.ts",
+    "src/app/services/BacktestDataService.ts",
+    "src/app/services/BrokerClient.ts",
+    "src/app/services/strategy/**/*.ts",
+    "src/app/services/indicators/**/*.ts",
+    "src/app/services/smc/**/*.ts",
+    "src/app/types/strategy.ts",
+    "src/app/data/presetStrategies.ts"
+  ]
+}
