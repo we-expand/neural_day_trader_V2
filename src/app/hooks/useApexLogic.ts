@@ -1193,11 +1193,24 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
           // OPOSTO do que a estratégia sugeriu, o setup é descartado — é
           // exatamente o cenário que motivou este gate: a IA não deve
           // comprar quando o Score (mesmo motor que o usuário vê na tela)
-          // está classificando o ativo como VENDEDOR, e vice-versa. LATERAL
-          // não veta (o Score genuinamente não tem opinião forte o bastante
-          // pra contradizer a estratégia). Isso é um passo intermediário —
-          // ainda não é o "cérebro definitivo" da IA, só a conexão real
-          // entre os dois motores que hoje existiam desconectados.
+          // está classificando o ativo como VENDEDOR, e vice-versa. Isso é
+          // um passo intermediário — ainda não é o "cérebro definitivo" da
+          // IA, só a conexão real entre os dois motores que hoje existiam
+          // desconectados.
+          //
+          // ✅ 2026-07-24 (2ª rodada): LATERAL não veta (Score sem opinião
+          // forte não é "contra" a estratégia) — mas achado real via
+          // MarketScoreValidator: a faixa de score onde a maioria dos casos
+          // LATERAL cai (35-50) tem retorno futuro historicamente fraco/
+          // neutro pro BTC diário — ou seja, é uma zona de baixo edge
+          // conhecida, não só "sem informação". Deixar a IA operar aí com o
+          // MESMO limiar de confiança de sempre ignorava esse dado. Fix:
+          // Score LATERAL exige uma barra de confiança EXTRA da estratégia
+          // (nunca bloqueia por completo, só levanta a exigência) — a IA
+          // continua podendo operar em regime lateral, mas só quando a
+          // própria estratégia tem convicção forte o bastante pra compensar
+          // a falta de confirmação do Score.
+          const LATERAL_CONFIDENCE_PENALTY = 15;
           let scoreConfidence: number | null = null;
           try {
             const scoreResult = await MarketScoreEngine.compute(selectedSymbol, opTimeframe);
@@ -1207,6 +1220,14 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
               if (scoreResult.classification === opposite) {
                 console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`);
                 return;
+              }
+              if (scoreResult.classification === 'LATERAL') {
+                const requiredConfidence = MIN_CONFIDENCE + LATERAL_CONFIDENCE_PENALTY;
+                if (strategySignal.confidence < requiredConfidence) {
+                  console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${strategySignal.confidence}% de confiança (exige ${requiredConfidence}% nesse regime)`);
+                  return;
+                }
+                console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${strategySignal.confidence}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
               }
               scoreConfidence = scoreResult.confidence;
               console.log(`[SCORE] ✅ Market Score (${opTimeframe}) confirma/não contradiz: ${scoreResult.classification} (confiança ${scoreResult.confidence}%)${scoreResult.classification === expectedClassification ? ' — concorda' : ' — neutro'}`);

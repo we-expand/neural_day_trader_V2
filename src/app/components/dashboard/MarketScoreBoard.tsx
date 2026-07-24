@@ -1252,12 +1252,24 @@ export const MarketScoreBoard = () => {
                                                 — a mesma classe de contradição na mesma tela, só que numa 3ª
                                                 fonte que ainda não tinha sido tocada. Fix: usa `classification`
                                                 (já alinhado ao mesmo threshold do rótulo), não mais `regime` cru. */}
+                                            {/* ✅ 2026-07-24: achado ao vivo pelo Cleber — este parágrafo tinha
+                                                sua PRÓPRIA frase hardcoded pro caso LATERAL ("Osciladores
+                                                interpretados como reversão à média..."), ignorando por completo
+                                                o `insight` recalibrado do motor (que agora cita o movimento
+                                                líquido recente via `netMove`, ex: "-1,40% mas sem estrutura
+                                                confirmada"). Por isso a calibração de hoje não aparecia na tela
+                                                pra nenhum ativo classificado LATERAL — 4ª fonte de texto
+                                                dessincronizada do motor real, mesma classe de bug já corrigida
+                                                várias vezes neste arquivo (ver histórico). Fix: LATERAL agora
+                                                deriva de `scoreResult!.insight` (sempre o texto real e
+                                                atualizado do motor) + a zona de consolidação como complemento,
+                                                em vez de reconstruir a frase do zero. */}
                                             {hasRealScore ? (
                                                 scoreResult!.classification === 'COMPRADOR'
                                                     ? `Pressão compradora${scoreResult!.regime === 'TENDENCIA' ? ` — tendência confirmada (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'})` : ''}. Momentum ${scoreResult!.factors.momentum > 0 ? 'positivo' : 'negativo'}. Volume ${scoreResult!.indicators.volumeRatio != null && scoreResult!.indicators.volumeRatio > 1.2 ? 'acima da média, confirmando o movimento' : 'dentro da média'}.`
                                                     : scoreResult!.classification === 'VENDEDOR'
                                                     ? `Pressão vendedora${scoreResult!.regime === 'TENDENCIA' ? ` — tendência confirmada (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'})` : ''}. Momentum ${scoreResult!.factors.momentum > 0 ? 'positivo' : 'negativo'}. Volume ${scoreResult!.indicators.volumeRatio != null && scoreResult!.indicators.volumeRatio > 1.2 ? 'acima da média, confirmando o movimento' : 'dentro da média'}.`
-                                                    : `Mercado lateralizado (ADX ${scoreResult!.indicators.adx?.toFixed(0) ?? '—'}). Osciladores interpretados como reversão à média nesse regime. Zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)}.`
+                                                    : `${scoreResult!.insight} Zona de consolidação entre ${formatPrice(stopLoss)} e ${formatPrice(target1)}.`
                                             ) : scoreResult?.provenance === 'unavailable' ? (
                                                 // ✅ 2026-07-17: distingue "ainda carregando" de "falhou e o motivo é X" — nunca mais fica mudo
                                                 scoreResult.insight
