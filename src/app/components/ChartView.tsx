@@ -3662,11 +3662,21 @@ export function ChartView() {
 
           const coordAt = (value: number) =>
             first.coord + ((value - firstValue) / (lastValue - firstValue)) * (last.coord - first.coord);
+          const valueAt = (coord: number) =>
+            firstValue + ((coord - first.coord) / (last.coord - first.coord)) * (lastValue - firstValue);
+
+          // 🎯 Mesma margem embutida da klinecharts já corrigida no eixo Y: o
+          // `defaultTicks[last]` para antes do candle mais recente (penúltimo
+          // candle exibido em tela), deixando o trecho final da régua de tempo
+          // sem marcação nenhuma. Extrapola até a borda direita real do painel
+          // (bounding.width, com respiro de 6px pra não cortar o texto).
+          const edgeMargin = 6;
+          const rightValue = valueAt(bounding.width - edgeMargin);
 
           // rótulo de data ocupa mais espaço horizontal que o de preço —
           // espaçamento mínimo maior (~90px em vez de 28px)
           const targetCount = Math.max(defaultTicks.length, Math.floor(bounding.width / 90));
-          const step = (lastValue - firstValue) / (targetCount - 1);
+          const step = (rightValue - firstValue) / (targetCount - 1);
           if (!isFinite(step) || step === 0) return defaultTicks;
 
           const useShortTime = step < 20 * 60 * 60 * 1000; // <20h entre marcações: mostra hora, não só data
