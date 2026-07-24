@@ -1,4 +1,4 @@
-import { RiskProfileType } from '../../types/strategy';
+import { RiskProfileType, Strategy } from '../../types/strategy';
 
 /**
  * Extraído de useApexLogic.ts (mesmos valores/regras usados ao vivo) para ser
@@ -112,6 +112,47 @@ export function calculatePositionSize({
   const tradeCapital = capital * riskPercentage * sizeMultiplier;
   const minTradeCapital = 10;
   return Math.max(tradeCapital, minTradeCapital);
+}
+
+export interface AtrTpSlResult {
+  tp: number | null; // null = sem alvo fixo (TRAILING_ONLY — só fecha por trailing stop ou regra de saída)
+  sl: number;
+  slDistance: number;
+  tpDistance: number | null;
+}
+
+/**
+ * Resolve TP/SL de uma estratégia no momento da entrada, preferindo ATR
+ * quando `stopLossMode`/`takeProfitMode` pedirem — dimensiona o risco pela
+ * volatilidade real do ativo (ver Strategy.stopLossMode em types/strategy.ts).
+ * Cai para pontos fixos (comportamento antigo) quando o modo não é 'ATR', ou
+ * quando o ATR não pôde ser calculado ainda (candle insuficiente no warmup).
+ */
+export function resolveTpSl(
+  strategy: Strategy,
+  side: 'LONG' | 'SHORT',
+  entryPrice: number,
+  pointValue: number,
+  atrValueAtEntry: number | null
+): AtrTpSlResult {
+  const useAtrForSl = strategy.stopLossMode === 'ATR' && atrValueAtEntry !== null && atrValueAtEntry > 0;
+  const slDistance = useAtrForSl
+    ? atrValueAtEntry! * (strategy.atrStopMultiplier ?? 2)
+    : strategy.stopLoss * pointValue;
+
+  let tpDistance: number | null;
+  if (strategy.takeProfitMode === 'TRAILING_ONLY') {
+    tpDistance = null;
+  } else if (strategy.takeProfitMode === 'ATR' && atrValueAtEntry !== null && atrValueAtEntry > 0) {
+    tpDistance = atrValueAtEntry * (strategy.atrTakeProfitMultiplier ?? 4);
+  } else {
+    tpDistance = strategy.takeProfit * pointValue;
+  }
+
+  const sl = side === 'LONG' ? entryPrice - slDistance : entryPrice + slDistance;
+  const tp = tpDistance === null ? null : side === 'LONG' ? entryPrice + tpDistance : entryPrice - tpDistance;
+
+  return { tp, sl, slDistance, tpDistance };
 }
 
 /** Trailing stop dinâmico: mesma regra de useApexLogic.ts (só melhora o SL a favor do trade). */

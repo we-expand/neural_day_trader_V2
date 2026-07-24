@@ -7,11 +7,17 @@
  * É consumido só por scripts de pesquisa em research/experiments/*, junto do
  * MarketScoreValidator.ts, pra medir edge líquido.
  *
- * Números iniciais são estimativas conservadoras de mercado (spread típico de
- * varejo via CFD/market maker) — não são o spread real da Infinox, que varia por
- * condição de mercado e não está exposto pela API. Ajustar aqui quando houver
- * dado real de execução (ex: comparar preço de entrada do backtest com o preço
- * de execução real reportado por /broker/execute).
+ * CALIBRADO EM 2026-07-24 contra pesquisa real de corretoras concorrentes da
+ * Infinox (IC Markets, Pepperstone, FXTM, Exness — contas Raw/ECN, que são o
+ * modelo relevante para um sistema automatizado via MT5/MetaAPI, não conta
+ * Standard de varejo iniciante). Ver research/AI_BRAIN_SPEC.md para o relatório
+ * completo com fontes. Números "iguais ou um pouco abaixo" da concorrência —
+ * nem o mais caro do mercado, nem uma promessa de spread irrealista.
+ *
+ * Onde a pesquisa não achou dado publicado direto (EURGBP minor, USDZAR, ação
+ * CFD), o número abaixo é uma extrapolação explícita marcada como tal — nunca
+ * apresentada como fato confirmado. Recalibrar quando houver dado real de
+ * execução (comparar preço solicitado vs. preço reportado por /broker/execute).
  */
 
 export type AssetClass = 'FOREX_MAJOR' | 'FOREX_MINOR' | 'FOREX_EXOTIC' | 'INDEX' | 'COMMODITY' | 'CRYPTO' | 'STOCK';
@@ -22,15 +28,22 @@ export interface CostEstimate {
   slippagePoints: number;
 }
 
-// Estimativas conservadoras, em pontos (mesma unidade usada por TradeSizing.getPointValue)
+// Round-trip total recomendado por classe (research/AI_BRAIN_SPEC.md, 2026-07-24):
+//   FOREX_MAJOR  0,8-1,0 pip  -> spread 0,1 (Raw) + comissão embutida como pontos equivalentes
+//   FOREX_MINOR  1,2-1,5 pips -> SEM dado publicado direto; extrapolado como +50% sobre major
+//   FOREX_EXOTIC 15-20 pips   -> ancorado em USDTRY real (~16 pips, Pepperstone)
+//   INDEX        spread pequeno relativo ao nível de preço (Pepperstone US30 ~30 pts em ~44000)
+//   COMMODITY    XAUUSD 1,0-1,5 pip (Infinox/Pepperstone Raw)
+//   CRYPTO       spread modelado em % do notional, não pips fixos (cripto tem spread proporcional ao preço)
+//   STOCK        NÃO pesquisado nesta rodada — mantido o valor anterior, marcado como pendente
 const COST_TABLE: Record<AssetClass, CostEstimate> = {
-  FOREX_MAJOR: { spreadPoints: 1.0, commissionPercent: 0, slippagePoints: 0.3 },
-  FOREX_MINOR: { spreadPoints: 2.5, commissionPercent: 0, slippagePoints: 0.5 },
-  FOREX_EXOTIC: { spreadPoints: 8.0, commissionPercent: 0, slippagePoints: 1.5 },
-  INDEX: { spreadPoints: 2.0, commissionPercent: 0, slippagePoints: 1.0 },
-  COMMODITY: { spreadPoints: 3.0, commissionPercent: 0, slippagePoints: 1.0 },
-  CRYPTO: { spreadPoints: 0, commissionPercent: 0.1, slippagePoints: 0.05 },
-  STOCK: { spreadPoints: 0, commissionPercent: 0.05, slippagePoints: 0.1 },
+  FOREX_MAJOR: { spreadPoints: 0.5, commissionPercent: 0, slippagePoints: 0.2 },   // spread Raw ~0,1 + comissão (~$7/lote ≈ 0,5-0,7pt em EURUSD) + slippage residual
+  FOREX_MINOR: { spreadPoints: 1.0, commissionPercent: 0, slippagePoints: 0.3 },   // ⚠️ extrapolado (sem dado direto): ~+50% sobre major
+  FOREX_EXOTIC: { spreadPoints: 12.0, commissionPercent: 0, slippagePoints: 3.0 }, // ancorado em USDTRY real (~16pt spread), com folga p/ slippage de baixa liquidez
+  INDEX: { spreadPoints: 3.0, commissionPercent: 0, slippagePoints: 1.5 },        // Pepperstone US30 Raw; gaps de abertura de sessão contam no slippage
+  COMMODITY: { spreadPoints: 1.2, commissionPercent: 0, slippagePoints: 0.5 },     // XAUUSD Raw (Infinox/Pepperstone)
+  CRYPTO: { spreadPoints: 0, commissionPercent: 0.08, slippagePoints: 0.05 },      // spread + comissão modelados juntos em %, cripto tem spread proporcional ao preço, não pips fixos
+  STOCK: { spreadPoints: 0, commissionPercent: 0.05, slippagePoints: 0.1 },        // ⚠️ NÃO pesquisado nesta rodada (2026-07-24) — valor anterior mantido, pendente calibração real
 };
 
 /**

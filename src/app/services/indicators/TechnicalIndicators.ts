@@ -352,6 +352,42 @@ export function calculateSAR(
   return out;
 }
 
+/**
+ * Canal de Donchian (máxima/mínima de N períodos) — desenho canônico de
+ * trend-following por rompimento (Turtle Traders/Dennis-Eckhardt).
+ *
+ * Deliberadamente EXCLUI o candle atual da janela (usa [i-period, i-1]): a
+ * versão que inclui o candle atual torna o rompimento trivial (o próprio
+ * candle que faz a máxima "rompe" o canal que ele mesmo formou). Mesma
+ * disciplina de não-look-ahead já usada no resto do projeto (ver
+ * MarketScoreValidator) — aqui o motivo é matemático, não estatístico: sem o
+ * shift, CROSS_ABOVE(PRICE, DONCHIAN_UPPER) nunca teria sentido de "rompeu a
+ * máxima anterior", só "sou a máxima de hoje", que é sempre verdade.
+ */
+export function calculateDonchian(
+  candles: Candle[],
+  period = 20
+): { upper: (number | null)[]; lower: (number | null)[] } {
+  const len = candles.length;
+  const upper: (number | null)[] = new Array(len).fill(null);
+  const lower: (number | null)[] = new Array(len).fill(null);
+
+  for (let i = 0; i < len; i++) {
+    const windowStart = i - period;
+    if (windowStart < 0) continue; // precisa de `period` candles ANTES de i
+    let hi = -Infinity;
+    let lo = Infinity;
+    for (let k = windowStart; k < i; k++) {
+      if (candles[k].high > hi) hi = candles[k].high;
+      if (candles[k].low < lo) lo = candles[k].low;
+    }
+    upper[i] = hi;
+    lower[i] = lo;
+  }
+
+  return { upper, lower };
+}
+
 export type IndicatorSeriesMap = {
   SMA: (candles: Candle[], period: number) => (number | null)[];
   EMA: (candles: Candle[], period: number) => (number | null)[];

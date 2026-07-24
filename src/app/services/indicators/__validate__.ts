@@ -16,6 +16,7 @@ import {
   calculateBollingerBands,
   calculateATR,
   calculateStochastic,
+  calculateDonchian,
 } from './TechnicalIndicators';
 import { evaluateStrategySeries } from '../strategy/StrategyEvaluator';
 import { PRESET_STRATEGIES } from '../../data/presetStrategies';
@@ -117,7 +118,7 @@ function makeCandle(close: number, i: number, high?: number, low?: number): Cand
     return makeCandle(price, i, price + 0.5, price - 0.5);
   });
 
-  const strategy = PRESET_STRATEGIES.find(s => s.id === '6')!; // WIKIOSKIT (VWAP+OBV, sem EMA200 de aquecimento longo)
+  const strategy = PRESET_STRATEGIES.find(s => s.id === '4')!; // Rompimento Confirmado (Donchian+OBV, sem EMA200 de aquecimento longo)
   const run1 = evaluateStrategySeries(strategy, candles);
   const run2 = evaluateStrategySeries(strategy, candles);
 
@@ -148,6 +149,24 @@ function makeCandle(close: number, i: number, high?: number, low?: number): Cand
     if (emaShort[i - 1]! <= emaLong[i - 1]! && emaShort[i]! > emaLong[i]!) crosses++;
   }
   assertTrue('série desenhada pra cruzar produz exatamente 1 golden cross de EMA', crosses === 1);
+}
+
+// ─── CASO 8: Donchian usa só candles ANTERIORES (sem look-ahead) ──────────
+// Uma série plana em 100, com um único candle-espeta de máxima 150 no meio,
+// não deve mostrar upper=150 nesse MESMO candle (senão o rompimento seria
+// trivial: o candle sempre "rompe" o teto que ele mesmo formou) — só nos
+// candles SEGUINTES, depois que o pico já entrou na janela como histórico.
+{
+  const flat = Array.from({ length: 25 }, (_, i) => makeCandle(100, i));
+  const spikeIndex = 25;
+  const spike = { time: spikeIndex, open: 100, high: 150, low: 100, close: 100, volume: 1000 };
+  const after = Array.from({ length: 5 }, (_, i) => makeCandle(100, spikeIndex + 1 + i));
+  const candles: Candle[] = [...flat, spike, ...after];
+
+  const { upper } = calculateDonchian(candles, 20);
+
+  assertTrue('Donchian NÃO usa o high do próprio candle do pico (sem look-ahead)', upper[spikeIndex] !== 150);
+  assertTrue('Donchian passa a refletir o pico no candle SEGUINTE (agora é histórico)', upper[spikeIndex + 1] === 150);
 }
 
 console.log(`\n${passed} passaram, ${failed} falharam.`);

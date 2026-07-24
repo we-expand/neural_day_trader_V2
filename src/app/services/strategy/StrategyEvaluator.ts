@@ -13,6 +13,7 @@ import {
   calculateCCI,
   calculateWilliamsR,
   calculateSAR,
+  calculateDonchian,
 } from '../indicators/TechnicalIndicators';
 import { IndicatorType, OperatorType, Strategy, StrategyBlock, StrategySignal } from '../../types/strategy';
 
@@ -22,11 +23,21 @@ import { IndicatorType, OperatorType, Strategy, StrategyBlock, StrategySignal } 
  */
 export class IndicatorCache {
   private cache = new Map<string, (number | null)[]>();
+  private donchianCache = new Map<number, { upper: (number | null)[]; lower: (number | null)[] }>();
 
   constructor(private candles: Candle[]) {}
 
   private key(indicator: IndicatorType, period?: number): string {
     return `${indicator}_${period ?? 'default'}`;
+  }
+
+  /** upper/lower do Donchian nascem do mesmo cálculo — cacheados juntos por período. */
+  private donchian(period: number): { upper: (number | null)[]; lower: (number | null)[] } {
+    const cached = this.donchianCache.get(period);
+    if (cached) return cached;
+    const result = calculateDonchian(this.candles, period);
+    this.donchianCache.set(period, result);
+    return result;
   }
 
   get(indicator: IndicatorType, period?: number): (number | null)[] {
@@ -79,6 +90,12 @@ export class IndicatorCache {
         break;
       case 'SAR':
         series = calculateSAR(this.candles);
+        break;
+      case 'DONCHIAN_UPPER':
+        series = this.donchian(period ?? 20).upper;
+        break;
+      case 'DONCHIAN_LOWER':
+        series = this.donchian(period ?? 20).lower;
         break;
       case 'PRICE':
         series = this.candles.map(c => c.close);

@@ -14,7 +14,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { Candle } from '../services/indicators/TechnicalIndicators';
 import { IndicatorCache, evaluateStrategyAt, evaluateExitAt } from '../services/strategy/StrategyEvaluator';
-import { calculatePositionSize, getPointValue, trailStopLoss } from '../services/strategy/TradeSizing';
+import { calculatePositionSize, getPointValue, trailStopLoss, resolveTpSl } from '../services/strategy/TradeSizing';
 import { Strategy } from '../types/strategy';
 import { backtestDataService, Timeframe as DataTimeframe } from '../services/BacktestDataService';
 
@@ -170,7 +170,7 @@ function runBacktest(candles: Candle[], strategy: Strategy, symbol: string, dire
     side: 'LONG' | 'SHORT';
     entryPrice: number;
     entryIndex: number;
-    tp: number;
+    tp: number | null; // null = TRAILING_ONLY, sem alvo fixo (ver Strategy.takeProfitMode)
     sl: number;
     originalSl: number;
     tradeCapital: number;
@@ -189,12 +189,12 @@ function runBacktest(candles: Candle[], strategy: Strategy, symbol: string, dire
         openPosition.sl = trailStopLoss(openPosition.side, openPosition.entryPrice, openPosition.originalSl, openPosition.sl, candle.close);
       }
 
-      const hitTp = openPosition.side === 'LONG' ? candle.high >= openPosition.tp : candle.low <= openPosition.tp;
+      const hitTp = openPosition.tp !== null && (openPosition.side === 'LONG' ? candle.high >= openPosition.tp : candle.low <= openPosition.tp);
       const hitSl = openPosition.side === 'LONG' ? candle.low <= openPosition.sl : candle.high >= openPosition.sl;
       const ruleExit = evaluateExitAt(strategy, candles, i, cache);
 
       if (hitTp || hitSl || ruleExit) {
-        const exitPrice = hitTp ? openPosition.tp : hitSl ? openPosition.sl : candle.close;
+        const exitPrice = hitTp ? openPosition.tp! : hitSl ? openPosition.sl : candle.close;
         const priceDiff = openPosition.side === 'LONG' ? exitPrice - openPosition.entryPrice : openPosition.entryPrice - exitPrice;
         const profitPercent = (priceDiff / openPosition.entryPrice) * 100;
         const profit = (openPosition.tradeCapital * profitPercent) / 100;
@@ -242,10 +242,11 @@ function runBacktest(candles: Candle[], strategy: Strategy, symbol: string, dire
     if (direction === 'short' && side !== 'SHORT') continue;
 
     const entryPrice = candles[i].close;
-    const tpDistance = strategy.takeProfit * pointValue;
-    const slDistance = strategy.stopLoss * pointValue;
-    const tp = side === 'LONG' ? entryPrice + tpDistance : entryPrice - tpDistance;
-    const sl = side === 'LONG' ? entryPrice - slDistance : entryPrice + slDistance;
+    // ATR(14) do próprio candle de entrada — dimensiona SL/TP pela volatilidade
+    // real do ativo/momento quando a estratégia pede stopLossMode/takeProfitMode
+    // 'ATR' (ver TradeSizing.resolveTpSl); cai para pontos fixos senão.
+    const atrAtEntry = cache.get('ATR', 14)[i];
+    const { tp, sl } = resolveTpSl(strategy, side, entryPrice, pointValue, atrAtEntry);
 
     const tradeCapital = calculatePositionSize({
       currentBalance: equity,

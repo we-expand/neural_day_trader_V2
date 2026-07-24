@@ -15,16 +15,27 @@ interface StrategyRow {
   updated_at: string;
 }
 
-function rowToStrategy(row: StrategyRow): Strategy {
+/**
+ * `null` sinaliza "linha de preset órfã" — descartar, nunca expor. Acontece
+ * quando o número/id de presets muda (ex: 2026-07-24, 6 presets viraram 4
+ * pelo redesenho baseado em pesquisa) e uma linha antiga de seed no Supabase
+ * (`is_preset:true`, `definition:{}`) não tem mais correspondência local. Sem
+ * este descarte, a linha zumbi seria exposta com entryBlocks/stopLoss/etc
+ * undefined — e `evaluateStrategyAt` quebra ao tentar `.filter()` em
+ * undefined assim que o usuário (ou uma config antiga salva) selecionasse
+ * esse id. Nunca uma migration de banco é necessária pra isso: o filtro é
+ * puramente no client, e a linha zumbi fica inofensiva no banco.
+ */
+function rowToStrategy(row: StrategyRow): Strategy | null {
   // Presets: a definição completa (blocos reais) vive em PRESET_STRATEGIES no
   // front — a linha do banco existe só pra permitir referenciar o id com FK e
   // pra permitir sobrescrever no futuro sem migration. Se `definition` vier
   // vazio (seed), cai pro preset local com o mesmo id.
   if (row.is_preset) {
     const local = PRESET_STRATEGIES.find(s => s.id === row.id);
-    if (local && (!row.definition || Object.keys(row.definition).length === 0)) {
-      return local;
-    }
+    const definitionIsEmpty = !row.definition || Object.keys(row.definition).length === 0;
+    if (local && definitionIsEmpty) return local;
+    if (!local && definitionIsEmpty) return null; // preset descontinuado — descarta
   }
   return {
     id: row.id,
@@ -54,7 +65,7 @@ export function useStrategies() {
       if (dbError) throw dbError;
 
       const rows = (data ?? []) as StrategyRow[];
-      const fromDb = rows.map(rowToStrategy);
+      const fromDb = rows.map(rowToStrategy).filter((s): s is Strategy => s !== null);
 
       // Garante que as 6 presets sempre aparecem, mesmo se a migration ainda
       // não rodou em produção (fallback gracioso, igual ao resto do app).
@@ -108,7 +119,10 @@ export function useStrategies() {
       return null;
     }
 
-    const saved = rowToStrategy(data as StrategyRow);
+    // saveStrategy sempre grava is_preset:false com definition preenchida —
+    // rowToStrategy só retorna null pro caso de preset órfão (is_preset:true
+    // + definition vazia), que nunca acontece aqui.
+    const saved = rowToStrategy(data as StrategyRow)!;
     setStrategies(prev => {
       const withoutOld = prev.filter(s => s.id !== saved.id);
       return [...withoutOld, saved];

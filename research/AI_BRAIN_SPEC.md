@@ -158,6 +158,26 @@ Se nenhum candidato passar o limiar: **não opera**. Ficar de fora é uma decis�
 e deve ser a mais comum. Um sistema que sempre encontra uma entrada não está
 selecionando — está racionalizando.
 
+### 5.1.1 Gate de capital mínimo (aporte mínimo definido: US$50)
+
+Além do gate de viabilidade por custo (seção 4), a seleção precisa recusar qualquer
+ativo cujo **lote mínimo negociável**, dado o capital do usuário, exigiria arriscar
+mais do que o envelope de risco permite (seção 7) — ou exigiria alavancagem alta o
+bastante pra tornar 1-2 trades ruins um evento de margin call.
+
+Com US$50 de capital, contratos de índice/CFD padrão (ex: US30 a $1/ponto) costumam
+ser inoperáveis dentro de um risco de 1-2% por trade sem alavancagem excessiva — isso
+não é uma exceção rara, é o caso comum no aporte mínimo. O universo efetivamente
+operável por conta pequena tende a ser mais estreito (majors de forex com lote micro,
+cripto fracionável) do que o catálogo completo que o usuário pode selecionar na tela.
+
+Consequência de design: o motor precisa checar, por (ativo, capital do usuário),
+se existe um tamanho de posição que respeita simultaneamente (a) o lote mínimo da
+corretora e (b) o risco máximo por trade — e recusar o ativo quando não existe,
+com o motivo explícito no log ("US30 requer risco mínimo de $X por lote, acima do
+permitido para este capital"). Mesmo princípio do gate de custo: reportar por que
+não operou, nunca forçar um tamanho que viola o envelope.
+
 ### 5.2 Diversificação
 
 Se já houver posição aberta, candidatos do mesmo grupo de correlação têm `S_i`
@@ -167,6 +187,11 @@ o risco real é o da carteira, nunca o do trade isolado.
 ---
 
 ## 6. Aprendizado — o que é seguro e o que não é
+
+> **Decisão de produto travada (2026-07-24): aporte mínimo por usuário = US$50.** Alimenta
+> diretamente o gate de capital mínimo da seção 5.1.1 — o universo de ativos operável no
+> aporte mínimo é mais estreito que o catálogo completo, isso é esperado e deve ser
+> comunicado ao usuário via log, nunca contornado afrouxando o risco por trade.
 
 > **Divergência consciente do pedido literal.** O briefing pede aprendizado "a cada
 > trade". Implementado literalmente, isso destrói o sistema: um trade não é amostra
@@ -272,6 +297,86 @@ antes de qualquer código; conta demo de corretora; shadow mode com prova acumul
 só então dinheiro real, com tamanho mínimo.
 
 ---
+
+## 11. Redesenho das estratégias-preset e calibração de custo (2026-07-24)
+
+As 6 estratégias-preset originais (herdadas do Figma Make: "Rompimento", "TDSM_98",
+"Indicador de Retrocessos", "False Breaktroughs", "AA PURE BREAK", "WIKIOSKIT
+EXECUTION") foram substituídas por 4 arquétipos com desenho e fonte declarados —
+ver `src/app/data/presetStrategies.ts`. Motivo: SL/TP fixo em pontos, igual para
+qualquer ativo/volatilidade, é problema conhecido na literatura (não debate) —
+normaliza mal o risco entre EURUSD e um índice, e corta trades de tendência forte
+no mesmo alvo que um trade fraco atinge por acaso. Nenhuma das 6 tinha filtro de
+regime real (ADX como gate, não decoração), o que a pesquisa aponta como a causa
+mais provável de falha fora de amostra em sistemas de cruzamento de médias.
+
+**Arquétipos novos** (todos com `regime` declarado + FILTER de ADX real):
+1. **Rompimento de Canal (Donchian)** — TREND. Compra no rompimento da máxima de
+   20 períodos, stop 2×ATR, sem alvo fixo (`takeProfitMode:'TRAILING_ONLY'`, deixa
+   o lucro correr via trailing/reversão de canal). Desenho canônico de
+   trend-following sistemático (Turtle Traders, Dennis/Eckhardt — amplamente
+   reportado, não verificado em texto primário nesta pesquisa); suporte de longo
+   prazo em Hurst/Ooi/Pedersen, "A Century of Evidence on Trend-Following
+   Investing" (AQR/SSRN, Journal of Portfolio Management 2017).
+2. **Cruzamento de Médias com Filtro de Regime** — TREND. EMA20×EMA50 + EMA50
+   inclinada + ADX>20. O ADX é o fix direto do problema #1 do diagnóstico.
+3. **Reversão à Média (RSI + Bollinger)** — RANGE. Só opera com ADX<22 (mercado
+   lateral) — mean-reversion documentado como pior em tendência forte
+   (Quantpedia).
+4. **Rompimento Confirmado (Volume)** — BREAKOUT. Donchian + OBV subindo
+   (confirmação de volume), reduz falso rompimento vs. breakout que reage só ao
+   toque do nível.
+
+Todas usam position sizing 1% fixed-fractional (não 2% linear como antes) — Van
+Tharp: fixed-fractional 1-2% é o padrão de mercado para trading de varejo; Kelly
+pleno amplifica erro de estimativa de win rate em drawdown extremo.
+
+**Suporte de engine adicionado para isso ser real, não só dado**: `calculateDonchian`
+(`TechnicalIndicators.ts`, sem look-ahead — janela `[i-period, i-1]`, testado);
+`Strategy.stopLossMode`/`takeProfitMode` ('POINTS'|'ATR'|'TRAILING_ONLY',
+`types/strategy.ts`); `TradeSizing.resolveTpSl` (calcula distância real por ATR do
+candle de entrada); `useBacktestLiveProgress.ts` ligado a isso. O builder manual
+(`StrategyBuilderPro.tsx`) continua 100% em pontos fixos — nada mudou lá, escopo
+consciente.
+
+**Gap conhecido, não fechado nesta rodada**: a IA ao vivo (`useApexLogic.ts`) usa
+`aiConfig.targetPoints` (preset do usuário) para TP/SL, não `strategy.stopLoss`/
+`stopLossMode` da estratégia selecionada — os dois sistemas nunca foram
+unificados. O ATR-based sizing desta rodada vale hoje só para o Backtest (onde
+`strategy.stopLoss/takeProfit` de fato é lido). Unificar isso é trabalho do
+"cérebro definitivo" (fases 3-4 do roadmap), não desta limpeza pontual.
+
+**Migração de dados**: presets antigos com `id` fora de `['1','2','3','4']` podem
+existir como linha seed no Supabase (`strategies`, `is_preset:true`,
+`definition:{}`) de sessões anteriores. `useStrategies.ts` descarta essas linhas
+no client (nunca expõe preset órfão sem definição local) — nenhuma migration de
+banco é necessária, e nenhuma config de usuário salva com um `activeStrategyId`
+antigo deveria mais crashar (a linha vira `null` e é filtrada antes de chegar ao
+motor).
+
+### Calibração de custo de transação (CostModel.ts)
+
+Pesquisa real contra concorrentes (IC Markets, Pepperstone, FXTM, Exness — contas
+Raw/ECN, o modelo relevante para execução automatizada via MT5/MetaAPI) recalibrou
+`research/CostModel.ts`. Custo round-trip recomendado por classe: forex major
+0,5pt spread + 0,2pt slippage (≈0,7-0,9pt total); exótico ancorado em USDTRY real
+(~16pt, Pepperstone) com folga de slippage; XAUUSD ~1,2pt (Infinox/Pepperstone
+Raw); índice ~3pt+1,5pt slippage (Pepperstone US30 Raw); cripto modelado em %
+(0,08%) por ter spread proporcional ao preço, não pips fixos.
+
+**Lacunas explícitas, não escondidas**: EURGBP (minor) e USDZAR não têm spread
+publicado encontrado — os valores de `FOREX_MINOR`/parte de `FOREX_EXOTIC` são
+extrapolação marcada como tal no comentário do código, não dado confirmado. Ação
+CFD não foi pesquisada nesta rodada — o valor antigo (não calibrado) permanece,
+sinalizado. Slippage em geral não é publicado por nenhuma corretora — todos os
+valores de slippage no modelo são estimativa baseada em liquidez conhecida da
+classe, nunca dado de mercado medido. O número real de execução (comparando preço
+solicitado vs. preço reportado por `/broker/execute`) só existirá depois que a
+Fase B (execução real) rodar — é o próximo ponto de recalibração.
+
+## 12. Decisão de produto: aporte mínimo
+
+Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
 
 ## 10. Limitações conhecidas (declaradas, não escondidas)
 

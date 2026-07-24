@@ -360,7 +360,7 @@ const INITIAL_STATE: ApexLogicState = {
     newsFilter: true, // Filtro de notícias econômicas
     dailyLossLimit: 5, // Limite de perda diária (%)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
-    activeStrategyId: '2', // Padrão: "TDSM_98" (tendência + RSI), mesma estratégia disponível no Backtest
+    activeStrategyId: '2', // Padrão: "Cruzamento de Médias com Filtro de Regime" (tendência, ADX-gated), mesma estratégia disponível no Backtest
 
     // Gerenciamento de Risco — defaults conservadores (modelo FTMO/Topstep)
     drawdownAnchor: 'DAILY_CLOSE',
