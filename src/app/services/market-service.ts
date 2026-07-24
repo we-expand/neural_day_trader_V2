@@ -20,6 +20,27 @@ export interface MarketQuote {
   timestamp: number;
 }
 
+// 🎯 Régua de tempo não é decorativa -- o gráfico ao vivo tinha só `limit`
+// (200) candles carregados, sempre a partir de agora pra trás. Pra timeframes
+// grosseiros (1D/1W) isso dava só meses de histórico real, muito menos que os
+// "no mínimo uns 5 anos" pedidos pra permitir análise (o resto do espaço
+// zerado à esquerda, ao dar zoom-out, não era histórico real vazio -- era a
+// própria klinecharts extrapolando marcações de tempo pra além do range de
+// dado carregado). Calcula quanto tempo pra trás buscar por timeframe: tenta
+// sempre pelo menos 5 anos, mas trava num teto de candles (MAX_CANDLES) pra
+// não estourar performance/rede em timeframes finos (5 anos de candle de 1
+// minuto seriam ~2.6 milhões de barras, inviável) -- nesses casos o teto vira
+// o fator limitante, não os 5 anos, e ainda assim sempre busca pelo menos o
+// equivalente ao limite antigo (200 barras).
+const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+const MAX_CANDLES = 10_000;
+
+function resolveLookbackMs(msPerCandle: number, previousBarCount: number): number {
+  const desired = Math.max(FIVE_YEARS_MS, previousBarCount * msPerCandle);
+  const cap = MAX_CANDLES * msPerCandle;
+  return Math.min(desired, cap);
+}
+
 /**
  * 🌐 FETCH CANDLES - ROTEAMENTO INTELIGENTE POR FONTE
  */
@@ -104,36 +125,62 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
   
   const binanceSymbol = symbolMap[symbol] || symbol;
   const binanceInterval = timeframeMap[timeframe] || '1h';
-  
+
+  const msPerCandle: Record<string, number> = {
+    '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
+    '1h': 3_600_000, '2h': 2 * 3_600_000, '4h': 4 * 3_600_000,
+    '1d': 86_400_000, '1w': 7 * 86_400_000, '1M': 30 * 86_400_000,
+  };
+  const intervalMs = msPerCandle[binanceInterval] || 3_600_000;
+  const lookbackMs = resolveLookbackMs(intervalMs, limit);
+  const endTime = Date.now();
+  const startTime = endTime - lookbackMs;
+
   try {
-    console.log(`[MarketService] 🔵 Fetching from BINANCE: ${binanceSymbol} ${binanceInterval}`);
-    const response = await fetch(
-      `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${binanceInterval}&limit=${limit}`,
-      { 
-        method: 'GET',
-        headers: { 'Accept': 'application/json' }
+    console.log(`[MarketService] 🔵 Fetching from BINANCE: ${binanceSymbol} ${binanceInterval} (histórico desde ${new Date(startTime).toISOString()})`);
+
+    // Binance limita 1000 candles por chamada -- pagina pra trás em janelas de
+    // 1000 barras até cobrir o lookback inteiro (mesma técnica já validada em
+    // BacktestDataService.fetchFromBinance).
+    const allCandles: CandleData[] = [];
+    let cursor = startTime;
+    let iterations = 0;
+    const MAX_ITERATIONS = 60; // trava de segurança
+
+    while (cursor < endTime && iterations < MAX_ITERATIONS) {
+      iterations++;
+      const chunkEnd = Math.min(cursor + 1000 * intervalMs, endTime);
+      const response = await fetch(
+        `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${binanceInterval}&startTime=${cursor}&endTime=${chunkEnd}&limit=1000`,
+        { method: 'GET', headers: { 'Accept': 'application/json' } }
+      );
+
+      if (!response.ok) {
+        // Se já temos algum candle de uma página anterior, devolve o que já
+        // temos em vez de descartar tudo por causa de uma página tardia.
+        if (allCandles.length > 0) break;
+        throw new Error(`Binance API error: ${response.status}`);
       }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Binance API error: ${response.status}`);
+
+      const data = await response.json();
+      if (!Array.isArray(data) || data.length === 0) break;
+
+      allCandles.push(...data.map((candle: any[]) => ({
+        timestamp: candle[0],
+        open: parseFloat(candle[1]),
+        high: parseFloat(candle[2]),
+        low: parseFloat(candle[3]),
+        close: parseFloat(candle[4]),
+        volume: parseFloat(candle[5]),
+      })));
+
+      cursor = chunkEnd;
+      if (cursor < endTime) await new Promise(resolve => setTimeout(resolve, 150));
     }
-    
-    const data = await response.json();
-    
-    // Converter formato Binance para nosso formato
-    const candles: CandleData[] = data.map((candle: any[]) => ({
-      timestamp: candle[0],
-      open: parseFloat(candle[1]),
-      high: parseFloat(candle[2]),
-      low: parseFloat(candle[3]),
-      close: parseFloat(candle[4]),
-      volume: parseFloat(candle[5]),
-    }));
-    
-    console.log(`[MarketService] ✅ Got ${candles.length} BINANCE candles for ${symbol}`);
-    
-    return candles;
+
+    console.log(`[MarketService] ✅ Got ${allCandles.length} BINANCE candles for ${symbol} (${iterations} página(s))`);
+
+    return allCandles;
   } catch (error) {
     console.error('[MarketService] ❌ Error fetching from Binance:', error);
     return [];
@@ -178,8 +225,13 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     const mapping = symbolMappingService.findMapping(symbol);
     const mt5Symbol = mapping?.infinox || symbol;
 
+    // 🎯 Pede uma janela de no mínimo 5 anos (teto de MAX_CANDLES pra
+    // timeframes finos) -- o backend (/mt5-candles-history) já pagina sozinho
+    // em blocos de 1000 candles até cobrir o intervalo pedido, então só
+    // precisamos alargar startTime/endTime, sem chunking aqui no cliente.
+    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit);
     const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - limit * (msPerCandle[mt5Timeframe] || 3_600_000));
+    const startTime = new Date(endTime.getTime() - lookbackMs);
 
     console.log(`[MarketService] 🟢 Fetching from METAAPI HISTORY: ${mt5Symbol} ${mt5Timeframe}`);
 
