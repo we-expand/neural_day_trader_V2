@@ -40,7 +40,7 @@ export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
  * própria estratégia, que é o gate real; este campo é a declaração honesta pro
  * usuário/UI de para que regime a estratégia foi desenhada.
  */
-export type StrategyRegime = 'TREND' | 'RANGE' | 'BREAKOUT';
+export type StrategyRegime = 'TREND' | 'RANGE' | 'BREAKOUT' | 'SCALP';
 
 export interface Strategy {
   id: string;

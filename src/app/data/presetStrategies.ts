@@ -164,6 +164,43 @@ export const PRESET_STRATEGIES: Strategy[] = [
   },
 ];
 
+PRESET_STRATEGIES.push({
+  ...baseDefaults,
+  id: '5',
+  name: 'Momentum de Curto Prazo (Scalp)',
+  description:
+    'Rajada de momentum no timeframe de 1 minuto: MACD cruza acima de zero com RSI já em zona de tendência ' +
+    '(50-70, não sobrecomprado) e ADX>18 confirmando micro-tendência. Stop 1×ATR, alvo 1,5×ATR — R:R modesto de ' +
+    'propósito (scalp precisa de taxa de acerto alta, não de retorno grande por trade). ' +
+    '⚠️ ATENÇÃO OPERACIONAL, diferente das outras 3 estratégias: scalping em CFD via corretora com latência de ' +
+    'segundos (documentada nesta plataforma, não hipotética — a conta MetaAPI compartilhada historicamente responde ' +
+    'em 3-9s por chamada) é estruturalmente mais arriscado que em execução de baixa latência. O spread cabe no ' +
+    'orçamento (ver research/CostModel.ts), mas a latência de execução pode consumir o alvo antes da ordem sair. ' +
+    'NÃO habilitar como padrão de produção sem antes: (1) medir a taxa de acerto REAL desta estratégia por ativo via ' +
+    'MarketScoreValidator; (2) comparar contra o piso de breakEvenWinRate() (research/CostModel.ts) POR ATIVO; ' +
+    '(3) confirmar latência de execução real via /broker/execute (só existe depois da Fase B/ponte de execução). ' +
+    'Enquanto isso não acontecer, esta estratégia é um candidato, não uma recomendação.',
+  regime: 'SCALP',
+  stopLoss: 20,
+  takeProfit: 30,
+  stopLossMode: 'ATR',
+  atrStopMultiplier: 1,
+  takeProfitMode: 'ATR',
+  atrTakeProfitMultiplier: 1.5,
+  timeframe: '1m',
+  maxConcurrentTrades: 1, // foco — scalp já opera em alta frequência, não acumula posições simultâneas
+  entryBlocks: [
+    block({ type: 'ENTRY', category: 'momentum', indicator: 'MACD', operator: 'CROSS_ABOVE', value: 0, label: 'MACD (histograma) cruza acima de zero (rajada de momentum começando)' }),
+    block({ type: 'ENTRY', category: 'momentum', indicator: 'RSI', period: 14, operator: 'BETWEEN', value: 50, value2: 70, label: 'RSI entre 50-70 (momentum a favor, ainda não sobrecomprado)' }),
+  ],
+  exitBlocks: [
+    block({ type: 'EXIT', category: 'momentum', indicator: 'MACD', operator: 'CROSS_BELOW', value: 0, label: 'MACD cruza abaixo de zero (rajada perdeu força)' }),
+  ],
+  filterBlocks: [
+    block({ type: 'FILTER', category: 'trend', indicator: 'ADX', period: 14, operator: 'ABOVE', value: 18, label: 'ADX > 18 (micro-tendência real, mesmo em timeframe curto — evita operar ruído puro)' }),
+  ],
+});
+
 export function getPresetStrategyById(id: string): Strategy | undefined {
   return PRESET_STRATEGIES.find(s => s.id === id);
 }

@@ -66,3 +66,42 @@ export function toNetReturn(grossReturnPercent: number, assetClass: AssetClass, 
   const roundTripCost = estimateCostPercent(assetClass, priceLevel, pointValue) * 2;
   return grossReturnPercent - roundTripCost * 100;
 }
+
+/**
+ * Gate de viabilidade (research/AI_BRAIN_SPEC.md seção 4): converte custo real
+ * na taxa de acerto mínima que uma estratégia precisa atingir só pra empatar
+ * com o custo de operar — abaixo disso, o setup tem expectativa negativa
+ * garantida, não importa quão bom pareça o sinal.
+ *
+ *   p_min = (L + C) / (R + L)
+ *
+ * onde R = alvo em pontos, L = stop em pontos, C = custo round-trip em pontos
+ * (spread+comissão+slippage, ida e volta — já é o dobro do custo por perna).
+ *
+ * Uso pretendido: antes de qualquer entrada em modo Scalper (alvo pequeno,
+ * custo pesa proporcionalmente mais), comparar `pMin` contra a taxa de acerto
+ * REAL medida da estratégia nesse ativo/timeframe (via MarketScoreValidator ou
+ * histórico de trades fechados) — se a taxa medida não superar `pMin` com
+ * margem de segurança, recusar a entrada e registrar o motivo. Ainda não
+ * ligado a nenhum caminho de produto (mesma situação do resto deste arquivo)
+ * — é o próximo passo depois desta calibração.
+ */
+export function breakEvenWinRate(targetPoints: number, stopPoints: number, roundTripCostPoints: number): number {
+  if (targetPoints <= 0 || stopPoints <= 0) return 1; // configuração inválida — trata como inviável
+  return (stopPoints + roundTripCostPoints) / (targetPoints + stopPoints);
+}
+
+/**
+ * Custo round-trip total em PONTOS (não %) para uma classe de ativo — forma
+ * mais direta de comparar contra targetPoints/stopPoints de uma estratégia,
+ * que já são expressos em pontos no motor (ver Strategy.stopLoss/takeProfit).
+ */
+export function roundTripCostPoints(assetClass: AssetClass): number {
+  const cost = COST_TABLE[assetClass];
+  // Cripto é modelada em % do notional (spread proporcional ao preço), não
+  // pips fixos — não tem conversão direta pra "pontos" sem o preço do ativo;
+  // retorna 0 aqui de propósito, o chamador deve usar estimateCostPercent
+  // pra essa classe em vez deste helper.
+  if (assetClass === 'CRYPTO') return 0;
+  return (cost.spreadPoints + cost.slippagePoints) * 2;
+}

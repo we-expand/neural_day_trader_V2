@@ -374,6 +374,34 @@ classe, nunca dado de mercado medido. O número real de execução (comparando p
 solicitado vs. preço reportado por `/broker/execute`) só existirá depois que a
 Fase B (execução real) rodar — é o próximo ponto de recalibração.
 
+## 11.1 Arquétipo Scalp (2026-07-24, continuação) — candidato, não recomendação
+
+Adicionado 5º preset (`id:'5'`, "Momentum de Curto Prazo (Scalp)", `regime:'SCALP'`):
+MACD cruza acima de zero + RSI 50-70 + ADX>18, timeframe 1m, stop 1×ATR/alvo
+1,5×ATR. Desenho de momentum de curto prazo, não "pegar ruído".
+
+**Por que é tratado diferente dos outros 4**: com o custo calibrado (seção 11), o
+spread em si cabe no orçamento de um scalp em forex major (~0,7-0,9pt round-trip
+contra um alvo de ~10-15pt). O problema real e específico desta plataforma é
+**latência de execução** — documentado extensivamente no histórico do projeto
+(`CLAUDE.md`, dezenas de sessões): a conta MetaAPI compartilhada responde
+tipicamente em 3-9s por chamada, às vezes com rate-limit (HTTP 429/504).
+Scalping exige execução em frações de segundo; nessa latência, o preço já andou
+antes da ordem sair — isso não é custo que se desconta, é limite físico da
+infraestrutura atual.
+
+**Gate de viabilidade implementado** (`research/CostModel.ts`):
+`breakEvenWinRate(alvo, stop, custoRoundTrip)` — converte o custo real na taxa de
+acerto mínima que a estratégia precisa bater só para empatar. Ainda não ligado a
+nenhum caminho de produto (mesmo estado do resto do CostModel) — é o próximo
+passo antes de sequer considerar habilitar scalp por padrão: medir a taxa de
+acerto real via `MarketScoreValidator` por ativo, comparar contra `breakEvenWinRate`,
+e só então decidir. Latência de execução real só é mensurável depois da Fase B.
+
+**Decisão explícita**: este preset existe no catálogo (usuário pode selecioná-lo
+manualmente), mas NÃO é o `activeStrategyId` default de nenhum fluxo, e não deve
+ser recomendado ao usuário como "pronto" até os 3 passos acima acontecerem.
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
