@@ -889,6 +889,50 @@ promoção no momento. Reprodução:
 (script editado para pular a fase Donchian, já descartada, e rodar yearsBack=10
 só no Cruzamento).
 
+## 11.12 Pooling dos 3 arquétipos restantes (2026-07-25) — todos os 5 presets da spec agora testados, nenhum passou
+
+Ação direta da pendência #1 deixada na 11.11: o Cleber escolheu testar
+arquétipos novos em vez de ampliar instrumentos ou pausar. Reversão à Média
+(id '3'), Rompimento Confirmado (id '4') e Scalp (id '5') nunca tinham
+passado pelo pooling cross-sectional (só grid search cripto na 11.5 e forex
+isolado na 11.8) — eram os 3 únicos presets ainda sem esse tratamento.
+
+Mesma disciplina anti-overfitting das seções 11.10/11.11: zero grid search
+novo, parâmetros de produção de `presetStrategies.ts` sem nenhum ajuste
+(nTrials=1, sr0=0 por desenho), calendário longo (10 anos) desde a primeira
+rodada — a 11.11 já tinha mostrado que confirmar em janela curta primeiro e
+estender depois é enganoso. Script:
+`research/experiments/2026-07-25-pooled-crosssectional/pooled-validate-345.ts`.
+
+Execução real precisou de retry com backoff exponencial (30s→240s) por HTTP
+429 repetido na conta MetaAPI compartilhada — mesmo risco crônico documentado
+no CLAUDE.md, agravado porque os 3 arquétipos juntos fazem 21 buscas
+sequenciais.
+
+**Resultado real — nenhum arquétipo passou, dois com Sharpe pooled fortemente negativo**:
+
+| Arquétipo | Timeframe | n holdout pooled | Sharpe pooled | Retorno agregado | Pares c/ Sharpe>0 | DSR |
+|---|---|---|---|---|---|---|
+| Reversão à Média (RSI+Bollinger) | 15m | 156 | -0,311 | -5,02% | 1 de 7 | 0,0% ❌ |
+| Rompimento Confirmado (Volume/OBV) | 1h | 3007 | -0,204 | -78,61% | 0 de 7 | 0,0% ❌ |
+| Momentum de Curto Prazo (Scalp) | 1m | 1367 | **-1,032** | -22,41% | 0 de 7 | 0,0% ❌ |
+
+Scalp foi o pior de toda a linha de investigação (11.5→11.12) — Sharpe pooled
+fortemente negativo em todos os 7 pares, sem exceção. Consistente com o aviso
+já registrado no próprio preset sobre risco de latência de execução via conta
+MetaAPI compartilhada (3-9s por chamada historicamente), mas aqui é o sinal
+de entrada em si que falha, não só a execução.
+
+**Conclusão honesta**: os 5 presets da spec agora foram todos testados com o
+método mais rigoroso disponível (pooling cross-sectional, calendário longo,
+DSR≥95%). **Nenhum tem edge comprovado.** Isso fecha a opção (a) da pendência
+#1 da seção 11.11 ("tentar arquétipos novos" — não havia mais arquétipos
+novos na spec, só estes 3, e todos falharam). Restam as opções (b) ampliar a
+cesta de instrumentos, (c) revisar a função objetivo/timeframe antes de
+continuar testando variações da mesma receita, ou (d) pausar a busca
+sistemática por edge de entrada. Reprodução:
+`npx esbuild research/experiments/2026-07-25-pooled-crosssectional/pooled-validate-345.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate-345.mjs && node /tmp/pooled-validate-345.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
