@@ -472,6 +472,39 @@ validadas" até uma rodada de calibração formal acontecer.
 
 **Reprodução**: `npx esbuild research/experiments/2026-07-24-strategy-validation/run.ts --bundle --platform=node --format=esm --outfile=/tmp/validate-strategies.mjs && node /tmp/validate-strategies.mjs`
 
+## 11.4 Investigação com holdout (2026-07-24, mesma continuação) — melhora real, sem edge
+
+Cleber perguntou se a simulação da seção 11.3 usava stop dinâmico ou fixo:
+**dinâmico** — `trailingStop:true` em todos os 5 presets. Mas o trailing só aperta
+o stop A FAVOR do trade (nunca alarga, nunca ajuda trade que nunca ficou no
+lucro) — pro grupo "89-91% batem stop" isso não muda nada, porque um trade que
+vai contra a posição desde a entrada nunca chega a ter o que o trailing possa
+apertar. A pergunta certa era a distância INICIAL do stop, não dinâmico-vs-fixo.
+
+**Investigação com split treino(70%)/holdout(30%) cronológico** (nunca
+embaralhado, mesma disciplina walk-forward do MarketScoreValidator — script em
+`research/experiments/2026-07-24-strategy-validation/investigate.ts`), BTCUSDT
+1h, ~3 anos:
+
+- **Donchian**: `atrStopMultiplier` 2→4 reduziu a perda líquida de forma
+  consistente e **sustentou no holdout** (nunca visto durante o ajuste):
+  -0,55% → -0,52%. Aplicado em `presetStrategies.ts`.
+- **Cruzamento EMA+ADX**: `atrStopMultiplier` 2,5→4,5, mesmo padrão, sustentou
+  no holdout: -0,28% → -0,14%. Aplicado.
+- **Rompimento Confirmado**: hipótese de que a saída "ATR em contração" cortava
+  lucro cedo estava **errada** — removê-la piorou no treino (não chegou a ser
+  testada no holdout, por desenho do processo: só testa fora de amostra o que
+  já melhorou dentro da amostra). A regra não rouba lucro, evita perda maior
+  (sem ela, mais trades vão até o stop cheio). Nenhuma mudança aplicada aqui.
+
+**Veredito, sem inflar como sucesso**: as duas mudanças aplicadas são reais e
+validadas fora de amostra — não é acaso, não é ajuste ao ruído do treino. Mas
+**as duas estratégias continuam com retorno líquido NEGATIVO** mesmo depois do
+ajuste, no dado testado (BTCUSDT 1h/4h, ~3 anos). Isso não é "encontramos o
+conserto" — é "encontramos uma melhora real e mensurável, insuficiente pra virar
+edge". As 5 estratégias continuam sem status de "validadas para produção" — a
+Fase 1 está fazendo exatamente o que deveria: impedir promoção precipitada.
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

@@ -72,7 +72,14 @@ export const PRESET_STRATEGIES: Strategy[] = [
     stopLoss: 150,
     takeProfit: 450,
     stopLossMode: 'ATR',
-    atrStopMultiplier: 2,
+    // 2026-07-24: 2×ATR (valor original) batia stop em 89-91% dos trades no
+    // BTC 1h/4h real (~3 anos) — investigação com split treino/holdout
+    // cronológico (research/experiments/2026-07-24-strategy-validation/investigate.ts)
+    // mostrou que 4×ATR reduz a perda líquida de forma consistente e
+    // validada fora de amostra (holdout -0,55%→-0,52%). Continua líquido
+    // NEGATIVO mesmo com o ajuste — não é edge comprovado, é melhora real
+    // porém insuficiente. Ver research/AI_BRAIN_SPEC.md seção 11.3/11.4.
+    atrStopMultiplier: 4,
     takeProfitMode: 'TRAILING_ONLY',
     timeframe: '4h',
     entryBlocks: [
@@ -96,9 +103,13 @@ export const PRESET_STRATEGIES: Strategy[] = [
     stopLoss: 150,
     takeProfit: 450,
     stopLossMode: 'ATR',
-    atrStopMultiplier: 2.5,
+    // 2026-07-24: mesmo achado do Arquétipo 1 — 2,5×ATR original batia stop
+    // em 89% dos trades. 4,5×ATR reduz a perda líquida, validado fora de
+    // amostra (holdout -0,28%→-0,14%). Ainda líquido NEGATIVO — ver nota
+    // completa no Arquétipo 1 e research/AI_BRAIN_SPEC.md seção 11.3/11.4.
+    atrStopMultiplier: 4.5,
     takeProfitMode: 'ATR',
-    atrTakeProfitMultiplier: 6, // R:R ~1:2.4 no candle de entrada; trailing pode entregar mais
+    atrTakeProfitMultiplier: 6, // R:R ~1:1.3 no candle de entrada; trailing pode entregar mais
     timeframe: '1h',
     entryBlocks: [
       block({ type: 'ENTRY', category: 'trend', indicator: 'EMA', period: 20, operator: 'CROSS_ABOVE', compareIndicator: 'EMA', comparePeriod: 50, label: 'EMA20 cruza acima da EMA50' }),
