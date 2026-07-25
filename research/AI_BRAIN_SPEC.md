@@ -559,6 +559,79 @@ ainda, registradas para decisão do Cleber:
 **Nenhuma das 4 estratégias foi promovida ou marcada como pronta.** Reprodução:
 `npx esbuild research/experiments/2026-07-24-strategy-validation/grid-search.ts --bundle --platform=node --format=esm --outfile=/tmp/grid-search.mjs && node /tmp/grid-search.mjs`
 
+## 11.6 Proposta de desenho: ensemble de sinais (2026-07-25) — não implementado, para decisão do Cleber
+
+Cleber questionou o modelo de "estratégia única engessada" (uma das 5 escolhida
+e seguida à risca) como pouco realista para day trade, dado que a dinâmica de
+mercado muda por dia/ativo/notícia. A pergunta bate diretamente na hipótese #2
+já registrada na seção 11.5 ("sinal único raramente tem edge sozinho") e na
+arquitetura em camadas já desenhada desde a seção 3 — que sempre prev­iu L1
+como "sinais brutos" plurais, nunca "a estratégia escolhida". O ensemble abaixo
+é a concretização dessa camada para os 4 arquétipos já existentes, não um
+desenho novo do zero.
+
+**Distinção importante, para não confundir com "IA decide sozinha o que fazer
+por intuição de mercado"**: isso continua sendo regras determinísticas e
+validáveis — a diferença é que a decisão final passa a ser uma COMBINAÇÃO
+ponderada de sinais, com o peso de cada sinal modulado pelo regime detectado
+(`MarketScoreEngine.detectRegime`, ADX-based, já existe), em vez de "escolher 1
+estratégia e obedecer cegamente". Não é discricionário, é mensurável.
+
+**Desenho proposto:**
+
+1. **Cada arquétipo vira um gerador de sinal, não uma estratégia exclusiva.**
+   Donchian, Cruzamento EMA+ADX, Reversão à Média, Rompimento Confirmado rodam
+   em paralelo a cada candle fechado, cada um emitindo `{direção: -1|0|+1,
+   força: 0..1}` — não mais "ligado/desligado" por seleção do usuário.
+
+2. **Peso por regime, não peso fixo.** O regime já classificado pelo
+   `MarketScoreEngine` (`TENDENCIA`/`LATERAL`/`INDEFINIDO`) modula o peso de
+   cada sinal: trend-following (Donchian, Cruzamento) pesa mais em
+   `TENDENCIA`; mean-reversion pesa mais em `LATERAL`; em `INDEFINIDO` todos
+   pesam pouco (menos operações, não mais). Isso é o mecanismo que resolve a
+   objeção do Cleber ("dia/ativo diferente muda a dinâmica") sem virar
+   discricionário: o regime já é medido, só falta usá-lo para ponderar em vez
+   de servir só de gate binário como hoje.
+
+3. **Requisito de decorrelação antes de combinar.** A seção 3 já exige "grupo
+   de correlação" na alocação (L4) — o mesmo princípio precisa valer entre
+   sinais: dois arquétipos que concordam 95% das vezes não são 2 fontes de
+   evidência, são 1 fonte duplicada. Antes de qualquer combinação, medir
+   correlação par-a-par dos sinais (mesmo dataset de 2026-07-24) e descartar/
+   fundir os que forem redundantes. Sem isso, o ensemble pode parecer mais
+   robusto só por estar "votando" com a mesma opinião 3 vezes.
+
+4. **Threshold de entrada = soma ponderada, não voto majoritário simples.**
+   Entra na direção só se `Σ(peso_i × força_i × direção_i)` passar um limiar
+   calibrado (não 50/50 arbitrário) — o mesmo tipo de calibração isotônica já
+   previsto na L2 (seção 3) se aplica aqui: o valor do ensemble precisa ser
+   validado contra taxa de acerto real, não assumido.
+
+5. **Validação do CONJUNTO, não de cada sinal isolado.** O critério de
+   promoção continua sendo DSR≥95% (seção 8, já implementado em
+   `DeflatedSharpe.ts`) — mas aplicado à curva de equity do ensemble
+   combinado, com o mesmo protocolo já usado (múltiplas janelas cronológicas,
+   split treino/holdout, holdout nunca influencia escolha de parâmetro). Um
+   ensemble que ainda falha o DSR não deveria ser promovido só por "parecer"
+   mais sofisticado — a disciplina da seção 11.5 vale igual.
+
+**O que isso NÃO resolve sozinho**: se os 4 sinais de base não têm edge
+individual nenhum (achado real da seção 11.5, DSR<1% em 3 dos 4), combiná-los
+com peso pode reduzir ruído (múltiplas fontes concordando é mais informativo
+que uma só) mas não cria edge do nada — sinais sem informação combinados
+continuam sem informação, só com variância menor. Por isso a hipótese #1 da
+seção 11.5 (testar em forex major, onde a literatura de origem foi construída)
+continua sendo um pré-requisito honesto a considerar em paralelo, não uma
+alternativa descartada pelo ensemble.
+
+**Próximo passo concreto, se aprovado**: estender
+`research/experiments/2026-07-24-strategy-validation/grid-search.ts` para (a)
+computar a matriz de correlação dos 4 sinais no mesmo dataset já usado, (b)
+combinar com peso por regime, (c) rodar `DeflatedSharpe.ts` sobre a curva
+combinada com o mesmo protocolo de janelas/holdout. Não implementado ainda —
+aguardando decisão do Cleber sobre priorizar isso vs. hipótese #1 (forex major)
+vs. aceitar o reposicionamento de risco.
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
