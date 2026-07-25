@@ -59,16 +59,23 @@ objetivo, arquitetura em camadas, arquétipos de estratégia, gate de
 viabilidade por custo, envelope de risco, critérios de validação, e o
 histórico de pesquisa/calibração (o que já foi testado e o resultado real).
 
-**Estado resumido (2026-07-24)**: 5 estratégias-preset redesenhadas com fonte
+**Estado resumido (2026-07-25)**: 5 estratégias-preset redesenhadas com fonte
 de evidência declarada (`src/app/data/presetStrategies.ts`), motor de
 ATR/Donchian real, custo de transação calibrado contra concorrência real. Uma
 busca sistemática com correção estatística (Deflated Sharpe Ratio) testou 106
 combinações de parâmetro em 4 arquétipos — **nenhum passou o piso de edge
-comprovado**. Decisão de próximo passo ainda em aberto com o Cleber (testar
-noutro instrumento, ensemble de sinais, ou aceitar o reposicionamento
-"risco como diferencial" já documentado). Ver seção 11 da spec pro detalhe
-completo e os scripts de validação reproduzíveis em
-`research/experiments/2026-07-24-strategy-validation/`.
+comprovado**. Testado em seguida um ensemble desses 4 sinais combinados por
+peso de regime (seção 11.6/11.7) — **piorou** (DSR 0%, holdout -42%) e revelou
+que 2 dos 4 arquétipos são essencialmente o mesmo sinal (correlação 0,74,
+Donchian × Rompimento Confirmado). Decisão de próximo passo ainda em aberto
+com o Cleber: testar noutro instrumento (forex major, onde a literatura de
+origem foi construída — hipótese reforçada pelo resultado do ensemble), refazer
+o ensemble corrigindo os 2 problemas achados (duplicação + saída genérica que
+descartou a lógica original de cada arquétipo), ou aceitar o reposicionamento
+"risco como diferencial" já documentado. Ver seções 11-11.7 da spec pro
+detalhe completo e os scripts de validação reproduzíveis em
+`research/experiments/2026-07-24-strategy-validation/` e
+`research/experiments/2026-07-25-ensemble/`.
 
 **Gate obrigatório antes de qualquer commit que toque o motor**:
 ```bash

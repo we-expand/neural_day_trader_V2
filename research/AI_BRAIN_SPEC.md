@@ -559,7 +559,7 @@ ainda, registradas para decisão do Cleber:
 **Nenhuma das 4 estratégias foi promovida ou marcada como pronta.** Reprodução:
 `npx esbuild research/experiments/2026-07-24-strategy-validation/grid-search.ts --bundle --platform=node --format=esm --outfile=/tmp/grid-search.mjs && node /tmp/grid-search.mjs`
 
-## 11.6 Proposta de desenho: ensemble de sinais (2026-07-25) — não implementado, para decisão do Cleber
+## 11.6 Proposta de desenho: ensemble de sinais (2026-07-25) — implementada e testada, ver 11.7
 
 Cleber questionou o modelo de "estratégia única engessada" (uma das 5 escolhida
 e seguida à risca) como pouco realista para day trade, dado que a dinâmica de
@@ -631,6 +631,67 @@ combinar com peso por regime, (c) rodar `DeflatedSharpe.ts` sobre a curva
 combinada com o mesmo protocolo de janelas/holdout. Não implementado ainda —
 aguardando decisão do Cleber sobre priorizar isso vs. hipótese #1 (forex major)
 vs. aceitar o reposicionamento de risco.
+
+## 11.7 Resultado real do ensemble (2026-07-25) — piorou, não passou o DSR
+
+Implementado `research/experiments/2026-07-25-ensemble/ensemble-validate.ts`
+seguindo o desenho da seção 11.6: os 4 arquétipos calibrados (seção 11.4)
+rodando em paralelo sobre BTCUSDT 1h (27.000 candles reais, Binance
+paginado), combinados por peso de regime (tabela declarada, não otimizada),
+testados em 8 candidatos (4 thresholds × peso-por-regime/peso-plano), 3
+janelas cronológicas × split treino/holdout, DSR corrigindo pelos 8 trials.
+
+**Matriz de correlação — achado real, não hipotético**: Donchian e Rompimento
+Confirmado correlacionam em **0,74** — ambos são variações de rompimento de
+canal Donchian (o 2º adiciona só confirmação de volume), então são
+essencialmente o MESMO sinal, não dois independentes. Isso valida a
+preocupação da seção 11.6 item 3 na prática: metade dos "4 sinais" do
+catálogo é 1 sinal duplicado, não 4 fontes de evidência distintas. Cruzamento
+EMA+ADX e Reversão à Média ficaram quase descorrelacionados de tudo (0,00-0,05)
+— mas isso porque Reversão à Média praticamente não dispara sinal em BTC (regime
+majoritariamente de tendência no dataset, gate `ADX<22` raramente satisfeito),
+não porque seja genuinamente decorrelacionada por mérito próprio.
+
+**Resultado de validação: pior que os arquétipos isolados, não melhor.**
+Nenhum dos 8 candidatos passou DSR≥95% — o campeão do treino (peso-por-regime,
+threshold=0,25) ficou em **DSR 0,0%** no holdout, com retorno agregado de
+**-42,53%** (75 trades). Todos os 8 candidatos ficaram com Sharpe holdout
+negativo. Isso é PIOR que os resultados individuais da seção 11.5 (Donchian
+sozinho chegou a DSR 30,5%, mesmo não passando o piso).
+
+**Por que o ensemble piorou em vez de ajudar — leitura honesta, não só o
+número**: a combinação ponderada com saída por "reversão de consenso" (fechar
+quando o score combinado inverte além de ±0,10) fecha trades de forma muito
+mais frequente e muito mais cedo do que a saída original de cada arquétipo
+(trailing stop puro do Donchian, regra de saída específica do Rompimento
+Confirmado etc.) — a simplificação da seção 11.6 item 5 ("gestão de risco
+única pro ensemble, pra isolar o efeito da combinação") teve um custo real que
+não tinha sido antecipado: ela descarta a lógica de saída que cada arquétipo
+tinha, e essa lógica de saída (não só a de entrada) fazia parte do que estava
+sendo validado antes. Combinar SÓ a entrada e trocar a saída por uma regra
+genérica não isola a variável como pretendido — muda duas coisas ao mesmo
+tempo. Além disso, dado que nenhum dos 4 sinais de base tem edge individual
+comprovado (seção 11.5), e dois deles são efetivamente o mesmo sinal (achado
+desta seção), o ensemble não tinha material de entrada com informação real
+para combinar — a hipótese "reduz ruído, não cria edge do nada" da seção 11.6
+se confirma no pior sentido possível aqui: sem edge de entrada, adicionar uma
+saída pior só piora.
+
+**Conclusão honesta**: o ensemble como desenhado NÃO deve ser promovido nem
+adotado. Isto não invalida a ideia de ensemble em si — invalida ESTA
+implementação específica (peso não otimizado, saída genérica que descarta a
+lógica original de cada arquétipo, sobre sinais de base sem edge comprovado e
+parcialmente duplicados). Se o Cleber quiser retomar esta linha no futuro, o
+próximo passo correto não é reajustar o ensemble no mesmo dado (seria
+otimização retroativa) — é primeiro resolver os dois problemas de fundo
+expostos aqui: (a) remover a duplicação Donchian/Rompimento Confirmado do
+catálogo antes de combinar de novo, (b) preservar a saída original de cada
+arquétipo em vez de uma saída genérica de consenso. Isso reforça, com dado
+real e não só teoria, a hipótese #1 da seção 11.5 (testar em instrumento
+diferente, onde os arquétipos de origem foram construídos) como a linha mais
+promissora ainda não tentada.
+
+**Reprodução**: `npx esbuild research/experiments/2026-07-25-ensemble/ensemble-validate.ts --bundle --platform=node --format=esm --outfile=/tmp/ensemble-validate.mjs && node /tmp/ensemble-validate.mjs`
 
 ## 12. Decisão de produto: aporte mínimo
 
