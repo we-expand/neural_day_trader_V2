@@ -106,27 +106,32 @@ ignorado.
 
 ## Pendências reais em aberto
 
-1. **Próxima sessão: abrir nova linha de pesquisa do cérebro de IA — arquétipos/
-   timeframes fora do catálogo atual.** Decisão do Cleber em 2026-07-25: todas
-   as linhas testadas dentro do catálogo de 4 arquétipos existentes
-   (instrumento, ensemble bruto, ensemble limpo) falharam com dado real (ver
-   11.5, 11.7, 11.8, 11.9) — não há mais hipótese barata a testar ali. Em vez
-   de aceitar o reposicionamento "risco como diferencial" agora, o próximo
-   passo é abrir uma linha de pesquisa NOVA: candidatos a arquétipo que ainda
-   não existem no catálogo (`src/app/data/presetStrategies.ts` só tem os 4 já
-   exauridos) e/ou timeframes ainda não testados sistematicamente (as buscas
-   de 11.5/11.8 cobriram 4h/1h/15m — considerar 1D/1W, onde a literatura de
-   trend-following original tende a operar, ou timeframes intraday menores
-   ainda não tentados). Ao abrir essa sessão: (a) ler `AI_BRAIN_SPEC.md`
-   seções 11.5-11.9 inteiras antes de propor qualquer candidato novo — não
-   repetir arquétipo/timeframe já testado; (b) qualquer candidato novo precisa
-   vir com fonte de evidência declarada (mesma disciplina da seção 11, "fonte
-   de evidência declarada" nas 5 estratégias-preset atuais); (c) usar a MESMA
-   metodologia estatística (DSR≥95%, 3 janelas cronológicas, split
-   treino/holdout, holdout nunca influencia escolha) — não pular a disciplina
-   só por ser exploração nova; (d) só depois de esgotar isso (ou o Cleber
-   decidir parar antes) considerar o reposicionamento "risco como
-   diferencial" como fallback final.
+1. **Próxima sessão: estender o histórico de calendário do pooling
+   cross-sectional (seção 11.10) e rodar de novo — é exatamente onde
+   paramos.** Contexto pra retomar sem reler tudo: o Cruzamento EMA+ADX
+   (preset id `'2'`, stop=4,5×ATR, já calibrado, SEM ajuste novo) rodou pooled
+   sobre 7 pares forex major (EURUSD/GBPUSD/USDJPY/AUDUSD/USDCAD/NZDUSD/USDCHF,
+   1h, ~3 anos) e chegou a **DSR 85,3%** (n=92, Sharpe pooled +0,110, +6,72%,
+   positivo nos 7 pares individuais) — o melhor resultado de toda a
+   investigação, mas ainda abaixo do piso de 95% exigido pela seção 8. Cálculo
+   já feito: com o mesmo Sharpe, passar o piso exige `n≈226` (~2,5× o atual).
+   **Ação concreta da próxima sessão**: rodar de novo
+   `research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts`
+   trocando SÓ o `yearsBack` (hoje 3 anos pro Cruzamento, 4 pro Donchian) pelo
+   máximo de histórico que a MetaAPI retornar pros 7 pares — **sem tocar em
+   nenhum parâmetro da estratégia** (mudar parâmetro aqui seria reintroduzir
+   a mesma seleção que o DSR existe pra punir). Se `n≈226` for atingido e o
+   DSR passar 95% com Sharpe ainda positivo: é o primeiro candidato real a
+   promoção de toda a spec — próximo passo aí seria desenhar o processo de
+   promoção formal (seção 6.1, "retreino com gate de promoção"), não pular
+   direto pra produção. Se não houver histórico suficiente na MetaAPI pra
+   chegar em n≈226: documentar o teto real de dado disponível e decidir com o
+   Cleber se vale ampliar a cesta de pares (majors extras, ou minors só com
+   custo confirmado — lacuna declarada na seção 11 sobre `FOREX_MINOR`) ou
+   aceitar o resultado como inconclusivo. Ler seção 11.10 do
+   `AI_BRAIN_SPEC.md` inteira antes de mexer nisso — tem o raciocínio
+   completo (erro padrão do Sharpe, por que pooling não paga imposto de
+   seleção, a tabela de resultado por ativo).
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
