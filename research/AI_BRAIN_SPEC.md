@@ -505,6 +505,60 @@ conserto" — é "encontramos uma melhora real e mensurável, insuficiente pra v
 edge". As 5 estratégias continuam sem status de "validadas para produção" — a
 Fase 1 está fazendo exatamente o que deveria: impedir promoção precipitada.
 
+## 11.5 Busca sistemática com Deflated Sharpe Ratio (2026-07-24) — nenhum arquétipo passou
+
+Pedido do Cleber depois da seção 11.4 ("vamos pesquisar a fundo até acertar").
+Implementado `research/DeflatedSharpe.ts` (Bailey & López de Prado 2014 — nunca
+tinha sido implementado apesar de citado na spec desde a criação, seção 8 item
+4; simplificação gaussiana declarada no cabeçalho do arquivo, não escondida) e
+`research/experiments/2026-07-24-strategy-validation/grid-search.ts`: 106
+combinações de parâmetro testadas ao todo (16 Donchian, 27 Cruzamento EMA+ADX,
+36 Reversão à Média, 27 Rompimento Confirmado), cada uma em 3 janelas
+cronológicas não sobrepostas do BTCUSDT real (regimes de mercado diferentes,
+não o mesmo período fatiado), cada janela com split treino(70%)/holdout(30%) —
+a escolha do "melhor" candidato usa só o treino, o holdout nunca influencia a
+escolha, só mede.
+
+**Resultado: nenhum dos 4 arquétipos passou o piso de DSR≥95%** (o critério que
+research/AI_BRAIN_SPEC.md seção 8 já exigia desde o início para promoção).
+Donchian chegou a 30,5%; os outros três ficaram abaixo de 1% — "mais provável
+que seja acaso do que edge real", mesmo depois de testar dezenas de
+combinações.
+
+**Achado instrutivo, não só negativo**: o Donchian mostrou +16,74% de retorno
+holdout — pareceria sucesso sem a correção estatística, mas eram só 19 trades
+(Sharpe 0,114, variância alta demais pra confiar). A Reversão à Média mostrou o
+padrão clássico de overfitting: Sharpe 1,035 no treino (parecia excelente) virou
+-0,513 no holdout (4 trades) — a busca por 36 combinações achou uma que se
+ajustava bem ao ruído do treino especificamente, sem generalizar. Esses dois
+casos são a demonstração prática de por que o DSR existe: sem ele, qualquer um
+dos dois teria sido promovido por engano.
+
+**Conclusão honesta**: testado sistematicamente, com múltiplas janelas de
+mercado e correção estatística real, nenhum dos 4 arquétipos tem edge líquido
+comprovado em BTCUSDT nos timeframes testados. Três hipóteses não testadas
+ainda, registradas para decisão do Cleber:
+
+1. **Instrumento pode ser o problema**: a literatura de trend-following
+   (Turtle Traders, AQR) foi construída sobre décadas de futuros de
+   commodities/moedas/índices, mercados com dinâmica macro diferente de
+   cripto (liquidez de exchange, sentimento, ciclos de alavancagem). Testar
+   os mesmos arquétipos em forex major é o teste justo ainda não feito nesta
+   rodada — limitado pelo rate-limit da conta MetaAPI compartilhada, viável
+   com paciência (chamadas espaçadas, como já feito na seção 11.3).
+2. **Sinal único raramente tem edge sozinho** — a própria spec (seção 3,
+   ensemble decorrelacionado) já previa isso como etapa posterior à validação
+   individual, nunca pulada de propósito até agora.
+3. **Consistente com o reposicionamento estratégico anterior do projeto**
+   (documentado em memória de sessão: "de 'IA que gera rentabilidade
+   exponencial' pra 'plataforma que impede o trader de se destruir'") — edge
+   de entrada sistemático e replicável é raro por natureza (é por isso que o
+   Medallion Fund nunca abriu capital externo). Este resultado não contradiz
+   essa decisão, é evidência a favor dela.
+
+**Nenhuma das 4 estratégias foi promovida ou marcada como pronta.** Reprodução:
+`npx esbuild research/experiments/2026-07-24-strategy-validation/grid-search.ts --bundle --platform=node --format=esm --outfile=/tmp/grid-search.mjs && node /tmp/grid-search.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
