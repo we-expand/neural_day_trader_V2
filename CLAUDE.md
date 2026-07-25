@@ -83,6 +83,18 @@ spec pro detalhe completo e os scripts reproduzíveis em
 `research/experiments/2026-07-25-forex-major/` e
 `research/experiments/2026-07-25-ensemble-v2/`.
 
+**Atualização (2026-07-25, pooling cross-sectional)**: diagnóstico de que as
+buscas anteriores podem ter sido subdimensionadas estatisticamente (holdout
+de n=19-20 tem pouco poder pra detectar Sharpe moderado). Corrigido rodando
+os mesmos parâmetros JÁ calibrados (sem grid search novo) sobre 7 pares forex
+major pooled — Donchian confirma sem edge (n=80, DSR 34%), mas **Cruzamento
+EMA+ADX subiu pra DSR 85,3% (n=92, Sharpe pooled +0,110, +6,72%, positivo nos
+7 pares individuais)** — melhor resultado de toda a investigação, ainda
+abaixo do piso de 95% mas por uma margem que parece fechável estendendo o
+histórico de calendário (cálculo: precisa de n≈226, ~2,5× o atual). Ver seção
+11.10 do `AI_BRAIN_SPEC.md`. Próximo passo natural: reproduzir com mais anos
+de dado, mesmos parâmetros, zero ajuste novo.
+
 **Gate obrigatório antes de qualquer commit que toque o motor**:
 ```bash
 npm run validate

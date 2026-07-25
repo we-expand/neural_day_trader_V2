@@ -784,6 +784,65 @@ real até aqui.
 
 **Reprodução**: `npx esbuild research/experiments/2026-07-25-ensemble-v2/ensemble-validate-v2.ts --bundle --platform=node --format=esm --outfile=/tmp/ensemble-validate-v2.mjs && node /tmp/ensemble-validate-v2.mjs`
 
+## 11.10 Pooling cross-sectional (2026-07-25) — Cruzamento EMA+ADX sobe a DSR 85,3%, ainda não passa
+
+Diagnóstico de um consultor externo (sessão 2026-07-25): as rodadas 11.5→11.9
+podem ter sido subdimensionadas estatisticamente, não necessariamente "sem
+edge". Erro padrão do Sharpe estimado (Lo, 2002): `SE(SR) ≈ √((1 + 0,5·SR²)/n)`.
+Com n=19 (holdout Donchian, seção 11.5/11.8), mesmo um Sharpe real de 0,5 tem
+`SE≈0,24` — t-stat na fronteira da significância ANTES da correção por
+múltiplos testes. As rodadas anteriores não tinham poder suficiente pra
+distinguir "sem edge" de "edge moderado, amostra pequena demais pra provar".
+
+**Correção proposta e implementada**: em vez de mais grid search (que já
+esgotou o edge barato e só infla a penalidade do DSR), usar os parâmetros JÁ
+calibrados fora de amostra na seção 11.4 (Donchian stop=4×ATR, Cruzamento
+EMA+ADX stop=4,5×ATR — sem nenhum ajuste novo) e rodar a mesma estratégia
+FIXA sobre uma cesta de 7 pares forex major (EURUSD, GBPUSD, USDJPY, AUDUSD,
+USDCAD, NZDUSD, USDCHF via MetaAPI real), agrupando (pooling) os trades de
+holdout de todos os pares num único vetor. Como nenhum parâmetro foi ajustado
+olhando este dado, `nTrials=1` — a penalidade de seleção do DSR é zero por
+desenho (`sr0=0`), e o DSR pooled é um teste direto de significância do
+Sharpe contra zero, com ~7× mais observações que testar 1 ativo isolado.
+Script: `research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts`.
+
+**Resultado real**:
+
+| Arquétipo | n holdout pooled | Sharpe pooled | Retorno agregado | DSR |
+|---|---|---|---|---|
+| Donchian (4h) | 80 | -0,047 | -3,46% | 34,0% ❌ |
+| Cruzamento EMA+ADX (1h) | 92 | **+0,110** | **+6,72%** | **85,3%** ⚠️ |
+
+**Donchian**: confirma o resultado anterior (sem edge), agora com poder
+estatístico bem maior (n=80 vs. n=19 da seção 11.5/11.8) — a rejeição fica
+mais confiável, não é mais "amostra pequena demais pra saber".
+
+**Cruzamento EMA+ADX — achado novo e digno de nota, sem inflar**: é o
+resultado mais forte de toda a linha de investigação (11.5→11.9→11.10). Dois
+sinais de qualidade além do DSR isolado: (a) **todos os 7 pares individuais
+tiveram Sharpe holdout positivo** (0,041 a 0,302) — não é 1 ativo sortudo
+carregando a média, é direção consistente entre instrumentos independentes;
+(b) o DSR saltou de <1% (seção 11.5, BTCUSDT) e de 28,8%/negativo (seção
+11.8, EURUSD isolado) para 85,3% pooled — mudança grande demais pra ser só
+ruído de mais dado, é o efeito esperado de corrigir o problema de poder.
+**Ainda não passa o piso de 95%** — não deve ser promovido agora.
+
+**Cálculo de quanto falta** (mesma fórmula do DSR, resolvendo pra n com o
+Sharpe atual constante): para `z=1,645` (limiar de 95%) com Sharpe pooled
+mantido em 0,110, precisa de `n≈226` — cerca de **2,5× o n atual (92)**.
+Caminho concreto pra chegar lá sem violar a disciplina anti-overfitting
+(nenhum ajuste de parâmetro): estender o histórico de anos por par (hoje
+~3 anos/11-12mil candles 1h por par — mais anos de calendário, não mais
+combinações) e/ou adicionar pares adicionais (majors extras se existirem,
+minors só com calibração de custo confirmada — ver lacuna declarada na
+seção 11 sobre `FOREX_MINOR` não ter spread publicado real).
+
+**Conclusão honesta**: nenhuma promoção ainda. Mas isto é o primeiro sinal
+com direção consistente entre múltiplos instrumentos independentes em toda a
+investigação — vale mais uma rodada (mais calendário, mesmos parâmetros,
+zero ajuste) antes de decidir entre promover ou arquivar o Cruzamento
+EMA+ADX. Reprodução: `npx esbuild research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate.mjs && node /tmp/pooled-validate.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
