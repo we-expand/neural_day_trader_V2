@@ -843,6 +843,52 @@ investigação — vale mais uma rodada (mais calendário, mesmos parâmetros,
 zero ajuste) antes de decidir entre promover ou arquivar o Cruzamento
 EMA+ADX. Reprodução: `npx esbuild research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate.mjs && node /tmp/pooled-validate.mjs`
 
+## 11.11 Pooling com calendário estendido (2026-07-25) — o edge do Cruzamento EMA+ADX não se confirma, some com mais dado
+
+Ação direta da pendência #1 deixada na seção 11.10: estender o histórico de
+calendário pooled sem tocar em nenhum parâmetro da estratégia, pra ver se
+`n≈226` (2,5× o n=92 da 11.10) confirmava o DSR 85,3% ou revelava que era
+amostra pequena demais. `yearsBack` do Cruzamento EMA+ADX (preset id `'2'`,
+stop=4,5×ATR, timeframe 1h) foi levado de 3 para 10 anos — mesmo script
+(`research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts`),
+zero ajuste de parâmetro. Teto real de histórico no broker via MetaAPI:
+maioria dos pares devolveu ~40-41 mil candles de 1h (~4,6-4,7 anos), NZDUSD
+só 24144 (~2,75 anos) — mais uma vez confirma que o pool não é perfeitamente
+simétrico entre pares.
+
+**Resultado real — reverteu, não confirmou**:
+
+| | Seção 11.10 (3 anos, n=92) | Aqui (10 anos, n=322) |
+|---|---|---|
+| Sharpe holdout pooled | +0,110 | **-0,015** |
+| Retorno agregado holdout | +6,72% | **-2,87%** |
+| DSR | 85,3% | **39,3% ❌** |
+| Pares individuais com Sharpe holdout positivo | 7 de 7 | **3 de 7** (GBPUSD +0,039, USDCAD +0,202, NZDUSD +0,013) |
+
+EURUSD (-0,215), USDJPY (-0,027), AUDUSD (-0,082) e USDCHF (-0,026) viraram
+negativos ou neutros com mais anos de calendário. `n=322` já passa
+confortavelmente do `n≈226` calculado como suficiente na seção 11.10 — não é
+mais uma questão de poder estatístico insuficiente.
+
+**Leitura honesta**: a própria seção 11.10 tinha levantado a hipótese
+alternativa de que mais poder estatístico poderia "confirmar sem edge" em vez
+de confirmar o edge — foi exatamente isso que aconteceu, na direção oposta à
+esperança. O DSR 85,3% da 11.10 não sobrevive a mais dado; o cenário mais
+provável é que era um resultado favorecido pela janela de calendário
+específica usada (2023-2026), não um edge real e estável do arquétipo. Isso
+fecha as 3 hipóteses da seção 11.5 (instrumento, sinal único, reposicionamento
+de risco — 11.5→11.7→11.8→11.9) **e** a hipótese de poder estatístico
+insuficiente (11.10→11.11): nenhuma produziu edge que sobrevive a mais dado
+ou mais rigor.
+
+**Conclusão**: nenhum dos 2 arquétipos testados na cesta forex major (Donchian,
+Cruzamento EMA+ADX) tem edge comprovado sob a disciplina desta spec (DSR≥95%,
+holdout out-of-sample, correção por múltiplos testes). Não há candidato à
+promoção no momento. Reprodução:
+`npx esbuild research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate.mjs && node /tmp/pooled-validate.mjs`
+(script editado para pular a fase Donchian, já descartada, e rodar yearsBack=10
+só no Cruzamento).
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

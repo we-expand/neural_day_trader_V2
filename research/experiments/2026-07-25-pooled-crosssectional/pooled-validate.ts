@@ -53,7 +53,7 @@ import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 // extrapolação não confirmada de FOREX_MINOR/EXOTIC, ver CostModel.ts).
 const SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF'];
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/server`;
-const INTER_SYMBOL_DELAY_MS = 2000;
+const INTER_SYMBOL_DELAY_MS = 5000;
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -161,11 +161,10 @@ async function evaluateArchetypePooled(
 async function main() {
   console.log('Buscando dados reais (MetaAPI, /mt5-candles-history) — 7 pares, chamadas sequenciais espaçadas...');
 
-  const donchian = PRESET_STRATEGIES.find(s => s.id === '1')!;
-  await evaluateArchetypePooled('Rompimento de Canal (Donchian, stop=4×ATR)', donchian, '4h', 4);
-
+  // Donchian já descartado (seção 11.10, DSR 34%) — pulado aqui pra economizar
+  // rate-limit da conta MetaAPI compartilhada e focar no que decide a pendência.
   const cruzamento = PRESET_STRATEGIES.find(s => s.id === '2')!;
-  await evaluateArchetypePooled('Cruzamento de Médias EMA+ADX (stop=4,5×ATR)', cruzamento, '1h', 3);
+  await evaluateArchetypePooled('Cruzamento de Médias EMA+ADX (stop=4,5×ATR)', cruzamento, '1h', 10);
 
   console.log('\n═══ Fim. DSR ≥ 95% é o único critério aceito como "edge provável" (mesmo piso da seção 8). ═══\n');
 }

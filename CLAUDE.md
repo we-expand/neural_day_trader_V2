@@ -87,13 +87,22 @@ spec pro detalhe completo e os scripts reproduzíveis em
 buscas anteriores podem ter sido subdimensionadas estatisticamente (holdout
 de n=19-20 tem pouco poder pra detectar Sharpe moderado). Corrigido rodando
 os mesmos parâmetros JÁ calibrados (sem grid search novo) sobre 7 pares forex
-major pooled — Donchian confirma sem edge (n=80, DSR 34%), mas **Cruzamento
+major pooled — Donchian confirma sem edge (n=80, DSR 34%), mas Cruzamento
 EMA+ADX subiu pra DSR 85,3% (n=92, Sharpe pooled +0,110, +6,72%, positivo nos
-7 pares individuais)** — melhor resultado de toda a investigação, ainda
-abaixo do piso de 95% mas por uma margem que parece fechável estendendo o
-histórico de calendário (cálculo: precisa de n≈226, ~2,5× o atual). Ver seção
-11.10 do `AI_BRAIN_SPEC.md`. Próximo passo natural: reproduzir com mais anos
-de dado, mesmos parâmetros, zero ajuste novo.
+7 pares individuais) — melhor resultado da investigação até então, ainda
+abaixo do piso de 95%. Ver seção 11.10 do `AI_BRAIN_SPEC.md`.
+
+**Atualização (2026-07-25, calendário estendido — seção 11.11)**: pendência
+executada no mesmo dia. Estendido `yearsBack` de 3 para 10 anos (mesmo
+script, zero ajuste de parâmetro), n_holdout pooled foi de 92 para 322
+(passa do n≈226 calculado como suficiente). **Resultado reverteu, não
+confirmou**: Sharpe pooled caiu de +0,110 para **-0,015**, DSR caiu de 85,3%
+para **39,3% ❌**, só 3 dos 7 pares continuam com Sharpe holdout positivo (era
+7 de 7). Leitura honesta: o DSR 85,3% da 11.10 não sobreviveu a mais dado —
+mais provável que fosse resultado favorecido pela janela de calendário
+específica (2023-2026) do que edge real. **Nenhum dos 2 arquétipos testados
+na cesta forex major tem edge comprovado.** Fecha as hipóteses das seções
+11.5→11.10 sem candidato à promoção.
 
 **Gate obrigatório antes de qualquer commit que toque o motor**:
 ```bash
@@ -106,32 +115,22 @@ ignorado.
 
 ## Pendências reais em aberto
 
-1. **Próxima sessão: estender o histórico de calendário do pooling
-   cross-sectional (seção 11.10) e rodar de novo — é exatamente onde
-   paramos.** Contexto pra retomar sem reler tudo: o Cruzamento EMA+ADX
-   (preset id `'2'`, stop=4,5×ATR, já calibrado, SEM ajuste novo) rodou pooled
-   sobre 7 pares forex major (EURUSD/GBPUSD/USDJPY/AUDUSD/USDCAD/NZDUSD/USDCHF,
-   1h, ~3 anos) e chegou a **DSR 85,3%** (n=92, Sharpe pooled +0,110, +6,72%,
-   positivo nos 7 pares individuais) — o melhor resultado de toda a
-   investigação, mas ainda abaixo do piso de 95% exigido pela seção 8. Cálculo
-   já feito: com o mesmo Sharpe, passar o piso exige `n≈226` (~2,5× o atual).
-   **Ação concreta da próxima sessão**: rodar de novo
-   `research/experiments/2026-07-25-pooled-crosssectional/pooled-validate.ts`
-   trocando SÓ o `yearsBack` (hoje 3 anos pro Cruzamento, 4 pro Donchian) pelo
-   máximo de histórico que a MetaAPI retornar pros 7 pares — **sem tocar em
-   nenhum parâmetro da estratégia** (mudar parâmetro aqui seria reintroduzir
-   a mesma seleção que o DSR existe pra punir). Se `n≈226` for atingido e o
-   DSR passar 95% com Sharpe ainda positivo: é o primeiro candidato real a
-   promoção de toda a spec — próximo passo aí seria desenhar o processo de
-   promoção formal (seção 6.1, "retreino com gate de promoção"), não pular
-   direto pra produção. Se não houver histórico suficiente na MetaAPI pra
-   chegar em n≈226: documentar o teto real de dado disponível e decidir com o
-   Cleber se vale ampliar a cesta de pares (majors extras, ou minors só com
-   custo confirmado — lacuna declarada na seção 11 sobre `FOREX_MINOR`) ou
-   aceitar o resultado como inconclusivo. Ler seção 11.10 do
-   `AI_BRAIN_SPEC.md` inteira antes de mexer nisso — tem o raciocínio
-   completo (erro padrão do Sharpe, por que pooling não paga imposto de
-   seleção, a tabela de resultado por ativo).
+1. **Próxima sessão: decidir o que vem depois do beco sem saída da cesta
+   forex major (seções 11.5→11.11).** A pendência anterior (estender
+   calendário do Cruzamento EMA+ADX) foi executada em 2026-07-25 — resultado
+   reverteu (DSR 85,3%→39,3%, ver seção 11.11 do `AI_BRAIN_SPEC.md` e o
+   CLAUDE.md acima). Nenhum arquétipo testado (Donchian, Cruzamento EMA+ADX)
+   sobre EURUSD/GBPUSD/USDJPY/AUDUSD/USDCAD/NZDUSD/USDCHF tem edge comprovado
+   sob a disciplina da spec (DSR≥95%, holdout, correção por múltiplos
+   testes) — a investigação nessa cesta específica está esgotada, não é mais
+   questão de poder estatístico. **Decisão que precisa do Cleber**: (a)
+   tentar arquétipos novos (a spec tem outros presets além dos 2 testados —
+   ver `presetStrategies.ts`); (b) ampliar a cesta de instrumentos (minors
+   com custo confirmado, índices, cripto adicional); (c) revisar a própria
+   função objetivo/timeframe antes de continuar testando variações da mesma
+   receita; ou (d) pausar a busca por edge sistemático e focar noutra frente
+   do produto por um tempo. Ler seção 11.11 (mais 11.10 pra contexto) antes
+   de decidir.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
