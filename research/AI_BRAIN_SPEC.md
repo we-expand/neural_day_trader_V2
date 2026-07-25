@@ -693,6 +693,97 @@ promissora ainda não tentada.
 
 **Reprodução**: `npx esbuild research/experiments/2026-07-25-ensemble/ensemble-validate.ts --bundle --platform=node --format=esm --outfile=/tmp/ensemble-validate.mjs && node /tmp/ensemble-validate.mjs`
 
+## 11.8 Hipótese #1 testada: os 4 arquétipos em forex major (EURUSD) — falhou de novo, pior que em cripto (2026-07-25)
+
+Cleber escolheu testar a hipótese #1 da seção 11.5 (instrumento pode ser o
+problema — a literatura de trend-following foi construída sobre forex/
+commodities, não cripto). Implementado
+`research/experiments/2026-07-25-forex-major/grid-search-forex.ts`: mesma
+metodologia exata da seção 11.5 (106 combinações, mesmas 4 famílias de
+parâmetro, 3 janelas cronológicas × split treino/holdout, DSR corrigido pelo
+número de trials), trocando só a fonte de dado (EURUSD real via MetaAPI,
+`/mt5-candles-history` — rota que nunca cai em dado simulado, erro explícito
+se não houver dado real) e a classe de custo (FOREX_MAJOR em vez de CRYPTO).
+Dataset: 4.000 candles 4h (~4 anos), 11.000 candles 1h (~3 anos), 25.000
+candles 15m (~1 ano) — histórico real da corretora, não sintético.
+
+**Resultado: nenhum dos 4 arquétipos passou o piso de DSR≥95% — e o resultado
+é PIOR que em BTCUSDT (seção 11.5), não melhor.**
+
+| Arquétipo | Sharpe holdout | Retorno agregado holdout | DSR |
+|---|---|---|---|
+| Donchian | -0,436 (n=19) | -5,23% | 0,2% ❌ |
+| Cruzamento EMA+ADX | 0,060 (n=5) | +0,16% | 28,8% ❌ |
+| Reversão à Média | 0,000 (n=1) | -0,10% | 0,0% ❌ |
+| Rompimento Confirmado | -0,078 (n=180) | -2,06% | 0,1% ❌ |
+
+Três dos quatro campeões (escolhidos só pelo treino) tiveram Sharpe **negativo**
+no holdout — pior que o BTCUSDT original, onde ao menos o Donchian mostrou um
+retorno holdout positivo (ainda que sem DSR suficiente). O caso da Reversão à
+Média é sintoma claro de amostra pequena demais para significar algo: só 1
+trade no holdout inteiro (36 candidatos testados, SR0 esperado só por acaso
+sobe para 4,098 — a busca por tantas combinações sobre tão poucos sinais reais
+infla o "custo" estatístico de qualquer candidato individual).
+
+**Conclusão honesta**: a hipótese #1 (instrumento) está descartada como causa
+raiz — testado com a mesma disciplina estatística, EURUSD não revelou edge
+onde BTCUSDT também não revelou; ao contrário, os campeões holdout pioraram.
+Isso desloca peso relativo para a hipótese #2 (sinal único raramente tem edge
+sozinho — mas o ensemble da seção 11.7 já testou isso com os problemas
+conhecidos: sinais duplicados e saída genérica, não uma versão limpa) e para a
+hipótese #3 (reposicionamento "risco como diferencial" já documentado — este
+resultado é evidência a favor, não contra). As três hipóteses da seção 11.5
+foram todas exploradas nesta linha de investigação (11.5→11.7→11.8); nenhuma
+produziu um arquétipo ou combinação com edge estatisticamente distinguível de
+acaso.
+
+**Reprodução**: `npx esbuild research/experiments/2026-07-25-forex-major/grid-search-forex.ts --bundle --platform=node --format=esm --outfile=/tmp/grid-search-forex.mjs && node /tmp/grid-search-forex.mjs`
+
+## 11.9 Ensemble v2, versão limpa (2026-07-25) — melhorou, ainda não passou o DSR
+
+Cleber escolheu a opção "refazer o ensemble corrigindo os 2 problemas" depois
+do resultado da 11.8. Implementado
+`research/experiments/2026-07-25-ensemble-v2/ensemble-validate-v2.ts`,
+corrigindo exatamente os dois problemas apontados na conclusão da seção 11.7:
+
+1. **Duplicação removida**: Rompimento Confirmado saiu do ensemble (era 0,74
+   correlacionado com Donchian). Ficaram só 3 sinais: Donchian, Cruzamento
+   EMA+ADX, Reversão à Média.
+2. **Saída original preservada por arquétipo**: em vez da saída genérica única
+   (stop 3×ATR trailing + "reversão de consenso") que a 11.7 usava pra toda
+   posição, aqui a posição usa o SL/TP/exitBlocks ORIGINAIS do arquétipo que
+   dominou a combinação no candle de entrada (maior `|peso×força×direção|`
+   entre os 3) — só a entrada é combinada, a gestão da posição é a mesma já
+   calibrada individualmente na seção 11.4, via `resolveTpSl`/`evaluateExitAt`
+   (as mesmas funções do BacktestEngine real, não uma reimplementação).
+
+**A correção #1 funcionou de verdade**: matriz de correlação nova confirma os
+3 sinais genuinamente decorrelacionados (Donchian×Cruzamento 0,05,
+Donchian×Reversão 0,00, Cruzamento×Reversão 0,00) — bem diferente do 0,74
+espúrio da 11.7.
+
+**Resultado: melhor que o ensemble v1, mas ainda não passa o piso.** Campeão
+no treino (peso-por-regime, threshold=0,45): holdout n=14, Sharpe=-0,042,
+retorno agregado=-0,92%, **DSR 29,2%**. Não é mais o colapso total da v1 (DSR
+0%, holdout -42%) — mas 29,2% continua bem abaixo do piso de 95%, e o Sharpe
+holdout do campeão continua negativo. Dos 8 candidatos testados, só 2
+combinações distintas de threshold/peso produziram holdout com Sharpe
+positivo (+0,270, n=4 — amostra pequena demais pra significar algo, mesmo
+problema da Reversão à Média isolada na seção 11.5/11.8).
+
+**Conclusão honesta**: corrigir os dois problemas de desenho da v1 melhorou a
+qualidade estatística do experimento (sinais realmente independentes, gestão
+de risco preservada por arquétipo) mas não criou edge que não existia — os 3
+sinais de base continuam sem edge individual comprovado (seção 11.5), e
+"decorrelacionado + bem gerenciado" não substitui "informativo". Isso fecha o
+ciclo de investigação das 3 hipóteses da seção 11.5 (11.5→11.7→11.8→11.9):
+instrumento testado (falhou, pior), ensemble testado em duas versões — bruta e
+limpa (ambas falharam, a limpa menos mal) — e a hipótese #3 (reposicionamento
+"risco como diferencial") permanece como a única não contrariada por dado
+real até aqui.
+
+**Reprodução**: `npx esbuild research/experiments/2026-07-25-ensemble-v2/ensemble-validate-v2.ts --bundle --platform=node --format=esm --outfile=/tmp/ensemble-validate-v2.mjs && node /tmp/ensemble-validate-v2.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

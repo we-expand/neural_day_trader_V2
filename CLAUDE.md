@@ -63,19 +63,25 @@ histórico de pesquisa/calibração (o que já foi testado e o resultado real).
 de evidência declarada (`src/app/data/presetStrategies.ts`), motor de
 ATR/Donchian real, custo de transação calibrado contra concorrência real. Uma
 busca sistemática com correção estatística (Deflated Sharpe Ratio) testou 106
-combinações de parâmetro em 4 arquétipos — **nenhum passou o piso de edge
-comprovado**. Testado em seguida um ensemble desses 4 sinais combinados por
-peso de regime (seção 11.6/11.7) — **piorou** (DSR 0%, holdout -42%) e revelou
-que 2 dos 4 arquétipos são essencialmente o mesmo sinal (correlação 0,74,
-Donchian × Rompimento Confirmado). Decisão de próximo passo ainda em aberto
-com o Cleber: testar noutro instrumento (forex major, onde a literatura de
-origem foi construída — hipótese reforçada pelo resultado do ensemble), refazer
-o ensemble corrigindo os 2 problemas achados (duplicação + saída genérica que
-descartou a lógica original de cada arquétipo), ou aceitar o reposicionamento
-"risco como diferencial" já documentado. Ver seções 11-11.7 da spec pro
-detalhe completo e os scripts de validação reproduzíveis em
-`research/experiments/2026-07-24-strategy-validation/` e
-`research/experiments/2026-07-25-ensemble/`.
+combinações de parâmetro em 4 arquétipos sobre BTCUSDT — **nenhum passou o
+piso de edge comprovado**. Ensemble desses 4 sinais por peso de regime (seção
+11.6/11.7) — **piorou** (DSR 0%, holdout -42%), revelou 2 dos 4 arquétipos
+essencialmente o mesmo sinal (correlação 0,74). Repetida a mesma busca (106
+combinações) em EURUSD real via MetaAPI (seção 11.8, hipótese #1 da 11.5) —
+**falhou de novo, pior que em cripto**: 3 dos 4 campeões com Sharpe holdout
+negativo. Refeito o ensemble numa versão limpa (seção 11.9): removida a
+duplicação Donchian/Rompimento Confirmado (3 sinais agora genuinamente
+decorrelacionados, correlação ≤0,05) e a saída original de cada arquétipo
+preservada por posição, em vez de saída genérica única — **melhorou (DSR
+29,2% vs. 0% da v1) mas ainda não passou o piso de 95%**, holdout do campeão
+segue com Sharpe negativo. As 3 hipóteses da seção 11.5 (instrumento, sinal
+único, reposicionamento de risco) estão todas exploradas agora
+(11.5→11.7→11.8→11.9); nenhuma produziu edge comprovado. Ver seções 11-11.9 da
+spec pro detalhe completo e os scripts reproduzíveis em
+`research/experiments/2026-07-24-strategy-validation/`,
+`research/experiments/2026-07-25-ensemble/`,
+`research/experiments/2026-07-25-forex-major/` e
+`research/experiments/2026-07-25-ensemble-v2/`.
 
 **Gate obrigatório antes de qualquer commit que toque o motor**:
 ```bash
@@ -88,9 +94,34 @@ ignorado.
 
 ## Pendências reais em aberto
 
-1. **Decisão de próximo passo do cérebro de IA** — ver seção acima, aguardando o Cleber.
+1. **Próxima sessão: abrir nova linha de pesquisa do cérebro de IA — arquétipos/
+   timeframes fora do catálogo atual.** Decisão do Cleber em 2026-07-25: todas
+   as linhas testadas dentro do catálogo de 4 arquétipos existentes
+   (instrumento, ensemble bruto, ensemble limpo) falharam com dado real (ver
+   11.5, 11.7, 11.8, 11.9) — não há mais hipótese barata a testar ali. Em vez
+   de aceitar o reposicionamento "risco como diferencial" agora, o próximo
+   passo é abrir uma linha de pesquisa NOVA: candidatos a arquétipo que ainda
+   não existem no catálogo (`src/app/data/presetStrategies.ts` só tem os 4 já
+   exauridos) e/ou timeframes ainda não testados sistematicamente (as buscas
+   de 11.5/11.8 cobriram 4h/1h/15m — considerar 1D/1W, onde a literatura de
+   trend-following original tende a operar, ou timeframes intraday menores
+   ainda não tentados). Ao abrir essa sessão: (a) ler `AI_BRAIN_SPEC.md`
+   seções 11.5-11.9 inteiras antes de propor qualquer candidato novo — não
+   repetir arquétipo/timeframe já testado; (b) qualquer candidato novo precisa
+   vir com fonte de evidência declarada (mesma disciplina da seção 11, "fonte
+   de evidência declarada" nas 5 estratégias-preset atuais); (c) usar a MESMA
+   metodologia estatística (DSR≥95%, 3 janelas cronológicas, split
+   treino/holdout, holdout nunca influencia escolha) — não pular a disciplina
+   só por ser exploração nova; (d) só depois de esgotar isso (ou o Cleber
+   decidir parar antes) considerar o reposicionamento "risco como
+   diferencial" como fallback final.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
+4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
+   **resolvido em 2026-07-25**: removido do índice + adicionado ao
+   `.gitignore` (commit `chore: remove node_modules do controle de versão`).
+   `.git` local ainda carrega o histórico antigo com esses blobs — `git gc`
+   opcional se o tamanho incomodar, não urgente.
 
 ## Convenções do projeto
 
@@ -101,3 +132,11 @@ ignorado.
   sem look-ahead, custo real descontado, correção por múltiplos testes). Ver
   `AI_BRAIN_SPEC.md` seção 8.
 - Comunicação sempre em português do Brasil.
+- **Padrão de rigor exigido pelo Cleber (2026-07-25)**: operar neste projeto
+  como especialista sênior em mercado financeiro quantitativo, ciência da
+  computação, matemática e estatística — e reportar resultado real sempre,
+  mesmo quando ruim ou constrangedor (ex: seção 11.7, ensemble que piorou).
+  Nunca inflar número, nunca esconder achado negativo, nunca apresentar
+  "melhora" sem holdout/correção estatística por trás. Isto não é tom, é
+  método: toda alegação de edge precisa vir com o dado que a sustenta (ou a
+  ausência dele, declarada).
