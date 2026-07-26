@@ -1010,6 +1010,45 @@ investigação até agora (Sharpe pooled não-negativo, direção consistente em
 comprovado" — não deve ser tratado como sucesso. Reprodução:
 `npx esbuild research/experiments/2026-07-25-crypto-basket/pooled-validate-crypto.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate-crypto.mjs && node /tmp/pooled-validate-crypto.mjs`
 
+## 11.14 Donchian em timeframe mais longo (2026-07-26) — inconclusivo, amostra insuficiente
+
+Ação da opção (c) da pendência #1 (11.13): Cleber escolheu revisar timeframe
+antes de reformular a função objetivo. Donchian é o único arquétipo com sinal
+não-negativo de toda a investigação (11.13: DSR 52,0% em cripto 4h) e é
+trend-following clássico (Turtle Traders/AQR, citado em 11.5) — estilo
+historicamente construído sobre barras diárias/semanais, nunca testado acima
+de 4h neste projeto. Testado o MESMO Donchian (zero ajuste de parâmetro) em
+1d e 1w, mesma cesta cripto de 7 pares da 11.13. Script:
+`research/experiments/2026-07-26-donchian-timeframe/donchian-daily-weekly.ts`.
+
+**Resultado — não confirma nem refuta, inconclusivo por desenho**:
+
+| Timeframe | n_holdout pooled | Sharpe pooled | DSR | Pares c/ Sharpe>0 |
+|---|---|---|---|---|
+| 4h (referência, 11.13) | 329 | 0,003 | 52,0% | 4 de 7 |
+| 1d | **48** | 0,116 | 78,7% ⚠️ | 4 de 7 |
+| 1w | 1 | 0,000 | 0,0% ❌ | 0 de 7 |
+
+**Leitura honesta, sem inflar o número maior**: o DSR de 1d (78,7%) parece
+melhor que o de 4h, mas `n_holdout=48` está bem abaixo do piso mínimo de 100
+sinais que a própria seção 8 exige — e é MENOR que o `n=92` da seção 11.10,
+que já se mostrou enganoso (DSR 85,3%→39,3% ao dobrar a amostra em 11.11).
+Mesmo padrão aqui, mais extremo: menos evidência, não mais. Um DSR mais alto
+vindo de uma amostra menor não é progresso, é o próprio sintoma que a seção
+11.10 já tinha ensinado a desconfiar. **1w é inutilizável**: só 1 trade
+pooled em ~9 anos de histórico cripto disponível — a maioria dos pares
+listados 2017-2020 não gera amostra suficiente em barra semanal.
+
+**Conclusão**: a hipótese "timeframe mais longo revela edge de
+trend-following" não foi testada de forma conclusiva — o histórico de cripto
+disponível (limitado a ~9 anos pros pares mais antigos, menos pros mais
+recentes) é curto demais pra gerar `n≥100` em barra diária com só 7 pares.
+Caminho pra testar de verdade: mais instrumentos no pool (compensar poucos
+trades/par) ou usar forex major (histórico mais longo que cripto, mas
+Donchian em 1d/1w nunca foi testado lá — só em 4h, seção 11.10/11.11).
+Reprodução:
+`npx esbuild research/experiments/2026-07-26-donchian-timeframe/donchian-daily-weekly.ts --bundle --platform=node --format=esm --outfile=/tmp/donchian-daily-weekly.mjs && node /tmp/donchian-daily-weekly.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

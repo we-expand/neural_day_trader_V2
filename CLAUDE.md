@@ -142,21 +142,23 @@ ignorado.
 ## Pendências reais em aberto
 
 1. **Próxima sessão: decidir o que vem depois — 5 presets × 2 cestas
-   (forex major e cripto) testados (seções 11.5→11.13), nenhum tem edge
-   comprovado.** Cleber já executou (a) arquétipos novos (11.12) e (b)
-   ampliar instrumentos pra cripto (11.13) — esta última rodada encontrou e
-   corrigiu de quebra um bug real de custo em `CostModel.ts` (custo cripto
-   quebrava pra moedas sub-US$1, corrigido, `npm run validate` verde). **O
-   melhor resultado de toda a investigação é Donchian em cripto (DSR 52,0%,
-   Sharpe pooled ~0,003, 4/7 pares positivos)** — ainda bem abaixo do piso de
-   95%, não deve ser lido como "quase lá" (a lição da 11.10→11.11 sobre não
-   confirmar cedo demais se aplica). **Opções que restam**: (b-continuação)
-   ampliar mais a cesta cripto (mais pares, ou focar só em Donchian com mais
-   histórico/mais instrumentos already-positivos: ETHUSDT, XRPUSDT, ADAUSDT,
-   DOGEUSDT); (c) revisar a própria função objetivo/timeframe em vez de só
-   trocar instrumento; ou (d) pausar a busca por edge sistemático e focar
-   noutra frente do produto por um tempo. Ler seção 11.13 (mais 11.10/11.12
-   pra contexto) antes de decidir.
+   (forex major, cripto) × timeframe do Donchian testados (seções
+   11.5→11.14), nenhum tem edge comprovado.** Cleber já executou (a)
+   arquétipos novos (11.12), (b) ampliar instrumentos pra cripto (11.13, achou
+   e corrigiu bug real de custo em `CostModel.ts` no processo) e (c) revisar
+   timeframe do melhor candidato (11.14). **Donchian em cripto 4h continua
+   sendo o melhor resultado real da investigação** (DSR 52,0%, n=329, 4/7
+   pares positivos) — testar em 1d deu DSR 78,7% mas com n=48, **abaixo do
+   piso mínimo de 100 sinais da seção 8, inconclusivo por desenho** (mesmo
+   padrão de amostra insuficiente que já enganou em 11.10→11.11, não deve ser
+   lido como confirmação); 1w é inutilizável (n=1). **Opções que restam**:
+   ampliar mais a cesta cripto (mais pares, focar em Donchian 4h que já tem
+   n=329 real); testar Donchian em 1d/1w no forex major (histórico mais longo
+   que cripto, nunca testado nesse timeframe lá); reformular a própria função
+   objetivo (medir expectância em US$ por trade em vez de Sharpe de trade com
+   stop ATR fixo — mais profundo, redesenha a métrica); ou (d) pausar a busca
+   sistemática por um tempo. Ler seção 11.14 (mais 11.10/11.13 pra contexto)
+   antes de decidir.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
