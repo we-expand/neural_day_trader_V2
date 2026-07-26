@@ -113,6 +113,23 @@ pares positivos), Rompimento Confirmado (-0,204, 0/7) e Scalp (**-1,032**,
 todos testados agora e nenhum tem edge comprovado.** Fecha a opção "testar
 arquétipos novos" — não sobra mais nenhum preset não testado.
 
+**Atualização (2026-07-25/26, cesta cripto ampliada — seção 11.13)**: Cleber
+escolheu ampliar instrumentos (opção b), cripto adicional (BTCUSDT, ETHUSDT,
+BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT via Binance público). Primeira
+rodada deu retornos absurdos em XRP/ADA/DOGE (até -80.161% agregado) — **bug
+real encontrado e corrigido**: `estimateCostPercent('CRYPTO', ...)` em
+`research/CostModel.ts` usava fórmula de custo calibrada pra forex/BTC-scale,
+gerando até 136,7% de custo round-trip por trade em moedas sub-US$1 (DOGE a
+US$0,073). Corrigido pra tratar custo cripto como % direto do preço (o
+comentário da tabela já dizia isso desde 2026-07-24, nunca tinha sido
+implementado). `npm run validate` passou 28/28 depois da correção. **Resultado
+real depois de corrigir**: ainda nenhum arquétipo passa o piso de 95% DSR, mas
+**Donchian em cripto é o melhor sinal de toda a investigação** — DSR 52,0%
+(Sharpe pooled ~0,003, quase zero em vez de negativo, 4/7 pares positivos).
+Scalp confirma ser o pior arquétipo (Sharpe pooled -3,36 em cripto limpo).
+Ver seção 11.13 do `AI_BRAIN_SPEC.md` pro detalhe completo do bug e do
+resultado.
+
 **Gate obrigatório antes de qualquer commit que toque o motor**:
 ```bash
 npm run validate
@@ -124,20 +141,22 @@ ignorado.
 
 ## Pendências reais em aberto
 
-1. **Próxima sessão: decidir o que vem depois — os 5 presets da spec estão
-   todos testados (seções 11.5→11.12), nenhum tem edge comprovado.** Cleber
-   já escolheu e executou a opção (a) da pendência anterior ("testar
-   arquétipos novos") em 2026-07-25 — Reversão à Média, Rompimento
-   Confirmado e Scalp rodaram com pooling cross-sectional, 10 anos, zero
-   ajuste de parâmetro. **Todos os 3 deram DSR 0,0%** (ver seção 11.12 do
-   `AI_BRAIN_SPEC.md`), fechando junto com Donchian e Cruzamento EMA+ADX
-   (11.5→11.11) o conjunto completo dos 5 presets de `presetStrategies.ts`.
-   **Não sobra mais "arquétipo novo" pra tentar** — as opções que restam:
-   (b) ampliar a cesta de instrumentos (minors com custo confirmado, índices,
-   cripto adicional); (c) revisar a própria função objetivo/timeframe antes
-   de inventar um 6º arquétipo do zero; ou (d) pausar a busca por edge
-   sistemático e focar noutra frente do produto por um tempo. Ler seção 11.12
-   (mais 11.10/11.11 pra contexto) antes de decidir.
+1. **Próxima sessão: decidir o que vem depois — 5 presets × 2 cestas
+   (forex major e cripto) testados (seções 11.5→11.13), nenhum tem edge
+   comprovado.** Cleber já executou (a) arquétipos novos (11.12) e (b)
+   ampliar instrumentos pra cripto (11.13) — esta última rodada encontrou e
+   corrigiu de quebra um bug real de custo em `CostModel.ts` (custo cripto
+   quebrava pra moedas sub-US$1, corrigido, `npm run validate` verde). **O
+   melhor resultado de toda a investigação é Donchian em cripto (DSR 52,0%,
+   Sharpe pooled ~0,003, 4/7 pares positivos)** — ainda bem abaixo do piso de
+   95%, não deve ser lido como "quase lá" (a lição da 11.10→11.11 sobre não
+   confirmar cedo demais se aplica). **Opções que restam**: (b-continuação)
+   ampliar mais a cesta cripto (mais pares, ou focar só em Donchian com mais
+   histórico/mais instrumentos already-positivos: ETHUSDT, XRPUSDT, ADAUSDT,
+   DOGEUSDT); (c) revisar a própria função objetivo/timeframe em vez de só
+   trocar instrumento; ou (d) pausar a busca por edge sistemático e focar
+   noutra frente do produto por um tempo. Ler seção 11.13 (mais 11.10/11.12
+   pra contexto) antes de decidir.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —

@@ -933,6 +933,83 @@ continuar testando variações da mesma receita, ou (d) pausar a busca
 sistemática por edge de entrada. Reprodução:
 `npx esbuild research/experiments/2026-07-25-pooled-crosssectional/pooled-validate-345.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate-345.mjs && node /tmp/pooled-validate-345.mjs`
 
+## 11.13 Ampliação pra cesta cripto (2026-07-25/26) — bug real de custo encontrado e corrigido, depois: nenhum arquétipo passa, Donchian é o melhor sinal da investigação (DSR 52%, ainda abaixo do piso)
+
+Ação da opção (b) da pendência #1 (11.12): Cleber escolheu ampliar a cesta de
+instrumentos em vez de inventar um 6º arquétipo. Forex minors ficaram de fora
+(spread extrapolado, não medido — violaria a disciplina "nunca fabricar
+dado"); índices ficaram de fora (sem `pointValue` em `TradeSizing.ts`,
+disponibilidade de símbolo não confirmada — trabalho de engenharia não feito
+ainda). Cripto adicional era a única opção pronta: dado público via Binance
+(sem depender da conta MetaAPI compartilhada), custo modelado de forma real.
+Cesta: BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT — 7
+pares, paralelo ao tamanho da cesta forex. Todos os 5 presets testados, zero
+ajuste de parâmetro (mesma disciplina 11.10→11.12). Script:
+`research/experiments/2026-07-25-crypto-basket/pooled-validate-crypto.ts`.
+
+**Primeira rodada — resultado inválido, bug de custo descoberto**: XRPUSDT,
+ADAUSDT e DOGEUSDT (todos sub-US$1) deram retornos agregados absurdos
+(-736% a -80.161%, Sharpe isolado até -79,6 em DOGEUSDT no Scalp). Investigado
+com script de diagnóstico dedicado
+(`research/experiments/2026-07-25-crypto-basket/diagnose-sizing-bug.ts`):
+`estimateCostPercent()` em `research/CostModel.ts` calculava custo de CRYPTO
+com a mesma fórmula `pontos÷preço` usada pra forex/índice — fórmula correta
+quando "ponto" escala com `pointValue` (pip forex), mas para CRYPTO os
+valores da tabela (`slippagePoints: 0,05`, câmbio já intencionado como
+percentual direto, conforme o próprio comentário da tabela desde 2026-07-24:
+"cripto tem spread proporcional ao preço, não pips fixos") nunca tiveram esse
+tratamento implementado. Resultado: pra ativos de escala BTC (~US$60.000) o
+erro é desprezível (~0,0001%), mas pra DOGEUSDT (~US$0,073) a mesma fórmula
+gerava **136,7% de custo round-trip por trade** — garantindo perda
+catastrófica em qualquer trade, independente do sinal da estratégia. Um trade
+citado como exemplo: retorno bruto real -18,2%, mas reportado como -154,7%
+por causa do custo inflado. Confirmado por cálculo direto antes de tocar no
+código (não é suposição).
+
+**Correção aplicada**: `estimateCostPercent()` agora trata CRYPTO como caso
+especial — `spreadPoints`/`slippagePoints` interpretados como percentual
+direto do preço (não mais dividido por `priceLevel`), como o comentário da
+tabela sempre disse que deveria ser. Efeito colateral corrigido de brinde: a
+função também usava um único `priceLevel` (o candle mais recente de toda a
+série, ~10 anos) pra todos os trades históricos — com custo agora
+percentual e não dependente de preço, isso deixa de importar pra CRYPTO.
+`npm run validate` rodado depois da mudança (gate obrigatório, `CostModel.ts`
+está dentro de `research/**/*.ts` no `tsconfig.engine.json`) — 28/28
+asserções passaram. Diagnóstico re-rodado confirma: mesmo trade que dava
+-154,7% agora dá -18,2% (bate com o retorno bruto real), zero trades com
+|profitPercent|>150% nos 133 trades testados.
+
+**Resultado real, depois da correção**:
+
+| Arquétipo | n holdout pooled | Sharpe pooled | Pares c/ Sharpe>0 | DSR |
+|---|---|---|---|---|
+| Rompimento de Canal (Donchian, 4h) | 329 | **+0,003** | 4 de 7 | **52,0%** ⚠️ |
+| Cruzamento EMA+ADX (1h) | 564 | -0,053 | 2 de 7 | 10,4% ❌ |
+| Reversão à Média (15m) | 125 | -0,666 | 0 de 7 | 0,0% ❌ |
+| Rompimento Confirmado (1h) | 4364 | -0,283 | 0 de 7 | 0,0% ❌ |
+| Momentum de Curto Prazo/Scalp (1m) | 1355 | **-3,360** | 0 de 7 | 0,0% ❌ |
+
+**Donchian em cripto é o melhor sinal de toda a investigação (11.5→11.13)**:
+DSR 52,0%, ainda bem abaixo do piso de 95%, mas Sharpe pooled ~0,003 (~zero,
+não claramente negativo) com 4 de 7 pares individualmente positivos — não é
+edge comprovado, é ruído em torno de zero em vez de perda sistemática. Não
+deve ser promovido nem lido como "quase lá" sem mais evidência — 52% de DSR
+significa que ainda é bem mais provável ser acaso do que edge real (a mesma
+lição da 11.10→11.11 sobre não confirmar cedo demais se aplica aqui).
+
+**Scalp confirma ser o pior arquétipo da spec inteira**, agora em dado sem o
+artefato de custo: Sharpe pooled -3,36, todos os 7 pares fortemente
+negativos, consistente com o aviso operacional já registrado no próprio
+preset sobre risco de latência de execução — aqui é o sinal de entrada em si
+que falha, independente da questão de latência.
+
+**Conclusão honesta**: ampliar a cesta pra cripto não produziu edge
+comprovado em nenhum arquétipo. Donchian é o único ponto positivo real da
+investigação até agora (Sharpe pooled não-negativo, direção consistente em
+57% dos pares), mas "não claramente negativo" está muito longe de "edge
+comprovado" — não deve ser tratado como sucesso. Reprodução:
+`npx esbuild research/experiments/2026-07-25-crypto-basket/pooled-validate-crypto.ts --bundle --platform=node --format=esm --outfile=/tmp/pooled-validate-crypto.mjs && node /tmp/pooled-validate-crypto.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

@@ -53,6 +53,21 @@ const COST_TABLE: Record<AssetClass, CostEstimate> = {
  */
 export function estimateCostPercent(assetClass: AssetClass, priceLevel: number, pointValue: number): number {
   const cost = COST_TABLE[assetClass];
+  // CRYPTO: bug encontrado na seção 11.13 do AI_BRAIN_SPEC.md — a fórmula
+  // pontos÷preço abaixo é calibrada pra classes com "ponto" fixo em preço
+  // (pip forex, tick de índice), onde pointValue converte corretamente.
+  // O comentário da COST_TABLE já dizia "cripto tem spread proporcional ao
+  // preço, não pips fixos" mas a implementação nunca tratou esse caso — pra
+  // ativos de escala BTC/ETH (milhares de dólares) o erro é desprezível, mas
+  // pra moedas sub-US$1 (DOGE, XRP, ADA) a mesma fórmula gera custo de
+  // dezenas/centenas de % por trade (ex.: DOGEUSDT ~US$0,073, slippagePoints
+  // 0,05 ÷ preço = 68% só de slippage numa perna). spreadPoints/slippagePoints
+  // de CRYPTO já são percentuais diretos (0,05 = 0,05%), não pontos em dólar.
+  if (assetClass === 'CRYPTO') {
+    const spreadCost = cost.spreadPoints / 100;
+    const slippageCost = cost.slippagePoints / 100;
+    return spreadCost + slippageCost + cost.commissionPercent / 100;
+  }
   const spreadCost = (cost.spreadPoints * pointValue) / priceLevel;
   const slippageCost = (cost.slippagePoints * pointValue) / priceLevel;
   return spreadCost + slippageCost + cost.commissionPercent / 100;
