@@ -141,27 +141,19 @@ ignorado.
 
 ## Pendências reais em aberto
 
-1. **Próxima sessão: decidir o que vem depois — 5 presets × 2 cestas ×
-   timeframe × 2 métricas (Sharpe e Sortino) testados (seções 11.5→11.15),
-   nenhum tem edge comprovado, e a última rodada foi a mais conclusiva contra
-   promoção até agora.** Cleber executou (a) arquétipos novos (11.12), (b)
-   ampliar instrumentos pra cripto (11.13, achou e corrigiu bug real de custo
-   em `CostModel.ts`), (c) revisar timeframe do Donchian (11.14, inconclusivo
-   por amostra insuficiente em 1d/1w) e reformular a função objetivo
-   Sharpe→Sortino (11.15). **Resultado da 11.15**: na única amostra
-   estatisticamente válida (Donchian 4h, n=323), Sortino pooled é
-   praticamente zero e o **bootstrap dá só 44,8% de chance do Sortino real
-   ser positivo — abaixo de 50%**, o teste mais rigoroso de toda a
-   investigação aponta NEGATIVO, não apenas "sem evidência suficiente". Isso
-   fecha a hipótese de que Sharpe estava escondendo edge assimétrico do
-   Donchian. **Opções que restam**: ampliar mais a cesta cripto (mais pares);
-   testar Donchian 1d/1w em forex major (histórico mais longo, nunca testado
-   nesse timeframe lá); reformular a métrica pra expectância monetária
-   (US$/trade com teste-t, ainda não tentado — ver seção 11.15 pra contexto do
-   que já foi tentado nessa frente); ou (d) pausar a busca sistemática por um
-   tempo — depois de 11 sub-seções de tentativas (11.5→11.15) sem um único
-   candidato validado, vale considerar isso com mais peso agora. Ler seção
-   11.15 (mais 11.13/11.14 pra contexto) antes de decidir.
+1. **Decisão de escopo tomada em 2026-07-26: linha 11.5→11.15 fechada, sem
+   candidato promovido.** 15 sub-investigações (5 presets × 2 cestas ×
+   timeframes × Sharpe/Sortino) não encontraram edge em indicador técnico
+   clássico sobre preço público — resultado consistente com mercado eficiente
+   pra esse tipo de sinal, não falta de tentativa. **Produto agora tem 2
+   pilares declarados**: (a) execução/gestão de risco disciplinada — vendável
+   já, sem depender de edge de sinal; (b) busca de edge com dado
+   estruturalmente diferente (order book cripto, calendário como filtro de
+   regime, features cross-asset) — ver seção 13 do `AI_BRAIN_SPEC.md`
+   ("Trilho 2"), com prazo-teto de 3-4 semanas e critério de corte explícito
+   definido antes de começar. **Fase Real (dinheiro de usuário) não depende
+   do sucesso do Trilho 2** — pode avançar só com o pilar (a). Trilho 2 ainda
+   não foi executado, é proposta escopada aguardando início.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —

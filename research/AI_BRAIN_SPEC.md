@@ -1102,6 +1102,97 @@ forte contra promoção de toda a linha 11.5→11.15. Reprodução:
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.
 
+## 13. Trilho 2 — investigação com dado estrutural (2026-07-26) — proposta, não executada
+
+**Decisão de escopo (2026-07-26)**: a linha 11.5→11.15 fecha oficialmente sem candidato
+promovido. Motivo declarado a Cleber: indicador técnico clássico (Donchian, EMA, ADX,
+Reversão, Scalp) sobre preço público, testado com todo o rigor disponível (DSR, Sortino,
+bootstrap, 2 cestas, múltiplos timeframes), não produziu edge — resultado consistente
+com a hipótese de mercado eficiente na forma fraca para esse tipo de sinal. Continuar
+girando a mesma busca (cesta nova, timeframe novo) é reconhecidamente busca de ruído
+com diminishing returns. Duas decisões de produto tomadas em paralelo a isto:
+
+1. **O produto passa a ter dois pilares declarados**, não um só: (a) execução e gestão de
+   risco disciplinada — vendável e defensável hoje, independente de edge de sinal; (b)
+   busca de edge de sinal — aposta de pesquisa, orçada e com critério de corte, não
+   trabalho indefinido.
+2. **Nenhum lançamento da Fase Real (dinheiro de usuário)** depende do sucesso deste
+   trilho. Fase Real pode avançar só com o pilar (a) — disciplina/risco — e uma
+   comunicação honesta ao usuário de que o motor ainda não tem edge de sinal comprovado.
+
+Esta seção escopa o pilar (b). Diferença deliberada em relação a 11.5→11.15: **dado de
+entrada estruturalmente diferente**, não mais um indicador técnico novo sobre o mesmo
+candle público. A hipótese aqui não é "existe uma combinação de parâmetros que ainda não
+tentamos", é "existe informação que o preço OHLCV não captura e que ainda não foi testada".
+
+### 13.1 Fontes de dado candidatas (por ordem de disponibilidade real, não de ambição)
+
+| Fonte | Disponibilidade hoje | Uso pretendido |
+|---|---|---|
+| Order book (desequilíbrio, profundidade) | **Só cripto (Binance)** — ver limitação L1 (seção 10) | Feature de curtíssimo prazo (minutos): pressão compradora/vendedora antes de movimento |
+| Calendário econômico (eventos programados) | Existe, com latência de minutos (L3) | **Filtro de regime**, não sinal isolado — evitar operar N minutos antes/depois de evento de alto impacto; medir se isso já reduz variância de perda |
+| Cross-asset (correlação, regime de volatilidade entre pares) | Dado já disponível (mesmos feeds), nunca usado como feature | Feature de contexto: ex. BTC lidera altcoins, DXY lidera forex majors — testar se o regime do "líder" prevê o "seguidor" |
+| Volume de tick (CFD) | Existe, mas é proxy fraco (L2) | Só como feature auxiliar, nunca como sinal principal — confiança declarada baixa |
+| Notícia em texto livre / sentimento | **Não existe pipeline hoje** | Fora de escopo deste trilho — exigiria fonte paga + NLP, custo/complexidade não justificado antes de validar as fontes acima |
+
+Consequência honesta: o único dado genuinamente novo com qualidade real disponível
+**hoje, sem custo adicional**, é order book de cripto + calendário como filtro de regime
++ features cross-asset. Notícia em texto e dado alternativo pago ficam fora deste
+trilho — não têm pipeline, e não se justifica construir um antes de esgotar o que já
+está disponível.
+
+### 13.2 Escopo restrito (deliberadamente pequeno)
+
+- **Ativos**: 3-4 pares de cripto líquidos com book Binance de qualidade (BTC/ETH/BNB/SOL
+  — reusar a cesta de 11.13). Não expandir pra forex/índice neste trilho — lá não existe
+  order book real (L1), então a hipótese central não se aplica.
+- **Timeframe**: minutos (1m-15m), não 4h/1d como nos testes anteriores — desequilíbrio
+  de book é um sinal de curtíssimo prazo por natureza; testá-lo em 4h descartaria a
+  informação que ele carrega.
+- **Modelo**: probabilidade calibrada via modelo simples e interpretável (regressão
+  logística ou gradient boosting raso) sobre o feature set — não rede neural profunda.
+  Motivo: com poucos meses de dado de book em alta frequência, um modelo complexo
+  overfita antes de generalizar, e perde-se a capacidade de auditar por que decidiu algo
+  (requisito de todo o resto da spec — nenhuma camada "chuta" sem explicar).
+- **Fora de escopo explícito**: notícia em texto/NLP, dado pago de terceiros, forex/índice,
+  timeframe acima de 15m, ensemble com os arquétipos já testados (misturar sinal sem
+  edge com sinal novo só dilui/mascara resultado).
+
+### 13.3 Metodologia de validação (reusa integralmente a seção 8, sem exceção)
+
+Mesma disciplina de 11.5→11.15: walk-forward com purge/embargo, custo real descontado
+(`CostModel.ts`), Deflated Sharpe **e** Sortino com bootstrap (aprendido em 11.15 — não
+confiar em Sharpe sozinho), amostra mínima — e por operar em timeframe de minutos, a
+amostra mínima efetiva sobe (mais trades esperados, então o piso de n pode ser mais alto
+antes de aceitar qualquer leitura, evitando o erro de 11.10/11.14 de ler n pequeno como
+sinal).
+
+### 13.4 Orçamento e critério de corte (obrigatório, decidido antes de começar)
+
+- **Prazo-teto: 3-4 semanas de investigação**, não indefinido. Ao final, produz-se um
+  veredito, promovido ou não — não se estende automaticamente pra "mais uma variação".
+- **Critério de sucesso**: pelo menos 1 feature (book, calendário-como-filtro ou
+  cross-asset) mostra Deflated Sortino ≥ piso da seção 8 **e** bootstrap com
+  P(Sortino real > 0) claramente acima de 50% (ideal ≥70%, para ter margem — 11.15
+  mostrou que perto de 50% não é confiável), em amostra ≥ piso mínimo.
+- **Critério de corte (fracasso honesto)**: se, ao fim do prazo, nenhuma fonte nova
+  passar o critério acima, a conclusão registrada é **"edge de sinal não é viável para
+  este produto com os dados hoje disponíveis"** — com essa frase, sem eufemismo — e o
+  pilar (b) é oficialmente pausado (não abandonado: fica documentado o que faria mudar
+  essa conclusão — ex. dado pago, mudança de corretora com book real em forex). O produto
+  segue 100% no pilar (a).
+
+### 13.5 Por que isto é diferente de "mais uma rodada de 11.x"
+
+11.5→11.15 testaram *parâmetros e métricas diferentes sobre o mesmo tipo de dado*
+(preço OHLCV público). Isso é o domínio onde mercado eficiente prevê, com razão teórica
+forte, que não sobra edge. Este trilho testa *um tipo de dado diferente* (book,
+calendário como filtro, estrutura cross-asset) — tem justificativa teórica distinta
+(informação de curtíssimo prazo que não está no candle) e é a única direção restante
+que não foi refutada por nenhum dos 15 testes já feitos. Se também falhar, a conclusão
+"este produto não tem edge de sinal viável" passa a ter uma base muito mais sólida do
+que temos hoje — e vale mais do que continuar girando a mesma manivela.
+
 ## 10. Limitações conhecidas (declaradas, não escondidas)
 
 **L1 — Sem microestrutura em não-cripto.** Order book real existe só para cripto
