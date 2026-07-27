@@ -296,6 +296,64 @@ periódica automática, gate de promoção de modelo. *Entregável: R7 e R9.*
 antes de qualquer código; conta demo de corretora; shadow mode com prova acumulada;
 só então dinheiro real, com tamanho mínimo.
 
+### 9.1 Fase 6 — desenho dos estágios (decidido em 2026-07-27, ainda não implementado)
+
+Discussão de design conduzida com Cleber antes de qualquer código na ponte
+decisão→execução (`useApexLogic.ts` → `/broker/execute`). Nada disto está
+implementado ainda — é o contrato a seguir quando a implementação começar.
+
+**Estágios sequenciais**, cada um só libera o próximo com prova acumulada
+*operacional* (nunca lucro):
+
+1. **LIVE + somente alerta.** Motor decide, mostra a decisão pro usuário
+   (toast/log), não chama `/broker/execute`. Zero risco de dinheiro real.
+2. **LIVE + confirmação manual por trade.** Motor decide, usuário aprova/
+   rejeita cada entrada antes de ir pro `/broker/execute`.
+3. **LIVE + execução automática**, com o circuito de segurança do health-check
+   já existente (`useApexLogic.ts:798-868`) + tamanho de posição mínimo
+   travado + hard-stop.
+4. Remoção da trava de tamanho mínimo — só depois de estágio 3 provado.
+
+**Decisões travadas para os estágios 1-2:**
+
+- **Disclaimer obrigatório e permanente**: todo alerta/decisão LIVE exibido ao
+  usuário vem sempre acompanhado do aviso "⚠️ Decisão baseada em regra técnica
+  — sem validação estatística de edge comprovada." Em todo evento, não só
+  onboarding — motivo: o motor não tem edge estatístico comprovado (seções
+  11-11.15) e um disclaimer único se perde da memória do usuário.
+- **Caminho de código isolado**: estágios 1-2 usam um módulo novo e pequeno,
+  que só lê a decisão do motor e decide alertar/confirmar/executar — não
+  reaproveita o `useApexLogic.ts` inteiro. Motivo: o motor atual já carrega
+  histórico de bugs corrigidos (`targetPoints` vs. `strategy.stopLoss` nunca
+  unificados — seção 11 acima; cálculo de custo cripto errado até 2026-07-25/
+  26 — seção 11.13); herdar essa superfície pro caminho que eventualmente
+  toca dinheiro real amplia o raio de um bug futuro.
+- **Zero chamadas à MetaAPI compartilhada nesses estágios** — não há ordem
+  real, então não há motivo pra tocar na conta. Throttling explícito no
+  código (não só disciplina manual de teste) só entra a partir do estágio 3.
+
+**Decisões travadas para o estágio 3:**
+
+- **Fechamento automático de toda posição aberta quando o safe mode dispara**
+  — nunca "deixar correr até TP/SL". O health-check (`useApexLogic.ts:798-
+  868`) já decide que o comportamento do motor não é confiável quando dispara
+  (drawdown, MT5 caído, win rate); deixar posição aberta correndo seria
+  apostar contra o próprio alarme que o sistema disparou.
+
+**Critério de avanço de estágio**: puramente operacional (X dias sem falha
+do circuito de segurança, sem bug de execução, sem timeout de MetaAPI).
+**Nunca lucro/perda acumulado** — o motor não tem edge comprovado, então
+"parecer estar acertando" não pode ser sinal de que o próximo estágio de
+risco é seguro.
+
+**Questão em aberto, não decidida**: dado que nenhum dos 5 presets passou o
+piso estatístico (seções 11-11.15) e o Trilho 2 está pausado, considerar
+deliberadamente não avançar além do estágio 2 (confirmação manual) por tempo
+indefinido, como posição de produto, não como estágio de passagem. Automatizar
+execução de um motor sem edge comprovado piora quanto mais cedo é feito, não
+melhora. Cleber ainda não decidiu isto — retomar na próxima sessão antes de
+iniciar qualquer implementação do estágio 3.
+
 ---
 
 ## 11. Redesenho das estratégias-preset e calibração de custo (2026-07-24)

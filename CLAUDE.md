@@ -167,7 +167,17 @@ ignorado.
    agora.** Trilho 2 (busca de edge de sinal, pilar b) fica formalmente
    pausado, sem novo trabalho de pesquisa até haver justificativa nova (dado
    pago aceito conscientemente, ou nova fonte grátis viável).
-2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
+2. **Ponte decisão→execução real** (Fase B/3) — não existe no código ainda.
+   **Desenho dos estágios decidido em 2026-07-27** (ver `AI_BRAIN_SPEC.md`
+   seção 9.1): 4 estágios (alerta → confirmação manual → execução automática
+   com hard-stop → remoção de trava de tamanho mínimo), disclaimer permanente
+   de falta de edge nos estágios 1-2, módulo de código isolado (não reaproveita
+   `useApexLogic.ts`), zero chamada à MetaAPI compartilhada até estágio 3,
+   fechamento automático de posição quando o safe mode dispara, critério de
+   avanço de estágio puramente operacional (nunca lucro). **Questão em aberto
+   não decidida**: se vale avançar além do estágio 2 dado que não há edge
+   comprovado — retomar antes de implementar o estágio 3. Nenhuma linha de
+   código desta ponte foi escrita ainda.
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
    **resolvido em 2026-07-25**: removido do índice + adicionado ao
