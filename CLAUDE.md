@@ -141,24 +141,27 @@ ignorado.
 
 ## Pendências reais em aberto
 
-1. **Próxima sessão: decidir o que vem depois — 5 presets × 2 cestas
-   (forex major, cripto) × timeframe do Donchian testados (seções
-   11.5→11.14), nenhum tem edge comprovado.** Cleber já executou (a)
-   arquétipos novos (11.12), (b) ampliar instrumentos pra cripto (11.13, achou
-   e corrigiu bug real de custo em `CostModel.ts` no processo) e (c) revisar
-   timeframe do melhor candidato (11.14). **Donchian em cripto 4h continua
-   sendo o melhor resultado real da investigação** (DSR 52,0%, n=329, 4/7
-   pares positivos) — testar em 1d deu DSR 78,7% mas com n=48, **abaixo do
-   piso mínimo de 100 sinais da seção 8, inconclusivo por desenho** (mesmo
-   padrão de amostra insuficiente que já enganou em 11.10→11.11, não deve ser
-   lido como confirmação); 1w é inutilizável (n=1). **Opções que restam**:
-   ampliar mais a cesta cripto (mais pares, focar em Donchian 4h que já tem
-   n=329 real); testar Donchian em 1d/1w no forex major (histórico mais longo
-   que cripto, nunca testado nesse timeframe lá); reformular a própria função
-   objetivo (medir expectância em US$ por trade em vez de Sharpe de trade com
-   stop ATR fixo — mais profundo, redesenha a métrica); ou (d) pausar a busca
-   sistemática por um tempo. Ler seção 11.14 (mais 11.10/11.13 pra contexto)
-   antes de decidir.
+1. **Próxima sessão: decidir o que vem depois — 5 presets × 2 cestas ×
+   timeframe × 2 métricas (Sharpe e Sortino) testados (seções 11.5→11.15),
+   nenhum tem edge comprovado, e a última rodada foi a mais conclusiva contra
+   promoção até agora.** Cleber executou (a) arquétipos novos (11.12), (b)
+   ampliar instrumentos pra cripto (11.13, achou e corrigiu bug real de custo
+   em `CostModel.ts`), (c) revisar timeframe do Donchian (11.14, inconclusivo
+   por amostra insuficiente em 1d/1w) e reformular a função objetivo
+   Sharpe→Sortino (11.15). **Resultado da 11.15**: na única amostra
+   estatisticamente válida (Donchian 4h, n=323), Sortino pooled é
+   praticamente zero e o **bootstrap dá só 44,8% de chance do Sortino real
+   ser positivo — abaixo de 50%**, o teste mais rigoroso de toda a
+   investigação aponta NEGATIVO, não apenas "sem evidência suficiente". Isso
+   fecha a hipótese de que Sharpe estava escondendo edge assimétrico do
+   Donchian. **Opções que restam**: ampliar mais a cesta cripto (mais pares);
+   testar Donchian 1d/1w em forex major (histórico mais longo, nunca testado
+   nesse timeframe lá); reformular a métrica pra expectância monetária
+   (US$/trade com teste-t, ainda não tentado — ver seção 11.15 pra contexto do
+   que já foi tentado nessa frente); ou (d) pausar a busca sistemática por um
+   tempo — depois de 11 sub-seções de tentativas (11.5→11.15) sem um único
+   candidato validado, vale considerar isso com mais peso agora. Ler seção
+   11.15 (mais 11.13/11.14 pra contexto) antes de decidir.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —

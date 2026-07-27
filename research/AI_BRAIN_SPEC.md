@@ -1049,6 +1049,55 @@ Donchian em 1d/1w nunca foi testado lá — só em 4h, seção 11.10/11.11).
 Reprodução:
 `npx esbuild research/experiments/2026-07-26-donchian-timeframe/donchian-daily-weekly.ts --bundle --platform=node --format=esm --outfile=/tmp/donchian-daily-weekly.mjs && node /tmp/donchian-daily-weekly.mjs`
 
+## 11.15 Reformulação da função objetivo: Sharpe → Sortino (2026-07-26) — hipótese refutada na única amostra válida
+
+Ação da opção "reformular a função objetivo" da pendência #1 (11.12→11.14).
+Toda a investigação 11.5→11.14 mediu Sharpe, que penaliza variância de GANHO
+igual a variância de PERDA. A seção 1 do `AI_BRAIN_SPEC.md` já declara o
+objetivo formal como "Sharpe/**Sortino** da curva de capital sujeito a
+restrição de sobrevivência" — Sortino nunca tinha sido medido de fato.
+Hipótese: Donchian (melhor resultado da investigação, 11.13) é
+trend-following com retornos assimetricamente positivos (muitas perdas
+pequenas capadas por stop, raros ganhos grandes) — Sharpe pode estar
+escondendo edge que Sortino revelaria.
+
+Implementado `sortinoRatio`, `deflatedSortinoRatio` (mesma estrutura da
+fórmula de Bailey & López de Prado, aviso mais forte que a do Sharpe: a
+derivação formal é pro Sharpe, não pro Sortino — ver cabeçalho da função em
+`research/DeflatedSharpe.ts`) e `bootstrapSortinoSignificance` (reamostragem
+determinística, sem assumir forma de distribuição — teste mais confiável dos
+três). `npm run validate` passou 28/28 antes de rodar qualquer experimento.
+Testado o MESMO Donchian (zero ajuste de parâmetro), mesma cesta cripto de 7
+pares, nos 3 timeframes já testados (4h — 11.13, 1d e 1w — 11.14). Script:
+`research/experiments/2026-07-26-sortino-objective/donchian-sortino.ts`.
+
+**Resultado**:
+
+| Timeframe | n | Sharpe | Sortino | Deflated Sortino | Bootstrap P(Sortino real>0) |
+|---|---|---|---|---|---|
+| 4h (única amostra válida, n≥100) | 323 | 0,003 | 0,006 | 54,0% | **44,8%** |
+| 1d (n<100, inconclusivo) | 48 | 0,116 | 0,238 | 94,6% | 76,8% |
+| 1w (n=1, inutilizável) | 1 | 0,000 | 0,000 | 0,0% | 0,0% |
+
+**Leitura honesta — hipótese refutada, não ambígua**: na única janela com
+amostra estatisticamente suficiente (4h, n=323), Sortino pooled é
+praticamente zero (0,006) — trocar a métrica não revelou edge nenhum. O
+bootstrap, teste mais confiável dos três por não assumir forma de
+distribuição, dá **44,8% de probabilidade do Sortino real ser positivo —
+abaixo de 50%**, ou seja, mais provável que o Sortino real seja negativo do
+que positivo. Isso fecha a hipótese "Sharpe estava escondendo assimetria
+positiva do Donchian" com resultado negativo claro. O resultado de 1d parece
+melhor (Deflated Sortino 94,6%) mas replica o mesmo padrão de amostra
+insuficiente inflando o número já visto em 11.10 e 11.14 (`n=48` abaixo do
+piso mínimo) — não deve ser lido como confirmação.
+
+**Conclusão**: reformular Sharpe→Sortino não resgata o Donchian nem nenhum
+outro candidato da investigação. Diferente das rodadas anteriores (11.10,
+11.14), aqui o teste mais rigoroso disponível (bootstrap, amostra válida)
+aponta na direção NEGATIVA, não apenas "inconclusivo" — é a evidência mais
+forte contra promoção de toda a linha 11.5→11.15. Reprodução:
+`npx esbuild research/experiments/2026-07-26-sortino-objective/donchian-sortino.ts --bundle --platform=node --format=esm --outfile=/tmp/donchian-sortino.mjs && node /tmp/donchian-sortino.mjs`
+
 ## 12. Decisão de produto: aporte mínimo
 
 Ver seção 5.1.1 e a nota no início da seção 6 — aporte mínimo travado em **US$50**.

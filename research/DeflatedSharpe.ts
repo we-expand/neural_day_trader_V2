@@ -73,6 +73,77 @@ export function sharpeRatio(returns: number[]): number {
 }
 
 /**
+ * Sortino Ratio — mesma ideia do Sharpe (retorno médio / risco), mas o risco
+ * é só o desvio-padrão dos retornos NEGATIVOS (downside deviation), não a
+ * variância total. Diferença prática: Sharpe penaliza ganhos grandes tanto
+ * quanto perdas grandes (mesma variância); Sortino só penaliza o lado que
+ * importa pra "restrição de sobrevivência" (seção 1 do AI_BRAIN_SPEC.md, que
+ * já declara Sharpe/Sortino como objetivo formal). Mais adequado pra
+ * trend-following como Donchian, que por desenho tem retornos assimétricos
+ * (muitas perdas pequenas capadas por stop, raros ganhos grandes de tendência
+ * — Sharpe pune exatamente a variância que é o ganho pretendido).
+ *
+ * `target` = limiar abaixo do qual um retorno conta como "downside" (0 =
+ * qualquer retorno negativo).
+ */
+export function sortinoRatio(returns: number[], target = 0): number {
+  const n = returns.length;
+  if (n < 2) return 0;
+  const mean = returns.reduce((a, b) => a + b, 0) / n;
+  const downside = returns.filter(r => r < target);
+  if (downside.length === 0) return mean > 0 ? Infinity : 0;
+  const downsideVariance = downside.reduce((a, r) => a + (r - target) ** 2, 0) / n; // divide por n total, não só downside.length (convenção padrão)
+  const downsideDeviation = Math.sqrt(downsideVariance);
+  return downsideDeviation > 0 ? mean / downsideDeviation : 0;
+}
+
+/**
+ * Versão "deflated" do Sortino, reaproveitando a MESMA estrutura da fórmula
+ * de Bailey & López de Prado usada pro Sharpe (deflatedSharpeRatio acima) —
+ * substitui a estatística, não a fórmula. AVISO MAIS FORTE que o do Sharpe: a
+ * derivação original do DSR é especificamente pra distribuição assintótica do
+ * Sharpe Ratio, não foi provada pra Sortino. Esta função é uma aproximação
+ * heurística (mesma forma funcional, sr0/nObservations no lugar certo) —
+ * trate o número resultante como um guia direcional mais fraco que o DSR do
+ * Sharpe, nunca como prova formal. Preferir bootstrap empírico
+ * (`bootstrapSortinoSignificance` abaixo) quando a decisão importar de fato.
+ */
+export function deflatedSortinoRatio(sortinoHat: number, sr0: number, nObservations: number): number {
+  if (nObservations < 2 || !isFinite(sortinoHat)) return 0;
+  const denom = Math.sqrt(1 + (sortinoHat * sortinoHat) / 2);
+  const z = ((sortinoHat - sr0) * Math.sqrt(nObservations - 1)) / denom;
+  return normalCdf(z);
+}
+
+/**
+ * Teste de significância por bootstrap (reamostragem com reposição) — mais
+ * robusto que a aproximação gaussiana acima porque não assume nenhuma forma
+ * de distribuição. Reamostra os retornos de trade N vezes, recalcula Sortino
+ * em cada reamostra, e retorna a fração das reamostras com Sortino ≤ 0 (i.e.,
+ * a probabilidade empírica de o Sortino real ser zero ou negativo). Sem
+ * Math.random() bruto sem seed — usa um LCG determinístico simples pra
+ * manter o script reproduzível (mesma disciplina "determinístico" do
+ * BacktestEngine).
+ */
+export function bootstrapSortinoSignificance(returns: number[], iterations = 2000, seed = 42): { probPositive: number; sortinoDistribution: number[] } {
+  if (returns.length < 2) return { probPositive: 0, sortinoDistribution: [] };
+  let state = seed;
+  const lcgRandom = () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+  const n = returns.length;
+  const distribution: number[] = [];
+  for (let i = 0; i < iterations; i++) {
+    const sample: number[] = [];
+    for (let j = 0; j < n; j++) sample.push(returns[Math.floor(lcgRandom() * n)]);
+    distribution.push(sortinoRatio(sample));
+  }
+  const positiveCount = distribution.filter(s => s > 0 && isFinite(s)).length;
+  return { probPositive: positiveCount / iterations, sortinoDistribution: distribution };
+}
+
+/**
  * Sharpe mínimo esperado por puro acaso, dado N trials independentes e a
  * variância dos Sharpes observados entre eles (Bailey & López de Prado, eq. 8,
  * γ = constante de Euler-Mascheroni ≈ 0.5772).
