@@ -1193,6 +1193,37 @@ que não foi refutada por nenhum dos 15 testes já feitos. Se também falhar, a 
 "este produto não tem edge de sinal viável" passa a ter uma base muito mais sólida do
 que temos hoje — e vale mais do que continuar girando a mesma manivela.
 
+### 13.6 Nota de contexto: Renaissance/HMM (conversa 2026-07-26, fora do motor)
+
+Cleber perguntou sobre o modelo de arbitragem da Renaissance Technologies e sobre Hidden
+Markov Models (HMM) como técnica de detecção de regime — não um pedido de implementação,
+registrado aqui só para não perder o contexto caso a linha do Trilho 2 avance.
+
+**Resumo da resposta dada**: Renaissance não faz arbitragem clássica entre mercados — faz
+stat arb de curtíssimo prazo sobre milhares de sinais fracos e independentes, com base
+matemática (HMM, processamento de sinal) vinda de Jim Simons/Leonard Baum. HMM modela um
+**estado oculto** (ex: regime de mercado) inferido probabilisticamente a partir de
+observações ruidosas (preço, volume) — via Baum-Welch (treino), Viterbi (decodificação) e
+Forward-Backward (avaliação de verossimilhança).
+
+**Avaliação honesta de aplicabilidade a este projeto, dada nesta conversa**: o
+`MarketScoreEngine.detectRegime()` já existente é um filtro de regime determinístico
+(threshold de ADX), não um HMM real. Mas o achado central das seções 11.5→11.15 — nenhum
+indicador técnico clássico sobre preço OHLCV público mostrou edge, e o próprio ensemble
+ponderado por regime (11.6/11.7) piorou em vez de melhorar — implica que aplicar um HMM
+sobre o MESMO dado (preço/volume público) provavelmente sofreria o mesmo destino: HMM
+detecta regime, mas regime não é edge por si só; é um filtro de quando aplicar um sinal
+que já não carrega informação.
+
+**Onde faria sentido de verdade**: dentro do Trilho 2 (seção 13), como técnica candidata
+para inferir estado latente a partir de **dado estrutural novo** (order book de cripto,
+seção 13.1) — ex. um HMM cujos estados ocultos sejam algo como "acumulação" vs.
+"distribuição" inferidos de desequilíbrio de book, não de EMA/RSI. Isso teria justificativa
+teórica distinta (informação de curtíssimo prazo fora do candle) e ainda não foi testado
+por nenhuma das 15 sub-investigações fechadas. **Não implementado, não escopado
+formalmente ainda** — registrado só como candidato técnico a considerar se/quando o
+Trilho 2 (order book) for executado, não como adição à metodologia de 13.2/13.3.
+
 ## 10. Limitações conhecidas (declaradas, não escondidas)
 
 **L1 — Sem microestrutura em não-cripto.** Order book real existe só para cripto
