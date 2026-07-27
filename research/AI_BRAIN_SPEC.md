@@ -1224,6 +1224,60 @@ por nenhuma das 15 sub-investigações fechadas. **Não implementado, não escop
 formalmente ainda** — registrado só como candidato técnico a considerar se/quando o
 Trilho 2 (order book) for executado, não como adição à metodologia de 13.2/13.3.
 
+### 13.7 Etapa 0 — probe de viabilidade em proxy de fluxo de execução (2026-07-26/27)
+
+**Contexto**: antes de comprometer orçamento (Tardis.dev US$50-900/mês ou CoinAPI Flat
+Files a partir de US$79/mês) para dado real de order book, foi rodado um probe barato e
+reversível — 100% grátis, sem chave de API — pra checar se existe qualquer sinal
+preditivo detectável em fluxo de execução, como triagem antes do dado real de book. Isto
+**não é o teste do Trilho 2 em si** (não é order book, não segue a metodologia completa
+da seção 13.3) — é uma etapa 0 de "vale a pena gastar dinheiro nisso?".
+
+**Dado usado**: `aggTrades` histórico público da Binance (grátis, sem chave), BTC/ETH/
+BNB/SOL, barras de 5 minutos. Proxy calculado: CVD (Cumulative Volume Delta) — soma de
+volume comprador-agressor menos vendedor-agressor por barra — e imbalance normalizado
+(`cvd/volume`, em [-1,1]). **Limitação declarada desde o desenho**: isto não é
+desequilíbrio de LIVRO (book), é pressão de EXECUÇÃO (trades já batidos) — não captura
+ordens que nunca viraram trade. Um resultado negativo aqui não refuta necessariamente
+order book real; um resultado positivo já justificaria investir no dado real.
+
+**v1 (10 dias, 4 ativos, 4 horizontes, limiar simples `|IC| > 0,02`)**: passou
+mecanicamente em 4/4 ativos. **Rejeitado antes de qualquer decisão de gasto** — os sinais
+eram inconsistentes até dentro do mesmo ativo (ex. BTC: IC -0,042 em +1 barra, +0,016 em
++3, -0,080 em +6, sem padrão coerente de decaimento), sem correção por múltiplos testes
+(16 testes rodados, limiar arbitrário) e com amostra pequena — exatamente o padrão de
+falso-positivo já visto na seção 11.10 (DSR 85,3% que virou 39,3% só de estender a
+janela de calendário). Critério da v1 era simplista demais; falha de desenho do probe,
+não conclusão sobre o dado.
+
+**v2 (60 dias = 6 subjanelas de 10 dias, mesmos 4 ativos e 4 horizontes, com correção)**:
+critério reforçado exigindo **as duas coisas ao mesmo tempo**: (a) significância
+estatística do IC agregado com correção de Bonferroni (α = 0,05/16 = 0,00313, aproximação
+normal do IC de Spearman) e (b) consistência de sinal em ≥5 das 6 subjanelas
+cronológicas de 10 dias (não só no agregado do período inteiro).
+
+**Resultado v2: 0 de 16 combinações ativo×horizonte passam.** Melhor p-valor observado foi
+0,041 (ETHUSDT, horizonte +3 barras) — muito acima do limiar corrigido de 0,00313; a
+maioria ficou entre 0,1 e 0,95. Inspeção caso a caso confirmou que mesmo combinações com
+alta contagem de "mesmo sinal" (5/6 ou 6/6 subjanelas) tinham IC agregado próximo de zero
+e sem separação real de ruído (ex. SOLUSDT +1 barra: ICs por subjanela
+[-0,001, -0,004, -0,010, -0,057, -0,004, -0,023] — tecnicamente 6/6 negativos, mas
+magnitude desprezível).
+
+**Conclusão honesta**: o proxy de fluxo de execução (CVD via `aggTrades`) não mostra
+nenhum sinal preditivo detectável em 60 dias, 4 ativos, 4 horizontes de curtíssimo prazo,
+com correção estatística adequada. **Isto não gera base pra justificar gasto em Tardis.dev
+ou CoinAPI agora.** Não refuta a hipótese central do Trilho 2 (order book real captura
+intenção não-executada que trade não vê, e isso é teoricamente distinto de fluxo de
+execução) — mas remove o único argumento barato disponível a favor de avançar, então o
+Trilho 2 segue **pausado por decisão de custo/risco**, não decidido a favor nem contra,
+até haver justificativa nova (ex. mudança de escopo, ou aceitar gastar sem essa validação
+prévia, o que contraria a disciplina de nunca prometer edge sem evidência).
+
+Scripts reproduzíveis:
+`research/experiments/2026-07-26-orderflow-proxy/fetch-and-probe.ts` (v1 e v2 no mesmo
+arquivo, versão v2 é a que está no arquivo hoje).
+
 ## 10. Limitações conhecidas (declaradas, não escondidas)
 
 **L1 — Sem microestrutura em não-cripto.** Order book real existe só para cripto

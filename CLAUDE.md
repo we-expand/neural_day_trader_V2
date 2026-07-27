@@ -152,8 +152,13 @@ ignorado.
    regime, features cross-asset) — ver seção 13 do `AI_BRAIN_SPEC.md`
    ("Trilho 2"), com prazo-teto de 3-4 semanas e critério de corte explícito
    definido antes de começar. **Fase Real (dinheiro de usuário) não depende
-   do sucesso do Trilho 2** — pode avançar só com o pilar (a). Trilho 2 ainda
-   não foi executado, é proposta escopada aguardando início.
+   do sucesso do Trilho 2** — pode avançar só com o pilar (a). **Atualização
+   (2026-07-27, seção 13.7)**: rodada etapa 0 (grátis, antes de pagar
+   Tardis.dev/CoinAPI) testando proxy de fluxo de execução (CVD via
+   `aggTrades` Binance) como triagem — 0 de 16 combinações ativo×horizonte
+   passaram significância corrigida (Bonferroni) + consistência de sinal
+   entre subjanelas. Não justifica gasto em dado pago agora. Trilho 2 segue
+   **pausado por decisão de custo/risco**, não decidido a favor nem contra.
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
