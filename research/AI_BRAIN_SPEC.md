@@ -1278,6 +1278,40 @@ Scripts reproduzíveis:
 `research/experiments/2026-07-26-orderflow-proxy/fetch-and-probe.ts` (v1 e v2 no mesmo
 arquivo, versão v2 é a que está no arquivo hoje).
 
+### 13.8 Etapa 0 — calendário como filtro de regime: bloqueio de dado (2026-07-27)
+
+**Contexto**: opção 3 do handoff pós-13.7 (testar calendário econômico como filtro de
+regime, seção 13.1, antes de decidir entre focar no pilar (a) ou gastar em dado pago).
+Hipótese: eventos de alto impacto (FOMC, CPI, NFP) geram volatilidade/variância de perda
+elevada em torno do horário de divulgação — se comprovado, o filtro seria "evitar operar
+N minutos antes/depois do evento", testável com a mesma disciplina estatística de 8/13.3.
+
+**Bloqueio encontrado antes de qualquer análise**: não existe fonte grátis de calendário
+econômico com **histórico** acessível sem chave de API. Testado em 2026-07-27:
+`https://nfs.faireconomy.media/ff_calendar_thisweek.json` (feed do ForexFactory, usado
+por `newsCrawler.ts`) responde HTTP 200 e serve a semana atual — mas os endpoints
+equivalentes de semanas passadas (`ff_calendar_lastweek.json`, `_nextweek`, `_thismonth`)
+retornam **HTTP 404**. Confirmado via `curl` direto, sem intermediário. O
+`TradingEconomics RSS` (`tradingeconomics.com/rss/calendar.xml`) usado pelo mesmo arquivo
+tem a mesma limitação estrutural de RSS: só eventos recentes/futuros, sem arquivo
+histórico de 60-90 dias.
+
+**Alternativa descartada por disciplina do projeto**: hardcodar de memória as datas
+históricas de reuniões do FOMC e divulgações de CPI/NFP de 2026. Rejeitado — não há
+certeza suficiente sobre essas datas vindas de memória do modelo pra tratá-las como dado
+real; isso violaria a regra de "nunca fabricar dado" (seção de convenções do
+`CLAUDE.md`) e contaminaria qualquer resultado estatístico sem que o erro fosse visível.
+
+**Conclusão honesta**: a linha "existe, com latência de minutos" descrita para a fonte
+calendário na tabela da seção 13.1 estava correta só para uso **ao vivo** (evitar operar
+próximo a um evento futuro conhecido), não para **validação estatística retroativa**, que
+é o que o critério de corte da seção 13.4 exige. Sem histórico grátis, esta fonte não é
+testável como etapa 0 hoje. Decisão registrada com Cleber (2026-07-27): não perseguir
+esta linha agora — voltar a escolher entre pilar (a) e opção 2 (gastar em dado pago sem
+validação prévia), ou revisitar calendário só se/quando o produto passar a coletar o
+feed `thisweek` ao vivo por várias semanas, construindo histórico próprio (não fizemos
+isso ainda — adiaria a decisão em semanas, foi descartado por ora).
+
 ## 10. Limitações conhecidas (declaradas, não escondidas)
 
 **L1 — Sem microestrutura em não-cripto.** Order book real existe só para cripto
