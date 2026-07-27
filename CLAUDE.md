@@ -157,8 +157,16 @@ ignorado.
    Tardis.dev/CoinAPI) testando proxy de fluxo de execução (CVD via
    `aggTrades` Binance) como triagem — 0 de 16 combinações ativo×horizonte
    passaram significância corrigida (Bonferroni) + consistência de sinal
-   entre subjanelas. Não justifica gasto em dado pago agora. Trilho 2 segue
-   **pausado por decisão de custo/risco**, não decidido a favor nem contra.
+   entre subjanelas. Não justifica gasto em dado pago agora. **Atualização
+   (2026-07-27, seção 13.8)**: testada a alternativa grátis "calendário como
+   filtro de regime" antes de decidir — bloqueada por falta de dado: não
+   existe fonte grátis de calendário econômico com histórico acessível (só
+   feed ao vivo da semana atual, sem arquivo de 60-90 dias), e hardcodar
+   datas de memória foi descartado por violar a regra de nunca fabricar
+   dado. **Decisão de Cleber (2026-07-27): produto foca 100% no pilar (a)
+   agora.** Trilho 2 (busca de edge de sinal, pilar b) fica formalmente
+   pausado, sem novo trabalho de pesquisa até haver justificativa nova (dado
+   pago aceito conscientemente, ou nova fonte grátis viável).
 2. **Ponte decisão→execução real** (Fase B/3) — não existe, precisa ser desenhada com circuito de segurança próprio antes de qualquer código (ver `AI_BRAIN_SPEC.md` roadmap, Fase 6).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
