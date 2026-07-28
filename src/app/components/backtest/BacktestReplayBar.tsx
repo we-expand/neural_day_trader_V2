@@ -23,17 +23,28 @@ import {
 } from 'lucide-react';
 import { useBacktestReplay, ReplaySpeed } from '../../hooks/useBacktestReplay';
 import { Timeframe } from '../../services/BacktestDataService';
-import { ASSET_DATABASE } from '../config/AssetUniverse';
+import { ALL_ASSETS } from '../../config/assetDatabase';
 
-// Catálogo inteiro (341 ativos) achatado para o seletor — cobertura real
-// depende do BacktestDataService (Binance pra cripto listada lá, MetaAPI pro
-// resto); se um símbolo não tiver fonte real, o Start retorna erro explícito
-// em vez de mostrar dado sintético.
-const FLAT_ASSETS = ASSET_DATABASE.flatMap(category =>
-  category.assets.flatMap(group =>
-    group.items.map(item => ({ symbol: item.symbol, display: item.display, category: category.label }))
-  )
-);
+// Catálogo canônico inteiro (assetDatabase.ts, ~480 ativos) achatado para o
+// seletor — cobertura real depende do BacktestDataService (Binance pra
+// cripto listada lá, MetaAPI pro resto); se um símbolo não tiver fonte real,
+// o Start retorna erro explícito em vez de mostrar dado sintético.
+// ✅ 2026-07-28: antes lia de `ASSET_DATABASE` (lista duplicada e não
+// auditada do AssetUniverse.tsx, removida) — agora usa a mesma fonte
+// canônica que o resto do app.
+const CATEGORY_LABELS: Record<string, string> = {
+  CRYPTO: 'Criptoativos',
+  FOREX: 'Forex & Moedas',
+  INDICES: 'Índices Globais',
+  COMMODITIES: 'Commodities',
+  STOCKS: 'Ações Globais',
+  BONDS: 'Títulos (Bonds)'
+};
+const FLAT_ASSETS = ALL_ASSETS.map(asset => ({
+  symbol: asset.symbol,
+  display: asset.symbol,
+  category: CATEGORY_LABELS[asset.category] || asset.category
+}));
 
 interface BacktestReplayBarProps {
   onClose: () => void;
