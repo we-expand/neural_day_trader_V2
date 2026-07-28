@@ -30,6 +30,8 @@ export interface HourlyAnalysisData {
   rsi: number | null;
   /** 'unavailable' quando o MarketScoreEngine não tem nenhuma fonte real de dado para este ativo/timeframe. */
   provenance: 'real' | 'partial' | 'stale' | 'unavailable';
+  /** Rótulo do timeframe selecionado pelo usuário (ex: '15 minutos', '1 hora') — narrado em vez de "uma hora" fixo. */
+  timeframeLabel: string;
 }
 
 /**
@@ -37,7 +39,7 @@ export interface HourlyAnalysisData {
  * do MarketScoreEngine. Nunca sorteia RSI ou "probabilidade de alta".
  */
 export function generateHourlyVoiceAnalysis(data: HourlyAnalysisData): string[] {
-  const { symbol, currentPrice, trend, strength, volatility, rsi, provenance } = data;
+  const { symbol, currentPrice, trend, strength, volatility, rsi, provenance, timeframeLabel } = data;
 
   const messages: string[] = [];
 
@@ -50,9 +52,10 @@ export function generateHourlyVoiceAnalysis(data: HourlyAnalysisData): string[] 
   }
 
   // Calcular previsões (mesma direção/força do motor, sem prometer preço exato)
+  // Projeção referenciada ao timeframe selecionado (timeframeLabel), não mais fixa em "1 hora".
   const trendMultiplier = trend === 'bullish' ? 1 : trend === 'bearish' ? -1 : 0;
-  const price1h = currentPrice * (1 + trendMultiplier * volatility * 1.0 * strength);
-  const change1h = ((price1h - currentPrice) / currentPrice * 100).toFixed(1);
+  const projectedPrice = currentPrice * (1 + trendMultiplier * volatility * 1.0 * strength);
+  const projectedChange = ((projectedPrice - currentPrice) / currentPrice * 100).toFixed(1);
 
   // Níveis (referência de gestão de risco, não previsão)
   const stopLoss = (currentPrice * 0.985).toFixed(0);
@@ -80,9 +83,9 @@ export function generateHourlyVoiceAnalysis(data: HourlyAnalysisData): string[] 
     messages.push(`Mercado lateral. Aguarde confirmação.`);
   }
 
-  // 3. PREVISÃO 1H
-  messages.push(`Previsão em uma hora: ${price1h.toFixed(0)} dólares.`);
-  messages.push(`Variação esperada: ${change1h} por cento.`);
+  // 3. PREVISÃO — atrelada ao timeframe que o usuário selecionou, não fixa em "uma hora".
+  messages.push(`Previsão em ${timeframeLabel}: ${projectedPrice.toFixed(0)} dólares.`);
+  messages.push(`Variação esperada: ${projectedChange} por cento.`);
 
   // 4. NÍVEIS
   messages.push(`Stop loss em ${stopLoss} dólares.`);

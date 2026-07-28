@@ -905,6 +905,7 @@ export const LiquidityPrediction = () => {
                          volatility,
                          rsi: scoreResult?.indicators.rsi ?? null,
                          provenance: scoreResult?.provenance || 'unavailable',
+                         timeframeLabel: TIMEFRAME_LABELS[timeframe],
                        };
                        const messages = generateHourlyVoiceAnalysis(analysisData);
                        toast.success(`IA narrando análise de ${selectedAsset}...`);
@@ -991,6 +992,7 @@ export const LiquidityPrediction = () => {
                      volatility,
                      rsi: scoreResult?.indicators.rsi ?? null,
                      provenance: scoreResult?.provenance || 'unavailable',
+                     timeframeLabel: TIMEFRAME_LABELS[timeframe],
                    };
 
                    const messages = generateHourlyVoiceAnalysis(analysisData);
