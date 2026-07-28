@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Brain, Play, Pause, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, BrainCircuit, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
+import { Bot, Brain, Play, Pause, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatNumber } from '@/app/utils/formatters';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { TradingSimulator } from './simulator/TradingSimulator';
 
 import { NeuralLogsEmpty, NeuralPortfolioEmpty } from './dashboard/NeuralEmptyStates';
 import { LiveLogTerminal } from './dashboard/LiveLogTerminal';
@@ -36,8 +35,8 @@ type Direction = 'AUTO' | 'LONG' | 'SHORT';
 export function AITrader({ compact = false, onNavigate }: { compact?: boolean; onNavigate?: (view: string) => void }) {
   console.log('[AI_TRADER] 🤖 v3.1 - AI Trader carregado', { compact, timestamp: Date.now() });
   
-  // Mode: 'MONITOR' (Dashboard) | 'ENGINEER' (Configuration) | 'VOICE' (AI Trader Voice) | 'SIMULATOR' (Trading Simulator)
-  const [mode, setMode] = useState<'MONITOR' | 'ENGINEER' | 'VOICE' | 'SIMULATOR'>('MONITOR');
+  // Mode: 'MONITOR' (Dashboard) | 'ENGINEER' (Configuration) | 'VOICE' (AI Trader Voice)
+  const [mode, setMode] = useState<'MONITOR' | 'ENGINEER' | 'VOICE'>('MONITOR');
   const [showCalculator, setShowCalculator] = useState(false);
   const [showConverter, setShowConverter] = useState(false);
   const [showEquityChart, setShowEquityChart] = useState(false);
@@ -500,23 +499,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
               )}
             </button> 
 
-            {/* MT5 Connection Button */}
-            <button 
-              onClick={() => setShowMT5ConfigModal(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
-                isConnected
-                  ? 'bg-green-600 border-green-500 text-white hover:bg-green-700'
-                  : 'bg-slate-800 border-white/10 text-slate-300 hover:text-white hover:border-white/20'
-              }`}
-              title={isConnected ? 'MT5 Conectado' : 'Conectar MT5'}
-            >
-              <Settings className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase">{isConnected ? 'MT5 ON' : 'Conectar MT5'}</span>
-              {connectionStatus === 'connecting' && (
-                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              )}
-            </button>
-
             {/* 🚀 AI RECOVERY CHALLENGE */}
             {executionMode === 'LIVE' && isConnected && (
               <button
@@ -593,16 +575,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
               )}
             </button>
 
-            {/* AI Trading Engine Button - NOVO */}
-            <button
-              onClick={() => onNavigate?.('ai-engine')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all font-bold border-purple-500/30 bg-purple-500/10 text-purple-400 hover:text-white hover:border-purple-500/50 hover:bg-purple-500/20 hover:shadow-lg hover:shadow-purple-500/20"
-              title="Abrir AI Trading Engine"
-            >
-              <BrainCircuit className="w-4 h-4" />
-              <span className="text-xs uppercase tracking-wider">AI Engine</span>
-            </button>
-
             {/* Configuration Button - Icon Only */}
             <button
               onClick={() => setMode(mode === 'ENGINEER' ? 'MONITOR' : 'ENGINEER')}
@@ -627,19 +599,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
               title={mode === 'VOICE' ? 'Voltar ao Monitor' : 'AI Trader Voice'}
             >
               <Mic className="w-5 h-5" />
-            </button>
-
-            {/* Simulator Button - Icon Only */}
-            <button
-              onClick={() => setMode(mode === 'SIMULATOR' ? 'MONITOR' : 'SIMULATOR')}
-              className={`p-3 rounded-lg border transition-all ${
-                mode === 'SIMULATOR'
-                  ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/30'
-                  : 'border-white/10 text-slate-400 hover:text-white hover:border-white/20'
-              }`}
-              title={mode === 'SIMULATOR' ? 'Voltar ao Monitor' : 'Simulador de Trading'}
-            >
-              <Target className="w-5 h-5" />
             </button>
 
             {/* Reset Button - Icon Only */}
@@ -1032,26 +991,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                         {/* AI Trader Voice Component */}
                         <div className="p-6">
                           <AITraderVoice embedded={true} />
-                        </div>
-                    </motion.div>
-                ) : mode === 'SIMULATOR' ? (
-                    /* MODE: SIMULATOR (TRADING SIMULATOR) */
-                    <motion.div
-                        key="simulator"
-                        initial={{ opacity: 0, scale: 0.98, y: -20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.98, y: 20 }}
-                        transition={{ duration: 0.4, type: "spring", bounce: 0.3 }}
-                        className="bg-neutral-900/80 border border-blue-500/30 rounded-xl backdrop-blur-xl shadow-2xl relative h-full overflow-y-auto"
-                    >
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-cyan-500 to-blue-500 animate-gradient-x"></div>
-                        
-                        {/* Trading Simulator Component */}
-                        <div className="p-6">
-                          <TradingSimulator 
-                            symbol={config.activeAssets?.[0] || 'BTCUSDT'} 
-                            currentPrice={portfolio?.lastPrice || 0}
-                          />
                         </div>
                     </motion.div>
                 ) : (
