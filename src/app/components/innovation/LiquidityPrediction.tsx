@@ -16,7 +16,9 @@ import {
   Wifi,
   WifiOff,
   Clock,
-  Maximize2
+  Maximize2,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -34,6 +36,7 @@ import { useSupabaseRealtimeTurbo, TURBO_CONFIGS } from '@/app/hooks/useSupabase
 import { toast } from 'sonner';
 import { generateHourlyVoiceAnalysis, generateQuickVoiceAnalysis, HourlyAnalysisData } from '@/app/utils/hourlyVoiceAnalysis'; // 🔥 ANÁLISE DE VOZ
 import { MarketScoreEngine, describeMicrostructure, type MarketScoreResult } from '@/app/services/MarketScoreEngine';
+import { useVoiceCoordinator } from '@/app/contexts/VoiceCoordinatorContext';
 import { backtestDataService, resolveBinanceTicker, type Timeframe } from '@/app/services/BacktestDataService';
 import { InfinoxAssetsBrowser } from '@/app/components/dashboard/InfinoxAssetsBrowser';
 
@@ -88,10 +91,38 @@ export const LiquidityPrediction = () => {
   const [showInfo, setShowInfo] = useState(false);
   const [assetMenuOpen, setAssetMenuOpen] = useState(false); // ✅ agora controla o InfinoxAssetsBrowser (modo single)
   const [realPrices, setRealPrices] = useState<Record<string, number>>({});
-  const [aiEnabled, setAiEnabled] = useState(true); // 🔥 Toggle AI ON/OFF
+  const [aiEnabled, setAiEnabled] = useState(true); // 🔥 Toggle AI ON/OFF — desliga o Feed Neural inteiro (geração + exibição)
   const [showHourlyPanel, setShowHourlyPanel] = useState(false); // 🔥 NOVO: Toggle painel horário
-  const { speak } = useSpeechAlert({ rate: 0.95, volume: 1.0 });
+  const { speak, voiceEnabled, toggleVoiceEnabled, stopSpeaking } = useSpeechAlert({ rate: 0.95, volume: 1.0 });
   const [isNarrating, setIsNarrating] = useState(false); // 🔥 Voice narration state
+
+  // 🎙️ Toggle de VOZ independente do AI ON/OFF — permite acompanhar só os logs
+  // do Feed Neural sem ouvir narração, e coordena mutex com a AI Trader Voice
+  // (só uma tela pode estar narrando por vez em todo o app).
+  const { claimVoice, releaseVoice, onPreempted } = useVoiceCoordinator();
+
+  useEffect(() => {
+    return onPreempted('ia-preditiva', () => {
+      toggleVoiceEnabled(false);
+      stopSpeaking();
+    });
+  }, [onPreempted, toggleVoiceEnabled, stopSpeaking]);
+
+  // Reivindica a voz sempre que "Voz ON" estiver ativo nesta tela — cobre não só
+  // os botões de análise completa, mas também os alertas ambiente (candle,
+  // abertura de mercado) que também chamam speak(). Libera ao desligar/sair.
+  useEffect(() => {
+    if (voiceEnabled) {
+      claimVoice('ia-preditiva');
+      return () => releaseVoice('ia-preditiva');
+    }
+  }, [voiceEnabled, claimVoice, releaseVoice]);
+
+  const handleToggleVoice = () => {
+    const next = !voiceEnabled;
+    toggleVoiceEnabled(next); // claim/release da voz é feito pelo useEffect acima, reagindo a voiceEnabled
+    if (!next) stopSpeaking();
+  };
 
   // 🎯 Score real (MarketScoreEngine) — fonte única pro painel de previsão e narração por voz.
   const [scoreResult, setScoreResult] = useState<MarketScoreResult | null>(null);
@@ -524,6 +555,21 @@ export const LiquidityPrediction = () => {
            <span>AI {aiEnabled ? 'ON' : 'OFF'}</span>
            {aiEnabled && <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>}
          </button>
+
+         {/* 🎙️ VOZ ON/OFF — independente do AI ON/OFF: dá pra ver os logs do
+             Feed Neural sem narração, e liga/desliga só o áudio. */}
+         <button
+           onClick={handleToggleVoice}
+           title={voiceEnabled ? 'Desligar narração por voz' : 'Ligar narração por voz'}
+           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
+             voiceEnabled
+               ? 'bg-blue-600/20 border border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
+               : 'bg-neutral-800 border border-neutral-700 text-neutral-500 hover:bg-neutral-700'
+           }`}
+         >
+           {voiceEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+           <span>Voz {voiceEnabled ? 'ON' : 'OFF'}</span>
+         </button>
        </div>
 
        <div className="grid grid-cols-12 gap-6 mt-6">
@@ -889,7 +935,11 @@ export const LiquidityPrediction = () => {
                    onClick={async () => {
                      const opening = !showHourlyPanel;
                      setShowHourlyPanel(opening);
-                     if (opening && !isNarrating) {
+                     if (opening && !isNarrating && !voiceEnabled) {
+                       toast.info('Voz desligada — ative "Voz ON" para ouvir a análise.');
+                     }
+                     if (opening && !isNarrating && voiceEnabled) {
+                       claimVoice('ia-preditiva');
                        const currentPrice = realPrices[selectedAsset] || 0;
                        const atr = scoreResult?.indicators.atr;
                        const volatility = atr && currentPrice > 0 ? Math.min(atr / currentPrice, 0.1) : 0.01;
@@ -976,6 +1026,11 @@ export const LiquidityPrediction = () => {
              <div className="p-4 border-t border-purple-800/30 bg-gradient-to-br from-purple-900/20 to-blue-900/20">
                <button
                  onClick={async () => {
+                   if (!voiceEnabled) {
+                     toast.info('Voz desligada — ative "Voz ON" para ouvir a análise.');
+                     return;
+                   }
+                   claimVoice('ia-preditiva');
                    const currentPrice = realPrices[selectedAsset] || 0;
                    const atr = scoreResult?.indicators.atr;
                    const volatility = atr && currentPrice > 0 ? Math.min(atr / currentPrice, 0.1) : 0.01;

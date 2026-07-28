@@ -6,6 +6,7 @@ import { MarketDataProvider } from '@/app/contexts/MarketDataContext'; // 🆕 P
 import { ApexTradingProvider } from '@/app/contexts/TradingContext';
 import { SimulatorProvider } from '@/app/contexts/SimulatorContext';
 import { AssistantProvider, useAssistant } from '@/app/contexts/AssistantContext';
+import { VoiceCoordinatorProvider } from '@/app/contexts/VoiceCoordinatorContext';
 import { DebugProvider } from '@/app/components/debug/DebugController';
 import { useUserProfile } from '@/app/hooks/useUserProfile';
 import { useFavicon } from '@/app/hooks/useFavicon'; // 🆕 Hook para logo no browser
@@ -388,19 +389,21 @@ export default function App() {
               <SimulatorProvider>
                 <AssistantProvider>
                   <DebugProvider>
-                    <AppContent />
-                    <Toaster 
-                      position="top-right" 
-                      theme="dark"
-                      toastOptions={{
-                        style: {
-                          background: '#18181b',
-                          border: '1px solid #3f3f46',
-                          color: '#f4f4f5',
-                        },
-                        className: 'sonner-toast-custom',
-                      }}
-                    />
+                    <VoiceCoordinatorProvider>
+                      <AppContent />
+                      <Toaster
+                        position="top-right"
+                        theme="dark"
+                        toastOptions={{
+                          style: {
+                            background: '#18181b',
+                            border: '1px solid #3f3f46',
+                            color: '#f4f4f5',
+                          },
+                          className: 'sonner-toast-custom',
+                        }}
+                      />
+                    </VoiceCoordinatorProvider>
                   </DebugProvider>
                 </AssistantProvider>
               </SimulatorProvider>

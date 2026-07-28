@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, TrendingDown, TrendingUp, DollarSign, AlertTriangle, Clock } from 'lucide-react';
 import { useSpeechAlert } from '@/app/hooks/useSpeechAlert';
+import { useVoiceCoordinator } from '@/app/contexts/VoiceCoordinatorContext';
 import { generateAdvancedAnalysis, generateVoiceNarration, TradePosition } from '@/app/utils/advancedTradeAnalysis';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
   const isRunningRef = useRef(false); // ✅ Prevenir múltiplas execuções
   const abortControllerRef = useRef<AbortController | null>(null); // ✅ Controle de cancelamento
   const { speak } = useSpeechAlert({ rate: 0.85, volume: 1.0 }); // ✅ Velocidade mais natural
+  const { claimVoice, releaseVoice, onPreempted } = useVoiceCoordinator();
 
   // ✅ Estados do formulário manual
   const [operationType, setOperationType] = useState<'buy' | 'sell'>('sell');
@@ -77,23 +79,32 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
     };
   }, [isActive, entryPrice]); // ✅ ADICIONADO entryPrice nas dependências
 
+  // 🎙️ Se a IA Preditiva reivindicar a voz enquanto esta tela está narrando,
+  // desliga esta tela imediatamente (mutex — nunca as duas vozes juntas).
+  useEffect(() => {
+    return onPreempted('ai-trader-voice', () => {
+      setIsActive(false);
+    });
+  }, [onPreempted]);
+
   // Sistema de narração contínua
   useEffect(() => {
-    if (!isActive) {
-      // ✅ PARAR TUDO quando desativar
+    // ✅ PARAR TUDO — reaproveitado tanto pelo branch `!isActive` quanto pelo
+    // cleanup do effect (unmount/troca de tela), que antes só tinha um
+    // console.log e deixava o loop de narração "zumbi" rodando em segundo
+    // plano mesmo depois do usuário sair da tela (causa raiz de a voz da
+    // AI Trader Voice continuar falando ao mesmo tempo que a da IA Preditiva).
+    const stopEverything = () => {
       isRunningRef.current = false;
-      
-      // ✅ Cancelar síntese de voz imediatamente
+
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
-      
-      // ✅ Abortar operações em andamento
+
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      
-      // ✅ Limpar intervalos
+
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -102,7 +113,12 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
         clearInterval(priceIntervalRef.current);
         priceIntervalRef.current = null;
       }
-      
+
+      releaseVoice('ai-trader-voice');
+    };
+
+    if (!isActive) {
+      stopEverything();
       console.log('[AI Trader Voice] Sistema PARADO completamente');
       return;
     }
@@ -112,6 +128,10 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
       console.log('[AI Trader Voice] Já está rodando, ignorando');
       return;
     }
+
+    // 🎙️ Reivindica a voz — se a IA Preditiva estiver narrando, ela é
+    // desligada imediatamente (mutex entre as duas telas de voz do app).
+    claimVoice('ai-trader-voice');
 
     isRunningRef.current = true;
     abortControllerRef.current = new AbortController();
@@ -198,11 +218,14 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
 
     runAnalysis();
 
-    // Cleanup quando desmontar ou isActive mudar
+    // Cleanup quando desmontar ou isActive mudar — precisa parar tudo de
+    // verdade (era só um console.log antes, deixando o loop recursivo de
+    // `runAnalysis`/`speak` vivo mesmo com o componente desmontado).
     return () => {
+      stopEverything();
       console.log('[AI Trader Voice] Cleanup executado');
     };
-  }, [isActive]); // ✅ CORRIGIDO: Removido currentPrice das dependências
+  }, [isActive, claimVoice, releaseVoice]); // ✅ CORRIGIDO: Removido currentPrice das dependências
 
   const handleToggle = () => {
     if (!isActive) {
