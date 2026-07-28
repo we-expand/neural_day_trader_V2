@@ -1,97 +1,152 @@
-# Handoff — próxima sessão (escrito em 2026-07-26)
+# Handoff — próxima sessão (escrito em 2026-07-28)
 
 > Arquivo temporário de retomada rápida. Não é memória permanente do projeto —
 > isso é o `CLAUDE.md` (carrega automático) e o `AI_BRAIN_SPEC.md` (fonte de
 > verdade do motor de decisão). Este arquivo existe só pra você abrir uma
 > janela nova e retomar sem reconstruir o raciocínio do zero. Pode apagar
-> depois de ler/absorver, ou eu absorvo o essencial de volta no `CLAUDE.md` e
-> apago este arquivo na próxima sessão — sua escolha.
+> depois de ler/absorver.
 
 ## Onde a conversa chegou
 
-Depois de 15 sub-investigações (`AI_BRAIN_SPEC.md` seções 11.5→11.15) testando
-5 presets de estratégia técnica clássica (Donchian, EMA+ADX, Reversão à Média,
-Rompimento Confirmado, Scalp) em 2 cestas (forex major, cripto), múltiplos
-timeframes e 2 métricas (Sharpe, Sortino), **nenhum passou o piso de edge
-estatístico comprovado (DSR ≥95%)**. O teste mais rigoroso (Sortino + bootstrap,
-seção 11.15) deu resultado negativo, não apenas inconclusivo, no melhor
-candidato encontrado (Donchian cripto 4h).
+Sessão de hoje começou investigando o painel "Configurações Operacionais da
+IA" (AI Trader → Configuração) e terminou destravando um **bug de produção
+que derrubava o site inteiro** (tela preta) mais um **bug de UI que quebrava
+todo popover Radix do app**. Tudo já commitado (ver log abaixo) — nada
+pendente de commit desta sessão.
 
-**Decisão tomada com Cleber em 2026-07-26**: parar de girar essa busca (era
-diminishing returns claro) e dividir o produto em 2 pilares:
+### 1. Limpeza de UI no AI Trader (início da sessão)
 
-- **Pilar (a) — disciplina/execução/risco.** Vendável hoje, não depende de
-  achar edge de sinal. Value prop: a IA nunca erra o stop, nunca opera onde o
-  custo mata o alvo (gate de viabilidade já existe), nunca dobra aposta por
-  emoção. Fase Real (dinheiro de usuário) pode avançar só com este pilar.
-- **Pilar (b) — busca de edge com dado estruturalmente diferente.** Não mais
-  indicador técnico sobre o mesmo candle público (isso já foi refutado com
-  rigor). Escopado como **"Trilho 2"** — ver `AI_BRAIN_SPEC.md` seção 13,
-  íntegra, recém-escrita. Ainda **não executado**, é proposta aguardando início.
+A pedido do Cleber, removidos do painel de configuração do AI Trader:
 
-### Por que pilar (b) tem chance de ser diferente (não é "mais do mesmo")
+- Bloco "Configuração por Voz (Neural Speech)" (`VoiceAssistant` embutido).
+- Título "Configurações Operacionais da IA" + presets Scalping/Swing + card
+  "US30 Scalping" (`applyPreset`, `US30ScalpPreset`).
 
-Preço OHLCV público é informação que o mercado já processou — indicador
-técnico sobre ele não tem razão teórica pra ter edge, e os dados confirmaram
-isso. Order book, calendário econômico como filtro de regime, e estrutura
-cross-asset são tipos de dado diferentes, com justificativa teórica distinta
-(informação de curtíssimo prazo que não está no candle). Ainda não foram
-refutados por nenhum dos 15 testes já feitos.
+Código morto removido junto (imports/função órfãos).
 
-## Escopo do Trilho 2 (resumo — detalhe completo na seção 13 do AI_BRAIN_SPEC.md)
+### 2. Universo de Ativos — auditoria encontrou catálogo fantasma
 
-- **Ativos**: só cripto — BTC/ETH/BNB/SOL (onde existe order book real via
-  Binance; forex/CFD não tem book público, é limitação declarada — L1 seção 10).
-- **Timeframe**: minutos (1m-15m), não 4h/1d — desequilíbrio de book é sinal de
-  curtíssimo prazo por natureza.
-- **Fontes de dado**: (1) desequilíbrio/profundidade de order book, (2)
-  calendário econômico usado como **filtro de regime** (evitar operar perto de
-  evento de alto impacto), não como sinal isolado, (3) features cross-asset
-  (ex: BTC como líder de altcoins).
-- **Fora de escopo deste trilho**: notícia em texto/NLP (não existe pipeline,
-  custo não justificado ainda), dado pago de terceiros, forex/índice, ensemble
-  com os arquétipos já refutados.
-- **Modelo**: regressão logística ou gradient boosting raso — não rede neural
-  profunda (pouco dado de book em alta frequência overfita rápido, e perde
-  auditabilidade, que é requisito do resto da spec).
-- **Validação**: mesma disciplina de sempre — walk-forward com purge/embargo,
-  custo real (`CostModel.ts`), Deflated Sharpe **e** Sortino com bootstrap
-  (lição da 11.15: Sharpe sozinho não é confiável), amostra mínima mais alta
-  (timeframe de minutos gera mais trades, então o piso de leitura confiável
-  sobe também).
-- **Orçamento**: prazo-teto de **3-4 semanas**, com critério de corte escrito
-  ANTES de começar — se nada passar Deflated Sortino ≥ piso + bootstrap
-  P(Sortino real>0) claramente >50% (ideal ≥70%), a conclusão registrada é
-  **"edge de sinal não é viável com os dados hoje disponíveis"**, sem eufemismo,
-  e o pilar (b) pausa (documentado o que mudaria isso: dado pago, corretora com
-  book real em forex, etc). Pilar (a) segue de qualquer forma.
+Investigando se o seletor "Universo de Ativos - Infinox" do AI Trader batia
+com o mesmo catálogo do Dashboard, achamos que **não batia**:
+[`AssetUniverse.tsx`](src/app/components/config/AssetUniverse.tsx) tinha uma
+lista de 341 ativos digitada à mão, nunca auditada contra a API real —
+continha símbolos fantasma (`TOTUSD`/"Tottenham" como cripto, `JSON`/"JSON
+Token", `USDIGN`/"Ignition", variantes `dft`/`R` inventadas). O Dashboard já
+usava um catálogo **real**, auditado contra a API da Infinox
+(`src/config/infinoxAssets.ts` + `src/app/config/brokerRegistry.ts`, via
+`scripts/audit-broker-symbols.mjs`).
 
-## Próximo passo técnico concreto (ainda não iniciado)
+Reescrito `AssetUniverse.tsx` pra consumir o catálogo real
+(`getInfinoxAssetsByCategory()`) — mesma fonte do Dashboard, catálogo
+duplicado eliminado. Efeito colateral corrigido: `BacktestReplayBar.tsx`
+importava a lista antiga, redirecionado pro catálogo canônico
+(`assetDatabase.ts`).
 
-Antes de testar qualquer feature de order book, falta um **bloqueio técnico
-óbvio**: hoje o motor só consome book em tempo real (Binance), não existe
-dataset histórico de order book salvo em lugar nenhum do projeto pra rodar
-backtest/walk-forward. Primeira tarefa real do Trilho 2, quando começar, é
-resolver isso — decidir fonte (Binance histórico de book tem custo/limitação
-de retenção; considerar reconstruir a partir de trades históricos como proxy,
-ou aceitar janela mais curta de dado real coletado daqui pra frente).
+### 3. Universo de Ativos — redesign compacto (pedido explícito do Cleber)
+
+O grid de cards grandes (1 card ~90px por ativo, ~350 ativos reais) ocupava
+área de tela enorme. Redesenhado como **combobox de busca compacto**
+(padrão "command palette", usando `cmdk`/`ui/command.tsx`, já usado em
+`MarketScore.tsx`): 1 botão-gatilho "N selecionados" abre popover com busca +
+lista agrupada por categoria + seleção múltipla sem fechar; ativos escolhidos
+viram chips removíveis; atalhos "Populares" (BTCUSD, XAUUSD, EURUSD, US30,
+NAS100, SPX500, GER40, XAGUSD) com 1 clique.
+
+### 4. BUG CRÍTICO achado e corrigido: tela preta em produção
+
+Cleber reportou tela preta ao abrir `neuraldaytrader.com`. Reproduzido e
+isolado: `vite.config.ts` tinha o chunk `radix` (Radix UI) separado do chunk
+`vendor` (onde vive o React), criando uma **dependência circular real** entre
+os dois (`Circular chunk: radix -> vendor -> radix`, aviso que o próprio
+build já dava). Em produção, o Rollup às vezes inicializa `radix` antes de
+`vendor` — como os componentes Radix chamam `React.useLayoutEffect` no topo
+do módulo, o app quebrava com `Cannot read properties of undefined (reading
+'useLayoutEffect')`, sem log nenhum (os "escudos anti-erro do Figma" no
+`main.tsx` mascaravam ainda mais). **Fix**: Radix caiu no mesmo chunk
+`vendor` que o React, eliminando o ciclo — mesma classe de bug que já tinha
+sido corrigida antes entre `vendor`/`react-vendor` (comentário no próprio
+arquivo já documentava o precedente, só nunca tinha sido aplicado ao Radix).
+
+### 5. BUG achado e corrigido: popovers Radix invisíveis em todo o app
+
+Ao testar o combobox novo do Universo de Ativos, o popover abria no React
+(DOM presente, `opacity:1`) mas **não aparecia na tela**. Causa: a regra CSS
+"PROTEÇÃO NÍVEL 3" em `index.html` (criada pra esconder overlays de erro que
+o iframe do Figma injeta direto no `<body>`) also esconde **qualquer**
+overlay Radix legítimo — todo componente Radix (Popover, Select,
+DropdownMenu, Tooltip, Dialog...) renderiza via Portal como filho direto de
+`<body>` com `position:fixed`/`z-index` inline, o mesmo padrão que a regra
+tenta bloquear. Isso não é específico do Universo de Ativos — **qualquer
+Popover/Select/DropdownMenu Radix do site inteiro estava sujeito ao mesmo
+bug**, inclusive código que já existia antes desta sessão. **Fix**: regra
+agora exclui qualquer overlay que tenha um descendente com
+`data-slot="*-content"` — convenção usada por todos os componentes Radix
+deste projeto (`src/app/components/ui/*.tsx`).
+
+## Verificação feita
+
+- `npm run validate` (28/28) rodado depois de cada mudança que tocou o motor
+  ou o app.
+- `npx tsc --noEmit` no app inteiro — sem erros novos introduzidos.
+- Bug da tela preta: reproduzido no site publicado (`import()` direto do
+  bundle de produção), corrigido, e reverificado servindo o build de
+  produção local (`npm run preview`) — login carrega normal.
+- Bug do popover: reproduzido no DOM (popover com `data-state=open` mas
+  `display:none`), corrigido, e reverificado no browser — combobox do
+  Universo de Ativos abre e mostra a lista completa buscável.
+- **Não testado**: nenhuma ação irreversível/financeira (login real com
+  credencial, ativação de MT5 real) — meramente exploração + fix de UI/build.
+
+## Próximo trabalho concreto sugerido
+
+1. Confirmar visualmente em produção (depois do deploy) que a tela preta e os
+   popovers Radix (Universo de Ativos e outros) estão realmente resolvidos —
+   eu só verifiquei local/preview, não o deploy real na Vercel.
+2. Considerar auditar se existem outros lugares no app usando Radix
+   Popover/Select/DropdownMenu que podem ter sido afetados silenciosamente
+   pelo bug #5 antes do fix (provavelmente poucos — só achei uso em
+   `MarketScore.tsx` e no novo `AssetUniverse.tsx`, mas vale checar).
+3. Pendência antiga, ainda não retomada: decisão sobre estágio 3 da ponte
+   decisão→execução real (ver `CLAUDE.md`, seção "Pendências reais em
+   aberto", item 2) — Cleber ainda não decidiu se vale avançar além do
+   estágio 2 dado que não há edge estatístico comprovado.
+4. `npm run validate` obrigatório antes de qualquer commit que toque o motor.
 
 ## Arquivos-chave pra retomar
 
-- [`CLAUDE.md`](CLAUDE.md) — estado geral do projeto, carrega automático em
-  toda sessão nova, mantido enxuto por regra.
-- [`research/AI_BRAIN_SPEC.md`](research/AI_BRAIN_SPEC.md) — fonte de verdade
-  do motor de decisão. Seção 13 = escopo completo do Trilho 2. Seções
-  11.5→11.15 = histórico completo da busca refutada (não repetir).
-- [`research/CostModel.ts`](research/CostModel.ts) — modelo de custo
-  calibrado (teve bug real de cripto sub-US$1 corrigido em 11.13).
-- `research/experiments/` — scripts reproduzíveis de cada rodada testada.
+- [`vite.config.ts`](vite.config.ts) — fix do chunk circular radix/vendor
+  (bug #4).
+- [`index.html`](index.html) — fix da regra CSS anti-overlay do Figma que
+  escondia popovers Radix (bug #5).
+- [`src/app/components/config/AssetUniverse.tsx`](src/app/components/config/AssetUniverse.tsx)
+  — combobox compacto novo, catálogo real auditado.
+- [`src/config/infinoxAssets.ts`](src/config/infinoxAssets.ts) +
+  [`src/app/config/brokerRegistry.ts`](src/app/config/brokerRegistry.ts) —
+  fonte única de verdade de "que ativo existe de verdade na Infinox".
 
 ## Regras fixas do projeto (não esquecer ao retomar)
 
 - Claude nunca faz `git commit`/`git push` sozinho — sempre entregar comando
   pronto pro Cleber rodar.
 - `npm run validate` obrigatório antes de qualquer commit que toque o motor.
-- Comunicação sempre em português, sempre com rigor de especialista sênior
-  quant — nunca inflar resultado, sempre reportar achado negativo por completo
-  (isto é método, não tom — ver final do `CLAUDE.md`).
+- Nunca fabricar dado — sempre erro explícito quando não há fonte real.
+- Comunicação sempre em português, rigor de especialista sênior — nunca
+  inflar resultado, sempre reportar achado negativo por completo.
+- Ações irreversíveis/financeiras (login real, ativar MT5 real) nunca são
+  executadas por Claude sozinho, mesmo em teste.
+
+## Estado do git
+
+Working tree deveria estar limpo em relação ao código (só este arquivo
+`.md` e artefatos não relacionados — `dist/`, `Neural Day Trader.zip`,
+`RISK_MANAGEMENT_STRATEGY.md`, screenshots avulsos em `src/imports/`,
+`supabase/.temp/` — não fazem parte deste handoff, não mexidos). Últimos
+commits, mais recente primeiro:
+
+```
+20a8f0d1d fix: regra anti-overlay do Figma escondia popovers legitimos do Radix (Popover/Select/DropdownMenu) em todo o site
+70a824f3c fix: elimina chunk circular radix<->vendor que quebrava o boot em producao (tela preta)
+0e7ca6507 refactor: Universo de Ativos vira combobox compacto (cmdk) em vez de grid de cards
+edceea1a2 fix: Universo de Ativos passa a usar catalogo auditado da Infinox (mesma fonte do Dashboard), remove lista duplicada com simbolos fantasma
+8d183e1df chore: remove Configuração por Voz e Configurações Operacionais da IA (Neural Speech, presets Scalping/Swing, US30 Scalping preset)
+```

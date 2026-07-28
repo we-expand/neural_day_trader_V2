@@ -10,8 +10,13 @@ import { comparePricesBatch } from '@/app/utils/priceDebugger';
 interface InfinoxAssetsBrowserProps {
   isOpen: boolean;
   onClose: () => void;
-  selectedAsset: string;
-  onSelectAsset: (symbol: string) => void;
+  /** 'single' (default) mantém o comportamento original: clicar num ativo seleciona e fecha o modal.
+   *  'multi' habilita seleção múltipla via `selectedAssets`/`onToggleAsset`, sem fechar ao clicar. */
+  mode?: 'single' | 'multi';
+  selectedAsset?: string;
+  onSelectAsset?: (symbol: string) => void;
+  selectedAssets?: string[];
+  onToggleAsset?: (symbol: string) => void;
 }
 
 interface AssetData {
@@ -20,7 +25,30 @@ interface AssetData {
   change: number;
 }
 
-export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectAsset }: InfinoxAssetsBrowserProps) {
+export function InfinoxAssetsBrowser({
+  isOpen,
+  onClose,
+  mode = 'single',
+  selectedAsset,
+  onSelectAsset,
+  selectedAssets,
+  onToggleAsset,
+}: InfinoxAssetsBrowserProps) {
+  const isMulti = mode === 'multi';
+
+  // Encapsula a diferença de comportamento num único lugar: em modo single,
+  // clicar seleciona + fecha (igual ao comportamento original, inalterado);
+  // em modo multi, clicar alterna a seleção e o modal continua aberto.
+  const handlePick = (symbol: string) => {
+    if (isMulti) {
+      onToggleAsset?.(symbol);
+    } else {
+      onSelectAsset?.(symbol);
+    }
+  };
+  const isSymbolSelected = (symbol: string) =>
+    isMulti ? !!selectedAssets?.includes(symbol) : selectedAsset === symbol;
+
   const [searchTerm, setSearchTerm] = useState('');
   const [assetPrices, setAssetPrices] = useState<Record<string, AssetData>>({});
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
@@ -92,9 +120,11 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
         e.preventDefault();
         if (selectedAutocompleteIndex >= 0) {
           const selected = autocompleteResults[selectedAutocompleteIndex];
-          setSearchTerm(selected);
-          setAutocompleteResults([]);
-          onSelectAsset(selected);
+          if (!isMulti) {
+            setSearchTerm(selected);
+            setAutocompleteResults([]);
+          }
+          handlePick(selected);
         }
         break;
       case 'Escape':
@@ -240,9 +270,11 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
                       <button
                         key={result}
                         onClick={() => {
-                          setSearchTerm(result);
-                          setAutocompleteResults([]);
-                          onSelectAsset(result);
+                          if (!isMulti) {
+                            setSearchTerm(result);
+                            setAutocompleteResults([]);
+                          }
+                          handlePick(result);
                         }}
                         className={`w-full px-4 py-3 text-left text-sm font-bold transition-colors ${
                           index === selectedAutocompleteIndex 
@@ -328,7 +360,7 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
                         {/* Assets Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
                           {category.symbols.map((symbol) => {
-                            const isSelected = selectedAsset === symbol;
+                            const isSelected = isSymbolSelected(symbol);
                             const priceData = assetPrices[symbol];
                             const hasPrice = !!priceData;
                             const isPositive = priceData ? priceData.change >= 0 : null;
@@ -338,7 +370,7 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
                                 key={symbol}
                                 onClick={() => {
                                   console.log('[InfinoxAssetsBrowser] Selecionando ativo:', symbol);
-                                  onSelectAsset(symbol);
+                                  handlePick(symbol);
                                 }}
                                 className={`group relative p-3 rounded-xl border transition-all text-left ${
                                   isSelected
@@ -421,9 +453,23 @@ export function InfinoxAssetsBrowser({ isOpen, onClose, selectedAsset, onSelectA
                   )}
                 </div>
                 
-                <div className="text-xs text-slate-500 font-medium">
-                  Selecionado: <span className="text-emerald-400 font-bold">{selectedAsset || 'Nenhum'}</span>
-                </div>
+                {isMulti ? (
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs text-slate-500 font-medium">
+                      <span className="text-emerald-400 font-bold">{selectedAssets?.length || 0}</span> selecionado{(selectedAssets?.length || 0) === 1 ? '' : 's'}
+                    </div>
+                    <button
+                      onClick={onClose}
+                      className="px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors"
+                    >
+                      Concluir
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500 font-medium">
+                    Selecionado: <span className="text-emerald-400 font-bold">{selectedAsset || 'Nenhum'}</span>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>

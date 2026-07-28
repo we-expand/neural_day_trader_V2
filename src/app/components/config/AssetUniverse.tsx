@@ -8,7 +8,6 @@ import {
   Flame,
   Wheat,
   Landmark,
-  Check,
   Sparkles,
   X,
   ChevronDown,
@@ -17,8 +16,7 @@ import {
 } from 'lucide-react';
 import { getInfinoxAssetsByCategory } from '@/config/infinoxAssets';
 import { ALL_ASSETS, type Asset } from '@/app/config/assetDatabase';
-import { Popover, PopoverContent, PopoverTrigger } from '@/app/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/app/components/ui/command';
+import { InfinoxAssetsBrowser } from '@/app/components/dashboard/InfinoxAssetsBrowser';
 
 // ✅ 2026-07-28: catálogo real (ver histórico de comentário anterior neste
 // arquivo — a lista hardcoded/não auditada foi removida, deriva de
@@ -132,7 +130,6 @@ interface AssetUniverseProps {
 
 export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
 
   const bySymbol = useMemo(() => {
     const map = new Map<string, Asset>();
@@ -165,24 +162,6 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
     [bySymbol]
   );
 
-  const term = searchTerm.trim().toLowerCase();
-  const filteredByCategory = useMemo(() => {
-    if (!term) return assetsByCategory;
-    const result: Record<DisplayCategory, Asset[]> = {} as Record<DisplayCategory, Asset[]>;
-    for (const catId of CATEGORY_ORDER) {
-      result[catId] = assetsByCategory[catId].filter(
-        a => a.symbol.toLowerCase().includes(term) || a.name.toLowerCase().includes(term)
-      );
-    }
-    return result;
-  }, [assetsByCategory, term]);
-
-  const selectAllInCategory = (catId: DisplayCategory) => {
-    for (const asset of filteredByCategory[catId]) {
-      if (!selectedAssets.includes(asset.symbol)) onToggle(asset.symbol);
-    }
-  };
-
   const clearAll = () => {
     for (const symbol of [...selectedAssets]) onToggle(symbol);
   };
@@ -203,73 +182,26 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
           </div>
         </div>
 
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-          <PopoverTrigger asChild>
-            <button className="flex items-center gap-2 bg-[#111] hover:bg-[#161616] border border-white/10 hover:border-purple-500/40 px-3 py-2 rounded-lg text-xs font-bold text-slate-200 transition-all shrink-0">
-              <ListChecks className="w-3.5 h-3.5 text-purple-400" />
-              {selectedAssets.length} selecionado{selectedAssets.length !== 1 ? 's' : ''}
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[340px] p-0 bg-[#0A0A0A] border border-white/10 shadow-2xl rounded-xl" side="bottom" align="end">
-            <Command shouldFilter={false} className="bg-transparent text-slate-200">
-              <CommandInput
-                value={searchTerm}
-                onValueChange={setSearchTerm}
-                placeholder="Buscar símbolo ou nome..."
-                className="h-9 border-b border-white/10 bg-transparent text-xs"
-              />
-              <CommandList className="max-h-[360px] custom-scrollbar p-1">
-                <CommandEmpty className="py-6 text-center text-xs text-slate-500">Nenhum ativo encontrado.</CommandEmpty>
-                {CATEGORY_ORDER.map(catId => {
-                  const items = filteredByCategory[catId];
-                  if (items.length === 0) return null;
-                  const meta = CATEGORY_META[catId];
-                  const theme = THEME_COLORS[meta.color];
-                  const allSelected = items.every(a => selectedAssets.includes(a.symbol));
-                  return (
-                    <CommandGroup
-                      key={catId}
-                      heading={
-                        <div className="flex items-center justify-between pr-1">
-                          <span className={`flex items-center gap-1.5 ${theme.text}`}>
-                            {meta.icon} {meta.label} · {items.length}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectAllInCategory(catId); }}
-                            className="text-[9px] font-bold text-slate-500 hover:text-white uppercase tracking-wide"
-                          >
-                            {allSelected ? '✓ todos' : 'sel. todos'}
-                          </button>
-                        </div>
-                      }
-                      className="text-slate-500 font-bold"
-                    >
-                      {items.map(asset => {
-                        const isSelected = selectedAssets.includes(asset.symbol);
-                        const isOpen2 = isMarketOpen(asset);
-                        return (
-                          <CommandItem
-                            key={asset.symbol}
-                            value={asset.symbol}
-                            onSelect={() => onToggle(asset.symbol)}
-                            className="cursor-pointer flex items-center gap-2 rounded-md aria-selected:bg-white/5"
-                          >
-                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOpen2 ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                            <span className="text-xs font-bold text-slate-200 font-mono">{asset.symbol}</span>
-                            <span className="text-[10px] text-slate-500 truncate flex-1">{asset.name}</span>
-                            {isSelected && <Check className={`w-3.5 h-3.5 shrink-0 ${theme.text}`} />}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  );
-                })}
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+        <button
+          onClick={() => setIsOpen(true)}
+          className="flex items-center gap-2 bg-[#111] hover:bg-[#161616] border border-white/10 hover:border-purple-500/40 px-3 py-2 rounded-lg text-xs font-bold text-slate-200 transition-all shrink-0"
+        >
+          <ListChecks className="w-3.5 h-3.5 text-purple-400" />
+          {selectedAssets.length} selecionado{selectedAssets.length !== 1 ? 's' : ''}
+          <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+        </button>
+
+        {/* ✅ 2026-07-28: reaproveita o mesmo navegador de ativos do Dashboard
+            (InfinoxAssetsBrowser, catálogo `getInfinoxAssetsByCategory()`
+            idêntico ao usado aqui) em modo multi-seleção, em vez de manter
+            uma segunda implementação de busca+grid redundante via cmdk. */}
+        <InfinoxAssetsBrowser
+          isOpen={isOpen}
+          onClose={() => setIsOpen(false)}
+          mode="multi"
+          selectedAssets={selectedAssets}
+          onToggleAsset={onToggle}
+        />
       </div>
 
       {/* Quick picks — só mostra os que ainda não estão selecionados */}

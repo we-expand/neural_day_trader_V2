@@ -736,7 +736,7 @@ async function fetchMicrostructure(symbol: string): Promise<MarketScoreMicrostru
   }
 }
 
-function describeMicrostructure(m: MarketScoreMicrostructure): string {
+export function describeMicrostructure(m: MarketScoreMicrostructure): string {
   const { imbalance } = m.imbalance;
   if (Math.abs(imbalance) < 15) return '';
   const direction = imbalance > 0 ? 'compradora' : 'vendedora';
