@@ -28,6 +28,7 @@ import { LiveModeConfirmation } from './trading/LiveModeConfirmation';
 import { US30ScalpPreset } from './trading/US30ScalpPreset';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
+import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
@@ -78,7 +79,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts } = useTradingContext();
   const { strategies } = useStrategies();
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
@@ -647,6 +648,17 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
           </div>
         </div>
       </div>
+      )}
+
+      {/* Fase 6, estágio 1 (LIVE + somente alerta) — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {!compact && executionMode === 'LIVE' && (
+        <div className="mb-4">
+          <LiveAlertPanel
+            alerts={liveAlerts}
+            enabled={liveAlertStageEnabled}
+            onToggle={setLiveAlertStageEnabled}
+          />
+        </div>
       )}
 
       {/* 🔥 AI STATUS BANNER - Mostra quando a IA está ativa */}

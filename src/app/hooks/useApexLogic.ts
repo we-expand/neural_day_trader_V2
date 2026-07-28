@@ -392,7 +392,21 @@ const INITIAL_STATE: ApexLogicState = {
   equityHistory: [],
 };
 
-export function useApexLogic(initialMarketContext?: MarketContext, strategies: StrategyDef[] = PRESET_STRATEGIES) {
+export function useApexLogic(
+  initialMarketContext?: MarketContext,
+  strategies: StrategyDef[] = PRESET_STRATEGIES,
+  // Ponto de extensão aditivo pra Fase 6 (ponte decisão→execução, ver
+  // research/AI_BRAIN_SPEC.md seção 9.1): invocado com a decisão de entrada
+  // assim que ela é computada, ANTES de qualquer efeito colateral (estado
+  // local, persistência DEMO, toast). Não decide nada e não é aguardado
+  // (fire-and-forget) — o motor não reaproveita nem espera resposta do
+  // consumidor. Existe só pra permitir um módulo isolado (estágios 1-2 da
+  // ponte) observar a decisão sem duplicar a lógica de sinal/indicador.
+  onLiveDecision?: (decision: TradeVisual) => void
+) {
+  const onLiveDecisionRef = useRef(onLiveDecision);
+  useEffect(() => { onLiveDecisionRef.current = onLiveDecision; }, [onLiveDecision]);
+
   // Ref pra sempre ler a lista de estratégias mais atual dentro do setInterval sem recriar o loop
   const strategiesRef = useRef<StrategyDef[]>(strategies);
   useEffect(() => { strategiesRef.current = strategies; }, [strategies]);
@@ -1512,6 +1526,14 @@ export function useApexLogic(initialMarketContext?: MarketContext, strategies: S
               trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
             },
           };
+
+          // 🔔 Fase 6 (ponte decisão→execução) — observador aditivo, fire-and-forget.
+          // Não altera nenhum comportamento abaixo (DEMO/LIVE seguem exatamente iguais).
+          try {
+            onLiveDecisionRef.current?.(newTrade);
+          } catch (observerError) {
+            console.error('[FASE 6] Erro no observador onLiveDecision (não afeta o motor):', observerError);
+          }
 
           // Atualizar último timestamp de trade
           lastTradeTimestampRef.current = Date.now();

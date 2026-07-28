@@ -1,8 +1,9 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
 import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { useMarketContext } from './MarketContext';
+import { useLiveAlertStage, LiveAlertEvent } from '../modules/liveAlertStage/useLiveAlertStage';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -75,6 +76,11 @@ interface TradingContextType {
   applyCommission: (percentage: number) => void;
   resetPortfolio: (balance: number) => void;
   closeHedgedPositions: () => void;
+
+  // Fase 6, estágio 1 — LIVE + somente alerta (ver AI_BRAIN_SPEC.md seção 9.1)
+  liveAlertStageEnabled: boolean;
+  setLiveAlertStageEnabled: (next: boolean) => void;
+  liveAlerts: LiveAlertEvent[];
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
@@ -116,12 +122,43 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // a estratégia selecionada em aiConfig.activeStrategyId, mesma lógica do Backtest
   const { strategies } = useStrategies();
 
+  // Fase 6, estágio 1 (ver research/AI_BRAIN_SPEC.md seção 9.1): o motor
+  // (useApexLogic) invoca `onLiveDecision` assim que decide uma entrada — esse
+  // wrapper indireto existe porque o hook do estágio 1 (useLiveAlertStage)
+  // precisa de `logic.executionMode`, que só existe DEPOIS de useApexLogic ser
+  // chamado. O ref resolve a dependência circular sem acoplar os dois hooks.
+  const liveDecisionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  const forwardLiveDecision = useCallback((decision: TradeVisual) => {
+    liveDecisionHandlerRef.current(decision);
+  }, []);
+
+  // Estágio 1 é opt-in, desligado por padrão — persiste localmente por ser
+  // uma preferência de UI, não um dado sensível.
+  const [liveAlertStageEnabled, setLiveAlertStageEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_live_alert_stage_enabled') === 'true';
+  });
+  const setLiveAlertStageEnabledPersistent = useCallback((next: boolean) => {
+    setLiveAlertStageEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_live_alert_stage_enabled', String(next));
+    }
+  }, []);
+
   // Initialize the hook once here, so it persists across page navigations
   // ✅ SEMPRE chamar hooks na mesma ordem (Rules of Hooks)
   const logic = useApexLogic({
     prices: marketContext?.marketState?.prices || {}, // ✅ Fallback seguro
     mt5Offset: 0
-  }, strategies);
+  }, strategies, forwardLiveDecision);
+
+  const liveAlertStage = useLiveAlertStage({
+    executionMode: logic.executionMode,
+    enabled: liveAlertStageEnabled,
+  });
+  useEffect(() => {
+    liveDecisionHandlerRef.current = liveAlertStage.onLiveDecision;
+  }, [liveAlertStage.onLiveDecision]);
   
   // Legacy functions mapped to new logic - memoized to prevent infinite loops
   const toggleAI = useCallback(() => {
@@ -227,6 +264,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     applyCommission,
     resetPortfolio,
     closeHedgedPositions,
+    liveAlertStageEnabled,
+    setLiveAlertStageEnabled: setLiveAlertStageEnabledPersistent,
+    liveAlerts: liveAlertStage.alerts,
   }), [
     logic.isActive,
     logic.isPaused,
@@ -277,6 +317,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     applyCommission,
     resetPortfolio,
     closeHedgedPositions,
+    liveAlertStageEnabled,
+    setLiveAlertStageEnabledPersistent,
+    liveAlertStage.alerts,
   ]);
 
   return (
