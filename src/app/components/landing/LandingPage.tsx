@@ -552,16 +552,16 @@ export const LandingPage = ({ onLoginClick, lang, setLang }: { onLoginClick: () 
           <div className="md:col-span-2">
             <h4 className="text-white font-semibold mb-3 tracking-wider uppercase text-xs">Headquarters</h4>
             <div className="text-slate-400 text-xs space-y-1">
-              <p>Praça Infante Dom Pedro nº 12 - 5º Andar ESQUERDO</p>
-              <p>Algés, Oeiras, Lisboa</p>
-              <p>Portugal, 1495-149</p>
+              <p>Av Padre Antonio José dos Santos, 530</p>
+              <p>São Paulo, SP, Brasil</p>
+              <p>CEP 04563 001</p>
             </div>
           </div>
 
           <div className="md:col-span-1">
             <h4 className="text-white font-semibold mb-3 tracking-wider uppercase text-xs">Contact & Legal</h4>
             <div className="text-slate-400 text-xs space-y-2">
-               <p className="hover:text-white transition-colors cursor-pointer">Tel: +351 9654 568 95</p>
+               <p className="hover:text-white transition-colors cursor-pointer">info@neuraldaytrader.com</p>
                <div className="h-px bg-white/10 w-12 my-2" />
                <p className="hover:text-cyan-400 transition-colors cursor-pointer flex items-center gap-2">
                  <Lock className="w-3 h-3" />

@@ -127,14 +127,14 @@ export const translations = {
         },
         {
           name: 'Node: Pro',
-          price: '€99',
+          price: 'R$199,00',
           description: 'Infraestrutura para traders ativos e execução semi-automatizada.',
           cta: 'Ativar Pro',
           features: ['Sinais Neurais Avançados', 'Copy-Trading MT5', 'Baixa Latência (<20ms)', 'Alavancagem Max 1:1000', 'Análise de Sentimento IA', '3 Workspaces', 'Prioridade na Fila']
         },
         {
           name: 'Node: Institutional',
-          price: '€499',
+          price: 'R$399,00',
           description: 'Poder computacional bruto para HFT e Prop Firms.',
           cta: 'Solicitar Acesso',
           features: ['Algoritmos Genéticos', 'Auto-Hedging Dinâmico', 'Ultra-Baixa Latência (<5ms)', 'Alavancagem Flexível (> 1:1000)', 'VPS Dedicado em Londres', '10 Workspaces', 'Gerente de Conta']
