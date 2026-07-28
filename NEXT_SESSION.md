@@ -8,145 +8,120 @@
 
 ## Onde a conversa chegou
 
-Sessão de hoje começou investigando o painel "Configurações Operacionais da
-IA" (AI Trader → Configuração) e terminou destravando um **bug de produção
-que derrubava o site inteiro** (tela preta) mais um **bug de UI que quebrava
-todo popover Radix do app**. Tudo já commitado (ver log abaixo) — nada
-pendente de commit desta sessão.
+Sessão inteira focada em **revisar a tela "IA Preditiva" (`LiquidityPrediction.tsx`)** — auditoria completa de mock vs. real, correção do timeframe da previsão, unificação do seletor de ativos, controle de voz, e três bugs reais achados no meio do caminho (preço zerado, voz que não desligava, botões duplicados). Ver detalhe por tópico abaixo.
 
-### 1. Limpeza de UI no AI Trader (início da sessão)
+### 1. Auditoria mock vs. real + reescrita da tela "IA Preditiva" (já commitado)
 
-A pedido do Cleber, removidos do painel de configuração do AI Trader:
+A tela inteira (`src/app/components/innovation/LiquidityPrediction.tsx`) foi auditada e reescrita:
 
-- Bloco "Configuração por Voz (Neural Speech)" (`VoiceAssistant` embutido).
-- Título "Configurações Operacionais da IA" + presets Scalping/Swing + card
-  "US30 Scalping" (`applyPreset`, `US30ScalpPreset`).
+- **Previsão "Próxima Xh"**: era 100% mock hardcoded (68% de confiança fixo, `+0.8%` fixo, sempre "1h" independente do timeframe selecionado). Reescrita pra usar o `MarketScoreEngine` real (mesmo motor do Dashboard) — título, classificação, confiança e níveis agora reagem de verdade ao timeframe escolhido (1m/5m/15m/1h/4h/1d — `'1w'` removido, o motor não suporta).
+- **Suporte/Resistência**: era ±0,2% arbitrário sobre o preço. Agora é pivô real (swing high/low de 20 barras) calculado a partir de candles reais (`backtestDataService.fetchHistoricalData`).
+- **Mapa de Liquidez**: era `Math.sin()+Math.random()` fabricado. Agora usa order book real da Binance (`GET /api/v3/depth`) para pares cripto resolvíveis; para o resto do catálogo (forex/índices via Infinox) mostra estado "indisponível" honesto — **isso é estrutural, não falta de fonte escolhida**: não existe order book público gratuito pra forex/CFD em nenhuma API de mercado (Alpha Vantage, EODHD, Tiingo etc. também não têm).
+- **Feed Neural**: os ~17 templates de alerta fabricados (baleia, spoofing, iceberg, RSI fake) foram removidos. Ficaram só alertas reais: horário de mercado, contagem de candle, trade grande via `aggTrades` da Binance (cripto), pressão de book real via `describeMicrostructure` (agora exportada do `MarketScoreEngine.ts`).
+- **Narração por voz** (`hourlyVoiceAnalysis.ts`): RSI e "probabilidade de alta" eram sorteados com `Math.random()` mesmo recebendo dado real de entrada. Corrigido pra vir do `MarketScoreResult` real; frase de probabilidade fabricada foi removida (não existe fonte real calibrada pra ela).
+- **Seletor de ativos**: unificado no `InfinoxAssetsBrowser` (o mesmo modal que o Dashboard usa em produção) — ganhou um modo `multi` novo, reaproveitado também pelo `AssetUniverse.tsx` do AI Trader.
 
-Código morto removido junto (imports/função órfãos).
+### 2. Bug achado e corrigido: narração sempre dizia "uma hora" (já commitado)
 
-### 2. Universo de Ativos — auditoria encontrou catálogo fantasma
+`hourlyVoiceAnalysis.ts` tinha o texto "Previsão em uma hora" hardcoded, ignorando o timeframe real selecionado no seletor. Corrigido — `HourlyAnalysisData` ganhou `timeframeLabel`, preenchido com `TIMEFRAME_LABELS[timeframe]` nos dois call-sites da narração.
 
-Investigando se o seletor "Universo de Ativos - Infinox" do AI Trader batia
-com o mesmo catálogo do Dashboard, achamos que **não batia**:
-[`AssetUniverse.tsx`](src/app/components/config/AssetUniverse.tsx) tinha uma
-lista de 341 ativos digitada à mão, nunca auditada contra a API real —
-continha símbolos fantasma (`TOTUSD`/"Tottenham" como cripto, `JSON`/"JSON
-Token", `USDIGN`/"Ignition", variantes `dft`/`R` inventadas). O Dashboard já
-usava um catálogo **real**, auditado contra a API da Infinox
-(`src/config/infinoxAssets.ts` + `src/app/config/brokerRegistry.ts`, via
-`scripts/audit-broker-symbols.mjs`).
+### 3. Toggle de voz independente + mutex entre telas de voz (já commitado)
 
-Reescrito `AssetUniverse.tsx` pra consumir o catálogo real
-(`getInfinoxAssetsByCategory()`) — mesma fonte do Dashboard, catálogo
-duplicado eliminado. Efeito colateral corrigido: `BacktestReplayBar.tsx`
-importava a lista antiga, redirecionado pro catálogo canônico
-(`assetDatabase.ts`).
+A pedido do Cleber: novo botão "Voz ON/OFF" no Feed Neural, separado do "AI ON/OFF" (que continua desligando o feed inteiro) — permite acompanhar só os logs sem narração. Criado `VoiceCoordinatorContext` (novo, `src/app/contexts/`) que arbitra mutex entre a voz da IA Preditiva e a da tela "AI Trader Voice" — ligar uma desliga a outra na hora. No caminho, achado e corrigido um **bug real**: o cleanup do loop de narração do `AITraderVoice.tsx` não fazia nada de fato (só um `console.log`) — trocar de tela com a voz ligada deixava o loop rodando "zumbi" em segundo plano, brigando com a voz da outra tela. Agora cancela `speechSynthesis`, aborta o loop e libera a voz de verdade no unmount.
 
-### 3. Universo de Ativos — redesign compacto (pedido explícito do Cleber)
+### 4. Bug achado e corrigido: "Voz OFF" não parava a narração em andamento (já commitado)
 
-O grid de cards grandes (1 card ~90px por ativo, ~350 ativos reais) ocupava
-área de tela enorme. Redesenhado como **combobox de busca compacto**
-(padrão "command palette", usando `cmdk`/`ui/command.tsx`, já usado em
-`MarketScore.tsx`): 1 botão-gatilho "N selecionados" abre popover com busca +
-lista agrupada por categoria + seleção múltipla sem fechar; ativos escolhidos
-viram chips removíveis; atalhos "Populares" (BTCUSD, XAUUSD, EURUSD, US30,
-NAS100, SPX500, GER40, XAGUSD) com 1 clique.
+Causa raiz: os loops de narração (`for + await speak(...)`) capturavam a função `speak()` da closure vigente no clique do botão — como `speak()` é recriada a cada mudança de `voiceEnabled`, o loop já em andamento continuava vendo o `voiceEnabled` **antigo**. Corrigido com `voiceEnabledRef` (sempre sincronizada via `useEffect`), checada a cada iteração dos dois loops pra cortar de verdade. Layout também corrigido: "Voz ON/OFF" estava espalhado pro extremo direito da tela por causa de um `justify-between` mal escopado — agora fica agrupado ao lado do "AI ON/OFF".
 
-### 4. BUG CRÍTICO achado e corrigido: tela preta em produção
+### 5. Bug achado e corrigido + consolidação de botões — **AINDA NÃO COMMITADO**
 
-Cleber reportou tela preta ao abrir `neuraldaytrader.com`. Reproduzido e
-isolado: `vite.config.ts` tinha o chunk `radix` (Radix UI) separado do chunk
-`vendor` (onde vive o React), criando uma **dependência circular real** entre
-os dois (`Circular chunk: radix -> vendor -> radix`, aviso que o próprio
-build já dava). Em produção, o Rollup às vezes inicializa `radix` antes de
-`vendor` — como os componentes Radix chamam `React.useLayoutEffect` no topo
-do módulo, o app quebrava com `Cannot read properties of undefined (reading
-'useLayoutEffect')`, sem log nenhum (os "escudos anti-erro do Figma" no
-`main.tsx` mascaravam ainda mais). **Fix**: Radix caiu no mesmo chunk
-`vendor` que o React, eliminando o ciclo — mesma classe de bug que já tinha
-sido corrigida antes entre `vendor`/`react-vendor` (comentário no próprio
-arquivo já documentava o precedente, só nunca tinha sido aplicado ao Radix).
-
-### 5. BUG achado e corrigido: popovers Radix invisíveis em todo o app
-
-Ao testar o combobox novo do Universo de Ativos, o popover abria no React
-(DOM presente, `opacity:1`) mas **não aparecia na tela**. Causa: a regra CSS
-"PROTEÇÃO NÍVEL 3" em `index.html` (criada pra esconder overlays de erro que
-o iframe do Figma injeta direto no `<body>`) also esconde **qualquer**
-overlay Radix legítimo — todo componente Radix (Popover, Select,
-DropdownMenu, Tooltip, Dialog...) renderiza via Portal como filho direto de
-`<body>` com `position:fixed`/`z-index` inline, o mesmo padrão que a regra
-tenta bloquear. Isso não é específico do Universo de Ativos — **qualquer
-Popover/Select/DropdownMenu Radix do site inteiro estava sujeito ao mesmo
-bug**, inclusive código que já existia antes desta sessão. **Fix**: regra
-agora exclui qualquer overlay que tenha um descendente com
-`data-slot="*-content"` — convenção usada por todos os componentes Radix
-deste projeto (`src/app/components/ui/*.tsx`).
+- **Preço zerado**: `realPrices[selectedAsset]` usava chave errada (`'BTC'` sem sufixo vs. `selectedAsset` guardando o ticker completo `'BTCUSDT'`) — nunca batia, caía sempre em `$0`, que ia parar tanto no card "Preço Atual" quanto na narração ("Preço atual: 0 dólares"). Trocado por `livePrice`, derivado do fechamento real do último candle já buscado pro pivô (cobre qualquer ativo do catálogo, não só os 10 pares cripto do `realPrices` antigo, que foi removido — tinha ficado órfão).
+- **3 botões duplicados → 1**: "Escaneamento Profundo" não tinha `onClick` nenhum (não fazia nada) e "Análise Completa por Voz" duplicava exatamente a lógica de "Análise | Próxima Xh". Os dois foram removidos — o único botão "Análise | Próxima Xh" já é profundo (Market Score Engine + pivô real) e já narra por voz por padrão, não mais 3 ações separadas.
+- **Retry/backoff no 504 da MetaAPI**: `BacktestDataService.fetchFromMetaApiHistory` agora tenta até 2 vezes a mais (800ms, depois 2s) quando a resposta é 504/502/503/429 — ataca a causa raiz documentada no `CLAUDE.md` (conta MetaAPI compartilhada sob carga), em vez de aceitar "indisponível" na primeira falha transitória. Se todas as tentativas falharem, o erro real ainda propaga — nunca fabrica candle.
+- Decisão tomada nesta sessão: **não** integrar Alpha Vantage/EODHD/Tiingo como fallback — cota diária grátis (≈25 req/dia) é baixa demais pro volume real do app, e nenhuma delas resolve o gap de order book de forex/índices de qualquer forma (isso é estrutural).
 
 ## Verificação feita
 
-- `npm run validate` (28/28) rodado depois de cada mudança que tocou o motor
-  ou o app.
-- `npx tsc --noEmit` no app inteiro — sem erros novos introduzidos.
-- Bug da tela preta: reproduzido no site publicado (`import()` direto do
-  bundle de produção), corrigido, e reverificado servindo o build de
-  produção local (`npm run preview`) — login carrega normal.
-- Bug do popover: reproduzido no DOM (popover com `data-state=open` mas
-  `display:none`), corrigido, e reverificado no browser — combobox do
-  Universo de Ativos abre e mostra a lista completa buscável.
-- **Não testado**: nenhuma ação irreversível/financeira (login real com
-  credencial, ativação de MT5 real) — meramente exploração + fix de UI/build.
+- `npm run validate` (28/28) depois de cada mudança que tocou o motor.
+- `npx tsc --noEmit` — 689 erros no total durante toda a sessão (baseline pré-existente, mesmo número antes/depois de cada mudança — **zero erro novo introduzido**, confirmado repetidamente com `git stash`).
+- `npm run build` — sempre limpo, sem aviso de chunk circular.
+- Verificação visual real no browser (login mock via `sessionStorage`, não credencial real) pra cada mudança: timeframe atualizando a previsão ao vivo, seletor de ativos unificado abrindo o modal certo, voz cortando de verdade no meio da narração (capturado via mock de `speechSynthesis`, array de mensagens faladas parou exatamente no ponto do clique), preço real aparecendo (`$63.748,47` em vez de `$0`), botão único substituindo os 3 antigos.
+- **Não testado**: nenhuma ação irreversível/financeira.
 
 ## Próximo trabalho concreto sugerido
 
-1. Confirmar visualmente em produção (depois do deploy) que a tela preta e os
-   popovers Radix (Universo de Ativos e outros) estão realmente resolvidos —
-   eu só verifiquei local/preview, não o deploy real na Vercel.
-2. Considerar auditar se existem outros lugares no app usando Radix
-   Popover/Select/DropdownMenu que podem ter sido afetados silenciosamente
-   pelo bug #5 antes do fix (provavelmente poucos — só achei uso em
-   `MarketScore.tsx` e no novo `AssetUniverse.tsx`, mas vale checar).
-3. Pendência antiga, ainda não retomada: decisão sobre estágio 3 da ponte
-   decisão→execução real (ver `CLAUDE.md`, seção "Pendências reais em
-   aberto", item 2) — Cleber ainda não decidiu se vale avançar além do
-   estágio 2 dado que não há edge estatístico comprovado.
-4. `npm run validate` obrigatório antes de qualquer commit que toque o motor.
+1. **Commitar e dar push no que está pendente** (item 5 acima — preço, consolidação de botões, retry MetaAPI). Comandos prontos abaixo.
+2. Confirmar em produção (pós-deploy) que o preço real aparece corretamente pra ativos forex/índices também (só testei BTCUSDT localmente — o `livePrice` deveria funcionar pra qualquer ativo do catálogo via `backtestDataService`, mas vale conferir visualmente pelo menos 1 ativo não-cripto).
+3. Considerar migrar `AssetSelector.tsx`/`AssetSpecsSelector.tsx` (usados na view "Pirâmide") pro mesmo padrão `InfinoxAssetsBrowser` — ficou fora de escopo desta sessão de propósito (evitar aumentar a superfície de regressão numa área não relacionada ao pedido original).
+4. Pendência antiga, ainda não retomada: decisão sobre estágio 3 da ponte decisão→execução real (`CLAUDE.md`, seção "Pendências reais em aberto", item 2).
+5. `npm run validate` obrigatório antes de qualquer commit que toque o motor.
 
 ## Arquivos-chave pra retomar
 
-- [`vite.config.ts`](vite.config.ts) — fix do chunk circular radix/vendor
-  (bug #4).
-- [`index.html`](index.html) — fix da regra CSS anti-overlay do Figma que
-  escondia popovers Radix (bug #5).
-- [`src/app/components/config/AssetUniverse.tsx`](src/app/components/config/AssetUniverse.tsx)
-  — combobox compacto novo, catálogo real auditado.
-- [`src/config/infinoxAssets.ts`](src/config/infinoxAssets.ts) +
-  [`src/app/config/brokerRegistry.ts`](src/app/config/brokerRegistry.ts) —
-  fonte única de verdade de "que ativo existe de verdade na Infinox".
+- [`src/app/components/innovation/LiquidityPrediction.tsx`](src/app/components/innovation/LiquidityPrediction.tsx) — a tela inteira, reescrita nesta sessão. Maior arquivo tocado.
+- [`src/app/utils/hourlyVoiceAnalysis.ts`](src/app/utils/hourlyVoiceAnalysis.ts) — narração por voz, RSI/timeframe reais.
+- [`src/app/contexts/VoiceCoordinatorContext.tsx`](src/app/contexts/VoiceCoordinatorContext.tsx) — novo, mutex entre telas de voz.
+- [`src/app/components/modules/AITraderVoice.tsx`](src/app/components/modules/AITraderVoice.tsx) — fix do cleanup zumbi + integração com o coordenador.
+- [`src/app/components/dashboard/InfinoxAssetsBrowser.tsx`](src/app/components/dashboard/InfinoxAssetsBrowser.tsx) — ganhou modo `multi`.
+- [`src/app/services/BacktestDataService.ts`](src/app/services/BacktestDataService.ts) — retry/backoff no fetch da MetaAPI (pendente de commit).
+- [`src/app/services/MarketScoreEngine.ts`](src/app/services/MarketScoreEngine.ts) — `describeMicrostructure` exportada.
 
 ## Regras fixas do projeto (não esquecer ao retomar)
 
-- Claude nunca faz `git commit`/`git push` sozinho — sempre entregar comando
-  pronto pro Cleber rodar.
+- Claude nunca faz `git commit`/`git push` sozinho — sempre entregar comando pronto pro Cleber rodar (Cleber pediu explicitamente que **o comando de push venha sempre junto** com o de commit a partir desta sessão).
 - `npm run validate` obrigatório antes de qualquer commit que toque o motor.
-- Nunca fabricar dado — sempre erro explícito quando não há fonte real.
-- Comunicação sempre em português, rigor de especialista sênior — nunca
-  inflar resultado, sempre reportar achado negativo por completo.
-- Ações irreversíveis/financeiras (login real, ativar MT5 real) nunca são
-  executadas por Claude sozinho, mesmo em teste.
+- Nunca fabricar dado — sempre erro/estado "indisponível" explícito quando não há fonte real.
+- Comunicação sempre em português, rigor de especialista sênior — nunca inflar resultado, sempre reportar achado negativo por completo.
+- Ações irreversíveis/financeiras nunca são executadas por Claude sozinho, mesmo em teste.
 
 ## Estado do git
 
-Working tree deveria estar limpo em relação ao código (só este arquivo
-`.md` e artefatos não relacionados — `dist/`, `Neural Day Trader.zip`,
-`RISK_MANAGEMENT_STRATEGY.md`, screenshots avulsos em `src/imports/`,
-`supabase/.temp/` — não fazem parte deste handoff, não mexidos). Últimos
-commits, mais recente primeiro:
+**Pendente de commit** (working tree neste momento):
 
 ```
-20a8f0d1d fix: regra anti-overlay do Figma escondia popovers legitimos do Radix (Popover/Select/DropdownMenu) em todo o site
-70a824f3c fix: elimina chunk circular radix<->vendor que quebrava o boot em producao (tela preta)
-0e7ca6507 refactor: Universo de Ativos vira combobox compacto (cmdk) em vez de grid de cards
-edceea1a2 fix: Universo de Ativos passa a usar catalogo auditado da Infinox (mesma fonte do Dashboard), remove lista duplicada com simbolos fantasma
-8d183e1df chore: remove Configuração por Voz e Configurações Operacionais da IA (Neural Speech, presets Scalping/Swing, US30 Scalping preset)
+M src/app/components/innovation/LiquidityPrediction.tsx
+M src/app/services/BacktestDataService.ts
 ```
+
+Comandos prontos pra rodar:
+
+```bash
+git add src/app/components/innovation/LiquidityPrediction.tsx src/app/services/BacktestDataService.ts
+```
+
+```bash
+git commit -m "fix: preco zerado na IA Preditiva, consolida botoes de analise, retry no 504 da MetaAPI
+
+- LiquidityPrediction: realPrices[selectedAsset] usava chave errada (base
+  cripto sem sufixo vs ticker completo do catalogo Infinox) -- sempre caia
+  em 0, aparecia no card Preco Atual e na narracao por voz. Trocado por
+  livePrice, derivado do candle real ja buscado pro pivo (cobre qualquer
+  ativo, nao so os 10 pares cripto do realPrices antigo, removido por
+  ficar orfao).
+- LiquidityPrediction: Escaneamento Profundo (sem onClick, nao fazia nada)
+  e Analise Completa por Voz (duplicava a logica de Analise | Proxima Xh)
+  removidos -- um unico botao, ja profundo e ja narrado por voz por
+  padrao, nao mais 3 acoes separadas pra mesma analise.
+- BacktestDataService: retry com backoff (2 tentativas, 800ms/2s) em
+  fetchFromMetaApiHistory pra 504/502/503/429 -- ataca a causa raiz
+  documentada (conta MetaAPI compartilhada sob carga) em vez de mascarar
+  com falha imediata; erro real ainda propaga se todas as tentativas
+  falharem, nunca fabrica candle."
+```
+
+```bash
+git push origin main
+```
+
+Últimos commits já feitos, mais recente primeiro:
+
+```
+15ae00db3 fix: Voz OFF nao parava narracao em andamento + reposiciona botao ao lado do AI ON
+75ff47cb8 Reescreve seção de sentimento de mercado com dados reais do crawler RSS
+d66d6b835 feat: toggle de voz independente no Feed Neural + mutex entre vozes do app
+106e6b331 fix: narracao de voz da IA Preditiva ficava presa em 'uma hora' fixo
+5defd71f7 Atualiza preços em reais e dados do rodapé (endereço/contato)
+d9cdec709 fix: remove dado fabricado (Math.random) de voz, liquidez e feed neural
+```
+
+(Commit `75ff47cb8` e `5defd71f7` foram feitos por fora desta conversa — provavelmente pelo Cleber direto ou outra ferramenta — não fazem parte do trabalho documentado acima, citados só pra contexto do log.)
