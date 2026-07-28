@@ -10,7 +10,6 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { NeuralLogsEmpty, NeuralPortfolioEmpty } from './dashboard/NeuralEmptyStates';
 import { LiveLogTerminal } from './dashboard/LiveLogTerminal';
 import { AssetUniverse } from './config/AssetUniverse';
-import { VoiceAssistant } from './ai/VoiceAssistant';
 import { PositionSizeCalculator } from './tools/PositionSizeCalculator';
 import { SessionTimer } from './tools/SessionTimer';
 import { EquityChart } from './tools/EquityChart';
@@ -23,7 +22,6 @@ import { brokerManager } from '@/app/services/brokers/BrokerAdapter';
 import { MT5Adapter } from '@/app/services/brokers/MT5Adapter';
 import { useMarketData } from '@/app/contexts/MarketDataContext';
 import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
-import { US30ScalpPreset } from './trading/US30ScalpPreset';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
 import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
@@ -407,38 +405,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
       description: 'Conta MT5 desconectada',
       duration: 2000
     });
-  };
-
-  const applyPreset = (preset: 'SCALP' | 'SWING') => {
-    if (preset === 'SCALP') {
-      setConfig(prev => ({
-        ...prev,
-        tradingStyle: 'scalping',
-        positionSize: 0.01,
-        stopLoss: 15,
-        takeProfit: 10,
-        maxDrawdown: 20,
-        riskPerTrade: 2,
-        maxOpenTrades: 5,
-        direction: 'AUTO',
-        aiMode: 'ULTRA_AGGRESSIVE'
-      }));
-      toast.success('Preset SCALP aplicado!');
-    } else if (preset === 'SWING') {
-      setConfig(prev => ({
-        ...prev,
-        tradingStyle: 'swing',
-        positionSize: 0.05,
-        stopLoss: 100,
-        takeProfit: 200,
-        maxDrawdown: 30,
-        riskPerTrade: 5,
-        maxOpenTrades: 3,
-        direction: 'AUTO',
-        aiMode: 'CONSERVATIVE'
-      }));
-      toast.success('Preset SWING aplicado!');
-    }
   };
 
   const currentLeverage = portfolio ? (portfolio.openPositionsValue / portfolio.equity) : 0;
@@ -994,30 +960,8 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                     >
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 via-blue-500 to-purple-500 animate-gradient-x"></div>
                         
-                        {/* Voice Assistant Embedded */}
-                        <div className="mb-6">
-                           <VoiceAssistant embedded={true} />
-                        </div>
-
-                        <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
-                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                            <Sliders className="w-5 h-5 text-purple-400" /> Configurações Operacionais da IA
-                            </h2>
-                            <div className="flex gap-2">
-                            <button onClick={() => applyPreset('SCALP')} className="px-3 py-1 text-xs font-bold bg-white/5 hover:bg-white/10 rounded border border-white/10 text-slate-300 transition-all hover:border-purple-500/50">Preset: Scalping</button>
-                            <button onClick={() => applyPreset('SWING')} className="px-3 py-1 text-xs font-bold bg-white/5 hover:bg-white/10 rounded border border-white/10 text-slate-300 transition-all hover:border-blue-500/50">Preset: Swing</button>
-                            </div>
-                        </div>
-
                         {/* OLD PROFILE UI REPLACED BY WORKSPACE SELECTOR IN HEADER */}
-                        
-                        {/* 🎯 US30 SCALPING PRESET */}
-                        <div className="mb-6">
-                            <US30ScalpPreset onApply={(presetConfig) => {
-                                setConfig(prev => ({ ...prev, ...presetConfig }));
-                            }} />
-                        </div>
-                        
+
                         {/* ASSET UNIVERSE SELECTOR */}
                         <div className="mb-8">
                             <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
