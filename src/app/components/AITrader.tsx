@@ -24,7 +24,6 @@ import { brokerManager } from '@/app/services/brokers/BrokerAdapter';
 import { MT5Adapter } from '@/app/services/brokers/MT5Adapter';
 import { useMarketData } from '@/app/contexts/MarketDataContext';
 import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
-import { LiveModeConfirmation } from './trading/LiveModeConfirmation';
 import { US30ScalpPreset } from './trading/US30ScalpPreset';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
@@ -43,7 +42,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
   const [showConverter, setShowConverter] = useState(false);
   const [showEquityChart, setShowEquityChart] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); // ✅ NEW: Premium Reset Modal
-  const [showLiveModeConfirmation, setShowLiveModeConfirmation] = useState(false); // 🚨 NEW: Live Mode Confirmation
   const [showRecoveryChallenge, setShowRecoveryChallenge] = useState(false); // 🚀 NEW: AI Recovery Challenge
   const [challengeActive, setChallengeActive] = useState(false); // 🚀 Challenge em andamento
   const [challengeStartTime, setChallengeStartTime] = useState<Date | null>(null);
@@ -550,7 +548,14 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
             <button
               onClick={() => {
                 if (executionMode === 'DEMO') {
-                  setShowLiveModeConfirmation(true);
+                  // Único caminho real de ativação: MT5ConfigPanel (credenciais +
+                  // handleSave já seta executionMode=LIVE). O modal de checklist
+                  // separado (LiveModeConfirmation) foi removido em 2026-07-27 —
+                  // era um segundo caminho para o mesmo estado, que não pedia
+                  // credencial nenhuma e só habilitava quando já havia conexão
+                  // MT5 (ou seja, só ficava alcançável depois que este painel já
+                  // tinha ativado o modo real sozinho, sem checklist).
+                  setShowMT5ConfigModal(true);
                 } else {
                   // Desativar modo LIVE e resetar para DEMO
                   setExecutionMode('DEMO');
@@ -2027,29 +2032,6 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
         </>
       )}
 
-      {/* 🚨 LIVE MODE CONFIRMATION MODAL */}
-      {showLiveModeConfirmation && (
-        <LiveModeConfirmation
-          isOpen={showLiveModeConfirmation}
-          onClose={() => setShowLiveModeConfirmation(false)}
-          onConfirm={() => {
-            setExecutionMode('LIVE');
-            setShowLiveModeConfirmation(false);
-            // Salvar no localStorage
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('neural_execution_mode', 'LIVE');
-            }
-          }}
-          currentBalance={portfolio?.balance || 0}
-          currentEquity={portfolio?.equity || 0}
-          mt5Connected={isConnected}
-          riskSettings={{
-            dailyLossLimit: config.dailyLossLimit,
-            maxContracts: config.maxContracts,
-            stopLossMode: config.stopLossMode
-          }}
-        />
-      )}
 
       {/* 🚀 AI RECOVERY CHALLENGE MODAL */}
       {showRecoveryChallenge && (
