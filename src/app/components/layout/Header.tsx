@@ -1,45 +1,20 @@
 import React from 'react';
-import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, ArrowLeftRight } from 'lucide-react';
+import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { BrokerConnectionStatus } from '../BrokerConnectionStatus';
-import { toast } from 'sonner';
 
 interface HeaderProps {
   currentView: string;
   isAdmin?: boolean;
   onLogout?: () => void;
   user?: { name: string; email: string; role: string } | null;
-  onNavigate?: (view: string) => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onNavigate }) => {
-  const { config, switchToDemoMode } = useTradingContext();
+export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user }) => {
+  const { config } = useTradingContext();
   const { fullName, profile, avatarUrl } = useUserProfile();
   const isLive = config.executionMode === 'LIVE';
-
-  // Único caminho de troca de modo (2026-07-27) — antes este componente tinha
-  // sua própria lógica de ativar LIVE direto (sem exigir conexão MT5 real,
-  // sem resetar saldo ao voltar pra DEMO, sem salvar 'neural_execution_mode'),
-  // divergente do botão equivalente em AITrader.tsx. Ativar LIVE sempre exige
-  // credenciais reais — o único lugar que faz isso é o painel de conexão MT5
-  // dentro do AI Trader, então esse botão navega pra lá em vez de duplicar a
-  // lógica. Voltar pra DEMO é seguro e reutiliza `switchToDemoMode` do
-  // TradingContext, a mesma função que o AI Trader usa.
-  const handleSwitchMode = () => {
-    if (isLive) {
-      switchToDemoMode();
-      return;
-    }
-
-    if (currentView === 'ai-trader') {
-      toast.info('Use o botão "MODO DEMO" no AI Trader para conectar sua conta real');
-      return;
-    }
-
-    onNavigate?.('ai-trader');
-    toast.info('Abra "MODO DEMO" no AI Trader para conectar sua conta real e ativar o modo LIVE');
-  };
 
   const getViewTitle = (view: string) => {
     switch (view) {
@@ -71,17 +46,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, 
         }`}>
             {isLive ? <AlertTriangle className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
             {isLive ? 'LIVE' : 'DEMO'}
-        </div>
-        
-        {/* Mode Switch Button with Dropdown */}
-        <div className="relative">
-          <button
-            onClick={handleSwitchMode}
-            className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5 border border-transparent hover:border-white/10"
-            title="Alternar entre LIVE e DEMO"
-          >
-            <ArrowLeftRight className="w-4 h-4" />
-          </button>
         </div>
       </div>
       

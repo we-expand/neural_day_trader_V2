@@ -345,7 +345,6 @@ function AppContent() {
               isAdmin={isAdmin}
               onLogout={handleLogout}
               user={user}
-              onNavigate={handleViewChange}
             />
             
             <main className="flex-1 overflow-auto">
