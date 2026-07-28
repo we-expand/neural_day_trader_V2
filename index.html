@@ -192,13 +192,26 @@
          inline — inclusive os painéis internos do klinecharts (ChartView),
          deixando o canvas do gráfico preso em 0x0 pra sempre. Bug corrigido
          em 2026-07-07: escopo restrito a `body > *:not(#root)` (só pega
-         overlays injetados direto no body pelo Figma, nunca conteúdo do app). */
-      body > [class*="error"]:not(#root *),
-      body > [class*="Error"]:not(#root *),
-      body > [id*="error"]:not(#root *),
-      body > [id*="Error"]:not(#root *),
-      body > div[style*="position: fixed"][style*="z-index"]:not(#root *),
-      body > div[style*="position: absolute"][style*="z-index"]:not(#root *) {
+         overlays injetados direto no body pelo Figma, nunca conteúdo do app).
+         ✅ 2026-07-28: essa regra ainda pegava overlay LEGÍTIMO do app —
+         todo componente Radix (Popover, DropdownMenu, Select, Tooltip,
+         Dialog...) usa React Portal pra renderizar direto como filho de
+         <body>, com position:fixed/absolute + z-index inline (o mesmo
+         padrão que a regra tenta bloquear). Resultado: qualquer popover
+         real do app (achado com o combobox de Universo de Ativos, mas afeta
+         TODOS os Popover/DropdownMenu/Select da UI) abria no React (DOM
+         presente, opacity:1) mas ficava com display:none!important — a
+         cascata via `:not(#root *)` não ajuda porque o portal não é
+         descendente de #root, é irmão dele. Fix: excluir qualquer overlay
+         que tenha, em algum descendente, `data-slot="*-content"` — convenção
+         usada por TODOS os componentes Radix deste projeto
+         (`src/app/components/ui/*.tsx`) pro elemento de conteúdo real. */
+      body > [class*="error"]:not(#root *):not(:has([data-slot$="-content"])),
+      body > [class*="Error"]:not(#root *):not(:has([data-slot$="-content"])),
+      body > [id*="error"]:not(#root *):not(:has([data-slot$="-content"])),
+      body > [id*="Error"]:not(#root *):not(:has([data-slot$="-content"])),
+      body > div[style*="position: fixed"][style*="z-index"]:not(#root *):not(:has([data-slot$="-content"])),
+      body > div[style*="position: absolute"][style*="z-index"]:not(#root *):not(:has([data-slot$="-content"])) {
         display: none !important;
         opacity: 0 !important;
         visibility: hidden !important;
