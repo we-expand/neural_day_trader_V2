@@ -41,10 +41,18 @@ export default defineConfig({
         manualChunks: (id) => {
           // Split vendor chunks for better caching
           if (id.includes('node_modules')) {
-            // Radix UI components
-            if (id.includes('@radix-ui')) {
-              return 'radix';
-            }
+            // ✅ 2026-07-28: Radix UI ANTES tinha chunk próprio ('radix'), mas
+            // isso criava uma dependência circular real com 'vendor' (onde o
+            // React vive) — mesma classe de bug já documentada abaixo pro
+            // React/vendor, só que esta nunca foi corrigida. Em produção o
+            // Rollup ocasionalmente ordena a inicialização com 'radix' rodando
+            // ANTES de 'vendor', e como os componentes Radix chamam
+            // `React.useLayoutEffect` no topo do módulo, o app quebra com
+            // "Cannot read properties of undefined (reading 'useLayoutEffect')"
+            // — tela inteira preta, sem log nenhum (confirmado via import()
+            // direto do bundle de produção). Fix: Radix cai no mesmo chunk
+            // 'vendor' que o React, eliminando o ciclo (mesmo raciocínio do
+            // fix react-vendor->vendor já aplicado logo abaixo).
             // Material UI
             if (id.includes('@mui') || id.includes('@emotion')) {
               return 'mui';
