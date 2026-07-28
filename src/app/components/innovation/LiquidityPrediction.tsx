@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { 
@@ -96,6 +96,16 @@ export const LiquidityPrediction = () => {
   const { speak, voiceEnabled, toggleVoiceEnabled, stopSpeaking } = useSpeechAlert({ rate: 0.95, volume: 1.0 });
   const [isNarrating, setIsNarrating] = useState(false); // 🔥 Voice narration state
 
+  // ✅ 2026-07-28: os loops de narração (`for` + `await speak(...)`) capturam
+  // `speak`/`voiceEnabled` da closure vigente no momento em que o botão foi
+  // clicado. Como `speak` é recriado a cada mudança de `voiceEnabled` (useCallback
+  // com essa dependência), a closure do loop já em andamento continua vendo o
+  // `voiceEnabled` ANTIGO — desligar "Voz OFF" no meio de uma narração não
+  // interrompia o loop (bug real reportado). `voiceEnabledRef` sempre reflete o
+  // valor atual e é checado a cada iteração para cortar o loop de verdade.
+  const voiceEnabledRef = useRef(voiceEnabled);
+  useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
+
   // 🎙️ Toggle de VOZ independente do AI ON/OFF — permite acompanhar só os logs
   // do Feed Neural sem ouvir narração, e coordena mutex com a AI Trader Voice
   // (só uma tela pode estar narrando por vez em todo o app).
@@ -105,6 +115,7 @@ export const LiquidityPrediction = () => {
     return onPreempted('ia-preditiva', () => {
       toggleVoiceEnabled(false);
       stopSpeaking();
+      setIsNarrating(false);
     });
   }, [onPreempted, toggleVoiceEnabled, stopSpeaking]);
 
@@ -121,7 +132,10 @@ export const LiquidityPrediction = () => {
   const handleToggleVoice = () => {
     const next = !voiceEnabled;
     toggleVoiceEnabled(next); // claim/release da voz é feito pelo useEffect acima, reagindo a voiceEnabled
-    if (!next) stopSpeaking();
+    if (!next) {
+      stopSpeaking(); // corta a fala em andamento na hora
+      setIsNarrating(false); // e encerra o loop de narração, não deixa ele "esperar" o próximo ciclo
+    }
   };
 
   // 🎯 Score real (MarketScoreEngine) — fonte única pro painel de previsão e narração por voz.
@@ -542,34 +556,38 @@ export const LiquidityPrediction = () => {
            />
          </div>
 
-         {/* 🔥 BOTÃO AI ON/OFF (SUBSTITUIU "AO VIVO") */}
-         <button 
-           onClick={() => setAiEnabled(!aiEnabled)}
-           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
-             aiEnabled 
-               ? 'bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-600/30' 
-               : 'bg-red-600/20 border border-red-500/50 text-red-400 hover:bg-red-600/30'
-           }`}
-         >
-           <Brain className="w-4 h-4" />
-           <span>AI {aiEnabled ? 'ON' : 'OFF'}</span>
-           {aiEnabled && <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>}
-         </button>
+         {/* AI ON/OFF + VOZ ON/OFF agrupados — Voz fica logo ao lado do AI, não
+             espalhado pelo justify-between do container pai. */}
+         <div className="flex items-center gap-2">
+           {/* 🔥 BOTÃO AI ON/OFF (SUBSTITUIU "AO VIVO") */}
+           <button
+             onClick={() => setAiEnabled(!aiEnabled)}
+             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
+               aiEnabled
+                 ? 'bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-600/30'
+                 : 'bg-red-600/20 border border-red-500/50 text-red-400 hover:bg-red-600/30'
+             }`}
+           >
+             <Brain className="w-4 h-4" />
+             <span>AI {aiEnabled ? 'ON' : 'OFF'}</span>
+             {aiEnabled && <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>}
+           </button>
 
-         {/* 🎙️ VOZ ON/OFF — independente do AI ON/OFF: dá pra ver os logs do
-             Feed Neural sem narração, e liga/desliga só o áudio. */}
-         <button
-           onClick={handleToggleVoice}
-           title={voiceEnabled ? 'Desligar narração por voz' : 'Ligar narração por voz'}
-           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
-             voiceEnabled
-               ? 'bg-blue-600/20 border border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
-               : 'bg-neutral-800 border border-neutral-700 text-neutral-500 hover:bg-neutral-700'
-           }`}
-         >
-           {voiceEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-           <span>Voz {voiceEnabled ? 'ON' : 'OFF'}</span>
-         </button>
+           {/* 🎙️ VOZ ON/OFF — independente do AI ON/OFF: dá pra ver os logs do
+               Feed Neural sem narração, e liga/desliga só o áudio. */}
+           <button
+             onClick={handleToggleVoice}
+             title={voiceEnabled ? 'Desligar narração por voz' : 'Ligar narração por voz'}
+             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
+               voiceEnabled
+                 ? 'bg-blue-600/20 border border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
+                 : 'bg-neutral-800 border border-neutral-700 text-neutral-500 hover:bg-neutral-700'
+             }`}
+           >
+             {voiceEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+             <span>Voz {voiceEnabled ? 'ON' : 'OFF'}</span>
+           </button>
+         </div>
        </div>
 
        <div className="grid grid-cols-12 gap-6 mt-6">
@@ -961,7 +979,9 @@ export const LiquidityPrediction = () => {
                        toast.success(`IA narrando análise de ${selectedAsset}...`);
                        setIsNarrating(true);
                        for (let i = 0; i < messages.length; i++) {
+                         if (!voiceEnabledRef.current) break; // "Voz OFF" cortou no meio — checagem via ref, não via closure travada
                          await speak(messages[i], 'high');
+                         if (!voiceEnabledRef.current) break;
                          await new Promise(r => setTimeout(r, 3500));
                        }
                        setIsNarrating(false);
@@ -1057,7 +1077,9 @@ export const LiquidityPrediction = () => {
 
                    // Falar cada mensagem em sequência com pausa maior
                    for (let i = 0; i < messages.length; i++) {
+                     if (!voiceEnabledRef.current) break; // "Voz OFF" cortou no meio — checagem via ref, não via closure travada
                      await speak(messages[i], 'high');
+                     if (!voiceEnabledRef.current) break;
                      // 🔥 AGUARDAR 4 SEGUNDOS entre cada mensagem
                      await new Promise(resolve => setTimeout(resolve, 4000));
                    }
