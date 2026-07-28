@@ -1,4 +1,5 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
 import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
@@ -45,7 +46,8 @@ interface TradingContextType {
   updatePortfolioFromMT5: (data: { balance: number; equity: number }) => void;
   syncPositionsFromMT5: (positions: any[]) => void;
   setExecutionMode: React.Dispatch<React.SetStateAction<'DEMO' | 'LIVE'>>;
-  
+  switchToDemoMode: () => void;
+
   // Legacy compatibility (mapped to useApexLogic functions)
   status: 'idle' | 'running';
   toggleAI: () => void;
@@ -186,6 +188,23 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     // Legacy function - no-op for now
     return true;
   }, []);
+
+  // Único caminho pra voltar de LIVE pra DEMO (2026-07-27) — antes existia
+  // duplicado em AITrader.tsx e em Header.tsx, com comportamento divergente
+  // (o do Header não resetava saldo nem salvava 'neural_execution_mode').
+  // Ir de DEMO pra LIVE não tem equivalente aqui de propósito: exige
+  // credenciais reais, então só existe um caminho — o modal de conexão MT5
+  // dentro do AI Trader.
+  const switchToDemoMode = useCallback(() => {
+    logic.setExecutionMode('DEMO');
+    logic.resetLogic();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_execution_mode', 'DEMO');
+    }
+    toast.info('🟢 Modo DEMO ativado', {
+      description: 'Voltou para negociação simulada | Saldo resetado: $100'
+    });
+  }, [logic.setExecutionMode, logic.resetLogic]);
   
   const panicClose = useCallback(async () => {
     logic.forceCloseAll();
@@ -242,7 +261,8 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     updatePortfolioFromMT5: logic.updatePortfolioFromMT5,
     syncPositionsFromMT5: logic.syncPositionsFromMT5,
     setExecutionMode: logic.setExecutionMode,
-    
+    switchToDemoMode,
+
     // Legacy compatibility
     status: logic.isActive ? 'running' : 'idle',
     toggleAI,
@@ -303,6 +323,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.updatePortfolioFromMT5,
     logic.syncPositionsFromMT5,
     logic.setExecutionMode,
+    switchToDemoMode,
     toggleAI,
     setConfig,
     setRiskProfile,

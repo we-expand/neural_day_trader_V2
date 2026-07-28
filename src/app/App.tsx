@@ -340,11 +340,12 @@ function AppContent() {
           <Sidebar currentView={currentView} onViewChange={handleViewChange} isAdmin={isAdmin} onLogout={handleLogout} />
           
           <div className="flex-1 flex flex-col overflow-hidden">
-            <Header 
+            <Header
               currentView={currentView}
               isAdmin={isAdmin}
               onLogout={handleLogout}
               user={user}
+              onNavigate={handleViewChange}
             />
             
             <main className="flex-1 overflow-auto">

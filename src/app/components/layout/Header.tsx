@@ -10,61 +10,35 @@ interface HeaderProps {
   isAdmin?: boolean;
   onLogout?: () => void;
   user?: { name: string; email: string; role: string } | null;
-  onOpenBrokerConfig?: () => void;
+  onNavigate?: (view: string) => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onOpenBrokerConfig }) => {
-  const { config, setConfig } = useTradingContext();
+export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onNavigate }) => {
+  const { config, switchToDemoMode } = useTradingContext();
   const { fullName, profile, avatarUrl } = useUserProfile();
   const isLive = config.executionMode === 'LIVE';
-  const [confirmSwitch, setConfirmSwitch] = React.useState(false);
 
-  // Reset confirmation after 3 seconds
-  React.useEffect(() => {
-    if (confirmSwitch) {
-      const timeout = setTimeout(() => setConfirmSwitch(false), 3000);
-      return () => clearTimeout(timeout);
-    }
-  }, [confirmSwitch]);
-
+  // Único caminho de troca de modo (2026-07-27) — antes este componente tinha
+  // sua própria lógica de ativar LIVE direto (sem exigir conexão MT5 real,
+  // sem resetar saldo ao voltar pra DEMO, sem salvar 'neural_execution_mode'),
+  // divergente do botão equivalente em AITrader.tsx. Ativar LIVE sempre exige
+  // credenciais reais — o único lugar que faz isso é o painel de conexão MT5
+  // dentro do AI Trader, então esse botão navega pra lá em vez de duplicar a
+  // lógica. Voltar pra DEMO é seguro e reutiliza `switchToDemoMode` do
+  // TradingContext, a mesma função que o AI Trader usa.
   const handleSwitchMode = () => {
-    // First click - ask for confirmation
-    if (!confirmSwitch) {
-      setConfirmSwitch(true);
-      toast.info('Clique novamente para confirmar a mudança', {
-        description: `${isLive ? 'LIVE → DEMO' : 'DEMO → LIVE'}`,
-        duration: 3000
-      });
+    if (isLive) {
+      switchToDemoMode();
       return;
     }
 
-    // Second click - execute switch
-    const newMode = isLive ? 'DEMO' : 'LIVE';
-    
-    if (newMode === 'LIVE') {
-      // Check MT5 credentials
-      if (!config.metaApiCredentials?.login) {
-        toast.error('Configure o MT5 primeiro para usar o modo LIVE!', {
-          description: 'Acesse Configurações > Conexão MT5'
-        });
-        setConfirmSwitch(false);
-        return;
-      }
+    if (currentView === 'ai-trader') {
+      toast.info('Use o botão "MODO DEMO" no AI Trader para conectar sua conta real');
+      return;
     }
-    
-    // Update mode
-    setConfig({
-      ...config,
-      executionMode: newMode
-    });
-    
-    toast.success(`Modo alterado para ${newMode}!`, {
-      description: newMode === 'DEMO' 
-        ? 'Usando dados simulados - sem risco real' 
-        : 'ATENÇÃO: Operações reais ativas!'
-    });
-    
-    setConfirmSwitch(false);
+
+    onNavigate?.('ai-trader');
+    toast.info('Abra "MODO DEMO" no AI Trader para conectar sua conta real e ativar o modo LIVE');
   };
 
   const getViewTitle = (view: string) => {

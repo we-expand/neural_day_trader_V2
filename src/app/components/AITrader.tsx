@@ -76,7 +76,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts } = useTradingContext();
   const { strategies } = useStrategies();
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
@@ -539,20 +539,9 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                   // tinha ativado o modo real sozinho, sem checklist).
                   setShowMT5ConfigModal(true);
                 } else {
-                  // Desativar modo LIVE e resetar para DEMO
-                  setExecutionMode('DEMO');
-                  
-                  // 🔄 RESET SALDO DEMO: Voltar para $100 default
-                  resetPortfolio(100);
-                  
-                  // Salvar no localStorage
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem('neural_execution_mode', 'DEMO');
-                  }
-                  
-                  toast.info('🟢 Modo DEMO ativado', {
-                    description: 'Voltou para negociação simulada | Saldo resetado: $100'
-                  });
+                  // Desativar modo LIVE e resetar para DEMO — único caminho,
+                  // compartilhado com o botão ⇄ do Header (ver TradingContext).
+                  switchToDemoMode();
                 }
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all font-bold ${
