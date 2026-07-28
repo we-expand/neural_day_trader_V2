@@ -8,8 +8,7 @@ import {
   Zap, 
   TrendingUp, 
   AlertTriangle, 
-  Search, 
-  Radar, 
+  Radar,
   Activity,
   Info,
   ChevronDown,
@@ -90,7 +89,6 @@ export const LiquidityPrediction = () => {
   const [timeframe, setTimeframe] = useState<Timeframe>('1h');
   const [showInfo, setShowInfo] = useState(false);
   const [assetMenuOpen, setAssetMenuOpen] = useState(false); // ✅ agora controla o InfinoxAssetsBrowser (modo single)
-  const [realPrices, setRealPrices] = useState<Record<string, number>>({});
   const [aiEnabled, setAiEnabled] = useState(true); // 🔥 Toggle AI ON/OFF — desliga o Feed Neural inteiro (geração + exibição)
   const [showHourlyPanel, setShowHourlyPanel] = useState(false); // 🔥 NOVO: Toggle painel horário
   const { speak, voiceEnabled, toggleVoiceEnabled, stopSpeaking } = useSpeechAlert({ rate: 0.95, volume: 1.0 });
@@ -153,13 +151,23 @@ export const LiquidityPrediction = () => {
   const [pivotLevels, setPivotLevels] = useState<{ resistance: number; support: number } | null>(null);
   const [pivotLoading, setPivotLoading] = useState(false);
   const [pivotError, setPivotError] = useState<string | null>(null);
+  // ✅ 2026-07-28: existia um `realPrices` indexado por símbolo BASE cripto sem
+  // sufixo ('BTC', 'ETH'...), mas `selectedAsset` guarda o ticker completo do
+  // catálogo Infinox ('BTCUSDT', 'EURUSD', 'US30'...) — `realPrices[selectedAsset]`
+  // nunca batia (chave errada), sempre caía no fallback `0`, e esse `$0` ia
+  // parar tanto no card "Preço Atual" quanto na narração por voz ("Preço atual:
+  // 0 dólares"). Removido — `livePrice` usa o preço real de fechamento do
+  // último candle já buscado pra calcular o pivô (mesma fonte real, mesmo
+  // ativo/timeframe selecionado, cobre qualquer ativo do catálogo, não só
+  // os 10 pares cripto que o `realPrices` antigo cobria).
+  const [livePrice, setLivePrice] = useState<number | null>(null);
 
   const currentAsset = ASSETS.find(a => a.symbol === selectedAsset);
 
   const formatPivot = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: v >= 100 ? 2 : 6 });
 
   // ✅ Resolve se o ativo selecionado é cripto negociada na Binance (público, sem auth) — mesmo
-  // critério real usado em `realPrices` (linha ~92) e no MarketScoreEngine (resolveBinanceTicker).
+  // critério usado no MarketScoreEngine (resolveBinanceTicker).
   useEffect(() => {
     let cancelled = false;
     resolveBinanceTicker(selectedAsset).then(ticker => {
@@ -204,6 +212,7 @@ export const LiquidityPrediction = () => {
         if (candles.length < 5) {
           setPivotLevels(null);
           setPivotError('Candles insuficientes para calcular pivô real.');
+          setLivePrice(null);
           return;
         }
         // Pivô clássico de swing: resistência = máxima das últimas N barras,
@@ -211,10 +220,12 @@ export const LiquidityPrediction = () => {
         const resistance = Math.max(...candles.map(c => c.high));
         const support = Math.min(...candles.map(c => c.low));
         setPivotLevels({ resistance, support });
+        setLivePrice(candles[candles.length - 1].close); // preço real de fechamento do último candle do ativo/timeframe selecionado
       } catch (e: any) {
         if (!cancelled) {
           setPivotLevels(null);
           setPivotError(e?.message || 'Falha ao buscar candles reais para o pivô.');
+          setLivePrice(null);
         }
       } finally {
         if (!cancelled) setPivotLoading(false);
@@ -263,42 +274,6 @@ export const LiquidityPrediction = () => {
     const interval = setInterval(loadDepth, 20000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [binanceTicker, selectedAsset]);
-
-  // 🔥 BUSCAR PREÇOS REAIS - OTIMIZADO (1x por minuto)
-  useEffect(() => {
-    const fetchRealPrices = async () => {
-      try {
-        const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'LINKUSDT', 'POLUSDT', 'DOTUSDT'];
-        const promises = symbols.map(symbol => 
-          fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-            .then(r => r.ok ? r.json() : null)
-            .catch(() => null)
-        );
-        
-        const results = await Promise.all(promises);
-        const prices: Record<string, number> = {};
-        
-        symbols.forEach((symbol, idx) => {
-          if (results[idx] && results[idx].price) {
-            const asset = symbol.replace('USDT', '');
-            prices[asset] = parseFloat(results[idx].price);
-            
-            if (asset === 'POL') {
-              prices['MATIC'] = parseFloat(results[idx].price);
-            }
-          }
-        });
-        
-        setRealPrices(prices);
-      } catch (error) {
-        console.error('Failed to fetch real prices:', error);
-      }
-    };
-    
-    fetchRealPrices();
-    const interval = setInterval(fetchRealPrices, 60000); // 🔥 1 minuto em vez de 30s
-    return () => clearInterval(interval);
-  }, []);
 
   // 🔥 CORREÇÃO: Cache do Vite
   const currentCorrelations = generateCorrelations(selectedAsset); // 🔥 CORRELAÇÕES DINÂMICAS
@@ -632,7 +607,9 @@ export const LiquidityPrediction = () => {
                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                            <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
                              <div className="text-xs text-neutral-400 mb-1">Preço Atual</div>
-                             <div className="text-2xl font-bold text-white">${(realPrices[selectedAsset] || 0).toLocaleString()}</div>
+                             <div className="text-2xl font-bold text-white">
+                               {livePrice !== null ? `$${livePrice.toLocaleString()}` : (pivotLoading ? 'carregando…' : 'indisponível')}
+                             </div>
                            </div>
 
                            <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
@@ -947,45 +924,53 @@ export const LiquidityPrediction = () => {
                  );
                })()}
 
-               {/* 🔥 BOTÃO PARA EXPANDIR ANÁLISE COMPLETA + VOZ */}
+               {/* 🔥 BOTÃO ÚNICO DE ANÁLISE — profundo (score + pivô real) e narrado por
+                   voz por padrão, não mais 3 botões separados fazendo pedaços da mesma
+                   coisa. "Escaneamento Profundo" não tinha ação nenhuma (sem onClick) e
+                   "Análise Completa por Voz" duplicava exatamente esta mesma lógica —
+                   os dois foram removidos, este botão já cobre os dois por si só. */}
                <div className="mt-3 pt-3 border-t border-amber-500/20">
                  <button
                    onClick={async () => {
                      const opening = !showHourlyPanel;
                      setShowHourlyPanel(opening);
-                     if (opening && !isNarrating && !voiceEnabled) {
+                     if (!opening || isNarrating) return;
+                     if (!voiceEnabled) {
                        toast.info('Voz desligada — ative "Voz ON" para ouvir a análise.');
+                       return;
                      }
-                     if (opening && !isNarrating && voiceEnabled) {
-                       claimVoice('ia-preditiva');
-                       const currentPrice = realPrices[selectedAsset] || 0;
-                       const atr = scoreResult?.indicators.atr;
-                       const volatility = atr && currentPrice > 0 ? Math.min(atr / currentPrice, 0.1) : 0.01;
-                       const trend: 'bullish' | 'bearish' | 'sideways' =
-                         scoreResult?.classification === 'COMPRADOR' ? 'bullish' :
-                         scoreResult?.classification === 'VENDEDOR' ? 'bearish' : 'sideways';
-                       const strength = scoreResult ? scoreResult.confidence / 100 : 0;
-                       const analysisData: HourlyAnalysisData = {
-                         symbol: selectedAsset,
-                         currentPrice,
-                         trend,
-                         strength,
-                         volatility,
-                         rsi: scoreResult?.indicators.rsi ?? null,
-                         provenance: scoreResult?.provenance || 'unavailable',
-                         timeframeLabel: TIMEFRAME_LABELS[timeframe],
-                       };
-                       const messages = generateHourlyVoiceAnalysis(analysisData);
-                       toast.success(`IA narrando análise de ${selectedAsset}...`);
-                       setIsNarrating(true);
-                       for (let i = 0; i < messages.length; i++) {
-                         if (!voiceEnabledRef.current) break; // "Voz OFF" cortou no meio — checagem via ref, não via closure travada
-                         await speak(messages[i], 'high');
-                         if (!voiceEnabledRef.current) break;
-                         await new Promise(r => setTimeout(r, 3500));
-                       }
-                       setIsNarrating(false);
+                     if (livePrice === null) {
+                       toast.info('Preço real ainda carregando — aguarde um instante e tente de novo.');
+                       return;
                      }
+                     claimVoice('ia-preditiva');
+                     const currentPrice = livePrice;
+                     const atr = scoreResult?.indicators.atr;
+                     const volatility = atr && currentPrice > 0 ? Math.min(atr / currentPrice, 0.1) : 0.01;
+                     const trend: 'bullish' | 'bearish' | 'sideways' =
+                       scoreResult?.classification === 'COMPRADOR' ? 'bullish' :
+                       scoreResult?.classification === 'VENDEDOR' ? 'bearish' : 'sideways';
+                     const strength = scoreResult ? scoreResult.confidence / 100 : 0;
+                     const analysisData: HourlyAnalysisData = {
+                       symbol: selectedAsset,
+                       currentPrice,
+                       trend,
+                       strength,
+                       volatility,
+                       rsi: scoreResult?.indicators.rsi ?? null,
+                       provenance: scoreResult?.provenance || 'unavailable',
+                       timeframeLabel: TIMEFRAME_LABELS[timeframe],
+                     };
+                     const messages = generateHourlyVoiceAnalysis(analysisData);
+                     toast.success(`IA narrando análise de ${selectedAsset}...`);
+                     setIsNarrating(true);
+                     for (let i = 0; i < messages.length; i++) {
+                       if (!voiceEnabledRef.current) break; // "Voz OFF" cortou no meio — checagem via ref, não via closure travada
+                       await speak(messages[i], 'high');
+                       if (!voiceEnabledRef.current) break;
+                       await new Promise(r => setTimeout(r, 3500));
+                     }
+                     setIsNarrating(false);
                    }}
                    className={`w-full py-2 px-3 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg ${
                      isNarrating
@@ -996,6 +981,9 @@ export const LiquidityPrediction = () => {
                    <Brain className={`w-3 h-3 ${isNarrating ? 'animate-spin' : ''}`} />
                    {isNarrating ? '🎙️ Narrando análise...' : `Análise | Próxima ${TIMEFRAME_LABELS[timeframe]}`}
                  </button>
+                 <p className="text-[10px] text-center text-neutral-500 mt-2">
+                   Análise profunda (Market Score Engine + pivô real) narrada por voz — tudo num só clique.
+                 </p>
                </div>
              </div>
              
@@ -1033,68 +1021,6 @@ export const LiquidityPrediction = () => {
                     ))}
                   </AnimatePresence>
                 )}
-             </div>
-             
-             <div className="p-4 border-t border-neutral-800 bg-neutral-900/50">
-               <button className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
-                 <Search className="w-3 h-3" />
-                 Escaneamento Profundo
-               </button>
-             </div>
-             
-             {/* 🔥 BOTÃO DE ANÁLISE POR VOZ */}
-             <div className="p-4 border-t border-purple-800/30 bg-gradient-to-br from-purple-900/20 to-blue-900/20">
-               <button
-                 onClick={async () => {
-                   if (!voiceEnabled) {
-                     toast.info('Voz desligada — ative "Voz ON" para ouvir a análise.');
-                     return;
-                   }
-                   claimVoice('ia-preditiva');
-                   const currentPrice = realPrices[selectedAsset] || 0;
-                   const atr = scoreResult?.indicators.atr;
-                   const volatility = atr && currentPrice > 0 ? Math.min(atr / currentPrice, 0.1) : 0.01;
-                   const trend: 'bullish' | 'bearish' | 'sideways' =
-                     scoreResult?.classification === 'COMPRADOR' ? 'bullish' :
-                     scoreResult?.classification === 'VENDEDOR' ? 'bearish' : 'sideways';
-                   const strength = scoreResult ? scoreResult.confidence / 100 : 0;
-
-                   const analysisData: HourlyAnalysisData = {
-                     symbol: selectedAsset,
-                     currentPrice,
-                     trend,
-                     strength,
-                     volatility,
-                     rsi: scoreResult?.indicators.rsi ?? null,
-                     provenance: scoreResult?.provenance || 'unavailable',
-                     timeframeLabel: TIMEFRAME_LABELS[timeframe],
-                   };
-
-                   const messages = generateHourlyVoiceAnalysis(analysisData);
-
-                   toast.success('Iniciando análise por voz...');
-                   setIsNarrating(true);
-
-                   // Falar cada mensagem em sequência com pausa maior
-                   for (let i = 0; i < messages.length; i++) {
-                     if (!voiceEnabledRef.current) break; // "Voz OFF" cortou no meio — checagem via ref, não via closure travada
-                     await speak(messages[i], 'high');
-                     if (!voiceEnabledRef.current) break;
-                     // 🔥 AGUARDAR 4 SEGUNDOS entre cada mensagem
-                     await new Promise(resolve => setTimeout(resolve, 4000));
-                   }
-
-                   toast.success('Análise por voz concluída!');
-                   setIsNarrating(false);
-                 }}
-                 className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-xl shadow-purple-500/30"
-               >
-                 <Brain className="w-4 h-4" />
-                 🎤 Análise Completa por Voz ({TIMEFRAME_LABELS[timeframe]})
-               </button>
-               <p className="text-[10px] text-center text-neutral-500 mt-2">
-                 A IA narrará análise detalhada com dados reais do Market Score Engine
-               </p>
              </div>
            </div>
 

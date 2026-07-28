@@ -218,6 +218,19 @@ class BacktestDataService {
     };
   }
 
+  // ✅ 2026-07-28: a conta MetaAPI de plataforma é COMPARTILHADA entre todos os
+  // usuários (risco crônico já documentado no CLAUDE.md) — sob carga ela
+  // responde 504 (gateway timeout) ou 429 (rate limit), erros TRANSITÓRIOS que
+  // antes viravam "indisponível" na primeira tentativa, mesmo quando a conta
+  // se recupera em segundos. Retry com backoff aqui ataca a causa raiz (conta
+  // sobrecarregada, não falta real de dado) em vez de mascarar com uma fonte
+  // de dado paga nova — continua 100% honesto: se as tentativas se esgotarem,
+  // o erro real de cada uma é propagado, nunca inventa candle.
+  private static readonly METAAPI_RETRY_DELAYS_MS = [800, 2000]; // 2 retries: ~0.8s, depois ~2s
+  private static isTransientMetaApiError(status: number): boolean {
+    return status === 504 || status === 429 || status === 502 || status === 503;
+  }
+
   private async fetchFromMetaApiHistory(
     catalogSymbol: string,
     startDate: Date,
@@ -231,65 +244,83 @@ class BacktestDataService {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
-    // ✅ 2026-07-17: `import.meta.env.VITE_SUPABASE_URL` nunca foi configurada
-    // neste projeto (nenhum outro arquivo usa essa env var — todos derivam de
-    // `projectId` em utils/supabase/info.ts) — em produção resolvia pra
-    // `undefined`, virando a URL literal ".../undefined/functions/v1/..." e
-    // batendo HTTP 405 sempre. Também faltava o header `apikey`, exigido pelo
-    // CORS da Edge Function (mesmo fix já aplicado nas outras rotas do app).
-    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': publicAnonKey,
-        Authorization: `Bearer ${accessToken || publicAnonKey}`,
-      },
-      body: JSON.stringify({
-        symbol: catalogSymbol,
-        timeframe: timeframeMap[timeframe],
-        startTime: startDate.toISOString(),
-        endTime: endDate.toISOString(),
-      }),
-    });
+    const attempts = BacktestDataService.METAAPI_RETRY_DELAYS_MS.length + 1; // 1 tentativa original + N retries
+    let lastError: BacktestDataUnavailableError | null = null;
 
-    // ✅ 2026-07-17: resposta não-JSON (ex: erro HTML/vazio de rede, ou 401 sem
-    // corpo) fazia `.json()` lançar `SyntaxError: Unexpected end of JSON input`
-    // — um erro genérico que escondia a causa real. Lê como texto primeiro e
-    // tenta parsear, com mensagem explícita se falhar.
-    const rawText = await response.text();
-    let data: any;
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch {
-      throw new BacktestDataUnavailableError(
-        catalogSymbol,
-        `Resposta inválida do servidor de candles (HTTP ${response.status})`
-      );
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) {
+        const delay = BacktestDataService.METAAPI_RETRY_DELAYS_MS[attempt - 1];
+        console.warn(`[BACKTEST_DATA] ⏳ MetaAPI instável pra ${catalogSymbol} (tentativa ${attempt + 1}/${attempts} em ${delay}ms) — conta compartilhada sob carga, não é falta de dado.`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
+      // ✅ 2026-07-17: `import.meta.env.VITE_SUPABASE_URL` nunca foi configurada
+      // neste projeto (nenhum outro arquivo usa essa env var — todos derivam de
+      // `projectId` em utils/supabase/info.ts) — em produção resolvia pra
+      // `undefined`, virando a URL literal ".../undefined/functions/v1/..." e
+      // batendo HTTP 405 sempre. Também faltava o header `apikey`, exigido pelo
+      // CORS da Edge Function (mesmo fix já aplicado nas outras rotas do app).
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': publicAnonKey,
+          Authorization: `Bearer ${accessToken || publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          symbol: catalogSymbol,
+          timeframe: timeframeMap[timeframe],
+          startTime: startDate.toISOString(),
+          endTime: endDate.toISOString(),
+        }),
+      });
+
+      // ✅ 2026-07-17: resposta não-JSON (ex: erro HTML/vazio de rede, ou 401 sem
+      // corpo) fazia `.json()` lançar `SyntaxError: Unexpected end of JSON input`
+      // — um erro genérico que escondia a causa real. Lê como texto primeiro e
+      // tenta parsear, com mensagem explícita se falhar.
+      const rawText = await response.text();
+      let data: any;
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        lastError = new BacktestDataUnavailableError(
+          catalogSymbol,
+          `Resposta inválida do servidor de candles (HTTP ${response.status})`
+        );
+        if (BacktestDataService.isTransientMetaApiError(response.status) && attempt < attempts - 1) continue;
+        throw lastError;
+      }
+
+      if (!response.ok || !data.success) {
+        lastError = new BacktestDataUnavailableError(
+          catalogSymbol,
+          data?.message || `Sem dado histórico real disponível para ${catalogSymbol}`
+        );
+        if (BacktestDataService.isTransientMetaApiError(response.status) && attempt < attempts - 1) continue;
+        throw lastError;
+      }
+
+      const candles: CandleData[] = data.candles.map((c: any) => ({
+        time: c.timestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      }));
+
+      return {
+        candles,
+        startTime: candles[0].time,
+        endTime: candles[candles.length - 1].time,
+        totalCandles: candles.length,
+        source: 'metaapi',
+      };
     }
 
-    if (!response.ok || !data.success) {
-      throw new BacktestDataUnavailableError(
-        catalogSymbol,
-        data?.message || `Sem dado histórico real disponível para ${catalogSymbol}`
-      );
-    }
-
-    const candles: CandleData[] = data.candles.map((c: any) => ({
-      time: c.timestamp,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume,
-    }));
-
-    return {
-      candles,
-      startTime: candles[0].time,
-      endTime: candles[candles.length - 1].time,
-      totalCandles: candles.length,
-      source: 'metaapi',
-    };
+    // Inatingível na prática (o loop sempre retorna ou lança antes) — só pro TS ficar satisfeito.
+    throw lastError || new BacktestDataUnavailableError(catalogSymbol, 'Falha desconhecida ao buscar candles reais.');
   }
 
   /** Checa (sem buscar histórico completo) se um símbolo do catálogo tem fonte real disponível. */
