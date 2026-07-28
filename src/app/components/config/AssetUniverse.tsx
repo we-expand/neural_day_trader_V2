@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import {
   Globe,
   Coins,
@@ -9,60 +8,41 @@ import {
   Flame,
   Wheat,
   Landmark,
-  Search,
   Check,
-  Filter,
-  Layers,
   Sparkles,
-  TrendingUp,
-  Zap
+  X,
+  ChevronDown,
+  ListChecks,
+  Trash2
 } from 'lucide-react';
 import { getInfinoxAssetsByCategory } from '@/config/infinoxAssets';
-import { ALL_ASSETS, type Asset, type AssetSubCategory } from '@/app/config/assetDatabase';
+import { ALL_ASSETS, type Asset } from '@/app/config/assetDatabase';
+import { Popover, PopoverContent, PopoverTrigger } from '@/app/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/app/components/ui/command';
 
-// ✅ 2026-07-28: esta lista ANTES era um catálogo digitado à mão, nunca
-// validado contra a API real da Infinox (mesmo problema já corrigido em
-// `infinoxAssets.ts`/`brokerRegistry.ts` em 2026-07-08 — ver comentário lá).
-// Continha símbolos inexistentes (ex: 'TOTUSD'/"Tottenham" como cripto,
-// 'JSON'/"JSON Token", 'USDIGN'/"Ignition", variantes 'dft'/'R' sem
-// confirmação). Agora deriva 100% do catálogo canônico auditado
-// (`assetDatabase.ts` filtrado por `brokerRegistry.isAvailableOnBroker`,
-// via `getInfinoxAssetsByCategory()`) — a MESMA fonte que o seletor de
-// ativos do Dashboard usa. Zero lista duplicada.
+// ✅ 2026-07-28: catálogo real (ver histórico de comentário anterior neste
+// arquivo — a lista hardcoded/não auditada foi removida, deriva de
+// `getInfinoxAssetsByCategory()`, mesma fonte do Dashboard).
+//
+// ✅ 2026-07-28 (redesign de UI): o grid de cards grandes (1 card por ativo,
+// ~90px de altura cada) ocupava uma área de tela enorme com só ~350 ativos
+// reais disponíveis — inviável de navegar sem rolar bastante. Substituído
+// por um combobox de busca compacto (padrão "command palette", já usado em
+// `MarketScore.tsx` neste mesmo projeto via `cmdk`/`ui/command.tsx`):
+// um único botão-gatilho abre um popover com busca + lista agrupada por
+// categoria, seleção múltipla sem fechar o popover, e os ativos escolhidos
+// aparecem como chips compactos removíveis. Mesma funcionalidade (buscar,
+// ver categoria, ver aberto/fechado, selecionar/remover), fração do espaço.
 
 // --- THEME ---
 
 const THEME_COLORS = {
-  purple: {
-    text: 'text-purple-400', textDark: 'text-purple-300', bgLight: 'bg-purple-500/10',
-    bgDark: 'bg-purple-500/5', bgHighlight: 'bg-purple-500/20', bgFull: 'bg-purple-500',
-    border: 'border-purple-500/50', borderFull: 'border-purple-500', icon: 'text-purple-400'
-  },
-  emerald: {
-    text: 'text-emerald-400', textDark: 'text-emerald-300', bgLight: 'bg-emerald-500/10',
-    bgDark: 'bg-emerald-500/5', bgHighlight: 'bg-emerald-500/20', bgFull: 'bg-emerald-500',
-    border: 'border-emerald-500/50', borderFull: 'border-emerald-500', icon: 'text-emerald-400'
-  },
-  blue: {
-    text: 'text-blue-400', textDark: 'text-blue-300', bgLight: 'bg-blue-500/10',
-    bgDark: 'bg-blue-500/5', bgHighlight: 'bg-blue-500/20', bgFull: 'bg-blue-500',
-    border: 'border-blue-500/50', borderFull: 'border-blue-500', icon: 'text-blue-400'
-  },
-  amber: {
-    text: 'text-amber-400', textDark: 'text-amber-300', bgLight: 'bg-amber-500/10',
-    bgDark: 'bg-amber-500/5', bgHighlight: 'bg-amber-500/20', bgFull: 'bg-amber-500',
-    border: 'border-amber-500/50', borderFull: 'border-amber-500', icon: 'text-amber-400'
-  },
-  red: {
-    text: 'text-red-400', textDark: 'text-red-300', bgLight: 'bg-red-500/10',
-    bgDark: 'bg-red-500/5', bgHighlight: 'bg-red-500/20', bgFull: 'bg-red-500',
-    border: 'border-red-500/50', borderFull: 'border-red-500', icon: 'text-red-400'
-  },
-  cyan: {
-    text: 'text-cyan-400', textDark: 'text-cyan-300', bgLight: 'bg-cyan-500/10',
-    bgDark: 'bg-cyan-500/5', bgHighlight: 'bg-cyan-500/20', bgFull: 'bg-cyan-500',
-    border: 'border-cyan-500/50', borderFull: 'border-cyan-500', icon: 'text-cyan-400'
-  }
+  purple: { text: 'text-purple-400', dot: 'bg-purple-500', border: 'border-purple-500/40', bgLight: 'bg-purple-500/10' },
+  emerald: { text: 'text-emerald-400', dot: 'bg-emerald-500', border: 'border-emerald-500/40', bgLight: 'bg-emerald-500/10' },
+  blue: { text: 'text-blue-400', dot: 'bg-blue-500', border: 'border-blue-500/40', bgLight: 'bg-blue-500/10' },
+  amber: { text: 'text-amber-400', dot: 'bg-amber-500', border: 'border-amber-500/40', bgLight: 'bg-amber-500/10' },
+  red: { text: 'text-red-400', dot: 'bg-red-500', border: 'border-red-500/40', bgLight: 'bg-red-500/10' },
+  cyan: { text: 'text-cyan-400', dot: 'bg-cyan-500', border: 'border-cyan-500/40', bgLight: 'bg-cyan-500/10' }
 };
 
 type ThemeColorKey = keyof typeof THEME_COLORS;
@@ -73,54 +53,27 @@ type DisplayCategory =
   | 'INDICES' | 'STOCKS_UK' | 'STOCKS_EU' | 'BONDS';
 
 const CATEGORY_META: Record<DisplayCategory, { label: string; icon: React.ReactNode; color: ThemeColorKey }> = {
-  CRYPTO: { label: 'Criptoativos (24/7)', icon: <Coins className="w-4 h-4" />, color: 'purple' },
-  FOREX: { label: 'Forex & Moedas', icon: <Globe className="w-4 h-4" />, color: 'emerald' },
-  METALS: { label: 'Metais Preciosos', icon: <Gem className="w-4 h-4" />, color: 'amber' },
-  ENERGY: { label: 'Energia', icon: <Flame className="w-4 h-4" />, color: 'red' },
-  COMMODITIES: { label: 'Commodities Agrícolas', icon: <Wheat className="w-4 h-4" />, color: 'amber' },
-  INDICES: { label: 'Índices Globais', icon: <BarChart className="w-4 h-4" />, color: 'blue' },
-  STOCKS_UK: { label: 'Ações Reino Unido', icon: <Building2 className="w-4 h-4" />, color: 'amber' },
-  STOCKS_EU: { label: 'Ações Europa Continental', icon: <Building2 className="w-4 h-4" />, color: 'amber' },
-  BONDS: { label: 'Títulos (Bonds)', icon: <Landmark className="w-4 h-4" />, color: 'cyan' }
+  CRYPTO: { label: 'Cripto', icon: <Coins className="w-3.5 h-3.5" />, color: 'purple' },
+  FOREX: { label: 'Forex', icon: <Globe className="w-3.5 h-3.5" />, color: 'emerald' },
+  METALS: { label: 'Metais', icon: <Gem className="w-3.5 h-3.5" />, color: 'amber' },
+  ENERGY: { label: 'Energia', icon: <Flame className="w-3.5 h-3.5" />, color: 'red' },
+  COMMODITIES: { label: 'Agrícolas', icon: <Wheat className="w-3.5 h-3.5" />, color: 'amber' },
+  INDICES: { label: 'Índices', icon: <BarChart className="w-3.5 h-3.5" />, color: 'blue' },
+  STOCKS_UK: { label: 'Ações UK', icon: <Building2 className="w-3.5 h-3.5" />, color: 'amber' },
+  STOCKS_EU: { label: 'Ações Europa', icon: <Building2 className="w-3.5 h-3.5" />, color: 'amber' },
+  BONDS: { label: 'Bonds', icon: <Landmark className="w-3.5 h-3.5" />, color: 'cyan' }
 };
 
 const CATEGORY_ORDER: DisplayCategory[] = [
   'CRYPTO', 'FOREX', 'METALS', 'ENERGY', 'COMMODITIES', 'INDICES', 'STOCKS_UK', 'STOCKS_EU', 'BONDS'
 ];
 
-// Heurística de volatilidade por subcategoria — o catálogo canônico não traz
-// esse dado, então aproximamos por classe de ativo (mesmo critério usado na
-// versão anterior deste componente).
-const VOLATILITY_BY_SUBCATEGORY: Partial<Record<AssetSubCategory, 'Low' | 'Medium' | 'High' | 'Extreme'>> = {
-  'Major Pairs': 'Low',
-  'Minor Pairs': 'Medium',
-  'Exotic Pairs': 'High',
-  'Bitcoin': 'High',
-  'Altcoins': 'High',
-  'DeFi': 'Extreme',
-  'Meme Coins': 'Extreme',
-  'US Indices': 'Medium',
-  'European Indices': 'Medium',
-  'Asian Indices': 'High',
-  'LatAm Indices': 'High',
-  'Precious Metals': 'Medium',
-  'Energy': 'High',
-  'Agriculture': 'Extreme',
-  'UK Stocks': 'Medium',
-  'French Stocks': 'Medium',
-  'German Stocks': 'Medium',
-  'Spanish Stocks': 'Medium',
-  'Portuguese Stocks': 'Medium',
-  'Dutch Stocks': 'Medium',
-  'Scandinavian Stocks': 'Medium',
-  'US Stocks': 'Medium',
-  'European Bonds': 'Low',
-  'US Bonds': 'Low'
-};
+// Curadoria fixa de atalhos "1 clique" — só entra aqui um símbolo se
+// realmente existir no catálogo auditado (checado em runtime abaixo).
+const QUICK_PICK_SYMBOLS = ['BTCUSD', 'XAUUSD', 'EURUSD', 'US30', 'NAS100', 'SPX500', 'GER40', 'XAGUSD'];
 
-// 🆕 FUNÇÃO QUE DETECTA SE O MERCADO ESTÁ ABERTO (aproximação por classe de
-// ativo — não substitui calendário de feriado por bolsa, só fim de
-// semana/janela padrão UTC).
+// Aproximação por classe de ativo — não substitui calendário de feriado por
+// bolsa, só fim de semana/janela padrão UTC.
 function isMarketOpen(asset: Asset): boolean {
   const now = new Date();
   const utcHour = now.getUTCHours();
@@ -128,15 +81,13 @@ function isMarketOpen(asset: Asset): boolean {
 
   if (asset.category === 'CRYPTO') return true;
 
-  // Forex, Bonds e Metais Preciosos seguem o horário padrão de câmbio
   if (asset.category === 'FOREX' || asset.category === 'BONDS' || asset.subCategory === 'Precious Metals') {
-    if (dayOfWeek === 0) return false; // Domingo
-    if (dayOfWeek === 6) return false; // Sábado
-    if (dayOfWeek === 5 && utcHour >= 22) return false; // Sexta fecha 22:00 UTC
+    if (dayOfWeek === 0) return false;
+    if (dayOfWeek === 6) return false;
+    if (dayOfWeek === 5 && utcHour >= 22) return false;
     return true;
   }
 
-  // Energia/Agricultura: horário de futuro (Dom 23:00 UTC - Sex 22:00 UTC)
   if (asset.subCategory === 'Energy' || asset.subCategory === 'Agriculture') {
     if (dayOfWeek === 0 && utcHour >= 23) return true;
     if (dayOfWeek >= 1 && dayOfWeek <= 4) return true;
@@ -160,7 +111,6 @@ function isMarketOpen(asset: Asset): boolean {
       return utcHour >= 0 && utcHour < 8;
     }
     if (asset.subCategory === 'LatAm Indices') {
-      // Ibovespa: 10h-17h BRT (UTC-3) ≈ 13h-20h UTC
       if (dayOfWeek === 0 || dayOfWeek === 6) return false;
       return utcHour >= 13 && utcHour < 20;
     }
@@ -168,17 +118,11 @@ function isMarketOpen(asset: Asset): boolean {
   }
 
   if (asset.category === 'STOCKS') {
-    // Bolsas europeias, aproximação única (08:00-16:30 UTC)
     if (dayOfWeek === 0 || dayOfWeek === 6) return false;
     return utcHour >= 8 && utcHour < 17;
   }
 
   return true;
-}
-
-interface AssetGroup {
-  name: string;
-  items: Asset[];
 }
 
 interface AssetUniverseProps {
@@ -187,7 +131,7 @@ interface AssetUniverseProps {
 }
 
 export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) {
-  const [activeTab, setActiveTab] = useState<DisplayCategory>('CRYPTO');
+  const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   const bySymbol = useMemo(() => {
@@ -199,212 +143,189 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
   // Catálogo real, auditado contra a API da Infinox (mesma fonte do Dashboard)
   const realCatalog = useMemo(() => getInfinoxAssetsByCategory(), []);
 
-  const categoriesWithAssets = useMemo(() => {
-    const result: Record<DisplayCategory, AssetGroup[]> = {} as Record<DisplayCategory, AssetGroup[]>;
-
+  const assetsByCategory = useMemo(() => {
+    const result: Record<DisplayCategory, Asset[]> = {} as Record<DisplayCategory, Asset[]>;
     for (const catId of CATEGORY_ORDER) {
       const symbols = realCatalog[catId] || [];
-      const groupsBySubCategory = new Map<string, Asset[]>();
-
-      for (const symbol of symbols) {
-        const asset = bySymbol.get(symbol);
-        if (!asset) continue; // não deveria acontecer — catálogo real deriva do mesmo assetDatabase
-        const groupKey = asset.subCategory;
-        if (!groupsBySubCategory.has(groupKey)) groupsBySubCategory.set(groupKey, []);
-        groupsBySubCategory.get(groupKey)!.push(asset);
-      }
-
-      result[catId] = Array.from(groupsBySubCategory.entries())
-        .map(([name, items]) => ({ name, items: items.sort((a, b) => a.symbol.localeCompare(b.symbol)) }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      result[catId] = symbols
+        .map(s => bySymbol.get(s))
+        .filter((a): a is Asset => !!a)
+        .sort((a, b) => a.symbol.localeCompare(b.symbol));
     }
-
     return result;
   }, [realCatalog, bySymbol]);
 
-  const meta = CATEGORY_META[activeTab];
-  const theme = THEME_COLORS[meta.color];
+  const totalAvailable = useMemo(
+    () => CATEGORY_ORDER.reduce((sum, catId) => sum + (realCatalog[catId]?.length || 0), 0),
+    [realCatalog]
+  );
 
-  const filteredGroups = categoriesWithAssets[activeTab]
-    ?.map(group => ({
-      ...group,
-      items: group.items.filter(item =>
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.symbol.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }))
-    .filter(group => group.items.length > 0);
+  const quickPicks = useMemo(
+    () => QUICK_PICK_SYMBOLS.filter(s => bySymbol.has(s)),
+    [bySymbol]
+  );
+
+  const term = searchTerm.trim().toLowerCase();
+  const filteredByCategory = useMemo(() => {
+    if (!term) return assetsByCategory;
+    const result: Record<DisplayCategory, Asset[]> = {} as Record<DisplayCategory, Asset[]>;
+    for (const catId of CATEGORY_ORDER) {
+      result[catId] = assetsByCategory[catId].filter(
+        a => a.symbol.toLowerCase().includes(term) || a.name.toLowerCase().includes(term)
+      );
+    }
+    return result;
+  }, [assetsByCategory, term]);
+
+  const selectAllInCategory = (catId: DisplayCategory) => {
+    for (const asset of filteredByCategory[catId]) {
+      if (!selectedAssets.includes(asset.symbol)) onToggle(asset.symbol);
+    }
+  };
+
+  const clearAll = () => {
+    for (const symbol of [...selectedAssets]) onToggle(symbol);
+  };
+
+  const selectedSorted = [...selectedAssets].sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="w-full bg-[#0a0a0a] border border-white/5 rounded-2xl overflow-hidden shadow-2xl relative group">
-      {/* Ambient Background Glow */}
-      <div className={`absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-white/5 opacity-50 transition-colors duration-700 pointer-events-none ${theme.bgDark}`}></div>
-
-      {/* Header */}
-      <div className="p-6 border-b border-white/5 relative z-10">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2 tracking-tight">
-              <Sparkles className={`w-5 h-5 ${theme.icon}`} />
-              Universo de Ativos - Infinox
-            </h2>
-            <p className="text-xs text-slate-400 mt-1 max-w-md">
-              Ativos confirmados via auditoria real da API Infinox/MetaTrader 5 (mesmo catálogo do Dashboard). Conecte outras corretoras para expandir.
+    <div className="w-full bg-[#0a0a0a] border border-white/5 rounded-2xl p-4 shadow-xl">
+      {/* Header + Trigger */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-white tracking-tight leading-none">Universo de Ativos - Infinox</h2>
+            <p className="text-[10px] text-slate-500 mt-1 truncate">
+              Catálogo auditado contra a API real ({totalAvailable} ativos disponíveis)
             </p>
           </div>
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar símbolo ou nome..."
-              className="bg-black border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white w-56 focus:border-white/30 focus:outline-none"
-            />
-          </div>
         </div>
-      </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex overflow-x-auto scrollbar-none border-b border-white/5 bg-black/20 px-2">
-        {CATEGORY_ORDER.map(catId => {
-          const catMeta = CATEGORY_META[catId];
-          const catTheme = THEME_COLORS[catMeta.color];
-          const isActive = activeTab === catId;
-          const count = realCatalog[catId]?.length || 0;
-          return (
-            <button
-              key={catId}
-              onClick={() => setActiveTab(catId)}
-              className={`flex items-center gap-2 px-6 py-4 text-sm font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
-                isActive
-                  ? `${catTheme.borderFull} text-white bg-white/[0.02]`
-                  : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/[0.01]'
-              }`}
-            >
-              <span className={isActive ? catTheme.text : ''}>{catMeta.icon}</span>
-              {catMeta.label}
-              <span className="text-[9px] text-slate-600 font-mono normal-case">{count}</span>
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+          <PopoverTrigger asChild>
+            <button className="flex items-center gap-2 bg-[#111] hover:bg-[#161616] border border-white/10 hover:border-purple-500/40 px-3 py-2 rounded-lg text-xs font-bold text-slate-200 transition-all shrink-0">
+              <ListChecks className="w-3.5 h-3.5 text-purple-400" />
+              {selectedAssets.length} selecionado{selectedAssets.length !== 1 ? 's' : ''}
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
             </button>
-          );
-        })}
+          </PopoverTrigger>
+          <PopoverContent className="w-[340px] p-0 bg-[#0A0A0A] border border-white/10 shadow-2xl rounded-xl" side="bottom" align="end">
+            <Command shouldFilter={false} className="bg-transparent text-slate-200">
+              <CommandInput
+                value={searchTerm}
+                onValueChange={setSearchTerm}
+                placeholder="Buscar símbolo ou nome..."
+                className="h-9 border-b border-white/10 bg-transparent text-xs"
+              />
+              <CommandList className="max-h-[360px] custom-scrollbar p-1">
+                <CommandEmpty className="py-6 text-center text-xs text-slate-500">Nenhum ativo encontrado.</CommandEmpty>
+                {CATEGORY_ORDER.map(catId => {
+                  const items = filteredByCategory[catId];
+                  if (items.length === 0) return null;
+                  const meta = CATEGORY_META[catId];
+                  const theme = THEME_COLORS[meta.color];
+                  const allSelected = items.every(a => selectedAssets.includes(a.symbol));
+                  return (
+                    <CommandGroup
+                      key={catId}
+                      heading={
+                        <div className="flex items-center justify-between pr-1">
+                          <span className={`flex items-center gap-1.5 ${theme.text}`}>
+                            {meta.icon} {meta.label} · {items.length}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectAllInCategory(catId); }}
+                            className="text-[9px] font-bold text-slate-500 hover:text-white uppercase tracking-wide"
+                          >
+                            {allSelected ? '✓ todos' : 'sel. todos'}
+                          </button>
+                        </div>
+                      }
+                      className="text-slate-500 font-bold"
+                    >
+                      {items.map(asset => {
+                        const isSelected = selectedAssets.includes(asset.symbol);
+                        const isOpen2 = isMarketOpen(asset);
+                        return (
+                          <CommandItem
+                            key={asset.symbol}
+                            value={asset.symbol}
+                            onSelect={() => onToggle(asset.symbol)}
+                            className="cursor-pointer flex items-center gap-2 rounded-md aria-selected:bg-white/5"
+                          >
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOpen2 ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                            <span className="text-xs font-bold text-slate-200 font-mono">{asset.symbol}</span>
+                            <span className="text-[10px] text-slate-500 truncate flex-1">{asset.name}</span>
+                            {isSelected && <Check className={`w-3.5 h-3.5 shrink-0 ${theme.text}`} />}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  );
+                })}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
-      {/* Grid Content */}
-      <div className="p-6 min-h-[400px] relative z-10 bg-black/20">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab + searchTerm}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-8"
-          >
-            {!filteredGroups || filteredGroups.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-slate-600">
-                <Filter className="w-12 h-12 mb-4 opacity-20" />
-                <p className="text-sm">Nenhum ativo encontrado nesta categoria.</p>
-              </div>
-            ) : (
-              filteredGroups.map((group, idx) => (
-                <div key={idx} className="space-y-3">
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 border-b border-white/5 pb-2">
-                    <Layers className="w-3 h-3" />
-                    {group.name}
-                  </h3>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {group.items.map((asset) => {
-                      const isSelected = selectedAssets.includes(asset.symbol);
-                      const isOpen = isMarketOpen(asset);
-                      const volatility = VOLATILITY_BY_SUBCATEGORY[asset.subCategory] || 'Medium';
-                      return (
-                        <button
-                          key={asset.symbol}
-                          onClick={() => onToggle(asset.symbol)}
-                          className={`relative z-20 cursor-pointer group/card flex flex-col p-3 rounded-xl border transition-all duration-300 text-left hover:-translate-y-1 ${
-                            isSelected
-                              ? `${theme.bgLight} ${theme.border} shadow-[0_0_20px_rgba(0,0,0,0.3)]`
-                              : 'bg-neutral-900 border-white/5 hover:border-white/20 hover:bg-neutral-800'
-                          }`}
-                        >
-                          <div className="flex justify-between items-start mb-2">
-                            <span className={`text-xs font-black font-mono px-1.5 py-0.5 rounded ${
-                              isSelected
-                                ? `${theme.bgHighlight} ${theme.textDark}`
-                                : 'bg-white/5 text-slate-400'
-                            }`}>
-                              {asset.symbol}
-                            </span>
-
-                            <div className="flex flex-col items-end gap-1">
-                              <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-bold uppercase ${
-                                isOpen
-                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
-                              }`}>
-                                <div className={`w-1 h-1 rounded-full ${
-                                  isOpen ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                                }`} />
-                                {isOpen ? 'ABERTO' : 'FECHADO'}
-                              </div>
-
-                              {isSelected && (
-                                <div className={`w-4 h-4 rounded-full ${theme.bgFull || 'bg-white'} flex items-center justify-center shadow-lg`}>
-                                  <Check className="w-2.5 h-2.5 text-black font-bold" />
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="mt-auto">
-                            <p className={`text-[10px] font-medium leading-tight mb-1 truncate ${isSelected ? 'text-white' : 'text-slate-400'}`}>
-                              {asset.name}
-                            </p>
-                            <div className="flex items-center gap-1">
-                              {volatility === 'Extreme' && <Zap className="w-3 h-3 text-red-500" />}
-                              {volatility === 'High' && <TrendingUp className="w-3 h-3 text-amber-500" />}
-                              <span className={`text-[9px] uppercase ${
-                                volatility === 'Extreme' ? 'text-red-500 font-bold' :
-                                volatility === 'High' ? 'text-amber-500' :
-                                volatility === 'Low' ? 'text-emerald-500' :
-                                'text-blue-500'
-                              }`}>
-                                {volatility} VOL
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Selection Ring Animation */}
-                          {isSelected && (
-                            <motion.div
-                              layoutId={`ring-${asset.symbol}`}
-                              className={`absolute inset-0 border-2 ${theme.borderFull} rounded-xl pointer-events-none`}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                            />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* Footer Info */}
-      <div className="bg-black/40 p-3 border-t border-white/5 flex justify-between items-center text-[10px] text-slate-500 px-6">
-        <span>{selectedAssets.length} ativos monitorados</span>
-        <div className="flex gap-4">
-          <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-red-500" /> Alta Volatilidade</span>
-          <span className="flex items-center gap-1"><Globe className="w-3 h-3 text-emerald-500" /> Forex 24h</span>
+      {/* Quick picks — só mostra os que ainda não estão selecionados */}
+      {quickPicks.some(s => !selectedAssets.includes(s)) && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-3">
+          <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide mr-1">Populares:</span>
+          {quickPicks.filter(s => !selectedAssets.includes(s)).map(symbol => (
+            <button
+              key={symbol}
+              onClick={() => onToggle(symbol)}
+              className="text-[10px] font-mono font-bold px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5 hover:border-white/20 transition-colors"
+            >
+              + {symbol}
+            </button>
+          ))}
         </div>
-      </div>
+      )}
+
+      {/* Selected chips */}
+      {selectedSorted.length === 0 ? (
+        <div className="py-4 text-center text-xs text-slate-600 border border-dashed border-white/10 rounded-lg">
+          Nenhum ativo selecionado — use o buscador acima.
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {selectedSorted.map(symbol => {
+            const asset = bySymbol.get(symbol);
+            const catId = asset ? (Object.entries(realCatalog).find(([, syms]) => syms.includes(symbol))?.[0] as DisplayCategory | undefined) : undefined;
+            const theme = catId ? THEME_COLORS[CATEGORY_META[catId].color] : THEME_COLORS.purple;
+            const isOpenNow = asset ? isMarketOpen(asset) : true;
+            return (
+              <span
+                key={symbol}
+                className={`group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-[10px] font-bold font-mono border ${theme.bgLight} ${theme.border} text-slate-200`}
+                title={asset?.name}
+              >
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOpenNow ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                {symbol}
+                <button
+                  onClick={() => onToggle(symbol)}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-white/10 text-slate-500 hover:text-white transition-colors"
+                  aria-label={`Remover ${symbol}`}
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            );
+          })}
+          <button
+            onClick={clearAll}
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-slate-600 hover:text-red-400 transition-colors"
+          >
+            <Trash2 className="w-3 h-3" /> Limpar
+          </button>
+        </div>
+      )}
     </div>
   );
 }
