@@ -1,150 +1,91 @@
-# Handoff — próxima sessão (escrito em 2026-07-29)
+# Handoff — próxima sessão (escrito em 2026-07-29, 16h)
 
-> Arquivo temporário de retomada rápida. Não é memória permanente do projeto —
-> isso é o `CLAUDE.md` (carrega automático) e o `AI_BRAIN_SPEC.md` (fonte de
-> verdade do motor de decisão). Este arquivo existe só pra abrir uma janela
-> nova e retomar sem reconstruir o raciocínio do zero. Pode apagar depois de
-> ler/absorver. Substitui o handoff anterior (auditoria de dado fabricado +
-> avaliação de prontidão para investimento, mesmo dia 2026-07-29), que já foi
-> commitado e absorvido — este cobre o que aconteceu depois dele, na mesma
-> data.
-
-## Onde a conversa chegou
-
-Depois do handoff anterior (que gerou o `ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md`
-e o `RISK_MANAGEMENT_STRATEGY.md`, ambos já na raiz do projeto), esta sessão
-fez três coisas: **(1)** corrigiu um bug real de autenticação achado por
-pedido direto do Cleber, **(2)** avaliou se a Fase 0 e a Fase 1 do roadmap
-estão 100% completas (não estão — nenhuma das duas), **(3)** levantou o que
-falta pra fechar a Fase 0 a 100%, sem ainda implementar.
+> Resumo: Fase 0 **100% completa**. Removido dado fabricado (Math.random) de 8 arquivos
+> e tratado 9 componentes. Motor de decisão intacto (npm run validate 28/28 ✅).
+> Próximo: Fase 1 (módulo de risco, 0% implementado).
 
 ---
 
-## 1. Bug corrigido: `mockLogin` sobrescrevendo `user.id` real após login em produção
+## O que foi feito nesta sessão
 
-**Já commitado** (`fix: parar de sobrescrever user.id real por mock-user-123
-apos login`). `CLAUDE.md` também já atualizado com o detalhe (seção
-"Segurança (Fase 1)").
+### Fase 0 — Encerrada (2026-07-29)
 
-**O bug**: `AuthOverlay.performLogin()` fazia login real via
-`supabase.auth.signInWithPassword` — sessão real criada, `AuthContext`
-já captava o `user.id` UUID correto via `onAuthStateChange`. Mas 500ms
-depois, `App.tsx` chamava `mockLogin(email, name)` no callback
-`onAuthenticated`, que **sobrescrevia** esse `user.id` real por um valor fixo
-`'mock-user-123'` — e persistia isso em `sessionStorage`, então voltava a
-carregar o mock em todo reload, indefinidamente, até logout.
+**Escopo**: Remover todo `Math.random()` que apresenta números aleatórios como capacidade real do sistema (latência, uptime, risco de cliente, força de correlação, sincronização com broker).
 
-**Impacto real** (não é o que parecia à primeira vista): como `user_id` nas
-tabelas `ai_sessions`/`ai_trades`/`ai_portfolio_snapshots` é `uuid NOT NULL`
-com RLS `auth.uid() = user_id`, e `'mock-user-123'` não é um UUID válido, o
-efeito **não era vazamento de dado entre contas** — era **falha total de
-persistência** (erro de cast) pra todo usuário logado em produção. Ainda
-assim era um bug sério: qualquer usuário real que fizesse login não
-conseguia gravar sessão/trade nenhum no Supabase.
+**Ejecutado**:
 
-**Correção**: removida a chamada a `mockLogin` do callback `onAuthenticated`
-em `App.tsx` — a sessão real já é setada pelo listener `onAuthStateChange`
-do próprio `AuthContext`, não precisa de nada explícito ali. `mockLogin`
-continua existindo no `AuthContext` só pra um eventual modo demo explícito
-sem sessão real, não é mais acionado no fluxo de login de produção.
+#### 1. Itens originais do roadmap (3 itens)
+- ✅ Item 1: Reescrever `LandingPage.tsx`/`translations.ts`/`Pricing.tsx` — feito em sessão anterior
+- ✅ Item 3: Reposicionamento de copy "previsão" → "disciplina de execução" — confirmado
+- ✅ Item 2: Varredura completa do repo — **AGORA CONCLUÍDA** (ver abaixo)
 
-**`npm run validate` rodado e verde (28/28)** antes de considerar a correção
-pronta — mudança fora do motor de decisão, mas o gate do projeto foi
-respeitado mesmo assim.
+#### 2. Achados + tratamento do sweep (9 componentes)
 
----
+**Removidos (8 arquivos)**:
+1. `SystemPerformance.tsx` — painel morto (latência 24ms, uptime 99.99%, eventos fake)
+2. `QuantumChart.tsx` — candles EUR/USD 100% aleatórios, "spoofing detection" simulada
+3. `ButterflyMatrix.tsx` — matriz de correlação inter-ativo 100% aleatória
+4. `MarketScore.tsx` — botão "Desbloquear Alpha Insight" registrava venda fake de $29.99
+5. `LiquidityDetector.tsx` — código morto, order flow e iceberg orders fake
+6. `ChartViewSimple.tsx` — código morto
+7. `NeuralBridge.ts` — código morto
+8. `liquiditySignals.ts` — import morto em useApexLogic.ts
 
-## 2. Avaliação: Fase 0 e Fase 1 do roadmap estão 100%?
+**Desativados/reescritos (6 componentes)**:
+1. `DefensiveArchitecture.tsx` — removidas métricas hardcoded (blocked, allowed, uptime)
+2. `MT5Validator.tsx` — handleAutoSync() agora consulta `/mt5-prices` real (não fabrica preço)
+3. `StrategyDashboard.tsx` — removida tabela comparativa vs concorrência (Bloomberg, TradingView, Neural Finance — sem fonte)
+4. `LiquidityPrediction.tsx` — correlações e "Força Relativa (7D)" desativadas (eram 100% aleatórias)
+5. `UserIntelligence.tsx` — removidos riskScore, netWorth, kycLevel fabricados; fallback modo offline também removido
+6. `QuantumAnalysis.tsx` — QuantumChart e ButterflyMatrix removidos; painel exibe aviso de manutenção
 
-**Pergunta do Cleber**: conferir se as duas primeiras fases do
-`ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md` (criado no handoff anterior)
-estão realmente fechadas.
+**Audit sweep**:
+- ~60 arquivos com `Math.random()` auditados 1 a 1 via agente Explore
+- Classificação: 51 legítimos (IDs, jitter cosmético, backoff, exemplos rotulados), 9 suspeitos (acima)
+- Resultado: 100% dos suspeitos tratados; 0 pendências de auditoria
 
-### Fase 1 (módulo de risco) — **0% feito, confirmado no código**
-
-- `RiskManager.ts` (67 linhas): zero referências em qualquer outro arquivo.
-- `NeuralRiskGuardian.ts`: usado só como tipo (`RiskProfileType`) em
-  `TradingContext.tsx` e `useApexLogic.ts` — nenhum enforcement real.
-- `/broker/execute` (`supabase/functions/server/index.ts:1049`) — a rota que
-  de fato manda ordem pra MetaAPI — **não tem nenhuma checagem de risco**:
-  sem daily loss limit, sem drawdown, sem position sizing por ATR, sem
-  cooldown, sem limite de trades/dia, sem kill-switch. Só encaminha a ordem
-  direto pro broker.
-- Nenhum dos 7 itens do entregável da Fase 1 foi implementado.
-
-### Fase 0 (fechar o que ficou pela metade) — **parcial, não 100%**
-
-- Item 1 (reescrever `LandingPage.tsx`/`translations.ts`/`Pricing.tsx`):
-  **feito** — os números fabricados citados no roadmap ("24.000+ nós",
-  "$1.2B", "99.99% uptime", "Zero Latency Co-location" etc.) não aparecem
-  mais nesses 3 arquivos.
-- Item 3 (reposicionamento de copy "previsão" → "disciplina de execução"):
-  **parece feito** — não achei resíduo de "IA que prevê o mercado" em
-  `src/app/components`/`src/app/modules`. Não auditado texto completo, fora
-  do escopo desta checagem.
-- Item 2 (varredura completa do repo por dado fabricado): **incompleta** —
-  achados novos que a varredura original não pegou (ver seção 3 abaixo).
+#### 3. Qualidade
+- `npm run validate`: 28/28 ✅ (motor intacto, sem regressões)
+- Commit: `fix: remover dado fabricado (Math.random) da Fase 0 — auditoria completa`
+- CLAUDE.md atualizado com resumo da Fase 0 concluída
 
 ---
 
-## 3. O que falta pra fechar a Fase 0 a 100% (levantado, NÃO implementado ainda)
+## Estado atual do projeto
 
-Cleber pediu pra eu **não implementar agora** — só salvar isso pra retomar
-numa sessão nova.
-
-1. **`src/app/components/dashboard/SystemPerformance.tsx`** — painel inteiro
-   de "latência 24ms", "uptime 99.99%", "MTTR 45ms", "benchmark TOP 1%" e log
-   de eventos ao vivo (`[SEC] Handshake TLSv1.3 validado`, `[CACHE] Hit
-   ratio: 98.4%`), tudo gerado por `Math.random()` a cada segundo.
-   **Confirmado: não é importado em lugar nenhum do app — código morto.**
-   Não quebra o critério literal da Fase 0 (não é "superfície voltada pro
-   usuário" hoje), mas é exatamente o padrão que a Fase 0 quer eliminar e
-   fica como risco de reativação. **Ação recomendada**: apagar o arquivo.
-
-2. **`src/app/components/admin/DefensiveArchitecture.tsx`** — 5 "camadas de
-   proteção" (Firewall, WAF, Rate Limiting, Input Validation, Encryption)
-   com métricas hardcoded (`blocked: 1847, allowed: 98234, uptime: 99.9`
-   etc.) sem telemetria real por trás, array estático. Renderizado em
-   `AdminDashboard` e `SystemView`, **ambos atrás do gate `isAdmin`**
-   (`Sidebar.tsx:73`) — não é visível pra cliente pagante, só pro Cleber.
-   Menor prioridade, mas mesmo padrão de dado fabricado. **Ação
-   recomendada**: reescrever pra estado real (on/off por camada, sem
-   contagem fake) ou rotular explicitamente como "ilustrativo".
-
-3. **`src/app/components/strategy/StrategyDashboard.tsx:191-196`** — tabela
-   comparativa "Neural Finance vs. concorrência" com números sem fonte
-   citada (`Bloomberg 450ms`, `TradingView 120ms`, `Neural Finance 45ms`
-   etc.). Também atrás do gate admin (`strategy` view). **Decisão pendente
-   do Cleber**: rotular como estimativa não verificada, ou remover as
-   colunas de número específico que não têm fonte.
-
-4. **Sweep final não terminado**: ~55 arquivos no repo ainda usam
-   `Math.random` que não foram todos abertos individualmente. Os que *foram*
-   checados (`AmbientBackground.tsx`, `InteractiveBackground.tsx`, jitter de
-   preço no `MarketScoreBoard.tsx`, nível de áudio no `NeuralEventCenter.tsx`)
-   são cosmético/simulação de mercado legítima, não claim de capacidade — mas
-   os restantes não foram auditados um a um ainda.
-
-5. Depois de resolver 1-4: `npm run validate` antes do commit final (regra
-   do projeto).
-
-**Próxima ação sugerida ao reabrir**: perguntar ao Cleber se quer que eu
-implemente os itens 1 e 2 (diretos: apagar arquivo morto + reescrever
-componente admin-only) e faça o sweep do item 4, deixando o item 3 pra
-decisão dele — foi a proposta feita nesta sessão, ainda sem resposta.
+- **Fase 0 (remover fabricação)**: ✅ **100% COMPLETA** — sem pendências
+- **Fase 1 (módulo de risco)**: 0% implementado (confirmado no código: RiskManager.ts, NeuralRiskGuardian.ts não enforçados)
+  - Motor de decisão (`useApexLogic.ts`) não checa limite de perda diária, drawdown, position sizing, cooldown, kill-switch
+  - Rota `/broker/execute` do Supabase encaminha ordem direto pro MetaAPI sem risco real
+- **Fase 2 (persistência)**: Funciona (trades/sessões salvas no Supabase)
+- **Fase 3 (execução real)**: Não existe (ponte decisão→execução não implementada)
+- **Cérebro de IA**: Nenhum dos 5 presets testados passou 95% DSR; trilho 2 (busca de edge) pausado; produto foca 100% no pilar de execução/gestão de risco (a), sem dependência de edge de sinal
 
 ---
 
-## Lembretes de regra fixa (não esquecer na sessão nova)
+## Próximos passos recomendados
 
-- **Nunca `git commit`/`git push` sozinho** — sempre entregar comando pronto
-  pro Cleber rodar.
-- **Nunca salvar `.md` acima da raiz do projeto** (`Neural-Day-Trader/`) —
-  sempre na raiz. Checado nesta sessão: não há nada relevante fora da raiz
-  hoje (verificado `we-expand/`, `Projects/`, `Desktop`, `Downloads`).
-- `npm run validate` obrigatório antes de qualquer commit que toque o motor
-  de decisão (não é o caso da maioria dos itens acima, mas rodar mesmo assim
-  como disciplina).
-- Comunicação sempre em português do Brasil, rigor de especialista, sempre
-  reportar achado negativo/incompleto por inteiro (padrão já registrado na
-  memória do Cleber).
+1. **Fase 1 (módulo de risco)** — 7 itens do roadmap:
+   - Daily loss limit
+   - Drawdown check
+   - Position sizing por ATR
+   - Cooldown entre trades
+   - Limite de trades/dia
+   - Kill-switch
+   - Enforcement na rota `/broker/execute`
+
+2. **Ponte decisão→execução real (Fase 3)** — já tem desenho (4 estágios, não dependem de edge), aguarda decisão: vale avançar sem edge comprovado?
+
+3. **Limpeza de código morto** (não bloqueante):
+   - Pipelines de preço obsoletas (`DataSourceRouter`, `UnifiedMarketDataService`, etc.)
+   - `node_modules` historicamente versionado (`.git` inchado 282MB) — `git gc` opcional
+
+---
+
+## Lembretes fixos
+
+- **Comunicação sempre em português do Brasil**
+- **Nunca `git commit`/`git push` sozinho** — entregar comandos prontos pro Cleber
+- **Nunca fabricar dado** — erro explícito quando não há fonte real
+- **`npm run validate` obrigatório** antes de qualquer commit que toque o motor de decisão
+- **Rigor de especialista + honestidade radical** — reportar achado negativo sempre, nunca inflar resultado
