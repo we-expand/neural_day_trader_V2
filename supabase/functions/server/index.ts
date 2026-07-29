@@ -78,6 +78,66 @@ function validateTradeRisk(req: RiskValidationRequest): { approved: boolean; rea
   return { approved: true };
 }
 
+// 🔒 CONFIG DE RISCO AUTORITATIVA (Tópico 7, hardening pós-Fase 1)
+// Antes, os thresholds de risco (maxDailyLossPercent, maxDrawdownPercent etc.)
+// vinham do body da requisição em /broker/execute — mas nenhum caller real
+// (BrokerClient.ts) jamais enviava esses campos, então o gate SEMPRE caía nos
+// defaults hardcoded (5%/15%/2%, kill-switch desativado), ignorando por
+// completo a config real do usuário (aiConfig.dailyLossLimit etc). Corrigido
+// guardando a config no KV store, escrita só por um endpoint autenticado
+// (POST /server/risk-config), nunca aceita como parâmetro de /broker/execute.
+interface ServerRiskConfig {
+  maxDailyLossPercent: number;
+  maxDrawdownPercent: number;
+  maxPositionSizePercent: number;
+  killSwitchThreshold: number;
+  dailyStartBalance: number;
+  dayAnchorUtcDay: number; // epoch day (Math.floor(ms / 86400000)) da última âncora
+  peakEquity: number; // maior equity observado, usado pro cálculo de drawdown
+}
+
+// Defaults conservadores usados quando o usuário nunca sincronizou config
+// (ex: primeira chamada de um client desatualizado) — propositalmente mais
+// restritivos que os defaults do AIConfig do client, nunca mais permissivos.
+const DEFAULT_SERVER_RISK_CONFIG: Omit<ServerRiskConfig, 'dailyStartBalance' | 'peakEquity'> = {
+  maxDailyLossPercent: 5,
+  maxDrawdownPercent: 15,
+  maxPositionSizePercent: 2,
+  killSwitchThreshold: 10, // ao contrário do client (default 0=desativado), aqui fica ATIVO por padrão
+  dayAnchorUtcDay: 0,
+};
+
+function riskConfigKey(userId: string): string {
+  return `risk-config:${userId}`;
+}
+
+async function loadServerRiskConfig(userId: string, currentBalance: number): Promise<ServerRiskConfig> {
+  try {
+    const stored = await kv.get(riskConfigKey(userId));
+    const todayUtcDay = Math.floor(Date.now() / 86_400_000);
+
+    if (!stored) {
+      return { ...DEFAULT_SERVER_RISK_CONFIG, dailyStartBalance: currentBalance, peakEquity: currentBalance };
+    }
+
+    // Âncora diária vencida (novo dia UTC desde a última sync) — reancora no saldo atual.
+    // Isso é seguro porque só afeta o cálculo de perda diária, não os thresholds.
+    if (stored.dayAnchorUtcDay !== todayUtcDay) {
+      return {
+        ...stored,
+        dailyStartBalance: currentBalance,
+        dayAnchorUtcDay: todayUtcDay,
+        peakEquity: Math.max(stored.peakEquity || currentBalance, currentBalance),
+      };
+    }
+
+    return { ...stored, peakEquity: Math.max(stored.peakEquity || currentBalance, currentBalance) };
+  } catch (e) {
+    console.warn('[RISK-CONFIG] ⚠️ Erro ao carregar config do KV, usando defaults conservadores:', e);
+    return { ...DEFAULT_SERVER_RISK_CONFIG, dailyStartBalance: currentBalance, peakEquity: currentBalance };
+  }
+}
+
 // 🔍 HELPER: Get MetaAPI Token with detailed logging
 async function getMetaApiToken(bodyToken?: string): Promise<string | null> {
     const envToken = Deno.env.get('METAAPI_TOKEN');
@@ -1108,6 +1168,45 @@ app.post('/broker/undeploy-inactive', async (c) => {
     }
 });
 
+// 🔒 Config de risco autoritativa (Tópico 7, hardening) — só o próprio usuário
+// autenticado escreve a SUA config, nunca aceita userId do body. Chamada pelo
+// client (useApexLogic.ts) sempre que os thresholds de risco do aiConfig mudam.
+app.post('/risk-config', async (c) => {
+    try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) return c.json({ error: 'Não autenticado' }, 401);
+
+        const body = await c.req.json();
+        const { maxDailyLossPercent, maxDrawdownPercent, maxPositionSizePercent, killSwitchThreshold } = body;
+
+        if (
+            typeof maxDailyLossPercent !== 'number' ||
+            typeof maxDrawdownPercent !== 'number' ||
+            typeof maxPositionSizePercent !== 'number'
+        ) {
+            return c.json({ error: 'maxDailyLossPercent, maxDrawdownPercent e maxPositionSizePercent são obrigatórios (number)' }, 400);
+        }
+
+        // Preserva a âncora diária/pico existente (não é o client que decide isso) —
+        // só os thresholds configuráveis pelo usuário são atualizados aqui.
+        const existing = await kv.get(riskConfigKey(authenticatedUserId));
+
+        const updated: Partial<ServerRiskConfig> = {
+            ...(existing || {}),
+            maxDailyLossPercent,
+            maxDrawdownPercent,
+            maxPositionSizePercent,
+            killSwitchThreshold: typeof killSwitchThreshold === 'number' ? killSwitchThreshold : (existing?.killSwitchThreshold ?? DEFAULT_SERVER_RISK_CONFIG.killSwitchThreshold),
+        };
+
+        await kv.set(riskConfigKey(authenticatedUserId), updated);
+        return c.json({ success: true });
+    } catch (e: any) {
+        console.error('[RISK-CONFIG] Erro ao salvar:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
 // Executa leituras (preços/conta/posições) e ordens reais (compra/venda/fechar/modificar)
 // na conta MT5 do usuário autenticado, chamando a REST Client API do MetaAPI server-side.
 // O token nunca trafega de volta pro client.
@@ -1184,39 +1283,55 @@ app.post('/broker/execute', async (c) => {
         const isOpenPositionAction = ['createMarketBuyOrder', 'createMarketSellOrder'].includes(action);
 
         if (isOpenPositionAction) {
-            try {
-                // Buscar informações de conta para validação de risco
-                const accountRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/account-information`, {
-                    headers: metaApiHeaders,
-                });
+            // Buscar informações de conta REAIS para validação de risco — nunca aceitar
+            // saldo/drawdown vindos do body (só a MetaAPI é fonte de verdade pro saldo).
+            const accountRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/account-information`, {
+                headers: metaApiHeaders,
+            });
 
-                if (accountRes.ok) {
-                    const accountInfo = await accountRes.json();
-                    const riskValidationReq: RiskValidationRequest = {
-                        maxDailyLossPercent: body.maxDailyLossPercent || 5,
-                        maxDrawdownPercent: body.maxDrawdownPercent || 15,
-                        maxPositionSizePercent: body.riskPerTrade || 2,
-                        currentBalance: accountInfo.balance || 0,
-                        dailyStartBalance: body.dailyStartBalance || accountInfo.balance || 0,
-                        currentDrawdown: body.currentDrawdown || 0,
-                        proposedTradeSize: (accountInfo.balance || 0) * ((body.riskPerTrade || 2) / 100),
-                        killSwitchThreshold: body.killSwitchThreshold || 0,
-                    };
+            if (!accountRes.ok) {
+                // Sem saldo real não dá pra validar risco com segurança — bloqueia por
+                // padrão (fail-closed), ao contrário da versão anterior que deixava passar.
+                console.error(`[BROKER] ❌ Não foi possível buscar info de conta (HTTP ${accountRes.status}) — bloqueando por segurança`);
+                return c.json({ success: false, error: 'Não foi possível verificar saldo da conta para validação de risco', riskBlocked: true }, 502);
+            }
 
-                    const riskCheck = validateTradeRisk(riskValidationReq);
-                    if (!riskCheck.approved) {
-                        console.log(`[BROKER] 🚫 Risco bloqueado: ${riskCheck.reason}`);
-                        return c.json({
-                            success: false,
-                            error: `Validação de risco: ${riskCheck.reason}`,
-                            riskBlocked: true
-                        }, 400);
-                    }
-                } else {
-                    console.warn('[BROKER] ⚠️ Não foi possível buscar info de conta para validação de risco, continuando sem validação');
-                }
-            } catch (riskCheckError) {
-                console.warn('[BROKER] ⚠️ Erro ao validar risco (continuando de qualquer forma):', riskCheckError);
+            const accountInfo = await accountRes.json();
+            const currentBalance = accountInfo.balance || 0;
+
+            // 🔒 Config de risco vem SEMPRE do KV server-side (nunca do body) —
+            // fecha a lacuna onde os thresholds do usuário eram ignorados.
+            const riskConfig = await loadServerRiskConfig(authenticatedUserId, currentBalance);
+            const currentDrawdownPercent = riskConfig.peakEquity > 0
+                ? Math.max(0, ((riskConfig.peakEquity - currentBalance) / riskConfig.peakEquity) * 100)
+                : 0;
+
+            const riskValidationReq: RiskValidationRequest = {
+                maxDailyLossPercent: riskConfig.maxDailyLossPercent,
+                maxDrawdownPercent: riskConfig.maxDrawdownPercent,
+                maxPositionSizePercent: riskConfig.maxPositionSizePercent,
+                currentBalance,
+                dailyStartBalance: riskConfig.dailyStartBalance,
+                currentDrawdown: currentDrawdownPercent,
+                proposedTradeSize: currentBalance * (riskConfig.maxPositionSizePercent / 100),
+                killSwitchThreshold: riskConfig.killSwitchThreshold,
+            };
+
+            const riskCheck = validateTradeRisk(riskValidationReq);
+
+            // Persiste o pico de equity atualizado independente do resultado (não é
+            // uma decisão do trade, é só o estado de referência pro próximo cálculo).
+            kv.set(riskConfigKey(authenticatedUserId), riskConfig).catch((e) =>
+                console.warn('[RISK-CONFIG] ⚠️ Falha ao persistir âncora atualizada:', e)
+            );
+
+            if (!riskCheck.approved) {
+                console.log(`[BROKER] 🚫 Risco bloqueado: ${riskCheck.reason}`);
+                return c.json({
+                    success: false,
+                    error: `Validação de risco: ${riskCheck.reason}`,
+                    riskBlocked: true
+                }, 400);
             }
         }
 

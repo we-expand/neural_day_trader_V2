@@ -714,6 +714,41 @@ export function useApexLogic(
     })();
   }, [user, executionMode]);
 
+  // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
+  // (KV store, ver /server/risk-config) sempre que o usuário logado mudar
+  // esses valores no aiConfig. A rota /broker/execute usa exclusivamente essa
+  // config server-side — nunca confia em thresholds vindos do client no body
+  // da requisição — então sem essa sincronização a Edge Function ficaria
+  // presa nos defaults conservadores, ignorando a config real do usuário.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { supabase } = await import('@/lib/supabaseClient');
+        const { error } = await supabase.functions.invoke('server/risk-config', {
+          method: 'POST',
+          body: {
+            maxDailyLossPercent: aiConfig.dailyLossLimit,
+            maxDrawdownPercent: aiConfig.maxDrawdown,
+            maxPositionSizePercent: aiConfig.riskPerTrade,
+            killSwitchThreshold: aiConfig.killSwitchThreshold || 0,
+          },
+        });
+        if (cancelled) return;
+        if (error) throw error;
+        console.log('[useApexLogic] 🔒 Config de risco sincronizada com o servidor');
+      } catch (e) {
+        if (!cancelled) {
+          console.warn('[useApexLogic] ⚠️ Falha ao sincronizar config de risco com o servidor (enforcement server-side usará valor anterior ou default conservador):', e);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [user?.id, aiConfig.dailyLossLimit, aiConfig.maxDrawdown, aiConfig.riskPerTrade, aiConfig.killSwitchThreshold]);
+
   useEffect(() => {
     const state: ApexLogicState = {
       isActive,

@@ -1,14 +1,14 @@
-# Handoff — próxima sessão (escrito em 2026-07-29, 23h50)
+# Handoff — próxima sessão (escrito em 2026-07-30, 00h30)
 
 > Resumo: Fase 0 **100% completa** (2026-07-29 16h).
-> **Fase 1 — Módulo de Risco: 100% implementado** (7 de 7 tópicos). ✅
-> Todos os tópicos completos: Daily Loss Limit, Drawdown Check, ATR Position
-> Sizing, Cooldown, Max Trades/Dia, Kill-Switch, Enforcement em /broker/execute.
+> **Fase 1 — Módulo de Risco: 100% implementado** (7 de 7 tópicos), **incluindo
+> o hardening do Tópico 7** feito depois de identificar que a validação
+> inicial era inerte na prática. ✅
 > Motor de decisão intacto (npm run validate 28/28 ✅). Pronto pro commit.
 
 ---
 
-## Fase 1 — Tópicos 6 e 7 finalizados nesta sessão (2026-07-29, 23h50)
+## Fase 1 — Tópicos 6 e 7 (2026-07-29/30)
 
 ### ✅ Tópico 6: Kill-Switch (COMPLETO)
 - **Arquivo**: `src/lib/modules/RiskManager.ts`
@@ -23,31 +23,57 @@
   - Notifica o usuário via toast persistente (`duration: 0`)
 - **Config**: novo campo `killSwitchThreshold?: number` em `AIConfig` (default 0 = desativado)
 
-### ✅ Tópico 7: Enforcement em /broker/execute (COMPLETO)
-- **Arquivo**: `supabase/functions/server/index.ts`
-- **Mudança**: nova função `validateTradeRisk()` (mesma lógica do RiskManager,
-  reimplementada no Deno da Edge Function — kill-switch, daily loss, drawdown,
-  position sizing) chamada ANTES de qualquer `createMarketBuyOrder`/`createMarketSellOrder`.
-  - Busca `account-information` real da MetaAPI pra saldo atual
-  - Se bloqueado, retorna `400` com `riskBlocked: true` e o motivo
-  - Falha "aberta" (loga aviso e segue) só se a checagem de risco em si falhar
-    (ex: erro de rede ao buscar account info) — não bloqueia operação por
-    problema de infraestrutura, só por violação de risco real
-- **Importante**: rota ainda depende do client (useApexLogic) mandar os campos
-  de config de risco no body (`maxDailyLossPercent`, `dailyStartBalance`, etc.)
-  — a Edge Function não tem acesso ao `aiConfig` do usuário. Isso é um gate
-  adicional (defesa em profundidade), não substitui o gate do client.
-- **Teste**: `npm run validate` 28/28 ✅ (rota é Deno/Edge Function, fora do
-  gate de type-check do motor — validado por leitura manual do código)
+### ✅ Tópico 7: Enforcement em /broker/execute (COMPLETO, com correção real)
 
-### Pendência aberta identificada nesta sessão
-- O enforcement do broker (Tópico 7) confia em campos vindos do body da
-  requisição (client) para os limites de risco — um client malicioso ou com
-  bug poderia mandar limites frouxos. Mitigação real seria a Edge Function
-  buscar `aiConfig` do usuário direto do Supabase (tabela de config), não do
-  body. Não implementado nesta sessão por escopo (Fase 1 pedia só o
-  enforcement básico) — registrar como possível hardening futuro se o
-  produto avançar pra Fase Real com dinheiro de usuário.
+**Primeira implementação (defeituosa, corrigida na mesma sessão)**: a validação
+lia os thresholds do body da requisição (`body.maxDailyLossPercent` etc). Ao
+auditar quem realmente chama a rota, descobri que **nenhum caller real**
+(`BrokerClient.ts` → `createMarketBuyOrder`/`createMarketSellOrder`) jamais
+enviava esses campos — `OrderParams` nem tem esses campos no tipo. Ou seja, o
+gate estava **sempre caindo nos defaults hardcoded** (5%/15%/2%, kill-switch
+desativado), **ignorando por completo a config real do usuário**. Não era
+"confia no client" — era "não reflete o client nenhum, é decorativo".
+
+**Correção real aplicada**:
+- **Novo endpoint `POST /server/risk-config`** (`supabase/functions/server/index.ts`):
+  autenticado via JWT, só escreve a config do PRÓPRIO usuário autenticado
+  (nunca aceita `userId` do body). Guarda no KV store (`kv_store_1dbacac6`,
+  chave `risk-config:{userId}`).
+- **`loadServerRiskConfig(userId, currentBalance)`**: lê a config do KV;
+  reancora `dailyStartBalance` automaticamente quando o dia UTC muda; mantém
+  `peakEquity` (pico histórico de equity, usado pro cálculo de drawdown
+  server-side). Se não houver config salva (usuário nunca sincronizou),
+  usa defaults **conservadores** — mais restritivos que os do client, nunca
+  mais permissivos (kill-switch vem ATIVO por padrão aqui, ao contrário do
+  client que vem desativado).
+- **`/broker/execute`**: pra `createMarketBuyOrder`/`createMarketSellOrder`,
+  busca `account-information` real da MetaAPI (saldo nunca vem do body) e
+  usa exclusivamente `loadServerRiskConfig()` pros thresholds — o body
+  não é mais lido pra nada relacionado a risco.
+- **Fail-closed**: se a busca de saldo na MetaAPI falhar, a rota agora
+  **bloqueia** a ordem (antes deixava passar "com aviso") — mudança de
+  comportamento deliberada: numa rota que move dinheiro real, uma falha
+  de infraestrutura não pode virar permissão implícita.
+- **Client (`src/app/hooks/useApexLogic.ts`)**: novo `useEffect` que
+  sincroniza os thresholds (`aiConfig.dailyLossLimit`, `maxDrawdown`,
+  `riskPerTrade`, `killSwitchThreshold`) com `/server/risk-config` sempre
+  que o usuário muda essa config, fire-and-forget.
+- **Teste**: `npm run validate` 28/28 ✅ (Edge Function é Deno, fora do gate
+  de type-check do motor — Deno não está instalado localmente pra rodar
+  `deno check`; revisão feita por leitura manual completa do arquivo).
+
+### Limitação honesta que permanece (não bloqueante)
+- `currentDrawdown` calculado na Edge Function usa `peakEquity` guardado no
+  próprio KV de risco (atualizado a cada chamada de `/broker/execute`) — ele
+  só reflete a realidade a partir do momento em que essa rota passa a ser
+  chamada de fato pelo motor de decisão. Hoje (ver CLAUDE.md) `useApexLogic.ts`
+  **ainda não chama `/broker/execute`** no ciclo automático — a ponte
+  decisão→execução real (Fase 3) não existe. Ou seja, o Tópico 7 está
+  correto e pronto, mas seu `peakEquity`/drawdown só vai começar a espelhar
+  o comportamento real de mercado quando a Fase 3 for implementada e passar
+  a chamar essa rota de verdade. Nada a fazer agora — só não prometer que o
+  drawdown "funciona hoje em produção" quando a ponte que alimentaria esse
+  dado ainda não existe.
 
 ---
 
@@ -168,47 +194,53 @@
     trades/dia, e kill-switch automático (fecha posições + para IA)
   - Rota `/broker/execute` do Supabase valida risco (kill-switch, daily loss,
     drawdown, position sizing) antes de qualquer `createMarketBuyOrder`/`createMarketSellOrder`
-  - **Pendência de hardening identificada** (não bloqueante pra Fase 1, ver
-    seção acima): a validação da Edge Function confia em limites vindos do
-    body da requisição, não em config armazenada server-side — considerar
-    antes de avançar pra Fase Real com dinheiro real de usuário
+    — **thresholds lidos de config server-side autoritativa (KV), não do body**,
+    corrigido depois de descoberto que a versão anterior era decorativa (ver
+    seção do Tópico 7 acima)
 - **Fase 2 (persistência)**: Funciona (trades/sessões salvas no Supabase)
-- **Fase 3 (execução real)**: Não existe (ponte decisão→execução não implementada)
+- **Fase 3 (execução real)**: Não existe (ponte decisão→execução não implementada) —
+  isso também significa que o enforcement do Tópico 7 ainda não é exercitado
+  pelo motor automático em produção; só entra em ação quando algo chamar
+  `/broker/execute` (hoje: só telas manuais como `LiveTradingTest.tsx`)
 - **Cérebro de IA**: Nenhum dos 5 presets testados passou 95% DSR; trilho 2 (busca de edge) pausado; produto foca 100% no pilar de execução/gestão de risco (a), sem dependência de edge de sinal
 
 ---
 
 ## Próximos passos recomendados
 
-1. **Commit da Fase 1** (comandos prontos abaixo) — depois validar em ambiente
-   de teste/DEMO antes de considerar pronta pra Fase Real.
+1. **Commit desta sessão** (comandos prontos abaixo, já é um SEGUNDO commit —
+   o commit `fde6eebd7` da primeira versão da Fase 1 já foi feito/pushado
+   antes desta correção do Tópico 7).
 
-2. **Hardening do enforcement** (Tópico 7) — mover limites de risco do body
-   da requisição pra uma leitura server-side da config do usuário, fechando
-   a lacuna de confiar no client para os thresholds de risco.
+2. **Ponte decisão→execução real (Fase 3)** — já tem desenho (4 estágios, não dependem de edge), aguarda decisão: vale avançar sem edge comprovado? Sem essa ponte, o Tópico 7 (por mais correto que esteja agora) não é exercitado pelo trading automático.
 
-3. **Ponte decisão→execução real (Fase 3)** — já tem desenho (4 estágios, não dependem de edge), aguarda decisão: vale avançar sem edge comprovado?
-
-4. **Limpeza de código morto** (não bloqueante):
+3. **Limpeza de código morto** (não bloqueante):
    - Pipelines de preço obsoletas (`DataSourceRouter`, `UnifiedMarketDataService`, etc.)
    - `node_modules` historicamente versionado (`.git` inchado 282MB) — `git gc` opcional
 
 ---
 
-## Comandos de commit prontos (Fase 1 completa)
+## Comandos de commit prontos (hardening do Tópico 7)
 
 ```bash
-git add src/lib/modules/RiskManager.ts src/app/hooks/useApexLogic.ts supabase/functions/server/index.ts NEXT_SESSION.md
-git commit -m "feat(phase-1): completar módulo de risco — kill-switch + enforcement em /broker/execute
+git add src/app/hooks/useApexLogic.ts supabase/functions/server/index.ts NEXT_SESSION.md
+git commit -m "fix(phase-1): corrigir enforcement de risco em /broker/execute — thresholds eram decorativos
 
-Finaliza os 7 tópicos da Fase 1 (módulo de risco):
-- Tópico 6: Kill-Switch automático (RiskManager.shouldActivateKillSwitch),
-  integrado no useApexLogic — fecha todas as posições e para a IA quando
-  perda diária ou drawdown atinge o killSwitchThreshold configurado.
-- Tópico 7: Enforcement na rota /broker/execute (Edge Function) — valida
-  kill-switch, daily loss, drawdown e position sizing ANTES de qualquer
-  createMarketBuyOrder/createMarketSellOrder, com fallback aberto só em
-  falha de infraestrutura (não em violação de risco real).
+O Tópico 7 (commit anterior fde6eebd7) validava risco lendo thresholds do
+body da requisição (body.maxDailyLossPercent etc), mas nenhum caller real
+(BrokerClient.ts) jamais enviava esses campos — o gate SEMPRE caía nos
+defaults hardcoded, ignorando por completo a config real do usuário.
+
+Corrigido com config de risco autoritativa server-side:
+- Novo endpoint POST /server/risk-config (autenticado, só escreve a config
+  do próprio usuário, guardada no KV store).
+- loadServerRiskConfig(): lê a config do KV, reancora dailyStartBalance a
+  cada novo dia UTC, mantém peakEquity pro cálculo de drawdown.
+- /broker/execute: thresholds vêm exclusivamente do KV (nunca do body);
+  saldo vem exclusivamente da MetaAPI (nunca do body); falha ao buscar
+  saldo agora BLOQUEIA a ordem (fail-closed), não deixa passar como antes.
+- useApexLogic.ts: novo useEffect sincroniza os thresholds do aiConfig com
+  /server/risk-config sempre que o usuário muda a config de risco.
 
 npm run validate: 28/28 ✅ (motor intacto, sem regressões)"
 git push
