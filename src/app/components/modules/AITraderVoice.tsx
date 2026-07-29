@@ -10,8 +10,13 @@ import { Mic, MicOff, Volume2, TrendingDown, TrendingUp, DollarSign, AlertTriang
 import { useSpeechAlert } from '@/app/hooks/useSpeechAlert';
 import { useVoiceCoordinator } from '@/app/contexts/VoiceCoordinatorContext';
 import { generateAdvancedAnalysis, generateVoiceNarration, TradePosition } from '@/app/utils/advancedTradeAnalysis';
+import { backtestDataService } from '@/app/services/BacktestDataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+
+// Símbolo real usado pra buscar candle/preço — a posição é sempre narrada
+// como "BTC" na UI, mas o fetch de dado real usa o ticker do catálogo.
+const REAL_CATALOG_SYMBOL = 'BTCUSDT';
 
 interface AITraderVoiceProps {
   embedded?: boolean; // Se true, remove padding e background (para uso dentro do AI Trader)
@@ -46,38 +51,44 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
     timeframe
   };
 
-  // Simulação de variação de preço realista
+  const [priceError, setPriceError] = useState<string | null>(null);
+
+  // Preço real (fechamento do candle 1m mais recente da Binance) — substitui
+  // a simulação de random walk que existia aqui antes (auditoria 2026-07-29).
   useEffect(() => {
     if (!isActive) return;
 
-    // ✅ VARIAÇÃO DE PREÇO REALISTA - BASEADO NO PREÇO ANTERIOR
-    const initialPrice = parseFloat(entryPrice) || 68656.09;
-    setCurrentPrice(initialPrice); // Define preço inicial
-    
-    priceIntervalRef.current = setInterval(() => {
-      setCurrentPrice((prevPrice) => {
-        // Variação pequena baseada no preço ANTERIOR (não no preço de entrada)
-        const volatility = 0.00015; // 0.015% de volatilidade por segundo
-        const drift = (Math.random() - 0.5) * prevPrice * volatility;
-        const newPrice = prevPrice + drift;
-        
-        console.log('[AI TRADER VOICE] 📊 Preço atualizado:', {
-          anterior: prevPrice.toFixed(2),
-          novo: newPrice.toFixed(2),
-          variacao: drift.toFixed(2)
-        });
-        
-        return newPrice;
-      });
-    }, 1000); // ✅ A CADA 1 SEGUNDO
+    let cancelled = false;
+
+    const fetchRealPrice = async () => {
+      try {
+        const end = Date.now();
+        const start = end - 5 * 60 * 1000; // últimos 5 minutos, timeframe 1m
+        const res = await backtestDataService.fetchHistoricalData(REAL_CATALOG_SYMBOL, new Date(start), new Date(end), '1m');
+        if (cancelled) return;
+        const candles = res.candles;
+        if (candles.length === 0) {
+          setPriceError('Preço real indisponível no momento.');
+          return;
+        }
+        setCurrentPrice(candles[candles.length - 1].close);
+        setPriceError(null);
+      } catch (e: any) {
+        if (!cancelled) setPriceError(e?.message || 'Falha ao buscar preço real.');
+      }
+    };
+
+    fetchRealPrice();
+    priceIntervalRef.current = setInterval(fetchRealPrice, 5000);
 
     return () => {
+      cancelled = true;
       if (priceIntervalRef.current) {
         clearInterval(priceIntervalRef.current);
         priceIntervalRef.current = null;
       }
     };
-  }, [isActive, entryPrice]); // ✅ ADICIONADO entryPrice nas dependências
+  }, [isActive]);
 
   // 🎙️ Se a IA Preditiva reivindicar a voz enquanto esta tela está narrando,
   // desliga esta tela imediatamente (mutex — nunca as duas vozes juntas).
@@ -146,23 +157,31 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
         }
 
         console.log('[AI Trader Voice] Iniciando ciclo de análise', cycleCountRef.current + 1);
-        
-        // ✅ Gerar análise com preço atual e dados do formulário
-        const analysis = generateAdvancedAnalysis({ 
+
+        const analysisPosition: TradePosition = {
           type: operationType,
           entryPrice: parseFloat(entryPrice) || 68656.09,
           currentPrice,
           symbol: 'BTC',
           timeframe
-        });
-        const newMessages = generateVoiceNarration({ 
-          type: operationType,
-          entryPrice: parseFloat(entryPrice) || 68656.09,
-          currentPrice,
-          symbol: 'BTC',
-          timeframe
-        }, analysis);
-        
+        };
+
+        // ✅ Candle real (mesma janela usada pelo motor de indicadores) —
+        // indicadores (RSI/MACD/ATR/Bollinger) são calculados de verdade a
+        // partir daqui, nunca sorteados.
+        const end = Date.now();
+        const lookbackBars = 200; // amostra suficiente pra RSI/MACD/ATR estabilizarem
+        const barMs: Record<typeof timeframe, number> = {
+          '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000,
+          '1h': 3_600_000, '4h': 4 * 3_600_000, '1d': 86_400_000
+        };
+        const start = end - lookbackBars * barMs[timeframe];
+        const candleRes = await backtestDataService.fetchHistoricalData(REAL_CATALOG_SYMBOL, new Date(start), new Date(end), timeframe);
+
+        const newMessages = candleRes.candles.length < 30
+          ? ['Candle real insuficiente pra calcular os indicadores agora — aguardando mais dado.']
+          : generateVoiceNarration(analysisPosition, generateAdvancedAnalysis(analysisPosition, candleRes.candles));
+
         setMessages(newMessages);
         setMessageIndex(0);
         cycleCountRef.current++;
@@ -489,9 +508,13 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
         <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Volume2 className="w-4 h-4 text-indigo-400" />
-            <span className="text-xs text-neutral-500 uppercase">Preço Atual</span>
+            <span className="text-xs text-neutral-500 uppercase">Preço Atual (BTC real)</span>
           </div>
-          <div className="text-xl font-bold text-white">${currentPrice.toFixed(2)}</div>
+          {priceError && isActive ? (
+            <div className="text-sm font-bold text-amber-400">Indisponível</div>
+          ) : (
+            <div className="text-xl font-bold text-white">${currentPrice.toFixed(2)}</div>
+          )}
         </div>
 
         <div className={`bg-neutral-900/50 border rounded-xl p-4 ${
@@ -647,40 +670,27 @@ export const AITraderVoice = ({ embedded = false }: AITraderVoiceProps = {}) => 
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto text-left">
             <div className="bg-neutral-800/50 rounded-lg p-4">
-              <h4 className="text-sm font-bold text-cyan-400 mb-2">📊 Análise Técnica</h4>
+              <h4 className="text-sm font-bold text-cyan-400 mb-2">📊 Análise Técnica Real</h4>
               <ul className="text-xs text-neutral-400 space-y-1">
-                <li>• RSI, MACD, Bollinger Bands</li>
-                <li>• Fibonacci e Suporte/Resistência</li>
-                <li>• Rompimentos e Padrões</li>
-              </ul>
-            </div>
-
-            <div className="bg-neutral-800/50 rounded-lg p-4">
-              <h4 className="text-sm font-bold text-purple-400 mb-2">🌊 Fluxo de Ordens</h4>
-              <ul className="text-xs text-neutral-400 space-y-1">
-                <li>• Pressão de compra/venda</li>
-                <li>• Distribuição institucional</li>
-                <li>• Atividade de baleias</li>
+                <li>• RSI, MACD e Bollinger calculados sobre candle real (BTC)</li>
+                <li>• Suporte/resistência por ATR real</li>
               </ul>
             </div>
 
             <div className="bg-neutral-800/50 rounded-lg p-4">
               <h4 className="text-sm font-bold text-amber-400 mb-2">⚡ Volatilidade & Risco</h4>
               <ul className="text-xs text-neutral-400 space-y-1">
-                <li>• Nível de volatilidade atual</li>
-                <li>• Gerenciamento de risco</li>
-                <li>• Stops e alvos sugeridos</li>
+                <li>• Volatilidade real (ATR / preço)</li>
+                <li>• Stop e alvos calculados por múltiplo de ATR</li>
               </ul>
             </div>
+          </div>
 
-            <div className="bg-neutral-800/50 rounded-lg p-4">
-              <h4 className="text-sm font-bold text-emerald-400 mb-2">🎯 Sugestões Operacionais</h4>
-              <ul className="text-xs text-neutral-400 space-y-1">
-                <li>• Aumentar/reduzir posição</li>
-                <li>• Hedge estratégico</li>
-                <li>• Detecção de manipulação</li>
-              </ul>
-            </div>
+          <div className="max-w-3xl mx-auto mt-4 text-left bg-neutral-800/30 border border-neutral-700/50 rounded-lg p-4">
+            <p className="text-xs text-neutral-500 leading-relaxed">
+              <strong className="text-neutral-400">Sem fluxo institucional, sentimento ou detecção de manipulação</strong> — esses
+              indicadores exigiriam order book/dado que não temos fonte real hoje, então não aparecem aqui em vez de serem estimados.
+            </p>
           </div>
 
           <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg max-w-2xl mx-auto">
