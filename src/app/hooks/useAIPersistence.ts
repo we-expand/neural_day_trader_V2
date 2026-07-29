@@ -13,6 +13,9 @@ interface UseAIPersistenceOptions {
   enabled: boolean; // Se persistência está ativada
   autoSnapshot: boolean; // Se deve fazer snapshot automático
   snapshotInterval?: number; // Intervalo de snapshot em ms (padrão: 60000 = 1 min)
+  // Chamado quando uma escrita de persistência falha silenciosamente (rede caiu,
+  // RLS rejeitou o insert etc.) — sem isso, o erro só aparecia no console.
+  onPersistenceError?: (context: 'session' | 'trade_open' | 'trade_close' | 'snapshot', error: unknown) => void;
 }
 
 interface TradeData {
@@ -42,6 +45,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   const sessionIdRef = useRef<string | null>(null);
   const snapshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const tradeDbIdsRef = useRef<Map<string, string>>(new Map()); // Mapeia trade.id local → trade.id DB
+  const isStartingSessionRef = useRef(false); // Trava clique duplo/chamada concorrente de startSession
 
   const LOG_PREFIX = '[AI Persistence Hook]';
 
@@ -65,6 +69,13 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       return null;
     }
 
+    // Evita criar duas sessões se startSession for chamado duas vezes antes da
+    // primeira resolver (ex: clique duplo no botão de start).
+    if (sessionIdRef.current || isStartingSessionRef.current) {
+      return sessionIdRef.current;
+    }
+    isStartingSessionRef.current = true;
+
     try {
       console.log(`${LOG_PREFIX} 🚀 Iniciando sessão...`);
 
@@ -82,21 +93,25 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       if (session?.id) {
         sessionIdRef.current = session.id;
         console.log(`${LOG_PREFIX} ✅ Sessão criada:`, session.id);
-        
+
         // Iniciar snapshot automático se habilitado
         if (options.autoSnapshot) {
           startSnapshotInterval();
         }
-        
+
         return session.id;
       }
 
+      options.onPersistenceError?.('session', new Error('createSession retornou vazio'));
       return null;
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao iniciar sessão:`, error);
+      options.onPersistenceError?.('session', error);
       return null;
+    } finally {
+      isStartingSessionRef.current = false;
     }
-  }, [user, options.enabled, options.autoSnapshot]);
+  }, [user, options.enabled, options.autoSnapshot, options.onPersistenceError]);
 
   /**
    * Finalizar sessão atual
@@ -190,16 +205,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       };
 
       const tradeId = await aiPersistence.saveTrade(tradeData);
-      
+
       if (tradeId) {
         // Mapear ID local → ID do banco
         tradeDbIdsRef.current.set(trade.id, tradeId);
         console.log(`${LOG_PREFIX} ✅ Trade salvo:`, tradeId);
+      } else {
+        options.onPersistenceError?.('trade_open', new Error(`saveTrade retornou vazio para ${trade.id}`));
       }
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao salvar trade:`, error);
+      options.onPersistenceError?.('trade_open', error);
     }
-  }, [user, options.enabled]);
+  }, [user, options.enabled, options.onPersistenceError]);
 
   /**
    * Atualizar trade quando fechar posição
@@ -221,7 +239,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       const exitTime = new Date().toISOString();
       const entryTime = new Date(); // Precisaríamos buscar do banco, mas vamos simplificar
 
-      await aiPersistence.updateTrade(dbTradeId, {
+      const ok = await aiPersistence.updateTrade(dbTradeId, {
         exit_price: exitPrice,
         exit_time: exitTime,
         pnl: pnl,
@@ -235,11 +253,16 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       // Remover do mapeamento
       tradeDbIdsRef.current.delete(tradeId);
 
-      console.log(`${LOG_PREFIX} ✅ Trade fechado:`, dbTradeId);
+      if (ok) {
+        console.log(`${LOG_PREFIX} ✅ Trade fechado:`, dbTradeId);
+      } else {
+        options.onPersistenceError?.('trade_close', new Error(`updateTrade retornou falso para ${dbTradeId}`));
+      }
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao fechar trade:`, error);
+      options.onPersistenceError?.('trade_close', error);
     }
-  }, [options.enabled]);
+  }, [options.enabled, options.onPersistenceError]);
 
   // ==========================================================================
   // PORTFOLIO SNAPSHOTS
@@ -264,11 +287,15 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         timestamp: new Date().toISOString(),
       };
 
-      await aiPersistence.saveSnapshot(snapshot);
+      const ok = await aiPersistence.saveSnapshot(snapshot);
+      if (!ok) {
+        options.onPersistenceError?.('snapshot', new Error('saveSnapshot retornou falso'));
+      }
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao salvar snapshot:`, error);
+      options.onPersistenceError?.('snapshot', error);
     }
-  }, [user, options.enabled]);
+  }, [user, options.enabled, options.onPersistenceError]);
 
   /**
    * Iniciar intervalo de snapshot automático

@@ -1,4 +1,14 @@
 -- ============================================================================
+-- ⚠️ DEPRECATED — NÃO APLICAR. Ver supabase/migrations/004_ai_trading_persistence.sql
+--
+-- Este arquivo é uma versão antiga, superada pela migration canônica em
+-- supabase/migrations/ (aplicada via Supabase CLI). Diferenças conhecidas:
+-- falta a policy de RLS de DELETE, faltam campos/índices presentes na 004.
+-- Guias antigos (*.md na raiz do repo) ainda referenciam este arquivo — se
+-- estiver configurando um ambiente novo, ignore-os e use supabase/migrations/.
+-- Mantido só por histórico; não remover sem confirmar contra o schema remoto.
+-- ============================================================================
+--
 -- NEURAL DAY TRADER - AI TRADING PERSISTENCE
 -- Migration: 001_ai_trading_persistence
 -- Description: Sistema completo de persistência para AI Trader

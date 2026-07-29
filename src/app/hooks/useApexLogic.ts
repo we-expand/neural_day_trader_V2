@@ -496,7 +496,26 @@ export function useApexLogic(
 
   // === FASE 2: PERSISTÊNCIA DEMO NO SUPABASE ===
   const { user } = useAuth();
-  const persistence = useAIPersistence({ enabled: executionMode === 'DEMO', autoSnapshot: false });
+  // Falha de persistência é silenciosa por natureza (fire-and-forget, não trava o
+  // loop de trading) — sem isso, um insert rejeitado (rede caiu, RLS etc.) some
+  // sem o usuário nunca saber que a sessão/trade não foi salvo. Avisa 1x por
+  // sessão (evita flood do loop de 1s) e reseta ao iniciar uma sessão nova.
+  const persistenceErrorNotifiedRef = useRef(false);
+  const handlePersistenceError = useCallback((context: string, error: unknown) => {
+    console.error(`[FASE 2] ❌ Falha de persistência (${context}):`, error);
+    if (!persistenceErrorNotifiedRef.current) {
+      persistenceErrorNotifiedRef.current = true;
+      toast.warning('Falha ao salvar dados da sessão DEMO no servidor', {
+        description: 'A negociação continua normalmente, mas o histórico desta sessão pode ficar incompleto.',
+        duration: 8000,
+      });
+    }
+  }, []);
+  const persistence = useAIPersistence({
+    enabled: executionMode === 'DEMO',
+    autoSnapshot: false,
+    onPersistenceError: handlePersistenceError,
+  });
   // Ref sempre atualizado p/ ser lido dentro de intervals/callbacks sem precisar
   // adicionar `persistence` (objeto novo a cada render) nas dependências dos efeitos.
   const persistenceRef = useRef(persistence);
@@ -1928,6 +1947,7 @@ export function useApexLogic(
 
     // Fase 2: garante uma sessão DEMO no Supabase (reaproveita a restaurada no mount, se houver)
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      persistenceErrorNotifiedRef.current = false;
       persistenceRef.current.startSession({
         strategyName: 'Apex AI',
         symbols: configRef.current.activeAssets || [],
