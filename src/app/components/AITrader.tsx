@@ -25,6 +25,7 @@ import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
 import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
+import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/TradeConfirmationPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
@@ -74,7 +75,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation } = useTradingContext();
   const { strategies } = useStrategies();
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
@@ -576,6 +577,20 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
             alerts={liveAlerts}
             enabled={liveAlertStageEnabled}
             onToggle={setLiveAlertStageEnabled}
+          />
+        </div>
+      )}
+
+      {/* Fase 6, estágio 2 (LIVE + confirmação manual por trade) — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {!compact && executionMode === 'LIVE' && (
+        <div className="mb-4">
+          <TradeConfirmationPanel
+            pending={pendingTradeConfirmations}
+            history={tradeConfirmationHistory}
+            enabled={tradeConfirmationStageEnabled}
+            onToggle={setTradeConfirmationStageEnabled}
+            onApprove={approveTradeConfirmation}
+            onReject={rejectTradeConfirmation}
           />
         </div>
       )}

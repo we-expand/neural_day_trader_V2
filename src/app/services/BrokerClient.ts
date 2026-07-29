@@ -35,6 +35,8 @@ export interface TradeResult {
   message?: string;
   price?: number;
   volume?: number;
+  /** true quando a falha veio do gate de risco server-side (/broker/execute), não de erro de rede/MetaAPI. */
+  riskBlocked?: boolean;
 }
 
 export interface OrderParams {
@@ -64,8 +66,29 @@ async function invokeBroker(path: string, options: { method?: BrokerHttpMethod; 
     body: options.body,
   });
 
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
+  if (error) {
+    // FunctionsHttpError.message é sempre o texto genérico "Edge Function
+    // returned a non-2xx status code" — o corpo JSON real (que traz
+    // {error, riskBlocked} do gate de risco em /broker/execute) fica em
+    // error.context (um Response), não em error.message. Sem isso, o
+    // motivo específico do bloqueio de risco nunca chega ao usuário.
+    const context = (error as any)?.context;
+    let body: any = null;
+    if (context && typeof context.json === 'function') {
+      try {
+        body = await context.json();
+      } catch {
+        body = null;
+      }
+    }
+    if (body) {
+      throw Object.assign(new Error(body.error || error.message), {
+        riskBlocked: body.riskBlocked === true,
+      });
+    }
+    throw error;
+  }
+  if (data?.error) throw Object.assign(new Error(data.error), { riskBlocked: data?.riskBlocked === true });
   return data;
 }
 
@@ -125,7 +148,7 @@ export async function createMarketBuyOrder(params: OrderParams): Promise<TradeRe
   try {
     return await invokeBroker('execute', { body: { action: 'createMarketBuyOrder', ...params } });
   } catch (error: any) {
-    return { success: false, error: error.message || 'Erro desconhecido ao executar compra' };
+    return { success: false, error: error.message || 'Erro desconhecido ao executar compra', riskBlocked: error?.riskBlocked === true };
   }
 }
 
@@ -133,7 +156,7 @@ export async function createMarketSellOrder(params: OrderParams): Promise<TradeR
   try {
     return await invokeBroker('execute', { body: { action: 'createMarketSellOrder', ...params } });
   } catch (error: any) {
-    return { success: false, error: error.message || 'Erro desconhecido ao executar venda' };
+    return { success: false, error: error.message || 'Erro desconhecido ao executar venda', riskBlocked: error?.riskBlocked === true };
   }
 }
 

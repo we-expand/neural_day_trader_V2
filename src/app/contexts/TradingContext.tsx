@@ -5,6 +5,11 @@ import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { useMarketContext } from './MarketContext';
 import { useLiveAlertStage, LiveAlertEvent } from '../modules/liveAlertStage/useLiveAlertStage';
+import {
+  useTradeConfirmationStage,
+  PendingTradeConfirmation,
+  ResolvedTradeConfirmation,
+} from '../modules/tradeConfirmationStage/useTradeConfirmationStage';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -83,6 +88,14 @@ interface TradingContextType {
   liveAlertStageEnabled: boolean;
   setLiveAlertStageEnabled: (next: boolean) => void;
   liveAlerts: LiveAlertEvent[];
+
+  // Fase 6, estágio 2 — LIVE + confirmação manual por trade (AI_BRAIN_SPEC.md seção 9.1)
+  tradeConfirmationStageEnabled: boolean;
+  setTradeConfirmationStageEnabled: (next: boolean) => void;
+  pendingTradeConfirmations: PendingTradeConfirmation[];
+  tradeConfirmationHistory: ResolvedTradeConfirmation[];
+  approveTradeConfirmation: (id: string) => void;
+  rejectTradeConfirmation: (id: string) => void;
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
@@ -130,7 +143,18 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // precisa de `logic.executionMode`, que só existe DEPOIS de useApexLogic ser
   // chamado. O ref resolve a dependência circular sem acoplar os dois hooks.
   const liveDecisionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  const confirmationStageHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  // Quando o Estágio 2 está ligado e em LIVE, ele assume a notificação
+  // daquela decisão (evita toast duplicado/confuso do Estágio 1 e do 2 para
+  // o mesmo evento) — decisão travada no plano do Estágio 2, seção "A".
+  // Refs porque `logic`/os estados de enabled só existem depois desses hooks.
+  const tradeConfirmationStageEnabledRef = useRef(false);
+  const executionModeRef = useRef<'DEMO' | 'LIVE'>('DEMO');
   const forwardLiveDecision = useCallback((decision: TradeVisual) => {
+    if (tradeConfirmationStageEnabledRef.current && executionModeRef.current === 'LIVE') {
+      confirmationStageHandlerRef.current(decision);
+      return;
+    }
     liveDecisionHandlerRef.current(decision);
   }, []);
 
@@ -147,12 +171,27 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  // Estágio 2, mesmo padrão do Estágio 1 — chave de localStorage própria.
+  const [tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_trade_confirmation_stage_enabled') === 'true';
+  });
+  const setTradeConfirmationStageEnabledPersistent = useCallback((next: boolean) => {
+    setTradeConfirmationStageEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_trade_confirmation_stage_enabled', String(next));
+    }
+  }, []);
+  tradeConfirmationStageEnabledRef.current = tradeConfirmationStageEnabled;
+
   // Initialize the hook once here, so it persists across page navigations
   // ✅ SEMPRE chamar hooks na mesma ordem (Rules of Hooks)
   const logic = useApexLogic({
     prices: marketContext?.marketState?.prices || {}, // ✅ Fallback seguro
     mt5Offset: 0
   }, strategies, forwardLiveDecision);
+
+  executionModeRef.current = logic.executionMode;
 
   const liveAlertStage = useLiveAlertStage({
     executionMode: logic.executionMode,
@@ -161,6 +200,15 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     liveDecisionHandlerRef.current = liveAlertStage.onLiveDecision;
   }, [liveAlertStage.onLiveDecision]);
+
+  const tradeConfirmationStage = useTradeConfirmationStage({
+    executionMode: logic.executionMode,
+    enabled: tradeConfirmationStageEnabled,
+    isSafeMode: logic.isSafeMode,
+  });
+  useEffect(() => {
+    confirmationStageHandlerRef.current = tradeConfirmationStage.onLiveDecision;
+  }, [tradeConfirmationStage.onLiveDecision]);
   
   // Legacy functions mapped to new logic - memoized to prevent infinite loops
   const toggleAI = useCallback(() => {
@@ -287,6 +335,12 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     liveAlertStageEnabled,
     setLiveAlertStageEnabled: setLiveAlertStageEnabledPersistent,
     liveAlerts: liveAlertStage.alerts,
+    tradeConfirmationStageEnabled,
+    setTradeConfirmationStageEnabled: setTradeConfirmationStageEnabledPersistent,
+    pendingTradeConfirmations: tradeConfirmationStage.pending,
+    tradeConfirmationHistory: tradeConfirmationStage.history,
+    approveTradeConfirmation: tradeConfirmationStage.approve,
+    rejectTradeConfirmation: tradeConfirmationStage.reject,
   }), [
     logic.isActive,
     logic.isPaused,
@@ -341,6 +395,12 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     liveAlertStageEnabled,
     setLiveAlertStageEnabledPersistent,
     liveAlertStage.alerts,
+    tradeConfirmationStageEnabled,
+    setTradeConfirmationStageEnabledPersistent,
+    tradeConfirmationStage.pending,
+    tradeConfirmationStage.history,
+    tradeConfirmationStage.approve,
+    tradeConfirmationStage.reject,
   ]);
 
   return (
