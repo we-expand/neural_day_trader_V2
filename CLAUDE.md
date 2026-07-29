@@ -31,9 +31,21 @@ SQL Editor.
 
 ## Arquitetura — estado real (não confiar sem checar o código se for crítico)
 
-- **Segurança (Fase 1)**: fechada. RLS habilitado em todas as tabelas, token
-  MetaAPI nunca fica no client (criptografado em `broker_credentials`, só a
-  Edge Function acessa), auth mock removido.
+- **Segurança (Fase 1)**: RLS habilitado em todas as tabelas, token MetaAPI
+  nunca fica no client (criptografado em `broker_credentials`, só a Edge
+  Function acessa). **Atualização (2026-07-29)**: "auth mock removido" acima
+  estava desatualizado — `mockLogin` (`AuthContext.tsx`) ainda existia e era
+  chamado em produção *depois* de todo login real (`App.tsx`), sobrescrevendo
+  o `user.id` UUID real do Supabase por um valor fixo `'mock-user-123'` e
+  persistindo isso em `sessionStorage`. Como `user_id` nas tabelas
+  `ai_sessions`/`ai_trades`/`ai_portfolio_snapshots` é `uuid NOT NULL` com RLS
+  `auth.uid() = user_id`, o efeito não era vazamento entre contas — era
+  **falha de persistência para todo usuário logado** (erro de cast na
+  inserção). Corrigido removendo a chamada a `mockLogin` do callback
+  `onAuthenticated` em `App.tsx` (a sessão real já é setada pelo listener
+  `onAuthStateChange` do próprio `AuthContext`). `mockLogin` continua existindo
+  no `AuthContext` só disponível para um eventual modo demo explícito sem
+  sessão real, não é mais acionado no fluxo de login de produção.
 - **Persistência (Fase 2)**: sessões/trades/portfolio da IA em modo DEMO
   persistem no Supabase (`ai_sessions`/`ai_trades`/`ai_portfolio_snapshots`).
 - **Execução real (Fase 3)**: `/broker/execute` existe e funciona (testado
