@@ -1,12 +1,66 @@
-# Handoff — próxima sessão (escrito em 2026-07-30, 01h00)
+# Handoff — próxima sessão (escrito em 2026-07-30, 16h30)
 
 > **Fase 0 (remover dado fabricado)**: ✅ 100% completa.
 > **Fase 1 (módulo de risco)**: ✅ 100% completa — 7 de 7 tópicos, incluindo
 > uma correção real de segurança no Tópico 7 feita na mesma sessão em que
 > foi implementado.
-> `npm run validate`: 28/28 ✅. Dois commits feitos e pushados
-> (`fde6eebd7`, `53e7626f8`). Deploy confirmado READY na Vercel (preview
-> protegido, branch `dev` — ver seção de arquitetura de deploy abaixo).
+> **Fase 2 (persistência)**: ✅ 100% completa — auditada e hardened.
+> **Fase 3 (ponte decisão→execução)**: ✅ **Estágios 1 e 2 completos** (2026-07-30, 16h30).
+> `npm run validate`: 28/28 ✅. Commits pendentes de push.
+
+---
+
+## Fase 3 — Estágios 1 e 2 da ponte decisão→execução (implementados 2026-07-30)
+
+### Resumo executivo
+
+Implementada a ponte decisão→execução real (Fase 3/6 do produto) — Estágios 1 e 2
+conforme desenho de `research/AI_BRAIN_SPEC.md` seção 9.1. **Estágio 3 (execução
+automática) intencionalmente fora de escopo** por decisão do usuário (sem edge
+de sinal comprovado). Dois painéis novos na tela do AI Trader, aparecem só em
+modo LIVE, sem regressão do código existente (Estágio 1 intocado, motor intacto).
+
+### Arquivos novos
+
+1. **`src/app/modules/tradeConfirmationStage/lotSizeConversion.ts`** — conversão pura `amount($) → volume(lotes)` usando `assetDatabase.ts`.
+2. **`src/app/modules/tradeConfirmationStage/useTradeConfirmationStage.ts`** — hook do Estágio 2, fila de confirmação com timeout 45s, gate de Safe Mode/modo LIVE.
+3. **`src/app/modules/tradeConfirmationStage/TradeConfirmationPanel.tsx`** — UI do Estágio 2, painel com fila pendente + histórico.
+
+### Arquivos modificados
+
+1. **`src/app/services/BrokerClient.ts`** — correção de bug pré-existente: cliente Supabase descartava o corpo JSON de erro em HTTP não-2xx (incluindo `riskBlocked`, motivo real). Corrigido para extrair `error.context` e preservar a sinalização de bloqueio de risco. Também beneficia `LiveTradingTest.tsx`.
+2. **`src/app/contexts/TradingContext.tsx`** — novo handler ref para Estágio 2, state persistido (`localStorage`), `forwardLiveDecision` decide qual estágio processa (Estágio 2 assume a notificação quando habilitado em LIVE, evita toast duplicado com Estágio 1), expõe no contexto.
+3. **`src/app/components/AITrader.tsx`** — import + render do novo painel, prox ao painel do Estágio 1, mesmo guard `!compact && executionMode === 'LIVE'`.
+
+### Verificação
+
+- ✅ `npm run validate`: 28/28 (motor intacto, zero regressão).
+- ✅ `tsc --noEmit`: limpo nos arquivos tocados (erros pré-existentes em código morto não alterados).
+- ✅ Dev server: builda e carrega sem novo erro de console.
+- ✅ Navegação: app funciona, UI responsiva.
+- ⚠️ Teste em browser LIVE: requer conta MT5 conectada + sinal de trade real ou force-entry (fora de escopo desta sessão, você controla quando).
+
+### Decisões de design travadas (do plano da Fase 3)
+
+- **Encadeamento**: dois handlers via refs, mutuamente exclusivos por UX (Estágio 2 ativo em LIVE suprime toast do Estágio 1 pra evitar duplicidade).
+- **Fila**: 45s timeout, expiração = rejeição implícita (nunca executa), cap 20 itens, cleanup em Safe Mode/mudança de modo.
+- **Conversão $→lotes**: arredonda pra baixo (nunca aumenta risco), bloqueia abaixo do mínimo, clampa no máximo com aviso.
+- **Isolamento**: módulo novo não reaproveita/duplica lógica do motor, só lê via callback.
+- **Stágio 3 fora de escopo**: nenhuma auto-aprovação, nenhuma flag pra pular confirmação, nenhuma mudança na Edge Function.
+
+### Comandos prontos para commit/push (não executados, deixado pra você)
+
+```bash
+git add src/app/services/BrokerClient.ts src/app/contexts/TradingContext.tsx src/app/components/AITrader.tsx src/app/modules/tradeConfirmationStage/ NEXT_SESSION.md
+git commit -m "feat(fase-3): Estágio 2 da ponte decisão→execução — confirmação manual por trade (LIVE)"
+git push origin dev
+```
+
+### Próximos passos (seu call)
+
+1. **Teste LIVE**: ative modo LIVE (conecte MT5, clique no badge DEMO), deixe o motor gerar um sinal (ou force-entry), aprove/rejeite via painel novo.
+2. **Estágio 3** (se necessário): desenho já existe em `AI_BRAIN_SPEC.md` seção 9.1 — execução automática com hard-stop. Pendência: você decidir se vale avançar sem edge de sinal comprovado.
+3. **Limpeza de código morto**: pipelines de preço obsoletas (`DataSourceRouter`, `UnifiedMarketDataService` etc) ainda no repo, não usadas pelo caminho crítico — cleanup opcional.
 
 ---
 
