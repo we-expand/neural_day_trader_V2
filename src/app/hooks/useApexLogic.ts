@@ -61,7 +61,6 @@ const toast = {
   }
 };
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
-import { getLiquiditySignal } from '../logic/liquiditySignals'; // Shared Liquidity Logic
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 

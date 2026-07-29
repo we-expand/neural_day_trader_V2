@@ -50,22 +50,8 @@ export function UserIntelligence() {
           });
           
           if (!response.ok) {
-              // Mock fallback for development if server is unreachable
-              const mockUsers = Array.from({ length: 10 }).map((_, i) => ({
-                  id: `user-00${i}-${Math.random().toString(36).substring(7)}`,
-                  name: ['Alex Sterling', 'Sarah Connor', 'John Doe', 'Neo Anderson', 'Trinity Matrix'][i % 5] + ` ${i}`,
-                  email: `user${i}@neural.net`,
-                  wallet: `0x${Math.random().toString(16).substring(2, 14)}...`,
-                  networkNode: Math.floor(Math.random() * 9000000),
-                  status: i % 3 === 0 ? 'inactive' : 'active',
-                  lastActive: new Date().toLocaleDateString('pt-BR'),
-                  avatar: `https://i.pravatar.cc/150?u=${i}`,
-                  riskScore: Math.floor(Math.random() * 100),
-                  netWorth: Math.floor(Math.random() * 500000),
-                  location: ['São Paulo, BR', 'New York, US', 'London, UK', 'Tokyo, JP'][i % 4],
-                  kycLevel: Math.floor(Math.random() * 3) + 1
-              }));
-              setUsers(mockUsers);
+              console.warn('Falha ao carregar usuários do servidor — modo offline não disponível (requer dados reais)');
+              setUsers([]);
               return;
           }
           
@@ -82,10 +68,10 @@ export function UserIntelligence() {
                   status: u.last_sign_in_at ? 'active' : 'inactive',
                   lastActive: u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString('pt-BR') : 'Nunca',
                   avatar: u.user_metadata?.avatar_url || `https://i.pravatar.cc/150?u=${u.id}`,
-                  riskScore: Math.floor(Math.random() * 100),
-                  netWorth: Math.floor(Math.random() * 100000), // Simulated internal data
+                  riskScore: null, // Sem análise de risco fabricada
+                  netWorth: null, // Sem estimativa de patrimônio fabricada
                   location: 'Unknown Node',
-                  kycLevel: 1
+                  kycLevel: null // Sem nível KYC fabricado
               }));
               setUsers(formatted);
           }

@@ -57,28 +57,13 @@ const MS_PER_BAR: Record<Timeframe, number> = {
   '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
 };
 
-// 🔥 GERAR CORRELAÇÕES DINÂMICAS BASEADAS NO ATIVO SELECIONADO
+// ⚠️ CORRELAÇÕES DESATIVADAS (2026-07-29 auditoria Fase 0)
+// A geração de correlações com Math.random() foi removida — não há fonte real
+// de correlação inter-ativo agregada (seria preciso histórico de preço dos
+// ~300 ativos e cálculo contínuo). Tela agora exibe aviso de indisponibilidade.
 const generateCorrelations = (assetSymbol: string) => {
-  const currentAsset = ASSETS.find(a => a.symbol === assetSymbol);
-  if (!currentAsset) return [];
-
-  // Buscar ativos da mesma categoria
-  const relatedAssets = ASSETS
-    .filter(a => a.category === currentAsset.category && a.symbol !== assetSymbol)
-    .slice(0, 6); // Limitar a 6 para não ficar enorme
-
-  return relatedAssets.map(asset => ({
-    asset: asset.symbol,
-    value: parseFloat((Math.random() * 2 - 1).toFixed(2)), // -1 a +1
-    color: Math.random() > 0.5 ? '#10b981' : '#f87171'
-  }));
+  return []; // Sem dados fabricados
 };
-// ⚠️ NOTA DE ESCOPO (2026-07-28): a Matriz de Correlação acima e o painel
-// "Força Relativa" mais abaixo neste arquivo também usam `Math.random()` e
-// NÃO foram tocados nesta tarefa — a tarefa 4 pedida cobriu explicitamente
-// Timeframe, seletor de ativos, painel de previsão, mapa de liquidez e feed
-// neural, mas não esses dois painéis. Ficam como código fabricado conhecido,
-// fora do escopo desta mudança — reportado explicitamente, não escondido.
 
 const aiLogs: { id: number; time: string; type: 'info' | 'warning' | 'success'; msg: string }[] = [];
 
@@ -805,32 +790,34 @@ export const LiquidityPrediction = () => {
                 </div>
              </div>
              
-             {/* 🔥 FORÇA RELATIVA (NOVO PAINEL) */}
+             {/* ⚠️ FORÇA RELATIVA DESATIVADA (2026-07-29 auditoria Fase 0) */}
              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
                 <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" /> Força Relativa (7D)
+                  <TrendingUp className="w-4 h-4" /> Força Relativa (7D) — Indisponível
                 </h3>
-                
-                <div className="max-h-[300px] overflow-y-auto pr-2 space-y-3">
+
+                <div className="bg-yellow-900/20 border border-yellow-500/30 rounded p-3 text-center text-xs text-yellow-100">
+                  <p>Painel desativado por auditoria de qualidade de dados.</p>
+                  <p className="text-yellow-200 mt-1">Requer cálculo real de correlação de histórico de preço.</p>
+                </div>
+                <div className="max-h-[300px] overflow-y-auto pr-2 space-y-3"
+                     style={{ display: 'none' }}>
                   {currentAsset && ASSETS
                     .filter(a => a.category === currentAsset.category && a.symbol !== selectedAsset)
                     .slice(0, 6)
                     .map((asset, idx) => {
-                      const strength = (Math.random() * 200 - 100).toFixed(1);
-                      const isPositive = parseFloat(strength) > 0;
-                      
                       return (
                         <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-neutral-800/30 transition-all">
                           <div className="flex items-center gap-2">
                             <span className="text-sm">{asset.icon || '💹'}</span>
                             <span className="font-mono text-xs text-white">{asset.symbol}</span>
                           </div>
-                          
+
                           <div className="flex items-center gap-2">
                             <div className="w-16 h-1 bg-neutral-700 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full ${isPositive ? 'bg-emerald-500' : 'bg-red-500'}`}
-                                style={{ width: `${Math.abs(parseFloat(strength))}%` }}
+                              <div
+                                className={`h-full bg-neutral-500`}
+                                style={{ width: `50%` }}
                               />
                             </div>
                             <span className={`font-mono text-xs font-bold w-12 text-right ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>

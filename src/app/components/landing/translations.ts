@@ -61,32 +61,6 @@ export const translations = {
         }
       ]
     },
-    login: {
-      gateway: "SECURE GATEWAY",
-      cancel: "Cancel",
-      accessPortal: "Access Portal",
-      identify: "Identify yourself to proceed.",
-      placeholder: "Agent ID / Email",
-      analyzing: "Analyzing...",
-      initialize: "Initialize Sequence",
-      verify: "Verify Identity",
-      mfa: "Multi-factor authentication required.",
-      password: "Password",
-      traditional: "Traditional entry",
-      biometric: "Biometric Scan",
-      recommended: "Recommended",
-      scanning: "Scanning",
-      dontMove: "Do not move your device",
-      granted: "Access Granted",
-      welcome: "Welcome back, Agent.",
-      securityLog: [
-        "Verifying IP origin...",
-        "Analyzing device fingerprint...",
-        "Checking geometric latency...",
-        "Validating encryption keys...",
-        "Connection secured: AES-256"
-      ]
-    },
     footer: {
       rights: "ALL RIGHTS RESERVED."
     }
@@ -158,32 +132,6 @@ export const translations = {
         }
       ]
     },
-    login: {
-      gateway: "GATEWAY SEGURO",
-      cancel: "Cancelar",
-      accessPortal: "Portal de Acesso",
-      identify: "Identifique-se para prosseguir.",
-      placeholder: "ID do Agente / Email",
-      analyzing: "Analisando...",
-      initialize: "Inicializar Sequência",
-      verify: "Verificar Identidade",
-      mfa: "Autenticação multifator necessária.",
-      password: "Senha",
-      traditional: "Entrada tradicional",
-      biometric: "Escaneamento Biométrico",
-      recommended: "Recomendado",
-      scanning: "Escaneando",
-      dontMove: "Não mova seu dispositivo",
-      granted: "Acesso Permitido",
-      welcome: "Bem-vindo de volta, Agente.",
-      securityLog: [
-        "Verificando origem do IP...",
-        "Analisando impressão digital do dispositivo...",
-        "Verificando latência geométrica...",
-        "Validando chaves de criptografia...",
-        "Conexão segura: AES-256"
-      ]
-    },
     footer: {
       rights: "TODOS OS DIREITOS RESERVADOS."
     }
@@ -246,32 +194,6 @@ export const translations = {
           cta: 'Contactar Sindicato',
           features: ['Entorno dedicado', 'Integración personalizada vía API', 'SLA de soporte dedicado', 'Onboarding asistido', 'Espacios de Trabajo ilimitados', 'Opción de despliegue local']
         }
-      ]
-    },
-    login: {
-      gateway: "PUERTA SEGURA",
-      cancel: "Cancelar",
-      accessPortal: "Portal de Acceso",
-      identify: "Identifíquese para continuar.",
-      placeholder: "ID de Agente / Email",
-      analyzing: "Analizando...",
-      initialize: "Inicializar Secuencia",
-      verify: "Verificar Identidad",
-      mfa: "Autenticación multifactor requerida.",
-      password: "Contraseña",
-      traditional: "Entrada tradicional",
-      biometric: "Escaneo Biométrico",
-      recommended: "Recomendado",
-      scanning: "Escaneando",
-      dontMove: "No mueva su dispositivo",
-      granted: "Acceso Permitido",
-      welcome: "Bienvenido de nuevo, Agente.",
-      securityLog: [
-        "Verificando origen de IP...",
-        "Analizando huella digital del dispositivo...",
-        "Comprobando latencia geométrica...",
-        "Validando claves de encriptación...",
-        "Conexión segura: AES-256"
       ]
     },
     footer: {

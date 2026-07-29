@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useMarketContext } from '../../contexts/MarketContext';
-import { RefreshCw, Link, AlertTriangle, CheckCircle2, Server, Globe, Activity } from 'lucide-react';
+import { Link, CheckCircle2, Server, Globe, Activity } from 'lucide-react';
 import { TacticalButton } from '../ui/TacticalButton';
 import { toast } from 'sonner';
+import { getApiUrl } from '/utils/api/config';
+import { publicAnonKey } from '/utils/supabase/info';
 
 export function MT5Validator() {
   const { marketState, setCalibration } = useMarketContext();
@@ -15,20 +17,37 @@ export function MT5Validator() {
   const currentPrice = marketState.prices[activeSymbol] || 0;
   const offset = marketState.calibrationOffset[activeSymbol] || 0;
 
-  // Simulate grabbing the "Exact" broker price (In reality, user inputs this)
-  const handleAutoSync = () => {
+  // Busca o tick real via /mt5-prices (mesma rota MetaAPI usada pelo resto
+  // do app — ver useMT5Prices.ts). Se a rota vier em modo SIMULATED (sem
+  // token configurado) ou falhar, avisamos o usuário em vez de fingir sync.
+  const handleAutoSync = async () => {
     setIsCalibrating(true);
-    
-    // Simulating a ping to the broker server to fetch "Official" tick
-    setTimeout(() => {
-        // Just for demo: assume the "Real" MT5 price is slightly different from our Raw Feed
-        // In real usage, the user would input this or we'd fetch from a specific broker API
-        const simulatedMT5Price = currentPrice + (Math.random() * 0.0005); 
-        
-        setCalibration(activeSymbol, simulatedMT5Price);
-        setIsCalibrating(false);
-        toast.success(`Sincronizado com MetaTrader 5: ${activeSymbol}`);
-    }, 1500);
+    const brokerSymbol = activeSymbol.replace('/', '');
+    try {
+      const response = await fetch(getApiUrl('mt5-prices'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({ symbols: [brokerSymbol] }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const quote = data.prices?.find((p: any) => p.symbol === brokerSymbol);
+
+      if (!quote || quote.price == null || data.source === 'SIMULATED') {
+        toast.error(`Sem conexão real com MT5 para ${activeSymbol} — configure o token MetaAPI em Settings.`);
+        return;
+      }
+
+      setCalibration(activeSymbol, quote.price);
+      toast.success(`Sincronizado com MetaTrader 5: ${activeSymbol} (${quote.price})`);
+    } catch (err: any) {
+      toast.error(`Falha ao consultar MT5: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setIsCalibrating(false);
+    }
   };
 
   const handleManualSync = () => {
