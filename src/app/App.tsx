@@ -177,7 +177,7 @@ function AppContent() {
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   const [language, setLanguage] = useState<Language>('pt');
-  const { user, signOut, mockLogin, loading } = useAuth();
+  const { user, signOut, loading } = useAuth();
   const { fullName } = useUserProfile();
   const { isAssistantOpen, toggleAssistant, closeAssistant } = useAssistant();
   
@@ -323,10 +323,12 @@ function AppContent() {
           ) : (
             <div className="flex h-screen overflow-hidden">
               <AuthOverlay
-                onAuthenticated={(userData) => {
-                  if (userData?.email && typeof mockLogin === 'function') {
-                    mockLogin(userData.email, userData.name);
-                  }
+                onAuthenticated={() => {
+                  // Sessão real já foi setada pelo listener onAuthStateChange
+                  // do AuthContext assim que supabase.auth.signInWithPassword
+                  // teve sucesso (auditoria 2026-07-29: chamar mockLogin aqui
+                  // sobrescrevia o user.id UUID real por 'mock-user-123',
+                  // quebrando a persistência de ai_sessions/ai_trades em prod).
                 }}
               />
             </div>
