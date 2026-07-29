@@ -31,6 +31,10 @@ const SUITES = [
     name: 'Motor SMC (Order Blocks, FVG, Liquidity Pools, BOS/CHoCH)',
     entry: 'src/app/services/smc/__validate__.ts',
   },
+  {
+    name: 'Motor de backtest (trailing stop, empate TP/SL, sizing por stop)',
+    entry: 'src/app/services/strategy/__validate__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));

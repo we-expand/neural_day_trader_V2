@@ -24,6 +24,8 @@ export interface Trade {
   profitPercent: number;
   timestamp: number;
   status: 'win' | 'loss';
+  /** Índice do candle de ENTRADA (não confundir com candleIndex, que é o de saída). Necessário pra filtrar trades cuja entrada caiu dentro da região de warmup — ver research/DataSplit.ts. */
+  entryIndex: number;
   candleIndex: number;
   aiAnalysis: {
     confidence: number;
@@ -97,8 +99,20 @@ export function runBacktest(
     if (openPosition) {
       const candle = candles[i];
 
+      // 2026-07-30: FIX DE BUG (look-ahead leve) — a versão anterior movia o
+      // trailing stop usando o CLOSE da barra `i` e, na mesma iteração,
+      // testava esse stop contra o LOW/HIGH da MESMA barra `i`. Isso usa uma
+      // informação (o fechamento de i) que só existe DEPOIS que a barra i já
+      // aconteceu inteira — inclusive o low/high que está sendo testado
+      // contra ela. Corrigido: o trailing usa o close da barra ANTERIOR
+      // (i-1, já conhecido no início de i), testado contra o low/high da
+      // barra atual — ordem causal correta. Afeta materialmente presets com
+      // stop apertado (3,4,5 — k=1-1,5×ATR); desprezível nos de stop largo
+      // (1,2 — k=4-4,5×ATR), onde `close(i) - low(i) > distância do stop`
+      // é uma condição rara.
       if (strategy.trailingStop) {
-        openPosition.sl = trailStopLoss(openPosition.side, openPosition.entryPrice, openPosition.originalSl, openPosition.sl, candle.close);
+        const prevClose = candles[i - 1].close;
+        openPosition.sl = trailStopLoss(openPosition.side, openPosition.entryPrice, openPosition.originalSl, openPosition.sl, prevClose);
       }
 
       const hitTp = openPosition.tp !== null && (openPosition.side === 'LONG' ? candle.high >= openPosition.tp : candle.low <= openPosition.tp);
@@ -106,7 +120,15 @@ export function runBacktest(
       const ruleExit = evaluateExitAt(strategy, candles, i, cache);
 
       if (hitTp || hitSl || ruleExit) {
-        const exitPrice = hitTp ? openPosition.tp! : hitSl ? openPosition.sl : candle.close;
+        // 2026-07-30: FIX DE BUG (viés otimista) — quando TP e SL são
+        // atingidos na MESMA barra (high >= tp E low <= sl simultaneamente),
+        // a versão anterior sempre escolhia o TP — não há como saber, a
+        // partir de OHLC, qual dos dois o preço tocou primeiro dentro da
+        // barra. Assumir sempre o melhor caso é viés otimista sistemático.
+        // Corrigido: prioriza o SL (pior caso) no empate — conservador por
+        // desenho, consistente com a disciplina de "nunca fabricar dado
+        // favorável" do projeto.
+        const exitPrice = hitSl ? openPosition.sl : hitTp ? openPosition.tp! : candle.close;
         const priceDiff = openPosition.side === 'LONG' ? exitPrice - openPosition.entryPrice : openPosition.entryPrice - exitPrice;
         const grossProfitPercent = (priceDiff / openPosition.entryPrice) * 100;
         // Custo de ida+volta descontado aqui — nunca só na entrada ou só na
@@ -126,6 +148,7 @@ export function runBacktest(
           profitPercent,
           timestamp: candle.time,
           status: isWin ? 'win' : 'loss',
+          entryIndex: openPosition.entryIndex,
           candleIndex: i,
           aiAnalysis: {
             confidence: openPosition.confidence,
@@ -139,7 +162,8 @@ export function runBacktest(
             profit,
             profitPercent,
             status: isWin ? 'win' : 'loss',
-            exitReason: hitTp ? 'Take profit atingido' : hitSl ? 'Stop loss acionado' : 'Regra de saída da estratégia satisfeita',
+            // Mesma prioridade do exitPrice acima (SL primeiro no empate).
+            exitReason: hitSl ? 'Stop loss acionado' : hitTp ? 'Take profit atingido' : 'Regra de saída da estratégia satisfeita',
           },
         });
 
@@ -161,13 +185,20 @@ export function runBacktest(
     // real do ativo/momento quando a estratégia pede stopLossMode/takeProfitMode
     // 'ATR' (ver TradeSizing.resolveTpSl); cai para pontos fixos senão.
     const atrAtEntry = cache.get('ATR', 14)[i];
-    const { tp, sl } = resolveTpSl(strategy, side, entryPrice, pointValue, atrAtEntry);
+    const { tp, sl, slDistance } = resolveTpSl(strategy, side, entryPrice, pointValue, atrAtEntry);
 
+    // 2026-07-30: passa a distância real do stop pro sizing (fix de bug —
+    // ver comentário em TradeSizing.calculatePositionSize) — o nocional
+    // agora é dimensionado pra que perder o stop perca exatamente
+    // `positionSizePercent%` do capital, não um % fixo de capital
+    // independente de quão largo o stop está.
+    const stopDistancePercent = slDistance / entryPrice;
     const tradeCapital = calculatePositionSize({
       currentBalance: equity,
       allocatedCapital: equity,
       riskPerTradePercent: strategy.positionSizePercent,
       riskProfile: strategy.riskProfile,
+      stopDistancePercent,
     });
 
     openPosition = {

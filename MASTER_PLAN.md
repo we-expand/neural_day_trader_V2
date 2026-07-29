@@ -209,14 +209,37 @@ sinal de **venda**, quando a intenção declarada (compra na sobrevenda,
 espera reversão para cima) é o oposto. Não remedido ainda — é a primeira
 correção da Fase 1 (§6).
 
-### 3.3 Arquétipos de tendência são long-only, documentação alega simetria
-Mesmo mecanismo do item 3.2: nenhum entryBlock dos presets 1, 2, 4, 5 usa
-operador bearish → o motor nunca emite SELL para eles, apesar da descrição
-do preset 1 dizer explicitamente "vende no rompimento da mínima". Isso
-significa que qualquer teste rodado em pares com tendência de dólar forte
-(3 de base USD vs. 4 cotados em USD, na cesta de 7 majors usada nas
-seções 11.10-11.11) mediu principalmente **exposição direcional ao dólar**,
-não ao arquétipo de tendência em si.
+### 3.3 Arquétipos de tendência são long-only — CORRIGIDO (documentação), simetria real ADIADA por decisão explícita
+
+**Status em 2026-07-30, pós Fase 1 parcial**: a direção do sinal agora é
+declarada explicitamente (`Strategy.entrySignal`, ver `types/strategy.ts`),
+removendo a inferência por contagem de operador que causou o bug do §3.2.
+Isso confirmou que os presets 1, 2, 4, 5 são **long-only por implementação**
+— nenhum bloco de entrada short existe. A documentação de cada preset
+(`presetStrategies.ts`) foi corrigida para declarar isso explicitamente
+("Somente lado comprado — LONG-ONLY"), removendo a linguagem que alegava
+simetria ("vende no rompimento da mínima", "máxima/mínima... abaixo/acima")
+quando na verdade descrevia o **exitBlock** (fecha o long), não uma entrada
+short real.
+
+**Decisão de escopo, registrada 2026-07-30**: não implementar a perna short
+real nesta rodada. Motivo: fazê-lo corretamente exige que `exitBlocks`
+também se tornem conscientes do lado da posição — hoje a regra de saída é
+uma só, orientada para fechar um LONG (ex: preset 1 sai por
+`CROSS_BELOW DONCHIAN_LOWER`, que seria a regra ERRADA se aplicada a um
+SHORT, que precisaria de `CROSS_ABOVE DONCHIAN_UPPER`). Implementar a
+simetria sem resolver isso introduziria uma classe nova de bug silencioso,
+exatamente no momento em que ainda não se sabe se o lado comprado tem edge
+real após as correções do motor (§3.1, §3.2, §3.5). **Revisitar depois da
+Fase 2 (remedição dos arquétipos corrigidos)** — só vale o investimento de
+engenharia (redesenho do modelo de exitBlocks para suportar os dois lados)
+se o lado long mostrar sinal de edge que justifique testar o par completo.
+
+**Consequência que permanece, herdada da versão anterior deste documento**:
+qualquer teste já rodado em pares com tendência de dólar forte (3 de base
+USD vs. 4 cotados em USD, na cesta de 7 majors usada nas seções
+11.10-11.11) mediu principalmente **exposição direcional ao dólar**, não ao
+arquétipo de tendência em si — isso não muda até a Fase 2 remedir.
 
 ### 3.4 Saída do Rompimento Confirmado provavelmente anula o sinal
 `ATR FALLING` como único exitBlock do preset 4 dispara em ~50-60% das
@@ -496,40 +519,68 @@ versão Beta do cérebro para testes demo"* é o fator crítico do projeto
 agora. Todo o plano abaixo está sequenciado para chegar lá o mais rápido
 possível sem pular a correção que invalidaria o resultado.
 
-### Fase 1 — Corrigir o motor de backtest (1-2 semanas) — BLOQUEIA TUDO
+### Fase 1 — Corrigir o motor de backtest — ✅ CONCLUÍDA (2026-07-30)
 
-Nenhum experimento de validação roda antes disto. Rodar em cima do motor
-com os bugs conhecidos produziria só mais números não confiáveis.
+Nenhum experimento de validação roda antes disto ter sido feito. Rodar em
+cima do motor com os bugs conhecidos produziria só mais números não
+confiáveis — por isso esta fase bloqueava tudo, e foi executada por completo
+antes de qualquer remedição.
 
-**Entregáveis**:
-1. Corrigir ADX para RMA (Wilder), não SMA — `TechnicalIndicators.ts`.
-2. Tornar a direção do sinal **explícita** por bloco/estratégia, não
-   inferida por contagem de operador — remove a classe inteira de bug que
-   inverteu (provavelmente) o preset 3.
-3. Implementar a perna short simétrica dos arquétipos 1, 2, 4 — ou, se a
-   decisão for mantê-los long-only por design, **corrigir a documentação**
-   para não alegar simetria que não existe.
-4. Revisar o exitBlock do preset 4 (`ATR FALLING` — provavelmente sai cedo
-   demais) contra a intenção declarada do arquétipo.
-5. Corrigir trailing stop para usar o close de `i-1`, nunca o de `i`,
-   antes de testar contra o low/high de `i`.
-6. Resolver empate TP/SL na mesma barra a favor do pior caso (SL), não do
-   melhor (TP) — remove viés otimista.
-7. Corrigir sizing para considerar a distância do stop (fixed-fractional
-   de verdade), mesmo sabendo que isso não afeta os Sharpes já medidos
-   (afeta o dinheiro real, que é o que finalmente importa).
-8. Embargo real entre treino e holdout — sem sobreposição de barras de
-   warmup.
-9. Corrigir o LCG do bootstrap (usar algo com período adequado — mesmo um
-   LCG de 32 bits com parâmetros conhecidos-bons, ou `crypto.randomBytes`
-   com seed fixo para reprodutibilidade) — o atual tem período de ~10 mil.
-10. Todo experimento novo grava output em arquivo
-    (`research/experiments/<data>-<nome>/output.json`) — não fica só em
-    prosa na spec.
+**Entregáveis, todos concluídos**:
+1. ✅ ADX corrigido para RMA (Wilder), não SMA — `TechnicalIndicators.ts`.
+   Verificado numericamente: erro que era de 4,77 pontos médios (até 12 no
+   pior caso) caiu para 0,000 contra a fórmula de referência. Ver
+   `research/experiments/2026-07-30-engine-audit/`.
+2. ✅ Direção do sinal agora **explícita** (`Strategy.entrySignal`,
+   `types/strategy.ts`), não mais inferida por contagem de operador.
+   Corrigiu a inversão confirmada do preset 3 (Reversão à Média — antes
+   emitia SELL na sobrevenda, devia emitir BUY). Asserção de regressão em
+   `src/app/services/indicators/__validate__.ts` (caso 10).
+3. ✅ **Decisão explícita tomada** (não implementação): a perna short
+   simétrica dos presets 1, 2, 4, 5 fica **adiada**, não implementada nesta
+   rodada — motivo registrado em `presetStrategies.ts` (comentário no
+   preset 1) e em §3.3 acima: implementar exigiria que `exitBlocks` também
+   se tornassem conscientes do lado da posição (hoje a regra de saída é
+   orientada só pra fechar LONG), o que introduziria uma classe nova de bug
+   antes de saber se o lado comprado tem edge. Documentação de cada preset
+   corrigida para declarar "LONG-ONLY" explicitamente, removendo a
+   linguagem que alegava simetria inexistente.
+4. ✅ ExitBlock `ATR FALLING` do preset 4 **removido** — media (não estimava)
+   disparo em 44,3% das barras, holding period esperado ≈2,26 barras.
+   Saída agora só por TP/SL (ATR, R:R 1:2) + trailing, já bem definidos.
+5. ✅ Trailing stop corrigido para usar o close de `i-1`, nunca o de `i`,
+   antes de testar contra o low/high de `i` — `BacktestEngine.ts`.
+6. ✅ Empate TP/SL na mesma barra resolvido a favor do SL (pior caso), não
+   do TP — remove viés otimista sistemático.
+7. ✅ Sizing corrigido para considerar a distância do stop
+   (`TradeSizing.calculatePositionSize`, novo parâmetro
+   `stopDistancePercent`) — fixed-fractional de verdade agora, aplicado só
+   ao `BacktestEngine.ts` (motor ao vivo `useApexLogic.ts` tem sizing
+   próprio, fora de escopo desta correção). Confirmado que isso não afeta
+   os Sharpes/DSRs já medidos (que usam retorno %, não valor monetário) —
+   afeta o dinheiro real, que é o que importa quando o produto opera de
+   verdade.
+8. ✅ Helper de split com embargo real criado (`research/DataSplit.ts`) —
+   substitui o padrão antigo que sobrepunha 60 barras entre treino e
+   holdout. `Trade.entryIndex` exposto em `BacktestEngine.ts` para permitir
+   filtrar trades cuja entrada caiu na região de warmup. **Nenhum
+   experimento antigo foi retrofitado** (os resultados de 11.5-11.15 já
+   estão marcados como não confiáveis e serão remedidos do zero na Fase 2,
+   usando este helper desde o início).
+9. ✅ LCG do bootstrap substituído por mulberry32 (período 2³², vs. o
+   período de ~10.466 medido no LCG antigo) — `DeflatedSharpe.ts`.
+   Verificado: sem duplicatas anômalas em 500k amostras, qui-quadrado de
+   uniformidade passa.
+10. ✅ Scripts de auditoria desta sessão salvos com output em
+    `research/experiments/2026-07-30-engine-audit/` (README explica cada
+    um) — cumprindo a própria regra que este item criou.
 
-**Critério de saída**: `npm run validate` verde + suíte de asserção nova
-cobrindo os 6 bugs acima (cada um com um caso sintético que provaria o bug
-se reintroduzido) + diff revisado arquétipo por arquétipo.
+**Critério de saída, cumprido**: `npm run validate` verde — 20 asserções em
+indicadores (`indicators/__validate__.ts`, 4 novas cobrindo ADX e o fix do
+preset 3/4) + 12 no motor SMC (inalteradas) + 5 novas no motor de backtest
+(`strategy/__validate__.ts`, novo — trailing stop, empate TP/SL, sizing),
+37 no total, 0 falhas, type-check limpo. Cada um dos 6 bugs originais tem
+um caso sintético que provaria a regressão se o bug fosse reintroduzido.
 
 ### Fase 2 — Remedir os 5 arquétipos com o motor corrigido (1 semana)
 

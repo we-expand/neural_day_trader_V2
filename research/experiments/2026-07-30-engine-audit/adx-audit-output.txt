@@ -1,0 +1,18 @@
+=== ADX: implementacao do projeto (SMA do DX) vs Wilder correto (RMA do DX) ===
+barras validas comparadas: 2973
+erro absoluto medio:  0.000 pontos de ADX
+erro absoluto maximo: 0.000 pontos de ADX
+
+DIVERGENCIA DE DECISAO DO GATE DE REGIME:
+  ADX>22 (presets 1,3-inv): 0 barras divergem = 0.00%
+  ADX>20 (preset 2):        0 barras divergem = 0.00%
+  ADX>18 (preset 5):        0 barras divergem = 0.00%
+  ADX<22 (preset 3):        0 barras divergem = 0.00%
+
+amostra (i, projeto, correto):
+  100  proj=57.38  correto=57.38
+  110  proj=52.13  correto=52.13
+  120  proj=43.24  correto=43.24
+  130  proj=29.77  correto=29.77
+  140  proj=19.30  correto=19.30
+  150  proj=15.58  correto=15.58

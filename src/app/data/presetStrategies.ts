@@ -60,10 +60,30 @@ export const PRESET_STRATEGIES: Strategy[] = [
     id: '1',
     name: 'Rompimento de Canal (Donchian)',
     description:
-      'Trend-following clássico: compra no rompimento da máxima de 20 períodos, vende no rompimento da mínima. ' +
-      'Stop em 2×ATR, sem alvo fixo — sai por trailing stop ou reversão do canal. Desenho canônico de trend-following ' +
-      'sistemático (Turtle Traders); só opera com ADX>22 confirmando tendência real.',
+      'Trend-following clássico: compra no rompimento da máxima de 20 períodos. Somente lado comprado (LONG-ONLY) — ' +
+      'ver nota de escopo abaixo. Sai por trailing stop (rompimento da mínima de 10 períodos) ou stop em 2×ATR — ' +
+      'nunca por alvo fixo. Desenho canônico de trend-following sistemático (Turtle Traders, que originalmente é ' +
+      'simétrico long/short); só opera com ADX>22 confirmando tendência real.',
     regime: 'TREND',
+    // 2026-07-30: CORREÇÃO DE DOCUMENTAÇÃO — a versão anterior desta
+    // descrição alegava "vende no rompimento da mínima" como se fosse uma
+    // entrada short simétrica (desenho real do Turtle Trader original). Não
+    // é: o CROSS_BELOW DONCHIAN_LOWER(10) abaixo é um exitBlock (fecha a
+    // posição comprada), nunca uma entrada de venda. Auditoria de 2026-07-30
+    // confirmou que os 4 arquétipos de tendência (presets 1,2,4,5) são
+    // long-only por implementação — `entrySignal: 'BUY'` só, nenhum bloco
+    // de entrada short existe.
+    //
+    // DECISÃO DE ESCOPO (2026-07-30): não implementar a perna short agora.
+    // Motivo: fazer isso corretamente exige que exitBlocks também se tornem
+    // conscientes do lado da posição (hoje o exitBlock de saída é sempre o
+    // mesmo, orientado pra fechar um LONG — usar essa mesma regra pra
+    // fechar um SHORT introduziria uma classe nova de bug, silenciosa,
+    // exatamente no momento em que ainda não se sabe se o lado comprado tem
+    // edge real após as correções desta sessão). Ver research/MASTER_PLAN.md
+    // §3.3 — decisão revisitável depois da Fase 2 (remedição dos arquétipos)
+    // mostrar se o investimento de engenharia vale a pena.
+    entrySignal: 'BUY',
     // Nominais só para exibição de R:R na UI (builder manual) — o motor de
     // backtest ignora estes dois valores porque stopLossMode/takeProfitMode
     // abaixo mandam usar ATR/trailing de verdade. 450 é uma estimativa
@@ -98,8 +118,13 @@ export const PRESET_STRATEGIES: Strategy[] = [
     name: 'Cruzamento de Médias com Filtro de Regime',
     description:
       'EMA20 cruza acima da EMA50 (mudança de tendência) com ADX confirmando regime de tendência e EMA50 inclinada a favor — ' +
-      'sem o filtro de ADX, cruzamento de médias sofre com whipsaw em mercado lateral. Stop em 2,5×ATR, trailing ativo.',
+      'sem o filtro de ADX, cruzamento de médias sofre com whipsaw em mercado lateral. Somente lado comprado (LONG-ONLY, ' +
+      'ver nota de escopo no preset 1). Stop em 2,5×ATR, trailing ativo.',
     regime: 'TREND',
+    // 2026-07-30: long-only por desenho atual (só EMA20 cruza ACIMA da EMA50
+    // como entrada) — sem perna short simétrica, mesma decisão de escopo do
+    // preset 1 (ver comentário completo lá + research/MASTER_PLAN.md §3.3).
+    entrySignal: 'BUY',
     stopLoss: 150,
     takeProfit: 450,
     stopLossMode: 'ATR',
@@ -131,6 +156,17 @@ export const PRESET_STRATEGIES: Strategy[] = [
       'à média (SMA20). ADX<22 confirma ausência de tendência — mean-reversion tende a underperformar em tendência forte, ' +
       'por isso o filtro trava a estratégia fora do regime para o qual foi desenhada.',
     regime: 'RANGE',
+    // 2026-07-30: FIX DE BUG — antes da introdução de entrySignal, a direção
+    // deste preset era INFERIDA por contagem de operador em
+    // StrategyEvaluator.ts, e os dois entryBlocks abaixo (PRICE CROSS_BELOW
+    // BB_LOWER, RSI BELOW 30) contavam como "bearish" pelo critério antigo —
+    // o sistema classificava como sinal de VENDA, exatamente o oposto da
+    // intenção declarada (comprar na sobrevenda, esperar reversão pra cima).
+    // Toda medição anterior deste preset (seção 11.12 do AI_BRAIN_SPEC.md,
+    // Sharpe pooled -0,311) mediu uma ANTI-reversão à média, não o arquétipo
+    // real — precisa ser remedido com esta correção antes de qualquer nova
+    // conclusão. Ver research/MASTER_PLAN.md §3.2.
+    entrySignal: 'BUY',
     stopLoss: 80,
     takeProfit: 160,
     stopLossMode: 'ATR',
@@ -153,10 +189,15 @@ export const PRESET_STRATEGIES: Strategy[] = [
     id: '4',
     name: 'Rompimento Confirmado (Volume)',
     description:
-      'Breakout com confirmação: preço fecha além da máxima/mínima de 20 períodos (Donchian) COM volume (OBV subindo) ' +
+      'Breakout com confirmação: preço fecha além da máxima de 20 períodos (Donchian) COM volume (OBV subindo) ' +
       'confirmando a força do movimento — reduz falso rompimento, que é o modo de falha mais comum de breakouts ingênuos ' +
-      '(que operam só no toque do nível, sem confirmação). Stop em 1,5×ATR abaixo/acima do nível rompido.',
+      '(que operam só no toque do nível, sem confirmação). Somente lado comprado (LONG-ONLY, ver nota de escopo no ' +
+      'preset 1). Stop em 1,5×ATR abaixo do nível rompido.',
     regime: 'BREAKOUT',
+    // 2026-07-30: long-only por desenho atual (só rompimento de máxima +
+    // OBV subindo como entrada) — sem perna short simétrica, mesma decisão
+    // de escopo do preset 1 (ver comentário completo lá).
+    entrySignal: 'BUY',
     stopLoss: 100,
     takeProfit: 300,
     stopLossMode: 'ATR',
@@ -168,9 +209,22 @@ export const PRESET_STRATEGIES: Strategy[] = [
       block({ type: 'ENTRY', category: 'trend', indicator: 'PRICE', operator: 'CROSS_ABOVE', compareIndicator: 'DONCHIAN_UPPER', comparePeriod: 20, label: 'Fechamento além da máxima dos últimos 20 candles (rompimento real, não só pavio)' }),
       block({ type: 'ENTRY', category: 'volume', indicator: 'OBV', operator: 'RISING', label: 'OBV em alta (confirma volume comprador no rompimento — sem isso é um falso rompimento comum)' }),
     ],
-    exitBlocks: [
-      block({ type: 'EXIT', category: 'volatility', indicator: 'ATR', period: 14, operator: 'FALLING', label: 'ATR em contração (perda de força do movimento — sinal de exaustão do rompimento)' }),
-    ],
+    // 2026-07-30: FIX DE BUG — o exitBlock `ATR FALLING` (removido) dispara
+    // sempre que ATR(i) < ATR(i-1), condição satisfeita em ~44% das barras
+    // de uma série sintética realista (medido: research/experiments/
+    // 2026-07-30-engine-audit/). Holding period esperado por essa regra
+    // sozinha: ~2,3 barras em qualquer timeframe — insuficiente pra um
+    // rompimento de tendência se desenvolver, mas suficiente pra pagar custo
+    // de transação repetidamente. "Contração de ATR" como sinal de exaustão
+    // exigiria persistência (ex: várias barras seguidas, ou ATR abaixo da
+    // própria média móvel) — não uma única flutuação bar-a-bar, que é ruído,
+    // não sinal. Sem esse tipo de indicador derivado no modelo atual de
+    // blocos, a saída correta e já bem definida é via TP/SL por ATR
+    // (atrStopMultiplier/atrTakeProfitMultiplier abaixo, R:R 1:2) + trailing
+    // stop (baseDefaults.trailingStop=true) — deixa o rompimento se
+    // desenvolver até o stop/alvo real, em vez de um gatilho de saída que
+    // reage a ruído de barra única. exitBlocks vazio é intencional aqui.
+    exitBlocks: [],
     filterBlocks: [],
   },
 ];
@@ -192,6 +246,9 @@ PRESET_STRATEGIES.push({
     '(3) confirmar latência de execução real via /broker/execute (só existe depois da Fase B/ponte de execução). ' +
     'Enquanto isso não acontecer, esta estratégia é um candidato, não uma recomendação.',
   regime: 'SCALP',
+  // 2026-07-30: long-only por desenho atual (só MACD cruza ACIMA de zero
+  // como entrada) — sem perna short simétrica, ver preset 1.
+  entrySignal: 'BUY',
   stopLoss: 20,
   takeProfit: 30,
   stopLossMode: 'ATR',

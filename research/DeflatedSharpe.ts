@@ -125,18 +125,45 @@ export function deflatedSortinoRatio(sortinoHat: number, sr0: number, nObservati
  * manter o script reproduzível (mesma disciplina "determinístico" do
  * BacktestEngine).
  */
+/**
+ * PRNG determinístico (mulberry32) — substitui o LCG anterior.
+ *
+ * 2026-07-30: FIX DE BUG GRAVE — o LCG anterior
+ * (`state = (state*1103515245+12345) & 0x7fffffff`) tinha PERÍODO DE CICLO
+ * DE APENAS 10.466, medido por teste direto de ciclo (ver
+ * research/experiments/2026-07-30-engine-audit/lcg-test.mjs). Com o uso real
+ * deste bootstrap (seção 11.9 do AI_BRAIN_SPEC.md: 2000 iterações × ~92
+ * retornos por chamada = ~184 mil sorteios), a sequência se repetia ~17,6
+ * vezes inteiras — violando a premissa de amostragem independente que todo
+ * bootstrap exige. O teste de uniformidade marginal (qui-quadrado) passava
+ * (os valores individuais pareciam bem distribuídos), mas isso não detecta
+ * a autocorrelação por repetição de período — só um teste de ciclo direto
+ * pega esse tipo de falha.
+ *
+ * mulberry32 tem período de 2^32 (~4,3 bilhões) — ordens de magnitude acima
+ * de qualquer uso real deste bootstrap, e é uma escolha padrão e bem testada
+ * para PRNG determinístico não-criptográfico (reprodutibilidade é o
+ * objetivo aqui, não segurança).
+ */
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export function bootstrapSortinoSignificance(returns: number[], iterations = 2000, seed = 42): { probPositive: number; sortinoDistribution: number[] } {
   if (returns.length < 2) return { probPositive: 0, sortinoDistribution: [] };
-  let state = seed;
-  const lcgRandom = () => {
-    state = (state * 1103515245 + 12345) & 0x7fffffff;
-    return state / 0x7fffffff;
-  };
+  const rng = mulberry32(seed);
   const n = returns.length;
   const distribution: number[] = [];
   for (let i = 0; i < iterations; i++) {
     const sample: number[] = [];
-    for (let j = 0; j < n; j++) sample.push(returns[Math.floor(lcgRandom() * n)]);
+    for (let j = 0; j < n; j++) sample.push(returns[Math.floor(rng() * n)]);
     distribution.push(sortinoRatio(sample));
   }
   const positiveCount = distribution.filter(s => s > 0 && isFinite(s)).length;

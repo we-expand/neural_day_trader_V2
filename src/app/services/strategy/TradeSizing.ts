@@ -113,21 +113,61 @@ export interface PositionSizeInput {
   allocatedCapital: number;
   riskPerTradePercent: number;
   riskProfile: RiskProfileType | string;
+  /**
+   * Distância do stop em % do preço de entrada (ex: 0,02 = stop a 2% do
+   * preço). Quando fornecida, o sizing vira fixed-fractional DE VERDADE:
+   * o nocional é dimensionado para que perder o stop perca exatamente
+   * `capital × riskPerTradePercent%` — não um % fixo de capital independente
+   * da distância do stop (ver aviso abaixo). Opcional, só usado pelo
+   * BacktestEngine (motor ao vivo tem sizing próprio, fora de escopo).
+   */
+  stopDistancePercent?: number;
 }
 
-/** Mesmo cálculo de tradeCapital/finalTradeCapital de useApexLogic.ts. */
+/**
+ * Dimensiona o nocional da posição (tradeCapital) a partir do risco desejado.
+ *
+ * 2026-07-30: FIX DE BUG — sem `stopDistancePercent`, esta função sempre
+ * calculou `capital × risco% × multiplicador` como o NOCIONAL da posição,
+ * nunca considerando a distância do stop. Isso significa que dois trades com
+ * o mesmo `positionSizePercent` mas stops de tamanhos diferentes (ex: 1×ATR
+ * vs. 4×ATR, como os presets deste catálogo usam) arriscavam quantias em
+ * dinheiro MUITO diferentes — o oposto do que "fixed-fractional 1%" deveria
+ * garantir (Van Tharp: o risco em $ por trade é o que deveria ser constante,
+ * não o nocional). O comentário antigo em `presetStrategies.ts` alegava que
+ * isso já normalizava risco entre ativos — não normalizava.
+ *
+ * IMPORTANTE: este bug NÃO contamina nenhum Sharpe/DSR já medido nas seções
+ * 11.x do AI_BRAIN_SPEC.md, porque os scripts de pesquisa usam
+ * `profitPercent` (retorno % sobre o preço, independente do nocional), nunca
+ * o `profit` em dinheiro. Afeta só o dinheiro real that fica exposto — que é
+ * o que finalmente importa quando o produto opera com capital de verdade.
+ *
+ * Com `stopDistancePercent` fornecido: nocional = risco em $ / distância do
+ * stop em %. Sem ele: comportamento antigo preservado (fallback), para não
+ * quebrar nenhum chamador que ainda não tenha essa informação disponível.
+ */
 export function calculatePositionSize({
   currentBalance,
   allocatedCapital,
   riskPerTradePercent,
   riskProfile,
+  stopDistancePercent,
 }: PositionSizeInput): number {
   const capital = Math.min(allocatedCapital, currentBalance);
   const riskPercentage = riskPerTradePercent / 100;
   const { sizeMultiplier } = getRiskAdjustment(riskProfile);
-  const tradeCapital = capital * riskPercentage * sizeMultiplier;
+  const riskCapital = capital * riskPercentage * sizeMultiplier;
   const minTradeCapital = 10;
-  return Math.max(tradeCapital, minTradeCapital);
+
+  if (stopDistancePercent !== undefined && stopDistancePercent > 0) {
+    const tradeCapital = riskCapital / stopDistancePercent;
+    return Math.max(tradeCapital, minTradeCapital);
+  }
+
+  // Fallback: comportamento antigo (nocional = risco% de capital, sem
+  // considerar distância do stop) — preservado por retrocompatibilidade.
+  return Math.max(riskCapital, minTradeCapital);
 }
 
 export interface AtrTpSlResult {
