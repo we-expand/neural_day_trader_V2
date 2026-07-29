@@ -184,32 +184,13 @@ deployments da branch `dev` (projeto Vercel `neural-day-trader-v2`, time
 
 ---
 
-## Pendência de commit (na hora deste handoff)
+## Pendência de commit — RESOLVIDA (checado em sessão seguinte, 2026-07-30)
 
-Working tree tem mudanças locais **não commitadas** da Fase 2 (hardening) +
-a própria reescrita deste arquivo. `dev` está sincronizada com
-`origin/dev` (nada pendente de push do lado dos commits já feitos — só
-falta commitar/pushar o que está solto agora). Arquivos:
-
-```
-modified:   NEXT_SESSION.md
-modified:   src/app/hooks/useAIPersistence.ts
-modified:   src/app/hooks/useApexLogic.ts
-modified:   supabase-migrations/001_ai_trading_persistence.sql
-```
-
-Comandos prontos:
-
-```bash
-git add src/app/hooks/useAIPersistence.ts src/app/hooks/useApexLogic.ts supabase-migrations/001_ai_trading_persistence.sql NEXT_SESSION.md
-git commit -m "fix: hardening da persistência DEMO (Fase 2) — falha silenciosa e sessão duplicada"
-git push origin dev
-```
-
-Também existe `FASE1_RESUMO_EXECUTIVO.md` **não rastreado** e **desatualizado**
-(mostra "3/7 tópicos" de um ponto intermediário de sessão anterior — a Fase 1
-já está 7/7). Não incluído no commit acima de propósito. Decisão em aberto:
-apagar (`rm FASE1_RESUMO_EXECUTIVO.md`) ou manter solto.
+O handoff acima foi escrito antes do commit final da sessão. Checagem
+posterior confirmou: working tree limpa, tudo já commitado e pushado em
+`dev` (`ece14717e` — hardening Fase 2; `1cd2a2b30` — bloqueio de trade em
+dado não-real). Nenhum comando pendente. `FASE1_RESUMO_EXECUTIVO.md` também
+não existe mais no repo — não é mais uma decisão em aberto.
 
 ---
 
