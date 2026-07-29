@@ -10,6 +10,10 @@ export interface RiskConfig {
   maxDrawdownPercent: number;       // ex: 15.0 (drawdown máximo 15%)
   maxPositionSizePercent: number;   // ex: 5.0 (5% da banca por posição)
   kellyFraction: number;             // ex: 0.5 (Meio Kelly)
+  cooldownEnabled?: boolean;         // pausa automática pós-perdas
+  cooldownMinutes?: number;          // minutos de pausa
+  maxTradesPerDay?: number;          // limite de trades/dia (0 = sem limite)
+  killSwitchThreshold?: number;      // % perda que ativa kill-switch automático (ex: 10.0)
 }
 
 export interface AccountState {
@@ -119,5 +123,58 @@ export class RiskManager {
     const maxPositionDollars = bankroll * (this.config.maxPositionSizePercent / 100);
 
     return Math.min(positionSize, maxPositionDollars / entryPrice);
+  }
+
+  /**
+   * Valida se o kill-switch deve ser ativado (perda catastrófica).
+   * Tópico 6: Kill-Switch automático por loss crítico.
+   */
+  public shouldActivateKillSwitch(account: AccountState): { triggered: boolean; reason?: string } {
+    if (!this.config.killSwitchThreshold || this.config.killSwitchThreshold <= 0) {
+      return { triggered: false };
+    }
+
+    const dailyLoss = account.dailyStartBalance - account.balance;
+    const dailyLossPercent = (dailyLoss / account.dailyStartBalance) * 100;
+
+    if (dailyLoss > 0 && dailyLossPercent >= this.config.killSwitchThreshold) {
+      return {
+        triggered: true,
+        reason: `Kill-Switch ativado: perda diária ${dailyLossPercent.toFixed(2)}% ≥ limite de ${this.config.killSwitchThreshold}%`
+      };
+    }
+
+    // Também ativa se drawdown for crítico (ex: 20%)
+    if (account.currentDrawdown >= this.config.killSwitchThreshold) {
+      return {
+        triggered: true,
+        reason: `Kill-Switch ativado: drawdown ${account.currentDrawdown.toFixed(2)}% ≥ limite de ${this.config.killSwitchThreshold}%`
+      };
+    }
+
+    return { triggered: false };
+  }
+
+  /**
+   * Valida múltiplos tópicos de risco em uma única passada (utilitário).
+   */
+  public validateAllRisks(
+    account: AccountState,
+    proposedTradeSize: number,
+    dailyStats: DailyStats,
+    currentTradesCount?: number
+  ): { approved: boolean; reason?: string; killSwitchTriggered?: boolean } {
+    // 1. Kill-Switch (crítico — pára tudo)
+    const killSwitchCheck = this.shouldActivateKillSwitch(account);
+    if (killSwitchCheck.triggered) {
+      return {
+        approved: false,
+        reason: killSwitchCheck.reason,
+        killSwitchTriggered: true
+      };
+    }
+
+    // 2. Validação padrão (daily loss, drawdown, position size)
+    return this.validateTrade(account, proposedTradeSize, dailyStats);
   }
 }

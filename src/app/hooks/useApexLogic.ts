@@ -222,6 +222,7 @@ export interface AIConfig {
   atrMultiplier: number; // só usado quando positionSizingMode === 'ATR'
   correlationGuardEnabled: boolean;
   correlationThreshold: number; // 0-1, acima disso reduz o tamanho da nova posição
+  killSwitchThreshold?: number; // % perda que ativa kill-switch automático (ex: 10.0)
 }
 
 export interface MarketContext {
@@ -372,6 +373,7 @@ const INITIAL_STATE: ApexLogicState = {
     atrMultiplier: 1.5,
     correlationGuardEnabled: false, // TODO: Implementar correlação real em Fase 2
     correlationThreshold: 0.7,
+    killSwitchThreshold: 0, // 0 = desativado por padrão; pode ser setado pelo usuário (ex: 10% de perda)
   },
   mt5Credentials: null,
   executionMode: 'DEMO',
@@ -1334,6 +1336,10 @@ export function useApexLogic(
             maxDrawdownPercent: aiConfig.maxDrawdown,
             maxPositionSizePercent: aiConfig.riskPerTrade,
             kellyFraction: 0.25, // conservador por padrão
+            cooldownEnabled: aiConfig.cooldownEnabled,
+            cooldownMinutes: aiConfig.cooldownMinutes,
+            maxTradesPerDay: aiConfig.maxTradesPerDay,
+            killSwitchThreshold: aiConfig.killSwitchThreshold || 0,
           };
 
           // Calcular stats diários (trades fechados hoje, PnL realizado/não-realizado)
@@ -1373,6 +1379,32 @@ export function useApexLogic(
           const proposedTradeSize = portfolioRef.current.balance * (aiConfig.riskPerTrade / 100);
 
           const riskCheck = riskManager.validateTrade(accountState, proposedTradeSize, dailyStats);
+
+          // 🚨 TÓPICO 6: Kill-Switch (perda catastrófica)
+          const killSwitchCheck = riskManager.shouldActivateKillSwitch(accountState);
+          if (killSwitchCheck.triggered) {
+            console.error(`[RISCO] 🚨 ${killSwitchCheck.reason}`);
+            addLog(`🚨 KILL-SWITCH ATIVADO: ${killSwitchCheck.reason}`);
+
+            // Fechar TODAS as posições abertas
+            setActiveOrders([]);
+            console.log('[KILL-SWITCH] 🔴 Fechadas todas as posições abertas');
+
+            // Parar a IA imediatamente
+            setIsActive(false);
+            setIsSafeMode(true);
+            setSafeModeReason(killSwitchCheck.reason || 'Kill-Switch ativado');
+            console.log('[KILL-SWITCH] 🔴 IA PARADA — aguardando intervenção manual');
+
+            // Notificar o usuário com urgência
+            toastOriginal.error('🚨 KILL-SWITCH ATIVADO', {
+              description: killSwitchCheck.reason || 'Perda catastrófica detectada. Todas as posições foram fechadas.',
+              duration: 0 // persistente até o usuário descartar
+            });
+
+            return;
+          }
+
           if (!riskCheck.approved) {
             console.log(`[RISCO] 🚫 ${riskCheck.reason}`);
             return;

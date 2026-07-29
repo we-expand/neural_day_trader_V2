@@ -13,6 +13,71 @@ import { processUserQuestion, generateAlertResponse } from './neural-assistant.t
 
 const app = new Hono().basePath('/server');
 
+// 🔒 HELPER: Validação de Risco (Tópico 7: Enforcement na rota /broker/execute)
+// Implementa as 3 primeiras validações do RiskManager para gate crítico
+interface RiskValidationRequest {
+  maxDailyLossPercent: number;
+  maxDrawdownPercent: number;
+  maxPositionSizePercent: number;
+  currentBalance: number;
+  dailyStartBalance: number;
+  currentDrawdown: number;
+  proposedTradeSize: number;
+  killSwitchThreshold?: number;
+}
+
+function validateTradeRisk(req: RiskValidationRequest): { approved: boolean; reason?: string } {
+  // 1. Kill-Switch (crítico — perda catastrófica)
+  if (req.killSwitchThreshold && req.killSwitchThreshold > 0) {
+    const dailyLoss = req.dailyStartBalance - req.currentBalance;
+    const dailyLossPercent = (dailyLoss / req.dailyStartBalance) * 100;
+
+    if (dailyLoss > 0 && dailyLossPercent >= req.killSwitchThreshold) {
+      return {
+        approved: false,
+        reason: `Kill-Switch ativado: perda diária ${dailyLossPercent.toFixed(2)}% ≥ limite de ${req.killSwitchThreshold}%`
+      };
+    }
+
+    if (req.currentDrawdown >= req.killSwitchThreshold) {
+      return {
+        approved: false,
+        reason: `Kill-Switch ativado: drawdown ${req.currentDrawdown.toFixed(2)}% ≥ limite de ${req.killSwitchThreshold}%`
+      };
+    }
+  }
+
+  // 2. Daily Loss Limit
+  const dailyLoss = req.dailyStartBalance - req.currentBalance;
+  const dailyLossPercent = (dailyLoss / req.dailyStartBalance) * 100;
+
+  if (dailyLoss > 0 && dailyLossPercent >= req.maxDailyLossPercent) {
+    return {
+      approved: false,
+      reason: `Limite diário de perda atingido: -${dailyLossPercent.toFixed(2)}% (limite ${req.maxDailyLossPercent}%)`
+    };
+  }
+
+  // 3. Drawdown Check
+  if (req.currentDrawdown > req.maxDrawdownPercent) {
+    return {
+      approved: false,
+      reason: `Drawdown excedido: ${req.currentDrawdown.toFixed(2)}% (limite ${req.maxDrawdownPercent}%)`
+    };
+  }
+
+  // 4. Position Sizing
+  const maxTradeSize = req.currentBalance * (req.maxPositionSizePercent / 100);
+  if (req.proposedTradeSize > maxTradeSize) {
+    return {
+      approved: false,
+      reason: `Tamanho da posição excede limite: ${req.proposedTradeSize.toFixed(2)} > ${maxTradeSize.toFixed(2)} (max ${req.maxPositionSizePercent}%)`
+    };
+  }
+
+  return { approved: true };
+}
+
 // 🔍 HELPER: Get MetaAPI Token with detailed logging
 async function getMetaApiToken(bodyToken?: string): Promise<string | null> {
     const envToken = Deno.env.get('METAAPI_TOKEN');
@@ -1114,6 +1179,47 @@ app.post('/broker/execute', async (c) => {
         }
 
         // --- Execução de ordens reais ---
+        // 🔒 TÓPICO 7: ENFORCEMENT - Validação de risco ANTES de qualquer execução
+        // Se a ação é de abertura de posição (trade), validar risco primeiro
+        const isOpenPositionAction = ['createMarketBuyOrder', 'createMarketSellOrder'].includes(action);
+
+        if (isOpenPositionAction) {
+            try {
+                // Buscar informações de conta para validação de risco
+                const accountRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/account-information`, {
+                    headers: metaApiHeaders,
+                });
+
+                if (accountRes.ok) {
+                    const accountInfo = await accountRes.json();
+                    const riskValidationReq: RiskValidationRequest = {
+                        maxDailyLossPercent: body.maxDailyLossPercent || 5,
+                        maxDrawdownPercent: body.maxDrawdownPercent || 15,
+                        maxPositionSizePercent: body.riskPerTrade || 2,
+                        currentBalance: accountInfo.balance || 0,
+                        dailyStartBalance: body.dailyStartBalance || accountInfo.balance || 0,
+                        currentDrawdown: body.currentDrawdown || 0,
+                        proposedTradeSize: (accountInfo.balance || 0) * ((body.riskPerTrade || 2) / 100),
+                        killSwitchThreshold: body.killSwitchThreshold || 0,
+                    };
+
+                    const riskCheck = validateTradeRisk(riskValidationReq);
+                    if (!riskCheck.approved) {
+                        console.log(`[BROKER] 🚫 Risco bloqueado: ${riskCheck.reason}`);
+                        return c.json({
+                            success: false,
+                            error: `Validação de risco: ${riskCheck.reason}`,
+                            riskBlocked: true
+                        }, 400);
+                    }
+                } else {
+                    console.warn('[BROKER] ⚠️ Não foi possível buscar info de conta para validação de risco, continuando sem validação');
+                }
+            } catch (riskCheckError) {
+                console.warn('[BROKER] ⚠️ Erro ao validar risco (continuando de qualquer forma):', riskCheckError);
+            }
+        }
+
         const tradeActionMap: Record<string, (b: any) => any> = {
             createMarketBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY', symbol: b.symbol, volume: b.volume, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
             createMarketSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL', symbol: b.symbol, volume: b.volume, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
