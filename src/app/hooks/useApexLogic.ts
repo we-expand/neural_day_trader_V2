@@ -494,6 +494,12 @@ export function useApexLogic(
   const lastSnapshotAtRef = useRef(0);
   const hasHydratedFromSupabaseRef = useRef(false);
 
+  // Preço sem dado real (`isRealData: false` — a conta MetaAPI de plataforma
+  // compartilhada engasgou/retornou SIMULATED e nem havia último preço real em
+  // cache) não deve virar entrada de trade nem ficar invisível ao usuário —
+  // avisa no máximo 1x a cada 60s (evita flood do loop de análise).
+  const lastStaleDataWarningAtRef = useRef(0);
+
   // === FASE 2: PERSISTÊNCIA DEMO NO SUPABASE ===
   const { user } = useAuth();
   // Falha de persistência é silenciosa por natureza (fire-and-forget, não trava o
@@ -1214,12 +1220,31 @@ export function useApexLogic(
               timestamp: marketData.timestamp
             };
             console.log(`[REST API] 📡 ${selectedSymbol}: Preço obtido via ${marketData.source} (${marketData.isRealData ? 'real' : 'fallback'})`);
+
+            // 🔒 Nunca decide/abre trade (DEMO ou LIVE) em cima de dado que não é
+            // real — `getFallbackOrLastKnown` já filtra preço SIMULATED antes de
+            // chegar aqui, então isRealData:false só acontece quando nem o último
+            // preço real em cache existe (price:0) ou quando ele está claramente
+            // obsoleto. Pular o ciclo e avisar é melhor que arriscar operar
+            // (mesmo em treino) sobre postura de mercado que não é real.
+            if (!marketData.isRealData) {
+              console.warn(`[TRADING] ⚠️ ${selectedSymbol}: sem dado de mercado real neste ciclo, pulando análise de entrada.`);
+              const now = Date.now();
+              if (now - lastStaleDataWarningAtRef.current > 60000) {
+                lastStaleDataWarningAtRef.current = now;
+                toast.warning('Dados de mercado indisponíveis no momento', {
+                  description: `${selectedSymbol}: sem preço real da corretora agora. Novas entradas ficam pausadas até o dado voltar.`,
+                  duration: 8000,
+                });
+              }
+              return;
+            }
           }
-          
+
           if (!priceData) {
             throw new Error('Nenhum dado de preço disponível');
           }
-          
+
           const currentPrice = priceData.price;
           const priceChangePercent = priceData.changePercent24h;
           const volume24h = priceData.volume || 50000; // Volume padrão se não disponível

@@ -101,6 +101,46 @@ demo ativa pra exercitar o loop completo).
 
 ---
 
+## Escopo do DEMO independente de conta MetaTrader do usuário (2026-07-30)
+
+Cleber levantou a pergunta: o DEMO opera independente do usuário logar sua
+própria conta MetaTrader, com dados/postura real de mercado? Verificado no
+código (não documentação):
+
+- **Confirmado**: nenhum gate de login MetaTrader antes do DEMO; saldo/
+  portfólio 100% simulado localmente (`INITIAL_STATE.portfolio`); ao mudar
+  pra DEMO o sistema até desconecta o MT5 ativamente. Onboarding não exige
+  MT5 em nenhum ponto.
+- **Ressalva encontrada**: pra maioria dos instrumentos (forex, índices,
+  commodities, cripto com CFD confirmado) o preço em DEMO depende da conta
+  MetaAPI **de plataforma** (compartilhada, não a do usuário) estar
+  operante — não é 100% independente de MetaAPI como infraestrutura, só é
+  independente da conexão *do usuário*. Isso já era documentado como "risco
+  crônico" no CLAUDE.md, não é achado novo.
+- **Achado novo, corrigido nesta sessão**: quando essa conta de plataforma
+  falha/rate-limita, o backend (`/mt5-prices`, `/mt5-candles`) cai pra preço
+  `source: 'SIMULATED'` — mas o frontend (`RealMarketDataService.ts:534`)
+  já filtra isso corretamente (nunca deixa preço fabricado virar
+  `isRealData: true`), caindo pro último preço real conhecido (`isRealData:
+  false` se nunca houve nenhum). **O que faltava**: o loop de decisão de
+  trade (`useApexLogic.ts`) buscava esse preço mas não checava
+  `isRealData` antes de abrir posição — um trade DEMO podia ser aberto (ou
+  ficar "aberto no escuro" sobre postura desatualizada) sem o usuário saber
+  que o dado não era fresco/real. Corrigido: gate novo logo após a busca REST
+  (`useApexLogic.ts`, perto de onde `getRealMarketData` é chamado) que pula o
+  ciclo de análise/entrada quando `!marketData.isRealData`, com toast de
+  aviso (throttle de 60s) — "Dados de mercado indisponíveis no momento".
+  Vale notar: dado literalmente fabricado (`SIMULATED`) nunca chegava a
+  abrir trade mesmo antes desta correção (o filtro de 2026-07-11 já
+  cuidava disso) — o gap era só a ausência de bloqueio explícito +
+  aviso visível durante o próprio ciclo de decisão, não uma falha de
+  "nunca fabricar dado".
+- `npm run validate`: 28/28 ✅. `tsc --noEmit` limpo. **Não testado em
+  browser real** (precisaria simular queda da conta MetaAPI de plataforma
+  pra exercitar o caminho, o que não dá pra fazer sem acesso a essa conta).
+
+---
+
 ## Fase 0 — resumo (sessão anterior, 2026-07-29 16h)
 
 Removido `Math.random()` que apresentava números aleatórios como capacidade
@@ -131,13 +171,45 @@ deployments da branch `dev` (projeto Vercel `neural-day-trader-v2`, time
 
 - **Fase 0**: ✅ 100% completa, sem pendências.
 - **Fase 1**: ✅ 100% completa, 7/7 tópicos, Tópico 7 com hardening real aplicado.
-- **Fase 2 (persistência)**: funciona — trades/sessões DEMO salvos no Supabase.
+- **Fase 2 (persistência)**: funciona, auditada e com hardening aplicado nesta
+  sessão (ver seção acima) — falha de escrita agora visível ao usuário, sem
+  risco de sessão duplicada por clique duplo. **Mudança ainda não commitada
+  nem pushada** — ver seção "Pendência de commit" abaixo.
 - **Fase 3 (execução real)**: não existe — ponte decisão→execução automática
   não implementada. Desenho já definido (4 estágios, ver `AI_BRAIN_SPEC.md`
   seção 9.1), aguardando decisão de avançar sem edge de sinal comprovado.
 - **Cérebro de IA**: nenhum dos 5 presets testados passou 95% DSR; Trilho 2
   (busca de edge) formalmente pausado; produto foca 100% no pilar de
   execução/gestão de risco.
+
+---
+
+## Pendência de commit (na hora deste handoff)
+
+Working tree tem mudanças locais **não commitadas** da Fase 2 (hardening) +
+a própria reescrita deste arquivo. `dev` está sincronizada com
+`origin/dev` (nada pendente de push do lado dos commits já feitos — só
+falta commitar/pushar o que está solto agora). Arquivos:
+
+```
+modified:   NEXT_SESSION.md
+modified:   src/app/hooks/useAIPersistence.ts
+modified:   src/app/hooks/useApexLogic.ts
+modified:   supabase-migrations/001_ai_trading_persistence.sql
+```
+
+Comandos prontos:
+
+```bash
+git add src/app/hooks/useAIPersistence.ts src/app/hooks/useApexLogic.ts supabase-migrations/001_ai_trading_persistence.sql NEXT_SESSION.md
+git commit -m "fix: hardening da persistência DEMO (Fase 2) — falha silenciosa e sessão duplicada"
+git push origin dev
+```
+
+Também existe `FASE1_RESUMO_EXECUTIVO.md` **não rastreado** e **desatualizado**
+(mostra "3/7 tópicos" de um ponto intermediário de sessão anterior — a Fase 1
+já está 7/7). Não incluído no commit acima de propósito. Decisão em aberto:
+apagar (`rm FASE1_RESUMO_EXECUTIVO.md`) ou manter solto.
 
 ---
 
