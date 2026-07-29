@@ -61,6 +61,7 @@ const toast = {
   }
 };
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
+import { RiskManager, type RiskConfig, type DailyStats } from '../../lib/modules/RiskManager'; // Fase 1: validação de risco
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 
@@ -1326,6 +1327,56 @@ export function useApexLogic(
           // o estado geral a cada 5s e só pausa tudo via Safe Mode). Aqui é um veto
           // pontual, por trade, sem desligar a IA.
           const now = Date.now();
+
+          // === PHASE 1: Daily Loss Limit Check ===
+          const riskConfig: RiskConfig = {
+            maxDailyLossPercent: aiConfig.dailyLossLimit,
+            maxDrawdownPercent: aiConfig.maxDrawdown,
+            maxPositionSizePercent: aiConfig.riskPerTrade,
+            kellyFraction: 0.25, // conservador por padrão
+          };
+
+          // Calcular stats diários (trades fechados hoje, PnL realizado/não-realizado)
+          const nowDate = new Date();
+          const startOfUtcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
+          const tradesToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= startOfUtcDay);
+          const realizedPnL = tradesToday.reduce((sum, t) => sum + (t.currentProfit || 0), 0);
+          const unrealizedPnL = activeOrdersRef.current.reduce((sum, o) => sum + (o.currentProfit || 0), 0);
+          const largestLoss = Math.min(...tradesToday.map(t => t.currentProfit || 0));
+
+          // Perdas consecutivas
+          let consecutiveLosses = 0;
+          for (const t of [...tradesToday].reverse()) {
+            if ((t.currentProfit || 0) < 0) consecutiveLosses++;
+            else break;
+          }
+
+          const dailyStats: DailyStats = {
+            closedTradesCount: tradesToday.length,
+            realizedPnL,
+            unrealizedPnL,
+            largestLoss,
+            consecutiveLosses,
+          };
+
+          // Validar trade via RiskManager
+          const riskManager = new RiskManager(riskConfig);
+          const accountState = {
+            balance: portfolioRef.current.balance,
+            initialBalance: portfolioRef.current.initialBalance || 100,
+            dailyStartBalance: portfolioRef.current.dayAnchorEquity || portfolioRef.current.initialBalance || 100,
+            currentDrawdown: portfolioRef.current.currentDrawdown,
+            openPositionsCount: activeOrdersRef.current.length,
+          };
+
+          // Propor tamanho de posição (% riskPerTrade do saldo atual)
+          const proposedTradeSize = portfolioRef.current.balance * (aiConfig.riskPerTrade / 100);
+
+          const riskCheck = riskManager.validateTrade(accountState, proposedTradeSize, dailyStats);
+          if (!riskCheck.approved) {
+            console.log(`[RISCO] 🚫 ${riskCheck.reason}`);
+            return;
+          }
 
           // Cooldown pós-perdas consecutivas
           if (aiConfig.cooldownEnabled && now < cooldownUntilRef.current) {

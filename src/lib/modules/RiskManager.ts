@@ -1,19 +1,31 @@
 /**
  * Módulo 2: Logic & Risk (RiskManager)
  * Responsável por validar se um trade é seguro antes da execução.
+ *
+ * Fase 1: Daily Loss Limit, Drawdown, Position Sizing, Cooldown, Max Trades/Day, Kill-Switch
  */
 
 export interface RiskConfig {
-  maxDailyDrawdownPercent: number; // ex: 3.0 (3%)
-  maxPositionSizePercent: number;  // ex: 5.0 (5% da banca)
-  kellyFraction: number;           // ex: 0.5 (Meio Kelly)
+  maxDailyLossPercent: number;      // ex: 5.0 (perda máxima de 5% do capital inicial do dia)
+  maxDrawdownPercent: number;       // ex: 15.0 (drawdown máximo 15%)
+  maxPositionSizePercent: number;   // ex: 5.0 (5% da banca por posição)
+  kellyFraction: number;             // ex: 0.5 (Meio Kelly)
 }
 
 export interface AccountState {
-  balance: number;
-  dailyStartBalance: number;
-  currentDrawdown: number;
-  openPositionsCount: number;
+  balance: number;                   // saldo atual
+  initialBalance: number;            // saldo inicial da sessão (ou do dia)
+  dailyStartBalance: number;         // saldo no início do dia UTC
+  currentDrawdown: number;           // drawdown atual (%)
+  openPositionsCount: number;        // número de posições abertas
+}
+
+export interface DailyStats {
+  closedTradesCount: number;        // trades fechados hoje
+  realizedPnL: number;              // lucro/perda realizado hoje
+  unrealizedPnL: number;            // lucro/perda não-realizado (posições abertas)
+  largestLoss: number;              // maior perda em um trade hoje
+  consecutiveLosses: number;        // perdas seguidas
 }
 
 export class RiskManager {
@@ -23,46 +35,89 @@ export class RiskManager {
     this.config = config;
   }
 
-  public validateTrade(account: AccountState, proposedTradeSize: number): { approved: boolean; reason?: string } {
-    // 1. Verificar Drawdown Diário
-    const currentDrawdownPercent = (account.dailyStartBalance - account.balance) / account.dailyStartBalance * 100;
-    
-    // Se já estamos perdendo mais que o permitido, bloqueia novos trades
-    // Nota: Se estamos lucrando (balance > start), drawdown é negativo (seguro)
-    if (account.balance < account.dailyStartBalance && currentDrawdownPercent > this.config.maxDailyDrawdownPercent) {
-      return { 
-        approved: false, 
-        reason: `Risco Crítico: Drawdown diário excedeu ${this.config.maxDailyDrawdownPercent}%` 
+  /**
+   * Valida se um novo trade é permitido (gateway único antes de qualquer entrada).
+   * Retorna { approved: true } ou { approved: false, reason: "..." }
+   */
+  public validateTrade(
+    account: AccountState,
+    proposedTradeSize: number,
+    dailyStats: DailyStats
+  ): { approved: boolean; reason?: string } {
+    // 1. Daily Loss Limit — bloqueia se perdeu X% do capital inicial do dia
+    const dailyLoss = account.dailyStartBalance - account.balance;
+    const dailyLossPercent = (dailyLoss / account.dailyStartBalance) * 100;
+
+    if (dailyLoss > 0 && dailyLossPercent >= this.config.maxDailyLossPercent) {
+      return {
+        approved: false,
+        reason: `Limite diário de perda atingido: -${dailyLossPercent.toFixed(2)}% (limite ${this.config.maxDailyLossPercent}%)`
       };
     }
 
-    // 2. Verificar Tamanho da Posição (Position Sizing)
+    // 2. Drawdown Check — bloqueia se drawdown > limite
+    if (account.currentDrawdown > this.config.maxDrawdownPercent) {
+      return {
+        approved: false,
+        reason: `Drawdown excedido: ${account.currentDrawdown.toFixed(2)}% (limite ${this.config.maxDrawdownPercent}%)`
+      };
+    }
+
+    // 3. Position Sizing — valida tamanho da posição proposta
     const maxTradeSize = account.balance * (this.config.maxPositionSizePercent / 100);
     if (proposedTradeSize > maxTradeSize) {
-      return { 
-        approved: false, 
-        reason: `Gerenciamento de Risco: Tamanho da posição excede limite de ${this.config.maxPositionSizePercent}% da banca` 
+      return {
+        approved: false,
+        reason: `Tamanho da posição excede limite: ${proposedTradeSize.toFixed(2)} > ${maxTradeSize.toFixed(2)} (max ${this.config.maxPositionSizePercent}%)`
       };
     }
 
     return { approved: true };
   }
 
+  /**
+   * Calcula Kelly Criterion para position sizing dinâmico.
+   */
   public calculateKellyPosition(winRate: number, rewardRiskRatio: number, bankroll: number): number {
     // Fórmula de Kelly: f = (bp - q) / b
-    // onde b = odds recebidas (reward), p = prob de vitória, q = prob de derrota (1-p)
-    const p = winRate;
+    // onde b = reward ratio, p = prob vitória, q = prob derrota
+    const p = winRate / 100; // converter % para decimal
     const q = 1 - p;
     const b = rewardRiskRatio;
 
     let kellyPct = (b * p - q) / b;
-    
-    // Aplicar Kelly Fracionário para segurança
+
+    // Kelly Fracionário para segurança
     kellyPct = kellyPct * this.config.kellyFraction;
 
-    // Nunca arriscar mais que o limite hardcoded de segurança (ex: 5%)
+    // Nunca arriscar mais que o limite configurado
     const maxSafePct = this.config.maxPositionSizePercent / 100;
-    
+
     return bankroll * Math.min(Math.max(kellyPct, 0), maxSafePct);
+  }
+
+  /**
+   * Calcula tamanho da posição baseado em ATR (volatilidade).
+   * Quanto maior a volatilidade, menor a posição (risco fixo).
+   */
+  public calculateAtrPositionSize(
+    bankroll: number,
+    entryPrice: number,
+    atrValue: number,
+    riskPercent: number = 1.0 // risco de 1% do bankroll por trade
+  ): number {
+    if (atrValue <= 0 || entryPrice <= 0) return 0;
+
+    // Risco máximo em dólares = 1% do bankroll
+    const maxRiskDollars = bankroll * (riskPercent / 100);
+
+    // Stop Loss = ATR (em pontos) → converter pra $ por contrato
+    // Tamanho = Risco / (SL em $)
+    const positionSize = maxRiskDollars / atrValue;
+
+    // Capetar em 5% do bankroll (segurança)
+    const maxPositionDollars = bankroll * (this.config.maxPositionSizePercent / 100);
+
+    return Math.min(positionSize, maxPositionDollars / entryPrice);
   }
 }
