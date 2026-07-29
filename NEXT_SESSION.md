@@ -1,127 +1,268 @@
-# Handoff — próxima sessão (escrito em 2026-07-28)
+# Handoff — próxima sessão (escrito em 2026-07-29)
 
 > Arquivo temporário de retomada rápida. Não é memória permanente do projeto —
 > isso é o `CLAUDE.md` (carrega automático) e o `AI_BRAIN_SPEC.md` (fonte de
-> verdade do motor de decisão). Este arquivo existe só pra você abrir uma
-> janela nova e retomar sem reconstruir o raciocínio do zero. Pode apagar
-> depois de ler/absorver.
+> verdade do motor de decisão). Este arquivo existe só pra abrir uma janela
+> nova e retomar sem reconstruir o raciocínio do zero. Pode apagar depois de
+> ler/absorver. Substitui o handoff anterior (sessão de revisão da IA
+> Preditiva, 2026-07-28), que já foi commitado e absorvido.
 
 ## Onde a conversa chegou
 
-Sessão inteira focada em **revisar a tela "IA Preditiva" (`LiquidityPrediction.tsx`)** — auditoria completa de mock vs. real, correção do timeframe da previsão, unificação do seletor de ativos, controle de voz, e três bugs reais achados no meio do caminho (preço zerado, voz que não desligava, botões duplicados). Ver detalhe por tópico abaixo.
+Sessão inteira dividida em duas fases: **(1) avaliação de prontidão para
+investimento** e **(2) auditoria + correção de dado fabricado** encontrado
+como consequência direta dessa avaliação. Ver detalhe por tópico abaixo.
 
-### 1. Auditoria mock vs. real + reescrita da tela "IA Preditiva" (já commitado)
+---
 
-A tela inteira (`src/app/components/innovation/LiquidityPrediction.tsx`) foi auditada e reescrita:
+## FASE 1 — Avaliação "vale a pena buscar investidor agora?"
 
-- **Previsão "Próxima Xh"**: era 100% mock hardcoded (68% de confiança fixo, `+0.8%` fixo, sempre "1h" independente do timeframe selecionado). Reescrita pra usar o `MarketScoreEngine` real (mesmo motor do Dashboard) — título, classificação, confiança e níveis agora reagem de verdade ao timeframe escolhido (1m/5m/15m/1h/4h/1d — `'1w'` removido, o motor não suporta).
-- **Suporte/Resistência**: era ±0,2% arbitrário sobre o preço. Agora é pivô real (swing high/low de 20 barras) calculado a partir de candles reais (`backtestDataService.fetchHistoricalData`).
-- **Mapa de Liquidez**: era `Math.sin()+Math.random()` fabricado. Agora usa order book real da Binance (`GET /api/v3/depth`) para pares cripto resolvíveis; para o resto do catálogo (forex/índices via Infinox) mostra estado "indisponível" honesto — **isso é estrutural, não falta de fonte escolhida**: não existe order book público gratuito pra forex/CFD em nenhuma API de mercado (Alpha Vantage, EODHD, Tiingo etc. também não têm).
-- **Feed Neural**: os ~17 templates de alerta fabricados (baleia, spoofing, iceberg, RSI fake) foram removidos. Ficaram só alertas reais: horário de mercado, contagem de candle, trade grande via `aggTrades` da Binance (cripto), pressão de book real via `describeMicrostructure` (agora exportada do `MarketScoreEngine.ts`).
-- **Narração por voz** (`hourlyVoiceAnalysis.ts`): RSI e "probabilidade de alta" eram sorteados com `Math.random()` mesmo recebendo dado real de entrada. Corrigido pra vir do `MarketScoreResult` real; frase de probabilidade fabricada foi removida (não existe fonte real calibrada pra ela).
-- **Seletor de ativos**: unificado no `InfinoxAssetsBrowser` (o mesmo modal que o Dashboard usa em produção) — ganhou um modo `multi` novo, reaproveitado também pelo `AssetUniverse.tsx` do AI Trader.
+**Pergunta do Cleber**: já dá pra ir atrás de investidor pro Neural Day
+Trader?
 
-### 2. Bug achado e corrigido: narração sempre dizia "uma hora" (já commitado)
+**Veredito dado**: não ainda. Investiguei o repo inteiro, a pesquisa quant
+(`AI_BRAIN_SPEC.md`), o banco de produção (Supabase) e o site no ar antes de
+responder. Achados que embasaram o "não":
 
-`hourlyVoiceAnalysis.ts` tinha o texto "Previsão em uma hora" hardcoded, ignorando o timeframe real selecionado no seletor. Corrigido — `HourlyAnalysisData` ganhou `timeframeLabel`, preenchido com `TIMEFRAME_LABELS[timeframe]` nos dois call-sites da narração.
+- **Tração real**: 4 usuários cadastrados no Supabase de produção, 3 ativos
+  em 30 dias, último cadastro 19 dias atrás. Não há validação externa de
+  verdade.
+- **O produto declarado (pilar de disciplina de risco) não existe em
+  código**: `RiskManager.ts` (67 linhas, `validateTrade`/Kelly) nunca é
+  chamado por ninguém; `NeuralRiskGuardian.ts` é um stub de 4 linhas.
+  Enforcement real no backend (`/broker/execute`) não existe.
+- **A pesquisa quant é honesta e é um ativo real**: 15 sub-investigações
+  (seções 11.5→11.15 do `AI_BRAIN_SPEC.md`) não encontraram edge comprovado
+  em indicador técnico clássico — resultado negativo bem documentado, não
+  falta de tentativa. Metodologia (Deflated Sharpe Ratio, walk-forward,
+  `CRITERIA.md`) é um diferencial raro no mercado.
+- **O site em produção contradizia tudo isso**: números fabricados
+  ("24.000+ nós ativos", "$1.2B volume diário", "99,99% uptime",
+  alavancagem 1:1000 em destaque) com apenas 4 usuários reais e R$0 de
+  receita — risco jurídico (publicidade enganosa) e reputacional imediato
+  numa eventual due diligence.
 
-### 3. Toggle de voz independente + mutex entre telas de voz (já commitado)
+**Roadmap de 8 fases até "investível"** foi desenhado e salvo em
+[`/Users/clebercouto/Projects/we-expand/ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md`](../ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md)
+(fora deste repo, na raiz do `we-expand`, junto do `PLANEJAMENTO-LANCAMENTO`
+existente). Resumo das fases (critério de saída explícito em cada uma,
+decidido antes de começar — mesma disciplina do `CRITERIA.md`):
 
-A pedido do Cleber: novo botão "Voz ON/OFF" no Feed Neural, separado do "AI ON/OFF" (que continua desligando o feed inteiro) — permite acompanhar só os logs sem narração. Criado `VoiceCoordinatorContext` (novo, `src/app/contexts/`) que arbitra mutex entre a voz da IA Preditiva e a da tela "AI Trader Voice" — ligar uma desliga a outra na hora. No caminho, achado e corrigido um **bug real**: o cleanup do loop de narração do `AITraderVoice.tsx` não fazia nada de fato (só um `console.log`) — trocar de tela com a voz ligada deixava o loop rodando "zumbi" em segundo plano, brigando com a voz da outra tela. Agora cancela `speechSynthesis`, aborta o loop e libera a voz de verdade no unmount.
+0. Fechar o que ficou pela metade (copy fabricada) — **em andamento, ver
+   Fase 2 abaixo**.
+1. Módulo de risco com enforcement real (daily loss limit, position sizing
+   ATR, cooldown, kill-switch) — **não iniciado**.
+2. Ponte decisão→execução, estágios 1-2 (alerta + confirmação manual) —
+   **não iniciado**.
+3. Trilha jurídica (advogado de mercado de capitais) — **inicia em paralelo,
+   ainda não contratado**.
+4. 10 usuários reais em demo, métricas fechadas antes de começar — **não
+   iniciado, depende da Fase 1**.
+5. Primeiros pagantes — **não iniciado**.
+6. Corrigir planilha financeira (3 furos já documentados) + dashboard de
+   métricas reais — **não iniciado**.
+7. Deck, data room, mapeamento de investidor — **só começa depois dos gates
+   acima**.
 
-### 4. Bug achado e corrigido: "Voz OFF" não parava a narração em andamento (já commitado)
+**Total estimado**: 10-16 semanas, jurídico é o maior fator de variância.
 
-Causa raiz: os loops de narração (`for + await speak(...)`) capturavam a função `speak()` da closure vigente no clique do botão — como `speak()` é recriada a cada mudança de `voiceEnabled`, o loop já em andamento continuava vendo o `voiceEnabled` **antigo**. Corrigido com `voiceEnabledRef` (sempre sincronizada via `useEffect`), checada a cada iteração dos dois loops pra cortar de verdade. Layout também corrigido: "Voz ON/OFF" estava espalhado pro extremo direito da tela por causa de um `justify-between` mal escopado — agora fica agrupado ao lado do "AI ON/OFF".
+---
 
-### 5. Bug achado e corrigido + consolidação de botões — **AINDA NÃO COMMITADO**
+## FASE 2 — Correção de dado fabricado (Fase 0 do roadmap, em andamento)
 
-- **Preço zerado**: `realPrices[selectedAsset]` usava chave errada (`'BTC'` sem sufixo vs. `selectedAsset` guardando o ticker completo `'BTCUSDT'`) — nunca batia, caía sempre em `$0`, que ia parar tanto no card "Preço Atual" quanto na narração ("Preço atual: 0 dólares"). Trocado por `livePrice`, derivado do fechamento real do último candle já buscado pro pivô (cobre qualquer ativo do catálogo, não só os 10 pares cripto do `realPrices` antigo, que foi removido — tinha ficado órfão).
-- **3 botões duplicados → 1**: "Escaneamento Profundo" não tinha `onClick` nenhum (não fazia nada) e "Análise Completa por Voz" duplicava exatamente a lógica de "Análise | Próxima Xh". Os dois foram removidos — o único botão "Análise | Próxima Xh" já é profundo (Market Score Engine + pivô real) e já narra por voz por padrão, não mais 3 ações separadas.
-- **Retry/backoff no 504 da MetaAPI**: `BacktestDataService.fetchFromMetaApiHistory` agora tenta até 2 vezes a mais (800ms, depois 2s) quando a resposta é 504/502/503/429 — ataca a causa raiz documentada no `CLAUDE.md` (conta MetaAPI compartilhada sob carga), em vez de aceitar "indisponível" na primeira falha transitória. Se todas as tentativas falharem, o erro real ainda propaga — nunca fabrica candle.
-- Decisão tomada nesta sessão: **não** integrar Alpha Vantage/EODHD/Tiingo como fallback — cota diária grátis (≈25 req/dia) é baixa demais pro volume real do app, e nenhuma delas resolve o gap de order book de forex/índices de qualquer forma (isso é estrutural).
+### 2.1 Produção (`main`) — CONCLUÍDO e no ar
 
-## Verificação feita
+- Site de produção (`neuraldaytrader.com`) estava com stats fabricados. A
+  pedido do Cleber, tirado do ar (substituído por página de manutenção
+  honesta) enquanto o app real segue sendo corrigido na branch `dev`.
+- `index.html` (raiz, é o que a Vercel realmente serve — **não** o
+  `public/holding.html`, que foi criado e depois apagado por causa de uma
+  pegadinha de precedência: a Vercel serve arquivo estático antes de aplicar
+  `rewrites` do `vercel.json`) agora é uma página neutra: "Neural Day Trader
+  está sendo construído", logo real (`neural-logo.svg`, extraído do
+  componente `NeuralLogo.tsx`), favicon corrigido (hexágono cyan da marca,
+  não mais o "N" roxo antigo), contato `info@neuraldaytrader.com`.
+- Branch `dev` criada a partir do estado anterior (app completo) — é onde
+  todo trabalho real acontece agora. Preview deploy automático da Vercel
+  para essa branch **não disparou** (provavelmente Preview Deployments
+  desabilitado nas configs do projeto — não investigado a fundo). Acesso
+  real: `git checkout dev && npm run dev` (localhost:5173).
+- Todos os commits desta fase já foram feitos pelo Cleber (nunca eu sozinho,
+  regra do projeto) e estão em `main`.
 
-- `npm run validate` (28/28) depois de cada mudança que tocou o motor.
-- `npx tsc --noEmit` — 689 erros no total durante toda a sessão (baseline pré-existente, mesmo número antes/depois de cada mudança — **zero erro novo introduzido**, confirmado repetidamente com `git stash`).
-- `npm run build` — sempre limpo, sem aviso de chunk circular.
-- Verificação visual real no browser (login mock via `sessionStorage`, não credencial real) pra cada mudança: timeframe atualizando a previsão ao vivo, seletor de ativos unificado abrindo o modal certo, voz cortando de verdade no meio da narração (capturado via mock de `speechSynthesis`, array de mensagens faladas parou exatamente no ponto do clique), preço real aparecendo (`$63.748,47` em vez de `$0`), botão único substituindo os 3 antigos.
-- **Não testado**: nenhuma ação irreversível/financeira.
+### 2.2 Landing page (branch `dev`) — CONCLUÍDO, commitado
 
-## Próximo trabalho concreto sugerido
+`src/app/components/landing/LandingPage.tsx` e `translations.ts` (pt/en/es)
+reescritos. Removido: stats fabricados (24.000+ nós, $1.2B volume, 1:1000
+alavancagem, 99,99% uptime), "criptografia resistente a quantum", "execução
+em milissegundos", "zero latency co-location", specs de pricing fantasiosas
+(VPS Londres, dark pool, HFT, algoritmos genéticos, FIX protocol). Trocado
+por diferenciais reais: 18 fontes RSS, 10+ anos de backtest, AES-256+RLS,
+metodologia de validação estatística sem promessa de rentabilidade. Card
+novo "Disciplina de Execução" descreve o módulo de risco da Fase 1 do
+roadmap — **só pode ir ao ar depois que esse módulo existir de verdade**,
+hoje é aspiracional.
 
-1. **Commitar e dar push no que está pendente** (item 5 acima — preço, consolidação de botões, retry MetaAPI). Comandos prontos abaixo.
-2. Confirmar em produção (pós-deploy) que o preço real aparece corretamente pra ativos forex/índices também (só testei BTCUSDT localmente — o `livePrice` deveria funcionar pra qualquer ativo do catálogo via `backtestDataService`, mas vale conferir visualmente pelo menos 1 ativo não-cripto).
-3. Considerar migrar `AssetSelector.tsx`/`AssetSpecsSelector.tsx` (usados na view "Pirâmide") pro mesmo padrão `InfinoxAssetsBrowser` — ficou fora de escopo desta sessão de propósito (evitar aumentar a superfície de regressão numa área não relacionada ao pedido original).
-4. Pendência antiga, ainda não retomada: decisão sobre estágio 3 da ponte decisão→execução real (`CLAUDE.md`, seção "Pendências reais em aberto", item 2).
-5. `npm run validate` obrigatório antes de qualquer commit que toque o motor.
+**Achado à parte, não resolvido**: preços dos planos na landing (R$199/399)
+não batem com o modelo de receita já decidido em `PLANEJAMENTO-LANCAMENTO`
+(R$97/147/197). Decisão de negócio, não mexi sem confirmação.
 
-## Arquivos-chave pra retomar
+Commit: `fix: remove claims fabricadas da landing page (...)`, já no `dev`.
 
-- [`src/app/components/innovation/LiquidityPrediction.tsx`](src/app/components/innovation/LiquidityPrediction.tsx) — a tela inteira, reescrita nesta sessão. Maior arquivo tocado.
-- [`src/app/utils/hourlyVoiceAnalysis.ts`](src/app/utils/hourlyVoiceAnalysis.ts) — narração por voz, RSI/timeframe reais.
-- [`src/app/contexts/VoiceCoordinatorContext.tsx`](src/app/contexts/VoiceCoordinatorContext.tsx) — novo, mutex entre telas de voz.
-- [`src/app/components/modules/AITraderVoice.tsx`](src/app/components/modules/AITraderVoice.tsx) — fix do cleanup zumbi + integração com o coordenador.
-- [`src/app/components/dashboard/InfinoxAssetsBrowser.tsx`](src/app/components/dashboard/InfinoxAssetsBrowser.tsx) — ganhou modo `multi`.
-- [`src/app/services/BacktestDataService.ts`](src/app/services/BacktestDataService.ts) — retry/backoff no fetch da MetaAPI (pendente de commit).
-- [`src/app/services/MarketScoreEngine.ts`](src/app/services/MarketScoreEngine.ts) — `describeMicrostructure` exportada.
+### 2.3 Varredura de repo inteiro — CONCLUÍDO (5 itens críticos), commitado
+
+Depois da landing, pedido para varrer o resto do app atrás do mesmo padrão
+(agente Explore fez o levantamento). 5 achados críticos, todos sem gate de
+admin, todos corrigidos nesta sessão:
+
+1. **`AITraderVoice.tsx` + `advancedTradeAnalysis.ts`** — a voz narrava RSI,
+   MACD, sentimento, correlação com S&P500, fluxo institucional e "atividade
+   suspeita de baleias", tudo `Math.random()`; preço também era random walk
+   sintético. Reescrito: RSI/MACD/ATR/Bollinger calculados de verdade sobre
+   candle real da Binance (`backtestDataService.fetchHistoricalData`), preço
+   real polado a cada 5s. Campos sem fonte real (institucional, sentimento,
+   correlação, "manipulação") foram **removidos**, não fabricados — mesma
+   filosofia da auditoria de `LiquidityPrediction.tsx` da sessão anterior.
+2. **`LiveLogTerminal.tsx`** — latência de broker, margin level, CPU/Memory/
+   PID/Uptime fabricados a cada 2s. Agora só loga transições reais
+   (`useTradingContext`: conexão MT5, status rodando/parado, ordens
+   abertas/fechadas). Rodapé mostra uptime real da sessão.
+3. **`ReportExporter.tsx`** — gerava PDF/Excel **para download** com 50-100
+   trades fictícios, ID de relatório fixo, "SECURE HASH" aleatório e badge
+   "COMPLIANCE" (usuário podia entregar isso a um contador achando real).
+   Agora exporta `ai_trades` reais do Supabase (mesmo padrão de
+   `PerformanceView.tsx`); sem trade real, avisa e não gera nada.
+   **Descoberta**: este componente hoje **não está montado em nenhuma rota
+   ativa** (`ModularDashboard.tsx`, que o usa, não é importado por
+   `App.tsx`) — risco latente, não visível a usuário agora, mas a correção
+   vale pra quando for religado.
+4. **`DataSourceHealthDashboard.tsx`** — 5 provedores (MetaAPI, Trading
+   Economics, S&P Global, Alpha Vantage, CoinGecko) com latência/status/
+   requisições simulados via `setTimeout(Math.random())`, nenhuma chamada de
+   rede real. Reescrito pra monitorar só as 2 fontes reais do caminho
+   crítico — MetaAPI (via `getMT5Validator().getConnectionStatus()`) e
+   Binance (round-trip real medido via `fetchDirectBinance`). **Bug
+   encontrado e corrigido durante o teste**: `getMT5Validator()` lança
+   exceção quando nunca foi inicializado (sem token), travando o resto do
+   health-check — agora tratado com try/catch, mapeado honestamente como
+   "offline".
+5. **`useMarketScanner.ts`** — gerava score/insight por ativo fabricados a
+   cada 30s ("Fluxo Institucional agressivo detectado em X"); o próprio
+   `MarketScoreBoard.tsx` já documentava (2026-07-08) um bug real causado
+   por esse gerador (race condition sobrescrevendo preço real por zero).
+   Simplificado pra só detecção real de mercado aberto/fechado por
+   calendário (grátis, sem chamada de rede) — decisão deliberada de **não**
+   fazer scan real multi-ativo aqui porque bateria na conta MetaAPI
+   compartilhada (risco crônico já documentado no projeto).
+
+Verificação: `npm run validate` (28/28), `tsc --noEmit` sem erro novo, e
+**teste ao vivo no browser** (login mock via `sessionStorage.apex_mock_user`,
+não credencial real) — narração de voz confirmada com RSI/MACD/ATR reais,
+terminal só com eventos reais, painel de saúde confirmado com MT5
+offline/Binance 290ms reais.
+
+Commit: `fix: remove dado fabricado de 5 componentes (...)`, já no `dev`
+(o Cleber já rodou os comandos — `git log` confirma, nada pendente de
+commit neste momento).
+
+### 2.4 Achados adicionais (fora do escopo aprovado até agora)
+
+Registrados durante a varredura/teste, ainda **não corrigidos**:
+
+- Tela de login (`AuthOverlay.tsx`) mostra "LATENCY: 12MS" e "ENCRYPTED
+  CONNECTION (TLS 1.3)" fixos (não medidos). Também existe um fluxo de
+  "Escaneamento Biométrico" e um "log de segurança" (`securityLog`
+  traduzido em 3 idiomas) que são **código morto** — as chaves de tradução
+  existem mas não são renderizadas em lugar nenhum (confirmado por grep).
+- `public/proposta-comercial.html`, publicado em produção
+  (`neuraldaytrader.com/proposta-comercial.html`), é uma proposta comercial
+  de **outro produto** (arbitragem de commodities agropecuárias) reusando a
+  marca Neural Day Trader como prova social ("plataforma 75% pronta", "IA
+  já testada e funcional"). Já li o arquivo inteiro (344 linhas) nesta
+  sessão.
+- `LatencyBenchmark.tsx` — ferramenta de QA/dev exposta permanentemente na
+  tela de usuário final `Performance.tsx` (não engana ninguém, só está no
+  lugar errado).
+- `RISK_MANAGEMENT_STRATEGY.md` (documento, não código) ainda descreve
+  `NexusQuantumAdvisor`/`MarketTendencyPanel` como "painel mock ainda
+  visível" — **já foram corrigidos em 2026-07-19** (usam `MarketScoreEngine`
+  real hoje). A documentação está desatualizada, não o código.
+- `PerformanceView.tsx` — "Retornos Mensais" (gráfico de barras Jan-Dez) e
+  "Distribuição por Ativo" (pizza Forex/Ações/Índices/Cripto) mostravam
+  números com a conta em $0/nenhum trade real — **suspeito de ser
+  fabricado, não investigado a fundo ainda**.
+
+---
+
+## Próximo trabalho pedido pelo Cleber (início desta janela, NÃO EXECUTADO ainda)
+
+Pedido explícito, na ordem que ele mandou — nenhum destes 4 itens foi
+começado, a sessão foi interrompida pra salvar este handoff antes:
+
+1. **Reconstruir `public/proposta-comercial.html` para o Neural Day
+   Trader** (não para o produto de arbitragem agropecuária) — e **não
+   tirar do ar**, só trocar o conteúdo. Já li o arquivo completo (344
+   linhas, estrutura: header, sobre o desenvolvedor, solução, 3 opções de
+   preço R$42k/55k/95k, comparativo, análise de valor, contato). Precisa
+   virar uma proposta comercial real do Neural Day Trader — provavelmente
+   reaproveitando os diferenciais reais já estabelecidos na landing
+   (research quant honesta, segurança AES-256+RLS, 18 fontes RSS, dado
+   real sem simulação) e o modelo de preço já decidido em
+   `PLANEJAMENTO-LANCAMENTO` (R$97/147/197 + comissão + rebate IB).
+2. **Corrigir `RISK_MANAGEMENT_STRATEGY.md`** — atualizar a menção a
+   `NexusQuantumAdvisor`/`MarketTendencyPanel` como mock, já que isso foi
+   corrigido em 2026-07-19 e o documento nunca foi atualizado.
+3. **Tornar `useMarketScanner.ts` real pra uso da IA** — o Cleber quer o
+   scanner multi-ativo de verdade (não só calendário aberto/fechado). Ponto
+   de atenção que eu tinha levantado antes de parar: rodar
+   `MarketScoreEngine.compute()` pra vários ativos a cada 30s pode sobrecarregar
+   a conta MetaAPI compartilhada (risco crônico já documentado no
+   `CLAUDE.md`) — precisa de desenho cuidadoso (ex: só ativos cripto via
+   Binance, que não tem esse limite; ou aumentar o intervalo; ou usar
+   cache/dado já buscado por outro componente em vez de nova chamada).
+4. **Avaliar se dá pra desenvolver login biométrico + log de segurança de
+   verdade** (`AuthOverlay.tsx`) — hoje é 100% decorativo/código morto.
+   WebAuthn (`navigator.credentials`) é tecnicamente viável no browser para
+   reautenticação no mesmo dispositivo, mas precisa investigar se o fluxo
+   de auth atual (mock local + Supabase em produção) suporta isso de forma
+   real antes de prometer. Ainda não avaliado a fundo.
+5. **Investigar e corrigir `PerformanceView.tsx`** — "Retornos Mensais" e
+   "Distribuição por Ativo" parecem fabricados (dados aparecem mesmo com
+   conta zerada). Cleber pediu pra "deixar perfeito" — investigar a fundo
+   (que arquivo/serviço gera esses números) antes de decidir se remove,
+   substitui por real, ou marca como indisponível.
 
 ## Regras fixas do projeto (não esquecer ao retomar)
 
-- Claude nunca faz `git commit`/`git push` sozinho — sempre entregar comando pronto pro Cleber rodar (Cleber pediu explicitamente que **o comando de push venha sempre junto** com o de commit a partir desta sessão).
+- Claude nunca faz `git commit`/`git push` sozinho — sempre entregar
+  comando pronto pro Cleber rodar (push sempre junto do commit).
 - `npm run validate` obrigatório antes de qualquer commit que toque o motor.
-- Nunca fabricar dado — sempre erro/estado "indisponível" explícito quando não há fonte real.
-- Comunicação sempre em português, rigor de especialista sênior — nunca inflar resultado, sempre reportar achado negativo por completo.
-- Ações irreversíveis/financeiras nunca são executadas por Claude sozinho, mesmo em teste.
+- Nunca fabricar dado — sempre erro/estado "indisponível" ou remoção
+  completa quando não há fonte real. Esta foi a diretriz central da sessão
+  inteira.
+- Comunicação sempre em português, rigor de especialista sênior — nunca
+  inflar resultado, sempre reportar achado negativo por completo.
+- Trabalho de produto acontece na branch `dev` — `main` é só a página de
+  manutenção até a Fase 1 do roadmap (módulo de risco real) estar pronta.
 
 ## Estado do git
 
-**Pendente de commit** (working tree neste momento):
+Branch atual: `dev`. Nada pendente de commit neste momento (`git status`
+limpo de mudança rastreada; só arquivos não rastreados de sempre — zip,
+screenshots antigas em `src/imports/`, `dist/`, `RISK_MANAGEMENT_STRATEGY.md`
+ainda não versionado). Últimos commits, mais recente primeiro:
 
 ```
-M src/app/components/innovation/LiquidityPrediction.tsx
-M src/app/services/BacktestDataService.ts
+17301f743 fix: remove dado fabricado de 5 componentes (voz, terminal, relatorio, saude de dados, scanner)
+8939c02bc fix: remove claims fabricadas da landing page (stats, criptografia quantica, alavancagem, latencia)
+24da24a26 docs: atualiza handoff da sessao de revisao da IA Preditiva
 ```
 
-Comandos prontos pra rodar:
+## Arquivos-chave pra retomar
 
-```bash
-git add src/app/components/innovation/LiquidityPrediction.tsx src/app/services/BacktestDataService.ts
-```
-
-```bash
-git commit -m "fix: preco zerado na IA Preditiva, consolida botoes de analise, retry no 504 da MetaAPI
-
-- LiquidityPrediction: realPrices[selectedAsset] usava chave errada (base
-  cripto sem sufixo vs ticker completo do catalogo Infinox) -- sempre caia
-  em 0, aparecia no card Preco Atual e na narracao por voz. Trocado por
-  livePrice, derivado do candle real ja buscado pro pivo (cobre qualquer
-  ativo, nao so os 10 pares cripto do realPrices antigo, removido por
-  ficar orfao).
-- LiquidityPrediction: Escaneamento Profundo (sem onClick, nao fazia nada)
-  e Analise Completa por Voz (duplicava a logica de Analise | Proxima Xh)
-  removidos -- um unico botao, ja profundo e ja narrado por voz por
-  padrao, nao mais 3 acoes separadas pra mesma analise.
-- BacktestDataService: retry com backoff (2 tentativas, 800ms/2s) em
-  fetchFromMetaApiHistory pra 504/502/503/429 -- ataca a causa raiz
-  documentada (conta MetaAPI compartilhada sob carga) em vez de mascarar
-  com falha imediata; erro real ainda propaga se todas as tentativas
-  falharem, nunca fabrica candle."
-```
-
-```bash
-git push origin main
-```
-
-Últimos commits já feitos, mais recente primeiro:
-
-```
-15ae00db3 fix: Voz OFF nao parava narracao em andamento + reposiciona botao ao lado do AI ON
-75ff47cb8 Reescreve seção de sentimento de mercado com dados reais do crawler RSS
-d66d6b835 feat: toggle de voz independente no Feed Neural + mutex entre vozes do app
-106e6b331 fix: narracao de voz da IA Preditiva ficava presa em 'uma hora' fixo
-5defd71f7 Atualiza preços em reais e dados do rodapé (endereço/contato)
-d9cdec709 fix: remove dado fabricado (Math.random) de voz, liquidez e feed neural
-```
-
-(Commit `75ff47cb8` e `5defd71f7` foram feitos por fora desta conversa — provavelmente pelo Cleber direto ou outra ferramenta — não fazem parte do trabalho documentado acima, citados só pra contexto do log.)
+- [`/Users/clebercouto/Projects/we-expand/ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md`](../ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md) — roadmap completo das 8 fases até investível.
+- [`public/proposta-comercial.html`](public/proposta-comercial.html) — próxima tarefa (item 1).
+- [`RISK_MANAGEMENT_STRATEGY.md`](RISK_MANAGEMENT_STRATEGY.md) — próxima tarefa (item 2).
+- [`src/app/hooks/useMarketScanner.ts`](src/app/hooks/useMarketScanner.ts) — próxima tarefa (item 3), consumido por [`src/app/components/dashboard/MarketScoreBoard.tsx`](src/app/components/dashboard/MarketScoreBoard.tsx).
+- [`src/app/components/auth/AuthOverlay.tsx`](src/app/components/auth/AuthOverlay.tsx) + [`src/app/components/landing/translations.ts`](src/app/components/landing/translations.ts) (chaves `login.biometric`/`login.securityLog`) — próxima tarefa (item 4).
+- [`src/app/modules/performance/PerformanceView.tsx`](src/app/modules/performance/PerformanceView.tsx) — próxima tarefa (item 5).
