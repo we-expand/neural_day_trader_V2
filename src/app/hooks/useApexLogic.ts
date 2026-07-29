@@ -368,9 +368,9 @@ const INITIAL_STATE: ApexLogicState = {
     consecutiveLossesTrigger: 3,
     cooldownMinutes: 60,
     maxTradesPerDay: 0, // 0 = sem limite
-    positionSizingMode: 'FIXED',
+    positionSizingMode: 'ATR', // ✅ Padrão: position sizing por volatilidade real
     atrMultiplier: 1.5,
-    correlationGuardEnabled: false,
+    correlationGuardEnabled: false, // TODO: Implementar correlação real em Fase 2
     correlationThreshold: 0.7,
   },
   mt5Credentials: null,
