@@ -153,6 +153,18 @@ ignorado.
 
 ## Pendências reais em aberto
 
+0. **Fase 0 (remover dado fabricado): CONCLUÍDA em 2026-07-29** — Auditoria
+   sweep de ~60 arquivos com `Math.random()` encontrou 9 casos em que números
+   aleatórios eram apresentados como capacidade real do sistema (latência,
+   uptime, risco de cliente, força de correlação, sincronização com broker).
+   Removidos: `SystemPerformance.tsx`, `QuantumChart.tsx`, `ButterflyMatrix.tsx`,
+   `MarketScore.tsx`, `LiquidityDetector.tsx`, `ChartViewSimple.tsx`,
+   `NeuralBridge.ts`, `liquiditySignals.ts`. Desativados/reescritos:
+   `DefensiveArchitecture.tsx`, `MT5Validator.tsx`, `StrategyDashboard.tsx`,
+   `LiquidityPrediction.tsx`, `UserIntelligence.tsx`, `QuantumAnalysis.tsx`.
+   Motor de decisão intacto (`npm run validate` 28/28 ✅). Commit:
+   "fix: remover dado fabricado (Math.random) da Fase 0 — auditoria completa".
+
 1. **Decisão de escopo tomada em 2026-07-26: linha 11.5→11.15 fechada, sem
    candidato promovido.** 15 sub-investigações (5 presets × 2 cestas ×
    timeframes × Sharpe/Sortino) não encontraram edge em indicador técnico
