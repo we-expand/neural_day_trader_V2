@@ -9,50 +9,55 @@ export const translations = {
       login: "LOGIN"
     },
     hero: {
-      systemStatus: "AI Algorithm",
-      title: ["Neuro AI. Think.", "Connect. Profit."],
-      subtitle: "The first neural interface for decentralized markets. Execute trades with the precision of a machine and the intuition of a hive mind.",
+      systemStatus: "Quant System Active",
+      rotating: [
+        "Quantitative Signals.",
+        "Algorithmic Trading.",
+        "Market Intelligence.",
+        "Disciplined Execution.",
+        "Risk Under Control."
+      ],
+      subtitle: "Real price, real news, real order book — no simulation, no invented number. Every signal only reaches you after out-of-sample statistical validation, with transaction cost already deducted. The same rigor a professional quant desk applies, built into your trading.",
       ctaStart: "START TRADING",
       ctaDemo: "VIEW DEMO"
     },
     stats: {
-      nodes: "Active Nodes",
-      volume: "Daily Volume",
-      latency: "Latency",
-      uptime: "Uptime",
-      leverage: "Max Leverage"
+      newsSources: { value: '18', label: 'Real-time news sources' },
+      backtestYears: { value: '10+', label: 'Years of backtest history' },
+      dataCost: { value: '$0', label: 'Data cost to you' },
+      realData: { value: '100%', label: 'Real price, zero simulation' }
     },
     features: {
-      neural: { title: "Neural Analysis", desc: "Our AI processes market sentiment and technical indicators in real-time, identifying patterns invisible to the human eye." },
-      flash: { title: "Flash Execution", desc: "Direct market access ensures your trades are executed in milliseconds, staying ahead of volatility." },
-      security: { title: "Military-Grade Security", desc: "Your assets are protected by quantum-resistant encryption and multi-signature wallet protocols." }
+      neural: { title: "Neural Analysis", desc: "Cross-references market sentiment (18 real news sources) with statistically validated technical indicators — we never promise a win rate, we always show the methodology behind it." },
+      risk: { title: "Execution Discipline", desc: "Daily loss limit, volatility-based position sizing, and automatic blocking of excess risk — the rule applies before the order goes out, not after the loss." },
+      security: { title: "Real Security", desc: "Broker credentials encrypted (AES-256) and never exposed to the browser — only the backend function has access. Row Level Security enabled on every database table." }
     },
     pricing: {
-      title: "Deployment Costs",
-      headline: "Select your operational capacity.",
-      subhead: "Transparent resource allocation for every level of trading autonomy.",
+      title: "Plans",
+      headline: "Choose the level of discipline your trading needs.",
+      subhead: "Validated methodology, risk under control, no promise of returns.",
       frequency: "/month",
       tiers: [
         {
           name: 'Protocol: Genesis',
           price: '$0',
-          description: 'Essential access for early validation and manual execution.',
+          description: 'Essential access to validate the methodology with manual execution.',
           cta: 'Deploy Instance',
-          features: ['Basic Neural Engine Access', 'Manual Trade Execution', 'Standard Latency (50ms)', 'Max Leverage 1:1000', 'Community Ledger Support', '1 Workspace']
+          features: ['Statistically validated signals', 'Market sentiment (18 real-time RSS sources)', 'Manual execution guided by risk alerts', 'Backtest with real historical data', '1 Workspace']
         },
         {
           name: 'Protocol: Velocity',
           price: '$299',
-          description: 'Automated infrastructure for high-frequency quantitative strategies.',
+          description: 'For active traders who want automated risk discipline.',
           cta: 'Upgrade Uplink',
-          features: ['Advanced Neural Forecasting', 'Auto-Research (20/day)', 'Low Latency (<10ms)', 'Max Leverage 1:1000', 'Direct Market Access (DMA)', '5 Workspaces', 'API Access']
+          features: ['Everything in Genesis', 'ATR-based position sizing + daily loss limit', 'Automatic cooldown after a losing streak', 'Real-time risk alerts', '5 Workspaces', 'API Access']
         },
         {
           name: 'Protocol: Sovereign',
           price: 'Custom',
-          description: 'Dedicated hardware and institutional-grade encryption for funds.',
+          description: 'Dedicated infrastructure for funds and proprietary desks.',
           cta: 'Contact Syndicate',
-          features: ['Dedicated Neural Cluster', 'Unlimited Auto-Research', 'Zero Latency Co-location', 'Custom Leverage (> 1:1000)', 'White-glove Integration', 'Unlimited Workspaces', 'On-premise Deployment Option']
+          features: ['Dedicated environment', 'Custom API integration', 'Dedicated support SLA', 'Assisted onboarding', 'Unlimited Workspaces', 'On-premise deployment option']
         }
       ]
     },
@@ -95,56 +100,61 @@ export const translations = {
     },
     hero: {
       systemStatus: "Sistema Quant Ativo",
-      title: ["Neuro AI. Pense.", "Conecte. Lucre."],
-      subtitle: "Acesse o que o olho humano não vê. Com monitoramento quântico a cada 5 segundos, nosso algoritmo cruza variáveis complexas para entregar uma execução disciplinada e livre de vieses. Otimize sua carteira com um sistema quantitativo desenhado para operar com máxima eficiência e precisão técnica.",
+      rotating: [
+        "Sinais Quantitativos.",
+        "Trading Algorítmico.",
+        "Inteligência de Mercado.",
+        "Execução Disciplinada.",
+        "Risco sob Controle."
+      ],
+      subtitle: "Preço real, notícia real, order book real — sem simulação, sem número inventado. Cada sinal só chega até você depois de validação estatística fora da amostra, com custo de transação já descontado. É o mesmo rigor de uma mesa quant profissional, aplicado à sua operação.",
       ctaStart: "INICIAR TRADING",
       ctaDemo: "VER DEMO"
     },
     stats: {
-      nodes: "Nós Ativos",
-      volume: "Volume Diário",
-      latency: "Latência",
-      uptime: "Uptime",
-      leverage: "Alavancagem Max"
+      newsSources: { value: '18', label: 'Fontes de notícia em tempo real' },
+      backtestYears: { value: '10+', label: 'Anos de histórico em backtest' },
+      dataCost: { value: 'R$0', label: 'Custo de dado pra você' },
+      realData: { value: '100%', label: 'Preço real, sem simulação' }
     },
     features: {
-      neural: { title: "Análise Neural", desc: "Nossa IA processa o sentimento do mercado e indicadores técnicos em tempo real, identificando padrões invisíveis ao olho humano." },
-      flash: { title: "Execução Flash", desc: "Acesso direto ao mercado garante que seus trades sejam executados em milissegundos, ficando à frente da volatilidade." },
-      security: { title: "Segurança Militar", desc: "Seus ativos são protegidos por criptografia resistente a quantum e protocolos de carteira multi-assinatura." }
+      neural: { title: "Análise Neural", desc: "Cruza sentimento de mercado (18 fontes de notícia reais) com indicadores técnicos validados estatisticamente — nunca prometemos taxa de acerto, sempre mostramos a metodologia por trás." },
+      risk: { title: "Disciplina de Execução", desc: "Limite de perda diária, tamanho de posição por volatilidade e bloqueio automático de excesso de risco — a regra vale antes da ordem sair, não depois do prejuízo." },
+      security: { title: "Segurança Real", desc: "Credencial de corretora cifrada (AES-256) e nunca exposta ao navegador — só a função de backend acessa. Row Level Security ativo em todas as tabelas do banco." }
     },
     pricing: {
-      title: "Alocação de Capacidade",
-      headline: "Selecione sua interface neural.",
-      subhead: "Acesso direto à infraestrutura de execução de grau institucional.",
+      title: "Planos",
+      headline: "Escolha o nível de disciplina que sua operação precisa.",
+      subhead: "Metodologia validada, risco sob controle, sem promessa de rentabilidade.",
       frequency: "/mês",
       tiers: [
         {
           name: 'Node: Starter',
           price: 'Gratuito',
-          description: 'Acesso essencial para validação de latência e execução manual.',
+          description: 'Acesso essencial para validar a metodologia com execução manual.',
           cta: 'Implantar Node',
-          features: ['Previsão Neural Básica', 'Execução Manual', 'Latência Standard (50ms)', 'Alavancagem Max 1:1000', 'Suporte Comunitário', '1 Workspace']
+          features: ['Sinais validados estatisticamente', 'Sentimento de mercado (18 fontes RSS em tempo real)', 'Execução manual guiada por alerta de risco', 'Backtest com dado histórico real', '1 Workspace']
         },
         {
           name: 'Node: Pro',
           price: 'R$199,00',
-          description: 'Infraestrutura para traders ativos e execução semi-automatizada.',
+          description: 'Para quem opera com frequência e quer disciplina de risco automatizada.',
           cta: 'Ativar Pro',
-          features: ['Sinais Neurais Avançados', 'Copy-Trading MT5', 'Baixa Latência (<20ms)', 'Alavancagem Max 1:1000', 'Análise de Sentimento IA', '3 Workspaces', 'Prioridade na Fila']
+          features: ['Tudo do Starter', 'Position sizing por ATR + limite de perda diária', 'Cooldown automático após sequência de perdas', 'Alertas de risco em tempo real', '3 Workspaces', 'Suporte prioritário']
         },
         {
           name: 'Node: Institutional',
           price: 'R$399,00',
-          description: 'Poder computacional bruto para HFT e Prop Firms.',
+          description: 'Para operação em maior escala, com múltiplas estratégias e contas.',
           cta: 'Solicitar Acesso',
-          features: ['Algoritmos Genéticos', 'Auto-Hedging Dinâmico', 'Ultra-Baixa Latência (<5ms)', 'Alavancagem Flexível (> 1:1000)', 'VPS Dedicado em Londres', '10 Workspaces', 'Gerente de Conta']
+          features: ['Tudo do Pro', 'Múltiplas estratégias simultâneas', 'Backtest e Market Replay ilimitados', 'Catálogo completo (cripto, forex, índices)', '10 Workspaces', 'Gerente de conta dedicado']
         },
         {
           name: 'Syndicate Core',
           price: 'Sob Medida',
-          description: 'Soluções White-Label e infraestrutura bancária dedicada.',
+          description: 'Infraestrutura dedicada para fundos e mesas proprietárias.',
           cta: 'Contatar Sindicato',
-          features: ['Cluster Neural Exclusivo', 'Dark Pool Access', 'Co-localização Zero Latência', 'Alavancagem Ilimitada', 'API Fix Protocol', 'Workspaces Ilimitados', 'Conformidade LGPD/MiFID II']
+          features: ['Ambiente dedicado', 'Integração personalizada via API', 'SLA de suporte dedicado', 'Onboarding assistido', 'Conformidade LGPD', 'Workspaces ilimitados']
         }
       ]
     },
@@ -186,50 +196,55 @@ export const translations = {
       login: "ACCESO"
     },
     hero: {
-      systemStatus: "AI Algorithm",
-      title: ["Neuro AI. Piense.", "Conecte. Gane."],
-      subtitle: "La primera interfaz neuronal para mercados descentralizados. Ejecute operaciones con la precisión de una máquina y la intuición de una mente colectiva.",
+      systemStatus: "Sistema Quant Activo",
+      rotating: [
+        "Señales Cuantitativas.",
+        "Trading Algorítmico.",
+        "Inteligencia de Mercado.",
+        "Ejecución Disciplinada.",
+        "Riesgo Bajo Control."
+      ],
+      subtitle: "Precio real, noticia real, order book real — sin simulación, sin número inventado. Cada señal solo llega hasta usted después de validación estadística fuera de muestra, con el costo de transacción ya descontado. El mismo rigor de una mesa cuantitativa profesional, aplicado a su operación.",
       ctaStart: "INICIAR TRADING",
       ctaDemo: "VER DEMO"
     },
     stats: {
-      nodes: "Nodos Activos",
-      volume: "Volumen Diario",
-      latency: "Latencia",
-      uptime: "Tiempo Activo",
-      leverage: "Apalancamiento Max"
+      newsSources: { value: '18', label: 'Fuentes de noticias en tiempo real' },
+      backtestYears: { value: '10+', label: 'Años de historial en backtest' },
+      dataCost: { value: '$0', label: 'Costo de dato para usted' },
+      realData: { value: '100%', label: 'Precio real, sin simulación' }
     },
     features: {
-      neural: { title: "Análisis Neuronal", desc: "Nuestra IA procesa el sentimiento del mercado y los indicadores técnicos en tiempo real, identificando patrones invisibles al ojo humano." },
-      flash: { title: "Ejecución Flash", desc: "El acceso directo al mercado asegura que sus operaciones se ejecuten en milisegundos, manteniéndose por delante de la volatilidad." },
-      security: { title: "Seguridad Militar", desc: "Sus activos están protegidos por encriptación resistente a cuántica y protocolos de billetera multi-firma." }
+      neural: { title: "Análisis Neuronal", desc: "Cruza el sentimiento de mercado (18 fuentes de noticias reales) con indicadores técnicos validados estadísticamente — nunca prometemos una tasa de acierto, siempre mostramos la metodología detrás." },
+      risk: { title: "Disciplina de Ejecución", desc: "Límite de pérdida diaria, tamaño de posición por volatilidad y bloqueo automático de exceso de riesgo — la regla se aplica antes de que salga la orden, no después de la pérdida." },
+      security: { title: "Seguridad Real", desc: "Credenciales de corretaje cifradas (AES-256) y nunca expuestas al navegador — solo la función de backend tiene acceso. Row Level Security activo en todas las tablas de la base de datos." }
     },
     pricing: {
-      title: "Costos de Despliegue",
-      headline: "Seleccione su capacidad operativa.",
-      subhead: "Asignación transparente de recursos para cada nivel de autonomía comercial.",
+      title: "Planes",
+      headline: "Elija el nivel de disciplina que su operación necesita.",
+      subhead: "Metodología validada, riesgo bajo control, sin promesa de rentabilidad.",
       frequency: "/mes",
       tiers: [
         {
           name: 'Protocolo: Génesis',
           price: '$0',
-          description: 'Acceso esencial para validación temprana y ejecución manual.',
+          description: 'Acceso esencial para validar la metodología con ejecución manual.',
           cta: 'Desplegar Instancia',
-          features: ['Acceso Básico al Motor Neuronal', 'Ejecución Manual de Operaciones', 'Latencia Estándar (50ms)', 'Apalancamiento Max 1:1000', 'Soporte Ledger Comunitario', '1 Espacio de Trabajo']
+          features: ['Señales validadas estadísticamente', 'Sentimiento de mercado (18 fuentes RSS en tiempo real)', 'Ejecución manual guiada por alertas de riesgo', 'Backtest con datos históricos reales', '1 Espacio de Trabajo']
         },
         {
           name: 'Protocolo: Velocidad',
           price: '$299',
-          description: 'Infraestructura automatizada para estrategias cuantitativas de alta frecuencia.',
+          description: 'Para traders activos que quieren disciplina de riesgo automatizada.',
           cta: 'Actualizar Uplink',
-          features: ['Predicción Neuronal Avanzada', 'Auto-Investigación (20/día)', 'Baja Latencia (<10ms)', 'Apalancamiento Max 1:1000', 'Acceso Directo al Mercado (DMA)', '5 Espacios de Trabajo', 'Acceso API']
+          features: ['Todo lo de Génesis', 'Tamaño de posición por ATR + límite de pérdida diaria', 'Enfriamiento automático tras racha de pérdidas', 'Alertas de riesgo en tiempo real', '5 Espacios de Trabajo', 'Acceso API']
         },
         {
           name: 'Protocolo: Soberano',
           price: 'A Medida',
-          description: 'Hardware dedicado y encriptación de grado institucional para fondos.',
+          description: 'Infraestructura dedicada para fondos y mesas propietarias.',
           cta: 'Contactar Sindicato',
-          features: ['Clúster Neuronal Dedicado', 'Auto-Investigación Ilimitada', 'Co-localización Cero Latencia', 'Apalancamiento Ilimitado (> 1:1000)', 'Integración White-glove', 'Espacios de Trabajo Ilimitados', 'Opción de Despliegue Local']
+          features: ['Entorno dedicado', 'Integración personalizada vía API', 'SLA de soporte dedicado', 'Onboarding asistido', 'Espacios de Trabajo ilimitados', 'Opción de despliegue local']
         }
       ]
     },
