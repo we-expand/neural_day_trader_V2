@@ -10,7 +10,7 @@
     },
     {
       "source": "/((?!api/.*).*)",
-      "destination": "/holding.html"
+      "destination": "/index.html"
     }
   ],
   "headers": [
