@@ -27,6 +27,10 @@ export interface Trade {
   /** Índice do candle de ENTRADA (não confundir com candleIndex, que é o de saída). Necessário pra filtrar trades cuja entrada caiu dentro da região de warmup — ver research/DataSplit.ts. */
   entryIndex: number;
   candleIndex: number;
+  /** Maior excursão favorável durante o trade, em % do preço de entrada (sempre >=0). Usado pra medir skew de MFE/MAE (research/MASTER_PLAN.md §4.6/§6 Fase 2, item 3) antes de gastar poder estatístico testando a média do Sharpe. */
+  mfePercent: number;
+  /** Maior excursão adversa durante o trade, em % do preço de entrada (sempre >=0). */
+  maePercent: number;
   aiAnalysis: {
     confidence: number;
     mainReason: string;
@@ -90,6 +94,8 @@ export function runBacktest(
     tradeCapital: number;
     reasons: string[];
     confidence: number;
+    mfePercent: number;
+    maePercent: number;
   } = null;
 
   const pointValue = getPointValue(symbol);
@@ -114,6 +120,20 @@ export function runBacktest(
         const prevClose = candles[i - 1].close;
         openPosition.sl = trailStopLoss(openPosition.side, openPosition.entryPrice, openPosition.originalSl, openPosition.sl, prevClose);
       }
+
+      // MFE/MAE: maior excursão favorável/adversa observada durante o trade,
+      // medida em high/low de cada barra (não só no fechamento) — mede a
+      // amplitude real de movimento a favor/contra a posição, para o teste de
+      // skew do §4.6 do MASTER_PLAN.md (mais barato em `n` que testar a
+      // média do Sharpe, ver Livermore/Kestner).
+      const favorableExcursion = openPosition.side === 'LONG'
+        ? (candle.high - openPosition.entryPrice) / openPosition.entryPrice * 100
+        : (openPosition.entryPrice - candle.low) / openPosition.entryPrice * 100;
+      const adverseExcursion = openPosition.side === 'LONG'
+        ? (openPosition.entryPrice - candle.low) / openPosition.entryPrice * 100
+        : (candle.high - openPosition.entryPrice) / openPosition.entryPrice * 100;
+      openPosition.mfePercent = Math.max(openPosition.mfePercent, favorableExcursion);
+      openPosition.maePercent = Math.max(openPosition.maePercent, adverseExcursion);
 
       const hitTp = openPosition.tp !== null && (openPosition.side === 'LONG' ? candle.high >= openPosition.tp : candle.low <= openPosition.tp);
       const hitSl = openPosition.side === 'LONG' ? candle.low <= openPosition.sl : candle.high >= openPosition.sl;
@@ -150,6 +170,8 @@ export function runBacktest(
           status: isWin ? 'win' : 'loss',
           entryIndex: openPosition.entryIndex,
           candleIndex: i,
+          mfePercent: openPosition.mfePercent,
+          maePercent: openPosition.maePercent,
           aiAnalysis: {
             confidence: openPosition.confidence,
             mainReason: openPosition.reasons[0] || `${strategy.name}: sinal de ${openPosition.side === 'LONG' ? 'compra' : 'venda'}`,
@@ -204,6 +226,7 @@ export function runBacktest(
     openPosition = {
       side, entryPrice, entryIndex: i, tp, sl, originalSl: sl,
       tradeCapital, reasons: result.reasons, confidence: result.confidence,
+      mfePercent: 0, maePercent: 0,
     };
   }
 

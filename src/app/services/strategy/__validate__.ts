@@ -104,5 +104,21 @@ function makeStrategy(overrides: Partial<Strategy>): Strategy {
   assertTrue('sizing: fallback sem stopDistancePercent preserva o comportamento antigo (capital × risco% × multiplicador)', Math.abs(fallback - 100) < 0.001);
 }
 
+// ─── CASO 4: MFE/MAE medem a excursão real de preço, não o preço de saída ──
+// Novo em 2026-07-30 (Fase 2 do MASTER_PLAN.md, pré-requisito pro teste de
+// skew do §4.6): MFE/MAE devem refletir o high/low de CADA barra durante o
+// trade, não o SL/TP em si. Reusa o cenário do CASO 1 (LONG, entryPrice=100):
+// barra 61 (high=116, low=100) e barra 62 (high=110, low=90, fecha em 109).
+{
+  const flat = Array.from({ length: 61 }, (_, i) => makeCandle(100, i));
+  const bar61 = makeCandle(114, 61, 116, 100, 100);
+  const bar62 = makeCandle(105, 62, 110, 90, 105);
+  const candles: Candle[] = [...flat, bar61, bar62];
+  const res = runBacktest(candles, makeStrategy({}), 'TESTXX', 'long', 10000, 0);
+
+  assertTrue('MFE captura o high da barra 61 (16% acima da entrada), não o high da barra de saída', res.trades.length === 1 && Math.abs(res.trades[0].mfePercent - 16) < 0.01);
+  assertTrue('MAE captura o low da barra 62 (10% abaixo da entrada), independente do SL ter sido tocado antes nesse nível', res.trades.length === 1 && Math.abs(res.trades[0].maePercent - 10) < 0.01);
+}
+
 console.log(`\n${passed} passaram, ${failed} falharam.`);
 if (failed > 0) process.exit(1);
