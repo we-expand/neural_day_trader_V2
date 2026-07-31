@@ -1,0 +1,911 @@
+{
+  "experiment": "2026-07-31-btc-holdout",
+  "startedAt": "2026-07-31T21:37:25.746Z",
+  "finishedAt": "2026-07-31T21:40:27.241Z",
+  "config": {
+    "forwardBars": 8,
+    "rollingWindow": 500,
+    "minLookback": 240,
+    "buyScore": 68,
+    "sellScore": 32,
+    "minConfidence": 55,
+    "roundTripCostPct": 0.26,
+    "alphaBonferroni": 0.025
+  },
+  "reproductionCheck": {
+    "note": "A janela IS deve reproduzir o baseline (BTC 4h ~68,2% n=88; BTC 1h ~61,1% n=90). Divergência grande invalida a otimização de janela móvel.",
+    "btc4h": {
+      "baselineHitRate": 68.2,
+      "baselineSamples": 88,
+      "measuredHitRate": 61.5,
+      "measuredSamples": 104
+    },
+    "btc1h": {
+      "baselineHitRate": 61.1,
+      "baselineSamples": 90,
+      "measuredHitRate": 50,
+      "measuredSamples": 102
+    }
+  },
+  "verdicts": [
+    {
+      "combo": "BTCUSDT 4h",
+      "c1_significance": false,
+      "c2_consistency": false,
+      "c3_economic": false,
+      "c4_sample": true
+    },
+    {
+      "combo": "BTCUSDT 1h",
+      "c1_significance": true,
+      "c2_consistency": false,
+      "c3_economic": true,
+      "c4_sample": true
+    }
+  ],
+  "btc": [
+    {
+      "symbol": "BTCUSDT",
+      "timeframe": "4h",
+      "totalCandles": 19615,
+      "periodStart": "2017-08-17",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 104,
+        "hits": 64,
+        "hitRate": 61.5,
+        "pValue": 0.011823,
+        "buy": {
+          "samples": 41,
+          "hitRate": 63.4
+        },
+        "sell": {
+          "samples": 63,
+          "hitRate": 60.3
+        },
+        "grossReturnPct": 0.9836,
+        "netEdgePct": 0.7236
+      },
+      "outOfSample": {
+        "samples": 675,
+        "hits": 348,
+        "hitRate": 51.6,
+        "pValue": 0.220721,
+        "buy": {
+          "samples": 428,
+          "hitRate": 54.4
+        },
+        "sell": {
+          "samples": 247,
+          "hitRate": 46.6
+        },
+        "grossReturnPct": 0.1707,
+        "netEdgePct": -0.0893
+      },
+      "fullPeriod": {
+        "samples": 779,
+        "hits": 412,
+        "hitRate": 52.9,
+        "pValue": 0.057431,
+        "buy": {
+          "samples": 469,
+          "hitRate": 55.2
+        },
+        "sell": {
+          "samples": 310,
+          "hitRate": 49.4
+        },
+        "grossReturnPct": 0.2792,
+        "netEdgePct": 0.0192
+      },
+      "byYear": [
+        {
+          "year": 2017,
+          "samples": 36,
+          "hitRate": 61.1
+        },
+        {
+          "year": 2018,
+          "samples": 66,
+          "hitRate": 50
+        },
+        {
+          "year": 2019,
+          "samples": 86,
+          "hitRate": 53.5
+        },
+        {
+          "year": 2020,
+          "samples": 110,
+          "hitRate": 49.1
+        },
+        {
+          "year": 2021,
+          "samples": 43,
+          "hitRate": 39.5
+        },
+        {
+          "year": 2022,
+          "samples": 88,
+          "hitRate": 47.7
+        },
+        {
+          "year": 2023,
+          "samples": 126,
+          "hitRate": 61.1
+        },
+        {
+          "year": 2024,
+          "samples": 120,
+          "hitRate": 47.5
+        },
+        {
+          "year": 2025,
+          "samples": 66,
+          "hitRate": 62.1
+        },
+        {
+          "year": 2026,
+          "samples": 38,
+          "hitRate": 60.5
+        }
+      ]
+    },
+    {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "totalCandles": 78390,
+      "periodStart": "2017-08-17",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2026-03-03",
+      "inSample": {
+        "samples": 102,
+        "hits": 51,
+        "hitRate": 50,
+        "pValue": 0.539404,
+        "buy": {
+          "samples": 41,
+          "hitRate": 61
+        },
+        "sell": {
+          "samples": 61,
+          "hitRate": 42.6
+        },
+        "grossReturnPct": 0.1768,
+        "netEdgePct": -0.0832
+      },
+      "outOfSample": {
+        "samples": 2531,
+        "hits": 1358,
+        "hitRate": 53.7,
+        "pValue": 0.000127,
+        "buy": {
+          "samples": 1323,
+          "hitRate": 57.3
+        },
+        "sell": {
+          "samples": 1208,
+          "hitRate": 49.7
+        },
+        "grossReturnPct": 0.2627,
+        "netEdgePct": 0.0027
+      },
+      "fullPeriod": {
+        "samples": 2633,
+        "hits": 1409,
+        "hitRate": 53.5,
+        "pValue": 0.000167,
+        "buy": {
+          "samples": 1364,
+          "hitRate": 57.4
+        },
+        "sell": {
+          "samples": 1269,
+          "hitRate": 49.3
+        },
+        "grossReturnPct": 0.2594,
+        "netEdgePct": -0.0006
+      },
+      "byYear": [
+        {
+          "year": 2017,
+          "samples": 41,
+          "hitRate": 46.3
+        },
+        {
+          "year": 2018,
+          "samples": 235,
+          "hitRate": 61.7
+        },
+        {
+          "year": 2019,
+          "samples": 368,
+          "hitRate": 54.3
+        },
+        {
+          "year": 2020,
+          "samples": 334,
+          "hitRate": 58.1
+        },
+        {
+          "year": 2021,
+          "samples": 199,
+          "hitRate": 48.2
+        },
+        {
+          "year": 2022,
+          "samples": 305,
+          "hitRate": 53.8
+        },
+        {
+          "year": 2023,
+          "samples": 394,
+          "hitRate": 52.8
+        },
+        {
+          "year": 2024,
+          "samples": 285,
+          "hitRate": 52.3
+        },
+        {
+          "year": 2025,
+          "samples": 307,
+          "hitRate": 49.2
+        },
+        {
+          "year": 2026,
+          "samples": 165,
+          "hitRate": 50.3
+        }
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "symbol": "ETHUSDT",
+      "timeframe": "4h",
+      "totalCandles": 19615,
+      "periodStart": "2017-08-17",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 156,
+        "hits": 82,
+        "hitRate": 52.6,
+        "pValue": 0.287658,
+        "buy": {
+          "samples": 69,
+          "hitRate": 55.1
+        },
+        "sell": {
+          "samples": 87,
+          "hitRate": 50.6
+        },
+        "grossReturnPct": 0.5843,
+        "netEdgePct": 0.3243
+      },
+      "outOfSample": {
+        "samples": 605,
+        "hits": 315,
+        "hitRate": 52.1,
+        "pValue": 0.164599,
+        "buy": {
+          "samples": 323,
+          "hitRate": 55.1
+        },
+        "sell": {
+          "samples": 282,
+          "hitRate": 48.6
+        },
+        "grossReturnPct": 0.1227,
+        "netEdgePct": -0.1373
+      },
+      "fullPeriod": {
+        "samples": 761,
+        "hits": 397,
+        "hitRate": 52.2,
+        "pValue": 0.123016,
+        "buy": {
+          "samples": 392,
+          "hitRate": 55.1
+        },
+        "sell": {
+          "samples": 369,
+          "hitRate": 49.1
+        },
+        "grossReturnPct": 0.2173,
+        "netEdgePct": -0.0427
+      },
+      "byYear": [
+        {
+          "year": 2017,
+          "samples": 20,
+          "hitRate": 45
+        },
+        {
+          "year": 2018,
+          "samples": 126,
+          "hitRate": 51.6
+        },
+        {
+          "year": 2019,
+          "samples": 92,
+          "hitRate": 43.5
+        },
+        {
+          "year": 2020,
+          "samples": 106,
+          "hitRate": 58.5
+        },
+        {
+          "year": 2021,
+          "samples": 33,
+          "hitRate": 51.5
+        },
+        {
+          "year": 2022,
+          "samples": 89,
+          "hitRate": 55.1
+        },
+        {
+          "year": 2023,
+          "samples": 61,
+          "hitRate": 42.6
+        },
+        {
+          "year": 2024,
+          "samples": 78,
+          "hitRate": 60.3
+        },
+        {
+          "year": 2025,
+          "samples": 97,
+          "hitRate": 52.6
+        },
+        {
+          "year": 2026,
+          "samples": 59,
+          "hitRate": 52.5
+        }
+      ]
+    },
+    {
+      "symbol": "BNBUSDT",
+      "timeframe": "4h",
+      "totalCandles": 19130,
+      "periodStart": "2017-11-06",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 131,
+        "hits": 53,
+        "hitRate": 40.5,
+        "pValue": 0.988628,
+        "buy": {
+          "samples": 70,
+          "hitRate": 32.9
+        },
+        "sell": {
+          "samples": 61,
+          "hitRate": 49.2
+        },
+        "grossReturnPct": -0.154,
+        "netEdgePct": -0.414
+      },
+      "outOfSample": {
+        "samples": 460,
+        "hits": 186,
+        "hitRate": 40.4,
+        "pValue": 0.999984,
+        "buy": {
+          "samples": 231,
+          "hitRate": 41.1
+        },
+        "sell": {
+          "samples": 229,
+          "hitRate": 39.7
+        },
+        "grossReturnPct": -0.3968,
+        "netEdgePct": -0.6568
+      },
+      "fullPeriod": {
+        "samples": 591,
+        "hits": 239,
+        "hitRate": 40.4,
+        "pValue": 0.999999,
+        "buy": {
+          "samples": 301,
+          "hitRate": 39.2
+        },
+        "sell": {
+          "samples": 290,
+          "hitRate": 41.7
+        },
+        "grossReturnPct": -0.343,
+        "netEdgePct": -0.603
+      },
+      "byYear": [
+        {
+          "year": 2017,
+          "samples": 17,
+          "hitRate": 47.1
+        },
+        {
+          "year": 2018,
+          "samples": 77,
+          "hitRate": 37.7
+        },
+        {
+          "year": 2019,
+          "samples": 67,
+          "hitRate": 32.8
+        },
+        {
+          "year": 2020,
+          "samples": 40,
+          "hitRate": 45
+        },
+        {
+          "year": 2021,
+          "samples": 73,
+          "hitRate": 47.9
+        },
+        {
+          "year": 2022,
+          "samples": 62,
+          "hitRate": 45.2
+        },
+        {
+          "year": 2023,
+          "samples": 77,
+          "hitRate": 37.7
+        },
+        {
+          "year": 2024,
+          "samples": 47,
+          "hitRate": 36.2
+        },
+        {
+          "year": 2025,
+          "samples": 84,
+          "hitRate": 35.7
+        },
+        {
+          "year": 2026,
+          "samples": 47,
+          "hitRate": 48.9
+        }
+      ]
+    },
+    {
+      "symbol": "SOLUSDT",
+      "timeframe": "4h",
+      "totalCandles": 13086,
+      "periodStart": "2020-08-11",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 123,
+        "hits": 55,
+        "hitRate": 44.7,
+        "pValue": 0.896676,
+        "buy": {
+          "samples": 38,
+          "hitRate": 36.8
+        },
+        "sell": {
+          "samples": 85,
+          "hitRate": 48.2
+        },
+        "grossReturnPct": -0.1516,
+        "netEdgePct": -0.4116
+      },
+      "outOfSample": {
+        "samples": 293,
+        "hits": 147,
+        "hitRate": 50.2,
+        "pValue": 0.5,
+        "buy": {
+          "samples": 169,
+          "hitRate": 55
+        },
+        "sell": {
+          "samples": 124,
+          "hitRate": 43.5
+        },
+        "grossReturnPct": 0.2677,
+        "netEdgePct": 0.0077
+      },
+      "fullPeriod": {
+        "samples": 416,
+        "hits": 202,
+        "hitRate": 48.6,
+        "pValue": 0.738036,
+        "buy": {
+          "samples": 207,
+          "hitRate": 51.7
+        },
+        "sell": {
+          "samples": 209,
+          "hitRate": 45.5
+        },
+        "grossReturnPct": 0.1437,
+        "netEdgePct": -0.1163
+      },
+      "byYear": [
+        {
+          "year": 2020,
+          "samples": 13,
+          "hitRate": 23.1
+        },
+        {
+          "year": 2021,
+          "samples": 60,
+          "hitRate": 48.3
+        },
+        {
+          "year": 2022,
+          "samples": 72,
+          "hitRate": 51.4
+        },
+        {
+          "year": 2023,
+          "samples": 122,
+          "hitRate": 58.2
+        },
+        {
+          "year": 2024,
+          "samples": 29,
+          "hitRate": 24.1
+        },
+        {
+          "year": 2025,
+          "samples": 62,
+          "hitRate": 33.9
+        },
+        {
+          "year": 2026,
+          "samples": 58,
+          "hitRate": 58.6
+        }
+      ]
+    },
+    {
+      "symbol": "XRPUSDT",
+      "timeframe": "4h",
+      "totalCandles": 18060,
+      "periodStart": "2018-05-04",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 118,
+        "hits": 53,
+        "hitRate": 44.9,
+        "pValue": 0.884367,
+        "buy": {
+          "samples": 59,
+          "hitRate": 50.8
+        },
+        "sell": {
+          "samples": 59,
+          "hitRate": 39
+        },
+        "grossReturnPct": -0.4401,
+        "netEdgePct": -0.7001
+      },
+      "outOfSample": {
+        "samples": 536,
+        "hits": 197,
+        "hitRate": 36.8,
+        "pValue": 1,
+        "buy": {
+          "samples": 299,
+          "hitRate": 42.1
+        },
+        "sell": {
+          "samples": 237,
+          "hitRate": 30
+        },
+        "grossReturnPct": -0.848,
+        "netEdgePct": -1.108
+      },
+      "fullPeriod": {
+        "samples": 654,
+        "hits": 250,
+        "hitRate": 38.2,
+        "pValue": 1,
+        "buy": {
+          "samples": 358,
+          "hitRate": 43.6
+        },
+        "sell": {
+          "samples": 296,
+          "hitRate": 31.8
+        },
+        "grossReturnPct": -0.7744,
+        "netEdgePct": -1.0344
+      },
+      "byYear": [
+        {
+          "year": 2018,
+          "samples": 37,
+          "hitRate": 48.6
+        },
+        {
+          "year": 2019,
+          "samples": 77,
+          "hitRate": 28.6
+        },
+        {
+          "year": 2020,
+          "samples": 109,
+          "hitRate": 45
+        },
+        {
+          "year": 2021,
+          "samples": 75,
+          "hitRate": 36
+        },
+        {
+          "year": 2022,
+          "samples": 66,
+          "hitRate": 28.8
+        },
+        {
+          "year": 2023,
+          "samples": 70,
+          "hitRate": 24.3
+        },
+        {
+          "year": 2024,
+          "samples": 102,
+          "hitRate": 44.1
+        },
+        {
+          "year": 2025,
+          "samples": 68,
+          "hitRate": 47.1
+        },
+        {
+          "year": 2026,
+          "samples": 50,
+          "hitRate": 42
+        }
+      ]
+    },
+    {
+      "symbol": "ADAUSDT",
+      "timeframe": "4h",
+      "totalCandles": 18163,
+      "periodStart": "2018-04-17",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 101,
+        "hits": 39,
+        "hitRate": 38.6,
+        "pValue": 0.991747,
+        "buy": {
+          "samples": 40,
+          "hitRate": 42.5
+        },
+        "sell": {
+          "samples": 61,
+          "hitRate": 36.1
+        },
+        "grossReturnPct": -1.1957,
+        "netEdgePct": -1.4557
+      },
+      "outOfSample": {
+        "samples": 485,
+        "hits": 213,
+        "hitRate": 43.9,
+        "pValue": 0.996809,
+        "buy": {
+          "samples": 240,
+          "hitRate": 42.9
+        },
+        "sell": {
+          "samples": 245,
+          "hitRate": 44.9
+        },
+        "grossReturnPct": -0.1019,
+        "netEdgePct": -0.3619
+      },
+      "fullPeriod": {
+        "samples": 586,
+        "hits": 252,
+        "hitRate": 43,
+        "pValue": 0.999703,
+        "buy": {
+          "samples": 280,
+          "hitRate": 42.9
+        },
+        "sell": {
+          "samples": 306,
+          "hitRate": 43.1
+        },
+        "grossReturnPct": -0.2904,
+        "netEdgePct": -0.5504
+      },
+      "byYear": [
+        {
+          "year": 2018,
+          "samples": 70,
+          "hitRate": 47.1
+        },
+        {
+          "year": 2019,
+          "samples": 43,
+          "hitRate": 27.9
+        },
+        {
+          "year": 2020,
+          "samples": 105,
+          "hitRate": 51.4
+        },
+        {
+          "year": 2021,
+          "samples": 31,
+          "hitRate": 45.2
+        },
+        {
+          "year": 2022,
+          "samples": 76,
+          "hitRate": 38.2
+        },
+        {
+          "year": 2023,
+          "samples": 74,
+          "hitRate": 47.3
+        },
+        {
+          "year": 2024,
+          "samples": 86,
+          "hitRate": 41.9
+        },
+        {
+          "year": 2025,
+          "samples": 69,
+          "hitRate": 36.2
+        },
+        {
+          "year": 2026,
+          "samples": 32,
+          "hitRate": 43.8
+        }
+      ]
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "timeframe": "4h",
+      "totalCandles": 15501,
+      "periodStart": "2019-07-05",
+      "periodEnd": "2026-07-31",
+      "cutoffDate": "2024-12-08",
+      "inSample": {
+        "samples": 133,
+        "hits": 55,
+        "hitRate": 41.4,
+        "pValue": 0.981486,
+        "buy": {
+          "samples": 63,
+          "hitRate": 46
+        },
+        "sell": {
+          "samples": 70,
+          "hitRate": 37.1
+        },
+        "grossReturnPct": -0.8037,
+        "netEdgePct": -1.0637
+      },
+      "outOfSample": {
+        "samples": 468,
+        "hits": 204,
+        "hitRate": 43.6,
+        "pValue": 0.997623,
+        "buy": {
+          "samples": 298,
+          "hitRate": 43
+        },
+        "sell": {
+          "samples": 170,
+          "hitRate": 44.7
+        },
+        "grossReturnPct": 4.6714,
+        "netEdgePct": 4.4114
+      },
+      "fullPeriod": {
+        "samples": 601,
+        "hits": 259,
+        "hitRate": 43.1,
+        "pValue": 0.9997,
+        "buy": {
+          "samples": 361,
+          "hitRate": 43.5
+        },
+        "sell": {
+          "samples": 240,
+          "hitRate": 42.5
+        },
+        "grossReturnPct": 3.4598,
+        "netEdgePct": 3.1998
+      },
+      "byYear": [
+        {
+          "year": 2019,
+          "samples": 4,
+          "hitRate": 0
+        },
+        {
+          "year": 2020,
+          "samples": 100,
+          "hitRate": 36
+        },
+        {
+          "year": 2021,
+          "samples": 86,
+          "hitRate": 46.5
+        },
+        {
+          "year": 2022,
+          "samples": 100,
+          "hitRate": 43
+        },
+        {
+          "year": 2023,
+          "samples": 93,
+          "hitRate": 37.6
+        },
+        {
+          "year": 2024,
+          "samples": 86,
+          "hitRate": 58.1
+        },
+        {
+          "year": 2025,
+          "samples": 95,
+          "hitRate": 47.4
+        },
+        {
+          "year": 2026,
+          "samples": 37,
+          "hitRate": 27
+        }
+      ]
+    }
+  ],
+  "controlOosHitRates": [
+    {
+      "symbol": "ETHUSDT",
+      "oosHitRate": 52.1,
+      "oosSamples": 605
+    },
+    {
+      "symbol": "BNBUSDT",
+      "oosHitRate": 40.4,
+      "oosSamples": 460
+    },
+    {
+      "symbol": "SOLUSDT",
+      "oosHitRate": 50.2,
+      "oosSamples": 293
+    },
+    {
+      "symbol": "XRPUSDT",
+      "oosHitRate": 36.8,
+      "oosSamples": 536
+    },
+    {
+      "symbol": "ADAUSDT",
+      "oosHitRate": 43.9,
+      "oosSamples": 485
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "oosHitRate": 43.6,
+      "oosSamples": 468
+    }
+  ]
+}

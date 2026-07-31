@@ -14,6 +14,9 @@ import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { symbolMappingService } from '@/app/services/SymbolMappingService';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
+import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector';
+import { evaluateContextGate } from '@/app/services/risk/ContextGate';
+import { evaluateTailRisk } from '@/app/services/risk/TailRiskGuard';
 import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../research/CostModel';
 
 /**
@@ -228,6 +231,21 @@ export interface AIConfig {
   correlationGuardEnabled: boolean;
   correlationThreshold: number; // 0-1, acima disso reduz o tamanho da nova posição
   killSwitchThreshold?: number; // % perda que ativa kill-switch automático (ex: 10.0)
+
+  // 🆕 2026-07-31 (correção de achado do Bloco E, research/AI_COGNITIVE_SPEC.md):
+  // cooldown curto entre avaliações de trade (2s em vez do padrão 5s) é OPT-IN
+  // explícito do usuário — nunca mais acionado automaticamente por VIX alto.
+  // Antes disso, `globalVolatility` (VIX>20 -> cooldown mais curto) era
+  // funcionalmente morto (a Promise de `fetchVIXCached()` só resolvia DEPOIS
+  // do valor já ter sido lido de forma síncrona — nunca disparava de verdade)
+  // E, mesmo se funcionasse, ia na direção ERRADA: operar mais rápido com o
+  // mercado mais nervoso contradiz o item 3 do pedido do Cleber ("frieza...
+  // não se deixar levar pela ganância em dias de euforia") e o Bloco E
+  // inteiro (proteção de cauda). Agora é preferência de cadência do usuário
+  // sob risco normal, e NUNCA bypassa o Bloco E — TailRiskGuard continua
+  // bloqueando/fechando independente deste flag quando ATR ou VIX real
+  // indicam choque de volatilidade.
+  aggressiveModeEnabled: boolean;
 }
 
 export interface MarketContext {
@@ -379,6 +397,7 @@ const INITIAL_STATE: ApexLogicState = {
     correlationGuardEnabled: false, // TODO: Implementar correlação real em Fase 2
     correlationThreshold: 0.7,
     killSwitchThreshold: 0, // 0 = desativado por padrão; pode ser setado pelo usuário (ex: 10% de perda)
+    aggressiveModeEnabled: false, // opt-in explícito — padrão é o cooldown normal (5s), risco assumido só se o usuário ligar
   },
   mt5Credentials: null,
   executionMode: 'DEMO',
@@ -1070,28 +1089,26 @@ export function useApexLogic(
         }
       }
 
-      // 🚀 ANÁLISE DE VOLATILIDADE GLOBAL (VIX + principais ativos)
-      let globalVolatility = false;
-      
-      // Fetch VIX para detectar volatilidade do mercado
-      fetchVIXCached().then(vix => {
-        if (vix > 20) {
-          console.log(`[VOLATILIDADE] 🔥 VIX ALTO: ${vix.toFixed(2)} - MODO AGRESSIVO ATIVADO!`);
-          globalVolatility = true;
-        }
-      });
+      // 🔄 Mantém o cache de VIX aquecido (fire-and-forget, respeita o próprio
+      // throttle interno de 60s) — é dele que o Bloco E (TailRiskGuard) lê de
+      // forma síncrona mais adiante no ciclo, via `cachedVIXRef`.
+      fetchVIXCached();
 
       // ✅ COOLDOWN: Tempo mínimo entre trades
       const timeSinceLastTrade = Date.now() - lastTradeTimestampRef.current;
-      
-      // 🚀 MODO OPORTUNISTA: Cooldown dinâmico baseado em volatilidade
-      // - Alta volatilidade (VIX > 20 ou movimento > 3%): 2 segundos
-      // - Volatilidade normal: 5 segundos (ULTRA RÁPIDO!)
-      const COOLDOWN_AGGRESSIVE = 2 * 1000;   // 2s para alta volatilidade (REDUZIDO!)
-      const COOLDOWN_NORMAL = 5 * 1000;       // 5s para volatilidade normal (MUITO MAIS RÁPIDO!)
-      
-      const COOLDOWN_MS = globalVolatility ? COOLDOWN_AGGRESSIVE : COOLDOWN_NORMAL;
-      
+
+      // 🆕 2026-07-31: cooldown curto é OPT-IN do usuário (`aggressiveModeEnabled`),
+      // nunca mais um "modo agressivo" automático disparado por VIX alto — ver
+      // comentário completo na definição de `AIConfig.aggressiveModeEnabled`.
+      // Mesmo com o opt-in ligado, isto controla só a CADÊNCIA de avaliação sob
+      // risco normal — nunca compete com o Bloco E (TailRiskGuard), que segue
+      // bloqueando/fechando de forma independente quando ATR ou VIX real
+      // indicam choque de volatilidade, mais adiante neste mesmo ciclo.
+      const COOLDOWN_AGGRESSIVE = 2 * 1000;   // 2s — só com opt-in explícito do usuário
+      const COOLDOWN_NORMAL = 5 * 1000;       // 5s — padrão
+
+      const COOLDOWN_MS = aiConfig.aggressiveModeEnabled ? COOLDOWN_AGGRESSIVE : COOLDOWN_NORMAL;
+
       if (timeSinceLastTrade < COOLDOWN_MS && lastTradeTimestampRef.current > 0) {
         const remainingSeconds = Math.floor((COOLDOWN_MS - timeSinceLastTrade) / 1000);
         console.log(`[COOLDOWN] ⏳ Aguardando ${remainingSeconds}s antes do próximo trade`);
@@ -1388,13 +1405,25 @@ export function useApexLogic(
               const expectedClassification = side === 'LONG' ? 'COMPRADOR' : 'VENDEDOR';
               const opposite = side === 'LONG' ? 'VENDEDOR' : 'COMPRADOR';
               if (scoreResult.classification === opposite) {
-                console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`);
+                const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`;
+                console.log(`[SCORE] 🚫 ${reason}`);
+                persistenceRef.current.saveDecision({
+                  symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: strategySignal.confidence,
+                  reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe },
+                  actionTaken: false, vetoStage: 'CONTEXT_SCORE_OPPOSITE',
+                });
                 return;
               }
               if (scoreResult.classification === 'LATERAL') {
                 const requiredConfidence = MIN_CONFIDENCE + LATERAL_CONFIDENCE_PENALTY;
                 if (strategySignal.confidence < requiredConfidence) {
-                  console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${strategySignal.confidence}% de confiança (exige ${requiredConfidence}% nesse regime)`);
+                  const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${strategySignal.confidence}% de confiança (exige ${requiredConfidence}% nesse regime)`;
+                  console.log(`[SCORE] 🚫 ${reason}`);
+                  persistenceRef.current.saveDecision({
+                    symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: strategySignal.confidence,
+                    reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe, requiredConfidence },
+                    actionTaken: false, vetoStage: 'CONTEXT_SCORE_LATERAL',
+                  });
                   return;
                 }
                 console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${strategySignal.confidence}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
@@ -1409,7 +1438,12 @@ export function useApexLogic(
           if (scoreConfidence !== null) {
             confidenceScore = Math.min(confidenceScore, scoreConfidence);
             if (confidenceScore < MIN_CONFIDENCE) {
-              console.log(`[SEGURANÇA] ❌ Confiança combinada (estratégia+Score) abaixo do mínimo: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
+              const reason = `Confiança combinada (estratégia+Score) abaixo do mínimo: ${confidenceScore}% < ${MIN_CONFIDENCE}%`;
+              console.log(`[SEGURANÇA] ❌ ${reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: reason, actionTaken: false, vetoStage: 'CONTEXT_CONFIDENCE',
+              });
               return;
             }
           }
@@ -1440,7 +1474,12 @@ export function useApexLogic(
             const atrSeriesForCostGate = calculateATR(candles, 14);
             const atrValueForCostGate = atrSeriesForCostGate[atrSeriesForCostGate.length - 1];
             if (!atrValueForCostGate || atrValueForCostGate <= 0) {
-              console.log(`[CUSTO] 🚫 Setup ${side} descartado: ATR indisponível pra ${selectedSymbol} agora — sem dado real pra avaliar viabilidade de custo`);
+              const reason = `Setup ${side} descartado: ATR indisponível pra ${selectedSymbol} agora — sem dado real pra avaliar viabilidade de custo`;
+              console.log(`[CUSTO] 🚫 ${reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: reason, actionTaken: false, vetoStage: 'COST_GATE_NO_DATA',
+              });
               return;
             }
             const movementPercentForCostGate = (atrValueForCostGate / currentPrice) * 100;
@@ -1466,10 +1505,99 @@ export function useApexLogic(
 
             const costGateResult = evaluateCostViability(costPercentForCostGate, movementPercentForCostGate);
             if (!costGateResult.approved) {
-              console.log(`[CUSTO] 🚫 Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. ATR ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate})`);
+              const reason = `Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. ATR ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate})`;
+              console.log(`[CUSTO] 🚫 ${reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: reason, actionTaken: false, vetoStage: 'COST_GATE',
+                riskAssessment: { costPercent: costPercentForCostGate, movementPercent: movementPercentForCostGate, assetClass: assetClassForCostGate },
+              });
               return;
             }
             console.log(`[CUSTO] ✅ Gate de custo aprova ${selectedSymbol}: ${costGateResult.reason}`);
+          }
+
+          // 🔒 CONTEXT GATE (Bloco B do cérebro cognitivo, research/AI_COGNITIVE_SPEC.md)
+          // — regime (ADX/ATR crus) + estrutura (BOS/CHoCH, subconjunto mecânico de
+          // Price Action, entra só como VETO, nunca como gatilho — decisão do Cleber
+          // em 2026-07-31). Deliberadamente NÃO usa o Market Score: medido e testado
+          // em holdout na mesma data, sem poder preditivo (ver ContextGate.ts). Este
+          // veto é ADICIONAL ao veto de Market Score acima, não substitui — decisão
+          // de remover aquele é separada, não tomada aqui. Heurística mecânica não
+          // validada estatisticamente (mesma disciplina do EconomicCalendarGuard
+          // ainda não implementado) — meta é reduzir trade contra a leitura de
+          // estrutura corrente, não prever direção.
+          {
+            const contextResult = evaluateContextGate(candles, side);
+            if (!contextResult.podeOperar) {
+              console.log(`[CONTEXTO] 🚫 Setup ${side} descartado em ${selectedSymbol}: ${contextResult.motivo}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: contextResult.motivo, actionTaken: false, vetoStage: 'CONTEXT_GATE',
+                technicalSignals: { regime: contextResult.classification, structureBias: contextResult.structureBias, adx: contextResult.adx, atrExpansionRatio: contextResult.atrExpansionRatio },
+              });
+              return;
+            }
+            console.log(`[CONTEXTO] ✅ Context Gate aprova ${selectedSymbol}: ${contextResult.motivo}`);
+
+            // 🔒 TAIL RISK GUARD (Bloco E do cérebro cognitivo,
+            // research/AI_COGNITIVE_SPEC.md) — "gestão de cenários extremos",
+            // reação a estado JÁ OBSERVADO (ATR do próprio ativo + VIX de
+            // mercado, sempre a leitura mais severa das duas), nunca previsão.
+            // Distinto do Bloco B: aquele só veta entrada NOVA; este também
+            // pode reagir a POSIÇÃO JÁ ABERTA no extremo (EMERGENCY_CLOSE),
+            // mesmo padrão de segurança do kill-switch abaixo
+            // (forceCloseAllLivePositions, retry + confirmação real, nunca
+            // assume sucesso).
+            //
+            // VIX vem do cache já existente (`cachedVIXRef`, `VIX_CACHE_DURATION`
+            // = 60s, linha ~1001) — zero chamada de rede nova aqui. `0` é o
+            // valor inicial antes do primeiro fetch bem-sucedido do ciclo de
+            // vida do componente, nunca um VIX real; tratado como "sem dado
+            // ainda" em vez de fabricar leitura de mercado.
+            const openExposurePercent = portfolioRef.current.balance > 0
+              ? (activeOrdersRef.current.reduce((sum, o) => sum + o.amount, 0) / portfolioRef.current.balance) * 100
+              : 0;
+            const currentVix = cachedVIXRef.current > 0 ? cachedVIXRef.current : null;
+            const tailRisk = evaluateTailRisk({ atrExpansionRatio: contextResult.atrExpansionRatio, vix: currentVix, openExposurePercent });
+
+            if (tailRisk.action === 'EMERGENCY_CLOSE' || tailRisk.action === 'BLOCK_NEW_ENTRIES') {
+              console.log(`[CAUDA] 🚨 [${tailRisk.action}, gatilho: ${tailRisk.triggeredBy}] ${tailRisk.reasoning}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: tailRisk.reasoning, actionTaken: false, vetoStage: 'CONTEXT_GATE',
+                riskAssessment: { tailRiskAction: tailRisk.action, triggeredBy: tailRisk.triggeredBy, atrExpansionRatio: contextResult.atrExpansionRatio, vix: currentVix, openExposurePercent },
+              });
+              if (tailRisk.action === 'EMERGENCY_CLOSE') {
+                addLog(`🚨 Proteção de cauda: ${tailRisk.reasoning}`);
+                toastOriginal.error('🚨 Choque de volatilidade detectado', {
+                  description: tailRisk.reasoning,
+                  duration: 10000,
+                });
+                if (configRef.current.executionMode === 'LIVE' && activeOrdersRef.current.length > 0) {
+                  forceCloseAllLivePositions().then((result) => {
+                    if (result.closed) {
+                      addLog(`🔴 Proteção de cauda: posições LIVE fechadas na corretora (${result.attempts} tentativa(s))`);
+                    } else {
+                      addLog(`🚨 FALHA AO FECHAR POSIÇÕES LIVE (proteção de cauda): ${result.lastError || 'motivo desconhecido'} — intervenção manual necessária`);
+                      toastOriginal.error('🚨 FALHA AO FECHAR POSIÇÕES LIVE NA CORRETORA', {
+                        description: `Feche manualmente na corretora. Motivo: ${result.lastError || 'desconhecido'}`,
+                        duration: 0,
+                      });
+                    }
+                  });
+                }
+              }
+              return;
+            }
+            if (tailRisk.action === 'REDUCE_SIZE') {
+              // Gap declarado: o multiplicador sugerido ainda não é aplicado ao
+              // sizing real (finalTradeCapital é calculado mais adiante, por
+              // fórmula própria) — ligar isso é mudança maior no cálculo de
+              // posição, fora do escopo desta implementação. Registrado no
+              // diário de decisão (Bloco A) pra não ficar escondido.
+              console.log(`[CAUDA] 🟡 ${tailRisk.reasoning} (multiplicador sugerido ${tailRisk.newPositionSizeMultiplier}x — ainda não aplicado ao sizing)`);
+            }
           }
 
           // 🔒 GATE DE RISCO (research/RISK_MODULE_SPEC.md) — checado de forma síncrona
@@ -1533,6 +1661,11 @@ export function useApexLogic(
           if (killSwitchCheck.triggered) {
             console.error(`[RISCO] 🚨 ${killSwitchCheck.reason}`);
             addLog(`🚨 KILL-SWITCH ATIVADO: ${killSwitchCheck.reason}`);
+            persistenceRef.current.saveDecision({
+              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+              reasoning: killSwitchCheck.reason || 'Kill-switch ativado', actionTaken: false, vetoStage: 'KILL_SWITCH',
+              riskAssessment: { accountState, dailyStats },
+            });
 
             // Fechar TODAS as posições abertas (estado local — rastreamento DEMO)
             setActiveOrders([]);
@@ -1572,13 +1705,23 @@ export function useApexLogic(
 
           if (!riskCheck.approved) {
             console.log(`[RISCO] 🚫 ${riskCheck.reason}`);
+            persistenceRef.current.saveDecision({
+              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+              reasoning: riskCheck.reason || 'Risk gate recusou', actionTaken: false, vetoStage: 'RISK_GATE',
+              riskAssessment: { accountState, dailyStats, proposedTradeSize },
+            });
             return;
           }
 
           // Cooldown pós-perdas consecutivas
           if (aiConfig.cooldownEnabled && now < cooldownUntilRef.current) {
             const remainingMin = Math.ceil((cooldownUntilRef.current - now) / 60_000);
-            console.log(`[RISCO] 🧊 Cooldown ativo — ${remainingMin}min restantes (${aiConfig.consecutiveLossesTrigger} perdas seguidas)`);
+            const reason = `Cooldown ativo — ${remainingMin}min restantes (${aiConfig.consecutiveLossesTrigger} perdas seguidas)`;
+            console.log(`[RISCO] 🧊 ${reason}`);
+            persistenceRef.current.saveDecision({
+              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+              reasoning: reason, actionTaken: false, vetoStage: 'COOLDOWN',
+            });
             return;
           }
           if (aiConfig.cooldownEnabled) {
@@ -1592,7 +1735,53 @@ export function useApexLogic(
               cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
               console.log(`[RISCO] 🧊 Cooldown ATIVADO: ${consecutiveLosses} perdas seguidas — bloqueando novas entradas por ${aiConfig.cooldownMinutes}min`);
               addLog(`🧊 Pausa ativada: ${consecutiveLosses} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: `Cooldown recém-ativado: ${consecutiveLosses} perdas seguidas — bloqueando por ${aiConfig.cooldownMinutes}min`,
+                actionTaken: false, vetoStage: 'COOLDOWN',
+              });
               return;
+            }
+          }
+
+          // 🔒 DETECTOR DE REVENGE TRADING (Bloco D do cérebro cognitivo,
+          // research/AI_COGNITIVE_SPEC.md) — distinto do cooldown acima: aquele
+          // reage só a perdas-consecutivas; este cruza ESCALADA DE TAMANHO,
+          // PRESSA e SEQUÊNCIA+FREQUÊNCIA contra a baseline mecânica do PRÓPRIO
+          // usuário (mediana do próprio histórico, nunca limiar fixo). A IA não
+          // tem emoção — quem faz revenge trading é o usuário, através da
+          // própria config; isto detecta o padrão, nunca prevê mercado.
+          {
+            const revengeCheck = detectRevengePattern(
+              orderHistoryRef.current.map(t => ({ amount: t.amount, currentProfit: t.currentProfit, closedAt: t.closedAt, timestamp: t.timestamp })),
+              { sizePercent: proposedTradeSize, timestamp: now },
+            );
+            if (revengeCheck.flagged) {
+              console.log(`[REVENGE] ⚠️ [${revengeCheck.severity}] ${revengeCheck.reasoning}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: revengeCheck.reasoning, actionTaken: revengeCheck.severity !== 'FORCE_COOLDOWN', vetoStage: 'REVENGE_PATTERN',
+                riskAssessment: { signals: revengeCheck.signals, severity: revengeCheck.severity, baselineSampleSize: revengeCheck.baselineSampleSize },
+              });
+              // FORCE_COOLDOWN (3 sinais simultâneos) é o único grau com ação
+              // mecânica pronta — bloqueia e reusa o cooldown já existente.
+              // ALERT/REQUIRE_CONFIRMATION notificam mas NÃO bloqueiam ainda:
+              // "exigir confirmação explícita" precisa de uma UI de diálogo que
+              // não existe neste loop hoje — gap declarado no AI_COGNITIVE_SPEC.md,
+              // não escondido atrás de um bloqueio silencioso que o usuário não pediu.
+              if (revengeCheck.severity === 'FORCE_COOLDOWN') {
+                cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
+                addLog(`🚨 Padrão de revenge trading detectado (${revengeCheck.signals.join(', ')}) — pausa forçada de ${aiConfig.cooldownMinutes}min`);
+                toastOriginal.error('🚨 Padrão de revenge trading detectado', {
+                  description: revengeCheck.reasoning,
+                  duration: 10000,
+                });
+                return;
+              }
+              toastOriginal.warning(`⚠️ Possível revenge trading (${revengeCheck.severity})`, {
+                description: revengeCheck.reasoning,
+                duration: 6000,
+              });
             }
           }
 
@@ -1601,7 +1790,12 @@ export function useApexLogic(
             const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
             const tradesToday = orderHistoryRef.current.filter(t => (t.closedAt || t.timestamp) >= todayStart.getTime()).length + activeOrdersRef.current.length;
             if (tradesToday >= aiConfig.maxTradesPerDay) {
-              console.log(`[RISCO] 🚫 Limite de trades/dia atingido: ${tradesToday}/${aiConfig.maxTradesPerDay}`);
+              const reason = `Limite de trades/dia atingido: ${tradesToday}/${aiConfig.maxTradesPerDay}`;
+              console.log(`[RISCO] 🚫 ${reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: reason, actionTaken: false, vetoStage: 'MAX_TRADES_PER_DAY',
+              });
               return;
             }
           }
@@ -1807,6 +2001,15 @@ export function useApexLogic(
               timestamp: newTrade.timestamp,
               reasoning: newTrade.reasoning,
               indicators: newTrade.indicators,
+            }).then(() => {
+              // Bloco A (research/AI_COGNITIVE_SPEC.md) — diário de decisão: registra
+              // a decisão de ENTRADA aprovada, já linkada ao trade via tradeId (só
+              // resolve depois do onTradeOpen acima ter populado o mapa local→banco).
+              persistenceRef.current.saveDecision({
+                symbol: newTrade.symbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: newTrade.reasoning, technicalSignals: newTrade.indicators,
+                actionTaken: true, tradeId: newTrade.id,
+              });
             });
           }
           

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { aiPersistence, AISession, AITrade, PortfolioSnapshot } from '@/app/services/AITradingPersistenceService';
+import { aiPersistence, AISession, AITrade, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
 import { useAuth } from '@/app/contexts/AuthContext';
 
 interface UseAIPersistenceOptions {
@@ -341,6 +341,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     technicalSignals?: any;
     riskAssessment?: any;
     actionTaken: boolean;
+    vetoStage?: DecisionVetoStage;
     tradeId?: string;
   }) => {
     if (!sessionIdRef.current || !user?.id || !options.enabled) return;
@@ -358,6 +359,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         technical_signals: decision.technicalSignals,
         risk_assessment: decision.riskAssessment,
         action_taken: decision.actionTaken,
+        veto_stage: decision.vetoStage,
         trade_id: decision.tradeId ? tradeDbIdsRef.current.get(decision.tradeId) : undefined,
       });
     } catch (error) {

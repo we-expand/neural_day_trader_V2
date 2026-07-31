@@ -81,6 +81,17 @@ export class RiskManager {
 
   /**
    * Calcula Kelly Criterion para position sizing dinâmico.
+   *
+   * ⚠️ Achado de auditoria (2026-07-31, `research/AI_COGNITIVE_SPEC.md` Bloco C):
+   * este método é CÓDIGO MORTO — nenhum arquivo do projeto o chama. Além
+   * disso, `winRate`/`rewardRiskRatio` são recebidos crus do chamador, sem
+   * garantia de que vêm de dado MEDIDO (viola a regra de nunca fabricar
+   * número apresentado como real). Preferir
+   * `src/app/services/risk/ExpectancyEngine.ts` → `computeHonestKelly()`,
+   * que exige um `ExpectancyResult` de `computeExpectancy()` (medido sobre
+   * trades reais, com intervalo de confiança e guarda de amostra pequena) em
+   * vez de aceitar winRate/payoff soltos. Mantido aqui sem remoção — pode ter
+   * consumidor futuro fora do caminho crítico — mas não usar em código novo.
    */
   public calculateKellyPosition(winRate: number, rewardRiskRatio: number, bankroll: number): number {
     // Fórmula de Kelly: f = (bp - q) / b

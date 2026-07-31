@@ -43,6 +43,22 @@ const SUITES = [
     name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',
     entry: 'src/app/services/analysis/__validate__.ts',
   },
+  {
+    name: 'Expectancy Engine — expectativa, risco de ruína, Kelly honesto (Bloco C, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__expectancy__.ts',
+  },
+  {
+    name: 'Detector de revenge trading (Bloco D, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__revenge__.ts',
+  },
+  {
+    name: 'Context Gate — regime ADX/ATR + estrutura BOS/CHoCH, nunca Market Score (Bloco B, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__context__.ts',
+  },
+  {
+    name: 'Tail Risk Guard — proteção de cauda / cisne negro (Bloco E, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__tailrisk__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));

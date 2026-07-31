@@ -92,6 +92,26 @@ export interface PortfolioSnapshot {
   created_at?: string;
 }
 
+/**
+ * Etapa do funil de decisão que gerou o registro (`migrations/009_ai_decisions.sql`).
+ * `undefined`/`null` = decisão de entrada aprovada (action_taken=true).
+ * Lista fechada — estender junto com o CHECK constraint da migration, nunca
+ * usar valor livre fora desta união (perde consultabilidade).
+ */
+export type DecisionVetoStage =
+  | 'CONTEXT_SCORE_OPPOSITE'
+  | 'CONTEXT_SCORE_LATERAL'
+  | 'CONTEXT_CONFIDENCE'
+  | 'CONTEXT_GATE'
+  | 'CONFIG_DIRECTION'
+  | 'COST_GATE'
+  | 'COST_GATE_NO_DATA'
+  | 'RISK_GATE'
+  | 'KILL_SWITCH'
+  | 'COOLDOWN'
+  | 'MAX_TRADES_PER_DAY'
+  | 'REVENGE_PATTERN';
+
 export interface AIDecision {
   id?: string;
   session_id: string;
@@ -105,6 +125,7 @@ export interface AIDecision {
   technical_signals?: any;
   risk_assessment?: any;
   action_taken: boolean;
+  veto_stage?: DecisionVetoStage;
   trade_id?: string;
   created_at?: string;
 }

@@ -1460,6 +1460,25 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         />
                                         <p className="text-[9px] text-slate-500">0 = sem limite. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
                                     </div>
+
+                                    {/* 🆕 2026-07-31: cadência agressiva é OPT-IN explícito — nunca mais
+                                        automática por VIX alto (achado corrigido em research/AI_COGNITIVE_SPEC.md).
+                                        Mesmo ligado, nunca compete com a Proteção de Cauda (Bloco E), que
+                                        continua bloqueando/fechando de forma independente sob choque real
+                                        de volatilidade (ATR ou VIX). */}
+                                    <div className="flex items-center gap-3 p-3 bg-black border border-amber-500/20 rounded-lg">
+                                        <Gauge className={`w-4 h-4 ${config.aggressiveModeEnabled ? 'text-amber-400' : 'text-slate-600'}`} />
+                                        <div className="flex-1">
+                                            <span className="text-xs font-bold text-white block">Cadência Agressiva</span>
+                                            <span className="text-[9px] text-slate-500">Avalia trades a cada 2s em vez de 5s. Você assume o risco — a Proteção de Cauda continua ativa independente disto.</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setConfig({ ...config, aggressiveModeEnabled: !config.aggressiveModeEnabled })}
+                                            className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${config.aggressiveModeEnabled ? 'bg-amber-500' : 'bg-slate-700'}`}
+                                        >
+                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.aggressiveModeEnabled ? 'left-6' : 'left-1'}`} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Correlação entre posições */}

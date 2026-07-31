@@ -1,4 +1,127 @@
-# Handoff — próxima sessão (atualizado em 2026-07-31, fim de sessão)
+# Handoff — próxima sessão
+
+> **⚠️ ATUALIZAÇÃO 2026-07-31 (sessão nova, EM ANDAMENTO — não é o fim desta seção)**:
+> o campo `entrySignal` mencionado abaixo **já foi commitado** (o Cleber confirmou).
+> Uma sessão nova começou a construir a "camada cognitiva" do cérebro pedida pelo
+> Cleber — ver **`research/AI_COGNITIVE_SPEC.md`** (documento de decisão, leitura
+> obrigatória antes de continuar qualquer bloco). Ordem acordada com o Cleber,
+> rastreada via TaskList desta sessão:
+>
+> 1. ✅ **Holdout do BTCUSDT** — a anomalia de 68,2% do Market Score (baseline)
+>    não sobreviveu fora de amostra (caiu a 51,6%/53,7%, falha consistência). Era
+>    vazamento de calibração, não edge. Ver
+>    `research/experiments/2026-07-31-btc-holdout/verdict.md`.
+> 2. ✅ **Bloco A — memória persistente (diário de decisão)** — implementado.
+>    **Pendência imediata**: rodar a migration nova, comando abaixo.
+> 3. ✅ **Bloco C — matemática do risco** — implementado. `ExpectancyEngine.ts`
+>    (expectativa em R-multiples com IC 95%, risco de ruína via Monte Carlo
+>    seedado, Kelly honesto guardado pelo IC inferior). 29 asserções novas em
+>    `npm run validate`. **Ainda não ligado** em `useApexLogic.ts` — exposto,
+>    não consumido (mesmo padrão do Bloco A); ligar depende da migration 009
+>    estar aplicada (para alimentar com trades reais) e de decisão de produto
+>    sobre influenciar sizing automaticamente vs. só exibir ao usuário.
+> 4. ✅ **Bloco D — anti-revenge trading** — implementado E LIGADO ao motor
+>    (não só exposto — este já bloqueia de verdade no grau `FORCE_COOLDOWN`).
+>    `RevengeTradingDetector.ts`, 3 sinais mecânicos contra a baseline do
+>    próprio usuário. 11 asserções novas em `npm run validate`. **Gap
+>    declarado**: grau `REQUIRE_CONFIRMATION` só notifica hoje — falta UI de
+>    diálogo de confirmação explícita.
+> 5. ✅ **Bloco B — contexto como veto** — implementado E LIGADO ao motor.
+>    `ContextGate.ts`: regime via ADX/ATR crus + estrutura via BOS/CHoCH
+>    (`smc/marketStructure.ts` — é aqui que Price Action/Brooks entra, só como
+>    veto "a estrutura contradiz o lado?", nunca como gatilho, como você
+>    decidiu). Deliberadamente NÃO usa o Market Score (medido sem poder
+>    preditivo nas etapas 1). Veto ADICIONAL ao veto de Market Score
+>    existente — não o substitui, essa decisão é sua, não tomada aqui. 14
+>    asserções novas em `npm run validate`.
+> 6. ✅ **Bloco E — proteção de cauda (cisne negro)** — implementado E LIGADO.
+>    `TailRiskGuard.ts`: 4 níveis monotônicos combinando ATR do ativo (mesma
+>    métrica do Bloco B) **e VIX de mercado real** (NONE → REDUCE_SIZE →
+>    BLOCK_NEW_ENTRIES → EMERGENCY_CLOSE, sempre a leitura mais severa das
+>    duas — `triggeredBy` auditável). EMERGENCY_CLOSE reaproveita
+>    `forceCloseAllLivePositions()` já existente. 33 asserções.
+>    **Correção do mesmo dia**: a 1ª versão dizia que VIX não podia ser ligado
+>    por falta de cache — estava ERRADO (não verificado com cuidado); o cache
+>    já existia (`fetchVIXCached`, 60s). Corrigido, VIX real ligado sem
+>    chamada de rede nova. **Achado colateral #2, corrigido no mesmo dia**: o
+>    mesmo VIX já era lido em produção pra fazer o OPOSTO — `VIX > 20` ativava
+>    "modo agressivo" (cooldown 5s→2s), e ainda por cima o gatilho estava
+>    quebrado (lia uma Promise antes dela resolver, nunca disparava de
+>    verdade). Cleber decidiu: vira **opt-in explícito**
+>    (`AIConfig.aggressiveModeEnabled`, default false), nunca mais automático
+>    por VIX, e nunca compete com o Bloco E (que segue bloqueando/fechando
+>    independente do opt-in). **UI construída**: toggle "Cadência Agressiva"
+>    em `AITrader.tsx`, card "Pausa & Frequência", mesmo padrão visual do
+>    `cooldownEnabled` existente, com aviso explícito de que a Proteção de
+>    Cauda continua ativa independente do toggle.
+>    **Gap ainda aberto**: multiplicador de REDUCE_SIZE ainda não aplicado ao
+>    sizing real (mudança maior, fora do escopo).
+>
+> **✅ OS 6 BLOCOS DA ORDEM ACORDADA ESTÃO IMPLEMENTADOS.** `npm run validate`
+> verde (120 asserções novas nesta sessão, entre os 5 blocos com suíte:
+> A não tem suíte própria — é persistência, testada via type-check —, C=29,
+> D=11, B=14, E=33 (após correção do VIX), mais as 33 pré-existentes). Nenhum
+> destes blocos foi validado estatisticamente como "gera lucro" — sob a
+> decisão (B) (`AI_BRAIN_SPEC.md` §14.5), a meta é disciplina/execução
+> auditável, não alfa; a métrica que valida isso ("os vetos ajudaram?") só
+> fica calculável depois que a migration 009 rodar e acumular dado real.
+> Ler `research/AI_COGNITIVE_SPEC.md` inteiro antes de estender qualquer
+> bloco — tem o racional completo, os gaps declarados de cada um, e a lista
+> do que ainda falta (UI de confirmação do Bloco D, aplicar multiplicador do
+> Bloco E ao sizing, medir o valor real dos vetos, decidir o destino do veto
+> de Market Score que continua em paralelo ao do Bloco B).
+>
+> **Migration pendente de aplicar** (arquivo completo em
+> `supabase/migrations/009_ai_decisions.sql`, nunca aplicada por mim — colar no
+> SQL Editor do Supabase, projeto "Neural DayTrader" `wyvdsxtcmizettljxtbg`):
+> ```sql
+> CREATE TABLE IF NOT EXISTS public.ai_decisions (
+>   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+>   session_id uuid NOT NULL REFERENCES public.ai_sessions(id) ON DELETE CASCADE,
+>   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+>   symbol text NOT NULL,
+>   timestamp timestamptz NOT NULL DEFAULT now(),
+>   decision text NOT NULL CHECK (decision IN ('BUY', 'SELL', 'HOLD', 'CLOSE')),
+>   confidence numeric,
+>   reasoning text NOT NULL,
+>   market_score numeric,
+>   technical_signals jsonb,
+>   risk_assessment jsonb,
+>   action_taken boolean NOT NULL DEFAULT false,
+>   veto_stage text CHECK (veto_stage IN (
+>     'CONTEXT_SCORE_OPPOSITE', 'CONTEXT_SCORE_LATERAL', 'CONTEXT_CONFIDENCE',
+>     'CONFIG_DIRECTION', 'COST_GATE', 'COST_GATE_NO_DATA', 'RISK_GATE',
+>     'KILL_SWITCH', 'COOLDOWN', 'MAX_TRADES_PER_DAY'
+>   )),
+>   trade_id uuid REFERENCES public.ai_trades(id) ON DELETE SET NULL,
+>   created_at timestamptz NOT NULL DEFAULT now()
+> );
+>
+> CREATE INDEX IF NOT EXISTS idx_ai_decisions_session_ts ON public.ai_decisions (session_id, timestamp DESC);
+> CREATE INDEX IF NOT EXISTS idx_ai_decisions_user_symbol ON public.ai_decisions (user_id, symbol, timestamp DESC);
+> CREATE INDEX IF NOT EXISTS idx_ai_decisions_veto_stage ON public.ai_decisions (veto_stage) WHERE veto_stage IS NOT NULL;
+>
+> ALTER TABLE public.ai_decisions ENABLE ROW LEVEL SECURITY;
+>
+> CREATE POLICY "Users manage own ai_decisions" ON public.ai_decisions
+>   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+> ```
+> Sem isso, as chamadas novas de `saveDecision` em `useApexLogic.ts` falham
+> silenciosamente (mesmo comportamento de antes — só que agora vão funcionar
+> assim que a tabela existir).
+>
+> **Commit pendente desta sessão** (`npm run validate` já rodou verde, 29+13+14+13+14+... suítes):
+> ```bash
+> git add research/AI_COGNITIVE_SPEC.md research/experiments/2026-07-31-marketscore-baseline/ research/experiments/2026-07-31-btc-holdout/ research/experiments/README.md supabase/migrations/009_ai_decisions.sql src/app/services/AITradingPersistenceService.ts src/app/hooks/useAIPersistence.ts src/app/hooks/useApexLogic.ts src/app/components/AITrader.tsx src/app/services/risk/ExpectancyEngine.ts src/app/services/risk/__validate__expectancy__.ts src/app/services/risk/RevengeTradingDetector.ts src/app/services/risk/__validate__revenge__.ts src/app/services/risk/ContextGate.ts src/app/services/risk/__validate__context__.ts src/app/services/risk/TailRiskGuard.ts src/app/services/risk/__validate__tailrisk__.ts src/lib/modules/RiskManager.ts scripts/validate.mjs
+> git commit -m "feat: cérebro cognitivo completo (Blocos A-E) — diário de decisão, contexto como veto, expectativa/risco de ruína/Kelly honesto, detector de revenge trading, proteção de cauda com VIX real e cadência agressiva opt-in"
+> git push
+> ```
+> (a pasta `research/experiments/2026-07-30-fase2-remediation/` continua untracked/órfã,
+> decisão do Cleber ainda pendente — não incluída no commit acima)
+
+---
+
+# Handoff da sessão anterior (2026-07-31, fim de sessão) — histórico, não é mais o estado atual
 
 > **Estado**: branch `dev`, `origin/dev` **em dia** com tudo desta sessão até
 > o commit `da72c4b54` (push já confirmado pelo Cleber). Working tree tem
