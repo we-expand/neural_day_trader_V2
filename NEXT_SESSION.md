@@ -126,17 +126,31 @@ Apresentadas duas saídas mutuamente exclusivas:
 
 ---
 
-## Próximo passo recomendado (não iniciado)
+## Próximo passo — Componente 1 implementado, wiring ainda pendente
 
-**Componente 1: gate de viabilidade por custo.** Prioridade porque é o de maior
-impacto no burn rate, é **aritmética pura** (zero previsão), e os números já
-estão medidos (tabela acima / seção 14.3 da spec). Recusa operar onde o custo
-devora o movimento esperado.
+**Componente 1 (gate de viabilidade por custo) implementado nesta sessão**:
+`src/app/services/risk/CostViabilityGate.ts` — função pura
+`evaluateCostViability(costPercent, typicalMovementPercent)`, limiares 7%
+(VIAVEL)/12% (FRONTEIRA, reprovado por padrão)/acima (INVIAVEL), calibrados
+pra reproduzir a coluna "Viável?" da tabela 14.3 (15m/1h/4h/1d BTCUSDT).
+`__validate__.ts` com 14 asserções entrou na suíte do `npm run validate`
+(rodou 33/33 ✅, type-check do motor limpo).
+
+**O que falta, explícito**: o gate NÃO está chamado por nenhum caminho de
+produto ainda — só o módulo puro + testes. Falta o wiring em
+`useApexLogic.ts` (mesmo ponto síncrono, antes de `openPosition()`, que o
+`RISK_MODULE_SPEC.md` já desenhou para `evaluateRiskGate` — os dois podem
+compartilhar o mesmo ponto de integração). Também falta decidir de onde vem
+`typicalMovementPercent` em tempo real por ativo/timeframe (hoje só existe a
+tabela medida/extrapolada de BTCUSDT, `BTCUSDT_TYPICAL_MOVEMENT_PERCENT` —
+outros ativos exigiriam medição própria antes de usar o gate, nunca
+extrapolar sem marcar).
 
 Ordem completa dos 5 componentes em `CLAUDE.md` (pendência #5): (1) gate de
-custo → (2) sizing condicional à vol → (3) detector de correlação real de
-portfólio → (4) hard stop + daily loss limit não-burláveis → (5) diagnóstico de
-eficiência de saída (MFE/MAE dos trades do próprio usuário).
+custo [módulo pronto, wiring pendente] → (2) sizing condicional à vol →
+(3) detector de correlação real de portfólio → (4) hard stop + daily loss
+limit não-burláveis → (5) diagnóstico de eficiência de saída (MFE/MAE dos
+trades do próprio usuário).
 
 ---
 

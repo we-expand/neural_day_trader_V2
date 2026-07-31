@@ -240,19 +240,29 @@ ignorado.
    (B), a ponte de execução **é** o produto, não um veículo pra um alfa que não
    existe. Destravado pra implementar. Nenhuma linha de código desta ponte foi
    escrita ainda.
-5. **Componentes do cérebro de execução (pilar A) — desenhados em 2026-07-30,
-   nenhum implementado.** Ordem de prioridade acordada com o Cleber:
-   (1) **gate de viabilidade por custo** — recusa operar onde o custo devora o
-   movimento esperado; é o de maior impacto no burn rate e é aritmética pura,
-   com os números já medidos (seção 14.3 da spec); (2) **sizing condicional à
-   volatilidade** (único lugar onde ML entra legitimamente); (3) **detector de
-   correlação real de portfólio** (impede o usuário de achar que tem 5 posições
-   quando tem 1 aposta — ver erro das cestas de cripto, seção 14.4);
-   (4) **hard stop + daily loss limit não-burláveis** (já parcialmente em
-   `RISK_MODULE_SPEC.md`, fora da tabela do `CRITERIA.md` por serem limites
-   mecânicos, não sinais preditivos); (5) **diagnóstico de eficiência de saída**
-   (MFE/MAE dos trades do próprio usuário — análise retrospectiva, zero
-   previsão). O cérebro explicitamente NÃO prevê direção nem promete retorno.
+5. **Componentes do cérebro de execução (pilar A) — desenhados em 2026-07-30.**
+   Ordem de prioridade acordada com o Cleber: (1) **gate de viabilidade por
+   custo** — recusa operar onde o custo devora o movimento esperado; é o de
+   maior impacto no burn rate e é aritmética pura, com os números já medidos
+   (seção 14.3 da spec). **Implementado em 2026-07-30**:
+   `src/app/services/risk/CostViabilityGate.ts` (função pura
+   `evaluateCostViability(costPercent, typicalMovementPercent)`, limiares
+   7%/12% calibrados pra reproduzir a coluna "Viável?" da tabela 14.3) +
+   `__validate__.ts` (14 asserções, na suíte do `npm run validate`). **Ainda
+   NÃO está chamado por nenhum caminho de produto** (`useApexLogic.ts` não
+   invoca o gate) — só o módulo puro existe, mesmo estágio em que o
+   `RiskRules`/`evaluateRiskGate` do `RISK_MODULE_SPEC.md` está (spec sem
+   wiring). Próximo passo de integração: chamar antes de abrir posição, no
+   mesmo ponto onde entraria o `evaluateRiskGate` da spec de risco. (2)
+   **sizing condicional à volatilidade** (único lugar onde ML entra
+   legitimamente); (3) **detector de correlação real de portfólio** (impede o
+   usuário de achar que tem 5 posições quando tem 1 aposta — ver erro das
+   cestas de cripto, seção 14.4); (4) **hard stop + daily loss limit
+   não-burláveis** (já parcialmente em `RISK_MODULE_SPEC.md`, fora da tabela
+   do `CRITERIA.md` por serem limites mecânicos, não sinais preditivos);
+   (5) **diagnóstico de eficiência de saída** (MFE/MAE dos trades do próprio
+   usuário — análise retrospectiva, zero previsão). O cérebro explicitamente
+   NÃO prevê direção nem promete retorno.
 6. **Achado não tratado (2026-07-30)**: `src/app/components/Marketplace.tsx:30`
    anuncia "Neural Scalper Pro — 87% win rate nos últimos 3 meses" (R$299,90),
    com rating 4.9/342 reviews/1.284 vendas, tudo hardcoded. Tela viva

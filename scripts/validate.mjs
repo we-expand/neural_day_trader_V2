@@ -35,6 +35,10 @@ const SUITES = [
     name: 'Motor de backtest (trailing stop, empate TP/SL, sizing por stop)',
     entry: 'src/app/services/strategy/__validate__.ts',
   },
+  {
+    name: 'Gate de viabilidade por custo (Componente 1 do cérebro de execução)',
+    entry: 'src/app/services/risk/__validate__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));
