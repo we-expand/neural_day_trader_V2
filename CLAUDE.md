@@ -240,29 +240,48 @@ ignorado.
    (B), a ponte de execução **é** o produto, não um veículo pra um alfa que não
    existe. Destravado pra implementar. Nenhuma linha de código desta ponte foi
    escrita ainda.
-5. **Componentes do cérebro de execução (pilar A) — desenhados em 2026-07-30.**
+5. **Componentes do cérebro de execução (pilar A).** **Achado de 2026-07-30
+   (2ª sessão)**: o `RISK_MODULE_SPEC.md` estava desatualizado — ele descreve
+   `RiskRules`/`evaluateRiskGate` como "proposto, não implementado", mas
+   `useApexLogic.ts` **já tinha**, antes desta sessão, um `RiskManager` real
+   (`src/lib/modules/RiskManager.ts`, daily loss limit + drawdown + kill-switch
+   síncrono pré-trade), **sizing por ATR** (`aiConfig.positionSizingMode ===
+   'ATR'`, ~linha 1631) e um **guard de correlação por grupo estático**
+   (`aiConfig.correlationGuardEnabled`, ~linha 1647) — ou seja, os
+   Componentes 2 e 3 da lista abaixo já estavam parcialmente implementados
+   antes de qualquer trabalho desta sessão. Não confiar no `RISK_MODULE_SPEC.md`
+   sem checar o código antes de reportar o que existe.
    Ordem de prioridade acordada com o Cleber: (1) **gate de viabilidade por
-   custo** — recusa operar onde o custo devora o movimento esperado; é o de
-   maior impacto no burn rate e é aritmética pura, com os números já medidos
-   (seção 14.3 da spec). **Implementado em 2026-07-30**:
+   custo** — recusa operar onde o custo devora o movimento esperado.
+   **Implementado e LIGADO no motor em 2026-07-30**:
    `src/app/services/risk/CostViabilityGate.ts` (função pura
    `evaluateCostViability(costPercent, typicalMovementPercent)`, limiares
    7%/12% calibrados pra reproduzir a coluna "Viável?" da tabela 14.3) +
-   `__validate__.ts` (14 asserções, na suíte do `npm run validate`). **Ainda
-   NÃO está chamado por nenhum caminho de produto** (`useApexLogic.ts` não
-   invoca o gate) — só o módulo puro existe, mesmo estágio em que o
-   `RiskRules`/`evaluateRiskGate` do `RISK_MODULE_SPEC.md` está (spec sem
-   wiring). Próximo passo de integração: chamar antes de abrir posição, no
-   mesmo ponto onde entraria o `evaluateRiskGate` da spec de risco. (2)
-   **sizing condicional à volatilidade** (único lugar onde ML entra
-   legitimamente); (3) **detector de correlação real de portfólio** (impede o
-   usuário de achar que tem 5 posições quando tem 1 aposta — ver erro das
-   cestas de cripto, seção 14.4); (4) **hard stop + daily loss limit
-   não-burláveis** (já parcialmente em `RISK_MODULE_SPEC.md`, fora da tabela
-   do `CRITERIA.md` por serem limites mecânicos, não sinais preditivos);
-   (5) **diagnóstico de eficiência de saída** (MFE/MAE dos trades do próprio
-   usuário — análise retrospectiva, zero previsão). O cérebro explicitamente
-   NÃO prevê direção nem promete retorno.
+   `__validate__.ts` (14 asserções, na suíte do `npm run validate`) + chamada
+   real em `useApexLogic.ts`, logo após o filtro de direção e antes do
+   `RiskManager`, antes de qualquer entrada. **Diferença importante da
+   medição original**: a tabela 14.3 mede "movimento típico" como MFE
+   (Maximum Favorable Excursion) do backtest, só calculado pra BTCUSDT — não
+   dá pra extrapolar pra outro ativo sem medição própria (regra de nunca
+   fabricar dado). A integração ao vivo usa **ATR(14) real do candle buffer**
+   como proxy de volatilidade/movimento por ativo — é uma aproximação
+   deliberada (ATR ≠ MFE), não a mesma métrica calibrada. Classe de custo por
+   ativo reaproveita `SymbolMappingService.findMapping().type`
+   (forex/crypto/commodity/index/stock); forex sempre cai em FOREX_MAJOR
+   (mais barato) por falta de granularidade minor/exotic nesse mapeamento —
+   pode SUBESTIMAR custo em pares forex minor/exotic reais, registrado como
+   aproximação nos comentários do código, não medido. (2) **sizing
+   condicional à volatilidade** — já existe (ver achado acima), modo ATR
+   opcional via `aiConfig.positionSizingMode`; (3) **detector de correlação
+   real de portfólio** — já existe uma versão heurística por grupo estático
+   (ver achado acima); ainda falta a versão de correlação de retornos
+   calculada ao vivo (TODO já citado no próprio código, `RISK_MODULE_SPEC.md`
+   seção 3.5); (4) **hard stop + daily loss limit não-burláveis** — daily
+   loss/drawdown/kill-switch já existem via `RiskManager`; falta auditar se
+   são de fato não-burláveis; (5) **diagnóstico de eficiência de saída**
+   (MFE/MAE dos trades do próprio usuário — análise retrospectiva, zero
+   previsão) — não implementado. O cérebro explicitamente NÃO prevê direção
+   nem promete retorno.
 6. **Achado não tratado (2026-07-30)**: `src/app/components/Marketplace.tsx:30`
    anuncia "Neural Scalper Pro — 87% win rate nos últimos 3 meses" (R$299,90),
    com rating 4.9/342 reviews/1.284 vendas, tudo hardcoded. Tela viva

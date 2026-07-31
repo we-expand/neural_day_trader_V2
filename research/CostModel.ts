@@ -3,9 +3,12 @@
  * usada pelo research/CRITERIA.md para converter retorno BRUTO em retorno LÍQUIDO
  * antes de qualquer decisão de promoção pra produto.
  *
- * Não é chamado hoje por nenhum caminho de produto (Dashboard/IA ao vivo/Backtest).
- * É consumido só por scripts de pesquisa em research/experiments/*, junto do
- * MarketScoreValidator.ts, pra medir edge líquido.
+ * Consumido por scripts de pesquisa em research/experiments/*, junto do
+ * MarketScoreValidator.ts, pra medir edge líquido — e, desde 2026-07-30, também
+ * pelo caminho de produto: `useApexLogic.ts` chama `estimateCostPercent()` no
+ * gate de viabilidade por custo (`src/app/services/risk/CostViabilityGate.ts`,
+ * Componente 1 do cérebro de execução, decisão (B) da seção 14.5 do
+ * AI_BRAIN_SPEC.md) antes de abrir qualquer posição.
  *
  * CALIBRADO EM 2026-07-24 contra pesquisa real de corretoras concorrentes da
  * Infinox (IC Markets, Pepperstone, FXTM, Exness — contas Raw/ECN, que são o

@@ -10,6 +10,10 @@ import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalI
 import { backtestDataService } from '@/app/services/BacktestDataService';
 import { MarketScoreEngine } from '@/app/services/MarketScoreEngine';
 import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
+import { getPointValue } from '@/app/services/strategy/TradeSizing';
+import { symbolMappingService } from '@/app/services/SymbolMappingService';
+import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
+import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../research/CostModel';
 
 /**
  * Normaliza o timeframe operacional escolhido na UI (aiConfig.timeframe, ex:
@@ -1401,6 +1405,53 @@ export function useApexLogic(
           if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
             console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
             return;
+          }
+
+          // 🔒 GATE DE VIABILIDADE POR CUSTO (Componente 1 do cérebro de execução,
+          // decisão (B) — research/AI_BRAIN_SPEC.md seção 14.5, src/app/services/risk/
+          // CostViabilityGate.ts). Aritmética pura: recusa operar quando o custo
+          // round-trip estimado (research/CostModel.ts, mesma calibração usada na
+          // pesquisa) devora fração grande demais do movimento típico do ativo AGORA.
+          // "Movimento típico" aqui é o ATR(14) real do próprio ativo/timeframe operado
+          // — não a tabela fixa de BTCUSDT da seção 14.3 (que não pode ser extrapolada
+          // pra outro ativo sem medição própria, regra de nunca fabricar dado). ATR é
+          // uma proxy padrão de volatilidade, não o MFE medido na pesquisa; os limiares
+          // (7%/12%) foram calibrados contra MFE, então esta aplicação com ATR é uma
+          // aproximação deliberada, não a mesma métrica.
+          {
+            const atrSeriesForCostGate = calculateATR(candles, 14);
+            const atrValueForCostGate = atrSeriesForCostGate[atrSeriesForCostGate.length - 1];
+            if (!atrValueForCostGate || atrValueForCostGate <= 0) {
+              console.log(`[CUSTO] 🚫 Setup ${side} descartado: ATR indisponível pra ${selectedSymbol} agora — sem dado real pra avaliar viabilidade de custo`);
+              return;
+            }
+            const movementPercentForCostGate = (atrValueForCostGate / currentPrice) * 100;
+
+            // Classificação por classe de ativo reaproveita o `type` já mapeado em
+            // SymbolMappingService — FOREX_MINOR/EXOTIC não são distinguidos de
+            // FOREX_MAJOR aqui (granularidade que o mapeamento de símbolo não guarda),
+            // então o custo forex sempre usa o piso mais barato (major); ativo sem
+            // mapeamento cai no mesmo fallback, registrado no log como aproximação.
+            const symbolType = symbolMappingService.findMapping(selectedSymbol)?.type;
+            const assetClassForCostGate: CostAssetClass =
+              symbolType === 'crypto' ? 'CRYPTO' :
+              symbolType === 'commodity' ? 'COMMODITY' :
+              symbolType === 'index' ? 'INDEX' :
+              symbolType === 'stock' ? 'STOCK' :
+              'FOREX_MAJOR';
+            if (!symbolType) {
+              console.log(`[CUSTO] ⚠️ ${selectedSymbol} sem mapeamento em SymbolMappingService — usando FOREX_MAJOR como aproximação conservadora pro custo`);
+            }
+
+            const pointValueForCostGate = getPointValue(selectedSymbol);
+            const costPercentForCostGate = estimateCostPercent(assetClassForCostGate, currentPrice, pointValueForCostGate) * 2 * 100; // round-trip, em % (não fração)
+
+            const costGateResult = evaluateCostViability(costPercentForCostGate, movementPercentForCostGate);
+            if (!costGateResult.approved) {
+              console.log(`[CUSTO] 🚫 Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. ATR ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate})`);
+              return;
+            }
+            console.log(`[CUSTO] ✅ Gate de custo aprova ${selectedSymbol}: ${costGateResult.reason}`);
           }
 
           // 🔒 GATE DE RISCO (research/RISK_MODULE_SPEC.md) — checado de forma síncrona

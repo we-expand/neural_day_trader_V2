@@ -126,31 +126,48 @@ Apresentadas duas saídas mutuamente exclusivas:
 
 ---
 
-## Próximo passo — Componente 1 implementado, wiring ainda pendente
+## Próximo passo — Componente 1 implementado E LIGADO no motor
 
-**Componente 1 (gate de viabilidade por custo) implementado nesta sessão**:
+**Achado importante desta 2ª sessão**: `RISK_MODULE_SPEC.md` estava
+desatualizado. Ele descreve o gate de risco como "proposto, não
+implementado", mas `useApexLogic.ts` já tinha, mesmo antes de qualquer
+trabalho de hoje, um `RiskManager` real (daily loss/drawdown/kill-switch
+síncrono), sizing por ATR e um guard de correlação por grupo estático —
+Componentes 2 e 3 da lista de prioridade já existiam, parcialmente. Detalhe
+completo na pendência #5 do `CLAUDE.md`. Lição: checar o código antes de
+confiar numa spec/handoff antigo.
+
+**Componente 1 (gate de viabilidade por custo)**:
 `src/app/services/risk/CostViabilityGate.ts` — função pura
 `evaluateCostViability(costPercent, typicalMovementPercent)`, limiares 7%
 (VIAVEL)/12% (FRONTEIRA, reprovado por padrão)/acima (INVIAVEL), calibrados
 pra reproduzir a coluna "Viável?" da tabela 14.3 (15m/1h/4h/1d BTCUSDT).
-`__validate__.ts` com 14 asserções entrou na suíte do `npm run validate`
-(rodou 33/33 ✅, type-check do motor limpo).
+`__validate__.ts` com 14 asserções na suíte do `npm run validate`.
 
-**O que falta, explícito**: o gate NÃO está chamado por nenhum caminho de
-produto ainda — só o módulo puro + testes. Falta o wiring em
-`useApexLogic.ts` (mesmo ponto síncrono, antes de `openPosition()`, que o
-`RISK_MODULE_SPEC.md` já desenhou para `evaluateRiskGate` — os dois podem
-compartilhar o mesmo ponto de integração). Também falta decidir de onde vem
-`typicalMovementPercent` em tempo real por ativo/timeframe (hoje só existe a
-tabela medida/extrapolada de BTCUSDT, `BTCUSDT_TYPICAL_MOVEMENT_PERCENT` —
-outros ativos exigiriam medição própria antes de usar o gate, nunca
-extrapolar sem marcar).
+**Agora LIGADO no motor real** (`useApexLogic.ts`, logo após o filtro de
+direção, antes do `RiskManager`): usa ATR(14) do candle buffer como proxy de
+movimento típico por ativo (a tabela medida da spec 14.3 é só de BTCUSDT via
+MFE, não extrapolável pra outro ativo — ATR é uma proxy diferente, mais
+disponível em tempo real, aplicada aos mesmos limiares 7%/12% calibrados
+contra MFE, então é aproximação declarada, não a mesma métrica). Classe de
+custo por ativo usa `SymbolMappingService.findMapping().type` — forex sempre
+cai em FOREX_MAJOR (mais barato) por falta de granularidade minor/exotic,
+pode subestimar custo real em pares forex minor/exotic. `npm run validate`
+rodou 33/33 ✅, type-check do motor limpo.
+
+**O que ainda falta**: observar em produção/DEMO se o gate está de fato
+recusando setups no log (`[CUSTO] 🚫`/`✅`) com frequência plausível — nunca
+foi testado contra fluxo real, só validação determinística sintética. Se
+ATR indisponível, o gate recusa por padrão (conservador, mas nunca testado
+esse caminho em produção real).
 
 Ordem completa dos 5 componentes em `CLAUDE.md` (pendência #5): (1) gate de
-custo [módulo pronto, wiring pendente] → (2) sizing condicional à vol →
-(3) detector de correlação real de portfólio → (4) hard stop + daily loss
-limit não-burláveis → (5) diagnóstico de eficiência de saída (MFE/MAE dos
-trades do próprio usuário).
+custo [pronto e ligado] → (2) sizing condicional à vol [já existia] →
+(3) detector de correlação real de portfólio [versão heurística já existia,
+falta correlação de retornos ao vivo] → (4) hard stop + daily loss limit
+não-burláveis [já existe via RiskManager, falta auditar se é burlável] →
+(5) diagnóstico de eficiência de saída (MFE/MAE dos trades do próprio
+usuário) [não implementado].
 
 ---
 
