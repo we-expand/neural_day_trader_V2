@@ -39,6 +39,10 @@ const SUITES = [
     name: 'Gate de viabilidade por custo (Componente 1 do cérebro de execução)',
     entry: 'src/app/services/risk/__validate__.ts',
   },
+  {
+    name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',
+    entry: 'src/app/services/analysis/__validate__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));

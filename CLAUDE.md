@@ -276,12 +276,42 @@ ignorado.
    real de portfólio** — já existe uma versão heurística por grupo estático
    (ver achado acima); ainda falta a versão de correlação de retornos
    calculada ao vivo (TODO já citado no próprio código, `RISK_MODULE_SPEC.md`
-   seção 3.5); (4) **hard stop + daily loss limit não-burláveis** — daily
-   loss/drawdown/kill-switch já existem via `RiskManager`; falta auditar se
-   são de fato não-burláveis; (5) **diagnóstico de eficiência de saída**
-   (MFE/MAE dos trades do próprio usuário — análise retrospectiva, zero
-   previsão) — não implementado. O cérebro explicitamente NÃO prevê direção
-   nem promete retorno.
+   seção 3.5); (4) **hard stop + daily loss limit — AUDITADO em 2026-07-30,
+   achado real de burla**: o Health Check Guardian (`useApexLogic.ts`,
+   intervalo de 5s) e o Kill-Switch síncrono (`riskManager.shouldActivateKillSwitch`,
+   chamado só na hora de avaliar uma ENTRADA nova) só impedem *abrir* trade
+   novo — nenhum dos dois fecha posição real já aberta na corretora. O
+   Kill-Switch chama `setActiveOrders([])`, que só limpa o estado local
+   (rastreamento de DEMO), nunca chama a corretora. Para trades LIVE reais, a
+   única via de abertura é o Estágio 2 (`useTradeConfirmationStage.ts`,
+   confirmação manual → `/broker/execute` via `BrokerClient.ts`); quando safe
+   mode/kill-switch dispara, esse módulo só cancela confirmações AINDA
+   PENDENTES — não fecha posições já executadas na MetaAPI. `BrokerClient.ts`
+   já expõe `closePosition`/`closeAllPositions` (chamam `/broker/execute` com
+   `action: 'closePosition'`/`'closeAllPositions'`), mas essas funções só são
+   chamadas por um componente de teste manual (`LiveTradingTest.tsx`) — nunca
+   automaticamente pelo `RiskManager` ou pelo Health Check Guardian.
+   **Conclusão: o hard stop hoje é "não-burlável" só contra a IA abrir
+   posição nova; uma posição LIVE já aberta no momento em que o limite é
+   violado fica sem gestão automática até o usuário intervir manualmente.**
+   Fix não implementado ainda (fora do escopo desta auditoria) — ligar
+   `shouldActivateKillSwitch`/Health Check a `closeAllPositions()` quando
+   `executionMode === 'LIVE'` é o próximo passo óbvio, mas exige decidir o
+   que fazer se a chamada à MetaAPI falhar (não dá pra assumir "fechado" sem
+   confirmação real do broker); (5) **diagnóstico de eficiência de saída —
+   IMPLEMENTADO em 2026-07-30** (análise retrospectiva, zero previsão):
+   `src/app/services/analysis/TradeEfficiencyDiagnostic.ts`. Reconstrói
+   MFE/MAE real de cada trade fechado do usuário buscando candle real
+   (`backtestDataService`) na janela entrada→saída (mesma fórmula de
+   excursão do `BacktestEngine.ts`), reporta `exitEfficiency` (quanto do MFE
+   foi capturado no resultado realizado) e `gaveBackPercent` por trade +
+   agregado. `__validate__.ts` cobre a parte pura (13 asserções, entra em
+   `npm run validate`); a busca de candle real não tem teste automatizado
+   ainda (mesma exceção do resto da suíte). **Ainda não ligado a nenhuma
+   tela/UI** — existe só como módulo de serviço, chamável a partir do
+   histórico de trades do usuário (`orderHistory`/`TradeVisual`), mas nenhuma
+   tela chama `diagnoseClosedTrades` ainda. O cérebro explicitamente NÃO
+   prevê direção nem promete retorno.
 6. **Achado não tratado (2026-07-30)**: `src/app/components/Marketplace.tsx:30`
    anuncia "Neural Scalper Pro — 87% win rate nos últimos 3 meses" (R$299,90),
    com rating 4.9/342 reviews/1.284 vendas, tudo hardcoded. Tela viva

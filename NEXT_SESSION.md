@@ -1,231 +1,166 @@
-# Handoff — próxima sessão (escrito em 2026-07-30, ~23h)
+# Handoff — próxima sessão (atualizado em 2026-07-30, 3ª sessão do dia)
 
-> **Estado**: branch `dev`, commit `08eb78078`. A busca por edge de sinal foi
-> **formalmente encerrada** nesta sessão, com razão matemática registrada, e o
-> Cleber tomou uma **decisão de produto (opção B)** que muda a função objetivo
-> do cérebro. `npm run validate` ✅ (motor não foi tocado — só documentação e
-> scripts de pesquisa novos).
+> **Estado**: branch `dev`, working tree com mudanças NÃO commitadas (ver
+> lista abaixo — Cleber decide o commit/push, regra fixa do projeto).
+> Continuação direta da 2ª sessão: os dois itens sugeridos no handoff anterior
+> foram feitos — **(a) auditoria do Componente 4** (hard stop/daily loss) e
+> **(b) implementação do Componente 5** (diagnóstico MFE/MAE retrospectivo).
 >
 > **Leitura obrigatória antes de qualquer trabalho no motor**:
-> `research/AI_BRAIN_SPEC.md` **seção 14** (nova) + o bloco de encerramento no
-> `CLAUDE.md`. Existem para evitar que esta sessão seja refeita do zero.
+> `CLAUDE.md` pendência **#5** (estado real, agora atualizado, dos 5
+> componentes do cérebro de execução) + `research/AI_BRAIN_SPEC.md` seção 14.
+
+## Resumo rápido pra abrir uma nova janela/sessão
+
+1. Ler este arquivo inteiro.
+2. Ler `CLAUDE.md`, pendência #5 (achado da auditoria do Componente 4 +
+   detalhe do Componente 5 implementado).
+3. Rodar `git status` — working tree tem mudanças de **duas sessões
+   diferentes** misturadas, ver seção "O que está no working tree" abaixo
+   antes de decidir o que commitar junto.
+
+**Estado em uma frase**: dos 5 componentes do cérebro de execução, **1
+(custo) e 5 (diagnóstico MFE/MAE) estão implementados**, **2 (sizing ATR) e 3
+(correlação heurística) já existiam**, e o **4 (hard stop/daily loss) tem uma
+falha real confirmada por auditoria**: o Kill-Switch e o Health Check só
+impedem abrir trade NOVO — nenhum dos dois fecha uma posição LIVE real já
+aberta na corretora quando o limite é violado. Push pro GitHub é sempre
+manual do Cleber.
 
 ---
 
-## O que aconteceu nesta sessão
+## O que foi feito nesta sessão
 
-O Cleber partiu de uma observação correta sobre os testes anteriores: **quando
-ganhava, ganhava pouco; quando perdia, perdia quase o mesmo** — e propôs
-desenhar o cérebro em torno de payoff assimétrico ("ganha muito, perde pouco"),
-usando sinais que prevejam **magnitude** do movimento (rompimento de topo,
-pressão compradora/vendedora), não só direção.
+### 1. Auditoria do Componente 4 (hard stop/daily loss) — achado real
 
-A hipótese foi testada em 3 etapas, da mais barata para a mais cara.
+Rastreei todo o caminho de risco em `useApexLogic.ts`:
 
-### Etapa 1 — Correção de premissa (antes de testar)
+- **Health Check Guardian** (intervalo de 5s) e o **Kill-Switch síncrono**
+  (`riskManager.shouldActivateKillSwitch`, chamado só na hora de avaliar uma
+  entrada nova) **só impedem abrir trade novo**. Nenhum dos dois fecha
+  posição já aberta.
+- O Kill-Switch chama `setActiveOrders([])` — isso só limpa o **estado local**
+  (rastreamento usado em modo DEMO). Não é uma chamada à corretora.
+- Para trades LIVE reais, a única via de abertura é o **Estágio 2**
+  (`useTradeConfirmationStage.ts`, confirmação manual → `/broker/execute` via
+  `BrokerClient.ts`). Quando safe mode/kill-switch dispara, esse módulo só
+  cancela confirmações **ainda pendentes** — não fecha posições já executadas
+  na MetaAPI.
+- `BrokerClient.ts` **já expõe** `closePosition`/`closeAllPositions` (chamam
+  `/broker/execute` com `action: 'closePosition'`/`'closeAllPositions'`), mas
+  essas funções só são chamadas manualmente por `LiveTradingTest.tsx` (tela de
+  teste) — nunca automaticamente pelo `RiskManager` ou pelo Health Check.
 
-O Cleber mencionou "uma das estratégias que entregou 87% de assertividade".
-**Esse número nunca existiu em nenhum teste deste projeto.** A origem provável
-é `src/app/components/Marketplace.tsx:30` — card de produto hardcoded ("Neural
-Scalper Pro — 87% win rate nos últimos 3 meses"). Corrigido antes de virar
-premissa de design.
+**Conclusão**: o hard stop hoje é "não-burlável" apenas contra a IA abrir
+posição nova. Uma posição LIVE já aberta no momento em que o daily loss limit
+ou o kill-switch dispara **fica sem gestão automática** até o usuário intervir
+manualmente. Isso é uma lacuna real de segurança pro estágio LIVE do produto.
 
-### Etapa 2 — Diagnóstico barato de MFE/MAE (sem custo, sem TP/SL)
+**Fix NÃO implementado ainda** (ficou fora do escopo desta auditoria, é
+trabalho novo): ligar `shouldActivateKillSwitch`/Health Check a
+`closeAllPositions()` quando `executionMode === 'LIVE'`. Fica em aberto uma
+decisão de desenho: o que fazer se a própria chamada de fechamento à MetaAPI
+falhar (não dá pra assumir "fechado" sem confirmação real do broker — precisa
+de retry com backoff e/ou alerta persistente pro usuário, não um "tentei uma
+vez e desisti").
 
-`research/experiments/2026-07-30-breakout-mfe-mae-diagnostic/`
+### 2. Componente 5 — diagnóstico de eficiência de saída (MFE/MAE do usuário)
 
-Pergunta única: dado que o preço rompeu (Donchian 20, saída Donchian 10), a
-excursão favorável supera a adversa? Rodada 1 (BTC solo, 6 meses) deu n=35 em
-1h — descartada por poder estatístico. Rodada estendida: 7 criptos, 24 meses,
-**n=4.058 (15m) e n=973 (1h)**.
+Implementado `src/app/services/analysis/TradeEfficiencyDiagnostic.ts`:
 
-**A assimetria EXISTE**: payoff ratio real **1,79x (15m)** e **1,88x (1h)**,
-consistente através dos 7 instrumentos. **Mas** o win rate ficou em 35,4% e
-34,1%, e o breakeven para esses payoffs é 35,8% e 34,7%. EV bruto, antes de
-qualquer custo: **-0,011% e -0,033%** ≈ zero.
+- `computeMfeMaeFromCandles`: mesma fórmula de excursão (high/low barra a
+  barra) que já existia — não commitada — em `BacktestEngine.ts` desta manhã.
+- `diagnoseTradeEfficiency`: compara resultado realizado contra o MFE medido
+  → `exitEfficiency` (fração do MFE capturada) e `gaveBackPercent`.
+- `diagnoseClosedTrade`/`diagnoseClosedTrades`: buscam candle REAL da janela
+  entrada→saída via `backtestDataService` (mesma fonte real já usada por
+  Replay/Backtest) e agregam o relatório. Chamadas **sequenciais** de
+  propósito (mesma razão de sempre: fontes de candle real sofrem rate-limit
+  sob rajada). Falha de um trade nunca derruba o lote — entra em
+  `failedTrades` com o motivo, nunca preenche com dado fabricado.
+- **Zero previsão** — só descreve trades já fechados do próprio usuário, não
+  estima nada sobre o próximo trade.
 
-### Etapa 3 — Teste executável, custo real, contrato 0,01 BTC
+`__validate__.ts` cobre a parte pura (13 asserções, entrou em
+`npm run validate`, agora com 5 suítes). A parte de rede (busca de candle
+real) não tem teste automatizado, mesma exceção do resto da suíte (depende de
+rede/conta MetaAPI compartilhada).
 
-`research/experiments/2026-07-30-breakout-donchian-executable/`
+`npm run validate` rodou **tudo verde** (type-check + 5 suítes) depois da
+mudança.
 
-| Timeframe | n | Win rate | Resultado líquido | DSR |
-|---|---|---|---|---|
-| 15m pooled | 615 | 25,5% | **-US$1.447,73** | 0,0% ❌ |
-| 1h pooled | 133 | 35,3% | **-US$73,55** | 35,9% ❌ |
-| 1h SHORT isolado | 70 | 35,7% | +US$186,65 | 72,4% ❌ |
-
-O único subgrupo positivo (SHORT 1h) está **abaixo do piso de 95% do
-`CRITERIA.md` e abaixo do piso de 100 sinais** — não promovido, e reportá-lo
-isolado seria cherry-picking (o LONG do mesmo desenho perdeu US$260).
-
----
-
-## Os 3 achados que ficam (valem mais que os testes)
-
-### 1. Teorema da parada opcional — razão MATEMÁTICA do encerramento
-
-Três desenhos de saída completamente diferentes (ATR 1,5×/3×; pontos fixos
-100/400 e 30/200; Donchian trailing) deram EV bruto ≈ 0 em todos os casos. Não
-é má parametrização — é o teorema: se o preço é aproximadamente martingale,
-então para **qualquer** regra de parada limitada, `E[P_τ] = P_0`.
-
-> **Stop e alvo escolhem a FORMA da distribuição de payoff — nunca a MÉDIA.**
-> A assimetria é *paga* com win rate, não *criada*.
-
-**Consequência normativa**: qualquer proposta futura do tipo "vamos testar stop
-X com alvo Y" está **refutada a priori**, salvo se vier com evidência de que o
-sinal prevê magnitude condicional. Não é preciso rodar o backtest para saber.
-
-### 2. Gate de viabilidade por custo, quantificado
-
-| Timeframe | Movimento típico (MFE médio) | Custo (0,26%) como % do movimento | Viável? |
-|---|---|---|---|
-| 15m | 1,05% | 25% | ❌ |
-| 1h | 2,52% | 10% | ⚠️ fronteira |
-| 4h | ~5% (extrapolado √t) | ~5% | ✓ |
-| Diário | ~12% (extrapolado √t) | ~2% | ✓✓ |
-
-**Todo teste desta sessão rodou abaixo ou na fronteira do piso** — o resultado
-estava determinado pela aritmética antes de olhar o sinal. As linhas 4h/diário
-são extrapolação declarada (escala √t), não medição.
-
-### 3. Erro metodológico nomeado (atravessa as seções 11.10-11.13)
-
-A cesta de 7 criptos tem correlação típica 0,7-0,9 entre pares — é **~1,5
-apostas independentes, não 7**. O pooling cross-sectional aumentou o `n` da
-mesma aposta, **nunca a diversificação real**. Isso enfraquece a leitura de "7
-instrumentos pooled" como evidência robusta nas seções anteriores.
+**O que ainda falta**: nenhuma tela/UI chama `diagnoseClosedTrades` ainda —
+existe só como módulo de serviço. Próximo passo natural seria uma tela/painel
+que rode isso sobre o `orderHistory` do usuário e mostre o agregado
+(`averageExitEfficiency`, `averageGaveBackPercent`) — decisão de produto em
+aberto, não tomada nesta sessão.
 
 ---
 
-## DECISÃO DE PRODUTO: opção (B) — tomada pelo Cleber
+## O que está no working tree (checar `git status` antes de commitar)
 
-Apresentadas duas saídas mutuamente exclusivas:
+Duas origens diferentes, não misturar sem entender:
 
-- **(A)** perseguir o perfil convexo onde ele comprovadamente vive —
-  trend-following diário/swing, cesta multi-classe descorrelacionada, 10-20
-  anos (é o perfil "ganha muito/perde pouco" da literatura AQR) — mas exigiria
-  **reposicionar o produto para fora de day trading**;
-- **(B)** manter o produto intraday e assumir que o cérebro é de **execução e
-  disciplina, não de alfa**.
+1. **Desta sessão** (novo, pronto pra commit):
+   - `src/app/services/analysis/TradeEfficiencyDiagnostic.ts` (novo)
+   - `src/app/services/analysis/__validate__.ts` (novo)
+   - `scripts/validate.mjs` (adiciona a 5ª suíte)
+   - `CLAUDE.md` (pendência #5 atualizada com o achado da auditoria + detalhe
+     do Componente 5)
+   - `NEXT_SESSION.md` (este arquivo)
 
-### Cleber escolheu (B). Implicações:
-
-1. **Função objetivo nova**: minimizar perda por causa evitável, com burn rate
-   mínimo e comportamento auditável. Com edge ≈ 0, EV por trade ≈ `−custo`,
-   logo **o cérebro mais eficiente é o que opera menos** (matemática, não
-   conservadorismo).
-2. **Só metade da hipótese original é construível**: "perde pouco" é garantível
-   mecanicamente (hard stop, sizing inverso à vol, daily limit, cooldown);
-   "ganha muito" só condicionalmente. Assimetria **por trade** é impossível;
-   assimetria **de exposição ao longo do tempo** é real e implementável.
-3. **ML entra apenas em previsão de volatilidade** (autocorrelacionada,
-   tratável — base da família GARCH), **nunca de direção**.
-4. **Destrava a Fase 3 / Estágio 3**: a questão "vale avançar sem edge
-   comprovado?" tem resposta — sob (B), a ponte de execução **é** o produto.
-
----
-
-## Próximo passo — Componente 1 implementado E LIGADO no motor
-
-**Achado importante desta 2ª sessão**: `RISK_MODULE_SPEC.md` estava
-desatualizado. Ele descreve o gate de risco como "proposto, não
-implementado", mas `useApexLogic.ts` já tinha, mesmo antes de qualquer
-trabalho de hoje, um `RiskManager` real (daily loss/drawdown/kill-switch
-síncrono), sizing por ATR e um guard de correlação por grupo estático —
-Componentes 2 e 3 da lista de prioridade já existiam, parcialmente. Detalhe
-completo na pendência #5 do `CLAUDE.md`. Lição: checar o código antes de
-confiar numa spec/handoff antigo.
-
-**Componente 1 (gate de viabilidade por custo)**:
-`src/app/services/risk/CostViabilityGate.ts` — função pura
-`evaluateCostViability(costPercent, typicalMovementPercent)`, limiares 7%
-(VIAVEL)/12% (FRONTEIRA, reprovado por padrão)/acima (INVIAVEL), calibrados
-pra reproduzir a coluna "Viável?" da tabela 14.3 (15m/1h/4h/1d BTCUSDT).
-`__validate__.ts` com 14 asserções na suíte do `npm run validate`.
-
-**Agora LIGADO no motor real** (`useApexLogic.ts`, logo após o filtro de
-direção, antes do `RiskManager`): usa ATR(14) do candle buffer como proxy de
-movimento típico por ativo (a tabela medida da spec 14.3 é só de BTCUSDT via
-MFE, não extrapolável pra outro ativo — ATR é uma proxy diferente, mais
-disponível em tempo real, aplicada aos mesmos limiares 7%/12% calibrados
-contra MFE, então é aproximação declarada, não a mesma métrica). Classe de
-custo por ativo usa `SymbolMappingService.findMapping().type` — forex sempre
-cai em FOREX_MAJOR (mais barato) por falta de granularidade minor/exotic,
-pode subestimar custo real em pares forex minor/exotic. `npm run validate`
-rodou 33/33 ✅, type-check do motor limpo.
-
-**O que ainda falta**: observar em produção/DEMO se o gate está de fato
-recusando setups no log (`[CUSTO] 🚫`/`✅`) com frequência plausível — nunca
-foi testado contra fluxo real, só validação determinística sintética. Se
-ATR indisponível, o gate recusa por padrão (conservador, mas nunca testado
-esse caminho em produção real).
-
-Ordem completa dos 5 componentes em `CLAUDE.md` (pendência #5): (1) gate de
-custo [pronto e ligado] → (2) sizing condicional à vol [já existia] →
-(3) detector de correlação real de portfólio [versão heurística já existia,
-falta correlação de retornos ao vivo] → (4) hard stop + daily loss limit
-não-burláveis [já existe via RiskManager, falta auditar se é burlável] →
-(5) diagnóstico de eficiência de saída (MFE/MAE dos trades do próprio
-usuário) [não implementado].
+2. **Órfã de uma sessão anterior do mesmo dia** (origem verificada agora,
+   ver abaixo — decidir separadamente se commita):
+   - `src/app/services/strategy/BacktestEngine.ts` +
+     `src/app/services/strategy/__validate__.ts` — adicionam `mfePercent`/
+     `maePercent` ao `Trade` do **motor de backtest** (não é o mesmo código
+     do item 1 acima, que é sobre trades REAIS do usuário; este é sobre
+     trades SIMULADOS em backtest). Preparação pro §4.6 do
+     `research/MASTER_PLAN.md` (teste de skew de MFE/MAE por arquétipo).
+     `npm run validate` já cobre essas 2 novas asserções (rodou junto, sem
+     falha) — dá pra commitar com segurança se o Cleber quiser.
+   - `research/experiments/2026-07-30-fase2-remediation/` (untracked) —
+     script de remedição dos 5 presets com o motor corrigido (Fase 2 do
+     `MASTER_PLAN.md`), com cache em disco de candle (pasta `candle-cache/`
+     vazia — nenhuma rodada completou ainda, é trabalho **incompleto**, não
+     rode sem saber que leva horas por causa do rate-limit da conta MetaAPI
+     compartilhada, ver comentários no próprio script). **Não gerado nesta
+     sessão nem na anterior** — provavelmente de uma sessão ainda mais antiga
+     do mesmo dia (16h30 ou 19h40, ver seção de sessões anteriores no
+     histórico). Se o Cleber quiser retomar essa investigação, é só rodar o
+     script; se não, considerar descartar (decisão dele, não tomada aqui).
 
 ---
 
-## Sessões anteriores do mesmo dia (já commitadas, contexto condensado)
+## Próximo passo sugerido (não decidido, sugestão)
 
-- **16h30** — Fases 0/1/2 completas + Fase 3 Estágios 1 e 2.
-- **19h40** (`ff437d3cb`) — auditoria de máximo rigor do motor: **9 bugs reais
-  corrigidos** (ADX com SMA em vez de RMA de Wilder; direção de sinal inferida
-  causando inversão real no preset 3; exitBlock ruidoso no preset 4; trailing
-  com look-ahead leve; empate TP/SL a favor do TP; sizing sem distância de
-  stop; LCG do bootstrap com período curto; zero output salvo em arquivo).
-  Criados `MASTER_PLAN.md`, `research/DataSplit.ts` (embargo real),
-  `research/experiments/2026-07-30-engine-audit/`. Detalhe completo no
-  `MASTER_PLAN.md` e no histórico do git.
+(a) Implementar o fix do Componente 4 (ligar kill-switch/health-check a
+`closeAllPositions()` em modo LIVE, com tratamento de falha da chamada); ou
+(b) construir uma tela/painel que use `diagnoseClosedTrades` (Componente 5)
+sobre o histórico real do usuário; ou (c) decidir o tratamento do
+`Marketplace.tsx:30` (pendência #6, ainda aberta, ver abaixo).
 
 ---
 
-## Pendências reais em aberto
+## Pendências reais em aberto (herdadas, sem mudança nesta sessão)
 
-1. **Working tree suja — falta commitar**: este `NEXT_SESSION.md`,
-   `research/experiments/2026-07-30-breakout-donchian-executable/RESULTADOS.md`,
-   `research/experiments/2026-07-30-custom-sma-pullback/` (pasta inteira,
-   untracked), `research/experiments/2026-07-30-fase2-remediation/`, e
-   modificações em `src/app/services/strategy/BacktestEngine.ts` +
-   `__validate__.ts` — **essas duas últimas não são desta sessão, verificar
-   origem antes de commitar**.
+1. ~~Working tree suja, origem não verificada~~ — **verificada nesta sessão**,
+   ver seção "O que está no working tree" acima.
 2. **`Marketplace.tsx:30`** — "Neural Scalper Pro, 87% win rate nos últimos 3
-   meses" (R$299,90), rating 4.9 / 342 reviews / 1.284 vendas, tudo hardcoded.
-   Tela viva (`App.tsx:273`, item na Sidebar). Dois problemas: número de
-   performance fabricado **e** o arquétipo anunciado (scalping) é o que a
-   pesquisa deste projeto mediu como **o pior de toda a investigação** (Sharpe
-   pooled -3,36 em cripto, seções 11.12/11.13). Cleber informado, **não decidiu
-   o tratamento**. Sob (B) isso fica urgente: produto sem edge não pode exibir
+   meses" (R$299,90), hardcoded, anunciando o pior arquétipo já medido
+   (Sharpe pooled -3,36). Cleber informado, não decidiu tratamento. Sob a
+   decisão (B), fica ainda mais urgente: produto sem edge não pode exibir
    acurácia.
-3. **Força Relativa cross-sectional como 6º arquétipo** — proposto em sessão
-   anterior, não decidido. **Atenção: é essencialmente a opção (A)** (momentum
-   cross-sectional Jegadeesh-Titman, rebalanceamento mensal). Está em conflito
-   direto com a decisão (B) — retomar só se o Cleber quiser reabrir o
-   posicionamento do produto.
+3. **Força Relativa cross-sectional como 6º arquétipo** — conflita com a
+   decisão (B), não decidido.
 4. **3 roadmaps antigos não deletados** —
    `ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md`, `ROADMAP_SIMULADOR.md`,
-   `ROADMAP_AI_TRADING_DEMO.md`, substituídos em conteúdo pelo `MASTER_PLAN.md`.
+   `ROADMAP_AI_TRADING_DEMO.md`.
 5. **`LiquidityPrediction.tsx`** ainda não religado ao `backtestDataService`
-   real — painéis corretamente vazios, poderiam mostrar dado real (o serviço já
-   existe e já é usado pelo `CorrelationMatrix.tsx`).
-6. **Perna short dos arquétipos 1, 2, 4** — adiada por decisão explícita
-   (exigiria `exitBlocks` conscientes do lado da posição). Revisitar depois.
-
----
-
-## O que faria a decisão (B) mudar (registrado para ser revisável com critério)
-
-- Evidência de sinal que preveja **magnitude condicional** — única coisa que
-  reabre a discussão de stop/alvo.
-- Teste de trend-following nas condições da literatura (diário, multi-classe
-  genuinamente descorrelacionada, 10-20 anos, vol targeting). **Nunca foi feito
-  aqui** — sua ausência não é evidência de fracasso.
-- Queda estrutural do custo de transação, que moveria o piso de viabilidade.
+   real.
+6. **Perna short dos arquétipos 1, 2, 4** — adiada por decisão explícita.
+7. **NOVO (2026-07-30, esta sessão): fix do Componente 4** — ver seção
+   "Próximo passo sugerido" acima.
 
 ---
 
@@ -236,8 +171,8 @@ usuário) [não implementado].
 - **Nunca fabricar dado** — erro explícito quando não há fonte real
 - **`npm run validate` obrigatório** antes de qualquer commit que toque o motor
 - **Todo experimento salva output em arquivo**, nunca só em prosa
-- **Ler `MASTER_PLAN.md` inteiro antes de tocar no motor de decisão**;
-  `AI_BRAIN_SPEC.md` é o histórico de pesquisa detalhado (agora com seção 14)
+- **Ler `CLAUDE.md` inteiro antes de tocar no motor de decisão**;
+  `AI_BRAIN_SPEC.md` é o histórico de pesquisa detalhado
 - **Rigor de especialista + honestidade radical, permanente** — nunca inflar
   número, nunca esconder achado negativo, sempre reportar o dado que sustenta
   (ou a ausência dele, declarada)
