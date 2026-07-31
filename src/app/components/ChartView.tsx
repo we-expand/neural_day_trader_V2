@@ -6323,6 +6323,11 @@ export function ChartView({
             exitBlocks: strategy.exitBlocks as any,
             filterBlocks: strategy.filterBlocks as any,
             direction: 'AUTO',
+            // Escolhido explicitamente pelo usuário no builder (campo "Sinal de
+            // Entrada") — nunca deixar undefined aqui, senão StrategyEvaluator
+            // cai no fallback de inferência por operador, que inverte sinal em
+            // qualquer estratégia de reversão (ver comentário em types/strategy.ts).
+            entrySignal: strategy.entrySignal,
             stopLoss: strategy.stopLoss,
             takeProfit: strategy.takeProfit,
             trailingStop: strategy.trailingStop,
