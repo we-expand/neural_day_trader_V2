@@ -13,6 +13,7 @@ import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataSer
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { symbolMappingService } from '@/app/services/SymbolMappingService';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
+import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../research/CostModel';
 
 /**
@@ -941,6 +942,23 @@ export function useApexLogic(
         setSafeModeReason(issues.join(', '));
         setIsActive(false);
         toast.error(`🚨 SAFE MODE ATIVADO: ${issues.join(', ')}`);
+
+        // 🔴 FIX 2026-07-31 (auditoria 2026-07-30): safe mode em modo LIVE
+        // só bloqueava trade NOVO — posição já aberta na corretora ficava
+        // sem gestão automática. Agora fecha de fato na MetaAPI.
+        if (configRef.current.executionMode === 'LIVE') {
+          forceCloseAllLivePositions().then((result) => {
+            if (result.closed) {
+              addLog(`🔴 SAFE MODE: posições LIVE fechadas na corretora (${result.attempts} tentativa(s))`);
+            } else {
+              addLog(`🚨 FALHA AO FECHAR POSIÇÕES LIVE: ${result.lastError || 'motivo desconhecido'} — intervenção manual necessária`);
+              toastOriginal.error('🚨 FALHA AO FECHAR POSIÇÕES LIVE NA CORRETORA', {
+                description: `Feche manualmente na corretora. Motivo: ${result.lastError || 'desconhecido'}`,
+                duration: 0,
+              });
+            }
+          });
+        }
       }
     }, 5000);
 
@@ -1516,9 +1534,9 @@ export function useApexLogic(
             console.error(`[RISCO] 🚨 ${killSwitchCheck.reason}`);
             addLog(`🚨 KILL-SWITCH ATIVADO: ${killSwitchCheck.reason}`);
 
-            // Fechar TODAS as posições abertas
+            // Fechar TODAS as posições abertas (estado local — rastreamento DEMO)
             setActiveOrders([]);
-            console.log('[KILL-SWITCH] 🔴 Fechadas todas as posições abertas');
+            console.log('[KILL-SWITCH] 🔴 Fechadas todas as posições abertas (local)');
 
             // Parar a IA imediatamente
             setIsActive(false);
@@ -1531,6 +1549,23 @@ export function useApexLogic(
               description: killSwitchCheck.reason || 'Perda catastrófica detectada. Todas as posições foram fechadas.',
               duration: 0 // persistente até o usuário descartar
             });
+
+            // 🔴 FIX 2026-07-31 (auditoria 2026-07-30): setActiveOrders([]) acima
+            // só limpa estado local. Em modo LIVE precisa fechar de fato na
+            // corretora — não dá pra assumir "fechado" sem confirmação real.
+            if (configRef.current.executionMode === 'LIVE') {
+              forceCloseAllLivePositions().then((result) => {
+                if (result.closed) {
+                  addLog(`🔴 KILL-SWITCH: posições LIVE fechadas na corretora (${result.attempts} tentativa(s))`);
+                } else {
+                  addLog(`🚨 FALHA AO FECHAR POSIÇÕES LIVE: ${result.lastError || 'motivo desconhecido'} — intervenção manual necessária`);
+                  toastOriginal.error('🚨 FALHA AO FECHAR POSIÇÕES LIVE NA CORRETORA', {
+                    description: `Feche manualmente na corretora. Motivo: ${result.lastError || 'desconhecido'}`,
+                    duration: 0,
+                  });
+                }
+              });
+            }
 
             return;
           }
