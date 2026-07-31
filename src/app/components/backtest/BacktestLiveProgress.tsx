@@ -135,11 +135,11 @@ export function BacktestLiveProgress({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 20 }}
-        className={`fixed ${
-          isMinimized 
-            ? 'bottom-4 right-4 w-80' 
-            : 'bottom-4 right-4 w-[600px]'
-        } bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 border border-zinc-800 rounded-xl shadow-2xl z-[100] transition-all duration-300`}
+        className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${
+          isMinimized
+            ? 'w-80'
+            : 'w-[600px]'
+        } max-h-[85vh] overflow-y-auto bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 border border-zinc-800 rounded-xl shadow-2xl z-[100] transition-all duration-300`}
       >
         {/* ═══ HEADER ═══ */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
