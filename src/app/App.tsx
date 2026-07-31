@@ -195,6 +195,15 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []); // ← empty deps = stable reference forever
 
+  // Botão "Criar personalizada" na tela de IA — navega pro gráfico já com o
+  // construtor de estratégias aberto, em vez de só cair na tela do gráfico.
+  const [chartInitialAction, setChartInitialAction] = useState<'open-strategy-builder' | undefined>(undefined);
+  const handleCreateCustomStrategy = useCallback(() => {
+    setChartInitialAction('open-strategy-builder');
+    setCurrentView('chart');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   const isAdmin = useMemo(() => checkAdminPermissions(user), [user]);
 
   // ✅ STABLE handleLogout — ALL hooks MUST be declared before any early return (Rules of Hooks)
@@ -224,13 +233,16 @@ function AppContent() {
       case 'chart':
         return (
           <ErrorBoundary>
-            <ChartView />
+            <ChartView
+              initialAction={chartInitialAction}
+              onInitialActionConsumed={() => setChartInitialAction(undefined)}
+            />
           </ErrorBoundary>
         );
       case 'ai-trader':
         return (
           <ErrorBoundary>
-            <AITrader onNavigate={handleViewChange} />
+            <AITrader onNavigate={handleViewChange} onCreateCustomStrategy={handleCreateCustomStrategy} />
           </ErrorBoundary>
         );
       case 'ai-engine':
@@ -290,7 +302,7 @@ function AppContent() {
       default:
         return <Dashboard />;
     }
-  }, [currentView]);
+  }, [currentView, chartInitialAction, handleCreateCustomStrategy]);
 
   // ✅ LOADING GUARD — declared AFTER all hooks, BEFORE JSX return
   // Prevents LandingPage from flashing for ~200ms while auth reads sessionStorage

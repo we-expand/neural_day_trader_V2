@@ -1134,7 +1134,14 @@ function formatBrazilianPrice(price: number, decimals: number = 2): string {
   return padIntegerPart(price.toFixed(decimals));
 }
 
-export function ChartView() {
+export function ChartView({
+  initialAction,
+  onInitialActionConsumed,
+}: {
+  /** Abre uma tela específica já ao montar — usado pelo botão "Criar personalizada" da tela de IA. */
+  initialAction?: 'open-strategy-builder';
+  onInitialActionConsumed?: () => void;
+} = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
   const { selectedAsset, setSelectedAsset } = useTradingContext();
   
@@ -1195,6 +1202,16 @@ export function ChartView() {
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
   const [showBacktestConfig, setShowBacktestConfig] = useState(false); // 🆕 Modal de configuração do Backtest
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
+
+  // Entrada vinda de fora (ex: botão "Criar personalizada" na tela de IA) — abre
+  // o construtor direto, sem passar pela tela de config de backtest.
+  useEffect(() => {
+    if (initialAction === 'open-strategy-builder') {
+      setShowStrategyBuilder(true);
+      onInitialActionConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAction]);
   const [isReplayMode, setIsReplayMode] = useState(false); // 🆕 Flag para modo replay (efeito visual)
   
   // 🎯 BACKTEST LIVE PROGRESS (motor real: estratégia + candles históricos reais)

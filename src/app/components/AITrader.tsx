@@ -31,7 +31,7 @@ import { AIActivityMonitor } from './ai/AIActivityMonitor';
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
 
-export function AITrader({ compact = false, onNavigate }: { compact?: boolean; onNavigate?: (view: string) => void }) {
+export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }: { compact?: boolean; onNavigate?: (view: string) => void; onCreateCustomStrategy?: () => void }) {
   console.log('[AI_TRADER] 🤖 v3.1 - AI Trader carregado', { compact, timestamp: Date.now() });
   
   // Mode: 'MONITOR' (Dashboard) | 'ENGINEER' (Configuration) | 'VOICE' (AI Trader Voice)
@@ -1013,7 +1013,18 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
 
                             {/* 🆕 Estratégia ativa — mesma estratégia (pronta ou customizada) usada no Backtest */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
+                                    {onCreateCustomStrategy && (
+                                        <button
+                                            onClick={onCreateCustomStrategy}
+                                            className="flex items-center gap-1 text-[10px] font-bold text-purple-400 hover:text-purple-300 transition-colors"
+                                            title="Desenhar uma estratégia personalizada — mesmo construtor usado no Backtest"
+                                        >
+                                            <Sliders className="w-3 h-3" /> Criar personalizada
+                                        </button>
+                                    )}
+                                </div>
                                 <select
                                     value={config.activeStrategyId || ''}
                                     onChange={(e) => setConfig({ ...config, activeStrategyId: e.target.value || null })}
