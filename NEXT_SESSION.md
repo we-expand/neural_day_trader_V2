@@ -1,166 +1,177 @@
-# Handoff — próxima sessão (atualizado em 2026-07-30, 3ª sessão do dia)
+# Handoff — próxima sessão (atualizado em 2026-07-31, fim de sessão)
 
-> **Estado**: branch `dev`, working tree com mudanças NÃO commitadas (ver
-> lista abaixo — Cleber decide o commit/push, regra fixa do projeto).
-> Continuação direta da 2ª sessão: os dois itens sugeridos no handoff anterior
-> foram feitos — **(a) auditoria do Componente 4** (hard stop/daily loss) e
-> **(b) implementação do Componente 5** (diagnóstico MFE/MAE retrospectivo).
+> **Estado**: branch `dev`, `origin/dev` **em dia** com tudo desta sessão até
+> o commit `da72c4b54` (push já confirmado pelo Cleber). Working tree tem
+> **1 mudança nova ainda não commitada** (campo `entrySignal` no construtor
+> de estratégia — ver seção "O que está no working tree agora").
 >
-> **Leitura obrigatória antes de qualquer trabalho no motor**:
-> `CLAUDE.md` pendência **#5** (estado real, agora atualizado, dos 5
-> componentes do cérebro de execução) + `research/AI_BRAIN_SPEC.md` seção 14.
+> **Leitura obrigatória antes de tocar no motor**: `CLAUDE.md` pendência #5
+> (estado dos componentes do cérebro) + `research/AI_BRAIN_SPEC.md` seção 14
+> (encerramento formal da busca por edge de sinal — decide o que é e não é
+> viável pedir do cérebro).
 
-## Resumo rápido pra abrir uma nova janela/sessão
+## Resumo pra abrir a nova janela
 
 1. Ler este arquivo inteiro.
-2. Ler `CLAUDE.md`, pendência #5 (achado da auditoria do Componente 4 +
-   detalhe do Componente 5 implementado).
-3. Rodar `git status` — working tree tem mudanças de **duas sessões
-   diferentes** misturadas, ver seção "O que está no working tree" abaixo
-   antes de decidir o que commitar junto.
+2. Rodar `git status` — deve mostrar só `StrategyBuilderPro.tsx` modificado
+   (mais este próprio arquivo, se ainda não foi commitado). Se houver mais
+   coisa, alguém mexeu depois desta sessão.
+3. Ler `CLAUDE.md` pendência #5 antes de tocar no motor de novo.
 
-**Estado em uma frase**: dos 5 componentes do cérebro de execução, **1
-(custo) e 5 (diagnóstico MFE/MAE) estão implementados**, **2 (sizing ATR) e 3
-(correlação heurística) já existiam**, e o **4 (hard stop/daily loss) tem uma
-falha real confirmada por auditoria**: o Kill-Switch e o Health Check só
-impedem abrir trade NOVO — nenhum dos dois fecha uma posição LIVE real já
-aberta na corretora quando o limite é violado. Push pro GitHub é sempre
-manual do Cleber.
+**Estado em uma frase**: o cérebro está sendo evoluído de "motor de risco
+parcial" pra "motor de execução autônomo, sem previsão de direção"; nesta
+sessão o foco foi **acurácia do backtest** (rodava com custo zero —
+corrigido), **configurabilidade** (capital inicial, contratos fracionários)
+e **usabilidade do construtor de estratégia** (exposto de volta na UI de IA,
+direção de sinal agora explícita em vez de inferida por heurística).
 
 ---
 
-## O que foi feito nesta sessão
+## O que foi feito nesta sessão (ordem cronológica, tudo commitado exceto o último item)
 
-### 1. Auditoria do Componente 4 (hard stop/daily loss) — achado real
+1. **Fix: contratos fracionários no backtest** (`b77fc63ae`) — campo
+   "Contratos" na config de backtest não aceitava `0.01` (estava com
+   `parseInt`/`step=1`). Trocado pra `parseFloat`/`step=0.01`/`min=0.01`.
 
-Rastreei todo o caminho de risco em `useApexLogic.ts`:
+2. **Fix: backtest rodava com custo ZERO** (`2599939e8`) — achado central da
+   sessão, em resposta à pergunta do Cleber "qual a acurácia do backtest?".
+   `useBacktestLiveProgress.ts` chamava `runBacktest()` sem passar
+   `roundTripCostPercent`, então todo resultado de backtest na UI era
+   **bruto**, não líquido — sistematicamente mais otimista que qualquer
+   execução real. Corrigido: agora calcula classe de ativo via
+   `SymbolMappingService`, preço de referência (último candle) e ponto/valor
+   via `TradeSizing`, e passa pelo `CostModel.ts` (`estimateCostPercent`,
+   ida e volta) — mesma convenção usada em `useApexLogic.ts` e nos scripts de
+   pesquisa. `BacktestResultsModal.tsx` ganhou aviso explícito: "Resultado
+   líquido — já descontado o custo estimado de execução".
+   - **Limitação conhecida, não resolvida**: forex sempre cai em
+     `FOREX_MAJOR` por falta de granularidade minor/exotic no
+     `SymbolMappingService` — pode subestimar custo nesses casos. Mesma
+     aproximação já documentada em outras partes do código (ver pendência
+     #5 do `CLAUDE.md`).
 
-- **Health Check Guardian** (intervalo de 5s) e o **Kill-Switch síncrono**
-  (`riskManager.shouldActivateKillSwitch`, chamado só na hora de avaliar uma
-  entrada nova) **só impedem abrir trade novo**. Nenhum dos dois fecha
-  posição já aberta.
-- O Kill-Switch chama `setActiveOrders([])` — isso só limpa o **estado local**
-  (rastreamento usado em modo DEMO). Não é uma chamada à corretora.
-- Para trades LIVE reais, a única via de abertura é o **Estágio 2**
-  (`useTradeConfirmationStage.ts`, confirmação manual → `/broker/execute` via
-  `BrokerClient.ts`). Quando safe mode/kill-switch dispara, esse módulo só
-  cancela confirmações **ainda pendentes** — não fecha posições já executadas
-  na MetaAPI.
-- `BrokerClient.ts` **já expõe** `closePosition`/`closeAllPositions` (chamam
-  `/broker/execute` com `action: 'closePosition'`/`'closeAllPositions'`), mas
-  essas funções só são chamadas manualmente por `LiveTradingTest.tsx` (tela de
-  teste) — nunca automaticamente pelo `RiskManager` ou pelo Health Check.
+3. **Capital inicial do backtest, configurável** (`5fc4885e8`) — o
+   `$10,000.00` que aparecia nos resultados era hardcoded e sem explicação
+   na tela (Cleber perguntou "o que é isso, aonde entrega o resultado").
+   Substituído o bloco "Quantidade" (Contratos/Máximo) por um campo único
+   "Capital Inicial do Teste" em `BacktestConfigModal.tsx`, com texto
+   explicativo deixando claro que é capital **fictício da simulação**,
+   independente do capital real configurado na IA. Fluxo completo:
+   `BacktestConfigModal` → `ChartView.tsx` → `useBacktestLiveProgress.ts` →
+   `BacktestEngine.ts`.
 
-**Conclusão**: o hard stop hoje é "não-burlável" apenas contra a IA abrir
-posição nova. Uma posição LIVE já aberta no momento em que o daily loss limit
-ou o kill-switch dispara **fica sem gestão automática** até o usuário intervir
-manualmente. Isso é uma lacuna real de segurança pro estágio LIVE do produto.
+4. **Fix: painel de progresso do backtest não estava centralizado**
+   (`5d60423d4`) — ajuste de UI, sem impacto no motor.
 
-**Fix NÃO implementado ainda** (ficou fora do escopo desta auditoria, é
-trabalho novo): ligar `shouldActivateKillSwitch`/Health Check a
-`closeAllPositions()` quando `executionMode === 'LIVE'`. Fica em aberto uma
-decisão de desenho: o que fazer se a própria chamada de fechamento à MetaAPI
-falhar (não dá pra assumir "fechado" sem confirmação real do broker — precisa
-de retry com backoff e/ou alerta persistente pro usuário, não um "tentei uma
-vez e desisti").
+5. **Fix: renomear "Comparar com" → "Cruzar com"** (`dccc7969e`) — campo do
+   construtor de estratégia tinha nome confuso pro tipo de condição que
+   representa (cruzamento de indicador, não comparação estática).
 
-### 2. Componente 5 — diagnóstico de eficiência de saída (MFE/MAE do usuário)
+6. **Reabrir acesso ao construtor de estratégia personalizada**
+   (`4f710a354`, consolidado no squash final `da72c4b54`) — Cleber pediu "só
+   insira um personalizado" depois de perceber que não dava mais pra criar
+   estratégia customizada a partir das configurações de IA (`AITrader.tsx`).
+   O `StrategyBuilderPro.tsx` já existia, completo e funcional — só estava
+   sem rota de acesso. Adicionado botão "Criar personalizada" em
+   `AITrader.tsx` que navega pra `ChartView.tsx` com o builder já aberto
+   (bridge de navegação nova em `App.tsx`: `chartInitialAction` +
+   `handleCreateCustomStrategy`).
 
-Implementado `src/app/services/analysis/TradeEfficiencyDiagnostic.ts`:
+7. **Componente 4 do cérebro de execução, fix de segurança** (pronto de
+   sessão anterior, commitado nesta: `768356c93`) — Kill-Switch e Health
+   Check só impediam abrir trade **novo**, nenhum dos dois fechava posição
+   LIVE já aberta na corretora quando o limite disparava. Novo módulo
+   `LiveEmergencyClose.ts` (`forceCloseAllLivePositions()`, retry
+   exponencial 5x + confirmação via `getPositions()`, nunca assume sucesso
+   só pela resposta da API) ligado em `useApexLogic.ts` nos dois pontos de
+   gatilho (kill-switch síncrono e transição pra safe-mode), só em modo
+   `LIVE`.
 
-- `computeMfeMaeFromCandles`: mesma fórmula de excursão (high/low barra a
-  barra) que já existia — não commitada — em `BacktestEngine.ts` desta manhã.
-- `diagnoseTradeEfficiency`: compara resultado realizado contra o MFE medido
-  → `exitEfficiency` (fração do MFE capturada) e `gaveBackPercent`.
-- `diagnoseClosedTrade`/`diagnoseClosedTrades`: buscam candle REAL da janela
-  entrada→saída via `backtestDataService` (mesma fonte real já usada por
-  Replay/Backtest) e agregam o relatório. Chamadas **sequenciais** de
-  propósito (mesma razão de sempre: fontes de candle real sofrem rate-limit
-  sob rajada). Falha de um trade nunca derruba o lote — entra em
-  `failedTrades` com o motivo, nunca preenche com dado fabricado.
-- **Zero previsão** — só descreve trades já fechados do próprio usuário, não
-  estima nada sobre o próximo trade.
-
-`__validate__.ts` cobre a parte pura (13 asserções, entrou em
-`npm run validate`, agora com 5 suítes). A parte de rede (busca de candle
-real) não tem teste automatizado, mesma exceção do resto da suíte (depende de
-rede/conta MetaAPI compartilhada).
-
-`npm run validate` rodou **tudo verde** (type-check + 5 suítes) depois da
-mudança.
-
-**O que ainda falta**: nenhuma tela/UI chama `diagnoseClosedTrades` ainda —
-existe só como módulo de serviço. Próximo passo natural seria uma tela/painel
-que rode isso sobre o `orderHistory` do usuário e mostre o agregado
-(`averageExitEfficiency`, `averageGaveBackPercent`) — decisão de produto em
-aberto, não tomada nesta sessão.
+**`npm run validate` rodou tudo verde** (14+13 casos, Componentes 1 e 5) após
+todas as mudanças acima, incluindo o item 8 abaixo (ainda não commitado).
 
 ---
 
-## O que está no working tree (checar `git status` antes de commitar)
+## O que está no working tree agora (não commitado)
 
-Duas origens diferentes, não misturar sem entender:
+- **`src/app/components/backtest/StrategyBuilderPro.tsx`** — campo
+  `entrySignal?: 'BUY' | 'SELL'` adicionado ao tipo `Strategy` e à UI (aba
+  Entrada), agora **obrigatório** pra salvar uma estratégia customizada nova.
+  Motivo: `StrategyEvaluator.ts` tinha um fallback de inferência de direção
+  por contagem de operador (`CROSS_BELOW`/`BELOW`/`FALLING` → "bearish" →
+  SELL) que é correto pra breakout/trend-following mas **errado** pra
+  reversão à média (ex: "Estocástico cruza abaixo de 20" é sinal de
+  **compra** — sobrevenda — não de venda; já inverteu um preset em produção
+  antes, ver `presetStrategies.ts` comentário na linha ~159). Agora o
+  usuário escolhe explicitamente Compra/Venda na UI, sem depender do
+  fallback heurístico.
+  - **Já wired de ponta a ponta**: tipo em `types/strategy.ts`, consumido em
+    `StrategyEvaluator.ts:226` (`if (strategy.entrySignal) signal =
+    strategy.entrySignal`), presets em `presetStrategies.ts` todos com
+    `entrySignal: 'BUY'` (são todos long-only por implementação, então o
+    fallback nunca os afetou), passado por `ChartView.tsx:6330`.
+  - **`npm run validate` já rodou verde depois desta mudança também.**
+  - **Ainda não commitado** — comandos prontos abaixo pro Cleber rodar.
 
-1. **Desta sessão** (novo, pronto pra commit):
-   - `src/app/services/analysis/TradeEfficiencyDiagnostic.ts` (novo)
-   - `src/app/services/analysis/__validate__.ts` (novo)
-   - `scripts/validate.mjs` (adiciona a 5ª suíte)
-   - `CLAUDE.md` (pendência #5 atualizada com o achado da auditoria + detalhe
-     do Componente 5)
-   - `NEXT_SESSION.md` (este arquivo)
+```bash
+git add src/app/components/backtest/StrategyBuilderPro.tsx NEXT_SESSION.md
+git commit -m "feat: campo obrigatório de direção (Compra/Venda) no construtor de estratégia personalizada"
+git push
+```
 
-2. **Órfã de uma sessão anterior do mesmo dia** (origem verificada agora,
-   ver abaixo — decidir separadamente se commita):
-   - `src/app/services/strategy/BacktestEngine.ts` +
-     `src/app/services/strategy/__validate__.ts` — adicionam `mfePercent`/
-     `maePercent` ao `Trade` do **motor de backtest** (não é o mesmo código
-     do item 1 acima, que é sobre trades REAIS do usuário; este é sobre
-     trades SIMULADOS em backtest). Preparação pro §4.6 do
-     `research/MASTER_PLAN.md` (teste de skew de MFE/MAE por arquétipo).
-     `npm run validate` já cobre essas 2 novas asserções (rodou junto, sem
-     falha) — dá pra commitar com segurança se o Cleber quiser.
-   - `research/experiments/2026-07-30-fase2-remediation/` (untracked) —
-     script de remedição dos 5 presets com o motor corrigido (Fase 2 do
-     `MASTER_PLAN.md`), com cache em disco de candle (pasta `candle-cache/`
-     vazia — nenhuma rodada completou ainda, é trabalho **incompleto**, não
-     rode sem saber que leva horas por causa do rate-limit da conta MetaAPI
-     compartilhada, ver comentários no próprio script). **Não gerado nesta
-     sessão nem na anterior** — provavelmente de uma sessão ainda mais antiga
-     do mesmo dia (16h30 ou 19h40, ver seção de sessões anteriores no
-     histórico). Se o Cleber quiser retomar essa investigação, é só rodar o
-     script; se não, considerar descartar (decisão dele, não tomada aqui).
+- **`research/experiments/2026-07-30-fase2-remediation/`** (untracked,
+  órfã, herdada de sessão anterior, trabalho incompleto) — decisão do Cleber
+  ainda não tomada, considerar descartar se ele não quiser retomar.
 
 ---
 
-## Próximo passo sugerido (não decidido, sugestão)
+## Próximo passo (ordem acordada com o Cleber em sessão anterior, não iniciado)
 
-(a) Implementar o fix do Componente 4 (ligar kill-switch/health-check a
-`closeAllPositions()` em modo LIVE, com tratamento de falha da chamada); ou
-(b) construir uma tela/painel que use `diagnoseClosedTrades` (Componente 5)
-sobre o histórico real do usuário; ou (c) decidir o tratamento do
-`Marketplace.tsx:30` (pendência #6, ainda aberta, ver abaixo).
+Decisão de arquitetura fechada em sessão anterior (não repetir a discussão —
+ver `CLAUDE.md` pendência #5 e `AI_BRAIN_SPEC.md` seção 14 pro histórico
+completo): "operar sempre que possível" = frequência é resultado do gate de
+custo/risco, nunca meta em si; "decidir qual ativo vai render mais" =
+ranking mecânico por facilidade de execução (ATR/preço, custo/spread),
+nunca previsão de retorno (reabriria o Trilho 2, pausado); agenda econômica
+= só feed ao vivo, filtro de "evitar operar", nunca sinal de direção.
+
+Faltam 2 blocos, nesta ordem sugerida (podem ser feitos em paralelo entre
+si, mas só depois do Componente 4, que já está pronto e commitado):
+
+1. **Ranking mecânico de ativos elegíveis** — novo módulo (ex:
+   `AssetRankingService.ts`). Para cada ativo selecionado pelo usuário:
+   calcula ATR/preço (volatilidade relativa) e custo/spread estimado, passa
+   pelo `CostViabilityGate` (já existe, `src/app/services/risk/
+   CostViabilityGate.ts`), e rankeia os que passam por "melhor relação
+   movimento esperado / custo" — **nunca por previsão de retorno**. Ativos
+   que falham no gate ficam de fora, com motivo registrado (auditável, mesmo
+   padrão de nunca fabricar dado). Zero linha escrita ainda.
+2. **Autonomia de entrada/saída automática** (Estágio 3 da spec, seção
+   9.1) — liga `useApexLogic.ts` a `BrokerClient.ts` pra abrir/fechar posição
+   automaticamente conforme o setup configurado pelo usuário (modo alvo,
+   regras técnicas já existentes). Zero linha escrita ainda.
+3. **Agenda econômica como filtro "evitar operar"** — novo módulo (ex:
+   `EconomicCalendarGuard.ts`). Precisa escolher fonte de feed ao vivo grátis
+   (pesquisa não feita ainda) antes de implementar. Bloqueia novas entradas N
+   minutos antes/depois de evento de alto impacto no ativo em questão.
+   Marcado explicitamente como "não validado estatisticamente" na UI/logs —
+   é proteção, não sinal.
+
+Nenhum dos 3 tem decisão de qual começar primeiro entre (1) e (3) — só a
+ordem "ambos depois do Componente 4" foi fechada.
 
 ---
 
-## Pendências reais em aberto (herdadas, sem mudança nesta sessão)
+## Pendências reais herdadas (sem mudança nesta sessão)
 
-1. ~~Working tree suja, origem não verificada~~ — **verificada nesta sessão**,
-   ver seção "O que está no working tree" acima.
-2. **`Marketplace.tsx:30`** — "Neural Scalper Pro, 87% win rate nos últimos 3
-   meses" (R$299,90), hardcoded, anunciando o pior arquétipo já medido
-   (Sharpe pooled -3,36). Cleber informado, não decidiu tratamento. Sob a
-   decisão (B), fica ainda mais urgente: produto sem edge não pode exibir
-   acurácia.
-3. **Força Relativa cross-sectional como 6º arquétipo** — conflita com a
-   decisão (B), não decidido.
-4. **3 roadmaps antigos não deletados** —
-   `ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md`, `ROADMAP_SIMULADOR.md`,
-   `ROADMAP_AI_TRADING_DEMO.md`.
-5. **`LiquidityPrediction.tsx`** ainda não religado ao `backtestDataService`
-   real.
-6. **Perna short dos arquétipos 1, 2, 4** — adiada por decisão explícita.
-7. **NOVO (2026-07-30, esta sessão): fix do Componente 4** — ver seção
-   "Próximo passo sugerido" acima.
+Ver `CLAUDE.md` seção "Pendências reais em aberto" pra lista completa. As que
+seguem relevantes pro trabalho no cérebro:
+- **`Marketplace.tsx:30`** — "87% win rate" hardcoded, arquétipo scalping (o
+  pior já medido). Ainda mais urgente sob a decisão (B) de produto (produto
+  sem edge não pode exibir acurácia). Cleber informado, não decidiu.
+- **Correlação de portfólio calculada ao vivo** (só existe heurística
+  estática por grupo hoje) — TODO citado no `RISK_MODULE_SPEC.md` seção 3.5,
+  não é bloqueante pro trabalho atual mas fica em aberto.
 
 ---
 
@@ -176,3 +187,6 @@ sobre o histórico real do usuário; ou (c) decidir o tratamento do
 - **Rigor de especialista + honestidade radical, permanente** — nunca inflar
   número, nunca esconder achado negativo, sempre reportar o dado que sustenta
   (ou a ausência dele, declarada)
+- **Cérebro é motor de execução/disciplina, não de alfa** (decisão (B),
+  30/07) — qualquer proposta de "prever qual ativo/direção vai render mais"
+  precisa ser sinalizada como reabertura do Trilho 2, não feature comum
