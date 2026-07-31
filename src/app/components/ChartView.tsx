@@ -6250,7 +6250,7 @@ export function ChartView({
             endDate: new Date(config.endDate),
             timeframe: resolvedTimeframe,
             tradeDirection: config.tradeDirection,
-            initialCapital: 10000,
+            initialCapital: config.initialCapital,
           });
         }}
         onCreateStrategy={() => {

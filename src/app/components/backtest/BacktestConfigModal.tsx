@@ -31,8 +31,8 @@ interface BacktestConfig {
   startDate: string;
   endDate: string;
   analysisDate: string;
-  quantity: number;
-  maxQuantity: number;
+  /** Capital fictício com que a simulação começa — nunca foi configurável antes (fixo em $10.000 no código), sem relação com o "Capital para IA" real das configurações de IA. */
+  initialCapital: number;
   tradeDirection: TradeDirection;
   tradingHours: TradingHours;
   strategyId: string | null;
@@ -79,8 +79,7 @@ export function BacktestConfigModal({
       date.setFullYear(date.getFullYear() - 1);
       return date.toISOString().split('T')[0];
     })(),
-    quantity: 1,
-    maxQuantity: 10,
+    initialCapital: 10000,
     tradeDirection: 'both',
     tradingHours: {
       enabled: false,
@@ -409,36 +408,26 @@ export function BacktestConfigModal({
                     <p className="text-xs text-slate-600 mt-1">Período usado para cálculo de indicadores</p>
                   </div>
 
-                  {/* Quantidade */}
+                  {/* Capital Inicial — antes fixo em $10.000 no código, sem relação com o capital real configurado na IA */}
                   <div>
                     <label className="flex items-center gap-2 text-sm text-slate-400 mb-2">
                       <Zap className="w-4 h-4" />
-                      Quantidade
+                      Capital Inicial do Teste
                     </label>
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Contratos</label>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={config.quantity}
-                          onChange={(e) => setConfig({ ...config, quantity: parseFloat(e.target.value) || 0.01 })}
-                          className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Máximo</label>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={config.maxQuantity}
-                          onChange={(e) => setConfig({ ...config, maxQuantity: parseFloat(e.target.value) || 0.01 })}
-                          className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
-                        />
-                      </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={config.initialCapital}
+                        onChange={(e) => setConfig({ ...config, initialCapital: parseFloat(e.target.value) || 1 })}
+                        className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 pl-7 border border-zinc-700 focus:border-blue-500 focus:outline-none"
+                      />
                     </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Capital fictício da simulação — independente do capital real configurado na IA
+                    </p>
                   </div>
                 </div>
 
