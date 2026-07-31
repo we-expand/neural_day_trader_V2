@@ -1,264 +1,200 @@
-# Handoff — próxima sessão (escrito em 2026-07-30, 16h30)
+# Handoff — próxima sessão (escrito em 2026-07-30, ~23h)
 
-> **Fase 0 (remover dado fabricado)**: ✅ 100% completa.
-> **Fase 1 (módulo de risco)**: ✅ 100% completa — 7 de 7 tópicos, incluindo
-> uma correção real de segurança no Tópico 7 feita na mesma sessão em que
-> foi implementado.
-> **Fase 2 (persistência)**: ✅ 100% completa — auditada e hardened.
-> **Fase 3 (ponte decisão→execução)**: ✅ **Estágios 1 e 2 completos** (2026-07-30, 16h30).
-> `npm run validate`: 28/28 ✅. Commits pendentes de push.
-
----
-
-## Fase 3 — Estágios 1 e 2 da ponte decisão→execução (implementados 2026-07-30)
-
-### Resumo executivo
-
-Implementada a ponte decisão→execução real (Fase 3/6 do produto) — Estágios 1 e 2
-conforme desenho de `research/AI_BRAIN_SPEC.md` seção 9.1. **Estágio 3 (execução
-automática) intencionalmente fora de escopo** por decisão do usuário (sem edge
-de sinal comprovado). Dois painéis novos na tela do AI Trader, aparecem só em
-modo LIVE, sem regressão do código existente (Estágio 1 intocado, motor intacto).
-
-### Arquivos novos
-
-1. **`src/app/modules/tradeConfirmationStage/lotSizeConversion.ts`** — conversão pura `amount($) → volume(lotes)` usando `assetDatabase.ts`.
-2. **`src/app/modules/tradeConfirmationStage/useTradeConfirmationStage.ts`** — hook do Estágio 2, fila de confirmação com timeout 45s, gate de Safe Mode/modo LIVE.
-3. **`src/app/modules/tradeConfirmationStage/TradeConfirmationPanel.tsx`** — UI do Estágio 2, painel com fila pendente + histórico.
-
-### Arquivos modificados
-
-1. **`src/app/services/BrokerClient.ts`** — correção de bug pré-existente: cliente Supabase descartava o corpo JSON de erro em HTTP não-2xx (incluindo `riskBlocked`, motivo real). Corrigido para extrair `error.context` e preservar a sinalização de bloqueio de risco. Também beneficia `LiveTradingTest.tsx`.
-2. **`src/app/contexts/TradingContext.tsx`** — novo handler ref para Estágio 2, state persistido (`localStorage`), `forwardLiveDecision` decide qual estágio processa (Estágio 2 assume a notificação quando habilitado em LIVE, evita toast duplicado com Estágio 1), expõe no contexto.
-3. **`src/app/components/AITrader.tsx`** — import + render do novo painel, prox ao painel do Estágio 1, mesmo guard `!compact && executionMode === 'LIVE'`.
-
-### Verificação
-
-- ✅ `npm run validate`: 28/28 (motor intacto, zero regressão).
-- ✅ `tsc --noEmit`: limpo nos arquivos tocados (erros pré-existentes em código morto não alterados).
-- ✅ Dev server: builda e carrega sem novo erro de console.
-- ✅ Navegação: app funciona, UI responsiva.
-- ⚠️ Teste em browser LIVE: requer conta MT5 conectada + sinal de trade real ou force-entry (fora de escopo desta sessão, você controla quando).
-
-### Decisões de design travadas (do plano da Fase 3)
-
-- **Encadeamento**: dois handlers via refs, mutuamente exclusivos por UX (Estágio 2 ativo em LIVE suprime toast do Estágio 1 pra evitar duplicidade).
-- **Fila**: 45s timeout, expiração = rejeição implícita (nunca executa), cap 20 itens, cleanup em Safe Mode/mudança de modo.
-- **Conversão $→lotes**: arredonda pra baixo (nunca aumenta risco), bloqueia abaixo do mínimo, clampa no máximo com aviso.
-- **Isolamento**: módulo novo não reaproveita/duplica lógica do motor, só lê via callback.
-- **Stágio 3 fora de escopo**: nenhuma auto-aprovação, nenhuma flag pra pular confirmação, nenhuma mudança na Edge Function.
-
-### Comandos prontos para commit/push (não executados, deixado pra você)
-
-```bash
-git add src/app/services/BrokerClient.ts src/app/contexts/TradingContext.tsx src/app/components/AITrader.tsx src/app/modules/tradeConfirmationStage/ NEXT_SESSION.md
-git commit -m "feat(fase-3): Estágio 2 da ponte decisão→execução — confirmação manual por trade (LIVE)"
-git push origin dev
-```
-
-### Próximos passos (seu call)
-
-1. **Teste LIVE**: ative modo LIVE (conecte MT5, clique no badge DEMO), deixe o motor gerar um sinal (ou force-entry), aprove/rejeite via painel novo.
-2. **Estágio 3** (se necessário): desenho já existe em `AI_BRAIN_SPEC.md` seção 9.1 — execução automática com hard-stop. Pendência: você decidir se vale avançar sem edge de sinal comprovado.
-3. **Limpeza de código morto**: pipelines de preço obsoletas (`DataSourceRouter`, `UnifiedMarketDataService` etc) ainda no repo, não usadas pelo caminho crítico — cleanup opcional.
+> **Estado**: branch `dev`, commit `08eb78078`. A busca por edge de sinal foi
+> **formalmente encerrada** nesta sessão, com razão matemática registrada, e o
+> Cleber tomou uma **decisão de produto (opção B)** que muda a função objetivo
+> do cérebro. `npm run validate` ✅ (motor não foi tocado — só documentação e
+> scripts de pesquisa novos).
+>
+> **Leitura obrigatória antes de qualquer trabalho no motor**:
+> `research/AI_BRAIN_SPEC.md` **seção 14** (nova) + o bloco de encerramento no
+> `CLAUDE.md`. Existem para evitar que esta sessão seja refeita do zero.
 
 ---
 
-## Fase 1 — os 7 tópicos, estado final
+## O que aconteceu nesta sessão
 
-| # | Tópico | Status | Onde |
-|---|--------|--------|------|
-| 1 | Daily Loss Limit | ✅ | `RiskManager.validateTrade()` + gate em `useApexLogic.ts` |
-| 2 | Drawdown Check | ✅ (já existia) | `useApexLogic.ts`, âncoras `INTRADAY_PEAK`/`DAILY_CLOSE` |
-| 3 | Position Sizing por ATR | ✅ (já existia) | `useApexLogic.ts`, `positionSizingMode: 'ATR'` default |
-| 4 | Cooldown entre Trades | ✅ (já existia) | `useApexLogic.ts`, `cooldownEnabled`/`cooldownMinutes` |
-| 5 | Limite de Trades/Dia | ✅ (já existia) | `useApexLogic.ts`, `maxTradesPerDay` |
-| 6 | Kill-Switch | ✅ (implementado nesta sessão) | `RiskManager.shouldActivateKillSwitch()` + `useApexLogic.ts` |
-| 7 | Enforcement em `/broker/execute` | ✅ (implementado E corrigido nesta sessão) | `supabase/functions/server/index.ts` |
+O Cleber partiu de uma observação correta sobre os testes anteriores: **quando
+ganhava, ganhava pouco; quando perdia, perdia quase o mesmo** — e propôs
+desenhar o cérebro em torno de payoff assimétrico ("ganha muito, perde pouco"),
+usando sinais que prevejam **magnitude** do movimento (rompimento de topo,
+pressão compradora/vendedora), não só direção.
 
-### Tópico 6 — Kill-Switch
-- `RiskManager.ts`: `shouldActivateKillSwitch(account)` dispara se perda diária
-  ou drawdown atingir `killSwitchThreshold` (config do usuário, default `0` =
-  desativado no client).
-- `useApexLogic.ts` (GATE DE RISCO): ao disparar, fecha TODAS as posições
-  (`setActiveOrders([])`), para a IA (`setIsActive(false)`), ativa Safe Mode,
-  notifica via toast persistente (`duration: 0`).
+A hipótese foi testada em 3 etapas, da mais barata para a mais cara.
 
-### Tópico 7 — Enforcement em `/broker/execute`, com correção real no meio
+### Etapa 1 — Correção de premissa (antes de testar)
 
-**Bug encontrado na primeira implementação**: a validação lia os thresholds
-do body da requisição (`body.maxDailyLossPercent` etc). Ao auditar quem
-realmente chama a rota, descobri que **nenhum caller real**
-(`BrokerClient.ts` → `createMarketBuyOrder`/`createMarketSellOrder`) jamais
-enviava esses campos — o gate SEMPRE caía nos defaults hardcoded (5%/15%/2%,
-kill-switch desativado), ignorando por completo a config real do usuário.
-Não era "confia no client" — era decorativo, sem efeito real.
+O Cleber mencionou "uma das estratégias que entregou 87% de assertividade".
+**Esse número nunca existiu em nenhum teste deste projeto.** A origem provável
+é `src/app/components/Marketplace.tsx:30` — card de produto hardcoded ("Neural
+Scalper Pro — 87% win rate nos últimos 3 meses"). Corrigido antes de virar
+premissa de design.
 
-**Correção aplicada na mesma sessão**:
-- Novo endpoint `POST /server/risk-config` — autenticado por JWT, só escreve
-  a config do próprio usuário logado, guardada no KV store
-  (`kv_store_1dbacac6`, chave `risk-config:{userId}`).
-- `loadServerRiskConfig(userId, currentBalance)`: lê a config do KV, reancora
-  `dailyStartBalance` a cada novo dia UTC, mantém `peakEquity` (pico
-  histórico de equity) pro cálculo de drawdown. Sem config salva, usa
-  defaults conservadores (mais restritivos que o client, nunca mais
-  permissivos — kill-switch vem ATIVO por padrão aqui).
-- `/broker/execute`: thresholds vêm exclusivamente do KV (nunca do body);
-  saldo vem exclusivamente da MetaAPI real (nunca do body).
-- **Fail-closed**: se a busca de saldo na MetaAPI falhar, a rota agora
-  **bloqueia** a ordem — antes deixava passar "com aviso". Mudança
-  deliberada: numa rota que move dinheiro real, falha de infra não pode
-  virar permissão implícita.
-- `useApexLogic.ts`: novo `useEffect` sincroniza os thresholds do `aiConfig`
-  com `/server/risk-config` sempre que o usuário muda a config, fire-and-forget.
+### Etapa 2 — Diagnóstico barato de MFE/MAE (sem custo, sem TP/SL)
 
-**Limitação honesta que permanece (não bloqueante)**: o `peakEquity`/drawdown
-calculado nessa rota só começa a refletir a realidade de mercado quando
-algo chamar `/broker/execute` de fato. Hoje, `useApexLogic.ts` (motor
-automático) **não chama essa rota** — a ponte decisão→execução real (Fase 3)
-não existe. Só telas manuais (`LiveTradingTest.tsx`) chamam. O Tópico 7 está
-correto e pronto, mas "adormecido" até a Fase 3 existir.
+`research/experiments/2026-07-30-breakout-mfe-mae-diagnostic/`
+
+Pergunta única: dado que o preço rompeu (Donchian 20, saída Donchian 10), a
+excursão favorável supera a adversa? Rodada 1 (BTC solo, 6 meses) deu n=35 em
+1h — descartada por poder estatístico. Rodada estendida: 7 criptos, 24 meses,
+**n=4.058 (15m) e n=973 (1h)**.
+
+**A assimetria EXISTE**: payoff ratio real **1,79x (15m)** e **1,88x (1h)**,
+consistente através dos 7 instrumentos. **Mas** o win rate ficou em 35,4% e
+34,1%, e o breakeven para esses payoffs é 35,8% e 34,7%. EV bruto, antes de
+qualquer custo: **-0,011% e -0,033%** ≈ zero.
+
+### Etapa 3 — Teste executável, custo real, contrato 0,01 BTC
+
+`research/experiments/2026-07-30-breakout-donchian-executable/`
+
+| Timeframe | n | Win rate | Resultado líquido | DSR |
+|---|---|---|---|---|
+| 15m pooled | 615 | 25,5% | **-US$1.447,73** | 0,0% ❌ |
+| 1h pooled | 133 | 35,3% | **-US$73,55** | 35,9% ❌ |
+| 1h SHORT isolado | 70 | 35,7% | +US$186,65 | 72,4% ❌ |
+
+O único subgrupo positivo (SHORT 1h) está **abaixo do piso de 95% do
+`CRITERIA.md` e abaixo do piso de 100 sinais** — não promovido, e reportá-lo
+isolado seria cherry-picking (o LONG do mesmo desenho perdeu US$260).
 
 ---
 
-## Fase 2 (persistência) — auditoria e hardening (2026-07-30)
+## Os 3 achados que ficam (valem mais que os testes)
 
-Handoff anterior dizia só "funciona — trades/sessões DEMO salvos no
-Supabase". Auditoria confirmou isso no caso feliz (RLS correta com
-`auth.uid() = user_id`, ciclo sessão→trade→snapshot→fim ligado a eventos
-reais do motor, nenhum dado fabricado), mas achou lacunas reais, corrigidas
-na mesma sessão:
+### 1. Teorema da parada opcional — razão MATEMÁTICA do encerramento
 
-- **Falha de escrita era silenciosa**: todo insert/update rejeitado (rede
-  caiu, RLS recusou) só ia pro `console.error`, sem sinalizar nada ao
-  usuário. Corrigido: `useAIPersistence.ts` agora aceita `onPersistenceError`
-  e `useApexLogic.ts` mostra um toast de aviso (1x por sessão, evita flood
-  do loop de 1s) quando isso acontece — a negociação continua normalmente,
-  mas o usuário sabe que o histórico pode ficar incompleto.
-- **Risco de sessão duplicada**: `startSession` não tinha trava contra
-  chamada concorrente (ex. clique duplo) antes do primeiro `createSession`
-  resolver. Corrigido com `isStartingSessionRef` em `useAIPersistence.ts`.
-- **Migration duplicada/desatualizada**: `supabase-migrations/001_...sql`
-  (fora do diretório oficial `supabase/migrations/`, sem policy de RLS de
-  DELETE) marcada como `⚠️ DEPRECATED` no próprio arquivo — não confirmado
-  contra o schema remoto (sem acesso à ferramenta MCP do Supabase nesta
-  sessão), só reduzido o risco de alguém aplicar por engano seguindo um dos
-  guias antigos (`*.md` na raiz) que ainda a referenciam.
-- **Ainda pendente, não bloqueante**: zero teste automatizado cobre esse
-  caminho (`npm run validate` não toca persistência Supabase);
-  `pnl_percentage` usa fórmula aproximada (comentário próprio já admite).
+Três desenhos de saída completamente diferentes (ATR 1,5×/3×; pontos fixos
+100/400 e 30/200; Donchian trailing) deram EV bruto ≈ 0 em todos os casos. Não
+é má parametrização — é o teorema: se o preço é aproximadamente martingale,
+então para **qualquer** regra de parada limitada, `E[P_τ] = P_0`.
 
-`npm run validate`: 28/28 ✅ (não muda — esse gate não cobre este caminho).
-`npx tsc --noEmit` limpo nos arquivos alterados. Sem regressão introduzida,
-mas mudança não testada em browser real nesta sessão (precisa de conta MT5
-demo ativa pra exercitar o loop completo).
+> **Stop e alvo escolhem a FORMA da distribuição de payoff — nunca a MÉDIA.**
+> A assimetria é *paga* com win rate, não *criada*.
 
----
+**Consequência normativa**: qualquer proposta futura do tipo "vamos testar stop
+X com alvo Y" está **refutada a priori**, salvo se vier com evidência de que o
+sinal prevê magnitude condicional. Não é preciso rodar o backtest para saber.
 
-## Escopo do DEMO independente de conta MetaTrader do usuário (2026-07-30)
+### 2. Gate de viabilidade por custo, quantificado
 
-Cleber levantou a pergunta: o DEMO opera independente do usuário logar sua
-própria conta MetaTrader, com dados/postura real de mercado? Verificado no
-código (não documentação):
+| Timeframe | Movimento típico (MFE médio) | Custo (0,26%) como % do movimento | Viável? |
+|---|---|---|---|
+| 15m | 1,05% | 25% | ❌ |
+| 1h | 2,52% | 10% | ⚠️ fronteira |
+| 4h | ~5% (extrapolado √t) | ~5% | ✓ |
+| Diário | ~12% (extrapolado √t) | ~2% | ✓✓ |
 
-- **Confirmado**: nenhum gate de login MetaTrader antes do DEMO; saldo/
-  portfólio 100% simulado localmente (`INITIAL_STATE.portfolio`); ao mudar
-  pra DEMO o sistema até desconecta o MT5 ativamente. Onboarding não exige
-  MT5 em nenhum ponto.
-- **Ressalva encontrada**: pra maioria dos instrumentos (forex, índices,
-  commodities, cripto com CFD confirmado) o preço em DEMO depende da conta
-  MetaAPI **de plataforma** (compartilhada, não a do usuário) estar
-  operante — não é 100% independente de MetaAPI como infraestrutura, só é
-  independente da conexão *do usuário*. Isso já era documentado como "risco
-  crônico" no CLAUDE.md, não é achado novo.
-- **Achado novo, corrigido nesta sessão**: quando essa conta de plataforma
-  falha/rate-limita, o backend (`/mt5-prices`, `/mt5-candles`) cai pra preço
-  `source: 'SIMULATED'` — mas o frontend (`RealMarketDataService.ts:534`)
-  já filtra isso corretamente (nunca deixa preço fabricado virar
-  `isRealData: true`), caindo pro último preço real conhecido (`isRealData:
-  false` se nunca houve nenhum). **O que faltava**: o loop de decisão de
-  trade (`useApexLogic.ts`) buscava esse preço mas não checava
-  `isRealData` antes de abrir posição — um trade DEMO podia ser aberto (ou
-  ficar "aberto no escuro" sobre postura desatualizada) sem o usuário saber
-  que o dado não era fresco/real. Corrigido: gate novo logo após a busca REST
-  (`useApexLogic.ts`, perto de onde `getRealMarketData` é chamado) que pula o
-  ciclo de análise/entrada quando `!marketData.isRealData`, com toast de
-  aviso (throttle de 60s) — "Dados de mercado indisponíveis no momento".
-  Vale notar: dado literalmente fabricado (`SIMULATED`) nunca chegava a
-  abrir trade mesmo antes desta correção (o filtro de 2026-07-11 já
-  cuidava disso) — o gap era só a ausência de bloqueio explícito +
-  aviso visível durante o próprio ciclo de decisão, não uma falha de
-  "nunca fabricar dado".
-- `npm run validate`: 28/28 ✅. `tsc --noEmit` limpo. **Não testado em
-  browser real** (precisaria simular queda da conta MetaAPI de plataforma
-  pra exercitar o caminho, o que não dá pra fazer sem acesso a essa conta).
+**Todo teste desta sessão rodou abaixo ou na fronteira do piso** — o resultado
+estava determinado pela aritmética antes de olhar o sinal. As linhas 4h/diário
+são extrapolação declarada (escala √t), não medição.
+
+### 3. Erro metodológico nomeado (atravessa as seções 11.10-11.13)
+
+A cesta de 7 criptos tem correlação típica 0,7-0,9 entre pares — é **~1,5
+apostas independentes, não 7**. O pooling cross-sectional aumentou o `n` da
+mesma aposta, **nunca a diversificação real**. Isso enfraquece a leitura de "7
+instrumentos pooled" como evidência robusta nas seções anteriores.
 
 ---
 
-## Fase 0 — resumo (sessão anterior, 2026-07-29 16h)
+## DECISÃO DE PRODUTO: opção (B) — tomada pelo Cleber
 
-Removido `Math.random()` que apresentava números aleatórios como capacidade
-real do sistema (latência, uptime, risco de cliente, correlação, sync com
-broker). ~60 arquivos auditados 1 a 1; 9 componentes tratados (8 removidos,
-6 desativados/reescritos — alguns arquivos tiveram as duas coisas em partes
-diferentes). Ver `CLAUDE_HISTORY.md` ou o commit
-`fix: remover dado fabricado (Math.random) da Fase 0 — auditoria completa`
-pro detalhe completo por arquivo.
+Apresentadas duas saídas mutuamente exclusivas:
 
----
+- **(A)** perseguir o perfil convexo onde ele comprovadamente vive —
+  trend-following diário/swing, cesta multi-classe descorrelacionada, 10-20
+  anos (é o perfil "ganha muito/perde pouco" da literatura AQR) — mas exigiria
+  **reposicionar o produto para fora de day trading**;
+- **(B)** manter o produto intraday e assumir que o cérebro é de **execução e
+  disciplina, não de alfa**.
 
-## Arquitetura de deploy (confirmado nesta sessão, não é bug)
+### Cleber escolheu (B). Implicações:
 
-A branch `main` serve deliberadamente uma **página de manutenção estática**,
-não o app — decisão de uma sessão anterior (commit `d053074a3c69`) porque a
-landing antiga tinha claims fabricadas (24.000+ nós, $1.2B volume, 99.99%
-uptime etc.) com só 4 usuários reais e R$0 de receita. O app real roda na
-branch `dev`, que gera **preview deployments protegidos por login Vercel**
-(não públicos, não indexados). Ao verificar se um push "chegou", **nunca**
-concluir que falhou só porque o domínio público não mudou — checar os
-deployments da branch `dev` (projeto Vercel `neural-day-trader-v2`, time
-`cleber-coutos-projects`) ou acessar a URL de preview logado.
-
----
-
-## Estado atual do projeto
-
-- **Fase 0**: ✅ 100% completa, sem pendências.
-- **Fase 1**: ✅ 100% completa, 7/7 tópicos, Tópico 7 com hardening real aplicado.
-- **Fase 2 (persistência)**: funciona, auditada e com hardening aplicado nesta
-  sessão (ver seção acima) — falha de escrita agora visível ao usuário, sem
-  risco de sessão duplicada por clique duplo. **Mudança ainda não commitada
-  nem pushada** — ver seção "Pendência de commit" abaixo.
-- **Fase 3 (execução real)**: não existe — ponte decisão→execução automática
-  não implementada. Desenho já definido (4 estágios, ver `AI_BRAIN_SPEC.md`
-  seção 9.1), aguardando decisão de avançar sem edge de sinal comprovado.
-- **Cérebro de IA**: nenhum dos 5 presets testados passou 95% DSR; Trilho 2
-  (busca de edge) formalmente pausado; produto foca 100% no pilar de
-  execução/gestão de risco.
+1. **Função objetivo nova**: minimizar perda por causa evitável, com burn rate
+   mínimo e comportamento auditável. Com edge ≈ 0, EV por trade ≈ `−custo`,
+   logo **o cérebro mais eficiente é o que opera menos** (matemática, não
+   conservadorismo).
+2. **Só metade da hipótese original é construível**: "perde pouco" é garantível
+   mecanicamente (hard stop, sizing inverso à vol, daily limit, cooldown);
+   "ganha muito" só condicionalmente. Assimetria **por trade** é impossível;
+   assimetria **de exposição ao longo do tempo** é real e implementável.
+3. **ML entra apenas em previsão de volatilidade** (autocorrelacionada,
+   tratável — base da família GARCH), **nunca de direção**.
+4. **Destrava a Fase 3 / Estágio 3**: a questão "vale avançar sem edge
+   comprovado?" tem resposta — sob (B), a ponte de execução **é** o produto.
 
 ---
 
-## Pendência de commit — RESOLVIDA (checado em sessão seguinte, 2026-07-30)
+## Próximo passo recomendado (não iniciado)
 
-O handoff acima foi escrito antes do commit final da sessão. Checagem
-posterior confirmou: working tree limpa, tudo já commitado e pushado em
-`dev` (`ece14717e` — hardening Fase 2; `1cd2a2b30` — bloqueio de trade em
-dado não-real). Nenhum comando pendente. `FASE1_RESUMO_EXECUTIVO.md` também
-não existe mais no repo — não é mais uma decisão em aberto.
+**Componente 1: gate de viabilidade por custo.** Prioridade porque é o de maior
+impacto no burn rate, é **aritmética pura** (zero previsão), e os números já
+estão medidos (tabela acima / seção 14.3 da spec). Recusa operar onde o custo
+devora o movimento esperado.
+
+Ordem completa dos 5 componentes em `CLAUDE.md` (pendência #5): (1) gate de
+custo → (2) sizing condicional à vol → (3) detector de correlação real de
+portfólio → (4) hard stop + daily loss limit não-burláveis → (5) diagnóstico de
+eficiência de saída (MFE/MAE dos trades do próprio usuário).
 
 ---
 
-## Próximos passos recomendados
+## Sessões anteriores do mesmo dia (já commitadas, contexto condensado)
 
-1. **Ponte decisão→execução real (Fase 3)** — é o item que mais desbloqueia
-   valor agora: sem ela, o módulo de risco inteiro (Fase 1, pronto) fica sem
-   uso real em produção. Decisão em aberto: vale avançar sem edge de sinal
-   comprovado (produto vende disciplina de execução, não previsão)?
-2. **Limpeza de código morto** (não bloqueante): pipelines de preço
-   obsoletas (`DataSourceRouter`, `UnifiedMarketDataService` etc.);
-   `node_modules` historicamente versionado (`.git` inchado, `git gc` opcional).
-3. Reavaliar quando fizer sentido tirar `main` do modo manutenção e voltar
-   o produto ao ar publicamente (depende do Cleber, não é decisão técnica).
+- **16h30** — Fases 0/1/2 completas + Fase 3 Estágios 1 e 2.
+- **19h40** (`ff437d3cb`) — auditoria de máximo rigor do motor: **9 bugs reais
+  corrigidos** (ADX com SMA em vez de RMA de Wilder; direção de sinal inferida
+  causando inversão real no preset 3; exitBlock ruidoso no preset 4; trailing
+  com look-ahead leve; empate TP/SL a favor do TP; sizing sem distância de
+  stop; LCG do bootstrap com período curto; zero output salvo em arquivo).
+  Criados `MASTER_PLAN.md`, `research/DataSplit.ts` (embargo real),
+  `research/experiments/2026-07-30-engine-audit/`. Detalhe completo no
+  `MASTER_PLAN.md` e no histórico do git.
+
+---
+
+## Pendências reais em aberto
+
+1. **Working tree suja — falta commitar**: este `NEXT_SESSION.md`,
+   `research/experiments/2026-07-30-breakout-donchian-executable/RESULTADOS.md`,
+   `research/experiments/2026-07-30-custom-sma-pullback/` (pasta inteira,
+   untracked), `research/experiments/2026-07-30-fase2-remediation/`, e
+   modificações em `src/app/services/strategy/BacktestEngine.ts` +
+   `__validate__.ts` — **essas duas últimas não são desta sessão, verificar
+   origem antes de commitar**.
+2. **`Marketplace.tsx:30`** — "Neural Scalper Pro, 87% win rate nos últimos 3
+   meses" (R$299,90), rating 4.9 / 342 reviews / 1.284 vendas, tudo hardcoded.
+   Tela viva (`App.tsx:273`, item na Sidebar). Dois problemas: número de
+   performance fabricado **e** o arquétipo anunciado (scalping) é o que a
+   pesquisa deste projeto mediu como **o pior de toda a investigação** (Sharpe
+   pooled -3,36 em cripto, seções 11.12/11.13). Cleber informado, **não decidiu
+   o tratamento**. Sob (B) isso fica urgente: produto sem edge não pode exibir
+   acurácia.
+3. **Força Relativa cross-sectional como 6º arquétipo** — proposto em sessão
+   anterior, não decidido. **Atenção: é essencialmente a opção (A)** (momentum
+   cross-sectional Jegadeesh-Titman, rebalanceamento mensal). Está em conflito
+   direto com a decisão (B) — retomar só se o Cleber quiser reabrir o
+   posicionamento do produto.
+4. **3 roadmaps antigos não deletados** —
+   `ROADMAP-INVESTIDORES-NEURAL-DAY-TRADER.md`, `ROADMAP_SIMULADOR.md`,
+   `ROADMAP_AI_TRADING_DEMO.md`, substituídos em conteúdo pelo `MASTER_PLAN.md`.
+5. **`LiquidityPrediction.tsx`** ainda não religado ao `backtestDataService`
+   real — painéis corretamente vazios, poderiam mostrar dado real (o serviço já
+   existe e já é usado pelo `CorrelationMatrix.tsx`).
+6. **Perna short dos arquétipos 1, 2, 4** — adiada por decisão explícita
+   (exigiria `exitBlocks` conscientes do lado da posição). Revisitar depois.
+
+---
+
+## O que faria a decisão (B) mudar (registrado para ser revisável com critério)
+
+- Evidência de sinal que preveja **magnitude condicional** — única coisa que
+  reabre a discussão de stop/alvo.
+- Teste de trend-following nas condições da literatura (diário, multi-classe
+  genuinamente descorrelacionada, 10-20 anos, vol targeting). **Nunca foi feito
+  aqui** — sua ausência não é evidência de fracasso.
+- Queda estrutural do custo de transação, que moveria o piso de viabilidade.
 
 ---
 
@@ -267,6 +203,10 @@ não existe mais no repo — não é mais uma decisão em aberto.
 - **Comunicação sempre em português do Brasil**
 - **Nunca `git commit`/`git push` sozinho** — entregar comandos prontos pro Cleber
 - **Nunca fabricar dado** — erro explícito quando não há fonte real
-- **`npm run validate` obrigatório** antes de qualquer commit que toque o motor de decisão
-- **Rigor de especialista + honestidade radical** — reportar achado negativo sempre, nunca inflar resultado
-- **`main` = manutenção deliberada, `dev` = app real (preview protegido)** — não confundir "não deployou" com "não é público"
+- **`npm run validate` obrigatório** antes de qualquer commit que toque o motor
+- **Todo experimento salva output em arquivo**, nunca só em prosa
+- **Ler `MASTER_PLAN.md` inteiro antes de tocar no motor de decisão**;
+  `AI_BRAIN_SPEC.md` é o histórico de pesquisa detalhado (agora com seção 14)
+- **Rigor de especialista + honestidade radical, permanente** — nunca inflar
+  número, nunca esconder achado negativo, sempre reportar o dado que sustenta
+  (ou a ausência dele, declarada)
