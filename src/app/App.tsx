@@ -45,6 +45,7 @@ import { LaunchStrategy } from '@/app/components/LaunchStrategy';
 import { TraderInsights } from '@/app/components/TraderInsights';
 import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
 import { AITradingEngine } from '@/app/components/AITradingEngine';
+import { OperationLogs } from '@/app/components/admin/OperationLogs';
 import { Toaster } from 'sonner';
 
 // 🚀 LAZY LOADING - Componentes pesados carregados sob demanda
@@ -170,7 +171,7 @@ if (typeof window !== 'undefined') {
 
 type Language = 'en' | 'pt' | 'es';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'pyramiding' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'pyramiding' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -297,6 +298,12 @@ function AppContent() {
         return <LaunchStrategy />;
       case 'trader-insights':
         return <TraderInsights />;
+      case 'operation-logs':
+        return (
+          <ErrorBoundary>
+            <OperationLogs />
+          </ErrorBoundary>
+        );
       // case 'live-trading-test':
       //   return <LiveTradingTest />;
       default:
