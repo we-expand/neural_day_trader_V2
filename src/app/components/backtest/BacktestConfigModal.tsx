@@ -420,9 +420,10 @@ export function BacktestConfigModal({
                         <label className="text-xs text-slate-500 mb-1 block">Contratos</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0.01"
+                          step="0.01"
                           value={config.quantity}
-                          onChange={(e) => setConfig({ ...config, quantity: parseInt(e.target.value) || 1 })}
+                          onChange={(e) => setConfig({ ...config, quantity: parseFloat(e.target.value) || 0.01 })}
                           className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
                         />
                       </div>
@@ -430,9 +431,10 @@ export function BacktestConfigModal({
                         <label className="text-xs text-slate-500 mb-1 block">Máximo</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0.01"
+                          step="0.01"
                           value={config.maxQuantity}
-                          onChange={(e) => setConfig({ ...config, maxQuantity: parseInt(e.target.value) || 1 })}
+                          onChange={(e) => setConfig({ ...config, maxQuantity: parseFloat(e.target.value) || 0.01 })}
                           className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
                         />
                       </div>
