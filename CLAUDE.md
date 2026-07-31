@@ -142,6 +142,42 @@ Scalp confirma ser o pior arquétipo (Sharpe pooled -3,36 em cripto limpo).
 Ver seção 11.13 do `AI_BRAIN_SPEC.md` pro detalhe completo do bug e do
 resultado.
 
+**ENCERRAMENTO DA BUSCA POR EDGE DE SINAL (2026-07-30) — ler antes de propor
+qualquer experimento novo de stop/alvo.** Ver `AI_BRAIN_SPEC.md` **seção 14**
+(completa, com os números). Resumo do que ficou decidido:
+
+- Testados 4 desenhos de saída sobre SMA40/100+pullback e 1 sobre rompimento
+  Donchian(20/10) (diagnóstico MFE/MAE com n=4.058 + teste executável com custo
+  real e contrato 0,01 BTC). O payoff assimétrico pedido pelo Cleber **é
+  mecanicamente construível** (payoff ratio real 1,79x a 1,88x medido), mas o
+  win rate cai exatamente na mesma proporção — EV bruto ≈ 0 em todos os
+  desenhos, antes de qualquer custo.
+- **Razão matemática, não empírica**: teorema da parada opcional. Stop e alvo
+  escolhem a FORMA da distribuição de payoff, nunca a MÉDIA. Qualquer proposta
+  futura do tipo "testar stop X com alvo Y" está **refutada a priori**, salvo se
+  vier com evidência de que o sinal prevê **magnitude** condicional (não só
+  direção). Não é preciso rodar o backtest pra saber o resultado.
+- **Gate de viabilidade por custo, quantificado**: custo round-trip 0,26% vs.
+  movimento típico — 15m gasta 25% do movimento em custo (inviável), 1h gasta
+  10% (fronteira), 4h ~5% e diário ~2% (extrapolado por √t, não medido). Todo
+  teste da sessão rodou abaixo/na fronteira do piso — resultado determinado pela
+  aritmética antes de olhar o sinal.
+- **Erro metodológico nomeado**: a cesta de 7 criptos usada em 11.13 e nos testes
+  de 2026-07-30 tem correlação 0,7-0,9 entre pares — é **~1,5 apostas
+  independentes, não 7**. O pooling aumentou o `n` da mesma aposta, nunca a
+  diversificação real.
+- **DECISÃO DE PRODUTO DO CLEBER (2026-07-30): opção (B)** — o produto **segue
+  intraday** e o cérebro é assumidamente de **execução e disciplina, não de
+  alfa**. Recusada a opção (A) (trend-following diário/swing multi-classe, onde
+  a convexidade comprovadamente vive, mas que exigiria reposicionar o produto
+  pra fora de day trading).
+- **Função objetivo do cérebro sob (B)**: minimizar perda por causa evitável,
+  com burn rate mínimo e comportamento auditável. Com edge ≈ 0, EV por trade é
+  ≈ `−custo`, logo **o cérebro mais eficiente é o que opera menos** (matemática,
+  não conservadorismo). "Perde pouco" é garantível mecanicamente; "ganha muito"
+  só condicionalmente. ML entra apenas em **previsão de volatilidade** (tratável,
+  autocorrelacionada), **nunca de direção**.
+
 **Gate obrigatório antes de qualquer commit que toque o motor**:
 ```bash
 npm run validate
@@ -198,10 +234,34 @@ ignorado.
    de falta de edge nos estágios 1-2, módulo de código isolado (não reaproveita
    `useApexLogic.ts`), zero chamada à MetaAPI compartilhada até estágio 3,
    fechamento automático de posição quando o safe mode dispara, critério de
-   avanço de estágio puramente operacional (nunca lucro). **Questão em aberto
-   não decidida**: se vale avançar além do estágio 2 dado que não há edge
-   comprovado — retomar antes de implementar o estágio 3. Nenhuma linha de
-   código desta ponte foi escrita ainda.
+   avanço de estágio puramente operacional (nunca lucro). **A questão em aberto
+   ("vale avançar além do estágio 2 sem edge comprovado?") foi RESPONDIDA em
+   2026-07-30 pela decisão (B)** — ver seção 14.5 do `AI_BRAIN_SPEC.md`: sob
+   (B), a ponte de execução **é** o produto, não um veículo pra um alfa que não
+   existe. Destravado pra implementar. Nenhuma linha de código desta ponte foi
+   escrita ainda.
+5. **Componentes do cérebro de execução (pilar A) — desenhados em 2026-07-30,
+   nenhum implementado.** Ordem de prioridade acordada com o Cleber:
+   (1) **gate de viabilidade por custo** — recusa operar onde o custo devora o
+   movimento esperado; é o de maior impacto no burn rate e é aritmética pura,
+   com os números já medidos (seção 14.3 da spec); (2) **sizing condicional à
+   volatilidade** (único lugar onde ML entra legitimamente); (3) **detector de
+   correlação real de portfólio** (impede o usuário de achar que tem 5 posições
+   quando tem 1 aposta — ver erro das cestas de cripto, seção 14.4);
+   (4) **hard stop + daily loss limit não-burláveis** (já parcialmente em
+   `RISK_MODULE_SPEC.md`, fora da tabela do `CRITERIA.md` por serem limites
+   mecânicos, não sinais preditivos); (5) **diagnóstico de eficiência de saída**
+   (MFE/MAE dos trades do próprio usuário — análise retrospectiva, zero
+   previsão). O cérebro explicitamente NÃO prevê direção nem promete retorno.
+6. **Achado não tratado (2026-07-30)**: `src/app/components/Marketplace.tsx:30`
+   anuncia "Neural Scalper Pro — 87% win rate nos últimos 3 meses" (R$299,90),
+   com rating 4.9/342 reviews/1.284 vendas, tudo hardcoded. Tela viva
+   (`App.tsx:273`, item na Sidebar). Dois problemas: número de performance
+   fabricado, e o arquétipo anunciado (scalping) é o que a própria pesquisa
+   deste projeto mediu como **o pior de toda a investigação** (Sharpe pooled
+   -3,36 em cripto, seções 11.12/11.13). Mesma classe do problema já corrigido
+   na Fase 0, mas em catálogo de produto. Cleber informado, ainda não decidiu o
+   tratamento.
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
    **resolvido em 2026-07-25**: removido do índice + adicionado ao

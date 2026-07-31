@@ -1393,3 +1393,148 @@ lá, o custo é estimado conservadoramente (a favor da recusa, nunca da entrada)
 **L5 — Nenhum edge é permanente.** Todo modelo promovido tem prazo de validade e
 revalidação obrigatória. Degradação de desempenho é esperada, não é anomalia — a
 resposta é reduzir exposição e revalidar, nunca "esperar voltar".
+
+---
+
+## 14. Encerramento formal da busca por edge de sinal (2026-07-30)
+
+> Esta seção existe para que nenhuma sessão futura reabra do zero uma linha já
+> refutada. Contém a razão **matemática** (não apenas empírica) pela qual a busca
+> por "a combinação certa de stop/alvo" foi encerrada, e a decisão de produto
+> tomada em consequência.
+
+### 14.1 Contexto: os testes de 2026-07-30
+
+Nesta data foram rodados, a pedido do Cleber, dois blocos de experimentos novos:
+
+- `research/experiments/2026-07-30-custom-sma-pullback/` — cruzamento SMA40/100 +
+  pullback, 4 desenhos de saída diferentes (ATR 1,5×/3×; pontos fixos 100/400;
+  pontos fixos 30/200; multi-timeframe 15m/1h).
+- `research/experiments/2026-07-30-breakout-mfe-mae-diagnostic/` e
+  `research/experiments/2026-07-30-breakout-donchian-executable/` — rompimento
+  Donchian(20)/saída Donchian(10), diagnóstico MFE/MAE sem custo (7 criptos,
+  24 meses, n=4.058 em 15m e n=973 em 1h) seguido de teste executável com custo
+  real e contrato fixo 0,01 BTC.
+
+**Hipótese testada** (formulada pelo Cleber): um cérebro eficiente precisa de
+payoff assimétrico — "quando ganha, ganha muito; quando perde, perde pouco" — e
+um sinal com poder preditivo sobre a **magnitude** do movimento (não só direção)
+tornaria isso alcançável.
+
+### 14.2 O achado que unifica todos os fracassos: teorema da parada opcional
+
+O diagnóstico MFE/MAE **confirmou** que a assimetria é mecanicamente construível:
+payoff ratio real medido de **1,79x (15m)** e **1,88x (1h)**, consistente através
+dos 7 instrumentos. Mas o win rate caiu junto, para 35,4% e 34,1% — e o breakeven
+matemático para esses payoffs é 35,8% e 34,7% respectivamente.
+
+Comparando o EV **bruto** (antes de qualquer custo) de três desenhos de saída
+completamente diferentes:
+
+| Desenho de saída | EV bruto por trade |
+|---|---|
+| SMA+pullback, ATR 1,5×/3× (1min) | +0,0074% |
+| Donchian 20/10 (15m) | -0,011% |
+| Donchian 20/10 (1h) | -0,033% |
+
+Todos ≈ zero. Isso não é coincidência nem má parametrização — é o **teorema da
+parada opcional** (optional stopping theorem): se o preço é aproximadamente um
+martingale sob a informação disponível, então para **qualquer** regra de parada
+limitada τ, vale `E[P_τ] = P_0`. Consequência operacional:
+
+> **Stop e alvo escolhem a FORMA da distribuição de payoff — nunca a MÉDIA dela.**
+> É possível ter 90% de acerto ganhando pouco, ou 10% ganhando muito. A média é a
+> mesma: zero bruto, negativa após custo. A assimetria é *paga* com win rate, não
+> *criada*.
+
+**Consequência normativa para este projeto**: qualquer proposta futura da forma
+"vamos testar stop X com alvo Y" está refutada **a priori**, salvo se vier
+acompanhada de evidência de que o sinal prevê magnitude condicional. Não é
+necessário rodar o backtest para saber o resultado. Isto encerra formalmente a
+classe de experimentos que dominou as seções 11.x.
+
+### 14.3 O gate de viabilidade por custo, agora quantificado
+
+Custo round-trip real em cripto (`CostModel.ts`): **0,26%**. Comparado ao
+movimento típico realmente disponível (MFE médio medido em BTCUSDT):
+
+| Timeframe | Movimento típico (MFE médio) | Custo como % do movimento | Viável? |
+|---|---|---|---|
+| 15m | 1,05% | **25%** | ❌ |
+| 1h | 2,52% | **10%** | ⚠️ fronteira |
+| 4h | ~5% (extrapolado por √t, não medido) | ~5% | ✓ |
+| Diário | ~12% (extrapolado por √t, não medido) | ~2% | ✓✓ |
+
+**Todo teste desta sessão rodou abaixo ou na fronteira do piso de viabilidade** —
+o resultado estava determinado pela aritmética de custo antes de olhar o sinal.
+As linhas de 4h e diário são extrapolação declarada (escala √t), não medição.
+
+Confirmação executável (BTCUSDT, contrato 0,01 BTC, custo real, holdout com
+embargo, 24 meses): 15m pooled **-US$1.447,73** (n=615, DSR 0,0%); 1h pooled
+**-US$73,55** (n=133, DSR 35,9%). O único subgrupo positivo foi SHORT em 1h
+(+US$186,65, n=70, DSR 72,4%) — abaixo do piso de 95% do `CRITERIA.md` e abaixo
+do piso de 100 sinais. Não promovido.
+
+### 14.4 Onde a convexidade "ganha muito, perde pouco" realmente vive
+
+O perfil desejado tem nome — **convexidade** — e a literatura o localiza em
+trend-following diversificado de horizonte longo (Hurst/Ooi/Pedersen, AQR "A
+Century of Evidence", já citado em `presetStrategies.ts`): win rate 30-40%,
+payoff 2-3x, lucro concentrado em poucos trades de cauda por ano.
+
+**Por que este projeto nunca testou isso de fato**: o edge do trend-following é
+de **portfólio, não de trade**. A literatura exige dezenas de mercados
+genuinamente descorrelacionados. As cestas usadas em 11.13 e 2026-07-30 têm 7
+criptos com correlação típica 0,7-0,9 entre si — isso é efetivamente **~1,5
+apostas independentes, não 7**. O pooling cross-sectional aumentou o `n` da
+mesma aposta, nunca a diversificação real. Este é um erro metodológico que
+atravessa as seções 11.10-11.13 e só foi nomeado agora.
+
+### 14.5 Decisão de produto (Cleber, 2026-07-30)
+
+Apresentadas duas saídas mutuamente exclusivas:
+
+- **(A)** perseguir o perfil convexo onde ele comprovadamente vive — trend-following
+  diário/swing, cesta multi-classe, horizonte de 10-20 anos — com reposicionamento
+  do produto para fora de day trading;
+- **(B)** manter o produto intraday e assumir que o cérebro é de **execução e
+  disciplina**, não de alfa.
+
+**Cleber escolheu (B).** Consequências registradas:
+
+1. A função objetivo do cérebro deixa de ser "maximizar retorno" e passa a ser
+   **minimizar perda por causa evitável, com burn rate mínimo e comportamento
+   auditável**. Com edge ≈ 0, o EV por trade é ≈ `−C`; portanto **o cérebro mais
+   eficiente é o que opera menos**. Isto é matemática, não conservadorismo.
+2. Da hipótese original do Cleber, **apenas metade é construível sem edge**:
+   "quando perde, perde pouco" é garantível mecanicamente (hard stop, sizing
+   inverso à vol, daily loss limit, cooldown); "quando ganha, ganha muito" só é
+   maximizável condicionalmente (trailing que não corta o vencedor cedo), e o
+   tamanho do ganho depende do movimento existir. A assimetria **por trade** é
+   impossível (14.2); a assimetria **de exposição ao longo do tempo** é real e
+   implementável.
+3. Onde ML entra legitimamente: **previsão de volatilidade, nunca de direção**.
+   Volatilidade é autocorrelacionada e previsível (base da família GARCH);
+   direção não é. Sizing condicional à vol reduz drawdown sem exigir edge
+   direcional. ML sobre OHLCV público para prever direção apenas overfitaria com
+   mais eficiência — as seções 11.x já mediram que a informação não está lá.
+4. A pendência #2 do `CLAUDE.md` (ponte decisão→execução) fica destravada: a
+   questão em aberto era "vale avançar além do estágio 2 sem edge comprovado?".
+   Sob (B), a ponte de execução **é** o produto, não um veículo para alfa.
+5. **Restrição de comunicação, inegociável**: um produto sem edge não pode exibir
+   número de acurácia/win rate como capacidade do sistema. Ver achado de
+   2026-07-30 em `src/app/components/Marketplace.tsx:30` ("87% win rate nos
+   últimos 3 meses", hardcoded, em produto de scalping — arquétipo que este
+   projeto mediu como o **pior** de toda a investigação, seções 11.12/11.13).
+
+### 14.6 O que faria esta conclusão mudar
+
+Registrado para que a decisão seja revisável com critério, não por impulso:
+
+- Evidência de sinal que preveja **magnitude condicional** (não só direção) —
+  única coisa que reabre a discussão de stop/alvo (14.2).
+- Teste de trend-following nas condições da literatura (14.4): horizonte diário,
+  cesta multi-classe genuinamente descorrelacionada, 10-20 anos, vol targeting.
+  Nunca foi feito aqui; sua ausência não é evidência de fracasso.
+- Queda estrutural do custo de transação, que moveria o piso de viabilidade
+  da tabela 14.3 para timeframes menores.
