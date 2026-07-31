@@ -942,7 +942,7 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
                                   {(block.operator === 'CROSS_ABOVE' || block.operator === 'CROSS_BELOW') && (
                                     <div className="grid grid-cols-2 gap-3 mt-3">
                                       <div>
-                                        <label className="text-xs text-slate-500 mb-1 block">Comparar com (deixe vazio pra comparar com "Valor")</label>
+                                        <label className="text-xs text-slate-500 mb-1 block">Cruzar com</label>
                                         <select
                                           value={block.compareIndicator || ''}
                                           onChange={(e) => {
