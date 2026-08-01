@@ -227,19 +227,26 @@ ignorado.
    agora.** Trilho 2 (busca de edge de sinal, pilar b) fica formalmente
    pausado, sem novo trabalho de pesquisa até haver justificativa nova (dado
    pago aceito conscientemente, ou nova fonte grátis viável).
-2. **Ponte decisão→execução real** (Fase B/3) — não existe no código ainda.
-   **Desenho dos estágios decidido em 2026-07-27** (ver `AI_BRAIN_SPEC.md`
-   seção 9.1): 4 estágios (alerta → confirmação manual → execução automática
-   com hard-stop → remoção de trava de tamanho mínimo), disclaimer permanente
-   de falta de edge nos estágios 1-2, módulo de código isolado (não reaproveita
-   `useApexLogic.ts`), zero chamada à MetaAPI compartilhada até estágio 3,
-   fechamento automático de posição quando o safe mode dispara, critério de
-   avanço de estágio puramente operacional (nunca lucro). **A questão em aberto
-   ("vale avançar além do estágio 2 sem edge comprovado?") foi RESPONDIDA em
-   2026-07-30 pela decisão (B)** — ver seção 14.5 do `AI_BRAIN_SPEC.md`: sob
-   (B), a ponte de execução **é** o produto, não um veículo pra um alfa que não
-   existe. Destravado pra implementar. Nenhuma linha de código desta ponte foi
-   escrita ainda.
+2. **Ponte decisão→execução real (Fase B/3): Estágios 1-3 IMPLEMENTADOS em
+   2026-07-31.** Desenho de 4 estágios (`AI_BRAIN_SPEC.md` seção 9.1): alerta
+   → confirmação manual → execução automática com hard-stop → remoção de
+   trava de tamanho mínimo. Implementados como módulos isolados (não
+   reaproveitam `useApexLogic.ts`, só importam o tipo `TradeVisual`):
+   `src/app/modules/liveAlertStage/useLiveAlertStage.ts` (Estágio 1, commit
+   `fb57ea900`), `src/app/modules/tradeConfirmationStage/useTradeConfirmationStage.ts`
+   (Estágio 2, commit `4073bb0fc`), `src/app/modules/autoExecutionStage/useAutoExecutionStage.ts`
+   (Estágio 3, commit `eabb377dc`). Orquestrados em `TradingContext.tsx`
+   (`forwardLiveDecision`, precedência Estágio 3 > 2 > 1), cada um com toggle
+   próprio em `localStorage`, todos desligados por padrão — nenhuma
+   progressão automática entre estágios existe no código, é decisão manual
+   do usuário. Disclaimer permanente (`LIVE_ALERT_DISCLAIMER`) presente nos
+   3 estágios. Estágio 3 usa sempre `asset.minLot` (ignora o `amount`
+   calculado pelo motor) e não reimplementa hard-stop — confia no Health
+   Check Guardian/kill-switch de `useApexLogic.ts` (ver item abaixo) pra
+   fechar posição já aberta. **Falta só o Estágio 4** (remover a trava de
+   lote mínimo) — por desenho só deveria vir depois do Estágio 3 "provado"
+   operacionalmente; ainda não testado no navegador, só via
+   `npm run validate`. Detalhe completo em `SESSAO_2026-07-31_PONTE_EXECUCAO.md`.
 5. **Componentes do cérebro de execução (pilar A).** **Achado de 2026-07-30
    (2ª sessão)**: o `RISK_MODULE_SPEC.md` estava desatualizado — ele descreve
    `RiskRules`/`evaluateRiskGate` como "proposto, não implementado", mas
@@ -294,11 +301,18 @@ ignorado.
    **Conclusão: o hard stop hoje é "não-burlável" só contra a IA abrir
    posição nova; uma posição LIVE já aberta no momento em que o limite é
    violado fica sem gestão automática até o usuário intervir manualmente.**
-   Fix não implementado ainda (fora do escopo desta auditoria) — ligar
-   `shouldActivateKillSwitch`/Health Check a `closeAllPositions()` quando
-   `executionMode === 'LIVE'` é o próximo passo óbvio, mas exige decidir o
-   que fazer se a chamada à MetaAPI falhar (não dá pra assumir "fechado" sem
-   confirmação real do broker); (5) **diagnóstico de eficiência de saída —
+   **Fix IMPLEMENTADO em 2026-07-31** (commit `768356c93`):
+   `src/app/services/risk/LiveEmergencyClose.ts` →
+   `forceCloseAllLivePositions()` — retry com backoff exponencial (5
+   tentativas) chamando `closeAllPositions()` de `BrokerClient.ts`, e depois
+   de cada tentativa confirma via `getPositions()` que não sobrou posição
+   aberta antes de reportar sucesso (nunca assume "fechado" só pelo
+   `result.success`). Chamado nos dois pontos do achado — Health Check
+   Guardian (~linha 965-980 de `useApexLogic.ts`) e kill-switch síncrono
+   (~linha 1686-1701) — só quando `executionMode === 'LIVE'`; se esgotar as
+   tentativas sem confirmar, dispara toast persistente (`duration: 0`)
+   pedindo intervenção manual, nunca finge sucesso. Ainda não testado em
+   ambiente real (só `npm run validate`); (5) **diagnóstico de eficiência de saída —
    IMPLEMENTADO em 2026-07-30** (análise retrospectiva, zero previsão):
    `src/app/services/analysis/TradeEfficiencyDiagnostic.ts`. Reconstrói
    MFE/MAE real de cada trade fechado do usuário buscando candle real
