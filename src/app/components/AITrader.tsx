@@ -26,6 +26,7 @@ import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
 import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
 import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/TradeConfirmationPanel';
+import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
@@ -75,7 +76,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory } = useTradingContext();
   const { strategies } = useStrategies();
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
@@ -591,6 +592,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             onToggle={setTradeConfirmationStageEnabled}
             onApprove={approveTradeConfirmation}
             onReject={rejectTradeConfirmation}
+          />
+        </div>
+      )}
+
+      {/* Fase 6, estágio 3 (LIVE + execução automática, lote mínimo travado) — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {!compact && executionMode === 'LIVE' && (
+        <div className="mb-4">
+          <AutoExecutionPanel
+            history={autoExecutionHistory}
+            enabled={autoExecutionStageEnabled}
+            onToggle={setAutoExecutionStageEnabled}
           />
         </div>
       )}

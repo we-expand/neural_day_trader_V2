@@ -59,6 +59,10 @@ const SUITES = [
     name: 'Tail Risk Guard — proteção de cauda / cisne negro (Bloco E, cérebro cognitivo)',
     entry: 'src/app/services/risk/__validate__tailrisk__.ts',
   },
+  {
+    name: 'Ranking mecânico de ativos elegíveis (seleção por custo, não por alpha)',
+    entry: 'src/app/services/risk/__validate__ranking__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));

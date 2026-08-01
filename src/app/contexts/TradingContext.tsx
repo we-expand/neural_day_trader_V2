@@ -10,6 +10,7 @@ import {
   PendingTradeConfirmation,
   ResolvedTradeConfirmation,
 } from '../modules/tradeConfirmationStage/useTradeConfirmationStage';
+import { useAutoExecutionStage, AutoExecutedTrade } from '../modules/autoExecutionStage/useAutoExecutionStage';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -96,6 +97,11 @@ interface TradingContextType {
   tradeConfirmationHistory: ResolvedTradeConfirmation[];
   approveTradeConfirmation: (id: string) => void;
   rejectTradeConfirmation: (id: string) => void;
+
+  // Fase 6, estágio 3 — execução automática, tamanho mínimo travado (AI_BRAIN_SPEC.md seção 9.1)
+  autoExecutionStageEnabled: boolean;
+  setAutoExecutionStageEnabled: (next: boolean) => void;
+  autoExecutionHistory: AutoExecutedTrade[];
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
@@ -144,14 +150,26 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // chamado. O ref resolve a dependência circular sem acoplar os dois hooks.
   const liveDecisionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
   const confirmationStageHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
-  // Quando o Estágio 2 está ligado e em LIVE, ele assume a notificação
-  // daquela decisão (evita toast duplicado/confuso do Estágio 1 e do 2 para
-  // o mesmo evento) — decisão travada no plano do Estágio 2, seção "A".
+  const autoExecutionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  // Precedência quando mais de um estágio está ligado ao mesmo tempo em LIVE
+  // (não deveria acontecer via UI normal, mas o motor não pode assumir isso):
+  // Estágio 3 (execução automática) > Estágio 2 (confirmação manual) >
+  // Estágio 1 (só alerta) — do mais consequente pro menos, cada decisão só
+  // é tratada por um estágio, nunca duplicada entre eles.
   // Refs porque `logic`/os estados de enabled só existem depois desses hooks.
   const tradeConfirmationStageEnabledRef = useRef(false);
+  const autoExecutionStageEnabledRef = useRef(false);
   const executionModeRef = useRef<'DEMO' | 'LIVE'>('DEMO');
   const forwardLiveDecision = useCallback((decision: TradeVisual) => {
-    if (tradeConfirmationStageEnabledRef.current && executionModeRef.current === 'LIVE') {
+    if (executionModeRef.current !== 'LIVE') {
+      liveDecisionHandlerRef.current(decision);
+      return;
+    }
+    if (autoExecutionStageEnabledRef.current) {
+      autoExecutionHandlerRef.current(decision);
+      return;
+    }
+    if (tradeConfirmationStageEnabledRef.current) {
       confirmationStageHandlerRef.current(decision);
       return;
     }
@@ -184,6 +202,21 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   }, []);
   tradeConfirmationStageEnabledRef.current = tradeConfirmationStageEnabled;
 
+  // Estágio 3, mesmo padrão — chave de localStorage própria. Desligado por
+  // padrão: ligar isto é a única forma de dinheiro real se mover sem
+  // aprovação humana por trade, então nunca pode nascer ligado.
+  const [autoExecutionStageEnabled, setAutoExecutionStageEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_auto_execution_stage_enabled') === 'true';
+  });
+  const setAutoExecutionStageEnabledPersistent = useCallback((next: boolean) => {
+    setAutoExecutionStageEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_auto_execution_stage_enabled', String(next));
+    }
+  }, []);
+  autoExecutionStageEnabledRef.current = autoExecutionStageEnabled;
+
   // Initialize the hook once here, so it persists across page navigations
   // ✅ SEMPRE chamar hooks na mesma ordem (Rules of Hooks)
   const logic = useApexLogic({
@@ -209,7 +242,16 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     confirmationStageHandlerRef.current = tradeConfirmationStage.onLiveDecision;
   }, [tradeConfirmationStage.onLiveDecision]);
-  
+
+  const autoExecutionStage = useAutoExecutionStage({
+    executionMode: logic.executionMode,
+    enabled: autoExecutionStageEnabled,
+    isSafeMode: logic.isSafeMode,
+  });
+  useEffect(() => {
+    autoExecutionHandlerRef.current = autoExecutionStage.onLiveDecision;
+  }, [autoExecutionStage.onLiveDecision]);
+
   // Legacy functions mapped to new logic - memoized to prevent infinite loops
   const toggleAI = useCallback(() => {
     if (logic.isActive) {
@@ -341,6 +383,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     tradeConfirmationHistory: tradeConfirmationStage.history,
     approveTradeConfirmation: tradeConfirmationStage.approve,
     rejectTradeConfirmation: tradeConfirmationStage.reject,
+    autoExecutionStageEnabled,
+    setAutoExecutionStageEnabled: setAutoExecutionStageEnabledPersistent,
+    autoExecutionHistory: autoExecutionStage.history,
   }), [
     logic.isActive,
     logic.isPaused,
@@ -401,6 +446,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     tradeConfirmationStage.history,
     tradeConfirmationStage.approve,
     tradeConfirmationStage.reject,
+    autoExecutionStageEnabled,
+    setAutoExecutionStageEnabledPersistent,
+    autoExecutionStage.history,
   ]);
 
   return (
