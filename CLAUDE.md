@@ -243,10 +243,18 @@ ignorado.
    3 estágios. Estágio 3 usa sempre `asset.minLot` (ignora o `amount`
    calculado pelo motor) e não reimplementa hard-stop — confia no Health
    Check Guardian/kill-switch de `useApexLogic.ts` (ver item abaixo) pra
-   fechar posição já aberta. **Falta só o Estágio 4** (remover a trava de
-   lote mínimo) — por desenho só deveria vir depois do Estágio 3 "provado"
-   operacionalmente; ainda não testado no navegador, só via
-   `npm run validate`. Detalhe completo em `SESSAO_2026-07-31_PONTE_EXECUCAO.md`.
+   fechar posição já aberta. **Estágio 4 IMPLEMENTADO em 2026-07-31**
+   (mesma sessão da correlação ao vivo/cooldown abaixo): módulo isolado
+   `src/app/modules/fullSizeExecutionStage/useFullSizeExecutionStage.ts` —
+   usa `amountToLotSize(decision.amount)` (tamanho real do motor) em vez de
+   `asset.minLot`, exige o Estágio 3 ligado como pré-requisito rígido
+   (checado dentro do próprio hook e em `TradingContext.tsx`, que desliga o
+   4 automaticamente se o 3 for desligado), mesmo disclaimer permanente,
+   desligado por padrão, precedência 4>3>2>1 em `forwardLiveDecision`. UI em
+   `FullSizeExecutionPanel.tsx`, montada em `AITrader.tsx`. Só validado via
+   `npm run validate` (type-check + os testes puros existentes cobrem os
+   outros módulos) — **ainda não testado no navegador**, mesma ressalva do
+   Estágio 3. Detalhe completo em `SESSAO_2026-07-31_PONTE_EXECUCAO.md`.
 5. **Componentes do cérebro de execução (pilar A).** **Achado de 2026-07-30
    (2ª sessão)**: o `RISK_MODULE_SPEC.md` estava desatualizado — ele descreve
    `RiskRules`/`evaluateRiskGate` como "proposto, não implementado", mas
@@ -280,10 +288,25 @@ ignorado.
    aproximação nos comentários do código, não medido. (2) **sizing
    condicional à volatilidade** — já existe (ver achado acima), modo ATR
    opcional via `aiConfig.positionSizingMode`; (3) **detector de correlação
-   real de portfólio** — já existe uma versão heurística por grupo estático
-   (ver achado acima); ainda falta a versão de correlação de retornos
-   calculada ao vivo (TODO já citado no próprio código, `RISK_MODULE_SPEC.md`
-   seção 3.5); (4) **hard stop + daily loss limit — AUDITADO em 2026-07-30,
+   real de portfólio — IMPLEMENTADO em 2026-07-31**:
+   `src/app/services/risk/LiveCorrelationGuard.ts` (`computeLiveCorrelationGuard`,
+   Pearson real sobre log-returns, candle real reaproveitado do mesmo
+   `candleBufferRef` que `useApexLogic.ts` já mantém por ativo — sem chamada
+   de rede extra) + `__validate__correlation__.ts` (16 asserções). Bloqueia
+   (não só reduz tamanho) a nova entrada quando a correlação real com uma
+   posição já aberta ultrapassa `aiConfig.correlationThreshold`. Decisão
+   registrada em comentário no código: o guard heurístico antigo por grupo
+   estático (`getCorrelationGroup`) foi MANTIDO como fallback — quando não há
+   candle real suficiente no buffer pra algum par, o módulo novo recusa
+   calcular (`insufficientData`) e o motor cai de volta pro heurístico em vez
+   de operar sem guard nenhum. Também IMPLEMENTADO nesta sessão: cooldown
+   pós-perdas-consecutivas + limite rígido de trades/dia
+   (`RISK_MODULE_SPEC.md` 3.3/3.4) — a lógica já estava inline em
+   `useApexLogic.ts` de sessão anterior (achado ao ler o código antes de
+   mexer), extraída pra funções puras testáveis
+   (`evaluateCooldownGate`/`evaluateMaxTradesPerDayGate` em
+   `RiskManager.ts`) + 12 asserções em `__validate__cooldown__.ts`, sem mudar
+   comportamento. (4) **hard stop + daily loss limit — AUDITADO em 2026-07-30,
    achado real de burla**: o Health Check Guardian (`useApexLogic.ts`,
    intervalo de 5s) e o Kill-Switch síncrono (`riskManager.shouldActivateKillSwitch`,
    chamado só na hora de avaliar uma ENTRADA nova) só impedem *abrir* trade
@@ -321,20 +344,20 @@ ignorado.
    foi capturado no resultado realizado) e `gaveBackPercent` por trade +
    agregado. `__validate__.ts` cobre a parte pura (13 asserções, entra em
    `npm run validate`); a busca de candle real não tem teste automatizado
-   ainda (mesma exceção do resto da suíte). **Ainda não ligado a nenhuma
-   tela/UI** — existe só como módulo de serviço, chamável a partir do
-   histórico de trades do usuário (`orderHistory`/`TradeVisual`), mas nenhuma
-   tela chama `diagnoseClosedTrades` ainda. O cérebro explicitamente NÃO
-   prevê direção nem promete retorno.
-6. **Achado não tratado (2026-07-30)**: `src/app/components/Marketplace.tsx:30`
-   anuncia "Neural Scalper Pro — 87% win rate nos últimos 3 meses" (R$299,90),
-   com rating 4.9/342 reviews/1.284 vendas, tudo hardcoded. Tela viva
-   (`App.tsx:273`, item na Sidebar). Dois problemas: número de performance
-   fabricado, e o arquétipo anunciado (scalping) é o que a própria pesquisa
-   deste projeto mediu como **o pior de toda a investigação** (Sharpe pooled
-   -3,36 em cripto, seções 11.12/11.13). Mesma classe do problema já corrigido
-   na Fase 0, mas em catálogo de produto. Cleber informado, ainda não decidiu o
-   tratamento.
+   ainda (mesma exceção do resto da suíte). **LIGADO À UI em 2026-07-31**:
+   `TradeEfficiencyPanel.tsx` (novo, `src/app/components/performance/`),
+   montado em `Performance.tsx` logo após o histórico de trades — chama
+   `diagnoseClosedTrades` sob demanda (botão, não automático a cada render,
+   por causa do custo de rede), mostra `exitEfficiency`/`gaveBackPercent`
+   por trade + agregado, texto explícito "análise RETROSPECTIVA", estado
+   vazio honesto quando não há trade fechado suficiente.
+6. **Marketplace.tsx — RESOLVIDO em 2026-07-31**: o item 'strat-001'
+   ("Neural Scalper Pro", 87% win rate fabricado + rating/reviews/vendas
+   hardcoded) foi REMOVIDO do catálogo (decisão registrada em comentário no
+   código). Os demais produtos do catálogo continuam com rating/reviews/
+   vendas fabricados — não tratado nesta sessão (fora do escopo pedido,
+   `Product` exigiria campos opcionais pra tratar sem remover os outros
+   itens também).
 3. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 4. ~~`node_modules` versionado no git (282MB no `.git`, 81 mil arquivos)~~ —
    **resolvido em 2026-07-25**: removido do índice + adicionado ao

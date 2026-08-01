@@ -69,7 +69,8 @@ const toast = {
   }
 };
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
-import { RiskManager, type RiskConfig, type DailyStats } from '../../lib/modules/RiskManager'; // Fase 1: validação de risco
+import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../lib/modules/RiskManager'; // Fase 1: validação de risco
+import { computeLiveCorrelationGuard } from '../services/risk/LiveCorrelationGuard'; // Componente 3 do cérebro de execução (correlação real, RISK_MODULE_SPEC.md 3.5)
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 
@@ -1713,32 +1714,31 @@ export function useApexLogic(
             return;
           }
 
-          // Cooldown pós-perdas consecutivas
-          if (aiConfig.cooldownEnabled && now < cooldownUntilRef.current) {
-            const remainingMin = Math.ceil((cooldownUntilRef.current - now) / 60_000);
-            const reason = `Cooldown ativo — ${remainingMin}min restantes (${aiConfig.consecutiveLossesTrigger} perdas seguidas)`;
-            console.log(`[RISCO] 🧊 ${reason}`);
-            persistenceRef.current.saveDecision({
-              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-              reasoning: reason, actionTaken: false, vetoStage: 'COOLDOWN',
-            });
-            return;
-          }
-          if (aiConfig.cooldownEnabled) {
-            const closedTrades = [...orderHistoryRef.current].filter(t => t.closedAt).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
-            let consecutiveLosses = 0;
-            for (const t of closedTrades) {
-              if ((t.currentProfit || 0) < 0) consecutiveLosses++;
+          // Cooldown pós-perdas consecutivas (TAREFA 3 — extraído pra função pura testável
+          // em RiskManager.ts, `evaluateCooldownGate`; comportamento idêntico ao anterior).
+          {
+            const closedTradesDesc = [...orderHistoryRef.current].filter(t => t.closedAt).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
+            let consecutiveLossesForCooldown = 0;
+            for (const t of closedTradesDesc) {
+              if ((t.currentProfit || 0) < 0) consecutiveLossesForCooldown++;
               else break;
             }
-            if (consecutiveLosses >= aiConfig.consecutiveLossesTrigger) {
-              cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
-              console.log(`[RISCO] 🧊 Cooldown ATIVADO: ${consecutiveLosses} perdas seguidas — bloqueando novas entradas por ${aiConfig.cooldownMinutes}min`);
-              addLog(`🧊 Pausa ativada: ${consecutiveLosses} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
+
+            const cooldownResult = evaluateCooldownGate(consecutiveLossesForCooldown, now, cooldownUntilRef.current, {
+              cooldownEnabled: aiConfig.cooldownEnabled,
+              consecutiveLossesTrigger: aiConfig.consecutiveLossesTrigger,
+              cooldownMinutes: aiConfig.cooldownMinutes,
+            });
+
+            if (cooldownResult.blocked) {
+              if (cooldownResult.newCooldownUntil) {
+                cooldownUntilRef.current = cooldownResult.newCooldownUntil;
+                addLog(`🧊 Pausa ativada: ${consecutiveLossesForCooldown} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
+              }
+              console.log(`[RISCO] 🧊 ${cooldownResult.reason}`);
               persistenceRef.current.saveDecision({
                 symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: `Cooldown recém-ativado: ${consecutiveLosses} perdas seguidas — bloqueando por ${aiConfig.cooldownMinutes}min`,
-                actionTaken: false, vetoStage: 'COOLDOWN',
+                reasoning: cooldownResult.reason || 'Cooldown ativo', actionTaken: false, vetoStage: 'COOLDOWN',
               });
               return;
             }
@@ -1785,16 +1785,16 @@ export function useApexLogic(
             }
           }
 
-          // Limite rígido de trades/dia
-          if (aiConfig.maxTradesPerDay > 0) {
+          // Limite rígido de trades/dia (TAREFA 3 — função pura `evaluateMaxTradesPerDayGate`)
+          {
             const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-            const tradesToday = orderHistoryRef.current.filter(t => (t.closedAt || t.timestamp) >= todayStart.getTime()).length + activeOrdersRef.current.length;
-            if (tradesToday >= aiConfig.maxTradesPerDay) {
-              const reason = `Limite de trades/dia atingido: ${tradesToday}/${aiConfig.maxTradesPerDay}`;
-              console.log(`[RISCO] 🚫 ${reason}`);
+            const tradesTodayCount = orderHistoryRef.current.filter(t => (t.closedAt || t.timestamp) >= todayStart.getTime()).length + activeOrdersRef.current.length;
+            const maxTradesResult = evaluateMaxTradesPerDayGate(tradesTodayCount, aiConfig.maxTradesPerDay);
+            if (maxTradesResult.blocked) {
+              console.log(`[RISCO] 🚫 ${maxTradesResult.reason}`);
               persistenceRef.current.saveDecision({
                 symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: reason, actionTaken: false, vetoStage: 'MAX_TRADES_PER_DAY',
+                reasoning: maxTradesResult.reason || 'Limite de trades/dia atingido', actionTaken: false, vetoStage: 'MAX_TRADES_PER_DAY',
               });
               return;
             }
@@ -1921,15 +1921,48 @@ export function useApexLogic(
             }
           }
 
-          // 🆕 Alerta de correlação (research/RISK_MODULE_SPEC.md, seção 3.5): heurística por
-          // grupo estático (não é correlação de retornos calculada ao vivo — ver TODO na spec)
-          // reduz o tamanho pela metade se já existe posição aberta num ativo do mesmo grupo.
+          // 🆕 Guard de correlação (research/RISK_MODULE_SPEC.md, seção 3.5, TAREFA 1 —
+          // 2026-07-31): correlação de Pearson REAL sobre log-returns do candle buffer já
+          // mantido por ativo (mesmo `candleBufferRef`, 60s de refresh, sem chamada de rede
+          // extra aqui — só reaproveita o que já está em memória). Bloqueia a entrada (não
+          // só reduz tamanho) quando a correlação com alguma posição já aberta ultrapassa
+          // `correlationThreshold`. Decisão de design: quando não há candle real suficiente
+          // no buffer para algum par (`insufficientData`), este módulo RECUSA calcular —
+          // cai de volta pro heurístico por grupo estático (`getCorrelationGroup`) como
+          // aproximação, em vez de operar sem guard nenhum. Ver `LiveCorrelationGuard.ts`
+          // para a função pura e a justificativa completa do fallback.
           if (aiConfig.correlationGuardEnabled) {
-            const group = getCorrelationGroup(selectedSymbol);
-            const hasCorrelatedOpen = group && activeOrdersRef.current.some(o => o.symbol !== selectedSymbol && getCorrelationGroup(o.symbol) === group);
-            if (hasCorrelatedOpen) {
-              tradeCapital *= (1 - aiConfig.correlationThreshold * 0.5);
-              console.log(`[RISCO] 🔗 Correlação detectada (grupo "${group}") — tamanho reduzido para $${tradeCapital.toFixed(2)}`);
+            const priceHistoryBySymbol: Record<string, number[]> = {};
+            const relevantSymbols = new Set([selectedSymbol, ...activeOrdersRef.current.map(o => o.symbol)]);
+            for (const sym of relevantSymbols) {
+              const entry = candleBufferRef.current.get(`${sym}_${opTimeframe}`);
+              if (entry) priceHistoryBySymbol[sym] = entry.candles.map(c => c.close);
+            }
+
+            const liveGuard = computeLiveCorrelationGuard(
+              selectedSymbol,
+              activeOrdersRef.current.map(o => ({ symbol: o.symbol })),
+              priceHistoryBySymbol,
+              { thresholdAbs: aiConfig.correlationThreshold, minBars: 30 },
+            );
+
+            if (liveGuard.insufficientData.length > 0) {
+              // Sem candle real suficiente pra algum par -> fallback heurístico por grupo
+              // estático (aproximação declarada, nunca dado fabricado).
+              const group = getCorrelationGroup(selectedSymbol);
+              const hasCorrelatedOpen = group && activeOrdersRef.current.some(o => o.symbol !== selectedSymbol && getCorrelationGroup(o.symbol) === group);
+              if (hasCorrelatedOpen) {
+                tradeCapital *= (1 - aiConfig.correlationThreshold * 0.5);
+                console.log(`[RISCO] 🔗 Correlação real indisponível para [${liveGuard.insufficientData.join(', ')}] — fallback heurístico por grupo ("${group}"), tamanho reduzido para $${tradeCapital.toFixed(2)}`);
+              }
+            } else if (liveGuard.blocked) {
+              console.log(`[RISCO] 🚫 ${liveGuard.reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: liveGuard.reason || 'Correlação real acima do limiar', actionTaken: false, vetoStage: 'CORRELATION_GUARD',
+                riskAssessment: { pairwiseCorrelations: liveGuard.pairwiseCorrelations },
+              });
+              return;
             }
           }
 

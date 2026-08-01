@@ -63,6 +63,14 @@ const SUITES = [
     name: 'Ranking mecânico de ativos elegíveis (seleção por custo, não por alpha)',
     entry: 'src/app/services/risk/__validate__ranking__.ts',
   },
+  {
+    name: 'Guard de correlação ao vivo — Pearson real sobre log-returns (Componente 3, cérebro de execução)',
+    entry: 'src/app/services/risk/__validate__correlation__.ts',
+  },
+  {
+    name: 'Cooldown pós-perdas-consecutivas + limite rígido de trades/dia (RISK_MODULE_SPEC.md 3.3/3.4)',
+    entry: 'src/app/services/risk/__validate__cooldown__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));

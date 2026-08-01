@@ -110,7 +110,8 @@ export type DecisionVetoStage =
   | 'KILL_SWITCH'
   | 'COOLDOWN'
   | 'MAX_TRADES_PER_DAY'
-  | 'REVENGE_PATTERN';
+  | 'REVENGE_PATTERN'
+  | 'CORRELATION_GUARD';
 
 export interface AIDecision {
   id?: string;

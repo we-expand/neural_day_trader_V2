@@ -11,6 +11,7 @@ import {
   ResolvedTradeConfirmation,
 } from '../modules/tradeConfirmationStage/useTradeConfirmationStage';
 import { useAutoExecutionStage, AutoExecutedTrade } from '../modules/autoExecutionStage/useAutoExecutionStage';
+import { useFullSizeExecutionStage, FullSizeExecutedTrade } from '../modules/fullSizeExecutionStage/useFullSizeExecutionStage';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -102,6 +103,11 @@ interface TradingContextType {
   autoExecutionStageEnabled: boolean;
   setAutoExecutionStageEnabled: (next: boolean) => void;
   autoExecutionHistory: AutoExecutedTrade[];
+
+  // Fase 6, estágio 4 — execução automática, TAMANHO REAL do motor (exige Estágio 3 ligado, AI_BRAIN_SPEC.md seção 9.1)
+  fullSizeExecutionStageEnabled: boolean;
+  setFullSizeExecutionStageEnabled: (next: boolean) => void;
+  fullSizeExecutionHistory: FullSizeExecutedTrade[];
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
@@ -151,18 +157,27 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   const liveDecisionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
   const confirmationStageHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
   const autoExecutionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  const fullSizeExecutionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
   // Precedência quando mais de um estágio está ligado ao mesmo tempo em LIVE
   // (não deveria acontecer via UI normal, mas o motor não pode assumir isso):
-  // Estágio 3 (execução automática) > Estágio 2 (confirmação manual) >
-  // Estágio 1 (só alerta) — do mais consequente pro menos, cada decisão só
-  // é tratada por um estágio, nunca duplicada entre eles.
+  // Estágio 4 (execução automática, tamanho real) > Estágio 3 (execução
+  // automática, lote mínimo) > Estágio 2 (confirmação manual) > Estágio 1
+  // (só alerta) — do mais consequente pro menos, cada decisão só é tratada
+  // por um estágio, nunca duplicada entre eles. Estágio 4 só pode vencer essa
+  // precedência se o Estágio 3 também estiver ligado (pré-requisito rígido,
+  // reforçado de novo dentro do próprio `useFullSizeExecutionStage`).
   // Refs porque `logic`/os estados de enabled só existem depois desses hooks.
   const tradeConfirmationStageEnabledRef = useRef(false);
   const autoExecutionStageEnabledRef = useRef(false);
+  const fullSizeExecutionStageEnabledRef = useRef(false);
   const executionModeRef = useRef<'DEMO' | 'LIVE'>('DEMO');
   const forwardLiveDecision = useCallback((decision: TradeVisual) => {
     if (executionModeRef.current !== 'LIVE') {
       liveDecisionHandlerRef.current(decision);
+      return;
+    }
+    if (autoExecutionStageEnabledRef.current && fullSizeExecutionStageEnabledRef.current) {
+      fullSizeExecutionHandlerRef.current(decision);
       return;
     }
     if (autoExecutionStageEnabledRef.current) {
@@ -217,6 +232,29 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   }, []);
   autoExecutionStageEnabledRef.current = autoExecutionStageEnabled;
 
+  // Estágio 4, mesmo padrão — chave de localStorage própria. Desligado por
+  // padrão. Pré-requisito rígido: se o Estágio 3 for desligado enquanto o 4
+  // estiver ligado, o 4 desliga junto (nunca fica "ligado" sem o pré-requisito
+  // — reforçado abaixo com um efeito, além do próprio hook do Estágio 4 checar
+  // `stage3Enabled` a cada decisão).
+  const [fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabledState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_full_size_execution_stage_enabled') === 'true';
+  });
+  const setFullSizeExecutionStageEnabledPersistent = useCallback((next: boolean) => {
+    setFullSizeExecutionStageEnabledState(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_full_size_execution_stage_enabled', String(next));
+    }
+  }, []);
+  fullSizeExecutionStageEnabledRef.current = fullSizeExecutionStageEnabled;
+
+  useEffect(() => {
+    if (!autoExecutionStageEnabled && fullSizeExecutionStageEnabled) {
+      setFullSizeExecutionStageEnabledPersistent(false);
+    }
+  }, [autoExecutionStageEnabled, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabledPersistent]);
+
   // Initialize the hook once here, so it persists across page navigations
   // ✅ SEMPRE chamar hooks na mesma ordem (Rules of Hooks)
   const logic = useApexLogic({
@@ -251,6 +289,16 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     autoExecutionHandlerRef.current = autoExecutionStage.onLiveDecision;
   }, [autoExecutionStage.onLiveDecision]);
+
+  const fullSizeExecutionStage = useFullSizeExecutionStage({
+    executionMode: logic.executionMode,
+    enabled: fullSizeExecutionStageEnabled,
+    stage3Enabled: autoExecutionStageEnabled,
+    isSafeMode: logic.isSafeMode,
+  });
+  useEffect(() => {
+    fullSizeExecutionHandlerRef.current = fullSizeExecutionStage.onLiveDecision;
+  }, [fullSizeExecutionStage.onLiveDecision]);
 
   // Legacy functions mapped to new logic - memoized to prevent infinite loops
   const toggleAI = useCallback(() => {
@@ -386,6 +434,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     autoExecutionStageEnabled,
     setAutoExecutionStageEnabled: setAutoExecutionStageEnabledPersistent,
     autoExecutionHistory: autoExecutionStage.history,
+    fullSizeExecutionStageEnabled,
+    setFullSizeExecutionStageEnabled: setFullSizeExecutionStageEnabledPersistent,
+    fullSizeExecutionHistory: fullSizeExecutionStage.history,
   }), [
     logic.isActive,
     logic.isPaused,
@@ -449,6 +500,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     autoExecutionStageEnabled,
     setAutoExecutionStageEnabledPersistent,
     autoExecutionStage.history,
+    fullSizeExecutionStageEnabled,
+    setFullSizeExecutionStageEnabledPersistent,
+    fullSizeExecutionStage.history,
   ]);
 
   return (

@@ -147,12 +147,9 @@ Justificativa: Admin é o "cockpit" — Logs de Operações, FinanceModule, etc.
 - Sua escolha: Growth & Marketing (recomendado) + Monetização (recomendado) + Cérebro de IA (recomendado)
 - Implementado: sim
 
-### ⏳ Automação de Pesquisa
-- **Sua decisão pendente**:
-  - **Opção A**: Cron local (este ambiente, Claude Code) — grátis, mas morre se você fechar
-  - **Opção B**: Cloud agent (Anthropic /schedule) — 24/7, mas tem custo recorrente
-  - **Opção C**: Manual por enquanto (você dispara quando quer, via chat)
-- **Recomendação**: Comece manual (Opção C), migre pra Cloud (Opção B) quando validar que vale a pena
+### ✅ Automação de Pesquisa — RESOLVIDA (2026-07-31, sessão 2)
+- **Decisão**: Opção A (Cron local), escolhida por você.
+- **Status**: implementada e testada ponta a ponta contra o Supabase real (não é só código escrito — rodou de verdade e gravou dado real). Ver seção "Automação de Pesquisa de Concorrentes — Cron Local" mais abaixo.
 
 ### ✅ Admin no topo do menu Sistema
 - Feito: Sidebar reordenada
@@ -172,6 +169,68 @@ git push
 ```
 
 **Type-check**: ✅ Verde (npm run validate: 33/33, motor intocado)
+
+---
+
+## Automação de Pesquisa de Concorrentes — Cron Local (2026-07-31, sessão 2)
+
+**Decisão**: Opção A (cron local), escolhida por você, com exigência de
+verificação ponta a ponta antes de confiar nele.
+
+### O que existe agora
+- `research/scripts/insert-research-run.mjs` — grava `dev_lab_research_runs`
+  + `dev_lab_suggestions` no Supabase real via Service Role Key. Recusa
+  qualquer sugestão sem `evidence`/`competitor_url` reais (nunca fabrica).
+- `research/scripts/list-existing-evidence.mjs` — leitura das últimas 50
+  sugestões `AI_RESEARCH`, usada pra evitar duplicata em nova rodada.
+- `research/scripts/competitor-research-prompt.md` — instrução que o Claude
+  headless (`claude -p`) segue: pesquisa real via WebSearch/WebFetch nos 7
+  concorrentes, checa duplicata, só grava achado com fonte + citação
+  verbatim verificáveis.
+- `research/scripts/run-competitor-research-cron.sh` — wrapper chamado pelo
+  cron: carrega `.env.local`, falha alto e visível se faltar credencial,
+  loga cada rodada em `research/experiments/cron-logs/`.
+
+### Cron instalado
+```
+0 8 * * 1  /Users/clebercouto/Projects/we-expand/Neural-Day-Trader/research/scripts/run-competitor-research-cron.sh
+```
+Toda segunda-feira às 8h. Confirme com `crontab -l`.
+
+### Testado de verdade, não só escrito
+1. `insert-research-run.mjs` testado com payload real contra o Supabase —
+   gravou, confirmado via SQL, depois apagado (era só teste).
+2. `claude -p` headless rodou a pesquisa completa uma vez: achou 2
+   novidades reais e verificáveis (Empiricus — assistente de IA
+   conversacional sobre base proprietária, citação do CEO 24/06/2026; BTG
+   Pactual Digital — BTG Trader Desk, execução de latência zero, 26/01/2026),
+   gravou no banco, e **recusou** gerar sugestão pra TradeMap/Nord Research
+   por não achar fonte confiável — comportamento correto.
+
+### 3 bugs reais encontrados e corrigidos no processo (nenhum funcionou de primeira)
+1. Faltava `SUPABASE_SERVICE_ROLE_KEY` em `.env.local` — você adicionou.
+2. `claude` CLI local estava com token OAuth revogado (deslogado) — você
+   rodou `claude /login` e resolveu.
+3. O prompt original mandava checar duplicata via MCP Supabase, que trava em
+   modo headless (`claude -p` não pode aprovar tool call interativamente) —
+   corrigido trocando por `list-existing-evidence.mjs` (script Node direto,
+   sem depender de MCP).
+
+### Pendente de commit
+```bash
+git add research/scripts/competitor-research-prompt.md research/scripts/insert-research-run.mjs research/scripts/list-existing-evidence.mjs research/scripts/run-competitor-research-cron.sh
+git commit -m "feat: automação de pesquisa de concorrentes via cron local — testada ponta a ponta contra Supabase real"
+git push
+```
+
+### Riscos conhecidos, não resolvidos
+- Cron **morre se a máquina desligar/dormir** ou o `claude` CLI deslogar de
+  novo (token OAuth pode expirar) — não há alerta automático se a segunda
+  rodar e falhar silenciosamente. Vale checar `research/experiments/cron-logs/history.log`
+  de vez em quando, ou migrar pra Opção B (cloud agent) se isso incomodar.
+- `SUPABASE_SERVICE_ROLE_KEY` está em `.env.local` (ignorado pelo git,
+  confirmado) — mas é a chave com poder total sobre o banco. Não versionar,
+  não printar em log.
 
 ---
 

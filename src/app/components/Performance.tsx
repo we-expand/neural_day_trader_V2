@@ -4,6 +4,7 @@ import { TrendingUp, Calendar, DollarSign, Target, Zap, ArrowLeftRight, Settings
 import { useTradingContext } from '../contexts/TradingContext';
 import { SlippageSimulator } from './admin/SlippageSimulator';
 import { LatencyBenchmark } from './performance/LatencyBenchmark'; // Added import
+import { TradeEfficiencyPanel } from './performance/TradeEfficiencyPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 
 type Period = '7d' | '30d' | '90d' | '1y' | 'all';
@@ -636,6 +637,9 @@ export function Performance() {
           </div>
         )}
       </div>
+
+      {/* Eficiência de saída (Componente 5 do cérebro de execução) — análise retrospectiva, nunca previsão */}
+      <TradeEfficiencyPanel tradeHistory={tradeHistory} />
     </div>
   );
 }

@@ -12,7 +12,11 @@
  *   usa o lote mínimo do ativo (`asset.minLot`), nunca o tamanho que o motor
  *   calculou. Remover essa trava é o Estágio 4 (`AI_BRAIN_SPEC.md` 9.1,
  *   "Remoção da trava de tamanho mínimo — só depois de estágio 3 provado"),
- *   fora de escopo deste módulo.
+ *   IMPLEMENTADO em 2026-07-31 como módulo isolado à parte
+ *   (`src/app/modules/fullSizeExecutionStage/useFullSizeExecutionStage.ts`),
+ *   não neste arquivo — que continua sempre operando no lote mínimo. Estágio
+ *   4 exige este Estágio 3 ligado como pré-requisito, mas os dois módulos não
+ *   compartilham código; a precedência entre eles vive em `TradingContext.tsx`.
  * - **Circuito de segurança já existente é pré-requisito, não redundância**:
  *   este módulo NÃO reimplementa hard-stop — o Health Check Guardian
  *   (`useApexLogic.ts`) já fecha posição LIVE via `forceCloseAllLivePositions`
