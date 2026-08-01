@@ -78,18 +78,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
 
             <div className="space-y-1">
               <button
-                onClick={() => handleViewChange('dev-lab')}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'dev-lab'
-                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-indigo-400'
-                }`}
-              >
-                <Beaker className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">DEV LAB</span>
-              </button>
-
-              <button
                 onClick={() => handleViewChange('admin' as View)}
                 className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
                   currentView === 'admin'
@@ -99,6 +87,18 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               >
                 <ShieldCheck className="w-5 h-5 shrink-0" />
                 <span className="text-sm font-medium tracking-wide">Admin</span>
+              </button>
+
+              <button
+                onClick={() => handleViewChange('dev-lab')}
+                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
+                  currentView === 'dev-lab'
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                    : 'text-slate-400 hover:bg-white/5 hover:text-indigo-400'
+                }`}
+              >
+                <Beaker className="w-5 h-5 shrink-0" />
+                <span className="text-sm font-medium tracking-wide">DEV LAB</span>
               </button>
 
               <button
