@@ -230,10 +230,19 @@ ignorado.
    (reaproveita `closeManualPosition`, já existente na boleta — mesma
    limitação pré-existente de nunca chamar a corretora em modo LIVE, só
    estado local) e clique no banner navega pro gráfico com o ativo já
-   selecionado. `npm run validate` + `npm run build` passaram em tudo;
+   selecionado. **Achado direto na sequência**: Safe Mode disparou com
+   saldo de $95,28 (perda modesta) — causa raiz era um trade de SPX500 com
+   P&L corrompido (-$950 real vs. -$47,50 correto) por um bug de contract
+   spec já corrigido mais cedo no mesmo dia (item #4), ressuscitado pelo
+   fix do histórico acima e somado contra a sessão atual pelo gate de
+   perda diária. Corrigido escopando o gate por sessão (`sessionStartedAtRef`,
+   reseta em `resetLogic`) em vez de todo o dia calendário. Lateral:
+   `disableSafeMode()` já existia pronto no motor mas nunca tinha botão —
+   única saída da UI era resetar a conta inteira; adicionado botão "Sair"
+   no Dashboard. `npm run validate` + `npm run build` passaram em tudo;
    **nada verificado visualmente** (Browser pane bloqueado de novo).
    Praticamente tudo já commitado e pushado (só a adição do Estocástico
-   Lento e os 3 fixes/features de 08-03 acima ficaram pendentes na última
+   Lento e os 4 fixes/features de 08-03 acima ficaram pendentes na última
    passada). Duas ferramentas
    novas e permanentes: `scripts/audit-contract-specs.mjs` e
    `scripts/generate-missing-contract-specs.mjs`. Handoff completo com cada

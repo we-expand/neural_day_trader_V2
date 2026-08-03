@@ -258,6 +258,63 @@ segurança real pro Trilho de execução LIVE.
 `src/app/components/dashboard/MarketScoreBoard.tsx` — AINDA NÃO
 COMMITADA.** Não verificado visualmente (Browser pane bloqueado de novo).
 
+### 18. Safe Mode disparado com $95,28 na conta DEMO — efeito colateral direto do fix #16, com causa raiz num bug já corrigido antes hoje
+Cleber reportou Safe Mode ativo com saldo de $95,28 (perda modesta, ~4,7% de
+$100). Investigação via Supabase (`ai_trades`) achou a causa exata:
+
+- O gate de perda diária do Health Check Guardian (`dailyLossLimit`, 5% na
+  config atual) soma `currentProfit` de todo trade com `closedAt` desde o
+  início do dia UTC. Antes do fix #16, `orderHistory` só tinha trades da
+  sessão de navegador atual — então esse gate, na prática, também só via
+  a sessão atual (um bug silencioso diferente, nunca reportado). Depois do
+  fix #16 (correto, pro Histórico de Trades), o gate passou a somar
+  TAMBÉM trades de sessões anteriores do mesmo dia — e aí achou um cadáver:
+  um trade de **SPX500 fechado às 13:28 UTC hoje com `net_pnl: -$950`**
+  registrado no banco, quando o movimento de preço real (7544,06→7534,56,
+  -0,126%) deveria ter gerado **~-$47,50**. Causa raiz desse trade: fechou
+  ANTES do commit `bf8ea5442` (13:54:11 UTC) que adicionou a spec de
+  contrato do `SPX500` ao catálogo (item #4 do histórico anterior — cai no
+  fallback perigoso sem a spec). Ou seja: dado histórico genuinamente
+  corrompido por um bug **já corrigido** mais tarde no mesmo dia, ressuscitado
+  pelo fix #16 e somado contra a sessão atual. Some os 14 trades fechados
+  hoje (todas as sessões): **-$916,43 total** — 916% de "perda diária"
+  contra um limite de 5%, dispara Safe Mode instantaneamente. Confirmado:
+  isolando só os trades da sessão ATUAL (iniciada 15:24:09 UTC, depois do
+  fix da spec), a perda real é **~-$4,94 (4,94%)** — abaixo do limite de
+  5%, exatamente batendo com o saldo real de $95,28.
+
+**Fix**: novo `sessionStartedAtRef`, setado no início de toda sessão DEMO
+nova (`startLogic`, `openManualPosition`) e na restauração de sessão
+existente (usa `session.created_at` real, não `Date.now()`, pra não
+resetar o relógio num reload no meio do dia) e em `resetLogic` (reset
+explícito = recomeçar do zero, o relógio da perda diária reinicia junto).
+O gate de perda diária agora usa `Math.max(startOfUtcDay,
+sessionStartedAtRef.current)` como corte — trades de sessões anteriores já
+resetadas pelo usuário nunca mais pesam contra a sessão atual, mas dentro
+de uma ÚNICA sessão contínua o comportamento é idêntico a antes (sem
+regressão pro caso comum de não resetar a conta o dia inteiro).
+
+**Achado lateral**: `disableSafeMode()` já existia pronto em
+`useApexLogic.ts`/`TradingContext.tsx` mas nunca tinha sido conectado a
+nenhum botão — a ÚNICA saída do Safe Mode na UI era resetar a conta inteira
+(perder o saldo). Adicionado botão "Sair" ao lado do rótulo SAFE MODE no
+Dashboard (`MarketScoreBoard.tsx`), chama `disableSafeMode()` sem mexer no
+saldo. Se a causa raiz real continuar valendo (ex: perda diária genuína
+> 5%), o Health Check Guardian dispara de novo sozinho no próximo ciclo —
+não é uma forma de "trapacear" o gate, só de não ficar refém de um falso
+positivo.
+
+**Pra desbloquear AGORA** (sessão atual, sem perder o saldo): clicar no
+botão "Sair" novo ao lado de "SAFE MODE" no Dashboard — mas só funciona se
+o app que o Cleber está testando já estiver rodando este código (dev server
+local com hot-reload; **nada disso está em produção ainda**, ver status do
+git abaixo).
+
+`npm run validate` + `npm run build` passaram. **Alteração em
+`src/app/hooks/useApexLogic.ts` e
+`src/app/components/dashboard/MarketScoreBoard.tsx` — AINDA NÃO
+COMMITADA.** Não verificado visualmente.
+
 ## Status do git — IMPORTANTE
 
 ```
@@ -275,27 +332,27 @@ git status (NÃO commitado ainda):
   M src/app/App.tsx                          (fix #17: onNavigate no Dashboard)
   M src/app/components/ChartView.tsx         (fix #14: Estocástico Lento novo)
   M src/app/components/Dashboard.tsx         (fix #17: onNavigate encanado)
-  M src/app/components/dashboard/MarketScoreBoard.tsx  (fix #17: botão fechar + clique navega)
-  M src/app/hooks/useApexLogic.ts            (fix #15: SL Dinâmico fantasma; fix #16: histórico do Supabase)
+  M src/app/components/dashboard/MarketScoreBoard.tsx  (fix #17: botão fechar + clique navega; fix #18: botão Sair do Safe Mode)
+  M src/app/hooks/useApexLogic.ts            (fix #15: SL Dinâmico fantasma; fix #16: histórico do Supabase; fix #18: gate de perda diária por sessão)
   M src/app/hooks/useAIPersistence.ts        (fix #16: getUserTradeHistory novo)
   M dist/**                                  (rebuild do npm run build desta sessão — dist/ está versionado no repo, ver nota lateral abaixo)
-  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, itens #15, #16 e #17 adicionados)
+  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, itens #15-#18 adicionados)
 ```
 
 **Comando pendente pro Cleber rodar:**
 
 ```bash
-# fixes #15 (SL Dinâmico) e #16 (histórico) ficaram no mesmo arquivo
-# (useApexLogic.ts), por isso vão num commit só — não dá pra separar em dois
-# via `git add` sem staging interativo por hunk.
+# fixes #15 (SL Dinâmico), #16 (histórico) e #18 (gate de perda diária por
+# sessão) ficaram no mesmo arquivo (useApexLogic.ts), por isso vão num
+# commit só — não dá pra separar via `git add` sem staging interativo por hunk.
 git add src/app/hooks/useApexLogic.ts src/app/hooks/useAIPersistence.ts
-git commit -m "fix: SL Dinâmico fechava posição sozinha em minutos; histórico de trades nunca lia o Supabase (só a sessão de navegador atual)"
+git commit -m "fix: SL Dinâmico fechava posição sozinha em minutos; histórico de trades nunca lia o Supabase; gate de perda diária somava sessões já resetadas"
 
 git add src/app/App.tsx src/app/components/Dashboard.tsx src/app/components/dashboard/MarketScoreBoard.tsx
-git commit -m "feat: banner de posição aberta do Dashboard ganha botão de fechar e navega pro gráfico ao clicar"
+git commit -m "feat: banner de posição aberta do Dashboard ganha botão de fechar, navega pro gráfico ao clicar, e botão pra sair do Safe Mode sem resetar a conta"
 
 git add CLAUDE.md src/app/components/ChartView.tsx SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md dist
-git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs + SL Dinâmico + histórico"
+git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs + SL Dinâmico + histórico + Safe Mode"
 git push
 ```
 
