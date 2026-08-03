@@ -192,6 +192,39 @@ uma posição sobrevivendo 20+min em modo DINAMICO depois do fix. Recomendo ao
 Cleber reabrir uma posição manual de teste (com e sem SL) e deixar aberta por
 30+ minutos pra confirmar na prática.
 
+### 16. "Histórico de Trades" (tela Performance) só mostrava as últimas ordens da sessão atual — nunca lia o histórico real do Supabase
+Cleber reportou: a tela só mostra as 3 últimas ordens, nada mais. Investigando
+`Performance.tsx` → `TradingContext.tsx` → `useApexLogic.ts`: o estado
+`orderHistory` (fonte da tabela) era populado só de duas formas — trades
+fechados **durante a aba/sessão de navegador atual** (loop de P&L,
+`stopLogic`, `closeManualPosition` etc.) e um cache de `localStorage`. A
+hidratação do Supabase ao montar o app (`useEffect` perto da linha 718 de
+`useApexLogic.ts`) só restaurava posições **abertas** (`getOpenTrades`) — o
+histórico de trades **fechados** nunca era buscado do banco em lugar nenhum
+do fluxo normal do usuário, mesmo já existindo `getUserTrades(userId,
+options)` pronta em `AITradingPersistenceService.ts` (usada hoje só pelo log
+de auditoria admin, `OperationLogs.tsx`). Resultado: qualquer trade fechado
+antes do reload atual (ou em outro dispositivo/navegador, ou depois de
+localStorage limpo) ficava invisível na tela, apesar de intacto no banco —
+exatamente os 10+ trades de BTCUSD/BTCEUR que a query direta ao Supabase (item
+#15 acima) trouxe, dos quais a tela só mostrava uma fração.
+
+**Fix**: nova função `getUserTradeHistory(limit=200)` em `useAIPersistence.ts`
+(wrapper do `aiPersistence.getUserTrades` já existente) + chamada na
+hidratação de `useApexLogic.ts`, agora **fora** do bloco que só roda se
+houver sessão ativa (histórico deve aparecer mesmo sem sessão em andamento) —
+busca os trades `status: 'CLOSED'` do usuário inteiro (todas as sessões,
+DEMO) e popula `orderHistory` a partir do banco, sobrepondo o cache de
+localStorage (mesmo padrão já usado pra `activeOrders`/posições abertas:
+Supabase é fonte de verdade). **Efeito colateral positivo, não buscado
+deliberadamente**: os gates de risco que dependem de `orderHistory` (limite
+de perda diária, taxa de acerto mínima, no Health Check Guardian) também
+estavam subcontando trades fechados fora da sessão atual — agora contam
+certo. **Alteração em `src/app/hooks/useApexLogic.ts` e
+`src/app/hooks/useAIPersistence.ts` — AINDA NÃO COMMITADA.** `npm run
+validate` + `npm run build` passaram. Não verificado visualmente (mesma
+limitação de Browser pane bloqueado).
+
 ## Status do git — IMPORTANTE
 
 ```
@@ -207,19 +240,23 @@ git log (últimos commits, todos já pushados):
 git status (NÃO commitado ainda):
   M CLAUDE.md                                (ponteiro pra este handoff)
   M src/app/components/ChartView.tsx         (fix #14: Estocástico Lento novo)
-  M src/app/hooks/useApexLogic.ts            (fix #15: SL Dinâmico fantasma)
+  M src/app/hooks/useApexLogic.ts            (fix #15: SL Dinâmico fantasma; fix #16: histórico do Supabase)
+  M src/app/hooks/useAIPersistence.ts        (fix #16: getUserTradeHistory novo)
   M dist/**                                  (rebuild do npm run build desta sessão — dist/ está versionado no repo, ver nota lateral abaixo)
-  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, item #15 adicionado)
+  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, itens #15 e #16 adicionados)
 ```
 
 **Comando pendente pro Cleber rodar:**
 
 ```bash
-git add src/app/hooks/useApexLogic.ts
-git commit -m "fix: SL Dinâmico fechava posição sozinha em minutos por progressão descontrolada da distância de trailing"
+# fixes #15 (SL Dinâmico) e #16 (histórico) ficaram no mesmo arquivo
+# (useApexLogic.ts), por isso vão num commit só — não dá pra separar em dois
+# via `git add` sem staging interativo por hunk.
+git add src/app/hooks/useApexLogic.ts src/app/hooks/useAIPersistence.ts
+git commit -m "fix: SL Dinâmico fechava posição sozinha em minutos; histórico de trades nunca lia o Supabase (só a sessão de navegador atual)"
 
 git add CLAUDE.md src/app/components/ChartView.tsx SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md dist
-git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs + SL Dinâmico"
+git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs + SL Dinâmico + histórico"
 git push
 ```
 

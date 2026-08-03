@@ -219,10 +219,17 @@ ignorado.
    numa posição real do Cleber (BTCUSD, fechada em 20min por "SL" com
    `stop_loss: 0` no banco). Corrigido ancorando a distância num campo
    imutável novo (`originalSl`, gravado uma vez na abertura, nunca
-   reescrito). `npm run validate` + `npm run build` passaram; **não
-   verificado visualmente** (Browser pane bloqueado de novo). Praticamente
-   tudo já commitado e pushado (só a adição do Estocástico Lento e este fix
-   do SL Dinâmico ficaram pendentes na última passada). Duas ferramentas
+   reescrito). **Achado relacionado no mesmo dia**: tela "Performance" →
+   "Histórico de Trades" nunca lia o Supabase — só mostrava trades fechados
+   durante a aba de navegador atual (+ cache de localStorage), então
+   qualquer trade de sessão anterior ficava invisível apesar de intacto no
+   banco (efeito colateral: gates de risco por dia/win-rate também
+   subcontavam). Corrigido com `getUserTradeHistory` novo hidratando
+   `orderHistory` do Supabase no mount. `npm run validate` + `npm run build`
+   passaram nos dois; **nada verificado visualmente** (Browser pane
+   bloqueado de novo). Praticamente tudo já commitado e pushado (só a
+   adição do Estocástico Lento e esses dois fixes de 08-03 ficaram
+   pendentes na última passada). Duas ferramentas
    novas e permanentes: `scripts/audit-contract-specs.mjs` e
    `scripts/generate-missing-contract-specs.mjs`. Handoff completo com cada
    bug, arquivo:linha, o que está commitado vs pendente, e limitações da
