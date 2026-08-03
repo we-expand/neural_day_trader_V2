@@ -150,12 +150,18 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   
   // 🔥 PERSISTÊNCIA GLOBAL: Ativo selecionado sincronizado entre todas as páginas
   const [selectedAsset, setSelectedAsset] = useState<string>(() => {
-    // Carregar do localStorage ao inicializar
+    // 🐛 FIX 2026-08-03: default era 'BTCUSDT' (formato Binance, com T) — esse
+    // símbolo NUNCA existiu em assetDatabase.ts (só 'BTCUSD', sem T), então
+    // todo usuário novo (sem preferência salva) caía num ativo que tem
+    // cotação pro gráfico (via Binance) mas nunca conseguia abrir ordem —
+    // getAssetBySymbol('BTCUSDT') sempre undefined, bloqueava a boleta em
+    // silêncio antes do fix de blockedReason. 'BTCUSD' é o símbolo unificado
+    // real, usado em todo o motor (contractSpecs, brokerRegistry, etc).
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('selectedAsset');
-      return saved || 'BTCUSDT'; // Default: BTC
+      return saved || 'BTCUSD';
     }
-    return 'BTCUSDT';
+    return 'BTCUSD';
   });
   
   // 🔥 Atualizar localStorage sempre que o ativo mudar

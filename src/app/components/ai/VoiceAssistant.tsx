@@ -119,7 +119,10 @@ export function VoiceAssistant({ embedded = false }: { embedded?: boolean }) {
     // 2. ASSET SELECTION
     if (lower.includes('bitcoin') || lower.includes('btc')) {
       setAssetSelectionMode('MANUAL');
-      setSelectedAsset('BTCUSDT');
+      // 🐛 FIX 2026-08-03: era 'BTCUSDT' — não existe em assetDatabase.ts,
+      // deixava a boleta bloqueada sem explicação (mesmo bug do default de
+      // TradingContext.tsx). 'BTCUSD' é o símbolo unificado real.
+      setSelectedAsset('BTCUSD');
       response += "Focando exclusivamente em Bitcoin. ";
       changesCount++;
     } else if (lower.includes('ethereum') || lower.includes('eth')) {

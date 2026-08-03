@@ -194,7 +194,15 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   // Motivo visível do bloqueio — nunca mais um botão desabilitado sem explicação
   // (foi exatamente isso que escondeu o bug do volume dessincronizado ao trocar
   // de ativo: clique não fazia nada, sem toast, sem pista nenhuma na tela).
-  const blockedReason = currentPrice == null
+  const blockedReason = !asset
+    // 🐛 FIX 2026-08-03: faltava esse caso — a guarda de executeOrder já
+    // checava `!asset`, mas blockedReason nunca cobria isso, então quando o
+    // preço carregava (ex: BTCUSDT, que tem cotação via Binance só pro
+    // gráfico) mas o ativo não existe no catálogo de trading (assetDatabase
+    // só tem 'BTCUSD', sem T), o toast de erro caía no fallback genérico
+    // "Motivo desconhecido" em vez de explicar o problema real.
+    ? `Ativo desconhecido: ${symbol}`
+    : currentPrice == null
     ? 'Aguardando preço do ativo…'
     : !volumeValid
       ? `Volume fora do intervalo permitido (${asset ? `${asset.minLot}–${asset.maxLot}` : '> 0'})`
