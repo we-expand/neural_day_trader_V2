@@ -4523,6 +4523,16 @@ export function ChartView({
           renderSrOverlays(zones, showSrOverlayRef.current);
           console.log('[ChartView] 🎯 Detected', zones.length, 'liquidity zones');
 
+          // 🐛 FIX: troca de timeframe/ativo dispara dispose()+init() do chart
+          // (linhas acima) — um chart novo não tem overlay nenhum, e o
+          // useEffect que desenha posição/ordem pendente só reage a mudança
+          // de activeOrders/pendingOrders/selectedSymbol, nunca de timeframe.
+          // Resultado: trocar o timeframe com uma posição aberta fazia a
+          // linha sumir do gráfico até a próxima mudança em activeOrders. O
+          // S/R acima já não tinha esse problema por já redesenhar aqui —
+          // mesma correção, mesmo ponto (chart pronto, dados já aplicados).
+          renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+
           // 🆕 Busca a estrutura de longo prazo (SMC, 1D/~5 anos) em paralelo e, quando
           // chegar, re-desenha o S/R combinando com a janela curta acima — sem isso as
           // linhas nunca refletiam níveis reais mais distantes no tempo (ex: uma máxima

@@ -50,7 +50,7 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, openManualPosition, openManualPendingOrder, closeManualPosition } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, openManualPosition, openManualPendingOrder, closeManualPosition, setSelectedAsset } = useTradingContext();
 
   const asset = useMemo(() => getAssetBySymbol(symbol), [symbol]);
   const contractSpec = useMemo(() => getContractSpec(symbol), [symbol]);
@@ -64,6 +64,25 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     () => (executionMode === 'DEMO' ? activeOrders.filter((o) => o.symbol === symbol) : []),
     [activeOrders, symbol, executionMode],
   );
+
+  // 🛡️ Posições abertas em OUTRO símbolo — a linha/overlay de posição só pode
+  // ser desenhada no gráfico do próprio símbolo (não tem como sobrepor num
+  // preço de outro ativo), então trocar de ativo (ou logar de novo com o
+  // símbolo salvo diferente do da posição) faz a representação visual sumir
+  // mesmo a posição continuando real e aberta (Dashboard/Supabase confirmam).
+  // Isso por si só não é bug, mas ficar sem NENHUM indício de que existe
+  // risco aberto em outro lugar é inaceitável num app de trading — este
+  // alerta garante que o usuário nunca perde essa visibilidade, não importa
+  // em qual símbolo o gráfico esteja.
+  const otherSymbolPositionsBySymbol = useMemo(() => {
+    if (executionMode !== 'DEMO') return [] as { symbol: string; count: number }[];
+    const bySymbol = new Map<string, number>();
+    for (const o of activeOrders) {
+      if (o.symbol === symbol) continue;
+      bySymbol.set(o.symbol, (bySymbol.get(o.symbol) || 0) + 1);
+    }
+    return Array.from(bySymbol.entries()).map(([sym, count]) => ({ symbol: sym, count }));
+  }, [activeOrders, symbol, executionMode]);
 
   function handleClosePosition(tradeId: string) {
     if (currentPrice == null) return;
@@ -314,6 +333,18 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         className="inline-flex flex-col bg-black/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden shadow-2xl select-none"
         data-testid="order-ticket-compact"
       >
+        {otherSymbolPositionsBySymbol.map(({ symbol: otherSymbol, count }) => (
+          <button
+            key={otherSymbol}
+            type="button"
+            onClick={() => setSelectedAsset(otherSymbol)}
+            className="flex items-center justify-between gap-2 px-2.5 py-1 text-[9px] font-bold text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 border-b border-amber-500/30 transition-colors text-left"
+            title={`Você tem ${count} posição(ões) aberta(s) em ${otherSymbol} — clique para ver`}
+          >
+            <span>⚠ {count > 1 ? `${count}x` : ''} posição aberta em {otherSymbol}</span>
+            <span className="underline shrink-0">ver</span>
+          </button>
+        ))}
         <div className="flex items-center justify-between gap-3 px-2.5 py-1.5 border-b border-white/5 bg-white/[0.02]">
           <span className="text-[10px] font-black text-white tracking-tight">{symbol}</span>
           <div className="flex items-center gap-1.5">
@@ -381,6 +412,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                 <span className={`text-[9px] font-bold ${pos.side === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                 </span>
+                <span className="text-[9px] text-slate-500 font-mono">@ {formatPrice(pos.price, symbol)}</span>
                 <span className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
                 </span>
@@ -409,7 +441,20 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   };
 
   return (
-    <div className="flex bg-gradient-to-br from-neutral-950 to-black border-2 border-white/10 rounded-xl overflow-hidden shadow-2xl" data-testid="order-ticket-expanded">
+    <div className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/10" data-testid="order-ticket-expanded">
+      {otherSymbolPositionsBySymbol.map(({ symbol: otherSymbol, count }) => (
+        <button
+          key={otherSymbol}
+          type="button"
+          onClick={() => setSelectedAsset(otherSymbol)}
+          className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[10px] font-bold text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 border-b border-amber-500/30 transition-colors text-left"
+          title={`Você tem ${count} posição(ões) aberta(s) em ${otherSymbol} — clique para ver`}
+        >
+          <span>⚠ {count > 1 ? `${count}x` : ''} posição aberta em {otherSymbol}</span>
+          <span className="underline shrink-0">ver</span>
+        </button>
+      ))}
+      <div className="flex bg-gradient-to-br from-neutral-950 to-black">
       {/* Navegação de tipo de ordem — mesmo padrão da lista lateral do MT5 */}
       <div className="w-[168px] border-r border-white/10 bg-black/40 py-2 shrink-0">
         {ORDER_TYPE_TABS.map(({ type, label, icon: Icon }) => (
@@ -597,6 +642,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
             {submitting === 'BUY' ? <Loader2 className="w-4 h-4 animate-spin" /> : sideLabels[orderType].buy}
           </button>
         </div>
+      </div>
       </div>
     </div>
   );
