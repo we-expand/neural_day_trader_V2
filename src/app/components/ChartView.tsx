@@ -193,6 +193,49 @@ if (!isIndicatorRegistered('DC')) {
   });
 }
 
+// Estocástico Lento (Slow Stochastic) — não existe built-in no klinecharts, só
+// KDJ (var. chinesa: RSV suavizado por recursão exponencial tipo Wilder, com
+// uma 3ª linha J). São visualmente parecidos mas numericamente diferentes —
+// Estocástico Lento clássico é: %K rápido (RSV) suavizado por MÉDIA MÓVEL
+// SIMPLES de `smoothK` períodos (isso É o "%K lento"), %D = SMA de `smoothD`
+// períodos sobre esse %K lento. Padrão 14/3/3, igual MT5/TradingView.
+if (!isIndicatorRegistered('STOCH_SLOW')) {
+  registerIndicator<number>({
+    name: 'STOCH_SLOW',
+    shortName: 'STOCH LENTO',
+    series: 'normal' as any,
+    precision: 2,
+    calcParams: [14, 3, 3],
+    shouldOhlc: false,
+    figures: [
+      { key: 'k', title: '%K: ', type: 'line' },
+      { key: 'd', title: '%D: ', type: 'line' }
+    ],
+    calc: (dataList, indicator) => {
+      const [period, smoothK, smoothD] = indicator.calcParams as number[];
+      const fastK: Array<number | undefined> = dataList.map((_, i) => {
+        if (i < period - 1) return undefined;
+        const window = dataList.slice(i - period + 1, i + 1);
+        const highestHigh = Math.max(...window.map(d => d.high));
+        const lowestLow = Math.min(...window.map(d => d.low));
+        const range = highestHigh - lowestLow;
+        return range === 0 ? 50 : ((dataList[i].close - lowestLow) / range) * 100;
+      });
+      const sma = (values: Array<number | undefined>, smaPeriod: number): Array<number | undefined> => {
+        return values.map((_, i) => {
+          if (i < smaPeriod - 1) return undefined;
+          const window = values.slice(i - smaPeriod + 1, i + 1);
+          if (window.some(v => v === undefined)) return undefined;
+          return (window as number[]).reduce((a, b) => a + b, 0) / smaPeriod;
+        });
+      };
+      const slowK = sma(fastK, smoothK);
+      const slowD = sma(slowK, smoothD);
+      return dataList.map((_, i) => ({ k: slowK[i], d: slowD[i] } as any));
+    }
+  });
+}
+
 // Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
 // Trend, um indicador completamente diferente) e chamava isso de "Pivot Points" na UI.
 if (!isIndicatorRegistered('PIVOT_POINTS')) {
@@ -1015,6 +1058,15 @@ const INDICATORS: IndicatorConfig[] = [
     category: 'momentum',
     klinechartsName: 'KDJ',
     defaultParams: [9, 3, 3],
+    isPaneIndicator: true
+  },
+  {
+    id: 'stoch_slow',
+    name: 'Estocástico Lento (Slow Stochastic)',
+    description: '%K suavizado por SMA + %D — diferente do KDJ acima (que usa suavização exponencial e tem uma 3ª linha J)',
+    category: 'momentum',
+    klinechartsName: 'STOCH_SLOW',
+    defaultParams: [14, 3, 3],
     isPaneIndicator: true
   },
   {

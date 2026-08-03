@@ -197,18 +197,28 @@ ignorado.
 
 ## Pendências reais em aberto
 
-**Boleta de ordem manual no gráfico — construída, mas COM BUG BLOQUEANTE
-   não resolvido (sessão 2026-08-03)**: clique em COMPRAR/VENDER em modo
-   DEMO não abre posição em lugar nenhum (nem gráfico, nem dashboard), sem
-   toast de erro/sucesso. Várias hipóteses testadas e descartadas (volume
-   fora de range — corrigido mas não era a causa raiz; deploy desatualizado;
-   projeto Vercel errado; múltiplas instâncias de contexto; z-index —
-   endereçado sem confirmação). Causa raiz ainda não identificada — Claude
-   nunca conseguiu acesso visual ao navegador nesta sessão (ferramenta
-   bloqueada o tempo todo), então todo o diagnóstico foi feito às cegas via
-   console.error colado manualmente pelo Cleber. Handoff completo com todo o
-   histórico de tentativas, arquivos tocados e próximo passo definido:
-   [SESSAO_2026-08-03_BOLETA_ORDEM_MANUAL.md](SESSAO_2026-08-03_BOLETA_ORDEM_MANUAL.md).
+**Boleta de ordem manual no gráfico — bug de clique RESOLVIDO em
+   2026-08-03** (era instrumentação/z-index de sessão anterior, confirmado
+   pelo log 🟢 chegando no handler). A mesma sessão de testes puxou o fio e
+   achou uma cadeia bem maior de bugs reais: TP/SL zerado fechando posição
+   sozinha, P&L com alavancagem em dobro, **336 de 475 ativos** com contract
+   spec ausente ou batendo em fuzzy match perigoso (ex. ação `GE` usando
+   spec do índice `GER40`), card de posições exibindo valor em dólar como
+   "lotes", lote mínimo de índices desalinhado do padrão de mercado, overlay
+   de posição sumindo do gráfico ao trocar timeframe/símbolo, **botões de
+   ordem desabilitados que nunca disparavam clique sem preço carregado**
+   (causa raiz de todo o padrão "clico e nada acontece"), e **`BTCUSDT`
+   sendo o símbolo padrão pra usuário novo sem nunca ter existido no
+   catálogo de trading** (só `BTCUSD` existe). Praticamente tudo já
+   commitado e pushado (só a adição do Estocástico Lento na janela de
+   indicadores ficou pendente na última passada). Duas ferramentas novas e
+   permanentes: `scripts/audit-contract-specs.mjs` e
+   `scripts/generate-missing-contract-specs.mjs`. Handoff completo com cada
+   bug, arquivo:linha, o que está commitado vs pendente, e limitações da
+   sessão (sem acesso visual ao navegador de novo):
+   [SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md](SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md)
+   (histórico anterior, já superado:
+   [SESSAO_2026-08-03_BOLETA_ORDEM_MANUAL.md](SESSAO_2026-08-03_BOLETA_ORDEM_MANUAL.md)).
 0. **Fase 0 (remover dado fabricado): CONCLUÍDA em 2026-07-29** — Auditoria
    sweep de ~60 arquivos com `Math.random()` encontrou 9 casos em que números
    aleatórios eram apresentados como capacidade real do sistema (latência,
