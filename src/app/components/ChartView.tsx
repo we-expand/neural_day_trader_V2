@@ -307,6 +307,7 @@ import {
   TrendingUp, 
   TrendingDown,
   ChevronDown,
+  ChevronUp,
   Settings,
   Activity,
   Clock,
@@ -1365,6 +1366,29 @@ export function ChartView({
   // pra painel próprio); sem isso, removeIndicator(indicator.id) nunca casava com nada e
   // o "Remover" nunca tirava o desenho de verdade da tela (só mudava o estado da UI).
   const indicatorPaneIdRef = useRef<Record<string, string>>({});
+  // 🆕 Altura (em px) do painel de cada indicador que está em painel próprio (RSI/MACD/
+  // Estocástico/etc, não sobreposto no preço) -- a klinecharts já permite arrastar a
+  // divisória entre painéis pra redimensionar (dragEnabled é true por padrão na lib),
+  // mas o usuário pediu um controle explícito também. `PANE_DEFAULT_HEIGHT` é o valor
+  // que a própria klinecharts usa quando nenhuma altura é passada em `createIndicator`.
+  const PANE_DEFAULT_HEIGHT = 100;
+  const PANE_MIN_HEIGHT = 60;
+  const PANE_MAX_HEIGHT = 400;
+  const PANE_HEIGHT_STEP = 30;
+  const [indicatorPaneHeightById, setIndicatorPaneHeightById] = useState<Record<string, number>>({});
+  const adjustIndicatorPaneHeight = (indicator: IndicatorConfig, delta: number) => {
+    const chart = chartInstanceRef.current;
+    const paneId = indicatorPaneIdRef.current[indicator.id];
+    if (!chart || !paneId) return;
+    const current = indicatorPaneHeightById[indicator.id] ?? PANE_DEFAULT_HEIGHT;
+    const next = Math.min(PANE_MAX_HEIGHT, Math.max(PANE_MIN_HEIGHT, current + delta));
+    try {
+      chart.setPaneOptions({ id: paneId, height: next });
+      setIndicatorPaneHeightById(prev => ({ ...prev, [indicator.id]: next }));
+    } catch (error) {
+      console.error('[ChartView] ❌ Erro ajustando altura do painel:', error);
+    }
+  };
   const [indicatorSearchTerm, setIndicatorSearchTerm] = useState(''); // 🆕 Busca de indicadores
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // 🆕 Filtro por categoria
   
@@ -6779,6 +6803,26 @@ export function ChartView({
                 <div key={indicator.id} className="w-full px-4 py-1.5 flex items-center justify-between text-sm text-white">
                   <span className="truncate">{indicator.name.split(' - ')[0]}</span>
                   <div className="flex items-center gap-1 shrink-0">
+                    {/* 🆕 Aumentar/diminuir altura do painel -- só faz sentido pra indicador
+                        em painel próprio (RSI/MACD/Estocástico embaixo), não sobreposto no preço. */}
+                    {getIndicatorPlacement(indicator) === 'pane' && (
+                      <>
+                        <button
+                          onClick={() => adjustIndicatorPaneHeight(indicator, -PANE_HEIGHT_STEP)}
+                          title="Diminuir altura do painel"
+                          className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-1 transition-colors"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => adjustIndicatorPaneHeight(indicator, PANE_HEIGHT_STEP)}
+                          title="Aumentar altura do painel"
+                          className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-1 transition-colors"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                     {(indicator.defaultParams?.length ?? 0) > 0 && (
                       <button
                         onClick={() => {
