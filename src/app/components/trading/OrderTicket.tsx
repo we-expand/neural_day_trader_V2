@@ -58,6 +58,17 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   const [expanded, setExpanded] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
   const [volume, setVolume] = useState<number>(asset ? asset.minLot : 0.01);
+
+  // 🐛 FIX: `volume` só era inicializado uma vez, no mount — trocar de ativo no
+  // gráfico (ex: BTCUSD minLot 0.01 → SPX500 minLot 0.1) deixava o volume fora
+  // do range do NOVO ativo sem nenhum aviso. `volumeValid` virava false,
+  // `canTrade` virava false, e o clique em COMPRAR/VENDER simplesmente não
+  // fazia nada — sem toast, sem erro, porque o botão nem chegava a disparar
+  // o handler (disabled). Resincroniza sempre que o ativo muda.
+  React.useEffect(() => {
+    if (!asset) return;
+    setVolume((v) => Math.min(asset.maxLot, Math.max(asset.minLot, v)));
+  }, [asset]);
   const [triggerPrice, setTriggerPrice] = useState('');
   const [stopLimitPrice, setStopLimitPrice] = useState('');
   const [stopLoss, setStopLoss] = useState('0.00');
@@ -144,6 +155,19 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
 
   const brokerBlocked = executionMode === 'LIVE' && brokerConfigured !== true;
   const canTrade = currentPrice != null && volumeValid && !submitting && !brokerBlocked && !demoStopLimitUnsupported;
+
+  // Motivo visível do bloqueio — nunca mais um botão desabilitado sem explicação
+  // (foi exatamente isso que escondeu o bug do volume dessincronizado ao trocar
+  // de ativo: clique não fazia nada, sem toast, sem pista nenhuma na tela).
+  const blockedReason = currentPrice == null
+    ? 'Aguardando preço do ativo…'
+    : !volumeValid
+      ? `Volume fora do intervalo permitido (${asset ? `${asset.minLot}–${asset.maxLot}` : '> 0'})`
+      : brokerBlocked
+        ? 'Conecte uma corretora para operar em LIVE'
+        : demoStopLimitUnsupported
+          ? 'Stop Limit indisponível em DEMO'
+          : null;
 
   function adjustVolume(delta: number) {
     if (!asset) return;
@@ -318,9 +342,9 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           </button>
         </div>
 
-        {brokerBlocked && (
+        {blockedReason && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 text-[9px] text-amber-300 bg-amber-500/10 border-t border-amber-500/20">
-            <Link2Off className="w-3 h-3 shrink-0" /> Sem corretora conectada
+            <Link2Off className="w-3 h-3 shrink-0" /> {blockedReason}
           </div>
         )}
       </div>
@@ -462,6 +486,12 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           </div>
         </div>
 
+        {!volumeValid && (
+          <div className="mb-3 flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 relative z-10">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{blockedReason}</span>
+          </div>
+        )}
         {demoStopLimitUnsupported && (
           <div className="mb-3 flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 relative z-10">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
