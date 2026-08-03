@@ -6666,7 +6666,15 @@ export function ChartView({
           {/* 🆕 Templates — CRUD completo (salvar/carregar/remover), inclui zoom+scroll
               (barSpace/offsetRightDistance) além de indicadores/grade/S/R/timeframe. */}
           <button
-            onClick={() => setTemplatesExpanded(prev => !prev)}
+            onClick={(e) => {
+              // 🐛 FIX: sem isso, o clique subia até o listener global em `document`
+              // que fecha o menu de contexto inteiro em QUALQUER clique fora dele (ver
+              // handleClick perto do fim do arquivo) -- o próprio botão "Templates"
+              // contava como "clique fora", então o menu inteiro sumia antes mesmo do
+              // painel expandir. Sintoma relatado: "clico em Templates e o botão some".
+              e.stopPropagation();
+              setTemplatesExpanded(prev => !prev);
+            }}
             className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center justify-between"
           >
             <span>Templates{templates.length > 0 ? ` (${templates.length})` : ''}</span>
