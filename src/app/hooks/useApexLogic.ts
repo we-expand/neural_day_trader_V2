@@ -2175,9 +2175,12 @@ export function useApexLogic(
                 totalUnrealizedPnL += pnl;
                 totalExposure += order.amount * nextPrice * order.leverage;
 
-                // Check TP/SL
-                const hitTP = order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp;
-                const hitSL = order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl;
+                // Check TP/SL — tp/sl igual a 0 significa "não definido" (ordem manual
+                // sem alvo/stop), nunca um preço de gatilho real. Sem esse guard, uma
+                // ordem LONG sem TP fechava sozinha no primeiro tick (nextPrice >= 0 é
+                // sempre verdadeiro), e o mesmo pro SL de uma SHORT sem stop.
+                const hitTP = order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
+                const hitSL = effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
 
                 if (hitTP) {
                     realizedPnL += pnl;
