@@ -225,6 +225,39 @@ certo. **Alteração em `src/app/hooks/useApexLogic.ts` e
 validate` + `npm run build` passaram. Não verificado visualmente (mesma
 limitação de Browser pane bloqueado).
 
+### 17. Banners de "Posições Abertas" do Dashboard — pedido direto do Cleber: botão de fechar + clique navega pro gráfico
+Card "POSIÇÕES ABERTAS" do Dashboard (`MarketScoreBoard.tsx`) mostrava cada
+posição só como leitura, sem ação nenhuma. Implementado:
+- Clique no card inteiro → `setSelectedAsset(order.symbol)` +
+  `onNavigate('chart')`, mesmo padrão de troca de view já usado por
+  `AITrader.tsx`/`PaymentSuccess.tsx`. `ChartView.tsx` já sincroniza
+  `selectedSymbol` a partir de `selectedAsset` do contexto reativamente
+  (não precisou mexer no ChartView).
+- Botão de fechar (ícone X) dentro do card, com `stopPropagation` pra não
+  disparar a navegação — chama `closeManualPosition(order.id,
+  order.currentPrice ?? order.price)`, a MESMA função já usada pelo botão
+  "Fechar posição" da boleta (item #7 do histórico anterior).
+
+`onNavigate` precisou ser encanado por 3 arquivos (`App.tsx` →
+`Dashboard.tsx` → `MarketScoreBoard.tsx`), já que o Dashboard não recebia
+essa prop antes (diferente de `AITrader`, que já recebia).
+
+**Achado lateral, não resolvido nesta sessão (pré-existente, não introduzido
+agora)**: `closeManualPosition` só atualiza estado local — nunca chama a
+corretora (`BrokerClient.closePosition`). Isso já era assim no botão da
+boleta desde que foi criado; agora o mesmo botão fica exposto em mais um
+lugar (o banner do Dashboard), então vale mais atenção: pra posição LIVE
+(dinheiro real), clicar em "fechar" aqui zera só a visão local — a posição
+continua aberta na corretora até fechamento real via `/broker/execute`.
+Não mexi nisso porque está fora do que foi pedido e é o mesmo
+comportamento já em produção noutro botão — mas é uma pendência de
+segurança real pro Trilho de execução LIVE.
+
+`npm run validate` + `npm run build` passaram. **Alteração em
+`src/app/App.tsx`, `src/app/components/Dashboard.tsx` e
+`src/app/components/dashboard/MarketScoreBoard.tsx` — AINDA NÃO
+COMMITADA.** Não verificado visualmente (Browser pane bloqueado de novo).
+
 ## Status do git — IMPORTANTE
 
 ```
@@ -239,11 +272,14 @@ git log (últimos commits, todos já pushados):
 
 git status (NÃO commitado ainda):
   M CLAUDE.md                                (ponteiro pra este handoff)
+  M src/app/App.tsx                          (fix #17: onNavigate no Dashboard)
   M src/app/components/ChartView.tsx         (fix #14: Estocástico Lento novo)
+  M src/app/components/Dashboard.tsx         (fix #17: onNavigate encanado)
+  M src/app/components/dashboard/MarketScoreBoard.tsx  (fix #17: botão fechar + clique navega)
   M src/app/hooks/useApexLogic.ts            (fix #15: SL Dinâmico fantasma; fix #16: histórico do Supabase)
   M src/app/hooks/useAIPersistence.ts        (fix #16: getUserTradeHistory novo)
   M dist/**                                  (rebuild do npm run build desta sessão — dist/ está versionado no repo, ver nota lateral abaixo)
-  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, itens #15 e #16 adicionados)
+  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, itens #15, #16 e #17 adicionados)
 ```
 
 **Comando pendente pro Cleber rodar:**
@@ -254,6 +290,9 @@ git status (NÃO commitado ainda):
 # via `git add` sem staging interativo por hunk.
 git add src/app/hooks/useApexLogic.ts src/app/hooks/useAIPersistence.ts
 git commit -m "fix: SL Dinâmico fechava posição sozinha em minutos; histórico de trades nunca lia o Supabase (só a sessão de navegador atual)"
+
+git add src/app/App.tsx src/app/components/Dashboard.tsx src/app/components/dashboard/MarketScoreBoard.tsx
+git commit -m "feat: banner de posição aberta do Dashboard ganha botão de fechar e navega pro gráfico ao clicar"
 
 git add CLAUDE.md src/app/components/ChartView.tsx SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md dist
 git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs + SL Dinâmico + histórico"

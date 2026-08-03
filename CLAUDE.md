@@ -225,11 +225,16 @@ ignorado.
    qualquer trade de sessão anterior ficava invisível apesar de intacto no
    banco (efeito colateral: gates de risco por dia/win-rate também
    subcontavam). Corrigido com `getUserTradeHistory` novo hidratando
-   `orderHistory` do Supabase no mount. `npm run validate` + `npm run build`
-   passaram nos dois; **nada verificado visualmente** (Browser pane
-   bloqueado de novo). Praticamente tudo já commitado e pushado (só a
-   adição do Estocástico Lento e esses dois fixes de 08-03 ficaram
-   pendentes na última passada). Duas ferramentas
+   `orderHistory` do Supabase no mount. **Pedido de feature no mesmo dia**:
+   banners de "Posições Abertas" do Dashboard ganharam botão de fechar
+   (reaproveita `closeManualPosition`, já existente na boleta — mesma
+   limitação pré-existente de nunca chamar a corretora em modo LIVE, só
+   estado local) e clique no banner navega pro gráfico com o ativo já
+   selecionado. `npm run validate` + `npm run build` passaram em tudo;
+   **nada verificado visualmente** (Browser pane bloqueado de novo).
+   Praticamente tudo já commitado e pushado (só a adição do Estocástico
+   Lento e os 3 fixes/features de 08-03 acima ficaram pendentes na última
+   passada). Duas ferramentas
    novas e permanentes: `scripts/audit-contract-specs.mjs` e
    `scripts/generate-missing-contract-specs.mjs`. Handoff completo com cada
    bug, arquivo:linha, o que está commitado vs pendente, e limitações da
