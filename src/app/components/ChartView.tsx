@@ -1294,8 +1294,33 @@ export function ChartView({
   // suportar (ex: dentro de um iframe sem allow="fullscreen").
   const chartRootRef = useRef<HTMLDivElement>(null);
   const [isMaximized, setIsMaximized] = useState(false);
+  // 🐛 FIX: ao entrar/sair do fullscreen nativo, o navegador leva alguns frames (às
+  // vezes com animação própria) até o layout terminar de se estabilizar de verdade.
+  // O ResizeObserver do canvas podia disparar ANTES desse reflow final acabar,
+  // deixando o gráfico (e a boleta, ancorada com `right` relativo ao mesmo container)
+  // medido com a largura antiga -- como o `<main>` que envolve a tela tem
+  // `overflow-auto`, isso não cortava nada, virava SCROLL horizontal escondendo a
+  // boleta e a régua de preço fora da área visível (bug relatado: "a barra de preço e
+  // a boleta desapareceram" ao restaurar da tela cheia). Força um resize explícito
+  // depois que o navegador com certeza já terminou a transição -- 2 `requestAnimationFrame`
+  // encadeados garantem que rodamos depois do próximo ciclo completo de layout+paint.
+  const forceLayoutResettleAfterFullscreenChange = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          chartInstanceRef.current?.resize();
+        } catch (_) {
+          // silencioso -- mesma tolerância do resto dos resizes no arquivo
+        }
+        window.dispatchEvent(new Event('resize'));
+      });
+    });
+  };
   useEffect(() => {
-    const handleFullscreenChange = () => setIsMaximized(!!document.fullscreenElement);
+    const handleFullscreenChange = () => {
+      setIsMaximized(!!document.fullscreenElement);
+      forceLayoutResettleAfterFullscreenChange();
+    };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
@@ -1308,9 +1333,12 @@ export function ChartView({
       }
     } catch (err) {
       // Navegador negou/não suporta (ex: iframe sem allow="fullscreen") — cai pro
-      // modo CSS (cobre só o app, não o browser inteiro).
+      // modo CSS (cobre só o app, não o browser inteiro). Esse caminho não dispara
+      // 'fullscreenchange' nenhum (não é fullscreen nativo), então precisa do mesmo
+      // resize forçado aqui manualmente.
       console.warn('[ChartView] Fullscreen API indisponível, usando modo CSS:', err);
       setIsMaximized((prev) => !prev);
+      forceLayoutResettleAfterFullscreenChange();
     }
   };
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
