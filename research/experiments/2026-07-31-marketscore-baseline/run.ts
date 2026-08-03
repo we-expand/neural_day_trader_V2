@@ -95,8 +95,13 @@ async function main() {
         // apesar do nome, `estimateCostPercent` devolve FRAÇÃO, não pontos
         // percentuais — é o `toNetReturn` logo abaixo dela no CostModel.ts que
         // multiplica por 100. Sem o ×100 aqui, o custo round-trip sai 0,0026%
-        // em vez de 0,26% (fator 100), e todo netEdge fica otimista demais.
-        // 0,26% é exatamente o custo da tabela 14.3 do AI_BRAIN_SPEC.md.
+        // em vez do custo cheio (fator 100), e todo netEdge fica otimista demais.
+        //
+        // ⚠️ 2026-08-02: o custo de CRYPTO no CostModel.ts foi corrigido de 0,26%
+        // para 0,0291% round-trip (era ~18x o medido — ver CostModel.ts). Este
+        // script DERIVA o custo da tabela, então re-rodá-lo agora usa o valor novo
+        // e **não reproduz** os números registrados na execução de 2026-07-31.
+        // Aqueles resultados foram produzidos com o custo inflado.
         let roundTripCostPercent: number | null = null;
         try {
           roundTripCostPercent = estimateCostPercent('CRYPTO', 1, 1) * 2 * 100;

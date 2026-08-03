@@ -26,7 +26,15 @@ const MIN_LOOKBACK = 240;
 /** Limiares de convicção — IDÊNTICOS aos do MarketScoreValidator, não recalibrados. */
 const BUY_SCORE = 68, SELL_SCORE = 32, MIN_CONF = 55;
 
-/** Custo round-trip cripto: 0,26% (tabela 14.3). Ver armadilha de unidade no baseline. */
+/**
+ * Custo round-trip cripto, derivado da tabela do CostModel.ts. Ver armadilha de
+ * unidade no baseline.
+ *
+ * ⚠️ 2026-08-02: era 0,26% (tabela 14.3) quando este experimento rodou; o
+ * CostModel.ts foi corrigido para 0,0291% (o 0,26% era ~18x o medido). Como o
+ * valor é derivado, re-rodar este script agora **não reproduz** os números
+ * registrados na execução de 2026-07-31 — aqueles usaram o custo inflado.
+ */
 const ROUND_TRIP_COST_PCT = estimateCostPercent('CRYPTO', 1, 1) * 2 * 100;
 
 /** Início do histórico da Binance com folga. */

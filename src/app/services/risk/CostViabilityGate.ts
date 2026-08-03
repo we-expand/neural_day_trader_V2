@@ -4,21 +4,40 @@
  * #5). Aritmética pura, zero previsão: recusa operar onde o custo estimado
  * de round-trip devora fração grande demais do movimento típico esperado.
  *
- * Números-fonte (seção 14.3 da spec, BTCUSDT, custo round-trip real 0,26%):
+ * Números-fonte da CALIBRAÇÃO dos limiares (seção 14.3 da spec, BTCUSDT, com o
+ * custo round-trip de 0,26% que se acreditava real à época):
  *   15m: movimento típico 1,05% (MEDIDO, n=4.058) -> custo = 25% do movimento -> INVIÁVEL
  *   1h:  movimento típico 2,52% (MEDIDO, n=973)   -> custo = 10% do movimento -> FRONTEIRA
  *   4h:  movimento típico ~5%  (EXTRAPOLADO √t)   -> custo = ~5%  do movimento -> VIÁVEL
  *   1d:  movimento típico ~12% (EXTRAPOLADO √t)   -> custo = ~2%  do movimento -> VIÁVEL
  *
- * Confirmação executável (14.3): 15m pooled -US$1.447,73 (DSR 0%), 1h pooled
- * -US$73,55 (DSR 35,9%, abaixo do piso de 95%) — FRONTEIRA também perdeu
- * dinheiro na prática, por isso o gate abaixo NÃO aprova fronteira por padrão.
- *
- * Os limiares de classificação (7% / 12%) são uma leitura das 4 medições
- * acima, não um número novo pesquisado: escolhidos para que 15m (25%) caia em
+ * Os limiares de classificação (7% / 12%) são uma leitura dessas 4 medições,
+ * não um número novo pesquisado: escolhidos para que 15m (25%) caia em
  * INVIAVEL, 1h (10%) em FRONTEIRA, e 4h/1d (5%/2%) em VIAVEL — reproduzindo a
- * coluna "Viável?" da tabela 14.3.
+ * coluna "Viável?" da tabela 14.3. **Os limiares continuam válidos** — eles
+ * mapeiam RAZÃO custo/movimento para viabilidade e não dependem do valor
+ * absoluto do custo.
+ *
+ * ⚠️ ATUALIZAÇÃO 2026-08-02 — o custo de entrada mudou, a tabela acima não.
+ * O `0,26%` era ~18x o custo real de cripto CFD (`research/CostModel.ts`, classe
+ * CRYPTO, corrigida para 0,0291% — ver comentário lá). Consequências, ambas reais:
+ *
+ *   1. Com o custo corrigido, os 4 timeframes de BTCUSDT acima passam a VIAVEL
+ *      (razões 2,8% / 1,2% / 0,6% / 0,2%). Para cripto, este gate deixa de ser
+ *      restritivo em timeframe intradiário e só morde em regime muito parado
+ *      (ATR < ~0,42% do preço). Para forex/índice, cujos custos NÃO mudaram,
+ *      ele continua mordendo normalmente (EURUSD 15m ainda reprova).
+ *   2. A confirmação executável que a seção 14.3 usava — 15m pooled -US$1.447,73
+ *      (DSR 0%), 1h pooled -US$73,55 (DSR 35,9%) — RODOU COM O CUSTO INFLADO.
+ *      Aqueles prejuízos são em parte artefato do parâmetro errado e **não
+ *      confirmam mais nada** sobre viabilidade de 15m/1h. Precisam ser remedidos
+ *      antes de voltarem a ser citados como evidência.
+ *
+ * O gate segue NÃO aprovando FRONTEIRA por padrão — isso é escolha de projeto
+ * (margem de segurança), não mais uma conclusão herdada daqueles backtests.
  */
+
+import { CRYPTO_CFD_ROUND_TRIP_COST_PERCENT } from '../../../../research/CostModel';
 
 export type CostViabilityClassification = 'VIAVEL' | 'FRONTEIRA' | 'INVIAVEL';
 
@@ -93,12 +112,20 @@ export const BTCUSDT_TYPICAL_MOVEMENT_PERCENT: Record<'15m' | '1h' | '4h' | '1d'
 };
 
 /**
- * Conveniência para o caso já medido nesta pesquisa: BTCUSDT, custo
- * round-trip real de 0,26% (`research/CostModel.ts`, classe CRYPTO).
+ * Custo round-trip herdado da calibração de 2026-07-24 — ⚠️ medido depois como
+ * ~18x alto. Exportado só para os testes conseguirem travar a calibração dos
+ * limiares 7%/12% contra a tabela 14.3 original. **Não usar como custo.**
+ */
+export const LEGACY_CRYPTO_ROUND_TRIP_COST_PERCENT = 0.26;
+
+/**
+ * Conveniência para o caso já medido nesta pesquisa: BTCUSDT, custo round-trip
+ * de cripto CFD vindo de `research/CostModel.ts` (fonte única — 0,0291% desde a
+ * correção de 2026-08-02). O parâmetro segue aberto para comparar cenários.
  */
 export function evaluateCostViabilityForBTCUSDT(
   timeframe: '15m' | '1h' | '4h' | '1d',
-  costPercent = 0.26,
+  costPercent = CRYPTO_CFD_ROUND_TRIP_COST_PERCENT,
 ): CostViabilityResult & { movementSource: 'MEDIDO' | 'EXTRAPOLADO' } {
   const movement = BTCUSDT_TYPICAL_MOVEMENT_PERCENT[timeframe];
   return { ...evaluateCostViability(costPercent, movement.value), movementSource: movement.source };
