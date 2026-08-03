@@ -5972,7 +5972,14 @@ export function ChartView({
                 candle countdown logo abaixo ("colado na linha do preço"), +2px de
                 respiro. Recolhida por padrão (barra compacta SELL/BUY); expande pra
                 ficha completa por dentro do próprio componente. */}
-            <div className="absolute top-[17px] right-[99px] z-[75]">
+            {/* z-[220] deliberadamente acima de TUDO no gráfico (inclusive do modo
+                tela cheia, z-[200] — ver isMaximized acima) + pointer-events-auto
+                explícito: nenhum log novo de diagnóstico apareceu no console ao
+                clicar, o que só acontece se o clique nunca chega no botão —
+                suspeita forte de alguma camada do gráfico (canvas de crosshair/
+                desenho, gerenciada fora do React pela klinecharts) capturando o
+                clique por cima. Isto elimina essa hipótese de vez. */}
+            <div className="absolute top-[17px] right-[99px] z-[220] pointer-events-auto">
               <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
             </div>
           </div>
