@@ -226,6 +226,14 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     console.error('🟢[OrderTicket] executeOrder chamado', { side, symbol, orderType, executionMode, currentPrice, volume, canTrade, asset: !!asset });
     if (!currentPrice || !asset || !canTrade) {
       console.warn('[OrderTicket] executeOrder abortado — guarda inicial falhou', { currentPrice, asset: !!asset, canTrade, blockedReason });
+      // 🐛 FIX 2026-08-03: os botões tinham `disabled={!canTrade}` — um botão
+      // desabilitado NUNCA dispara onClick no DOM, então quando o preço
+      // ainda não tinha carregado (comum logo após login, antes do primeiro
+      // fetch terminar) o clique não produzia log nenhum, nem toast, nada —
+      // exatamente o padrão "clico e não acontece nada" que se repetiu a
+      // sessão inteira. Removido `disabled` dos botões (ver abaixo); agora
+      // TODO clique passa por aqui e sempre dá algum feedback visível.
+      toast.error('Não foi possível enviar a ordem', { description: blockedReason || 'Motivo desconhecido — tente novamente em alguns segundos.' });
       return;
     }
     const direction = directionValid(side);
@@ -380,7 +388,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         <div className="grid grid-cols-2">
           <button
             type="button"
-            disabled={!canTrade}
+            disabled={submitting !== null}
             onClick={() => executeOrder('SELL')}
             className="flex flex-col items-center justify-center gap-0.5 px-4 py-2.5 bg-red-600/90 hover:bg-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed border-r border-black/30"
           >
@@ -389,7 +397,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           </button>
           <button
             type="button"
-            disabled={!canTrade}
+            disabled={submitting !== null}
             onClick={() => executeOrder('BUY')}
             className="flex flex-col items-center justify-center gap-0.5 px-4 py-2.5 bg-emerald-600/90 hover:bg-emerald-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -635,10 +643,10 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         )}
 
         <div className="grid grid-cols-2 gap-2 relative z-10">
-          <button type="button" disabled={!canTrade} onClick={() => executeOrder('SELL')} className="h-11 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/30 text-white disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all px-1">
+          <button type="button" disabled={submitting !== null} onClick={() => executeOrder('SELL')} className="h-11 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/30 text-white disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all px-1">
             {submitting === 'SELL' ? <Loader2 className="w-4 h-4 animate-spin" /> : sideLabels[orderType].sell}
           </button>
-          <button type="button" disabled={!canTrade} onClick={() => executeOrder('BUY')} className="h-11 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-500/30 text-white disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all px-1">
+          <button type="button" disabled={submitting !== null} onClick={() => executeOrder('BUY')} className="h-11 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-500/30 text-white disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all px-1">
             {submitting === 'BUY' ? <Loader2 className="w-4 h-4 animate-spin" /> : sideLabels[orderType].buy}
           </button>
         </div>
