@@ -5972,7 +5972,7 @@ export function ChartView({
                 candle countdown logo abaixo ("colado na linha do preço"), +2px de
                 respiro. Recolhida por padrão (barra compacta SELL/BUY); expande pra
                 ficha completa por dentro do próprio componente. */}
-            <div className="absolute top-[17px] right-[97px] z-[75]">
+            <div className="absolute top-[17px] right-[99px] z-[75]">
               <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
             </div>
           </div>
