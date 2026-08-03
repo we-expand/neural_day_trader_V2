@@ -167,7 +167,9 @@ qualquer experimento novo de stop/alvo.** Ver `AI_BRAIN_SPEC.md` **seção 14**
   1h pooled vira de −US$73,55 para +US$197,94. **Isto NÃO é evidência de edge**:
   nada passa o piso de 95% de DSR, e as amostras da seção 14 têm poder de 6,7% a
   29,1% — o veredicto passa de "medido como negativo" para "nunca medido com
-  poder suficiente".
+  poder suficiente". Handoff completo das duas sessões de 02/08:
+  `SESSAO_2026-08-02_GATES_VIABILIDADE.md` (diagnóstico) e
+  `SESSAO_2026-08-02_CORRECAO_CUSTO_SECAO14.md` (correções aplicadas + próximo passo).
 - **Erro metodológico nomeado**: a cesta de 7 criptos usada em 11.13 e nos testes
   de 2026-07-30 tem correlação 0,7-0,9 entre pares — é **~1,5 apostas
   independentes, não 7**. O pooling aumentou o `n` da mesma aposta, nunca a
