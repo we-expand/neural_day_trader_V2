@@ -4444,13 +4444,34 @@ export function ChartView({
           }
           
           console.log('[ChartView] 🎯 Calling chart.applyNewData with', candles.length, 'candles');
-          
+
           // 🔍 DEBUG: Mostrar formato exato dos primeiros 3 candles
           console.log('[ChartView] 🔍 First 3 candles (exact format):', JSON.stringify(candles.slice(0, 3), null, 2));
           console.log('[ChartView] 🔍 Last candle (exact format):', JSON.stringify(candles[candles.length - 1], null, 2));
-          
+
+          // 🔧 FIX: applyNewData reseta o offset/viewport internamente (ChartStore.clear()
+          // + resetOffsetRightDistance()), mesmo fora da primeira carga. Salvamos a posição
+          // do usuário antes e restauramos depois, pra não "puxar" o gráfico de volta.
+          let savedOffsetRightDistance: number | null = null;
+          if (!isInitialLoadRef.current) {
+            try {
+              savedOffsetRightDistance = chart.getOffsetRightDistance();
+            } catch (e) {
+              console.warn('[ChartView] ⚠️ Could not read offset before refresh:', e);
+            }
+          }
+
           chart.applyNewData(candles);
           console.log('[ChartView] ✅ chart.applyNewData completed!');
+
+          if (savedOffsetRightDistance !== null) {
+            try {
+              chart.setOffsetRightDistance(savedOffsetRightDistance);
+              console.log('[ChartView] 🔧 Posição do usuário restaurada após refresh');
+            } catch (e) {
+              console.warn('[ChartView] ⚠️ Could not restore offset after refresh:', e);
+            }
+          }
           
           // 🔍 DEBUG: Verificar se os dados foram aplicados
           try {

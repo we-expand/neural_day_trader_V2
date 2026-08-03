@@ -835,6 +835,13 @@ export default function StandaloneChartPage() {
         setIsPositive(chg >= 0);
       }
 
+      // 🔧 FIX: applyNewData reseta o offset/viewport internamente mesmo fora da
+      // primeira carga. Salvamos a posição do usuário antes e restauramos depois.
+      let savedOffsetRightDistance: number | null = null;
+      if (!isFirstLoadRef.current) {
+        try { savedOffsetRightDistance = chart.getOffsetRightDistance(); } catch (_) {}
+      }
+
       chart.applyNewData(candles);
       chart.setPriceVolumePrecision(2, 0);
       chart.removeOverlay();
@@ -844,6 +851,8 @@ export default function StandaloneChartPage() {
           try { chart.scrollToDataIndex(candles.length - 1); } catch (__) {}
         }
         isFirstLoadRef.current = false;
+      } else if (savedOffsetRightDistance !== null) {
+        try { chart.setOffsetRightDistance(savedOffsetRightDistance); } catch (_) {}
       }
 
       chartDataRef.current = candles;
