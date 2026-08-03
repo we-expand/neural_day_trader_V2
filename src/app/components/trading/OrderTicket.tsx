@@ -18,6 +18,7 @@ import {
   getBrokerCredentialsStatus,
 } from '../../services/BrokerClient';
 import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlertStage';
+import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
 
 type Side = 'BUY' | 'SELL';
 type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
@@ -25,6 +26,19 @@ type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
 interface OrderTicketProps {
   symbol: string;
   currentPrice: number | null;
+}
+
+// 🆕 P&L de posição aberta atualiza a cada 1s (loop em useApexLogic.ts), mas sem
+// nenhuma suavização o número saltava direto de um valor pro outro -- "duro",
+// bem diferente da sensação contínua do TradingView. Interpola visualmente entre
+// os valores recebidos (ver useAnimatedNumber.ts), sem mexer no pipeline de dados.
+function AnimatedPnl({ value, className }: { value: number; className: string }) {
+  const animated = useAnimatedNumber(value);
+  return (
+    <span className={className}>
+      {animated >= 0 ? '+' : ''}{animated.toFixed(2)}
+    </span>
+  );
 }
 
 const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = [
@@ -93,6 +107,24 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   const [expanded, setExpanded] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
   const [volume, setVolume] = useState<number>(asset ? asset.minLot : 0.01);
+  // 🆕 FIX: campo de volume digitável (era um <span> só de leitura, só dava pra
+  // mudar a quantidade clicando nas setinhas). `volumeInputText` é o texto bruto
+  // que o usuário está digitando (pode estar temporariamente inválido/incompleto,
+  // ex: "1." ou vazio, enquanto ele ainda está escrevendo); `volume` (numérico)
+  // só é atualizado quando o texto já parseia pra um número válido -- mantidos
+  // separados de propósito, sincronizar direto de `volume` reformataria o texto
+  // a cada tecla e atrapalharia a digitação.
+  const [volumeInputText, setVolumeInputText] = useState<string>(String(asset ? asset.minLot : 0.01));
+
+  function handleVolumeInputChange(raw: string) {
+    setVolumeInputText(raw);
+    const normalized = raw.trim().replace(',', '.');
+    if (normalized === '') return;
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      setVolume(parsed);
+    }
+  }
 
   // 🐛 FIX: `volume` só era inicializado uma vez, no mount — trocar de ativo no
   // gráfico (ex: BTCUSD minLot 0.01 → SPX500 minLot 0.1) deixava o volume fora
@@ -102,7 +134,11 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   // o handler (disabled). Resincroniza sempre que o ativo muda.
   React.useEffect(() => {
     if (!asset) return;
-    setVolume((v) => Math.min(asset.maxLot, Math.max(asset.minLot, v)));
+    setVolume((v) => {
+      const next = Math.min(asset.maxLot, Math.max(asset.minLot, v));
+      setVolumeInputText(next.toFixed(2));
+      return next;
+    });
   }, [asset]);
   const [triggerPrice, setTriggerPrice] = useState('');
   const [stopLimitPrice, setStopLimitPrice] = useState('');
@@ -216,7 +252,9 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     if (!asset) return;
     setVolume((v) => {
       const next = Number((v + delta).toFixed(8));
-      return Math.min(asset.maxLot, Math.max(asset.minLot, next));
+      const clamped = Math.min(asset.maxLot, Math.max(asset.minLot, next));
+      setVolumeInputText(clamped.toFixed(2));
+      return clamped;
     });
   }
 
@@ -386,7 +424,18 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           <button type="button" onClick={() => adjustVolume(-step)} className="w-5 h-5 flex items-center justify-center rounded bg-white/5 text-slate-300 hover:bg-white/10">
             <ChevronDown className="w-3 h-3" />
           </button>
-          <span className="text-xs font-mono text-white w-14 text-center">{volume.toFixed(2)}</span>
+          {/* 🆕 FIX: era um <span> só de leitura -- o usuário só conseguia mudar o volume
+              clicando nas setinhas (um clique por 0.01/0.1/etc, o `step` = minLot do
+              ativo), impossível digitar uma quantidade livre direto. Vira input de texto
+              editável, mantendo as setinhas funcionando do mesmo jeito. */}
+          <input
+            type="text"
+            inputMode="decimal"
+            value={volumeInputText}
+            onChange={(e) => handleVolumeInputChange(e.target.value)}
+            onBlur={() => setVolumeInputText(volume.toFixed(2))}
+            className="text-xs font-mono text-white w-14 text-center bg-transparent outline-none focus:bg-white/5 rounded"
+          />
           <button type="button" onClick={() => adjustVolume(step)} className="w-5 h-5 flex items-center justify-center rounded bg-white/5 text-slate-300 hover:bg-white/10">
             <ChevronUp className="w-3 h-3" />
           </button>
@@ -429,9 +478,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                   {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">@ {formatPrice(pos.price, symbol)}</span>
-                <span className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
-                </span>
+                <AnimatedPnl value={pnl} className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
               </div>
               <button
                 type="button"
@@ -607,9 +654,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                       {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">@ {formatPrice(pos.price, symbol)}</span>
-                    <span className={`text-xs font-bold font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
-                    </span>
+                    <AnimatedPnl value={pnl} className={`text-xs font-bold font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                   <button
                     type="button"

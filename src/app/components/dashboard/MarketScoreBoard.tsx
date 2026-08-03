@@ -40,6 +40,7 @@ import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { getRealMarketData, getLastKnownRealPrice, subscribeToRealtimePrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard). subscribeToRealtimePrice: streaming-relay (2026-07-14)
+import { useAnimatedNumber } from '@/app/hooks/useAnimatedNumber';
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
 import { BtcPriceDebug } from '../debug/BtcPriceDebug'; // 🐛 DEBUG: BTC Price Debug
@@ -168,6 +169,16 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
   if (asset) return asset.category === 'CRYPTO';
 
   return normalized.endsWith('USDT') || ['BTC', 'ETH', 'SOL'].some(c => normalized.includes(c));
+}
+
+// 🆕 P&L de posição atualiza a cada 1s (loop em useApexLogic.ts) sem nenhuma
+// suavização — o número saltava direto de um valor pro outro ("duro"). Interpola
+// visualmente via useAnimatedNumber, sem mexer no pipeline de dados. Componente
+// separado porque é usado dentro de um `.map()` (hooks não podem ser chamados
+// direto dentro do callback do map).
+function AnimatedOrderPnl({ value, className }: { value: number; className: string }) {
+  const animated = useAnimatedNumber(value);
+  return <div className={className}>{animated >= 0 ? '+' : ''}{animated.toFixed(2)}</div>;
 }
 
 export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) => void } = {}) => {
@@ -799,6 +810,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
   };
 
   const activePnL = activeOrders.reduce((acc, o) => acc + (o.currentProfit || 0), 0);
+  const animatedActivePnL = useAnimatedNumber(activePnL);
   const profitAi = (portfolio?.equity || 0) - (config.initialBalance || 100);
 
   // ✅ 2026-07-20: "Risco da Conta" usava só o P&L flutuante das posições
@@ -1101,7 +1113,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         <div className="text-right">
                             <div className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider">P&L Total</div>
                             <div className={`text-lg font-bold font-mono ${activePnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {formatPnL(activePnL)}
+                                {formatPnL(animatedActivePnL)}
                             </div>
                         </div>
                     </div>
@@ -1146,9 +1158,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                     <div className="flex items-start gap-1.5">
                                         {/* ✅ P&L + Percentual Destacado */}
                                         <div className="flex flex-col items-end gap-0.5">
-                                            <div className={`text-sm font-black font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
-                                            </div>
+                                            <AnimatedOrderPnl value={pnl} className={`text-sm font-black font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                                             <div className={`px-2 py-0.5 rounded text-[10px] font-black ${
                                                 pnlPercent >= 0
                                                     ? 'bg-emerald-500/20 text-emerald-400'
