@@ -387,6 +387,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   }, []);
 
   /**
+   * Buscar TODOS os trades FECHADOS do usuário, através de todas as sessões
+   * (não só a sessão ativa) — fonte real do "Histórico de Trades" da tela de
+   * Performance. Antes desta função, `orderHistory` só acumulava trades
+   * fechados durante a aba/sessão de navegador atual (cache local), então o
+   * histórico "sumia" a cada reload/troca de dispositivo mesmo com o trade
+   * salvo no banco.
+   */
+  const getUserTradeHistory = useCallback(async (limit = 200) => {
+    if (!user?.id) return [];
+    return await aiPersistence.getUserTrades(user.id, { limit });
+  }, [user]);
+
+  /**
    * Buscar equity curve de uma sessão
    */
   const getEquityCurve = useCallback(async (sessionId: string) => {
@@ -428,6 +441,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Queries
     getSessionHistory,
     getSessionTrades,
+    getUserTradeHistory,
     getEquityCurve,
     
     // Utils

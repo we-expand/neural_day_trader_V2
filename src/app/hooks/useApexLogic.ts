@@ -720,6 +720,41 @@ export function useApexLogic(
     hasHydratedFromSupabaseRef.current = true;
 
     (async () => {
+      // 🔴 FIX 2026-08-03 (achado do Cleber: "histórico só mostra as últimas
+      // 3 ordens"): `orderHistory` nunca era hidratado do Supabase — só
+      // acumulava trades fechados durante a aba/sessão de navegador atual
+      // (mais o cache de localStorage). Trades fechados de sessões
+      // anteriores existiam no banco (`ai_trades`) mas nunca apareciam na
+      // tela de Performance. Roda independente de haver sessão ATIVA agora
+      // (por isso fica fora do `if (!restored?.session) return` abaixo).
+      try {
+        const closedTrades = await persistenceRef.current.getUserTradeHistory();
+        const closedOnly = closedTrades.filter(t => t.status === 'CLOSED');
+        if (closedOnly.length > 0) {
+          setOrderHistory(closedOnly.map((t): TradeVisual => ({
+            id: t.id!,
+            symbol: t.symbol,
+            side: t.side,
+            amount: t.quantity,
+            price: t.entry_price,
+            currentPrice: t.exit_price ?? t.entry_price,
+            currentProfit: t.net_pnl ?? t.pnl ?? 0,
+            closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
+            tp: t.take_profit ?? t.entry_price,
+            sl: t.stop_loss ?? t.entry_price,
+            originalSl: t.stop_loss ?? t.entry_price,
+            leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
+            ai_confidence: t.ai_confidence ?? 50,
+            timestamp: new Date(t.entry_time).getTime(),
+            reasoning: t.ai_reasoning || '',
+            indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+          })));
+          console.log(`[useApexLogic] ☁️ Histórico de trades restaurado do Supabase: ${closedOnly.length} trades fechados`);
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar histórico de trades do Supabase (mantendo localStorage):', e);
+      }
+
       try {
         const restored = await persistenceRef.current.restoreActiveSession();
         if (!restored?.session) return;
