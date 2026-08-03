@@ -6510,12 +6510,29 @@ export function ChartView({
                       className="flex items-center justify-between p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs"
                     >
                       <span className="text-blue-400 font-medium">{indicator.name.split(' - ')[0]}</span>
-                      <button
-                        onClick={() => toggleIndicator(indicator)}
-                        className="text-red-400 hover:text-red-300 transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        {/* 🆕 Sem isso, quem adiciona uma média móvel por AQUI (o modal
+                            "Indicadores", diferente do menu de botão direito) não tinha
+                            nenhum jeito de achar "+ Adicionar linha" pra colocar uma 2ª
+                            média com outro período -- só dava pra editar clicando com o
+                            botão direito no gráfico, o que não é óbvio. */}
+                        {(indicator.defaultParams?.length ?? 0) > 0 && (
+                          <button
+                            onClick={() => (isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator))}
+                            title={isMovingAverageIndicator(indicator) ? 'Editar / adicionar linha' : 'Editar parâmetros'}
+                            className="text-blue-300 hover:text-blue-200 transition-colors"
+                          >
+                            <Settings className="w-3 h-3" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => toggleIndicator(indicator)}
+                          title="Remover indicador"
+                          className="text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -6548,6 +6565,15 @@ export function ChartView({
                         </span>
                         <span className="text-xs text-gray-500 truncate w-full">{indicator.description}</span>
                       </button>
+                      {isActive && (indicator.defaultParams?.length ?? 0) > 0 && (
+                        <button
+                          onClick={() => (isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator))}
+                          title={isMovingAverageIndicator(indicator) ? 'Editar / adicionar linha' : 'Editar parâmetros'}
+                          className="p-1.5 rounded-md text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 transition-colors shrink-0"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                      )}
                       {isActive && (
                         <button
                           onClick={() => toggleIndicator(indicator)}
@@ -6603,10 +6629,23 @@ export function ChartView({
       </div>
 
       {/* Context Menu */}
-      {contextMenu && (
-        <div 
-          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] min-w-[360px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+      {contextMenu && (() => {
+        // 🐛 FIX: o menu tem altura variável (cresce com indicadores ativos, Templates
+        // expandido, etc.) e antes sempre abria a partir do ponto do clique pra BAIXO --
+        // se o clique fosse na metade de baixo da tela, o menu "nascia" cortado, sem
+        // scroll nem reposicionamento, literalmente sumindo no rodapé da página. Agora:
+        // se o clique foi na metade de baixo, o menu abre pra CIMA a partir do ponto
+        // clicado; se ainda assim não couber tudo, o próprio menu ganha scroll interno
+        // (nunca mais fica invisível, na pior das hipóteses rola dentro dele mesmo).
+        const openUpward = contextMenu.y > window.innerHeight / 2;
+        const left = Math.min(contextMenu.x, window.innerWidth - 380);
+        const menuStyle: React.CSSProperties = openUpward
+          ? { left, bottom: window.innerHeight - contextMenu.y, maxHeight: contextMenu.y - 8 }
+          : { left, top: contextMenu.y, maxHeight: window.innerHeight - contextMenu.y - 8 };
+        return (
+        <div
+          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] min-w-[360px] overflow-y-auto"
+          style={menuStyle}
         >
           {/* Redefinir visão do gráfico */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3">
@@ -6807,7 +6846,7 @@ export function ChartView({
                           }
                         }}
                         title="Remover template"
-                        className="shrink-0 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors opacity-0 group-hover:opacity-100"
+                        className="shrink-0 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -6921,7 +6960,8 @@ export function ChartView({
             <span>Configurações...</span>
           </button>
         </div>
-      )}
+        );
+      })()}
 
       {/* 🆕 DRAWING CONTEXT TOOLBAR - Aparece ao selecionar um desenho */}
       <DrawingContextToolbar
