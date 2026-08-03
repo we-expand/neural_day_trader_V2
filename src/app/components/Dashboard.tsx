@@ -37,7 +37,7 @@ function LazyMount({ children }: { children: React.ReactNode }) {
   return <div ref={containerRef}>{shouldMount ? children : null}</div>;
 }
 
-export function Dashboard() {
+export function Dashboard({ onNavigate }: { onNavigate?: (view: string) => void } = {}) {
   // ✅ 2026-07-23: causa raiz real de "preço zerado no Dashboard, mas normal
   // no Gráfico" — o Gráfico monta UM widget (busca só o ativo selecionado);
   // o Dashboard monta 6 widgets pesados ao mesmo tempo (MarketScoreBoard,
@@ -79,7 +79,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 pb-20">
         <div className="col-span-1 xl:col-span-12 h-auto">
           <div className="bg-zinc-950 rounded-xl overflow-hidden shadow-lg">
-            <MarketScoreBoard />
+            <MarketScoreBoard onNavigate={onNavigate} />
           </div>
         </div>
 

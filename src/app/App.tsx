@@ -225,7 +225,7 @@ function AppContent() {
     
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onNavigate={handleViewChange} />;
       case 'wallet':
       case 'funds':
         return <Funds />;

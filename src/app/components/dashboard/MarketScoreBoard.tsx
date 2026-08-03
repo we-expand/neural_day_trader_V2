@@ -170,8 +170,8 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
   return normalized.endsWith('USDT') || ['BTC', 'ETH', 'SOL'].some(c => normalized.includes(c));
 }
 
-export const MarketScoreBoard = () => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason } = useTradingContext();
+export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) => void } = {}) => {
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setSelectedAsset, closeManualPosition, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
@@ -1101,9 +1101,14 @@ export const MarketScoreBoard = () => {
                         const estimatedLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
 
                         return (
-                            <div 
+                            <div
                                 key={order.id}
-                                className="bg-black/40 border border-white/10 rounded-lg p-3 hover:border-blue-500/50 transition-all group"
+                                onClick={() => {
+                                    setSelectedAsset(order.symbol);
+                                    onNavigate?.('chart');
+                                }}
+                                className="bg-black/40 border border-white/10 rounded-lg p-3 hover:border-blue-500/50 transition-all group cursor-pointer"
+                                title={`Ver ${order.symbol} no gráfico`}
                             >
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex items-center gap-2">
@@ -1111,26 +1116,45 @@ export const MarketScoreBoard = () => {
                                             {order.symbol.replace('USDT', '').replace('USD', '')}
                                         </span>
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                                            order.side === 'LONG' 
-                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                                            order.side === 'LONG'
+                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                                 : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                                         }`}>
                                             {order.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                                         </span>
                                     </div>
-                                    
-                                    {/* ✅ P&L + Percentual Destacado */}
-                                    <div className="flex flex-col items-end gap-0.5">
-                                        <div className={`text-sm font-black font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                            {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+
+                                    <div className="flex items-start gap-1.5">
+                                        {/* ✅ P&L + Percentual Destacado */}
+                                        <div className="flex flex-col items-end gap-0.5">
+                                            <div className={`text-sm font-black font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+                                            </div>
+                                            <div className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                                pnlPercent >= 0
+                                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                                    : 'bg-rose-500/20 text-rose-400'
+                                            }`}>
+                                                {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                                            </div>
                                         </div>
-                                        <div className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                            pnlPercent >= 0 
-                                                ? 'bg-emerald-500/20 text-emerald-400' 
-                                                : 'bg-rose-500/20 text-rose-400'
-                                        }`}>
-                                            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
-                                        </div>
+
+                                        {/* Fechar posição direto do banner — não precisa entrar no gráfico
+                                            pra fechar. stopPropagation pra não disparar a navegação do card. */}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const closePrice = order.currentPrice || order.price;
+                                                closeManualPosition(order.id, closePrice);
+                                                toast.success('Posição fechada', {
+                                                    description: `${order.symbol} @ ${closePrice.toFixed(order.symbol.includes('JPY') ? 2 : 5)}`,
+                                                });
+                                            }}
+                                            className="p-1 rounded bg-black/40 border border-white/10 text-neutral-500 hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/10 transition-colors shrink-0"
+                                            title="Fechar posição"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                 </div>
 
