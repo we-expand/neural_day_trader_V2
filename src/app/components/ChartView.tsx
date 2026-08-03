@@ -3551,7 +3551,7 @@ export function ChartView({
 
     selected.forEach((zone) => {
       const isSupport = zone.type === 'support';
-      const isSolid = zone.significance === 'critical' || zone.significance === 'strong';
+      const isCritical = zone.significance === 'critical' || zone.significance === 'strong';
       const overlayId = `sr_${zone.type}_${zone.price.toFixed(5)}`;
 
       try {
@@ -3560,14 +3560,14 @@ export function ChartView({
           id: overlayId,
           points: [{ value: zone.price }],
           styles: {
-            line: {
-              color: isSupport ? '#22c55e' : '#ef4444',
-              style: isSolid ? 'solid' : 'dashed',
-              size: isSolid ? 2 : 1
-            },
+            // Laranja pontilhado pros dois lados (suporte e resistência) — cor
+            // e verde/vermelho sólido eram fáceis de confundir com as linhas
+            // de posição/SL/TP da boleta (mesmo verde de COMPRA, mesmo
+            // vermelho de VENDA). Mantém só a espessura pra sinalizar força.
+            line: { color: '#f97316', style: 'dashed', size: isCritical ? 2 : 1 },
             text: {
               color: '#ffffff',
-              backgroundColor: isSupport ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)',
+              backgroundColor: 'rgba(249,115,22,0.85)',
               size: 11
             }
           },
