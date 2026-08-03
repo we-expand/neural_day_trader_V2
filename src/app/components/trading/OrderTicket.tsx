@@ -50,10 +50,26 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, openManualPosition, openManualPendingOrder } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, openManualPosition, openManualPendingOrder, closeManualPosition } = useTradingContext();
 
   const asset = useMemo(() => getAssetBySymbol(symbol), [symbol]);
   const contractSpec = useMemo(() => getContractSpec(symbol), [symbol]);
+
+  // Posições DEMO abertas neste símbolo — closeManualPosition só existe pro
+  // caminho DEMO (posição virtual local). Em LIVE a boleta abre via
+  // BrokerClient direto (createMarketBuyOrder/SellOrder) sem passar por
+  // `activeOrders`, então não tem posição pra fechar por aqui ainda — os
+  // módulos de execução automática (Estágios 2-4) são o caminho LIVE real.
+  const symbolPositions = useMemo(
+    () => (executionMode === 'DEMO' ? activeOrders.filter((o) => o.symbol === symbol) : []),
+    [activeOrders, symbol, executionMode],
+  );
+
+  function handleClosePosition(tradeId: string) {
+    if (currentPrice == null) return;
+    closeManualPosition(tradeId, currentPrice);
+    toast.success('Posição fechada', { description: `${symbol} @ ${formatPrice(currentPrice, symbol)}` });
+  }
 
   const [expanded, setExpanded] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
@@ -356,6 +372,30 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
             <Link2Off className="w-3 h-3 shrink-0" /> {blockedReason}
           </div>
         )}
+
+        {symbolPositions.map((pos) => {
+          const pnl = pos.currentProfit ?? 0;
+          return (
+            <div key={pos.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-white/5 bg-white/[0.02]">
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[9px] font-bold ${pos.side === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
+                </span>
+                <span className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleClosePosition(pos.id)}
+                disabled={currentPrice == null}
+                className="text-[9px] font-bold px-2 py-1 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -494,6 +534,35 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
             <span className="text-xs font-bold font-mono text-slate-300">{marginEstimate != null ? `$${marginEstimate.toFixed(2)}` : '—'}</span>
           </div>
         </div>
+
+        {symbolPositions.length > 0 && (
+          <div className="mb-3 space-y-1.5 relative z-10">
+            {symbolPositions.map((pos) => {
+              const pnl = pos.currentProfit ?? 0;
+              return (
+                <div key={pos.id} className="flex items-center justify-between gap-2 bg-black/30 rounded-lg p-2.5 border border-white/5">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${pos.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                      {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">@ {formatPrice(pos.price, symbol)}</span>
+                    <span className={`text-xs font-bold font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleClosePosition(pos.id)}
+                    disabled={currentPrice == null}
+                    className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Fechar posição
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {!volumeValid && (
           <div className="mb-3 flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 relative z-10">

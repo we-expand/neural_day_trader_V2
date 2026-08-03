@@ -3605,6 +3605,18 @@ export function ChartView({
       const isLong = order.side === 'LONG';
       const entryId = `position_entry_${order.id}`;
       try {
+        // P&L ao vivo na própria linha da posição — reflete o preço atual do
+        // tick (order.currentPrice, atualizado a cada ciclo do PNL LOOP em
+        // useApexLogic.ts) e o P&L em dólar já calculado lá (currentProfit).
+        // Pontos = distância favorável ao lado da posição (positivo quando o
+        // preço se move a favor, negativo contra), não a diferença bruta.
+        const livePrice = order.currentPrice ?? order.price;
+        const pointsFavorable = isLong ? livePrice - order.price : order.price - livePrice;
+        const pnl = order.currentProfit ?? 0;
+        const pnlSign = pnl >= 0 ? '+' : '';
+        const pointsSign = pointsFavorable >= 0 ? '+' : '';
+        const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(2)} pts)`;
+
         chart.createOverlay({
           name: 'horizontalStraightLine',
           id: entryId,
@@ -3617,7 +3629,7 @@ export function ChartView({
               size: 11,
             },
           },
-          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}`,
+          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
         });
         positionOverlayIdsRef.current.push(entryId);
       } catch (e) {
