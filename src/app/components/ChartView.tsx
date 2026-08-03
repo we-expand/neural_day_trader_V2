@@ -286,6 +286,7 @@ import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 import { analyzeSmc, type SmcZone } from '@/app/services/smc';
 import { OrderTicket } from '@/app/components/trading/OrderTicket';
+import type { TradeVisual } from '@/app/hooks/useApexLogic';
 
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
@@ -1144,7 +1145,8 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders } = useTradingContext();
+  const [showOrderTicket, setShowOrderTicket] = useState(true);
   
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
   
@@ -1329,6 +1331,7 @@ export function ChartView({
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
+  const positionOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids das linhas de posição aberta (entrada/SL/TP) desenhadas no gráfico
   // 🆕 Cache da estrutura de longo prazo (SMC, 1D/~5 anos) por símbolo — mesma ideia do
   // Detector de Liquidez do Dashboard: sem isso, S/R só enxerga a janela curta do gráfico
   // e nunca acha zona real acima/abaixo quando o preço está longe de qualquer extremo recente.
@@ -3577,6 +3580,97 @@ export function ChartView({
       }
     });
   };
+
+  // 🆕 Desenha as posições abertas (DEMO ou LIVE, incluindo as abertas pela
+  // boleta manual) direto no gráfico — linha de entrada + SL/TP, mesmo padrão
+  // visual/técnico de renderSrOverlays (horizontalStraightLine, groupId
+  // próprio pra limpar sem afetar desenho do usuário). Só desenha posições do
+  // símbolo selecionado — trocar de ativo limpa as linhas do ativo anterior.
+  const renderPositionOverlays = (orders: TradeVisual[], symbol: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+
+    positionOverlayIdsRef.current.forEach((id) => {
+      try {
+        chart.removeOverlay(id);
+      } catch (e) {
+        // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+      }
+    });
+    positionOverlayIdsRef.current = [];
+
+    const symbolOrders = orders.filter((o) => o.symbol === symbol);
+    if (symbolOrders.length === 0) return;
+
+    symbolOrders.forEach((order) => {
+      const isLong = order.side === 'LONG';
+      const entryId = `position_entry_${order.id}`;
+      try {
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: entryId,
+          points: [{ value: order.price }],
+          styles: {
+            line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
+            text: {
+              color: '#ffffff',
+              backgroundColor: isLong ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
+              size: 11,
+            },
+          },
+          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}`,
+        });
+        positionOverlayIdsRef.current.push(entryId);
+      } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de entrada da posição:', e);
+      }
+
+      if (order.sl > 0) {
+        const slId = `position_sl_${order.id}`;
+        try {
+          chart.createOverlay({
+            name: 'horizontalStraightLine',
+            id: slId,
+            points: [{ value: order.sl }],
+            styles: {
+              line: { color: '#ef4444', style: 'dashed', size: 1 },
+              text: { color: '#ffffff', backgroundColor: 'rgba(239,68,68,0.7)', size: 10 },
+            },
+            text: `SL ${order.sl.toFixed(2)}`,
+          });
+          positionOverlayIdsRef.current.push(slId);
+        } catch (e) {
+          // silencioso — mesma tolerância do resto dos overlays de sistema
+        }
+      }
+
+      if (order.tp > 0) {
+        const tpId = `position_tp_${order.id}`;
+        try {
+          chart.createOverlay({
+            name: 'horizontalStraightLine',
+            id: tpId,
+            points: [{ value: order.tp }],
+            styles: {
+              line: { color: '#22c55e', style: 'dashed', size: 1 },
+              text: { color: '#ffffff', backgroundColor: 'rgba(34,197,94,0.7)', size: 10 },
+            },
+            text: `TP ${order.tp.toFixed(2)}`,
+          });
+          positionOverlayIdsRef.current.push(tpId);
+        } catch (e) {
+          // silencioso — mesma tolerância do resto dos overlays de sistema
+        }
+      }
+    });
+  };
+
+  // Redesenha as linhas de posição sempre que uma posição abre/fecha ou o
+  // usuário troca de ativo — inclui as posições abertas pela boleta manual,
+  // já que ambas passam pelo mesmo `activeOrders` do TradingContext.
+  useEffect(() => {
+    renderPositionOverlays(activeOrders, selectedSymbol);
+  }, [activeOrders, selectedSymbol]);
 
   // 🆕 Re-desenha (ou limpa) as linhas de S/R só quando o toggle muda — as
   // zonas em si já são desenhadas no momento em que são calculadas (dentro do
@@ -5837,6 +5931,36 @@ export function ChartView({
                 </div>
               </div>
             )}
+
+            {/* Boleta de ordem manual — flutuante DENTRO do gráfico, não ao lado */}
+            <div
+              className={`absolute top-4 right-4 z-[75] transition-all duration-300 ${
+                showOrderTicket ? 'w-[300px]' : 'w-auto'
+              }`}
+            >
+              {showOrderTicket ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowOrderTicket(false)}
+                    className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-black border border-white/20 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center text-xs shadow-lg"
+                    title="Recolher boleta"
+                  >
+                    ✕
+                  </button>
+                  <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowOrderTicket(true)}
+                  className="flex items-center gap-2 bg-black/80 backdrop-blur-sm border border-white/15 rounded-lg px-3 py-2 text-xs font-bold text-white shadow-lg hover:bg-black/90 transition-colors"
+                >
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                  Nova ordem
+                </button>
+              )}
+            </div>
           </div>
 
         </div>
@@ -6003,11 +6127,6 @@ export function ChartView({
           </div>
         </div>
         )}
-      </div>
-
-      {/* Boleta de ordem manual — ancorada à direita do gráfico */}
-      <div className="w-[320px] border-l border-white/10 shrink-0 hidden xl:block overflow-y-auto p-3">
-        <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
       </div>
 
       {/* Context Menu */}
