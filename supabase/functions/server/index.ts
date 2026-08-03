@@ -13,6 +13,45 @@ import { processUserQuestion, generateAlertResponse } from './neural-assistant.t
 
 const app = new Hono().basePath('/server');
 
+// 🚨 FIX CRÍTICO DE SEGURANÇA (auditoria 2026-08-03, módulo "Inteligência de
+// Usuários"): as rotas administrativas abaixo (/list-users, /user-data e
+// derivadas) só exigiam o header `Authorization: Bearer <publicAnonKey>` — que
+// é uma chave PÚBLICA embutida no bundle JS do client, visível a qualquer um
+// que abra o DevTools. Não havia NENHUMA verificação de identidade nem de
+// permissão de admin no backend; o "gate de admin" existia só na UI
+// (`checkAdminPermissions`/`ADMIN_EMAILS` em `src/app/config/adminConfig.ts`),
+// que não protege nada contra alguém chamando a API diretamente. Na prática:
+// qualquer pessoa sem estar logada conseguia listar email+metadata de TODOS os
+// usuários (/list-users) e ler/exportar em CSV TODOS os dados de onboarding
+// (nome completo, CPF/documento, telefone, endereço, renda — /user-data e
+// /user-data/export/csv), além de poder DELETAR o registro LGPD de qualquer
+// usuário (/user-data/:id DELETE). Corrigido exigindo um JWT de usuário real
+// (não a anon key) cujo email esteja na lista de admins — mesma lista de
+// `adminConfig.ts`, duplicada aqui porque a Edge Function roda num runtime
+// Deno isolado do bundle do client, sem import cruzado possível.
+const ADMIN_EMAILS = ['clbrcouto@gmail.com'];
+
+async function requireAdmin(c: any): Promise<{ ok: true; email: string } | { ok: false; response: Response }> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const authHeader = c.req.header('Authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  if (!token || !supabaseUrl || !supabaseServiceKey) {
+    return { ok: false, response: c.json({ error: 'Não autenticado' }, 401) };
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  const email = data?.user?.email?.toLowerCase();
+
+  if (error || !email || !ADMIN_EMAILS.includes(email)) {
+    return { ok: false, response: c.json({ error: 'Acesso restrito a administradores' }, 403) };
+  }
+
+  return { ok: true, email };
+}
+
 // 🔒 HELPER: Validação de Risco (Tópico 7: Enforcement na rota /broker/execute)
 // Implementa as 3 primeiras validações do RiskManager para gate crítico
 interface RiskValidationRequest {
@@ -518,6 +557,21 @@ app.post("/delete-user", async (c) => {
             return c.json({ message: "Usuário não encontrado (já estava limpo)." });
         }
 
+        // 🚨 FIX CRÍTICO DE SEGURANÇA (auditoria 2026-08-03): esta rota é chamada
+        // ANTES do login (tela de signup, "Erro na ativação" → oferece resetar e
+        // criar de novo), recebendo só o email digitado no formulário — sem NENHUMA
+        // prova de que quem chamou é dono daquela conta. Sem essa checagem, era um
+        // account-takeover trivial: qualquer pessoa sabendo (ou adivinhando) o email
+        // de outra pessoa conseguia deletar a conta dela permanentemente, mesmo já
+        // ativa e em uso. Agora só permite apagar contas que NUNCA terminaram de
+        // confirmar o email (o cenário real de "signup travou, deixa eu tentar de
+        // novo") — uma conta já confirmada/ativa nunca é elegível por esta rota.
+        if (userToDelete.email_confirmed_at) {
+            return c.json({
+                error: "Esta conta já está ativa. Por segurança, contas ativas não podem ser excluídas por este fluxo — faça login normalmente ou entre em contato com o suporte."
+            }, 403);
+        }
+
         // Delete User
         const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userToDelete.id);
         if (deleteError) return c.json({ error: deleteError.message }, 500);
@@ -531,6 +585,8 @@ app.post("/delete-user", async (c) => {
 
 // List Users Route (Admin Only)
 app.get("/list-users", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -551,6 +607,7 @@ app.get("/list-users", async (c) => {
             email: u.email,
             created_at: u.created_at,
             last_sign_in_at: u.last_sign_in_at,
+            email_confirmed_at: u.email_confirmed_at,
             user_metadata: u.user_metadata,
             app_metadata: u.app_metadata
         }));
@@ -1618,6 +1675,8 @@ app.post("/user-data", async (c) => {
 
 // Get All User Data (Admin)
 app.get("/user-data", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         // Get index of all user IDs
         const userIndex = await kv.get('user-data-index') || [];
@@ -1645,6 +1704,8 @@ app.get("/user-data", async (c) => {
 
 // Get Single User Data by ID
 app.get("/user-data/:id", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const userId = c.req.param('id');
         const userData = await kv.get(`user-data:${userId}`);
@@ -1663,6 +1724,8 @@ app.get("/user-data/:id", async (c) => {
 
 // Delete User Data (Admin - GDPR Compliance)
 app.delete("/user-data/:id", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const userId = c.req.param('id');
 
@@ -1689,6 +1752,8 @@ app.delete("/user-data/:id", async (c) => {
 
 // Export User Data as CSV (Admin)
 app.get("/user-data/export/csv", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const userIndex = await kv.get('user-data-index') || [];
         
