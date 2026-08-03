@@ -528,6 +528,7 @@ export function useApexLogic(
   const assetExposureRef = useRef<Record<string, number>>(INITIAL_STATE.assetExposure);
   const lastAssetClassRef = useRef<string | null>(INITIAL_STATE.lastAssetClass);
   const isSafeModeRef = useRef(INITIAL_STATE.isSafeMode);
+  const isActiveRef = useRef(INITIAL_STATE.isActive);
   const candleCounterRef = useRef(INITIAL_STATE.candlesSinceLastTrade);
   const maxCandlesRef = useRef(INITIAL_STATE.maxCandlesBeforeForceEntry);
   const isRunningCycleRef = useRef(false);
@@ -655,6 +656,22 @@ export function useApexLogic(
   useEffect(() => {
     isSafeModeRef.current = isSafeMode;
   }, [isSafeMode]);
+
+  // 🆕 FIX: config da IA (dailyLossLimit/maxDrawdown/minWinRate) nunca pode
+  // interferir na operação manual do usuário ("Modo Livre" = IA desligada,
+  // só boleta). Antes, o Health Check Guardian abaixo rodava e podia ativar
+  // o Safe Mode mesmo com `isActive=false`, deixando o banner "SAFE MODE"
+  // pipocando no Dashboard sem nenhuma IA rodando de fato. Ver uso deste ref
+  // logo no início do interval do Health Check Guardian.
+  useEffect(() => {
+    isActiveRef.current = isActive;
+    // Some da UI e libera o próximo `startLogic()` assim que a IA para —
+    // "Sair do Safe Mode" nunca deveria ser necessário no Modo Livre.
+    if (!isActive && isSafeModeRef.current) {
+      setIsSafeMode(false);
+      setSafeModeReason(null);
+    }
+  }, [isActive]);
 
   useEffect(() => {
     activeOrdersRef.current = activeOrders;
@@ -985,6 +1002,18 @@ export function useApexLogic(
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {
     const interval = setInterval(() => {
+      // 🆕 FIX: config de risco da IA (dailyLossLimit/maxDrawdown/minWinRate)
+      // NUNCA pode interferir no Modo Livre (usuário operando manual, sem a IA
+      // ligada). Antes este check rodava incondicionalmente a cada 5s e podia
+      // ativar o Safe Mode mesmo sem nenhuma IA rodando — a boleta manual já
+      // nunca era bloqueada de fato (ver openManualPosition), mas o Safe Mode
+      // disparava e ficava mostrado no Dashboard mesmo assim, dando a
+      // impressão errada de que a operação livre estava sob restrição da IA.
+      if (!isActiveRef.current) {
+        setHealthStatus({ isHealthy: true, lastCheckTimestamp: Date.now(), issues: [] });
+        return;
+      }
+
       const issues: string[] = [];
 
       // Check Balance

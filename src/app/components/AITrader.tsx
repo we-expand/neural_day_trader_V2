@@ -1007,7 +1007,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                             <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             {/* COLUMN 1: ESTRATÉGIA */}
                             <div className="space-y-6">
                             <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
@@ -1255,51 +1255,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                             </div>
                             </div>
 
-                            {/* COLUMN 3: PROTEÇÃO (Risk/News) */}
-                            <div className="space-y-6">
-                            <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
-                                <Lock className="w-4 h-4" /> Proteção e Risco
-                            </h3>
-
-                            {/* Daily Loss Limit */}
-                            <div className="space-y-2">
-                                <div className="flex justify-between">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Limite de Perda Diária (%)</label>
-                                    <span className="text-xs font-mono text-red-400">{(config.dailyLossLimit || 0).toFixed(1)}%</span>
-                                </div>
-                                <input 
-                                type="range" 
-                                min="0.5" 
-                                max="5.0" 
-                                step="0.1"
-                                value={config.dailyLossLimit} 
-                                onChange={(e) => setConfig({ ...config, dailyLossLimit: parseFloat(e.target.value) })}
-                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
-                                />
-                                <p className="text-[9px] text-slate-500">O sistema entra em "Lockdown" se atingir este limite.</p>
-                            </div>
-
-                            {/* News Filter */}
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase">Filtro de Notícias (Economic Calendar)</label>
-                                <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
-                                    <Zap className={`w-4 h-4 ${config.newsFilter ? 'text-yellow-500' : 'text-slate-600'}`} />
-                                    <div className="flex-1">
-                                    <span className="text-xs font-bold text-white block">Evitar Alta Volatilidade</span>
-                                    <span className="text-[9px] text-slate-500">Pausar durante Payroll/FOMC</span>
-                                    </div>
-                                    <button 
-                                    onClick={() => setConfig({ ...config, newsFilter: !config.newsFilter })}
-                                    className={`w-10 h-5 rounded-full relative transition-colors ${config.newsFilter ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                    >
-                                    <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.newsFilter ? 'left-6' : 'left-1'}`} />
-                                    </button>
-                                </div>
-                            </div>
-                            </div>
                         </div>
 
-                        {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md */}
+                        {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md.
+                            🆕 "Proteção e Risco" (Limite de Perda Diária + Filtro de Notícias) e "Limites
+                            de Capital" (Risco por Trade + Max Drawdown) eram duas seções separadas na tela
+                            (uma coluna acima, outra aqui embaixo) sem nenhum campo redundante entre elas —
+                            mas o nome parecido e a separação visual passavam a impressão de duplicidade.
+                            Unificado num único bloco "Gerenciamento de Risco" com 4 cards lado a lado —
+                            nenhum campo foi removido, todos continuam lidos no motor (useApexLogic.ts). */}
                         <div className="mt-8 pt-6 border-t border-white/5">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
@@ -1308,7 +1272,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <span className="text-[9px] text-slate-500">Você controla exatamente quando a IA para de operar</span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
                                 {/* Modo Stop Loss */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
@@ -1328,6 +1292,42 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         </button>
                                     </div>
                                     <p className="text-[9px] text-slate-500">"Dinâmico" ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade.</p>
+                                </div>
+
+                                {/* Perda diária + Filtro de notícias */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Proteção e Risco</span>
+
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Limite de Perda Diária (%)</label>
+                                            <span className="text-xs font-mono text-red-400">{(config.dailyLossLimit || 0).toFixed(1)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0.5" max="5.0" step="0.1"
+                                            value={config.dailyLossLimit}
+                                            onChange={(e) => setConfig({ ...config, dailyLossLimit: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                        />
+                                        <p className="text-[9px] text-slate-500">O sistema entra em "Lockdown" se atingir este limite.</p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Filtro de Notícias (Economic Calendar)</label>
+                                        <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
+                                            <Zap className={`w-4 h-4 ${config.newsFilter ? 'text-yellow-500' : 'text-slate-600'}`} />
+                                            <div className="flex-1">
+                                                <span className="text-xs font-bold text-white block">Evitar Alta Volatilidade</span>
+                                                <span className="text-[9px] text-slate-500">Pausar durante Payroll/FOMC</span>
+                                            </div>
+                                            <button
+                                                onClick={() => setConfig({ ...config, newsFilter: !config.newsFilter })}
+                                                className={`w-10 h-5 rounded-full relative transition-colors ${config.newsFilter ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                                            >
+                                                <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.newsFilter ? 'left-6' : 'left-1'}`} />
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Risco por trade + Max Drawdown */}

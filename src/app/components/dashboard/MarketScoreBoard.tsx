@@ -1026,7 +1026,12 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                 </div>
 
                 <div className="text-2xl font-bold tracking-tight text-white font-mono">
-                    {isSafeMode ? (
+                    {/* 🆕 FIX: Safe Mode é config da IA — nunca pode aparecer/interferir no
+                        Modo Livre (IA desligada, usuário operando só pela boleta manual).
+                        `status === 'running'` reflete `isActive` do motor (só true com a IA
+                        ligada); belt-and-suspenders junto do fix em useApexLogic.ts que já
+                        impede o Safe Mode de ativar OU permanecer ativo com a IA desligada. */}
+                    {isSafeMode && status === 'running' ? (
                         <div className="flex items-center gap-2">
                             <span className="text-rose-400" title={safeModeReason || undefined}>SAFE MODE</span>
                             {/* disableSafeMode já existia no motor mas nunca tinha botão — a
