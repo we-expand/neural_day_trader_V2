@@ -540,6 +540,18 @@ export function useApexLogic(
   const activeOrdersRef = useRef<TradeVisual[]>([]);
   const pendingOrdersRef = useRef<PendingOrderVisual[]>([]);
   const orderHistoryRef = useRef<TradeVisual[]>([]); // 🔒 leitura pro Health Check Guardian (dailyLossLimit/minWinRate)
+  // 🔒 FIX 2026-08-03 (achado do Cleber: Safe Mode disparado com $95,28 na conta):
+  // desde que `orderHistory` passou a hidratar trades fechados de TODAS as
+  // sessões do dia via Supabase (fix do histórico, mesmo dia), o gate de
+  // `dailyLossLimit` abaixo (que soma P&L de tudo fechado desde o início do
+  // dia UTC) passou a somar também trades de sessões ANTERIORES já resetadas
+  // pelo usuário — incluindo, neste caso real, um trade de SPX500 com P&L
+  // corrompido (-$950 registrado por um bug de contract spec já corrigido
+  // depois no mesmo dia) que nunca deveria pesar contra a sessão atual.
+  // `resetLogic()` é uma ação explícita de "começar do zero" — o relógio do
+  // limite de perda DIÁRIA deve reiniciar junto, não continuar somando
+  // perdas de tentativas anteriores já descartadas pelo próprio usuário.
+  const sessionStartedAtRef = useRef<number>(Date.now());
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
@@ -760,6 +772,13 @@ export function useApexLogic(
         if (!restored?.session) return;
 
         const { session, openTrades, lastSnapshot } = restored;
+
+        // Sessão restaurada (não uma nova) — o "início" pro gate de perda
+        // diária é quando ELA começou, não agora (senão um reload no meio
+        // do dia resetaria o relógio indevidamente).
+        if (session.created_at) {
+          sessionStartedAtRef.current = new Date(session.created_at).getTime();
+        }
 
         if (openTrades.length > 0) {
           setActiveOrders(openTrades.map((t): TradeVisual => ({
@@ -991,7 +1010,15 @@ export function useApexLogic(
       // (só existia o maxDrawdown, que é acumulado desde o início, não resetado por dia).
       const nowDate = new Date();
       const startOfUtcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
-      const closedToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= startOfUtcDay);
+      // FIX 2026-08-03: `orderHistory` agora hidrata trades fechados de TODAS
+      // as sessões do dia (fix do histórico no Supabase, mesmo dia) — sem o
+      // corte por `sessionStartedAtRef`, um reset explícito de conta
+      // (`resetLogic`) não reiniciava o relógio da perda diária, e P&L de
+      // tentativas já descartadas pelo próprio usuário (inclusive dado
+      // histórico corrompido de bugs já corrigidos) continuava pesando
+      // contra a sessão atual. Ver `sessionStartedAtRef` pra detalhe.
+      const dailyGateCutoff = Math.max(startOfUtcDay, sessionStartedAtRef.current);
+      const closedToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= dailyGateCutoff);
       const dailyPnL = closedToday.reduce((acc, t) => acc + (t.currentProfit || 0), 0);
       const dailyBase = portfolioRef.current.initialBalance || configRef.current.allocatedCapital || 100;
       const dailyLossPercent = dailyPnL < 0 ? (Math.abs(dailyPnL) / dailyBase) * 100 : 0;
@@ -2384,6 +2411,7 @@ export function useApexLogic(
     // Fase 2: garante uma sessão DEMO no Supabase (reaproveita a restaurada no mount, se houver)
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
       persistenceErrorNotifiedRef.current = false;
+      sessionStartedAtRef.current = Date.now();
       persistenceRef.current.startSession({
         strategyName: 'Apex AI',
         symbols: configRef.current.activeAssets || [],
@@ -2471,6 +2499,10 @@ export function useApexLogic(
     if (persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
     }
+    // Reset explícito = "começar do zero" — reinicia o relógio do gate de
+    // perda diária junto, senão perdas da tentativa descartada continuam
+    // pesando contra a conta que acabou de voltar pra $100.
+    sessionStartedAtRef.current = Date.now();
 
     setIsActive(false);
     setIsPaused(false);
@@ -2558,6 +2590,7 @@ export function useApexLogic(
     const amountUsd = params.volume * asset.lotSize * params.entryPrice;
 
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      sessionStartedAtRef.current = Date.now();
       persistenceRef.current.startSession({
         strategyName: 'Ordem Manual',
         symbols: [params.symbol],
