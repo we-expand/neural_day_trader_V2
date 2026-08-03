@@ -1257,6 +1257,12 @@ export function ChartView({
   });
   const [currentPrice, setCurrentPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
   const [displayedPrice, setDisplayedPrice] = useState<number | null>(null); // Preço exibido (throttled para UI)
+  // 🆕 Watchdog de preço "desatualizado" -- ver comentário completo no callback de
+  // subscribeToSymbol mais abaixo. Sem isso, uma falha silenciosa no pipeline de preço
+  // (conta MetaAPI compartilhada sob rate-limit, etc.) trava o preço/% na tela pra
+  // sempre sem NENHUM sinal visual, e o usuário só descobre comparando com outra fonte.
+  const lastPriceTickAtRef = useRef(Date.now());
+  const [isPriceStale, setIsPriceStale] = useState(false);
   const [openPrice, setOpenPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
   const [dailyChange, setDailyChange] = useState(0);
   const [dailyChangePercent, setDailyChangePercent] = useState(0);
@@ -5034,7 +5040,14 @@ export function ChartView({
       setDailyChange(change);
       setDailyChangePercent(changePercent);
       setIsPositive(changePercent >= 0);
-      
+      // 🆕 FIX: preço/% travados SEM nenhum sinal visual -- getRealMarketData cai
+      // silenciosamente pro último valor real em cache quando a conta MetaAPI
+      // compartilhada falha/tranca (rate-limit 429/504, etc), e o polling continua
+      // "funcionando" (sem erro) reaplicando o MESMO valor indefinidamente. Marca
+      // quando o tick chegou de verdade pra alimentar o watchdog de "desatualizado" logo abaixo.
+      lastPriceTickAtRef.current = Date.now();
+      setIsPriceStale(false);
+
       console.log(`[🎯 CHARTVIEW] 📌 ESTADOS ATUALIZADOS:`, {
         currentPrice: newPrice,
         dailyChange: change,
@@ -5129,6 +5142,22 @@ export function ChartView({
         chartUpdateTimeoutRef.current = null;
       }
     };
+  }, [selectedSymbol]);
+
+  // 🆕 Watchdog de "preço desatualizado" -- o polling de 2s acima nunca para de rodar
+  // mesmo quando toda tentativa falha (getRealMarketData cai pro último valor real em
+  // cache, sem erro nenhum pra quem está olhando a tela). Se nenhum tick de verdade
+  // chegou nos últimos 15s (7x o intervalo normal — folga generosa pra latência de rede),
+  // assume que o pipeline está travado/degradado e sinaliza na UI, em vez de deixar o
+  // preço/% congelados parecendo normais pra sempre.
+  useEffect(() => {
+    lastPriceTickAtRef.current = Date.now();
+    setIsPriceStale(false);
+    const STALE_THRESHOLD_MS = 15000;
+    const watchdog = setInterval(() => {
+      setIsPriceStale(Date.now() - lastPriceTickAtRef.current > STALE_THRESHOLD_MS);
+    }, 3000);
+    return () => clearInterval(watchdog);
   }, [selectedSymbol]);
 
   // 🎯 SMOOTH ANIMATION: Animar preço com transição suave via requestAnimationFrame
@@ -5755,7 +5784,22 @@ export function ChartView({
             <div className="flex items-center gap-6 pl-6 border-l border-gray-800">
               {/* Current Price - ESTILO BINANCE */}
               <div>
-                <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Preço Atual</div>
+                <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide flex items-center gap-1.5">
+                  Preço Atual
+                  {/* 🆕 Sinal visual de dado travado -- ver watchdog no useEffect logo
+                      acima da animação suave. Sem isso o usuário só descobria comparando
+                      com outra fonte (foi exatamente o que aconteceu: preço/% congelados
+                      sem nenhum aviso na tela). */}
+                  {isPriceStale && (
+                    <span
+                      className="flex items-center gap-1 text-amber-400 normal-case tracking-normal"
+                      title="Sem atualização de preço nos últimos segundos — pode estar desatualizado (falha temporária na fonte de dados)"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      desatualizado
+                    </span>
+                  )}
+                </div>
                 <div className="text-4xl font-bold text-white tracking-tight tabular-nums" style={{fontFamily: 'ui-monospace, monospace'}}>
                   {displayedPrice !== null ? (
                     formatBrazilianPrice(displayedPrice, getPrecisionForSymbol(selectedSymbol, displayedPrice))
