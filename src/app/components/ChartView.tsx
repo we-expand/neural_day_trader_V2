@@ -207,9 +207,36 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
     precision: 2,
     calcParams: [14, 3, 3],
     shouldOhlc: false,
+    // 🔧 FIX: sem range fixo o painel auto-escalava pro range real de %K/%D no
+    // recorte visível (podendo mostrar algo como "10 a 70"), em vez da escala
+    // padrão 0-100 com sobrecompra/sobrevenda em 80/20 (padrão MT5/TradingView).
+    minValue: 0,
+    maxValue: 100,
     figures: [
       { key: 'k', title: '%K: ', type: 'line' },
-      { key: 'd', title: '%D: ', type: 'line' }
+      { key: 'd', title: '%D: ', type: 'line' },
+      {
+        key: 'upper',
+        title: '',
+        type: 'line',
+        styles: (_data, _indicator, defaultStyles) => ({
+          ...(defaultStyles as any).lines?.[0],
+          color: '#888888',
+          style: 'dashed' as any,
+          size: 1
+        })
+      },
+      {
+        key: 'lower',
+        title: '',
+        type: 'line',
+        styles: (_data, _indicator, defaultStyles) => ({
+          ...(defaultStyles as any).lines?.[0],
+          color: '#888888',
+          style: 'dashed' as any,
+          size: 1
+        })
+      }
     ],
     calc: (dataList, indicator) => {
       const [period, smoothK, smoothD] = indicator.calcParams as number[];
@@ -231,7 +258,9 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
       };
       const slowK = sma(fastK, smoothK);
       const slowD = sma(slowK, smoothD);
-      return dataList.map((_, i) => ({ k: slowK[i], d: slowD[i] } as any));
+      // Linhas de referência fixas de sobrecompra (80) e sobrevenda (20) —
+      // padrão do Estocástico clássico, não 70/10.
+      return dataList.map((_, i) => ({ k: slowK[i], d: slowD[i], upper: 80, lower: 20 } as any));
     }
   });
 }
@@ -301,7 +330,8 @@ import {
   X,
   Maximize,
   Minimize,
-  Grid3x3
+  Grid3x3,
+  Star
 } from 'lucide-react';
 
 
@@ -317,6 +347,8 @@ import { BacktestErrorBoundary } from '@/app/components/backtest/BacktestErrorBo
 import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
 import { useChartPreferences } from '@/app/hooks/useChartPreferences';
+import { useFavoriteChartSetup, readCachedFavoriteChartSetup } from '@/app/hooks/useFavoriteChartSetup';
+import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
@@ -1198,10 +1230,19 @@ export function ChartView({
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
   const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers } = useTradingContext();
-  
+  const { user } = useAuth();
+
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
-  
-  const [timeframe, setTimeframe] = useState<Timeframe>('1H');
+
+  const VALID_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'];
+  const [timeframe, setTimeframe] = useState<Timeframe>(() => {
+    // 🆕 Lido de forma SÍNCRONA (cache local) pra já nascer com o timeframe do
+    // setup favorito do usuário, sem precisar de um 2º dispose()+init() do
+    // chart via setState assíncrono depois do mount (ver useFavoriteChartSetup.ts).
+    const cached = readCachedFavoriteChartSetup(user?.id);
+    const tf = cached?.timeframe as Timeframe | undefined;
+    return tf && VALID_TIMEFRAMES.includes(tf) ? tf : '1H';
+  });
   const [currentPrice, setCurrentPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
   const [displayedPrice, setDisplayedPrice] = useState<number | null>(null); // Preço exibido (throttled para UI)
   const [openPrice, setOpenPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
@@ -1272,6 +1313,11 @@ export function ChartView({
   const backtestProgress = useBacktestLiveProgress(10000);
   const { strategies, saveStrategy, deleteStrategy, error: strategiesError } = useStrategies();
   const { showSrOverlay, showSrOverlayRef, setShowSrOverlay } = useChartPreferences(selectedSymbol);
+  // 🆕 Setup favorito do gráfico (indicadores + parâmetros, grade, S/R) — salvo
+  // via "Salvar configuração atual como favorita" no menu de botão direito,
+  // aplicado automaticamente na 1ª carga do gráfico (ver useEffect de init mais abaixo).
+  const { favoriteSetup, saveFavoriteSetup } = useFavoriteChartSetup();
+  const favoriteSetupAppliedRef = useRef(false);
   // 🆕 Toggle de grade de fundo (guias horizontais/verticais) — persistido localmente
   // (preferência de exibição, não precisa ser por usuário+ativo no Supabase como o S/R).
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(() => {
@@ -4515,7 +4561,56 @@ export function ChartView({
           } else {
             console.log('[ChartView] ⏭️ Skipping auto-scroll - não é primeira carga (mantendo posição do usuário)');
           }
-          
+
+          // 🆕 Aplica o setup favorito do usuário (indicadores + parâmetros, grade, S/R)
+          // uma única vez por montagem do componente — não repete a cada refresh de 30s
+          // nem a cada troca de símbolo/timeframe (favoriteSetupAppliedRef nunca reseta).
+          // Construído direto do objeto salvo (nunca via getIndicatorParams/getMASettings,
+          // que leem o state React — assíncrono demais pra estar pronto aqui).
+          if (favoriteSetup && !favoriteSetupAppliedRef.current) {
+            favoriteSetupAppliedRef.current = true;
+            try {
+              setIndicatorParamsById(prev => ({ ...prev, ...favoriteSetup.indicatorParamsById }));
+              setIndicatorPlacement(prev => ({ ...prev, ...favoriteSetup.indicatorPlacement }));
+              setIndicatorMASettings(prev => ({ ...prev, ...(favoriteSetup.indicatorMASettings as any) }));
+              setShowGridOverlay(favoriteSetup.showGridOverlay);
+              if (favoriteSetup.showSrOverlay !== showSrOverlay) {
+                setShowSrOverlay(favoriteSetup.showSrOverlay);
+              }
+
+              const appliedIds = new Set<string>();
+              favoriteSetup.indicatorIds.forEach(id => {
+                const indicatorConfig = INDICATORS.find(ind => ind.id === id);
+                if (!indicatorConfig) return; // indicador removido/renomeado desde o save
+                const placement = favoriteSetup.indicatorPlacement[id] ?? (indicatorConfig.isPaneIndicator ? 'pane' : 'overlay');
+                const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
+                if (isMovingAverageIndicator(indicatorConfig)) {
+                  const settings = (favoriteSetup.indicatorMASettings[id] as any) ?? getMASettings(indicatorConfig);
+                  config.calcParams = [settings.period];
+                  config.extendData = { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift };
+                  config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] };
+                } else {
+                  const params = favoriteSetup.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
+                  if (params.length > 0) config.calcParams = params;
+                }
+                if (placement === 'pane') {
+                  chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
+                  indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
+                } else {
+                  chart.createIndicator(config, true, { id: 'candle_pane' });
+                  indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+                }
+                appliedIds.add(id);
+              });
+              if (appliedIds.size > 0) {
+                setActiveIndicators(prev => new Set([...prev, ...appliedIds]));
+              }
+              console.log('[ChartView] ⭐ Setup favorito aplicado:', favoriteSetup.indicatorIds);
+            } catch (error) {
+              console.error('[ChartView] ❌ Erro aplicando setup favorito:', error);
+            }
+          }
+
           // 🎯 Configurar precisão de preço para exibição correta na régua
           chart.setPriceVolumePrecision(2, 0); // 2 casas decimais para preço, 0 para volume
           console.log('[ChartView] 🎯 Precision set to 2 decimal places');
@@ -6413,7 +6508,39 @@ export function ChartView({
           )}
           
           <div className="h-px bg-gray-700 my-2"></div>
-          
+
+          {/* 🆕 Salvar setup favorito — indicadores + parâmetros, grade, S/R. Reaplicado
+              automaticamente na próxima vez que o gráfico for montado (ver useEffect de
+              init + useFavoriteChartSetup.ts). Não inclui símbolo/ativo selecionado de
+              propósito — o favorito é "como eu gosto de ver qualquer gráfico", não uma
+              posição fixa em um ativo específico. */}
+          <button
+            onClick={() => {
+              if (!user?.id) {
+                toast.error('Faça login para salvar sua configuração favorita');
+                setContextMenu(null);
+                return;
+              }
+              saveFavoriteSetup({
+                timeframe,
+                indicatorIds: Array.from(activeIndicators),
+                indicatorParamsById,
+                indicatorPlacement,
+                indicatorMASettings,
+                showGridOverlay,
+                showSrOverlay
+              });
+              toast.success('Configuração atual salva como favorita — será aplicada automaticamente da próxima vez');
+              setContextMenu(null);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3"
+          >
+            <Star className="w-4 h-4 text-yellow-400" />
+            <span>Salvar configuração atual como favorita</span>
+          </button>
+
+          <div className="h-px bg-gray-700 my-2"></div>
+
           {/* Configurações */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3">
             <Settings className="w-4 h-4 text-gray-400" />
