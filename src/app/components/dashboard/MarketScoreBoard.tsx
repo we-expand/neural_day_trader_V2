@@ -171,7 +171,7 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
 }
 
 export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) => void } = {}) => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setSelectedAsset, closeManualPosition, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason } = useTradingContext();
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setSelectedAsset, closeManualPosition, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason, disableSafeMode } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
@@ -1027,7 +1027,21 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
 
                 <div className="text-2xl font-bold tracking-tight text-white font-mono">
                     {isSafeMode ? (
-                        <span className="text-rose-400" title={safeModeReason || undefined}>SAFE MODE</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-rose-400" title={safeModeReason || undefined}>SAFE MODE</span>
+                            {/* disableSafeMode já existia no motor mas nunca tinha botão — a
+                                única saída antes disso era resetar a conta inteira (perder o
+                                saldo). Sai do Safe Mode sem mexer no saldo; se a causa raiz
+                                (drawdown, perda diária etc.) continuar valendo, o Health Check
+                                Guardian dispara de novo sozinho no próximo ciclo. */}
+                            <button
+                                onClick={() => disableSafeMode()}
+                                className="text-[9px] px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 hover:text-white transition-colors font-bold uppercase tracking-wider"
+                                title="Sair do Safe Mode sem resetar a conta"
+                            >
+                                Sair
+                            </button>
+                        </div>
                     ) : riskRatio > 0.8 ? (
                         <span className="text-rose-400">RISCO ALTO</span>
                     ) : riskRatio > 0.5 ? (
