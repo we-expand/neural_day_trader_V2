@@ -109,6 +109,24 @@ function getCorrelationGroup(symbol: string): string | null {
   return CORRELATION_GROUPS[symbol] || null;
 }
 
+// Ordem pendente DEMO (limit/stop) — virtual, monitorada localmente pelo
+// preço da tela; dispara chamando openManualPosition quando o gatilho é
+// cruzado. Sem stop-limit no lado DEMO (o LIVE tem via BrokerClient direto,
+// que fala com a MetaAPI de verdade — aqui a gente só tem o preço da tela
+// pra decidir, não faz sentido simular uma segunda perna de preço-limite
+// sem dado real de profundidade).
+export interface PendingOrderVisual {
+  id: string;
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  orderType: 'LIMIT' | 'STOP';
+  volume: number;
+  triggerPrice: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  timestamp: number;
+}
+
 // Definition of types for visual state
 export interface TradeVisual {
   id: string;
@@ -449,6 +467,7 @@ export function useApexLogic(
   const [isActive, setIsActive] = useState(INITIAL_STATE.isActive);
   const [isPaused, setIsPaused] = useState(INITIAL_STATE.isPaused);
   const [activeOrders, setActiveOrders] = useState<TradeVisual[]>(INITIAL_STATE.activeOrders);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrderVisual[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioState>(INITIAL_STATE.portfolio);
   const [recentLogs, setRecentLogs] = useState<string[]>(INITIAL_STATE.recentLogs);
   const [orderHistory, setOrderHistory] = useState<TradeVisual[]>(INITIAL_STATE.orderHistory);
@@ -513,6 +532,7 @@ export function useApexLogic(
 
   // === REFS FOR PNL LOOP ===
   const activeOrdersRef = useRef<TradeVisual[]>([]);
+  const pendingOrdersRef = useRef<PendingOrderVisual[]>([]);
   const orderHistoryRef = useRef<TradeVisual[]>([]); // 🔒 leitura pro Health Check Guardian (dailyLossLimit/minWinRate)
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
@@ -621,6 +641,10 @@ export function useApexLogic(
   useEffect(() => {
     activeOrdersRef.current = activeOrders;
   }, [activeOrders]);
+
+  useEffect(() => {
+    pendingOrdersRef.current = pendingOrders;
+  }, [pendingOrders]);
 
   useEffect(() => {
     orderHistoryRef.current = orderHistory;
@@ -2517,6 +2541,93 @@ export function useApexLogic(
     return { success: true, tradeId: newTrade.id };
   }, [addLog]);
 
+  // Ordem pendente DEMO (limit/stop) — validação de direção igual à que o
+  // MetaAPI faria do lado real: limit de compra só abaixo do preço atual,
+  // stop de compra só acima (e o espelho pro lado de venda).
+  const openManualPendingOrder = useCallback((params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    orderType: 'LIMIT' | 'STOP';
+    volume: number;
+    triggerPrice: number;
+    currentPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): { success: boolean; error?: string; orderId?: string } => {
+    const asset = getAssetBySymbol(params.symbol);
+    if (!asset) {
+      return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
+    }
+    if (!(params.volume > 0) || !(params.triggerPrice > 0)) {
+      return { success: false, error: 'Volume ou preço inválido' };
+    }
+
+    const isBuy = params.side === 'LONG';
+    const aboveMarket = params.triggerPrice > params.currentPrice;
+    // Limit compra abaixo / vende acima do mercado; Stop é o espelho disso.
+    const validDirection = params.orderType === 'LIMIT'
+      ? (isBuy ? !aboveMarket : aboveMarket)
+      : (isBuy ? aboveMarket : !aboveMarket);
+    if (!validDirection) {
+      return {
+        success: false,
+        error: `${params.orderType === 'LIMIT' ? 'Limit' : 'Stop'} de ${isBuy ? 'compra' : 'venda'} precisa estar ${
+          (params.orderType === 'LIMIT') === isBuy ? 'abaixo' : 'acima'
+        } do preço atual`,
+      };
+    }
+
+    const newOrder: PendingOrderVisual = {
+      id: `pending-${Date.now()}-${Math.random()}`,
+      symbol: params.symbol,
+      side: params.side,
+      orderType: params.orderType,
+      volume: params.volume,
+      triggerPrice: params.triggerPrice,
+      stopLoss: params.stopLoss,
+      takeProfit: params.takeProfit,
+      timestamp: Date.now(),
+    };
+    setPendingOrders(prev => [...prev, newOrder]);
+    addLog(`🕓 ORDEM PENDENTE ${params.orderType} ${params.side}: ${params.symbol} @ $${params.triggerPrice.toFixed(2)} — ${params.volume} lote(s)`);
+    return { success: true, orderId: newOrder.id };
+  }, [addLog]);
+
+  const cancelManualPendingOrder = useCallback((orderId: string) => {
+    setPendingOrders(prev => prev.filter(o => o.id !== orderId));
+    addLog(`🗑️ Ordem pendente cancelada: ${orderId}`);
+  }, [addLog]);
+
+  // Chamado a cada tick de preço (ChartView, pro símbolo selecionado) — dispara
+  // qualquer ordem pendente cujo gatilho o preço já cruzou. Preenche no preço
+  // ATUAL da tela (não no preço de gatilho): não temos profundidade real pra
+  // garantir fill exato, e simular "preenchido exatamente no limite" seria
+  // otimismo não sustentado por dado nenhum.
+  const checkPendingOrderTriggers = useCallback((symbol: string, price: number) => {
+    const toFill = pendingOrdersRef.current.filter((o) => {
+      if (o.symbol !== symbol) return false;
+      const isBuy = o.side === 'LONG';
+      if (o.orderType === 'LIMIT') {
+        return isBuy ? price <= o.triggerPrice : price >= o.triggerPrice;
+      }
+      return isBuy ? price >= o.triggerPrice : price <= o.triggerPrice;
+    });
+    if (toFill.length === 0) return;
+
+    setPendingOrders(prev => prev.filter(o => !toFill.some(f => f.id === o.id)));
+    toFill.forEach((order) => {
+      addLog(`⚡ ORDEM PENDENTE DISPAROU: ${order.symbol} ${order.orderType} ${order.side} @ $${price.toFixed(2)}`);
+      openManualPosition({
+        symbol: order.symbol,
+        side: order.side,
+        volume: order.volume,
+        entryPrice: price,
+        stopLoss: order.stopLoss,
+        takeProfit: order.takeProfit,
+      });
+    });
+  }, [addLog, openManualPosition]);
+
   // Fechamento manual de uma posição DEMO específica (usada pela boleta/lista de posições).
   const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
@@ -2787,6 +2898,10 @@ export function useApexLogic(
     forceCloseAll,
     openManualPosition,
     closeManualPosition,
+    pendingOrders,
+    openManualPendingOrder,
+    cancelManualPendingOrder,
+    checkPendingOrderTriggers,
     updateAIConfig,
     connectToMT5,
     disconnectFromMT5,

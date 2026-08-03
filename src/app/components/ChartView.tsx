@@ -286,7 +286,7 @@ import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 import { analyzeSmc, type SmcZone } from '@/app/services/smc';
 import { OrderTicket } from '@/app/components/trading/OrderTicket';
-import type { TradeVisual } from '@/app/hooks/useApexLogic';
+import type { TradeVisual, PendingOrderVisual } from '@/app/hooks/useApexLogic';
 
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
@@ -1145,7 +1145,7 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset, activeOrders } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers } = useTradingContext();
   
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
   
@@ -3585,7 +3585,7 @@ export function ChartView({
   // visual/técnico de renderSrOverlays (horizontalStraightLine, groupId
   // próprio pra limpar sem afetar desenho do usuário). Só desenha posições do
   // símbolo selecionado — trocar de ativo limpa as linhas do ativo anterior.
-  const renderPositionOverlays = (orders: TradeVisual[], symbol: string) => {
+  const renderPositionOverlays = (orders: TradeVisual[], symbol: string, pending: PendingOrderVisual[] = []) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
 
@@ -3662,14 +3662,44 @@ export function ChartView({
         }
       }
     });
+
+    // Linhas tracejadas (cor neutra) pra ordem pendente ainda não disparada.
+    pending.filter((o) => o.symbol === symbol).forEach((order) => {
+      const isBuy = order.side === 'LONG';
+      const pendingId = `pending_${order.id}`;
+      try {
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: pendingId,
+          points: [{ value: order.triggerPrice }],
+          styles: {
+            line: { color: '#94a3b8', style: 'dashed', size: 1 },
+            text: { color: '#0f172a', backgroundColor: 'rgba(148,163,184,0.9)', size: 10 },
+          },
+          text: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}`,
+        });
+        positionOverlayIdsRef.current.push(pendingId);
+      } catch (e) {
+        // silencioso — mesma tolerância do resto dos overlays de sistema
+      }
+    });
   };
 
-  // Redesenha as linhas de posição sempre que uma posição abre/fecha ou o
-  // usuário troca de ativo — inclui as posições abertas pela boleta manual,
-  // já que ambas passam pelo mesmo `activeOrders` do TradingContext.
+  // Redesenha as linhas de posição sempre que uma posição/ordem pendente
+  // abre/fecha ou o usuário troca de ativo — inclui as abertas pela boleta
+  // manual, já que todas passam pelo mesmo TradingContext.
   useEffect(() => {
-    renderPositionOverlays(activeOrders, selectedSymbol);
-  }, [activeOrders, selectedSymbol]);
+    renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+  }, [activeOrders, pendingOrders, selectedSymbol]);
+
+  // Verifica a cada tick de preço se alguma ordem pendente (limit/stop) do
+  // ativo selecionado cruzou o gatilho — único lugar do app que tem o preço
+  // ao vivo do símbolo atual, por isso o watcher mora aqui, não no hook.
+  useEffect(() => {
+    if (currentPrice != null) {
+      checkPendingOrderTriggers(selectedSymbol, currentPrice);
+    }
+  }, [currentPrice, selectedSymbol, checkPendingOrderTriggers]);
 
   // 🆕 Re-desenha (ou limpa) as linhas de S/R só quando o toggle muda — as
   // zonas em si já são desenhadas no momento em que são calculadas (dentro do
@@ -5932,10 +5962,14 @@ export function ChartView({
             )}
 
             {/* Boleta de ordem manual — flutuante DENTRO do gráfico, estilo one-click
-                trading de terminal profissional (MT5/cTrader). Recolhida por padrão
-                (barra compacta SELL/BUY); expande pra ficha completa por dentro do
-                próprio componente — não precisa de estado aqui. */}
-            <div className="absolute top-4 left-4 z-[75]">
+                trading de terminal profissional (MT5/cTrader). Ancorada no canto
+                superior DIREITO (não no esquerdo — ali colide com a legenda nativa
+                de OHLCV da klinecharts e com o flyout da barra de desenho, que ficam
+                no canto superior esquerdo). Inset de right-20 (80px) pra não tampar
+                a escala de preço do eixo Y, que a lib desenha na borda direita.
+                Recolhida por padrão (barra compacta SELL/BUY); expande pra ficha
+                completa por dentro do próprio componente. */}
+            <div className="absolute top-4 right-20 z-[75]">
               <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
             </div>
           </div>

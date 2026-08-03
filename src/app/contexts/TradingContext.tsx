@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
+import { useApexLogic, TradeVisual, PendingOrderVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
 import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { useMarketContext } from './MarketContext';
@@ -52,6 +52,19 @@ interface TradingContextType {
     takeProfit?: number;
   }) => { success: boolean; error?: string; tradeId?: string };
   closeManualPosition: (tradeId: string, currentPrice: number) => void;
+  pendingOrders: PendingOrderVisual[];
+  openManualPendingOrder: (params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    orderType: 'LIMIT' | 'STOP';
+    volume: number;
+    triggerPrice: number;
+    currentPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => { success: boolean; error?: string; orderId?: string };
+  cancelManualPendingOrder: (orderId: string) => void;
+  checkPendingOrderTriggers: (symbol: string, price: number) => void;
   updateAIConfig: (config: Partial<AIConfig>) => void;
   connectToMT5: (credentials: any) => Promise<void>;
   disconnectFromMT5: () => void;
@@ -400,6 +413,10 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     forceCloseAll: logic.forceCloseAll,
     openManualPosition: logic.openManualPosition,
     closeManualPosition: logic.closeManualPosition,
+    pendingOrders: logic.pendingOrders,
+    openManualPendingOrder: logic.openManualPendingOrder,
+    cancelManualPendingOrder: logic.cancelManualPendingOrder,
+    checkPendingOrderTriggers: logic.checkPendingOrderTriggers,
     updateAIConfig: logic.updateAIConfig,
     connectToMT5: logic.connectToMT5,
     disconnectFromMT5: logic.disconnectFromMT5,
@@ -476,6 +493,10 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.forceCloseAll,
     logic.openManualPosition,
     logic.closeManualPosition,
+    logic.pendingOrders,
+    logic.openManualPendingOrder,
+    logic.cancelManualPendingOrder,
+    logic.checkPendingOrderTriggers,
     logic.updateAIConfig,
     logic.connectToMT5,
     logic.disconnectFromMT5,

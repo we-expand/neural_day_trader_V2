@@ -48,6 +48,16 @@ export interface OrderParams {
   magic?: number;
 }
 
+export interface PendingOrderParams extends OrderParams {
+  /** Preço de gatilho da ordem (limit/stop). */
+  price: number;
+}
+
+export interface StopLimitOrderParams extends PendingOrderParams {
+  /** Preço-limite aplicado depois que o stop dispara (ORDER_TYPE_*_STOP_LIMIT). */
+  stopLimitPrice: number;
+}
+
 export interface BrokerCredentialsStatus {
   configured: boolean;
   accountId?: string;
@@ -197,5 +207,74 @@ export async function closeAllPositions(): Promise<TradeResult> {
     return await invokeBroker('execute', { body: { action: 'closeAllPositions' } });
   } catch (error: any) {
     return { success: false, error: error.message || 'Erro desconhecido ao fechar todas as posições' };
+  }
+}
+
+// --- Ordens pendentes (limit/stop/stop-limit) — reais, a MetaAPI monitora o
+// preço e dispara sozinha; não existe simulação client-side pro caminho LIVE. ---
+
+export async function createLimitBuyOrder(params: PendingOrderParams): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'createLimitBuyOrder', ...params } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao criar ordem limit de compra', riskBlocked: error?.riskBlocked === true };
+  }
+}
+
+export async function createLimitSellOrder(params: PendingOrderParams): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'createLimitSellOrder', ...params } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao criar ordem limit de venda', riskBlocked: error?.riskBlocked === true };
+  }
+}
+
+export async function createStopBuyOrder(params: PendingOrderParams): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'createStopBuyOrder', ...params } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao criar ordem stop de compra', riskBlocked: error?.riskBlocked === true };
+  }
+}
+
+export async function createStopSellOrder(params: PendingOrderParams): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'createStopSellOrder', ...params } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao criar ordem stop de venda', riskBlocked: error?.riskBlocked === true };
+  }
+}
+
+export async function createStopLimitBuyOrder(params: StopLimitOrderParams): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'createStopLimitBuyOrder', ...params } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao criar ordem stop limit de compra', riskBlocked: error?.riskBlocked === true };
+  }
+}
+
+export async function createStopLimitSellOrder(params: StopLimitOrderParams): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'createStopLimitSellOrder', ...params } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao criar ordem stop limit de venda', riskBlocked: error?.riskBlocked === true };
+  }
+}
+
+export async function cancelPendingOrder(orderId: string): Promise<TradeResult> {
+  try {
+    return await invokeBroker('execute', { body: { action: 'cancelPendingOrder', orderId } });
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Erro desconhecido ao cancelar ordem pendente' };
+  }
+}
+
+export async function getPendingOrders(): Promise<any[]> {
+  try {
+    const result = await invokeBroker('execute', { body: { action: 'getOrders' } });
+    return result.orders || [];
+  } catch (error) {
+    console.error('[BrokerClient] Erro ao buscar ordens pendentes:', error);
+    return [];
   }
 }

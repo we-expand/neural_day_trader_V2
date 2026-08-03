@@ -1251,6 +1251,16 @@ app.post('/broker/execute', async (c) => {
             return c.json({ success: true, positions: await res.json() });
         }
 
+        if (action === 'getOrders') {
+            // Ordens pendentes (limit/stop/stop-limit) — endpoint separado de posições
+            // na MetaAPI, uma ordem só vira posição depois de disparar.
+            const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/orders`, {
+                headers: metaApiHeaders,
+            });
+            if (!res.ok) return c.json({ error: `MetaApi HTTP ${res.status}` }, 502);
+            return c.json({ success: true, orders: await res.json() });
+        }
+
         if (action === 'getPrices') {
             const { symbols } = body;
             if (!Array.isArray(symbols)) return c.json({ error: 'symbols deve ser um array' }, 400);
@@ -1280,7 +1290,16 @@ app.post('/broker/execute', async (c) => {
         // --- Execução de ordens reais ---
         // 🔒 TÓPICO 7: ENFORCEMENT - Validação de risco ANTES de qualquer execução
         // Se a ação é de abertura de posição (trade), validar risco primeiro
-        const isOpenPositionAction = ['createMarketBuyOrder', 'createMarketSellOrder'].includes(action);
+        // Ordens pendentes (limit/stop/stop-limit) também abrem exposição nova assim que
+        // disparam na corretora — mesmo gate de risco fail-closed do mercado se aplica
+        // no momento da COLOCAÇÃO da ordem (a MetaAPI não nos avisa quando ela dispara
+        // sozinha depois; validar aqui é a única janela real de controle que temos).
+        const isOpenPositionAction = [
+            'createMarketBuyOrder', 'createMarketSellOrder',
+            'createLimitBuyOrder', 'createLimitSellOrder',
+            'createStopBuyOrder', 'createStopSellOrder',
+            'createStopLimitBuyOrder', 'createStopLimitSellOrder',
+        ].includes(action);
 
         if (isOpenPositionAction) {
             // Buscar informações de conta REAIS para validação de risco — nunca aceitar
@@ -1342,6 +1361,15 @@ app.post('/broker/execute', async (c) => {
             closePositionPartially: (b) => ({ actionType: 'POSITION_PARTIAL', positionId: b.positionId, volume: b.volume }),
             modifyPosition: (b) => ({ actionType: 'POSITION_MODIFY', positionId: b.positionId, stopLoss: b.stopLoss, takeProfit: b.takeProfit }),
             closeAllPositionsBySymbol: (b) => ({ actionType: 'POSITIONS_CLOSE_SYMBOL', symbol: b.symbol }),
+            // Ordens pendentes reais — a MetaAPI é quem monitora o preço e dispara sozinha
+            // depois disso, não precisamos (nem conseguimos) simular isso pro caminho LIVE.
+            createLimitBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createLimitSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY_STOP', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL_STOP', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopLimitBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY_STOP_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLimitPrice: b.stopLimitPrice, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopLimitSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL_STOP_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLimitPrice: b.stopLimitPrice, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            cancelPendingOrder: (b) => ({ actionType: 'ORDER_CANCEL', orderId: b.orderId }),
         };
 
         if (action === 'closeAllPositions') {
