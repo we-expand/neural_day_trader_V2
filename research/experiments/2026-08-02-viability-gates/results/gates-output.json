@@ -1,0 +1,226 @@
+{
+  "executedAt": "2026-08-03T00:46:20.222Z",
+  "targetSharpe": 1,
+  "dataWindow": {
+    "from": "2023-11-08",
+    "to": "2026-08-03",
+    "observations": 999
+  },
+  "volatilities": {
+    "BTCUSDT": 0.4728337906268529,
+    "ETHUSDT": 0.6751218551198346,
+    "BNBUSDT": 0.5340475863607396,
+    "SOLUSDT": 0.8333816433987177,
+    "XRPUSDT": 0.7653480464469813,
+    "ADAUSDT": 0.8988210367885532,
+    "DOGEUSDT": 0.8962161218687991
+  },
+  "gate1": [
+    {
+      "source": "cryptoCfdOptimistic",
+      "label": "Cripto CFD — medido (Pepperstone, abr/2026)",
+      "provenance": "HANDOFF.md achado #1, spread médio 15,82 USD / 108.829,77",
+      "costRoundTrip": 0.000145,
+      "kRequired": 0.035023516116076556,
+      "kEmpirical": 0.0338,
+      "kRatio": 1.0361987016590697,
+      "sharpeMaxAtEmpiricalK": 0.931352130627141,
+      "tStarYears": 0.0003292650118025424,
+      "tStarDays": 0.12018172930792799,
+      "tStarHours": 2.884361503390272,
+      "passes": false
+    },
+    {
+      "source": "cryptoCfdConservative",
+      "label": "Cripto CFD — medido, leitura conservadora (2 pernas)",
+      "provenance": "mesma medição, assumindo 0,0145% como custo POR PERNA",
+      "costRoundTrip": 0.000291,
+      "kRequired": 0.049616055814119535,
+      "kEmpirical": 0.0338,
+      "kRatio": 1.467930645388152,
+      "sharpeMaxAtEmpiricalK": 0.46407580392074027,
+      "tStarYears": 0.0013261588805922044,
+      "tStarDays": 0.4840479914161546,
+      "tStarHours": 11.617151793987711,
+      "passes": false
+    },
+    {
+      "source": "cryptoCostModelTs",
+      "label": "Cripto — CostModel.ts atual (⚠️ medido como ~18x alto)",
+      "provenance": "research/CostModel.ts COST_TABLE.CRYPTO, correção pendente",
+      "costRoundTrip": 0.0026,
+      "kRequired": 0.14830726191781227,
+      "kEmpirical": 0.0338,
+      "kRatio": 4.387788814136458,
+      "sharpeMaxAtEmpiricalK": 0.05194079190035979,
+      "tStarYears": 0.1058659443417449,
+      "tStarDays": 38.64106968473689,
+      "tStarHours": 927.3856724336854,
+      "passes": false
+    },
+    {
+      "source": "forexMajorCfd",
+      "label": "Forex major CFD (EURUSD, Razor: spread mín + comissão)",
+      "provenance": "cross_asset.py CUSTO_PCT.EURUSD (Pepperstone, abr/2026)",
+      "costRoundTrip": 0.00012903225806451613,
+      "kRequired": 0.03303884767903145,
+      "kEmpirical": 0.0338,
+      "kRatio": 0.9774807005630608,
+      "sharpeMaxAtEmpiricalK": 1.0466069567922496,
+      "tStarYears": 0.0002607391076645874,
+      "tStarDays": 0.0951697742975744,
+      "tStarHours": 2.2840745831417855,
+      "passes": true
+    },
+    {
+      "source": "indexCfdUs500",
+      "label": "Índice CFD (US500)",
+      "provenance": "cross_asset.py CUSTO_PCT.US500 (Pepperstone, abr/2026)",
+      "costRoundTrip": 0.00013333333333333334,
+      "kRequired": 0.03358498133328125,
+      "kEmpirical": 0.0338,
+      "kRatio": 0.9936385009846525,
+      "sharpeMaxAtEmpiricalK": 1.0128454420570157,
+      "tStarYears": 0.00027841142496185385,
+      "tStarDays": 0.10162017011107666,
+      "tStarHours": 2.43888408266584,
+      "passes": true
+    },
+    {
+      "source": "indexCfdUs30",
+      "label": "Índice CFD (US30)",
+      "provenance": "cross_asset.py CUSTO_PCT.US30 (Pepperstone, abr/2026)",
+      "costRoundTrip": 0.0000909090909090909,
+      "kRequired": 0.027731885625290897,
+      "kEmpirical": 0.0338,
+      "kRatio": 0.820469988913932,
+      "sharpeMaxAtEmpiricalK": 1.48550664835029,
+      "tStarYears": 0.00012942679879425018,
+      "tStarDays": 0.047240781559901315,
+      "tStarHours": 1.1337787574376317,
+      "passes": true
+    }
+  ],
+  "gate2": {
+    "requiredNIndependent": 5411.71284161224,
+    "nEffRatio": 0.2585322991385584,
+    "requiredNRaw": 20932.443875076024,
+    "scenarios": [
+      {
+        "label": "holdout típico das seções 11.5-11.9",
+        "n": 20,
+        "nTrials": 106
+      },
+      {
+        "label": "pooled forex 7 pares (seção 11.10)",
+        "n": 92,
+        "nTrials": 106
+      },
+      {
+        "label": "pooled 10 anos (seção 11.11)",
+        "n": 322,
+        "nTrials": 106
+      },
+      {
+        "label": "cross-asset BTCUSD (2026-07-30)",
+        "n": 202075,
+        "nTrials": 1455
+      }
+    ]
+  },
+  "gate3": {
+    "nNominal": 7,
+    "nEffEigen": 1.809726093969909,
+    "nEffAvgCorr": 1.365999501407919,
+    "meanCorrelation": 0.6874088036861391,
+    "eigenvalues": [
+      5.138438411995621,
+      0.5523735070196387,
+      0.3729642938047395,
+      0.3013550059663716,
+      0.24747111437600375,
+      0.2166895565012379,
+      0.1707081103363958
+    ],
+    "passes": false,
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "BNBUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "ADAUSDT",
+      "DOGEUSDT"
+    ],
+    "correlationMatrix": [
+      [
+        1,
+        0.8153025386159639,
+        0.6709555364304818,
+        0.7558593878960652,
+        0.6470200561470353,
+        0.718824259244426,
+        0.7747121741311809
+      ],
+      [
+        0.8153025386159639,
+        1,
+        0.6811906923196878,
+        0.7365374660530121,
+        0.6459693175912813,
+        0.740192952718819,
+        0.7539012437700119
+      ],
+      [
+        0.6709555364304818,
+        0.6811906923196878,
+        1,
+        0.6192249042830809,
+        0.4995360488709651,
+        0.5912227856967378,
+        0.6066254968842718
+      ],
+      [
+        0.7558593878960652,
+        0.7365374660530121,
+        0.6192249042830809,
+        1,
+        0.6118421853927178,
+        0.7206038712928405,
+        0.700661660898779
+      ],
+      [
+        0.6470200561470353,
+        0.6459693175912813,
+        0.4995360488709651,
+        0.6118421853927178,
+        1,
+        0.7543752335829949,
+        0.6477876529342272
+      ],
+      [
+        0.718824259244426,
+        0.740192952718819,
+        0.5912227856967378,
+        0.7206038712928405,
+        0.7543752335829949,
+        1,
+        0.7432394126543391
+      ],
+      [
+        0.7747121741311809,
+        0.7539012437700119,
+        0.6066254968842718,
+        0.700661660898779,
+        0.6477876529342272,
+        0.7432394126543391,
+        1
+      ]
+    ]
+  },
+  "kEmpirical": {
+    "value": 0.0338,
+    "label": "BTCUSD SMA40/100+pullback, n=202.075, z=+16,38",
+    "source": "HANDOFF.md achado #2 (2026-07-30)"
+  }
+}
