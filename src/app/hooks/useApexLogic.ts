@@ -2481,7 +2481,7 @@ export function useApexLogic(
     stopLoss?: number;
     takeProfit?: number;
   }): { success: boolean; error?: string; tradeId?: string } => {
-    console.log('[useApexLogic] openManualPosition chamado', params);
+    console.error('🟢[useApexLogic] openManualPosition chamado', params);
     const asset = getAssetBySymbol(params.symbol);
     if (!asset) {
       console.warn('[useApexLogic] openManualPosition: ativo não encontrado em assetDatabase', params.symbol);
@@ -2522,7 +2522,7 @@ export function useApexLogic(
 
     setActiveOrders(prev => {
       const next = [...prev, newTrade];
-      console.log('[useApexLogic] openManualPosition: setActiveOrders', { antes: prev.length, depois: next.length, newTrade });
+      console.error('🟢[useApexLogic] openManualPosition: setActiveOrders', { antes: prev.length, depois: next.length, newTrade });
       return next;
     });
     addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s)`);
