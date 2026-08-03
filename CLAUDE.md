@@ -157,11 +157,17 @@ qualquer experimento novo de stop/alvo.** Ver `AI_BRAIN_SPEC.md` **seção 14**
   futura do tipo "testar stop X com alvo Y" está **refutada a priori**, salvo se
   vier com evidência de que o sinal prevê **magnitude** condicional (não só
   direção). Não é preciso rodar o backtest pra saber o resultado.
-- **Gate de viabilidade por custo, quantificado**: custo round-trip 0,26% vs.
-  movimento típico — 15m gasta 25% do movimento em custo (inviável), 1h gasta
-  10% (fronteira), 4h ~5% e diário ~2% (extrapolado por √t, não medido). Todo
-  teste da sessão rodou abaixo/na fronteira do piso — resultado determinado pela
-  aritmética antes de olhar o sinal.
+- ~~**Gate de viabilidade por custo, quantificado**: custo round-trip 0,26%...~~
+  **❌ DERRUBADO EM 2026-08-02 — ver seção 14.7 do `AI_BRAIN_SPEC.md`.** Os 0,26%
+  eram ~8,9x o custo real de cripto CFD (o `commissionPercent: 0.08` era taxa de
+  exchange **spot**, não CFD). Real: **0,0291%** round-trip; `CostModel.ts`
+  corrigido. Com o custo certo, 15m gasta 2,8% do movimento e 1h gasta 1,2% —
+  nenhum teste daquela sessão rodou abaixo do piso de viabilidade, ao contrário
+  do que ficou registrado. Re-medindo o teste executável sobre os mesmos trades,
+  1h pooled vira de −US$73,55 para +US$197,94. **Isto NÃO é evidência de edge**:
+  nada passa o piso de 95% de DSR, e as amostras da seção 14 têm poder de 6,7% a
+  29,1% — o veredicto passa de "medido como negativo" para "nunca medido com
+  poder suficiente".
 - **Erro metodológico nomeado**: a cesta de 7 criptos usada em 11.13 e nos testes
   de 2026-07-30 tem correlação 0,7-0,9 entre pares — é **~1,5 apostas
   independentes, não 7**. O pooling aumentou o `n` da mesma aposta, nunca a
