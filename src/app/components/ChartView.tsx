@@ -1146,7 +1146,6 @@ export function ChartView({
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
   const { selectedAsset, setSelectedAsset, activeOrders } = useTradingContext();
-  const [showOrderTicket, setShowOrderTicket] = useState(true);
   
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
   
@@ -5932,34 +5931,12 @@ export function ChartView({
               </div>
             )}
 
-            {/* Boleta de ordem manual — flutuante DENTRO do gráfico, não ao lado */}
-            <div
-              className={`absolute top-4 right-4 z-[75] transition-all duration-300 ${
-                showOrderTicket ? 'w-[300px]' : 'w-auto'
-              }`}
-            >
-              {showOrderTicket ? (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowOrderTicket(false)}
-                    className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-black border border-white/20 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center text-xs shadow-lg"
-                    title="Recolher boleta"
-                  >
-                    ✕
-                  </button>
-                  <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowOrderTicket(true)}
-                  className="flex items-center gap-2 bg-black/80 backdrop-blur-sm border border-white/15 rounded-lg px-3 py-2 text-xs font-bold text-white shadow-lg hover:bg-black/90 transition-colors"
-                >
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                  Nova ordem
-                </button>
-              )}
+            {/* Boleta de ordem manual — flutuante DENTRO do gráfico, estilo one-click
+                trading de terminal profissional (MT5/cTrader). Recolhida por padrão
+                (barra compacta SELL/BUY); expande pra ficha completa por dentro do
+                próprio componente — não precisa de estado aqui. */}
+            <div className="absolute top-4 left-4 z-[75]">
+              <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
             </div>
           </div>
 
