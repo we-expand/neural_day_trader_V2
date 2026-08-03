@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
-import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators } from 'klinecharts';
+import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators, OverlayMode } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate, AxisTick } from 'klinecharts';
 
 // getIndicatorClass() existe na tipagem (.d.ts) mas NÃO é exportada pelo bundle
@@ -1404,6 +1404,10 @@ export function ChartView({
   const [crosshairMode, setCrosshairMode] = useState<'point' | 'arrow' | 'presentation' | 'eraser'>('arrow'); // 🆕 Modo da cruz - PADRÃO: SETA
   const [dataWindowEnabled, setDataWindowEnabled] = useState(true); // 🆕 Janela de dados com clique longo
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null); // 🆕 Ferramenta de desenho ativa
+  // 🆕 Modo Magnético: liga/desliga o encaixe automático de NOVOS desenhos no OHLC do
+  // candle mais próximo (klinecharts nativo via `mode: OverlayMode.WeakMagnet` na
+  // criação do overlay) -- antes o botão só mostrava um toast "em desenvolvimento".
+  const [magnetActive, setMagnetActive] = useState(false);
   const [showContextToolbar, setShowContextToolbar] = useState(false); // 🆕 Mostrar toolbar contextual
   const [contextToolbarPosition, setContextToolbarPosition] = useState({ x: 0, y: 0 }); // 🆕 Posição da toolbar
   const [selectedDrawing, setSelectedDrawing] = useState<any>(null); // 🆕 Desenho selecionado
@@ -2906,6 +2910,10 @@ export function ChartView({
       const overlayId = chartInstanceRef.current.createOverlay({
         name: overlayType,
         groupId: USER_DRAWINGS_GROUP,
+        // 🆕 Modo Magnético (ver toggle no DrawingToolbar) -- weak_magnet faz os pontos
+        // do desenho encaixarem no OHLC do candle mais próximo em vez de ficarem soltos
+        // em qualquer coordenada crua do mouse. Suporte nativo da klinecharts.
+        mode: magnetActive ? OverlayMode.WeakMagnet : OverlayMode.Normal,
         onClick: (event: any) => {
           if (overlayType === 'infoLine') {
             const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
@@ -6007,6 +6015,7 @@ export function ChartView({
             onLockToggle={handleToggleLockDrawings}
             onHideToggle={handleToggleHideDrawings}
             onEmojiSelect={handleEmojiSelect}
+            onMagnetToggle={setMagnetActive}
             className="shrink-0"
           />
 
