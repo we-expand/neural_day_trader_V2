@@ -2633,11 +2633,36 @@ export function ChartView({
     // Posição/zoom em tela por último -- criar indicador em painel próprio pode
     // redimensionar o pane principal e desfazer o offset se aplicado antes.
     try {
+      // 🐛 FIX: barSpace/offsetRightDistance são valores em PIXELS, salvos crus na
+      // sessão em que o template foi criado -- não são portáveis pra outra sessão
+      // com largura de janela e/ou quantidade de candles carregados diferente.
+      // Restaurar sem limite podia deixar candles enormes (barSpace grande) e/ou
+      // uma folga de scroll enorme (offsetRightDistance grande), sobrando margem
+      // em branco nas duas laterais em vez de preencher a tela -- exatamente o
+      // sintoma relatado ("indicadores no meio da tela"). Trava os dois valores a
+      // um range que sempre preenche o container atual.
+      const containerWidth = chartContainerRef.current?.clientWidth ?? 0;
+      const candleCount = chart.getDataList().length;
+
       if (templateConfig.barSpace !== null && templateConfig.barSpace !== undefined) {
-        chart.setBarSpace(templateConfig.barSpace);
+        let barSpaceToApply = templateConfig.barSpace;
+        if (containerWidth > 0 && candleCount > 0) {
+          // Nunca deixa menos de ~60 candles cabendo na largura atual (ou todos os
+          // candles carregados, se houver menos que isso) -- evita o "zoom" salvo
+          // de outra sessão encolher demais o conteúdo visível.
+          const minVisibleCandles = Math.min(candleCount, 60);
+          const maxBarSpaceToFill = containerWidth / minVisibleCandles;
+          barSpaceToApply = Math.min(barSpaceToApply, maxBarSpaceToFill);
+        }
+        chart.setBarSpace(barSpaceToApply);
       }
       if (templateConfig.offsetRightDistance !== null && templateConfig.offsetRightDistance !== undefined) {
-        chart.setOffsetRightDistance(templateConfig.offsetRightDistance);
+        // Folga à direita do último candle nunca maior que ~15% da largura do
+        // container -- um offset gigante herdado de outra sessão empurra os
+        // candles reais pra longe da borda direita, deixando a mesma margem em
+        // branco indevida.
+        const maxOffset = containerWidth > 0 ? containerWidth * 0.15 : templateConfig.offsetRightDistance;
+        chart.setOffsetRightDistance(Math.min(templateConfig.offsetRightDistance, maxOffset));
       }
     } catch (error) {
       console.warn('[ChartView] ⚠️ Não foi possível restaurar zoom/posição do template:', error);
