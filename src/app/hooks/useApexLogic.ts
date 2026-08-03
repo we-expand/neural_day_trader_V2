@@ -139,6 +139,12 @@ export interface TradeVisual {
   closedAt?: number; // Timestamp when the trade was closed
   tp: number;
   sl: number;
+  // Distância original de SL na entrada (nunca sobrescrita depois, ao contrário
+  // de `sl`, que o loop de P&L reescreve a cada tick em modo DINAMICO). Ver
+  // bug do SL Dinâmico fantasma (2026-08-03): usar `sl` para recalcular a
+  // distância de trailing faz ela encolher a cada tick, e o "stop" persegue o
+  // preço até fechar a posição sozinha mesmo sem reversão real de mercado.
+  originalSl: number;
   leverage: number;
   ai_confidence: number;
   timestamp: number;
@@ -730,6 +736,7 @@ export function useApexLogic(
             currentPrice: t.entry_price,
             tp: t.take_profit ?? t.entry_price,
             sl: t.stop_loss ?? t.entry_price,
+            originalSl: t.stop_loss ?? t.entry_price,
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
             ai_confidence: t.ai_confidence ?? 50,
             timestamp: new Date(t.entry_time).getTime(),
@@ -2015,6 +2022,7 @@ export function useApexLogic(
             currentPrice: currentPrice,
             tp,
             sl,
+            originalSl: sl,
             leverage: 1.5,
             ai_confidence: Math.min(confidenceScore, 95),
             timestamp: Date.now(),
@@ -2143,9 +2151,27 @@ export function useApexLogic(
                 // Agora, em modo DINAMICO, o SL "anda" a favor do trade (trailing stop):
                 // preserva a mesma distância de risco original, mas só sobe (LONG) ou
                 // só desce (SHORT) - nunca piora o stop em relação ao que já estava setado.
+                //
+                // 🔴 FIX 2026-08-03 (achado testando ordem manual real): a distância
+                // original ERA recalculada a partir de `order.sl` — mas esse campo é
+                // reescrito com o próprio `effectiveSl` a cada tick (linha ~2201 abaixo),
+                // então a "distância original" encolhia a cada segundo em vez de ficar
+                // fixa. Resultado: o SL efetivo acumulava o ganho não-realizado inteiro
+                // A CADA TICK (não só o incremento desde o tick anterior), numa
+                // progressão descontrolada que alcançava o preço atual em minutos —
+                // fechando a posição sozinha mesmo sem o mercado nunca ter revertido.
+                // Pior ainda para SL não definido (0): a "distância" de partida virava
+                // o próprio preço de entrada, tornando a progressão ainda mais rápida.
+                // Confirmado em produção: ordem BTCUSD manual sem SL definido
+                // (stop_loss=0 no banco), aberta 15:27 e fechada sozinha 15:47 (20min,
+                // preço subiu só 0,14%) com exit_reason='SL'.
+                // Fix: ancorar a distância em `originalSl` — campo imutável, gravado
+                // uma única vez na abertura da ordem, nunca reescrito pelo loop — e
+                // pular o trailing inteiro quando não há SL real definido (0 = sem
+                // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
-                if (configRef.current.stopLossMode === 'DINAMICO') {
-                  const originalSlDistance = Math.abs(order.price - order.sl);
+                if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
+                  const originalSlDistance = Math.abs(order.price - order.originalSl);
                   const trailedSl = order.side === 'LONG'
                     ? nextPrice - originalSlDistance
                     : nextPrice + originalSlDistance;
@@ -2516,6 +2542,7 @@ export function useApexLogic(
       currentPrice: params.entryPrice,
       tp: params.takeProfit ?? 0,
       sl: params.stopLoss ?? 0,
+      originalSl: params.stopLoss ?? 0,
       leverage: asset.leverage || 1,
       ai_confidence: 100,
       timestamp: Date.now(),
@@ -2859,6 +2886,7 @@ export function useApexLogic(
         currentProfit: profit,
         tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
         sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+        originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
         leverage: pos.leverage || 1,
         ai_confidence: 75, // Posição já aberta
         timestamp: pos.time || Date.now(),
