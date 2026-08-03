@@ -185,9 +185,17 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   }
 
   async function executeOrder(side: Side) {
-    if (!currentPrice || !asset || !canTrade) return;
+    // Log explícito de diagnóstico — fica permanente (não é debug temporário):
+    // é a única forma de saber, olhando o console, se o clique realmente
+    // chegou até aqui e por que parou, sem precisar reproduzir o bug de novo.
+    console.log('[OrderTicket] executeOrder chamado', { side, symbol, orderType, executionMode, currentPrice, volume, canTrade, asset: !!asset });
+    if (!currentPrice || !asset || !canTrade) {
+      console.warn('[OrderTicket] executeOrder abortado — guarda inicial falhou', { currentPrice, asset: !!asset, canTrade, blockedReason });
+      return;
+    }
     const direction = directionValid(side);
     if (!direction.ok) {
+      console.warn('[OrderTicket] executeOrder recusado por direção inválida', direction.error);
       toast.error('Ordem recusada', { description: direction.error });
       return;
     }
@@ -205,6 +213,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
             stopLoss: slSet ? slNum : undefined,
             takeProfit: tpSet ? tpNum : undefined,
           });
+          console.log('[OrderTicket] openManualPosition retornou', result);
           if (result.success) {
             toast.success(`${side === 'BUY' ? 'Compra' : 'Venda'} enviada`, {
               description: `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO)`,

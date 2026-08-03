@@ -2481,8 +2481,10 @@ export function useApexLogic(
     stopLoss?: number;
     takeProfit?: number;
   }): { success: boolean; error?: string; tradeId?: string } => {
+    console.log('[useApexLogic] openManualPosition chamado', params);
     const asset = getAssetBySymbol(params.symbol);
     if (!asset) {
+      console.warn('[useApexLogic] openManualPosition: ativo não encontrado em assetDatabase', params.symbol);
       return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
     }
     if (!(params.volume > 0) || !(params.entryPrice > 0)) {
@@ -2518,7 +2520,11 @@ export function useApexLogic(
       indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
     };
 
-    setActiveOrders(prev => [...prev, newTrade]);
+    setActiveOrders(prev => {
+      const next = [...prev, newTrade];
+      console.log('[useApexLogic] openManualPosition: setActiveOrders', { antes: prev.length, depois: next.length, newTrade });
+      return next;
+    });
     addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s)`);
 
     if (configRef.current.executionMode === 'DEMO') {
