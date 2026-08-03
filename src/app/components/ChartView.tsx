@@ -108,22 +108,33 @@ const registerMovingAverageIndicator = (name: string, defaultMethod: MAMethod) =
     precision: 2,
     calcParams: [20],
     shouldOhlc: true,
-    figures: [{ key: 'ma', title: `${name}: `, type: 'line' }],
+    // 🆕 calcParams agora é uma LISTA de períodos (ex: [20, 50, 200]) -- cada um vira
+    // uma linha própria, chave `ma{i}`. `figures` estático não dá conta de um número
+    // variável de linhas; `regenerateFigures` é o mecanismo que a própria klinecharts
+    // usa pra indicadores desse tipo (MACD/BOLL), chamado toda vez que calcParams muda.
+    figures: [{ key: 'ma0', title: `${name}: `, type: 'line' }],
+    regenerateFigures: (calcParams: any[]) => {
+      const periods = (calcParams as number[]).length > 0 ? (calcParams as number[]) : [20];
+      return periods.map((period, i) => ({ key: `ma${i}`, title: `${name}(${period}): `, type: 'line' }));
+    },
     calc: (dataList, indicator) => {
-      const period = ((indicator.calcParams as number[])[0]) || 20;
+      const periods = ((indicator.calcParams as number[]).length > 0 ? (indicator.calcParams as number[]) : [20]);
       const ext: Partial<MAExtendData> = (indicator.extendData as MAExtendData) || {};
       const method = ext.method ?? defaultMethod;
       const appliedPrice = ext.appliedPrice ?? 'CLOSE';
       const shift = ext.shift ?? 0;
       const values = dataList.map(bar => getAppliedPriceValue(bar, appliedPrice));
-      const maValues = computeMovingAverageSeries(values, period, method);
       // Deslocar (shift): positivo empurra a linha pra frente no tempo (mostra o valor
       // calculado N barras atrás na posição atual), negativo puxa pra trás -- mesmo
-      // comportamento do campo "Deslocar" no MT5.
+      // comportamento do campo "Deslocar" no MT5. Mesmo shift vale pras N linhas.
+      const perPeriodValues = periods.map(period => computeMovingAverageSeries(values, period, method));
       return dataList.map((_, i) => {
         const srcIndex = i - shift;
-        const value = srcIndex >= 0 && srcIndex < maValues.length ? maValues[srcIndex] : undefined;
-        return { ma: value } as any;
+        const point: Record<string, number | undefined> = {};
+        perPeriodValues.forEach((maValues, lineIndex) => {
+          point[`ma${lineIndex}`] = srcIndex >= 0 && srcIndex < maValues.length ? maValues[srcIndex] : undefined;
+        });
+        return point as any;
       });
     }
   });
@@ -348,6 +359,7 @@ import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
 import { useChartPreferences } from '@/app/hooks/useChartPreferences';
 import { useFavoriteChartSetup, readCachedFavoriteChartSetup } from '@/app/hooks/useFavoriteChartSetup';
+import { useChartTemplates, type ChartTemplateConfig } from '@/app/hooks/useChartTemplates';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
@@ -1318,6 +1330,15 @@ export function ChartView({
   // aplicado automaticamente na 1ª carga do gráfico (ver useEffect de init mais abaixo).
   const { favoriteSetup, saveFavoriteSetup } = useFavoriteChartSetup();
   const favoriteSetupAppliedRef = useRef(false);
+  // 🆕 Templates nomeados (CRUD completo — salvar/carregar/remover, menu "Templates"
+  // do botão direito). `pendingTemplateApplyRef` existe porque "Carregar" pode exigir
+  // trocar o timeframe primeiro (dispose()+init() do chart) -- nesse caso os
+  // indicadores/posição só podem ser aplicados DEPOIS que o chart novo recarregar os
+  // dados, então o template fica "pendente" até o próximo fetchData rodar.
+  const { templates, saveTemplate, deleteTemplate } = useChartTemplates();
+  const [templatesExpanded, setTemplatesExpanded] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const pendingTemplateApplyRef = useRef<ChartTemplateConfig | null>(null);
   // 🆕 Toggle de grade de fundo (guias horizontais/verticais) — persistido localmente
   // (preferência de exibição, não precisa ser por usuário+ativo no Supabase como o S/R).
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(() => {
@@ -2306,58 +2327,103 @@ export function ChartView({
   // 🆕 Médias móveis (MA/EMA/SMA/WMA) têm um editor completo no padrão MT5 — Período,
   // Deslocar, Método, Aplicar a e Estilo (ver registerMovingAverageIndicator no topo
   // do arquivo). As demais continuam com o editor genérico (só período) acima.
-  interface MAUISettings {
+  // 🆕 Cada MA agora suporta VÁRIAS linhas (períodos) na mesma instância -- é o jeito
+  // nativo que o klinecharts suporta (calcParams é uma lista, uma linha por item; ver
+  // registerMovingAverageIndicator acima). Tentar criar uma 2ª instância do mesmo
+  // indicador no mesmo painel é rejeitado pela própria lib ("Duplicate indicators"),
+  // então "adicionar outra média móvel" tem que ser "adicionar outra linha" aqui.
+  interface MALineSettings {
     period: number;
-    shift: number;
-    method: MAMethod;
-    appliedPrice: AppliedPrice;
     color: string;
     lineStyle: 'solid' | 'dashed';
     lineWidth: number;
   }
+  interface MAUISettings {
+    shift: number;
+    method: MAMethod;
+    appliedPrice: AppliedPrice;
+    lines: MALineSettings[];
+  }
+  const MA_LINE_COLOR_PALETTE = ['#f97316', '#3b82f6', '#a855f7', '#22c55e', '#eab308', '#ec4899', '#14b8a6', '#ef4444'];
   const MA_DEFAULT_METHOD: Record<string, MAMethod> = { ma: 'SIMPLE', sma: 'SIMPLE', ema: 'EXPONENTIAL', wma: 'LINEAR_WEIGHTED' };
   const isMovingAverageIndicator = (indicator: IndicatorConfig): boolean => indicator.id in MA_DEFAULT_METHOD;
 
   const [indicatorMASettings, setIndicatorMASettings] = useState<Record<string, MAUISettings>>({});
   const getMASettings = (indicator: IndicatorConfig): MAUISettings =>
     indicatorMASettings[indicator.id] ?? {
-      period: indicator.defaultParams?.[0] ?? 20,
       shift: 0,
       method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
       appliedPrice: 'CLOSE',
-      color: '#f97316',
-      lineStyle: 'solid',
-      lineWidth: 1
+      lines: [{ period: indicator.defaultParams?.[0] ?? 20, color: MA_LINE_COLOR_PALETTE[0], lineStyle: 'solid', lineWidth: 1 }]
     };
+
+  // Constrói o `config` que o klinecharts espera (calcParams/extendData/styles) a
+  // partir de um MAUISettings -- usado na criação (createIndicatorInstance), na edição
+  // (applyMASettingsToChart) e na aplicação de templates (applyChartTemplateConfig).
+  const buildMAChartConfig = (klinechartsName: string, settings: MAUISettings) => ({
+    name: klinechartsName,
+    calcParams: settings.lines.map(l => l.period),
+    extendData: { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift },
+    // ⚠️ dashedValue é obrigatório aqui -- a própria klinecharts acessa
+    // `styles.dashedValue[0]/[1]` sem nenhum fallback ao mesclar segmentos consecutivos
+    // da linha antes de desenhar (ver eachChildren/mergeLines em IndicatorView.drawImp,
+    // node_modules/klinecharts/dist/index.esm.js:8027) -- sem essa chave o acesso lança
+    // TypeError e a linha inteira do indicador nunca chega a ser desenhada (só o rótulo
+    // aparece, que vem de um caminho separado). [4,4] é só usado quando style='dashed'.
+    // `styles.lines[i]` mapeia por ÍNDICE pra `figures[i]` (mesma ordem/tamanho) --
+    // confirmado lendo eachFigures() em node_modules/klinecharts/dist/index.esm.js:970-997.
+    styles: {
+      lines: settings.lines.map(l => ({ color: l.color, style: l.lineStyle, size: l.lineWidth, dashedValue: [4, 4] }))
+    }
+  });
 
   const applyMASettingsToChart = (chart: any, indicator: IndicatorConfig, settings: MAUISettings) => {
     const paneId = indicatorPaneIdRef.current[indicator.id];
     if (!chart || !paneId) return;
-    chart.overrideIndicator({
-      name: indicator.klinechartsName,
-      calcParams: [settings.period],
-      extendData: { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift },
-      // ⚠️ dashedValue é obrigatório aqui -- a própria klinecharts acessa
-      // `styles.dashedValue[0]/[1]` sem nenhum fallback ao mesclar segmentos consecutivos
-      // da linha antes de desenhar (ver eachChildren/mergeLines em IndicatorView.drawImp,
-      // node_modules/klinecharts/dist/index.esm.js:8027) -- sem essa chave o acesso lança
-      // TypeError e a linha inteira do indicador nunca chega a ser desenhada (só o rótulo
-      // aparece, que vem de um caminho separado). [4,4] é só usado quando style='dashed'.
-      styles: { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] }
-    }, paneId);
+    chart.overrideIndicator(buildMAChartConfig(indicator.klinechartsName, settings), paneId);
   };
 
   const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; settings: MAUISettings } | null>(null);
 
   const openMAEditor = (indicator: IndicatorConfig) => {
-    setMaEditor({ indicator, settings: { ...getMASettings(indicator) } });
+    setMaEditor({ indicator, settings: { ...getMASettings(indicator), lines: getMASettings(indicator).lines.map(l => ({ ...l })) } });
+  };
+
+  const addMAEditorLine = () => {
+    if (!maEditor) return;
+    const nextColor = MA_LINE_COLOR_PALETTE[maEditor.settings.lines.length % MA_LINE_COLOR_PALETTE.length];
+    const lastPeriod = maEditor.settings.lines[maEditor.settings.lines.length - 1]?.period ?? 20;
+    setMaEditor({
+      ...maEditor,
+      settings: {
+        ...maEditor.settings,
+        lines: [...maEditor.settings.lines, { period: lastPeriod + 10, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
+      }
+    });
+  };
+
+  const removeMAEditorLine = (index: number) => {
+    if (!maEditor || maEditor.settings.lines.length <= 1) return; // sempre pelo menos 1 linha
+    setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lines: maEditor.settings.lines.filter((_, i) => i !== index) } });
+  };
+
+  const updateMAEditorLine = (index: number, patch: Partial<MALineSettings>) => {
+    if (!maEditor) return;
+    setMaEditor({
+      ...maEditor,
+      settings: { ...maEditor.settings, lines: maEditor.settings.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) }
+    });
   };
 
   const saveMAEditor = () => {
     if (!maEditor) return;
     const { indicator, settings } = maEditor;
-    if (!Number.isFinite(settings.period) || settings.period <= 0) {
-      toast.error('Período precisa ser um número válido maior que zero');
+    if (settings.lines.length === 0) {
+      toast.error('Adicione ao menos uma linha');
+      return;
+    }
+    if (settings.lines.some(l => !Number.isFinite(l.period) || l.period <= 0)) {
+      toast.error('Todo período precisa ser um número válido maior que zero');
       return;
     }
     if (!Number.isFinite(settings.shift)) {
@@ -2427,13 +2493,9 @@ export function ChartView({
       // (styles.tooltip.icons por instância é ignorado pela klinecharts — ver comentário lá)
     };
     if (isMovingAverageIndicator(indicator)) {
-      // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo já
-      // na criação (não só via editor depois) — ver registerMovingAverageIndicator.
-      const settings = getMASettings(indicator);
-      config.calcParams = [settings.period];
-      config.extendData = { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift };
-      // ⚠️ dashedValue obrigatório -- ver comentário idêntico em applyMASettingsToChart.
-      config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] };
+      // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo (e todas
+      // as linhas/períodos já configurados) já na criação — ver registerMovingAverageIndicator.
+      Object.assign(config, buildMAChartConfig(indicator.klinechartsName, getMASettings(indicator)));
     } else {
       const params = getIndicatorParams(indicator);
       if (params.length > 0) {
@@ -2449,6 +2511,106 @@ export function ChartView({
       // (ver ChartImp.prototype.createIndicator em node_modules/klinecharts/dist/index.esm.js)
       chart.createIndicator(config, true, { id: 'candle_pane' });
       indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
+    }
+  };
+
+  // 🆕 Captura o setup atual do gráfico (indicadores + parâmetros, grade, S/R,
+  // timeframe, zoom/scroll) — usado tanto por "Salvar como favorita" quanto por
+  // "Templates › Salvar". barSpace/offsetRightDistance são os únicos dois valores
+  // que a klinecharts expõe pra reproduzir zoom+posição exatamente (ver setOffsetRightDistance
+  // no fix do gráfico "voltando pra posição inicial").
+  const captureCurrentChartConfig = (): ChartTemplateConfig => {
+    const chart = chartInstanceRef.current;
+    let barSpace: number | null = null;
+    let offsetRightDistance: number | null = null;
+    if (chart) {
+      try { barSpace = chart.getBarSpace(); } catch (_) {}
+      try { offsetRightDistance = chart.getOffsetRightDistance(); } catch (_) {}
+    }
+    return {
+      timeframe,
+      indicatorIds: Array.from(activeIndicators),
+      indicatorParamsById,
+      indicatorPlacement,
+      indicatorMASettings,
+      showGridOverlay,
+      showSrOverlay,
+      barSpace,
+      offsetRightDistance
+    };
+  };
+
+  // 🆕 Remove todos os indicadores ativos do chart (mas não mexe no state React --
+  // quem chama é responsável por atualizar activeIndicators/etc depois). Usado antes
+  // de aplicar um template pra não deixar instância órfã de um indicador que o
+  // template não usa.
+  const clearAllChartIndicators = (chart: any) => {
+    activeIndicators.forEach(id => {
+      const indicator = INDICATORS.find(ind => ind.id === id);
+      if (indicator) {
+        try { removeIndicatorInstance(chart, indicator); } catch (_) {}
+      }
+    });
+  };
+
+  // 🆕 Aplica um ChartTemplateConfig salvo diretamente no chart (via API do klinecharts,
+  // nunca via getIndicatorParams/getMASettings -- que leem state React, assíncrono
+  // demais pra estar pronto na mesma passada). Usado tanto na 1ª carga (setup favorito)
+  // quanto sob demanda ("Templates › Carregar", com ou sem troca de timeframe).
+  const applyChartTemplateConfig = (chart: any, templateConfig: ChartTemplateConfig) => {
+    const appliedIds: string[] = [];
+    templateConfig.indicatorIds.forEach(id => {
+      const indicatorConfig = INDICATORS.find(ind => ind.id === id);
+      if (!indicatorConfig) return; // indicador removido/renomeado desde o save
+      const placement = templateConfig.indicatorPlacement[id] ?? (indicatorConfig.isPaneIndicator ? 'pane' : 'overlay');
+      const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
+      if (isMovingAverageIndicator(indicatorConfig)) {
+        const raw = (templateConfig.indicatorMASettings[id] as any) ?? getMASettings(indicatorConfig);
+        // Templates salvos antes do suporte a múltiplas linhas guardavam {period, color,
+        // lineStyle, lineWidth} direto no objeto -- migra pro formato novo {lines: [...]}
+        // na hora de carregar, sem quebrar template antigo.
+        const settings: MAUISettings = Array.isArray(raw?.lines)
+          ? raw
+          : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
+        Object.assign(config, buildMAChartConfig(indicatorConfig.klinechartsName, settings));
+      } else {
+        const params = templateConfig.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
+        if (params.length > 0) config.calcParams = params;
+      }
+      try {
+        if (placement === 'pane') {
+          chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
+          indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
+        } else {
+          chart.createIndicator(config, true, { id: 'candle_pane' });
+          indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+        }
+        appliedIds.push(id);
+      } catch (error) {
+        console.error('[ChartView] ❌ Erro aplicando indicador do template:', indicatorConfig.id, error);
+      }
+    });
+
+    setActiveIndicators(new Set(appliedIds));
+    setIndicatorParamsById(templateConfig.indicatorParamsById);
+    setIndicatorPlacement(templateConfig.indicatorPlacement);
+    setIndicatorMASettings(templateConfig.indicatorMASettings as any);
+    setShowGridOverlay(templateConfig.showGridOverlay);
+    if (templateConfig.showSrOverlay !== showSrOverlay) {
+      setShowSrOverlay(templateConfig.showSrOverlay);
+    }
+
+    // Posição/zoom em tela por último -- criar indicador em painel próprio pode
+    // redimensionar o pane principal e desfazer o offset se aplicado antes.
+    try {
+      if (templateConfig.barSpace !== null && templateConfig.barSpace !== undefined) {
+        chart.setBarSpace(templateConfig.barSpace);
+      }
+      if (templateConfig.offsetRightDistance !== null && templateConfig.offsetRightDistance !== undefined) {
+        chart.setOffsetRightDistance(templateConfig.offsetRightDistance);
+      }
+    } catch (error) {
+      console.warn('[ChartView] ⚠️ Não foi possível restaurar zoom/posição do template:', error);
     }
   };
 
@@ -4570,44 +4732,28 @@ export function ChartView({
           if (favoriteSetup && !favoriteSetupAppliedRef.current) {
             favoriteSetupAppliedRef.current = true;
             try {
-              setIndicatorParamsById(prev => ({ ...prev, ...favoriteSetup.indicatorParamsById }));
-              setIndicatorPlacement(prev => ({ ...prev, ...favoriteSetup.indicatorPlacement }));
-              setIndicatorMASettings(prev => ({ ...prev, ...(favoriteSetup.indicatorMASettings as any) }));
-              setShowGridOverlay(favoriteSetup.showGridOverlay);
-              if (favoriteSetup.showSrOverlay !== showSrOverlay) {
-                setShowSrOverlay(favoriteSetup.showSrOverlay);
-              }
-
-              const appliedIds = new Set<string>();
-              favoriteSetup.indicatorIds.forEach(id => {
-                const indicatorConfig = INDICATORS.find(ind => ind.id === id);
-                if (!indicatorConfig) return; // indicador removido/renomeado desde o save
-                const placement = favoriteSetup.indicatorPlacement[id] ?? (indicatorConfig.isPaneIndicator ? 'pane' : 'overlay');
-                const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
-                if (isMovingAverageIndicator(indicatorConfig)) {
-                  const settings = (favoriteSetup.indicatorMASettings[id] as any) ?? getMASettings(indicatorConfig);
-                  config.calcParams = [settings.period];
-                  config.extendData = { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift };
-                  config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] };
-                } else {
-                  const params = favoriteSetup.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
-                  if (params.length > 0) config.calcParams = params;
-                }
-                if (placement === 'pane') {
-                  chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
-                  indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
-                } else {
-                  chart.createIndicator(config, true, { id: 'candle_pane' });
-                  indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
-                }
-                appliedIds.add(id);
-              });
-              if (appliedIds.size > 0) {
-                setActiveIndicators(prev => new Set([...prev, ...appliedIds]));
-              }
+              // Setup favorito não guarda barSpace/offsetRightDistance (é "como eu gosto
+              // de ver qualquer gráfico", não uma posição fixa) — undefined preserva o
+              // scroll automático já feito acima (scrollToRealTime).
+              applyChartTemplateConfig(chart, { ...favoriteSetup, barSpace: null, offsetRightDistance: null });
               console.log('[ChartView] ⭐ Setup favorito aplicado:', favoriteSetup.indicatorIds);
             } catch (error) {
               console.error('[ChartView] ❌ Erro aplicando setup favorito:', error);
+            }
+          }
+
+          // 🆕 Template carregado via menu "Templates" que exigiu troca de timeframe
+          // primeiro (dispose()+init() do chart) — só dá pra aplicar indicadores/posição
+          // DEPOIS que os dados do timeframe novo chegarem, por isso fica "pendente" até
+          // este ponto do próximo fetchData.
+          if (pendingTemplateApplyRef.current) {
+            const templateToApply = pendingTemplateApplyRef.current;
+            pendingTemplateApplyRef.current = null;
+            try {
+              applyChartTemplateConfig(chart, templateToApply);
+              console.log('[ChartView] 📐 Template pendente aplicado após troca de timeframe');
+            } catch (error) {
+              console.error('[ChartView] ❌ Erro aplicando template pendente:', error);
             }
           }
 
@@ -6044,37 +6190,19 @@ export function ChartView({
             )}
 
             {/* 🆕 Popover completo de médias móveis (MA/EMA/SMA/WMA) — mesmos campos do
-                diálogo "Moving Average" do MT5: Período, Deslocar, Método, Aplicar a,
-                Estilo (cor/traço/espessura). */}
+                diálogo "Moving Average" do MT5, mais suporte a VÁRIAS linhas/períodos na
+                mesma instância (ex: MA(20) + MA(50) + MA(200) juntas) — o klinecharts não
+                permite duas instâncias do mesmo indicador no mesmo painel, então "adicionar
+                outra média móvel" aqui é "adicionar outra linha" na instância existente. */}
             {maEditor && (
               <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-80 max-h-[80vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-3">
                   {maEditor.indicator.name.split(' - ')[0]} — Parâmetros
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Período</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={maEditor.settings.period}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, period: Number(e.target.value) } })}
-                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Deslocar</label>
-                    <input
-                      type="number"
-                      value={maEditor.settings.shift}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, shift: Number(e.target.value) } })}
-                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
+
                 <div className="mt-2">
                   <label className="text-[11px] text-gray-400 block mb-1">Método</label>
                   <select
@@ -6088,52 +6216,93 @@ export function ChartView({
                     <option value="LINEAR_WEIGHTED">Ponderada Linear</option>
                   </select>
                 </div>
-                <div className="mt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Aplicar a</label>
-                  <select
-                    value={maEditor.settings.appliedPrice}
-                    onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, appliedPrice: e.target.value as AppliedPrice } })}
-                    className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="CLOSE">Fechamento</option>
-                    <option value="OPEN">Abertura</option>
-                    <option value="HIGH">Máxima</option>
-                    <option value="LOW">Mínima</option>
-                    <option value="MEDIAN">Mediana (A+B)/2</option>
-                    <option value="TYPICAL">Típico (A+B+F)/3</option>
-                    <option value="WEIGHTED">Ponderado (A+B+2F)/4</option>
-                  </select>
-                </div>
-                <div className="mt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Estilo</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={maEditor.settings.color}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, color: e.target.value } })}
-                      className="w-8 h-7 bg-black border border-gray-700 rounded cursor-pointer"
-                      title="Cor da linha"
-                    />
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Aplicar a</label>
                     <select
-                      value={maEditor.settings.lineStyle}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lineStyle: e.target.value as 'solid' | 'dashed' } })}
-                      className="flex-1 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                      value={maEditor.settings.appliedPrice}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, appliedPrice: e.target.value as AppliedPrice } })}
+                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
                     >
-                      <option value="solid">Sólida</option>
-                      <option value="dashed">Tracejada</option>
-                    </select>
-                    <select
-                      value={maEditor.settings.lineWidth}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lineWidth: Number(e.target.value) } })}
-                      className="w-16 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value={1}>1px</option>
-                      <option value={2}>2px</option>
-                      <option value={3}>3px</option>
-                      <option value={4}>4px</option>
+                      <option value="CLOSE">Fechamento</option>
+                      <option value="OPEN">Abertura</option>
+                      <option value="HIGH">Máxima</option>
+                      <option value="LOW">Mínima</option>
+                      <option value="MEDIAN">Mediana (A+B)/2</option>
+                      <option value="TYPICAL">Típico (A+B+F)/3</option>
+                      <option value="WEIGHTED">Ponderado (A+B+2F)/4</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Deslocar</label>
+                    <input
+                      type="number"
+                      value={maEditor.settings.shift}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, shift: Number(e.target.value) } })}
+                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
                 </div>
+
+                <div className="mt-3 pt-3 border-t border-gray-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] text-gray-400 uppercase">Linhas ({maEditor.settings.lines.length})</label>
+                    <button
+                      onClick={addMAEditorLine}
+                      className="text-[10px] px-2 py-1 rounded bg-blue-600/20 border border-blue-500/40 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
+                    >
+                      + Adicionar linha
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {maEditor.settings.lines.map((line, index) => (
+                      <div key={index} className="flex items-center gap-1.5 bg-black/40 border border-gray-700 rounded p-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          value={line.period}
+                          onChange={(e) => updateMAEditorLine(index, { period: Number(e.target.value) })}
+                          title="Período"
+                          className="w-14 bg-black border border-gray-700 rounded px-1.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="color"
+                          value={line.color}
+                          onChange={(e) => updateMAEditorLine(index, { color: e.target.value })}
+                          className="w-7 h-7 shrink-0 bg-black border border-gray-700 rounded cursor-pointer"
+                          title="Cor da linha"
+                        />
+                        <select
+                          value={line.lineStyle}
+                          onChange={(e) => updateMAEditorLine(index, { lineStyle: e.target.value as 'solid' | 'dashed' })}
+                          className="flex-1 min-w-0 bg-black border border-gray-700 rounded px-1 py-1 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="solid">Sólida</option>
+                          <option value="dashed">Tracejada</option>
+                        </select>
+                        <select
+                          value={line.lineWidth}
+                          onChange={(e) => updateMAEditorLine(index, { lineWidth: Number(e.target.value) })}
+                          className="w-12 shrink-0 bg-black border border-gray-700 rounded px-1 py-1 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value={1}>1px</option>
+                          <option value={2}>2px</option>
+                          <option value={3}>3px</option>
+                          <option value={4}>4px</option>
+                        </select>
+                        <button
+                          onClick={() => removeMAEditorLine(index)}
+                          disabled={maEditor.settings.lines.length <= 1}
+                          title={maEditor.settings.lines.length <= 1 ? 'Precisa de ao menos 1 linha' : 'Remover esta linha'}
+                          className="shrink-0 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 mt-3">
                   <button
                     onClick={saveMAEditor}
@@ -6450,12 +6619,104 @@ export function ChartView({
             Lista de Objetos...
           </button>
           
-          {/* Template do gráfico */}
-          <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center justify-between">
-            <span>Template do gráfico</span>
-            <ChevronDown className="w-4 h-4 text-gray-400 rotate-[-90deg]" />
+          {/* 🆕 Templates — CRUD completo (salvar/carregar/remover), inclui zoom+scroll
+              (barSpace/offsetRightDistance) além de indicadores/grade/S/R/timeframe. */}
+          <button
+            onClick={() => setTemplatesExpanded(prev => !prev)}
+            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center justify-between"
+          >
+            <span>Templates{templates.length > 0 ? ` (${templates.length})` : ''}</span>
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${templatesExpanded ? '' : 'rotate-[-90deg]'}`} />
           </button>
-          
+
+          {templatesExpanded && (
+            <div className="px-3 py-2 space-y-2 bg-black/20">
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="Nome do novo template"
+                  className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!user?.id) {
+                      toast.error('Faça login para salvar templates');
+                      return;
+                    }
+                    const name = newTemplateName.trim();
+                    if (!name) {
+                      toast.error('Dê um nome ao template');
+                      return;
+                    }
+                    const ok = await saveTemplate(name, captureCurrentChartConfig());
+                    if (ok) {
+                      toast.success(`Template "${name}" salvo`);
+                      setNewTemplateName('');
+                    } else {
+                      toast.error('Falha ao salvar o template');
+                    }
+                  }}
+                  className="shrink-0 px-2.5 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+                >
+                  Salvar
+                </button>
+              </div>
+
+              {templates.length === 0 ? (
+                <p className="text-[10px] text-gray-500 px-1">Nenhum template salvo ainda.</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {templates.map(template => (
+                    <div
+                      key={template.id}
+                      className="w-full px-2 py-1.5 rounded flex items-center justify-between text-xs text-white hover:bg-gray-700/50 transition-colors group"
+                    >
+                      <button
+                        onClick={() => {
+                          const chart = chartInstanceRef.current;
+                          if (!chart) return;
+                          if (template.config.timeframe !== timeframe && VALID_TIMEFRAMES.includes(template.config.timeframe as Timeframe)) {
+                            pendingTemplateApplyRef.current = template.config;
+                            setTimeframe(template.config.timeframe as Timeframe);
+                          } else {
+                            clearAllChartIndicators(chart);
+                            applyChartTemplateConfig(chart, template.config);
+                          }
+                          setContextMenu(null);
+                          toast.success(`Template "${template.name}" carregado`);
+                        }}
+                        className="flex-1 min-w-0 text-left truncate"
+                        title="Carregar este template"
+                      >
+                        {template.name}
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const ok = await deleteTemplate(template.id);
+                          if (ok) {
+                            toast.success(`Template "${template.name}" removido`);
+                          } else {
+                            toast.error('Falha ao remover o template');
+                          }
+                        }}
+                        title="Remover template"
+                        className="shrink-0 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="h-px bg-gray-700 my-2"></div>
           
           {/* 🆕 Indicadores ativos — Editar parâmetros / Remover, individualmente */}
@@ -6521,15 +6782,7 @@ export function ChartView({
                 setContextMenu(null);
                 return;
               }
-              saveFavoriteSetup({
-                timeframe,
-                indicatorIds: Array.from(activeIndicators),
-                indicatorParamsById,
-                indicatorPlacement,
-                indicatorMASettings,
-                showGridOverlay,
-                showSrOverlay
-              });
+              saveFavoriteSetup(captureCurrentChartConfig());
               toast.success('Configuração atual salva como favorita — será aplicada automaticamente da próxima vez');
               setContextMenu(null);
             }}
