@@ -5965,10 +5965,14 @@ export function ChartView({
                 trading de terminal profissional (MT5/cTrader). Ancorada no canto
                 superior DIREITO (não no esquerdo — ali colide com a legenda nativa
                 de OHLCV da klinecharts e com o flyout da barra de desenho, que ficam
-                no canto superior esquerdo). Colada na borda (2px) por pedido do
-                Cleber. Recolhida por padrão (barra compacta SELL/BUY); expande pra
+                no canto superior esquerdo). 2px do topo, 2px à ESQUERDA da régua de
+                preços do eixo Y (não da borda do gráfico) — a klinecharts não expõe
+                a largura exata do eixo (varia com a quantidade de dígitos do preço),
+                então usa a mesma largura aproximada (80px) já calibrada no badge do
+                candle countdown logo abaixo ("colado na linha do preço"), +2px de
+                respiro. Recolhida por padrão (barra compacta SELL/BUY); expande pra
                 ficha completa por dentro do próprio componente. */}
-            <div className="absolute top-[2px] right-[2px] z-[75]">
+            <div className="absolute top-[2px] right-[82px] z-[75]">
               <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
             </div>
           </div>
