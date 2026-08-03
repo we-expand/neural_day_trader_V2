@@ -149,6 +149,49 @@ TradingView). Aparece na lista como "Estocástico Lento (Slow Stochastic)",
 categoria Momentum, logo abaixo do KDJ.
 **Alteração em `ChartView.tsx` — AINDA NÃO COMMITADA.**
 
+### 15. Posição manual fechava sozinha em ~20min mesmo sem SL definido e sem reversão real de preço — bug NOVO, diferente do #1
+Cleber reportou: abriu ordem manual de BTCUSD, foi almoçar, voltou e a posição
+tinha sumido sozinha. Suspeita inicial era o mesmo bug do item #1 (TP/SL=0
+fechando no primeiro tick), mas aquele fix (`ba443389d`) está correto e não
+cobria este caso. Diagnóstico via query direta no Supabase (`ai_trades`, projeto
+`wyvdsxtcmizettljxtbg`) achou o registro exato: `stop_loss: 0, take_profit: 0`,
+`entry_time` 15:27:06 UTC, `exit_time` 15:47:22 UTC (20min depois), `exit_reason:
+'SL'`, preço subiu só 0,14% (63688,91 → 63778,21, LONG, lucro +$0,89) — ou seja,
+fechou marcado como "stop atingido" sem nenhum stop definido e sem o preço ter
+revertido.
+
+**Causa raiz**: `stopLossMode: 'DINAMICO'` (trailing stop, **padrão do
+sistema** — não é opt-in) recalculava a distância original do stop a cada tick
+como `Math.abs(order.price - order.sl)` — mas `order.sl` é reescrito com o
+próprio stop já "andado" a cada tick do loop de P&L (`useApexLogic.ts`, roda a
+cada **1s**, não 5s como um comentário antigo no arquivo sugeria). Isso faz a
+"distância original" encolher a cada segundo em vez de ficar fixa, e o stop
+efetivo passa a acumular o ganho não-realizado **inteiro** a cada tick (não só
+o incremento desde o tick anterior) — uma progressão descontrolada que alcança
+o preço atual em minutos. Pra SL não definido (0), o ponto de partida da
+"distância" já nasce quebrado (vira o próprio preço de entrada), acelerando
+ainda mais. **Bug sistêmico, não só do caso SL=0**: a mesma matemática quebrada
+afeta qualquer posição em modo DINAMICO com SL real definido, só que a
+progressão é mais lenta a partir de uma distância inicial não-trivial —
+qualquer posição vencedora em DINAMICO está sujeita a fechar prematuramente
+por "stop fantasma", não só as sem SL.
+
+**Fix**: novo campo imutável `originalSl` em `TradeVisual` — gravado uma única
+vez na abertura da ordem (todos os pontos de criação: `openManualPosition`,
+entrada da IA, hidratação do Supabase, import de posições MT5), nunca
+reescrito pelo loop. A distância de trailing agora ancora nele em vez de
+`order.sl`. Guard adicional: trailing é pulado inteiro quando `originalSl` não
+é > 0 (SL nunca definido não deve gerar stop fantasma nenhum, por menor que
+seja). `npm run validate` (33+9+16+12 asserções) e `npm run build` passaram.
+**Alteração em `src/app/hooks/useApexLogic.ts` — AINDA NÃO COMMITADA.**
+
+**Não verificado visualmente** (mesma limitação de Browser pane bloqueado desta
+sessão inteira) — o fix corrige a matemática de forma demonstrável (distância
+agora fixa, não recalculada do valor mutado), mas não foi observado ao vivo
+uma posição sobrevivendo 20+min em modo DINAMICO depois do fix. Recomendo ao
+Cleber reabrir uma posição manual de teste (com e sem SL) e deixar aberta por
+30+ minutos pra confirmar na prática.
+
 ## Status do git — IMPORTANTE
 
 ```
@@ -164,14 +207,19 @@ git log (últimos commits, todos já pushados):
 git status (NÃO commitado ainda):
   M CLAUDE.md                                (ponteiro pra este handoff)
   M src/app/components/ChartView.tsx         (fix #14: Estocástico Lento novo)
-  ?? SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo)
+  M src/app/hooks/useApexLogic.ts            (fix #15: SL Dinâmico fantasma)
+  M dist/**                                  (rebuild do npm run build desta sessão — dist/ está versionado no repo, ver nota lateral abaixo)
+  M SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md  (este arquivo, item #15 adicionado)
 ```
 
 **Comando pendente pro Cleber rodar:**
 
 ```bash
-git add CLAUDE.md src/app/components/ChartView.tsx SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md
-git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs"
+git add src/app/hooks/useApexLogic.ts
+git commit -m "fix: SL Dinâmico fechava posição sozinha em minutos por progressão descontrolada da distância de trailing"
+
+git add CLAUDE.md src/app/components/ChartView.tsx SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md dist
+git commit -m "feat: Estocástico Lento na janela de indicadores; docs: handoff da sessão de P&L/contract specs + SL Dinâmico"
 git push
 ```
 

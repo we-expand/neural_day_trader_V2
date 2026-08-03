@@ -209,10 +209,21 @@ ignorado.
    ordem desabilitados que nunca disparavam clique sem preço carregado**
    (causa raiz de todo o padrão "clico e nada acontece"), e **`BTCUSDT`
    sendo o símbolo padrão pra usuário novo sem nunca ter existido no
-   catálogo de trading** (só `BTCUSD` existe). Praticamente tudo já
-   commitado e pushado (só a adição do Estocástico Lento na janela de
-   indicadores ficou pendente na última passada). Duas ferramentas novas e
-   permanentes: `scripts/audit-contract-specs.mjs` e
+   catálogo de trading** (só `BTCUSD` existe). **Atualização (2026-08-03,
+   mesmo dia): bug NOVO e mais grave encontrado** — `stopLossMode:
+   'DINAMICO'` (trailing stop, padrão do sistema, não opt-in) recalculava a
+   distância do stop a partir do próprio `order.sl` já mutado a cada tick
+   (1s), causando progressão descontrolada que fechava QUALQUER posição
+   vencedora (manual ou da IA, com ou sem SL definido) em minutos, sem o
+   preço ter revertido de verdade — confirmado via query direta no Supabase
+   numa posição real do Cleber (BTCUSD, fechada em 20min por "SL" com
+   `stop_loss: 0` no banco). Corrigido ancorando a distância num campo
+   imutável novo (`originalSl`, gravado uma vez na abertura, nunca
+   reescrito). `npm run validate` + `npm run build` passaram; **não
+   verificado visualmente** (Browser pane bloqueado de novo). Praticamente
+   tudo já commitado e pushado (só a adição do Estocástico Lento e este fix
+   do SL Dinâmico ficaram pendentes na última passada). Duas ferramentas
+   novas e permanentes: `scripts/audit-contract-specs.mjs` e
    `scripts/generate-missing-contract-specs.mjs`. Handoff completo com cada
    bug, arquivo:linha, o que está commitado vs pendente, e limitações da
    sessão (sem acesso visual ao navegador de novo):
