@@ -285,6 +285,7 @@ import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO:
 import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 import { analyzeSmc, type SmcZone } from '@/app/services/smc';
+import { OrderTicket } from '@/app/components/trading/OrderTicket';
 
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
@@ -6002,6 +6003,11 @@ export function ChartView({
           </div>
         </div>
         )}
+      </div>
+
+      {/* Boleta de ordem manual — ancorada à direita do gráfico */}
+      <div className="w-[320px] border-l border-white/10 shrink-0 hidden xl:block overflow-y-auto p-3">
+        <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
       </div>
 
       {/* Context Menu */}

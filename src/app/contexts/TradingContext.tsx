@@ -43,6 +43,15 @@ interface TradingContextType {
   resumeLogic: () => void;
   resetLogic: () => void;
   forceCloseAll: () => void;
+  openManualPosition: (params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => { success: boolean; error?: string; tradeId?: string };
+  closeManualPosition: (tradeId: string, currentPrice: number) => void;
   updateAIConfig: (config: Partial<AIConfig>) => void;
   connectToMT5: (credentials: any) => Promise<void>;
   disconnectFromMT5: () => void;
@@ -389,6 +398,8 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     resumeLogic: logic.resumeLogic,
     resetLogic: logic.resetLogic,
     forceCloseAll: logic.forceCloseAll,
+    openManualPosition: logic.openManualPosition,
+    closeManualPosition: logic.closeManualPosition,
     updateAIConfig: logic.updateAIConfig,
     connectToMT5: logic.connectToMT5,
     disconnectFromMT5: logic.disconnectFromMT5,
@@ -463,6 +474,8 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.resumeLogic,
     logic.resetLogic,
     logic.forceCloseAll,
+    logic.openManualPosition,
+    logic.closeManualPosition,
     logic.updateAIConfig,
     logic.connectToMT5,
     logic.disconnectFromMT5,

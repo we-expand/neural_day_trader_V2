@@ -12,6 +12,7 @@ import { MarketScoreEngine } from '@/app/services/MarketScoreEngine';
 import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { symbolMappingService } from '@/app/services/SymbolMappingService';
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector';
@@ -2442,6 +2443,108 @@ export function useApexLogic(
     addLog(`🚨 Todas as posições foram fechadas. P&L Total: $${totalRealizedPnL.toFixed(2)}`);
   }, [activeOrders, addLog]);
 
+  // === ORDEM MANUAL (boleta no gráfico) ===
+  // Mesmo caminho de abertura DEMO que a IA usa (TradeVisual + setActiveOrders +
+  // persistência), só que disparado pelo clique do usuário em vez do motor de
+  // decisão. `volume` chega em lotes (padrão da boleta); convertido para o
+  // `amount` em USD que o resto do motor espera — inverso exato de
+  // `amountToLotSize` (src/app/modules/tradeConfirmationStage/lotSizeConversion.ts).
+  const openManualPosition = useCallback((params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): { success: boolean; error?: string; tradeId?: string } => {
+    const asset = getAssetBySymbol(params.symbol);
+    if (!asset) {
+      return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
+    }
+    if (!(params.volume > 0) || !(params.entryPrice > 0)) {
+      return { success: false, error: 'Volume ou preço inválido' };
+    }
+
+    const amountUsd = params.volume * asset.lotSize * params.entryPrice;
+
+    if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      persistenceRef.current.startSession({
+        strategyName: 'Ordem Manual',
+        symbols: [params.symbol],
+        timeframe: configRef.current.timeframe || '1m',
+        initialBalance: portfolioRef.current.balance,
+        initialEquity: portfolioRef.current.equity,
+        config: configRef.current,
+      });
+    }
+
+    const newTrade: TradeVisual = {
+      id: `manual-${Date.now()}-${Math.random()}`,
+      symbol: params.symbol,
+      side: params.side,
+      amount: amountUsd,
+      price: params.entryPrice,
+      currentPrice: params.entryPrice,
+      tp: params.takeProfit ?? 0,
+      sl: params.stopLoss ?? 0,
+      leverage: asset.leverage || 1,
+      ai_confidence: 100,
+      timestamp: Date.now(),
+      reasoning: 'Ordem manual do usuário',
+      indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+    };
+
+    setActiveOrders(prev => [...prev, newTrade]);
+    addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s)`);
+
+    if (configRef.current.executionMode === 'DEMO') {
+      persistenceRef.current.onTradeOpen({
+        id: newTrade.id,
+        symbol: newTrade.symbol,
+        side: newTrade.side,
+        amount: newTrade.amount,
+        price: newTrade.price,
+        tp: newTrade.tp,
+        sl: newTrade.sl,
+        leverage: newTrade.leverage,
+        ai_confidence: newTrade.ai_confidence,
+        timestamp: newTrade.timestamp,
+        reasoning: newTrade.reasoning,
+        indicators: newTrade.indicators,
+      });
+    }
+
+    return { success: true, tradeId: newTrade.id };
+  }, [addLog]);
+
+  // Fechamento manual de uma posição DEMO específica (usada pela boleta/lista de posições).
+  const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
+    const order = activeOrdersRef.current.find(o => o.id === tradeId);
+    if (!order) return;
+
+    const tradePnL = calculatePnLWithLeverage(
+      order.symbol,
+      order.price,
+      currentPrice,
+      order.side,
+      order.amount,
+      order.leverage
+    );
+
+    if (configRef.current.executionMode === 'DEMO') {
+      persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+    }
+
+    setPortfolio(prev => ({
+      ...prev,
+      balance: prev.balance + tradePnL,
+      equity: prev.balance + tradePnL,
+    }));
+    setOrderHistory(prev => [...prev, { ...order, closedAt: Date.now() }]);
+    setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
+    addLog(`✅ Posição manual fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
+  }, [addLog]);
+
   // === UPDATE AI CONFIG ===
   const updateAIConfig = useCallback((config: Partial<AIConfig>) => {
     setAIConfig(prev => ({ ...prev, ...config }));
@@ -2682,6 +2785,8 @@ export function useApexLogic(
     resumeLogic,
     resetLogic,
     forceCloseAll,
+    openManualPosition,
+    closeManualPosition,
     updateAIConfig,
     connectToMT5,
     disconnectFromMT5,
