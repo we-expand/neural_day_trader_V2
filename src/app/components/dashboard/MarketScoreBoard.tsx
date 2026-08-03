@@ -1092,7 +1092,14 @@ export const MarketScoreBoard = () => {
                     {activeOrders.map((order) => {
                         const pnl = order.currentProfit || 0;
                         const pnlPercent = order.price > 0 ? ((order.currentPrice! - order.price) / order.price * 100) * (order.side === 'LONG' ? 1 : -1) : 0;
-                        
+                        // order.amount é o capital/exposição em USD alocado à posição
+                        // (TradeVisual.amount, ver comentário em lotSizeConversion.ts),
+                        // nunca uma contagem de lotes — antes essa contagem exibia esse
+                        // valor em dólar como se fosse "lotes" e ainda multiplicava por
+                        // preço de novo pro "Volume", inflando o número em milhões.
+                        const asset = getAssetBySymbol(order.symbol);
+                        const estimatedLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
+
                         return (
                             <div 
                                 key={order.id}
@@ -1138,11 +1145,11 @@ export const MarketScoreBoard = () => {
                                     </div>
                                     <div className="flex justify-between text-[10px]">
                                         <span className="text-neutral-500">Contratos:</span>
-                                        <span className="text-white font-mono font-bold">{order.amount.toFixed(2)} lotes</span>
+                                        <span className="text-white font-mono font-bold">{estimatedLots !== null ? `${estimatedLots.toFixed(4)} lotes` : '—'}</span>
                                     </div>
                                     <div className="flex justify-between text-[10px]">
-                                        <span className="text-neutral-500">Volume:</span>
-                                        <span className="text-neutral-300 font-mono">${(order.amount * order.price).toFixed(2)}</span>
+                                        <span className="text-neutral-500">Exposição:</span>
+                                        <span className="text-neutral-300 font-mono">${order.amount.toFixed(2)}</span>
                                     </div>
                                 </div>
 

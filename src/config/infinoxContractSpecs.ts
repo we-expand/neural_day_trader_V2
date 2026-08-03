@@ -336,6 +336,48 @@ export const INFINOX_CONTRACT_SPECS: Record<string, Partial<ContractSpec>> = {
   'ATOMUSD': { ...CRYPTO_STANDARD, minLotSize: 0.1, category: 'CRYPTO', description: 'Cosmos vs USD' },
   'DOGEUSDT': { tickSize: 0.00001, tickValue: 0.00001, pointValue: 1, contractSize: 1, currency: 'USD', minLotSize: 10, category: 'CRYPTO', description: 'Dogecoin vs USDT' },
 
+  // ⚠️ 2026-08-03: os símbolos abaixo existem em assetDatabase.ts (catálogo de
+  // preço/exibição) há várias sessões mas NUNCA tiveram entrada aqui —
+  // getContractSpec() caía no fallback genérico (tickSize 0.00001, formato
+  // forex de 5 casas), gerando P&L absurdo pra qualquer ativo cripto na faixa
+  // de preço de dezenas/milhares de dólares (bug real encontrado com BTCEUR:
+  // P&L de +$1.570 pra um movimento de -0,06% numa posição de $542 de
+  // exposição). Bucket escolhido por ORDEM DE GRANDEZA de preço típico
+  // (mesmo critério já usado nas linhas acima pra CRYPTO_STANDARD vs
+  // CRYPTO_CHEAP) — não é tick real calibrado por símbolo, é aproximação de
+  // categoria pra sair do fallback forex quebrado. Marcar como pendência se
+  // precisar de precisão de tick real por ativo.
+  'BTCEUR': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Bitcoin vs Euro' },
+  'BTCBNB': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Bitcoin vs Binance Coin' },
+  'BTCETH': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Bitcoin vs Ethereum' },
+  'BTCLTC': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Bitcoin vs Litecoin' },
+  'XETUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Ethereum (contrato XET) vs USD' },
+  'XETUSDCRP': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Ethereum (contrato XET, liquidação cripto) vs USD' },
+  'XBNUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Binance Coin (contrato XBN) vs USD' },
+  'XBNUSDCRP': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Binance Coin (contrato XBN, liquidação cripto) vs USD' },
+  'XLCUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Litecoin (contrato XLC) vs USD' },
+  'XLCUSDCRP': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Litecoin (contrato XLC, liquidação cripto) vs USD' },
+  'XETEUR': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Ethereum (contrato XET) vs Euro' },
+  'XETXBN': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Ethereum (contrato XET) vs Binance Coin (XBN)' },
+  'XETXLC': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Ethereum (contrato XET) vs Litecoin (XLC)' },
+  'FILUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Filecoin vs USD' },
+  'ETCUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Ethereum Classic vs USD' },
+  'NEARUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'NEAR Protocol vs USD' },
+  'ZECUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'Zcash vs USD' },
+  'NEOUSD': { ...CRYPTO_STANDARD, category: 'CRYPTO', description: 'NEO vs USD' },
+  'GRTUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'The Graph vs USD' },
+  'TRXUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'Tron vs USD' },
+  'SANDUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'The Sandbox vs USD' },
+  'ALGOUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'Algorand vs USD' },
+  'XTZUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'Tezos vs USD' },
+  'CRVUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'Curve DAO vs USD' },
+  'SUSHIUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'SushiSwap vs USD' },
+  'IOTAUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'IOTA vs USD' },
+  'ONEUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'Harmony vs USD' },
+  'INCUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'INC vs USD' },
+  'BATUSD': { ...CRYPTO_CHEAP, category: 'CRYPTO', description: 'Basic Attention Token vs USD' },
+  'SHIBUSD': { tickSize: 0.00001, tickValue: 0.00001, pointValue: 1, contractSize: 1, currency: 'USD', minLotSize: 10, category: 'CRYPTO', description: 'Shiba Inu vs USD' },
+
   // ============================================================
   // 📊 AÇÕES UK
   // ============================================================
