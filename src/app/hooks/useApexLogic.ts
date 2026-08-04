@@ -1062,11 +1062,19 @@ export function useApexLogic(
       // consistentemente abaixo do mínimo que o usuário definiu como aceitável.
       // Só avalia com uma amostra mínima de trades fechados, pra não pausar a IA
       // logo nos primeiros trades por puro acaso estatístico.
+      // 🔴 FIX 2026-08-04: usava `orderHistoryRef.current` inteiro (todo o
+      // histórico hidratado do Supabase, de qualquer sessão passada) em vez
+      // de `closedToday`/`dailyGateCutoff` como o gate de perda diária logo
+      // acima. Resultado: uma conta com >=10 trades perdedores de testes
+      // antigos ficava permanentemente em Safe Mode — a IA era desligada em
+      // até 5s a cada tentativa de ligar, sem nunca conseguir gerar trade
+      // novo pra recalcular a taxa (deadlock). Agora usa a mesma janela
+      // (reseta com `resetLogic`/virada de dia UTC), igual ao gate de perda.
       const MIN_SAMPLE_FOR_WIN_RATE_CHECK = 10;
-      const allClosedTrades = orderHistoryRef.current.filter(t => t.closedAt);
-      if (allClosedTrades.length >= MIN_SAMPLE_FOR_WIN_RATE_CHECK) {
-        const wins = allClosedTrades.filter(t => (t.currentProfit || 0) > 0).length;
-        const currentWinRate = (wins / allClosedTrades.length) * 100;
+      const winRateSample = closedToday;
+      if (winRateSample.length >= MIN_SAMPLE_FOR_WIN_RATE_CHECK) {
+        const wins = winRateSample.filter(t => (t.currentProfit || 0) > 0).length;
+        const currentWinRate = (wins / winRateSample.length) * 100;
         if (currentWinRate < configRef.current.minWinRate) {
           issues.push(`Taxa de acerto abaixo do mínimo: ${currentWinRate.toFixed(1)}% (mínimo ${configRef.current.minWinRate}%)`);
           console.log('[HEALTH CHECK] ⚠️ Taxa de acerto abaixo do mínimo:', currentWinRate.toFixed(1), '%');
