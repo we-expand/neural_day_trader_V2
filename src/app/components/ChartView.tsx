@@ -1394,6 +1394,13 @@ export function ChartView({
   // pra painel próprio); sem isso, removeIndicator(indicator.id) nunca casava com nada e
   // o "Remover" nunca tirava o desenho de verdade da tela (só mudava o estado da UI).
   const indicatorPaneIdRef = useRef<Record<string, string>>({});
+  // 🆕 Instâncias EXTRAS de um indicador (2ª, 3ª... clicada de novo no card já ativo),
+  // além da 1ª rastreada em `indicatorPaneIdRef` -- a klinecharts recusa 2 instâncias do
+  // MESMO nome no MESMO painel ("Duplicate indicators"), então cada clique extra cria um
+  // painel novo só pra ela. Ver `addGenericIndicatorInstance`. Limitação conhecida: essas
+  // instâncias extras não são salvas em Setup Favorito/Template (só a 1ª é) -- ficam só
+  // na sessão atual do gráfico.
+  const genericIndicatorExtraPaneIdsRef = useRef<Record<string, string[]>>({});
   // 🆕 Altura (em px) do painel de cada indicador que está em painel próprio (RSI/MACD/
   // Estocástico/etc, não sobreposto no preço) -- a klinecharts já permite arrastar a
   // divisória entre painéis pra redimensionar (dragEnabled é true por padrão na lib),
@@ -2561,6 +2568,16 @@ export function ChartView({
     // continuava desenhado no gráfico como órfão, mesmo com o estado React já limpo.
     chart.removeIndicator(paneId, indicator.klinechartsName);
     delete indicatorPaneIdRef.current[indicator.id];
+
+    // 🆕 Remove também qualquer instância extra criada por cliques repetidos no card
+    // (ver `addGenericIndicatorInstance`) -- lixeira sempre desliga TUDO daquele indicador.
+    const extraPaneIds = genericIndicatorExtraPaneIdsRef.current[indicator.id];
+    if (extraPaneIds) {
+      extraPaneIds.forEach(extraPaneId => {
+        try { chart.removeIndicator(extraPaneId, indicator.klinechartsName); } catch (_) {}
+      });
+      delete genericIndicatorExtraPaneIdsRef.current[indicator.id];
+    }
   };
 
   const createIndicatorInstance = (chart: any, indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
@@ -2589,6 +2606,78 @@ export function ChartView({
       // (ver ChartImp.prototype.createIndicator em node_modules/klinecharts/dist/index.esm.js)
       chart.createIndicator(config, true, { id: 'candle_pane' });
       indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
+    }
+  };
+
+  // 🆕 Clique no card/banner de uma média móvel (MA/EMA/SMA/WMA) no modal "Indicadores"
+  // -- pedido do Cleber: N cliques têm que inserir N médias distintas DIRETO no gráfico,
+  // sem abrir nenhum modal/editor (configuração fica pro clique direito no gráfico depois,
+  // se precisar). Pra média móvel isso é "mais uma linha" na mesma instância (klinecharts
+  // não aceita 2 instâncias do mesmo nome no mesmo painel — é assim que fica sobreposta
+  // no preço, como uma média de verdade). 1º clique usa o período default do indicador
+  // (ex. 20); cada clique seguinte usa período do anterior + 10, cor nova da paleta.
+  const addMALineDirect = (indicator: IndicatorConfig) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const wasActive = activeIndicators.has(indicator.id);
+    const current: MAUISettings = wasActive
+      ? getMASettings(indicator)
+      : { shift: 0, method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE', appliedPrice: 'CLOSE', lines: [] };
+    const nextColor = MA_LINE_COLOR_PALETTE[current.lines.length % MA_LINE_COLOR_PALETTE.length];
+    const lastPeriod = current.lines[current.lines.length - 1]?.period;
+    const newPeriod = lastPeriod !== undefined ? lastPeriod + 10 : (indicator.defaultParams?.[0] ?? 20);
+    const settings: MAUISettings = {
+      ...current,
+      lines: [...current.lines, { period: newPeriod, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
+    };
+    setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: settings }));
+    try {
+      if (wasActive) {
+        applyMASettingsToChart(chart, indicator, settings);
+      } else {
+        const placement = getIndicatorPlacement(indicator);
+        const config: any = { name: indicator.klinechartsName, id: indicator.id, ...buildMAChartConfig(indicator.klinechartsName, settings) };
+        if (placement === 'pane') {
+          chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
+          indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
+        } else {
+          chart.createIndicator(config, true, { id: 'candle_pane' });
+          indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
+        }
+        setActiveIndicators(prev => new Set(prev).add(indicator.id));
+      }
+    } catch (error) {
+      console.error('[ChartView] ❌ Erro adicionando linha de média móvel:', indicator.id, error);
+    }
+  };
+
+  // 🆕 Clique no card/banner de um indicador QUALQUER (RSI, MACD, ADX, etc, tudo que não
+  // é média móvel) já ativo -- mesmo pedido acima, mas indicadores comuns não têm o truque
+  // de "várias linhas" (só existe pra MA/EMA/SMA/WMA). A única forma de ter uma 2ª
+  // instância do mesmo indicador visível ao mesmo tempo, respeitando o limite real da
+  // klinecharts ("Duplicate indicators" pra 2 instâncias do mesmo nome no MESMO painel),
+  // é cada clique extra criar um painel novo só pra ela. Sempre "painel abaixo" mesmo pra
+  // indicador que normalmente fica sobreposto no preço -- overlay de verdade exige o
+  // truque de linhas, que só existe pra médias móveis.
+  const addGenericIndicatorInstance = (indicator: IndicatorConfig) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const wasActive = activeIndicators.has(indicator.id);
+    try {
+      if (!wasActive) {
+        createIndicatorInstance(chart, indicator, getIndicatorPlacement(indicator));
+        setActiveIndicators(prev => new Set(prev).add(indicator.id));
+        return;
+      }
+      const params = getIndicatorParams(indicator);
+      const config: any = { name: indicator.klinechartsName, id: indicator.id };
+      if (params.length > 0) config.calcParams = params;
+      const extraIds = genericIndicatorExtraPaneIdsRef.current[indicator.id] ?? [];
+      const newPaneId = `pane_${indicator.id}_extra_${extraIds.length + 2}`;
+      chart.createIndicator(config, false, { id: newPaneId });
+      genericIndicatorExtraPaneIdsRef.current[indicator.id] = [...extraIds, newPaneId];
+    } catch (error) {
+      console.error('[ChartView] ❌ Erro adicionando instância extra do indicador:', indicator.id, error);
     }
   };
 
@@ -6580,23 +6669,21 @@ export function ChartView({
                 <div className="text-xs font-medium text-gray-400 mb-2">ATIVOS ({activeIndicators.size})</div>
                 <div className="space-y-1">
                   {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => {
-                    const hasParams = (indicator.defaultParams?.length ?? 0) > 0;
                     return (
                     <div
                       key={indicator.id}
                       className="flex items-center justify-between p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs"
                     >
-                      {/* 🆕 Clicar no próprio nome (não só na engrenagem, escondida demais)
-                          insere direto outra linha (outra média, no caso das MA/EMA/SMA/WMA)
-                          e abre o editor já com ela pronta pra ajustar período/cor. Pedido do
-                          Cleber: precisava ser o clique óbvio "quero mais uma média", não só
-                          abrir o editor da que já existe (editar o período dela e salvar
-                          SUBSTITUÍA a média, nunca duplicava). */}
+                      {/* 🆕 Clicar no próprio nome insere OUTRA instância direto no gráfico, sem
+                          abrir modal nenhum -- pedido explícito do Cleber: N cliques = N
+                          indicadores distintos, configuração fica pro clique direito no gráfico
+                          depois, se precisar. MA/EMA/SMA/WMA vira nova linha na mesma instância
+                          (sobreposta no preço); os demais ganham painel próprio a cada clique
+                          extra (ver addMALineDirect/addGenericIndicatorInstance). */}
                       <button
-                        onClick={() => hasParams && (isMovingAverageIndicator(indicator) ? openMAEditor(indicator, true) : openIndicatorEditor(indicator))}
-                        disabled={!hasParams}
-                        title={hasParams ? (isMovingAverageIndicator(indicator) ? 'Adicionar outra linha' : 'Editar parâmetros') : undefined}
-                        className={`text-blue-400 font-medium text-left flex-1 ${hasParams ? 'hover:text-blue-300 cursor-pointer' : 'cursor-default'}`}
+                        onClick={() => (isMovingAverageIndicator(indicator) ? addMALineDirect(indicator) : addGenericIndicatorInstance(indicator))}
+                        title={isMovingAverageIndicator(indicator) ? 'Adicionar outra média' : 'Adicionar outra instância'}
+                        className="text-blue-400 font-medium text-left flex-1 hover:text-blue-300 cursor-pointer"
                       >
                         {indicator.name.split(' - ')[0]}
                       </button>
@@ -6633,20 +6720,13 @@ export function ChartView({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      {/* 🆕 Card já ativo com parâmetro editável -- clicar de novo insere direto
-                          outra linha (pras MA/EMA/SMA/WMA, é literalmente "quero mais uma
-                          média") e abre o editor já com ela, em vez de desligar o indicador ou
-                          só abrir o editor da linha existente sem tocar nela. Antes só a
-                          engrenagem minúscula fazia algo parecido e passava despercebida --
-                          pedido do Cleber pra ficar mais óbvio. Desligar agora é só pela
-                          lixeira. Card inativo continua ligando normal. */}
+                      {/* 🆕 Clicar no card sempre INSERE uma instância nova direto no gráfico,
+                          sem abrir modal -- pedido explícito do Cleber: N cliques = N
+                          indicadores distintos (1º clique liga, cada clique seguinte soma mais
+                          um). Configuração fica pro clique direito no gráfico depois, se
+                          precisar. Desligar tudo é só pela lixeira. */}
                       <button
-                        onClick={() => {
-                          if (!isActive) { toggleIndicator(indicator); return; }
-                          if ((indicator.defaultParams?.length ?? 0) > 0) {
-                            isMovingAverageIndicator(indicator) ? openMAEditor(indicator, true) : openIndicatorEditor(indicator);
-                          }
-                        }}
+                        onClick={() => (isMovingAverageIndicator(indicator) ? addMALineDirect(indicator) : addGenericIndicatorInstance(indicator))}
                         className="flex-1 flex flex-col items-start text-left min-w-0"
                       >
                         <span className={`text-sm font-medium ${isActive ? 'text-blue-300' : 'text-white'}`}>
