@@ -9,6 +9,7 @@ import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
 import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { backtestDataService } from '@/app/services/BacktestDataService';
 import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine';
+import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
 import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { symbolMappingService } from '@/app/services/SymbolMappingService';
@@ -74,6 +75,7 @@ import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, ev
 import { computeLiveCorrelationGuard } from '../services/risk/LiveCorrelationGuard'; // Componente 3 do cérebro de execução (correlação real, RISK_MODULE_SPEC.md 3.5)
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
+import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase 0 do redesenho do cérebro: instrumentação do funil de decisão
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -145,6 +147,16 @@ export interface TradeVisual {
   // distância de trailing faz ela encolher a cada tick, e o "stop" persegue o
   // preço até fechar a posição sozinha mesmo sem reversão real de mercado.
   originalSl: number;
+  // 🆕 2026-08-04: contador real de quantas vezes o trailing stop DINAMICO
+  // avançou esta posição (widget "ATR Trailing Stop" — antes mostrava
+  // números hardcoded). Só runtime/UI, não persistido no Supabase.
+  trailMoves?: number;
+  // 🆕 2026-08-04: pyramiding real (widget "Pyramiding System" — antes 100%
+  // decorativo, sem lógica nenhuma no motor). `pyramidGroupId` = id da
+  // posição ORIGINAL da pilha (undefined = trade normal, fora de pyramiding).
+  // `pyramidLayer` = 1 pra posição original, 2+ pras entradas adicionadas.
+  pyramidGroupId?: string;
+  pyramidLayer?: number;
   leverage: number;
   ai_confidence: number;
   timestamp: number;
@@ -257,6 +269,25 @@ export interface AIConfig {
   correlationGuardEnabled: boolean;
   correlationThreshold: number; // 0-1, acima disso reduz o tamanho da nova posição
   killSwitchThreshold?: number; // % perda que ativa kill-switch automático (ex: 10.0)
+
+  // 🆕 2026-08-04 (implementação real do widget "ATR Trailing Stop" — antes
+  // era 100% decorativo, card com número hardcoded e mock data explícito no
+  // componente, achado da auditoria de config). Distância de trailing real
+  // (ATR do próprio ativo/timeframe operado, mesmo `calculateATR` usado no
+  // resto do motor) em vez da distância fixa da entrada. Só ativo quando
+  // stopLossMode === 'DINAMICO' (mesmo toggle de sempre).
+  atrTrailingPeriod: number; // período do ATR pro trailing (padrão 14)
+  atrTrailingMultiplier: number; // distância do stop = ATR × este multiplicador (padrão 2.0)
+
+  // 🆕 2026-08-04: Pyramiding real (widget "Pyramiding System" — antes 100%
+  // decorativo). Núcleo implementado: maxLayers, scalingStrategy
+  // fixed/reduced/exponential, entryDistanceType percent/pips/atr,
+  // breakEven, emergencyStop. NÃO implementado nesta passada (ver
+  // PyramidingConfigPanel.tsx e comentário em useApexLogic.ts onde é lido):
+  // scalingStrategy fibonacci/smart-ai, entryDistanceType ai-dynamic,
+  // aiRiskAnalysisEnabled e seus sub-campos, partialTakeProfit,
+  // closeAllOnReversal — desabilitados na UI, nunca fingem funcionar.
+  pyramiding: PyramidingConfig;
 
   // 🆕 2026-07-31 (correção de achado do Bloco E, research/AI_COGNITIVE_SPEC.md):
   // cooldown curto entre avaliações de trade (2s em vez do padrão 5s) é OPT-IN
@@ -424,6 +455,9 @@ const INITIAL_STATE: ApexLogicState = {
     correlationThreshold: 0.7,
     killSwitchThreshold: 0, // 0 = desativado por padrão; pode ser setado pelo usuário (ex: 10% de perda)
     aggressiveModeEnabled: false, // opt-in explícito — padrão é o cooldown normal (5s), risco assumido só se o usuário ligar
+    atrTrailingPeriod: 14,
+    atrTrailingMultiplier: 2.0,
+    pyramiding: DEFAULT_PYRAMIDING_CONFIG,
   },
   mt5Credentials: null,
   executionMode: 'DEMO',
@@ -467,6 +501,22 @@ export function useApexLogic(
   // precisam de histórico, não só do preço tick a tick). Renovado a cada 60s por
   // símbolo pra não bater a API a cada ciclo de 5s.
   const candleBufferRef = useRef<Map<string, { candles: import('../services/indicators/TechnicalIndicators').Candle[]; fetchedAt: number }>>(new Map());
+
+  // 🆕 2026-08-04: ATR real e recente (< 5min) pro símbolo, buscando no MESMO
+  // cache de candles do ciclo de análise (sem chamada de rede extra). Usado
+  // pelo trailing DINAMICO e pelo Pyramiding (entryDistanceType 'atr'). Sem
+  // candle fresco pro símbolo, retorna null — nunca fabrica um ATR.
+  const getFreshAtr = (symbol: string, period: number): number | null => {
+    for (const [bufKey, bufEntry] of candleBufferRef.current) {
+      if (bufKey.startsWith(`${symbol}_`) && Date.now() - bufEntry.fetchedAt < 5 * 60_000) {
+        const atrSeries = calculateATR(bufEntry.candles, period);
+        const lastAtr = atrSeries[atrSeries.length - 1];
+        return lastAtr && lastAtr > 0 ? lastAtr : null;
+      }
+    }
+    return null;
+  };
+
   // Gerenciamento de Risco: timestamp (ms) até quando novas entradas ficam bloqueadas por cooldown
   const cooldownUntilRef = useRef<number>(0);
   // === STATE MANAGEMENT ===
@@ -1116,6 +1166,17 @@ export function useApexLogic(
     return () => clearInterval(interval);
   }, [isConnectedToMT5]);
 
+  // === TELEMETRIA DE FUNIL: desligamento ===
+  // Efeito PRÓPRIO, separado do loop de trading de propósito. O useEffect do
+  // loop tem `activeOrders.length` nas dependências, então ele remonta a cada
+  // abertura/fechamento de posição — parar a telemetria no cleanup dele
+  // descarregaria janelas pela metade e picotaria o funil em fragmentos.
+  // Aqui só reage ao que de fato significa "a IA parou".
+  useEffect(() => {
+    if (!isActive) funnelTelemetry.stop();
+    return () => { funnelTelemetry.stop(); };
+  }, [isActive]);
+
   // === SAFE MODE GUARDIAN (Check before ANY trade) ===
   useEffect(() => {
     console.log(`[TRADING] 📊 Status: isActive=${isActive}, isPaused=${isPaused}, isSafeMode=${isSafeMode}`);
@@ -1199,9 +1260,20 @@ export function useApexLogic(
     const tradingInterval = setInterval(() => {
       console.log(`[AI LOOP] 🔄 Verificando oportunidades... (Posições: ${activeOrders.length}/${aiConfig.maxPositions})`);
 
+      // 📊 Telemetria de funil (Fase 0, 2026-08-04): marca que o tick realmente
+      // disparou. É esta contagem que distingue "IA parada porque a aba está em
+      // segundo plano" de "IA rodando e sendo vetada" — em 2026-08-04 essa
+      // pergunta ficou 4h40 sem resposta possível.
+      const telemetrySessionId = persistenceRef.current.getSessionId();
+      if (telemetrySessionId && user?.id) {
+        funnelTelemetry.start(telemetrySessionId, user.id);
+      }
+      funnelTelemetry.recordTick();
+
       // Check if we can trade
       if (activeOrders.length >= aiConfig.maxPositions) {
         console.log(`[AI LOOP] ⏸️ Máximo de posições atingido (${aiConfig.maxPositions})`);
+        funnelTelemetry.recordStage('TICK_MAX_POSITIONS');
         return; // Max positions reached
       }
 
@@ -1217,6 +1289,7 @@ export function useApexLogic(
         const highImpactNearby = cachedNewsEventsRef.current.some(e => e.impact === 'high' && Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS);
         if (highImpactNearby) {
           console.log('[NEWS FILTER] 🚫 Evento de alto impacto próximo - pulando ciclo');
+          funnelTelemetry.recordStage('TICK_NEWS_BLACKOUT');
           return;
         }
       }
@@ -1244,6 +1317,7 @@ export function useApexLogic(
       if (timeSinceLastTrade < COOLDOWN_MS && lastTradeTimestampRef.current > 0) {
         const remainingSeconds = Math.floor((COOLDOWN_MS - timeSinceLastTrade) / 1000);
         console.log(`[COOLDOWN] ⏳ Aguardando ${remainingSeconds}s antes do próximo trade`);
+        funnelTelemetry.recordStage('TICK_COOLDOWN');
         return;
       }
       
@@ -1264,6 +1338,7 @@ export function useApexLogic(
       const userAssets = aiConfig.activeAssets || [];
       if (userAssets.length === 0) {
         console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado em "Universo de Ativos" - pulando ciclo`);
+        funnelTelemetry.recordStage('TICK_NO_ASSETS_CONFIGURED');
         return;
       }
 
@@ -1293,6 +1368,7 @@ export function useApexLogic(
 
       if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
         console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário foi reconhecido no catálogo (config: ${userAssets.join(', ')}) - pulando ciclo`);
+        funnelTelemetry.recordStage('TICK_NO_ASSET_IN_CATALOG', undefined, userAssets.join(', '));
         return;
       }
 
@@ -1343,6 +1419,8 @@ export function useApexLogic(
       // 🚫 ANTI-REPETIÇÃO: NÃO pode fazer 2 trades seguidos no mesmo ativo
       if (lastTradedSymbolRef.current === selectedSymbol) {
         console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${selectedSymbol}. Aguardando outro ativo...`);
+        funnelTelemetry.recordEvaluation();
+        funnelTelemetry.recordStage('ASSET_ANTI_REPEAT', selectedSymbol);
         continue;
       }
 
@@ -1352,6 +1430,8 @@ export function useApexLogic(
       if (existingPositionOnAsset) {
         // Já existe posição neste ativo, NÃO abrir nova posição (previne hedging)
         console.log(`[ANTI-HEDGING] ⚠️ Bloqueado: Já existe posição ${existingPositionOnAsset.side} em ${selectedSymbol}`);
+        funnelTelemetry.recordEvaluation();
+        funnelTelemetry.recordStage('ASSET_ALREADY_OPEN', selectedSymbol);
         continue;
       }
 
@@ -1360,6 +1440,8 @@ export function useApexLogic(
       if (uniqueAssets.size >= aiConfig.maxAssets) {
         // Já atingiu o máximo de ativos diferentes
         console.log(`[ASSET LIMIT] ⚠️ Bloqueado: Máximo de ${aiConfig.maxAssets} ativos diferentes atingido`);
+        funnelTelemetry.recordEvaluation();
+        funnelTelemetry.recordStage('ASSET_MAX_DISTINCT', selectedSymbol);
         continue;
       }
 
@@ -1368,7 +1450,8 @@ export function useApexLogic(
       (async () => {
         try {
           console.log(`[TRADING] 🔍 Analisando ${selectedSymbol} (buscando dados reais)...`);
-          
+          funnelTelemetry.recordEvaluation();
+
           let priceData = null;
           
           // 🚀 OTIMIZAÇÃO #4: Tentar WebSocket primeiro (TEMPO REAL - 100ms!)
@@ -1430,6 +1513,7 @@ export function useApexLogic(
             // (mesmo em treino) sobre postura de mercado que não é real.
             if (!marketData.isRealData) {
               console.warn(`[TRADING] ⚠️ ${selectedSymbol}: sem dado de mercado real neste ciclo, pulando análise de entrada.`);
+              funnelTelemetry.recordStage('DATA_NOT_REAL', selectedSymbol, `fonte=${marketData.source}`);
               const now = Date.now();
               if (now - lastStaleDataWarningAtRef.current > 60000) {
                 lastStaleDataWarningAtRef.current = now;
@@ -1475,6 +1559,7 @@ export function useApexLogic(
           const activeStrategy = strategiesRef.current.find(s => s.id === aiConfig.activeStrategyId);
           if (!activeStrategy) {
             console.log(`[ESTRATÉGIA] 🚫 Nenhuma estratégia ativa selecionada - pulando ciclo`);
+            funnelTelemetry.recordStage('NO_ACTIVE_STRATEGY', selectedSymbol);
             return;
           }
 
@@ -1501,6 +1586,7 @@ export function useApexLogic(
               candleBufferRef.current.set(bufferKey, bufferEntry);
             } catch (error) {
               console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} (${opTimeframe}) agora, pulando ciclo`, error);
+              funnelTelemetry.recordStage('CANDLES_FETCH_FAILED', selectedSymbol, `${opTimeframe}: ${error instanceof Error ? error.message : String(error)}`);
               return;
             }
           }
@@ -1508,12 +1594,14 @@ export function useApexLogic(
           const candles = bufferEntry.candles;
           if (candles.length < 30) {
             console.log(`[ESTRATÉGIA] ⏸️ Histórico insuficiente de ${selectedSymbol} (${candles.length} candles) - pulando ciclo`);
+            funnelTelemetry.recordStage('CANDLES_INSUFFICIENT', selectedSymbol, `${candles.length} candles`);
             return;
           }
 
           const strategySignal = evaluateStrategyAt(activeStrategy, candles, candles.length - 1);
           if (!strategySignal.signal) {
             console.log(`[ESTRATÉGIA] ⏸️ "${activeStrategy.name}" sem sinal em ${selectedSymbol} agora`);
+            funnelTelemetry.recordStage('NO_SIGNAL', selectedSymbol, strategySignal.reasons[0] ?? activeStrategy.name);
             return;
           }
 
@@ -1529,6 +1617,7 @@ export function useApexLogic(
           // VALIDAÇÃO FINAL DE CONFIANÇA
           if (confidenceScore < MIN_CONFIDENCE) {
             console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
+            funnelTelemetry.recordStage('STRATEGY_CONFIDENCE_LOW', selectedSymbol, `${confidenceScore}% < ${MIN_CONFIDENCE}%`);
             return;
           }
 
@@ -1620,6 +1709,7 @@ export function useApexLogic(
           // bate com a direção permitida - mais seguro e ainda respeita 100% a config.
           if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
             console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
+            funnelTelemetry.recordStage('CONFIG_DIRECTION', selectedSymbol, `setup ${side}, travado em ${aiConfig.direction}`);
             return;
           }
 
@@ -2255,6 +2345,12 @@ export function useApexLogic(
             });
           }
           
+          // 📊 Único terminal de SUCESSO do funil. Registrado aqui, de forma
+          // síncrona, e não junto do saveDecision de entrada aprovada — aquele
+          // roda dentro do `.then()` do onTradeOpen e cairia numa janela de
+          // telemetria posterior, quebrando o fechamento do funil.
+          funnelTelemetry.recordStage('ENTRY_EXECUTED', selectedSymbol, `${side} @ ${currentPrice} | ${strategyName}`);
+
           // 🔔 Toast de notificação para o usuário
           toastOriginal.success(`${side === 'LONG' ? '🟢' : '🔴'} ENTRADA ${side}`, {
             description: `${selectedSymbol} @ $${currentPrice.toFixed(2)} | Confiança: ${confidenceScore}% | ${strategyName}`,
@@ -2263,6 +2359,7 @@ export function useApexLogic(
           
         } catch (error) {
           console.error('[TRADING] ❌ Erro crítico na análise:', error);
+          funnelTelemetry.recordStage('ANALYSIS_ERROR', selectedSymbol, error instanceof Error ? error.message : String(error));
         }
       })();
       } // fecha o for de ASSETS_PER_TICK (batch de ativos analisados neste tick)
@@ -2347,15 +2444,31 @@ export function useApexLogic(
                 // pular o trailing inteiro quando não há SL real definido (0 = sem
                 // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
+                let trailMoved = false;
                 if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
+                  // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
+                  // (mesmo `calculateATR` do resto do motor), não mais fixa na distância
+                  // de entrada — é o que o widget "ATR Trailing Stop" da UI sempre
+                  // anunciou fazer, mas nunca fazia de fato (achado da auditoria de
+                  // config: card com número hardcoded, ATRTrailingStopManager.tsx com
+                  // mock data explícito). Busca no MESMO cache de candles (60s) já
+                  // mantido pelo ciclo de análise — sem chamada de rede extra aqui. Só
+                  // usa ATR real e recente (< 5min); sem candle fresco pro símbolo,
+                  // cai pro fallback antigo (distância fixa da entrada) — nunca
+                  // fabrica um ATR.
+                  const freshAtr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
+                  const atrDistance = freshAtr !== null ? freshAtr * configRef.current.atrTrailingMultiplier : null;
+
                   const originalSlDistance = Math.abs(order.price - order.originalSl);
+                  const trailDistance = atrDistance ?? originalSlDistance;
                   const trailedSl = order.side === 'LONG'
-                    ? nextPrice - originalSlDistance
-                    : nextPrice + originalSlDistance;
+                    ? nextPrice - trailDistance
+                    : nextPrice + trailDistance;
 
                   effectiveSl = order.side === 'LONG'
                     ? Math.max(order.sl, trailedSl)
                     : Math.min(order.sl, trailedSl);
+                  trailMoved = effectiveSl !== order.sl;
                 }
 
                 // ✅ LOG DE DEBUG (apenas para primeira iteração)
@@ -2404,6 +2517,7 @@ export function useApexLogic(
                         sl: effectiveSl,
                         currentPrice: nextPrice,
                         currentProfit: pnl, // ✅ CRITICAL: Update profit for UI display
+                        trailMoves: trailMoved ? (order.trailMoves || 0) + 1 : order.trailMoves, // 🆕 contador real pro widget ATR Trailing Stop
                     });
                 }
             });
@@ -2759,6 +2873,143 @@ export function useApexLogic(
 
     return { success: true, tradeId: newTrade.id };
   }, [addLog]);
+
+  // === PYRAMIDING SYSTEM (núcleo real — ver comentário em aiConfig.pyramiding) ===
+  // 🆕 2026-08-04: widget antes 100% decorativo (achado da auditoria de config
+  // — card com números hardcoded, "Detalhes" abria modal vazio, zero lógica no
+  // motor). Implementado aqui: maxLayers, scalingStrategy fixed/reduced/
+  // exponential, entryDistanceType percent/pips/atr (ATR real via
+  // `getFreshAtr`), break-even real, stop de emergência real. Opt-in
+  // (`aiConfig.pyramiding.enabled`, default false) e só em modo DEMO nesta
+  // primeira passada — LIVE fica pra quando isso passar pelo mesmo rigor da
+  // ponte de execução (research/AI_BRAIN_SPEC.md 9.1). scalingStrategy
+  // fibonacci/smart-ai e entryDistanceType ai-dynamic NÃO estão implementados
+  // — o loop abaixo simplesmente não adiciona layer nesses casos, nunca
+  // fabrica um número, e a UI (PyramidingConfigPanel.tsx) desabilita essas
+  // opções pra não sugerir que funcionam.
+  const pyramidStateRef = useRef<Map<string, { layers: number; lastLayerPrice: number; breakEvenApplied: boolean }>>(new Map());
+
+  useEffect(() => {
+    if (!isActive || isPaused || isSafeMode) return;
+
+    const interval = setInterval(() => {
+      const cfg = configRef.current.pyramiding;
+      if (!cfg?.enabled || configRef.current.executionMode !== 'DEMO') return;
+
+      const orders = activeOrdersRef.current;
+
+      // Adição de novos layers — só a posição ORIGINAL de cada grupo (sem
+      // pyramidGroupId) dispara, nunca um layer adicionando em cima de outro.
+      for (const order of orders) {
+        if (order.pyramidGroupId) continue; // já é um layer, não a raiz do grupo
+        if (activeOrdersRef.current.length >= configRef.current.maxPositions) break;
+
+        let state = pyramidStateRef.current.get(order.id);
+        if (!state) {
+          state = { layers: 1, lastLayerPrice: order.price, breakEvenApplied: false };
+          pyramidStateRef.current.set(order.id, state);
+        }
+        if (state.layers >= cfg.maxLayers) continue;
+
+        const currentPrice = order.currentPrice || order.price;
+        const favorableMove = order.side === 'LONG' ? currentPrice - state.lastLayerPrice : state.lastLayerPrice - currentPrice;
+        if (favorableMove <= 0) continue; // só empilha a favor do trade, nunca contra
+
+        let requiredDistance: number | null = null;
+        if (cfg.entryDistanceType === 'percent') {
+          requiredDistance = state.lastLayerPrice * (cfg.entryDistance / 100);
+        } else if (cfg.entryDistanceType === 'pips') {
+          requiredDistance = cfg.entryDistance * getPointValue(order.symbol);
+        } else if (cfg.entryDistanceType === 'atr') {
+          const atr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
+          requiredDistance = atr !== null ? atr * cfg.atrMultiplier : null;
+        }
+        // entryDistanceType 'ai-dynamic' (não implementado) ou ATR indisponível: requiredDistance fica null, nunca adiciona.
+        if (requiredDistance === null || requiredDistance <= 0 || favorableMove < requiredDistance) continue;
+
+        let sizeMultiplierForLayer: number;
+        if (cfg.scalingStrategy === 'fixed') {
+          sizeMultiplierForLayer = 1;
+        } else if (cfg.scalingStrategy === 'reduced' || cfg.scalingStrategy === 'exponential') {
+          sizeMultiplierForLayer = Math.pow(cfg.sizeMultiplier, state.layers);
+        } else {
+          continue; // 'fibonacci' / 'smart-ai': não implementado nesta passada
+        }
+
+        const asset = getAssetBySymbol(order.symbol);
+        if (!asset) continue;
+        const originalVolumeLots = order.amount / (asset.lotSize * order.price);
+        const newVolumeLots = originalVolumeLots * sizeMultiplierForLayer;
+        const newAmountUsd = newVolumeLots * asset.lotSize * currentPrice;
+        if (!(newVolumeLots > 0)) continue;
+        // 🔒 Trava de segurança: nunca comprometer mais de 50% do saldo atual num único layer.
+        if (newAmountUsd > portfolioRef.current.balance * 0.5) continue;
+
+        const slDistance = order.originalSl > 0 ? Math.abs(order.price - order.originalSl) : 0;
+        const tpDistance = order.tp > 0 ? Math.abs(order.tp - order.price) : 0;
+        const newSl = slDistance > 0 ? (order.side === 'LONG' ? currentPrice - slDistance : currentPrice + slDistance) : undefined;
+        const newTp = tpDistance > 0 ? (order.side === 'LONG' ? currentPrice + tpDistance : currentPrice - tpDistance) : undefined;
+
+        const result = openManualPosition({
+          symbol: order.symbol,
+          side: order.side,
+          volume: newVolumeLots,
+          entryPrice: currentPrice,
+          stopLoss: newSl,
+          takeProfit: newTp,
+        });
+
+        if (result.success && result.tradeId) {
+          state.layers += 1;
+          state.lastLayerPrice = currentPrice;
+          const layerNumber = state.layers;
+          const groupId = order.id;
+          const tradeId = result.tradeId;
+          setActiveOrders(prev => prev.map(o => o.id === tradeId
+            ? { ...o, pyramidGroupId: groupId, pyramidLayer: layerNumber, reasoning: `Pyramiding layer ${layerNumber}/${cfg.maxLayers} de ${order.symbol}` }
+            : o));
+          addLog(`📐 PYRAMIDING: layer ${layerNumber}/${cfg.maxLayers} adicionado em ${order.symbol} @ $${currentPrice.toFixed(2)}`);
+
+          if (cfg.breakEvenEnabled && !state.breakEvenApplied && state.layers >= cfg.breakEvenAfterLayers) {
+            state.breakEvenApplied = true;
+            setActiveOrders(prev => prev.map(o => o.id === groupId
+              ? { ...o, sl: o.price, originalSl: o.price }
+              : o));
+            addLog(`🛡️ PYRAMIDING: break-even aplicado em ${order.symbol} (${state.layers} layers)`);
+          }
+        }
+      }
+
+      // Stop de emergência real por grupo — soma P&L não-realizado de todas as
+      // camadas contra o capital comprometido nelas; se ultrapassar o limite,
+      // move o SL de cada camada pro preço atual, deixando o loop de P&L
+      // (já rodando) fechar de verdade no próximo tick pelo caminho normal de
+      // SL — sem duplicar lógica de fechamento/persistência aqui.
+      if (cfg.emergencyStopEnabled) {
+        const groups = new Map<string, TradeVisual[]>();
+        for (const order of activeOrdersRef.current) {
+          const key = order.pyramidGroupId ?? order.id;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(order);
+        }
+        for (const [key, group] of groups) {
+          if (group.length < 2) continue; // sem layers adicionados, não é pyramid de fato
+          const totalAmount = group.reduce((s, o) => s + o.amount, 0);
+          const totalPnl = group.reduce((s, o) => s + (o.currentProfit || 0), 0);
+          const pnlPercent = totalAmount > 0 ? (totalPnl / totalAmount) * 100 : 0;
+          if (pnlPercent <= -cfg.emergencyStopLossPercent) {
+            setActiveOrders(prev => prev.map(o => (o.pyramidGroupId === key || o.id === key)
+              ? { ...o, sl: o.currentPrice || o.price }
+              : o));
+            addLog(`🚨 PYRAMIDING EMERGENCY STOP: grupo em ${group[0].symbol} a ${pnlPercent.toFixed(1)}% — fechando todas as camadas`);
+            pyramidStateRef.current.delete(key);
+          }
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isActive, isPaused, isSafeMode, addLog, openManualPosition]);
 
   // Ordem pendente DEMO (limit/stop) — validação de direção igual à que o
   // MetaAPI faria do lado real: limit de compra só abaixo do preço atual,

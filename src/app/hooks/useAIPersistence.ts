@@ -8,6 +8,37 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { aiPersistence, AISession, AITrade, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { funnelTelemetry, FunnelStage } from '@/app/services/telemetry/FunnelTelemetry';
+
+/**
+ * Tradução veto de negócio (`ai_decisions.veto_stage`) → estágio de funil
+ * (`ai_funnel_snapshots.stage_counts`). Vive aqui, no ponto ÚNICO por onde todo
+ * veto passa, em vez de espalhada por 15 chamadas no motor: qualquer gate novo
+ * que grave decisão entra no funil automaticamente, sem depender de alguém
+ * lembrar de instrumentar. Foi exatamente esse "lembrar de instrumentar" que
+ * falhou e deixou 12 dos 27 pontos de saída invisíveis até 2026-08-04.
+ *
+ * Duas tabelas porque medem coisas diferentes: `ai_decisions` guarda a decisão
+ * individual auditável (com razão em texto, score, indicadores); o funil guarda
+ * só a CONTAGEM agregada, que é o que responde "onde os setups morrem".
+ */
+const VETO_TO_FUNNEL_STAGE: Record<DecisionVetoStage, FunnelStage> = {
+  CONTEXT_SCORE_OPPOSITE: 'SCORE_OPPOSITE',
+  CONTEXT_SCORE_LATERAL: 'SCORE_LATERAL',
+  CONTEXT_CONFIDENCE: 'COMBINED_CONFIDENCE_LOW',
+  CONTEXT_GATE: 'CONTEXT_GATE',
+  CONFIG_DIRECTION: 'CONFIG_DIRECTION',
+  COST_GATE: 'COST_GATE',
+  COST_GATE_NO_DATA: 'COST_GATE_NO_DATA',
+  RISK_GATE: 'RISK_GATE',
+  KILL_SWITCH: 'KILL_SWITCH',
+  COOLDOWN: 'COOLDOWN_GATE',
+  MAX_TRADES_PER_DAY: 'MAX_TRADES_PER_DAY',
+  REVENGE_PATTERN: 'REVENGE_PATTERN',
+  CORRELATION_GUARD: 'CORRELATION_GUARD',
+  MARKET_MODE_REGIME_MISMATCH: 'MARKET_MODE_MISMATCH',
+  MARKET_MODE_COUNTER_NO_EXTREME: 'MARKET_MODE_MISMATCH',
+};
 
 interface UseAIPersistenceOptions {
   enabled: boolean; // Se persistência está ativada
@@ -344,6 +375,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     vetoStage?: DecisionVetoStage;
     tradeId?: string;
   }) => {
+    // 📊 Funil ANTES do guard de sessão: um veto continua sendo um veto mesmo
+    // quando a persistência está desligada ou a sessão ainda não subiu. Se a
+    // contagem dependesse do mesmo `return` do INSERT, o funil não fecharia
+    // justamente nos casos em que o banco está indisponível — que é quando
+    // saber onde os setups morrem importa mais.
+    if (decision.vetoStage) {
+      funnelTelemetry.recordStage(
+        VETO_TO_FUNNEL_STAGE[decision.vetoStage],
+        decision.symbol,
+        decision.reasoning,
+      );
+    }
+
     if (!sessionIdRef.current || !user?.id || !options.enabled) return;
 
     try {
@@ -427,6 +471,14 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     endSession,
     restoreActiveSession,
     currentSessionId: sessionIdRef.current,
+    /**
+     * Leitura AO VIVO do id da sessão (lê o ref, não o snapshot de render).
+     * `currentSessionId` acima congela no valor do último render — dentro do
+     * setInterval do motor (useApexLogic) isso devolve o valor de quando o
+     * loop foi montado, tipicamente `null`, porque a sessão só é criada
+     * depois. Quem roda dentro do loop precisa desta função, não do campo.
+     */
+    getSessionId: () => sessionIdRef.current,
     
     // Trades
     onTradeOpen,
