@@ -100,10 +100,20 @@ interface MAExtendData {
   shift: number;
 }
 
-const registerMovingAverageIndicator = (name: string, defaultMethod: MAMethod) => {
+// 🆕 `registeredName` é o nome único que a klinecharts usa pra identificar a instância
+// (chave de `IndicatorStore.addInstance`/`removeInstance`/`overrideIndicator`, sempre
+// por `ins.name === name` dentro do MESMO painel -- ver node_modules/klinecharts/dist/
+// index.esm.js:4181). `displayName` é só o texto mostrado na legenda ("MA(20): ").
+// Registrar VARIANTES do mesmo motor sob nomes diferentes (MA, MA__2, MA__3...) é o que
+// permite ter N instâncias de MA de verdade sobrepostas no MESMO painel de preço, cada
+// uma com sua própria linha na legenda (e seu próprio ⚙/✕) -- sem isso só dava pra ter
+// UMA instância por painel, e "N cliques = N médias" virava "N cliques = N linhas
+// dentro da MESMA instância", sem gear individual por média (achado do Cleber: as
+// médias apareciam no gráfico mas só existia uma engrenagem pra todas juntas).
+const registerMovingAverageIndicator = (registeredName: string, displayName: string, defaultMethod: MAMethod) => {
   registerIndicator<number>({
-    name,
-    shortName: name,
+    name: registeredName,
+    shortName: displayName,
     series: 'price' as any,
     precision: 2,
     calcParams: [20],
@@ -112,10 +122,10 @@ const registerMovingAverageIndicator = (name: string, defaultMethod: MAMethod) =
     // uma linha própria, chave `ma{i}`. `figures` estático não dá conta de um número
     // variável de linhas; `regenerateFigures` é o mecanismo que a própria klinecharts
     // usa pra indicadores desse tipo (MACD/BOLL), chamado toda vez que calcParams muda.
-    figures: [{ key: 'ma0', title: `${name}: `, type: 'line' }],
+    figures: [{ key: 'ma0', title: `${displayName}: `, type: 'line' }],
     regenerateFigures: (calcParams: any[]) => {
       const periods = (calcParams as number[]).length > 0 ? (calcParams as number[]) : [20];
-      return periods.map((period, i) => ({ key: `ma${i}`, title: `${name}(${period}): `, type: 'line' }));
+      return periods.map((period, i) => ({ key: `ma${i}`, title: `${displayName}(${period}): `, type: 'line' }));
     },
     calc: (dataList, indicator) => {
       const periods = ((indicator.calcParams as number[]).length > 0 ? (indicator.calcParams as number[]) : [20]);
@@ -140,14 +150,32 @@ const registerMovingAverageIndicator = (name: string, defaultMethod: MAMethod) =
   });
 };
 
+// Nº máximo de instâncias simultâneas do mesmo tipo de média que dá pra empilhar no
+// gráfico clicando repetido no card -- cada uma precisa de um `name` registrado próprio
+// (ver comentário acima), então o teto é o nº de variantes registradas abaixo.
+export const MA_MAX_INSTANCES = 6;
+// registeredName -> { baseName, variantIndex } pra `isMovingAverageIndicator`/lookups
+// conseguirem reconhecer tanto o nome base ('MA') quanto as variantes ('MA__2') como
+// médias móveis de verdade.
+const MA_VARIANT_KLINECHARTS_NAME = (baseKlinechartsName: string, variantIndex: number): string =>
+  variantIndex === 0 ? baseKlinechartsName : `${baseKlinechartsName}__${variantIndex + 1}`;
+
 // 🆕 Indicadores customizados reais (WMA/ATR/Donchian/Pivot Points não existem nos
 // built-ins do klinecharts — antes o app tentava criá-los mesmo assim, o que falhava
 // silenciosamente (createIndicator loga um warning e retorna null, sem desenhar nada),
 // deixando o toggle marcado como "ativo" na UI sem nenhum efeito real no gráfico.
-registerMovingAverageIndicator('MA', 'SIMPLE');
-registerMovingAverageIndicator('SMA', 'SIMPLE');
-registerMovingAverageIndicator('EMA', 'EXPONENTIAL');
-registerMovingAverageIndicator('WMA', 'LINEAR_WEIGHTED');
+(
+  [
+    ['MA', 'SIMPLE'],
+    ['SMA', 'SIMPLE'],
+    ['EMA', 'EXPONENTIAL'],
+    ['WMA', 'LINEAR_WEIGHTED']
+  ] as Array<[string, MAMethod]>
+).forEach(([baseName, method]) => {
+  for (let variantIndex = 0; variantIndex < MA_MAX_INSTANCES; variantIndex++) {
+    registerMovingAverageIndicator(MA_VARIANT_KLINECHARTS_NAME(baseName, variantIndex), baseName, method);
+  }
+});
 
 if (!isIndicatorRegistered('ATR')) {
   registerIndicator<number>({
@@ -1401,6 +1429,17 @@ export function ChartView({
   // instâncias extras não são salvas em Setup Favorito/Template (só a 1ª é) -- ficam só
   // na sessão atual do gráfico.
   const genericIndicatorExtraPaneIdsRef = useRef<Record<string, string[]>>({});
+  // 🆕 Instâncias reais de MÉDIA MÓVEL por indicador base (ex: 'ma' -> [instância 1,
+  // instância 2, ...]) -- cada uma é registrada na klinecharts sob um `name` PRÓPRIO
+  // (ver MA_VARIANT_KLINECHARTS_NAME/registerMovingAverageIndicator), então cada uma
+  // ganha sua própria linha/gear/✕ na legenda nativa do gráfico, em vez de todas
+  // dividirem uma engrenagem só (achado do Cleber: médias apareciam mas só existia 1
+  // engrenagem pra todas). A 1ª instância (variantIndex 0) usa `instanceId ===
+  // indicator.id` -- mantém compatibilidade com todo código antigo que já lia/gravava
+  // por `indicator.id` (templates, indicatorPaneIdRef, activeIndicators).
+  const maInstancesRef = useRef<Record<string, Array<{ instanceId: string; klinechartsName: string; paneId: string }>>>({});
+  const findMAInstance = (baseId: string, instanceId: string) =>
+    (maInstancesRef.current[baseId] ?? []).find(inst => inst.instanceId === instanceId);
   // 🆕 Altura (em px) do painel de cada indicador que está em painel próprio (RSI/MACD/
   // Estocástico/etc, não sobreposto no preço) -- a klinecharts já permite arrastar a
   // divisória entre painéis pra redimensionar (dragEnabled é true por padrão na lib),
@@ -2430,8 +2469,10 @@ export function ChartView({
   useEffect(() => {
     indicatorMASettingsRef.current = indicatorMASettings;
   }, [indicatorMASettings]);
-  const getMASettings = (indicator: IndicatorConfig): MAUISettings =>
-    indicatorMASettingsRef.current[indicator.id] ?? {
+  // 🆕 `instanceId` default = `indicator.id` -- mantém todo caller antigo (que só
+  // conhece o indicador base, nunca uma instância extra) funcionando sem mudança.
+  const getMASettings = (indicator: IndicatorConfig, instanceId: string = indicator.id): MAUISettings =>
+    indicatorMASettingsRef.current[instanceId] ?? {
       shift: 0,
       method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
       appliedPrice: 'CLOSE',
@@ -2458,13 +2499,18 @@ export function ChartView({
     }
   });
 
-  const applyMASettingsToChart = (chart: any, indicator: IndicatorConfig, settings: MAUISettings) => {
-    const paneId = indicatorPaneIdRef.current[indicator.id];
+  const applyMASettingsToChart = (chart: any, indicator: IndicatorConfig, settings: MAUISettings, instanceId: string = indicator.id) => {
+    // 🆕 Instância extra (variantIndex > 0) tem `name`/`paneId` PRÓPRIOS, rastreados em
+    // `maInstancesRef` -- não dá pra assumir `indicator.klinechartsName`/
+    // `indicatorPaneIdRef` (esses só valem pra 1ª instância, ver `addMALineDirect`).
+    const instance = findMAInstance(indicator.id, instanceId);
+    const paneId = instance?.paneId ?? indicatorPaneIdRef.current[indicator.id];
+    const klinechartsName = instance?.klinechartsName ?? indicator.klinechartsName;
     if (!chart || !paneId) return;
-    chart.overrideIndicator(buildMAChartConfig(indicator.klinechartsName, settings), paneId);
+    chart.overrideIndicator(buildMAChartConfig(klinechartsName, settings), paneId);
   };
 
-  const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; settings: MAUISettings } | null>(null);
+  const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; instanceId: string; settings: MAUISettings } | null>(null);
 
   // 🆕 `addLine`: usado quando o clique veio do banner/card do indicador JÁ ATIVO no
   // modal "Indicadores" -- pedido explícito do Cleber: clicar ali deve INSERIR outra
@@ -2474,16 +2520,18 @@ export function ChartView({
   // usuário via a média antiga "sumir" do gráfico, porque ela realmente tinha sido
   // editada, não duplicada. A engrenagem do menu de botão direito continua abrindo só
   // pra editar (addLine=false), sem surpresa pra quem clica ali de propósito pra ajustar
-  // a linha existente.
-  const openMAEditor = (indicator: IndicatorConfig, addLine: boolean = false) => {
-    const current = getMASettings(indicator);
+  // a linha existente. `instanceId` identifica QUAL das N instâncias desse indicador
+  // está sendo editada -- default = a 1ª (`indicator.id`), mas o gear nativo da legenda
+  // do gráfico (ver `onTooltipIconClick`) passa a instância exata clicada.
+  const openMAEditor = (indicator: IndicatorConfig, addLine: boolean = false, instanceId: string = indicator.id) => {
+    const current = getMASettings(indicator, instanceId);
     let lines = current.lines.map(l => ({ ...l }));
     if (addLine) {
       const nextColor = MA_LINE_COLOR_PALETTE[lines.length % MA_LINE_COLOR_PALETTE.length];
       const lastPeriod = lines[lines.length - 1]?.period ?? 20;
       lines = [...lines, { period: lastPeriod + 10, color: nextColor, lineStyle: 'solid', lineWidth: 1 }];
     }
-    setMaEditor({ indicator, settings: { ...current, lines } });
+    setMaEditor({ indicator, instanceId, settings: { ...current, lines } });
   };
 
   const addMAEditorLine = () => {
@@ -2514,7 +2562,7 @@ export function ChartView({
 
   const saveMAEditor = () => {
     if (!maEditor) return;
-    const { indicator, settings } = maEditor;
+    const { indicator, instanceId, settings } = maEditor;
     if (settings.lines.length === 0) {
       toast.error('Adicione ao menos uma linha');
       return;
@@ -2527,11 +2575,13 @@ export function ChartView({
       toast.error('Deslocar precisa ser um número válido');
       return;
     }
-    setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: settings }));
+    indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [instanceId]: settings };
+    setIndicatorMASettings(prev => ({ ...prev, [instanceId]: settings }));
     const chart = chartInstanceRef.current;
-    if (chart && activeIndicators.has(indicator.id)) {
+    const isActive = instanceId === indicator.id ? activeIndicators.has(indicator.id) : !!findMAInstance(indicator.id, instanceId);
+    if (chart && isActive) {
       try {
-        applyMASettingsToChart(chart, indicator, settings);
+        applyMASettingsToChart(chart, indicator, settings, instanceId);
       } catch (error) {
         console.error('[ChartView] ❌ Error updating moving average settings:', error);
       }
@@ -2590,6 +2640,28 @@ export function ChartView({
       });
       delete genericIndicatorExtraPaneIdsRef.current[indicator.id];
     }
+
+    // 🆕 Remove também TODAS as instâncias extras de média móvel (2ª, 3ª... clicadas em
+    // "Adicionar outra média") -- cada uma tem `name` registrado próprio (MA__2, MA__3...),
+    // então precisa do `removeIndicator(paneId, klinechartsName)` de CADA uma, não só do
+    // nome base. A 1ª instância (variantIndex 0) já foi removida acima via
+    // `indicator.klinechartsName` -- filtra pra não tentar de novo.
+    const maInstances = maInstancesRef.current[indicator.id];
+    if (maInstances) {
+      const removedInstanceIds = maInstances.map(inst => inst.instanceId);
+      maInstances.forEach(inst => {
+        if (inst.instanceId === indicator.id) return;
+        try { chart.removeIndicator(inst.paneId, inst.klinechartsName); } catch (_) {}
+      });
+      delete maInstancesRef.current[indicator.id];
+      removedInstanceIds.forEach(id => { delete indicatorMASettingsRef.current[id]; });
+      setIndicatorMASettings(prev => {
+        const next = { ...prev };
+        removedInstanceIds.forEach(id => { delete next[id]; });
+        return next;
+      });
+    }
+    delete indicatorMASettingsRef.current[indicator.id];
   };
 
   const createIndicatorInstance = (chart: any, indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
@@ -2609,70 +2681,121 @@ export function ChartView({
         config.calcParams = params;
       }
     }
+    let resolvedPaneId: string;
     if (placement === 'pane') {
-      chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
-      indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
+      resolvedPaneId = `pane_${indicator.id}`;
+      chart.createIndicator(config, false, { id: resolvedPaneId });
     } else {
       // paneOptions.id precisa apontar pro pane existente (candle_pane) -- sem isso,
       // createIndicator faz getDrawPaneById('') = null e cai no ramo de criar um pane NOVO
       // (ver ChartImp.prototype.createIndicator em node_modules/klinecharts/dist/index.esm.js)
-      chart.createIndicator(config, true, { id: 'candle_pane' });
-      indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
+      resolvedPaneId = 'candle_pane';
+      chart.createIndicator(config, true, { id: resolvedPaneId });
+    }
+    indicatorPaneIdRef.current[indicator.id] = resolvedPaneId;
+    if (isMovingAverageIndicator(indicator)) {
+      // 🆕 Registra esta como a instância 0 (variantIndex 0, `name` = klinechartsName
+      // base) em `maInstancesRef` -- sem isso, um clique subsequente em "Adicionar outra
+      // média" não saberia que já existe 1 instância e tentaria criar OUTRA sob o
+      // mesmo `name` base, batendo em "Duplicate indicators" na klinecharts.
+      maInstancesRef.current = {
+        ...maInstancesRef.current,
+        [indicator.id]: [{ instanceId: indicator.id, klinechartsName: indicator.klinechartsName, paneId: resolvedPaneId }]
+      };
     }
   };
 
   // 🆕 Clique no card/banner de uma média móvel (MA/EMA/SMA/WMA) no modal "Indicadores"
-  // -- pedido do Cleber: N cliques têm que inserir N médias distintas DIRETO no gráfico,
-  // sem abrir nenhum modal/editor (configuração fica pro clique direito no gráfico depois,
-  // se precisar). Pra média móvel isso é "mais uma linha" na mesma instância (klinecharts
-  // não aceita 2 instâncias do mesmo nome no mesmo painel — é assim que fica sobreposta
-  // no preço, como uma média de verdade). 1º clique usa o período default do indicador
-  // (ex. 20); cada clique seguinte usa período do anterior + 10, cor nova da paleta.
+  // -- pedido do Cleber: N cliques têm que inserir N médias DISTINTAS DE VERDADE no
+  // gráfico, cada uma com sua PRÓPRIA engrenagem/✕ na legenda nativa (achado do Cleber:
+  // a versão anterior empilhava tudo numa instância só -- N linhas dentro de UMA
+  // engrenagem, não N engrenagens). Cada clique cria uma instância nova, registrada sob
+  // um `name` variante próprio (MA, MA__2, MA__3... -- ver MA_VARIANT_KLINECHARTS_NAME),
+  // sempre no MESMO painel (overlay no preço ou painel próprio, conforme o indicador),
+  // porque `name`s diferentes não colidem na trava "Duplicate indicators" da klinecharts
+  // mesmo estando no mesmo painel. 1º clique usa o período default do indicador (ex.
+  // 20); cada clique seguinte usa período do anterior + 10, cor nova da paleta.
   const addMALineDirect = (indicator: IndicatorConfig) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
-    // 🐛 FIX: `wasActive` tinha que vir de algo síncrono. `activeIndicators.has(...)` é
-    // state do React -- em uma rajada de cliques no mesmo tick, o 2º/3º/4º clique ainda
-    // enxergavam `wasActive = false` (o `setActiveIndicators` do 1º clique não tinha
-    // sido aplicado ainda), cada um tentava `chart.createIndicator` de novo pro MESMO
-    // nome no MESMO painel -- a klinecharts recusa 2 instâncias do mesmo nome no mesmo
-    // painel ("Duplicate indicators", ver IndicatorStore.addInstance em
-    // node_modules/klinecharts/dist/index.esm.js:4181) e o erro era engolido pelo catch
-    // abaixo, então só a 1ª linha de fato entrava apesar de N cliques.
-    // `indicatorPaneIdRef` é uma ref, sempre atualizada de forma síncrona no clique que
-    // criou a instância -- é a fonte de verdade correta aqui.
-    const wasActive = indicatorPaneIdRef.current[indicator.id] !== undefined;
-    const current: MAUISettings = wasActive
-      ? getMASettings(indicator)
-      : { shift: 0, method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE', appliedPrice: 'CLOSE', lines: [] };
-    const nextColor = MA_LINE_COLOR_PALETTE[current.lines.length % MA_LINE_COLOR_PALETTE.length];
-    const lastPeriod = current.lines[current.lines.length - 1]?.period;
+    // 🐛 FIX histórico: `wasActive`/contagem de instância tinha que vir de algo síncrono.
+    // `activeIndicators` é state do React -- numa rajada de cliques no mesmo tick, cada
+    // clique enxergava o state de ANTES do clique anterior ser aplicado. `maInstancesRef`
+    // é uma ref, atualizada de forma síncrona a cada clique -- fonte de verdade correta.
+    const existing = maInstancesRef.current[indicator.id] ?? [];
+    if (existing.length >= MA_MAX_INSTANCES) {
+      toast.error(`Máximo de ${MA_MAX_INSTANCES} instâncias de ${indicator.name.split(' - ')[0]} no gráfico`);
+      return;
+    }
+    const variantIndex = existing.length;
+    const instanceId = variantIndex === 0 ? indicator.id : `${indicator.id}__${variantIndex + 1}`;
+    const variantKlinechartsName = MA_VARIANT_KLINECHARTS_NAME(indicator.klinechartsName, variantIndex);
+    const nextColor = MA_LINE_COLOR_PALETTE[variantIndex % MA_LINE_COLOR_PALETTE.length];
+    const lastInstance = existing[existing.length - 1];
+    const lastPeriod = lastInstance
+      ? indicatorMASettingsRef.current[lastInstance.instanceId]?.lines.slice(-1)[0]?.period
+      : undefined;
     const newPeriod = lastPeriod !== undefined ? lastPeriod + 10 : (indicator.defaultParams?.[0] ?? 20);
     const settings: MAUISettings = {
-      ...current,
-      lines: [...current.lines, { period: newPeriod, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
+      shift: 0,
+      method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
+      appliedPrice: 'CLOSE',
+      lines: [{ period: newPeriod, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
     };
     // Atualiza a ref de forma SÍNCRONA (fonte de verdade pro próximo clique da rajada);
     // o `setState` continua disparado só pra re-renderizar UI (badge, editor).
-    indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [indicator.id]: settings };
-    setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: settings }));
+    indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [instanceId]: settings };
+    setIndicatorMASettings(prev => ({ ...prev, [instanceId]: settings }));
     try {
-      if (wasActive) {
-        applyMASettingsToChart(chart, indicator, settings);
+      const placement = getIndicatorPlacement(indicator);
+      const config: any = { name: variantKlinechartsName, id: instanceId, ...buildMAChartConfig(variantKlinechartsName, settings) };
+      let paneId: string;
+      if (placement === 'pane') {
+        paneId = variantIndex === 0 ? `pane_${indicator.id}` : `pane_${indicator.id}_extra_${variantIndex + 1}`;
+        chart.createIndicator(config, false, { id: paneId });
       } else {
-        const placement = getIndicatorPlacement(indicator);
-        const config: any = { name: indicator.klinechartsName, id: indicator.id, ...buildMAChartConfig(indicator.klinechartsName, settings) };
-        if (placement === 'pane') {
-          chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
-          indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
-        } else {
-          chart.createIndicator(config, true, { id: 'candle_pane' });
-          indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
-        }
+        paneId = 'candle_pane';
+        chart.createIndicator(config, true, { id: paneId });
+      }
+      maInstancesRef.current = {
+        ...maInstancesRef.current,
+        [indicator.id]: [...existing, { instanceId, klinechartsName: variantKlinechartsName, paneId }]
+      };
+      if (variantIndex === 0) {
+        indicatorPaneIdRef.current[indicator.id] = paneId;
         setActiveIndicators(prev => new Set(prev).add(indicator.id));
       }
     } catch (error) {
-      console.error('[ChartView] ❌ Erro adicionando linha de média móvel:', indicator.id, error);
+      console.error('[ChartView] ❌ Erro adicionando instância de média móvel:', indicator.id, error);
+    }
+  };
+
+  // 🆕 Remove UMA instância específica de média móvel (✕ da legenda nativa de uma
+  // variante, ex: MA__2) sem mexer nas outras instâncias do mesmo indicador. Se for a
+  // ÚLTIMA instância restante, desliga o indicador por completo (`activeIndicators`).
+  const removeMAInstance = (indicator: IndicatorConfig, instanceId: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const instances = maInstancesRef.current[indicator.id] ?? [];
+    const target = instances.find(inst => inst.instanceId === instanceId);
+    if (!target) return;
+    try { chart.removeIndicator(target.paneId, target.klinechartsName); } catch (_) {}
+    const remaining = instances.filter(inst => inst.instanceId !== instanceId);
+    maInstancesRef.current = { ...maInstancesRef.current, [indicator.id]: remaining };
+    delete indicatorMASettingsRef.current[instanceId];
+    setIndicatorMASettings(prev => {
+      const next = { ...prev };
+      delete next[instanceId];
+      return next;
+    });
+    if (remaining.length === 0) {
+      delete indicatorPaneIdRef.current[indicator.id];
+      delete maInstancesRef.current[indicator.id];
+      setActiveIndicators(prev => {
+        const next = new Set(prev);
+        next.delete(indicator.id);
+        return next;
+      });
     }
   };
 
@@ -2901,6 +3024,12 @@ export function ChartView({
         setActiveIndicators(prev => new Set(prev).add(indicator.id));
         return;
       }
+      // ⚠️ Limitação conhecida (mesmo padrão já aceito pras instâncias extras de
+      // indicador genérico, ver `genericIndicatorExtraPaneIdsRef`): reposicionar remove
+      // TODAS as instâncias de média móvel desse indicador (`removeIndicatorInstance`
+      // limpa `maInstancesRef` inteiro), mas `createIndicatorInstance` só recria a 1ª.
+      // Instâncias extras (2ª, 3ª... de "Adicionar outra média") não sobrevivem a uma
+      // troca de "No gráfico"/"Painel abaixo" -- caso raro, não tratado por ora.
       removeIndicatorInstance(chart, indicator);
       createIndicatorInstance(chart, indicator, placement);
     } catch (error) {
@@ -2925,6 +3054,10 @@ export function ChartView({
   const openIndicatorEditorRef = useRef(openIndicatorEditor);
   useEffect(() => {
     openIndicatorEditorRef.current = openIndicatorEditor;
+  });
+  const removeMAInstanceRef = useRef(removeMAInstance);
+  useEffect(() => {
+    removeMAInstanceRef.current = removeMAInstance;
   });
 
   // 🆕 FILTRAR INDICADORES POR CATEGORIA E BUSCA
@@ -4716,6 +4849,23 @@ export function ChartView({
       // gráfico, sem precisar abrir o modal de Indicadores nem o antigo box flutuante.
       // data = { paneId, indicatorName (nome real na klinecharts, ex: 'RSI'), iconId }.
       chart.subscribeAction('onTooltipIconClick', (data: any) => {
+        // 🆕 Primeiro tenta achar como INSTÂNCIA de média móvel (`name` variante, ex:
+        // MA__2) -- cada instância tem sua própria linha na legenda com seu próprio
+        // ⚙/✕ (ver `addMALineDirect`/`maInstancesRef`), então precisa resolver qual
+        // instância exata foi clicada antes de cair no fallback abaixo (que só conhece
+        // a 1ª instância de cada indicador, via `indicatorPaneIdRef`).
+        for (const ind of INDICATORS) {
+          if (!isMovingAverageIndicator(ind)) continue;
+          const instances = maInstancesRef.current[ind.id] ?? [];
+          const found = instances.find(inst => inst.klinechartsName === data?.indicatorName && inst.paneId === data?.paneId);
+          if (!found) continue;
+          if (data.iconId === 'remove') {
+            removeMAInstanceRef.current(ind, found.instanceId);
+          } else if (data.iconId === 'settings') {
+            openMAEditorRef.current(ind, false, found.instanceId);
+          }
+          return;
+        }
         const matched = INDICATORS.find(
           (ind) => ind.klinechartsName === data?.indicatorName && indicatorPaneIdRef.current[ind.id] === data?.paneId
         );
