@@ -6550,37 +6550,37 @@ export function ChartView({
               <div className="px-3 py-2 border-b border-gray-800 shrink-0">
                 <div className="text-xs font-medium text-gray-400 mb-2">ATIVOS ({activeIndicators.size})</div>
                 <div className="space-y-1">
-                  {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
+                  {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => {
+                    const hasParams = (indicator.defaultParams?.length ?? 0) > 0;
+                    return (
                     <div
                       key={indicator.id}
                       className="flex items-center justify-between p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs"
                     >
-                      <span className="text-blue-400 font-medium">{indicator.name.split(' - ')[0]}</span>
+                      {/* 🆕 Clicar no próprio nome (não só na engrenagem, escondida demais)
+                          abre direto o editor -- pra MA/EMA/SMA/WMA é onde fica "+ Adicionar
+                          linha" pra colocar uma 2ª média com outro período. Pedido do Cleber:
+                          a engrenagem sozinha não era intuitiva o suficiente. */}
+                      <button
+                        onClick={() => hasParams && (isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator))}
+                        disabled={!hasParams}
+                        title={hasParams ? (isMovingAverageIndicator(indicator) ? 'Editar / adicionar linha' : 'Editar parâmetros') : undefined}
+                        className={`text-blue-400 font-medium text-left flex-1 ${hasParams ? 'hover:text-blue-300 cursor-pointer' : 'cursor-default'}`}
+                      >
+                        {indicator.name.split(' - ')[0]}
+                      </button>
                       <div className="flex items-center gap-1">
-                        {/* 🆕 Sem isso, quem adiciona uma média móvel por AQUI (o modal
-                            "Indicadores", diferente do menu de botão direito) não tinha
-                            nenhum jeito de achar "+ Adicionar linha" pra colocar uma 2ª
-                            média com outro período -- só dava pra editar clicando com o
-                            botão direito no gráfico, o que não é óbvio. */}
-                        {(indicator.defaultParams?.length ?? 0) > 0 && (
-                          <button
-                            onClick={() => (isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator))}
-                            title={isMovingAverageIndicator(indicator) ? 'Editar / adicionar linha' : 'Editar parâmetros'}
-                            className="text-blue-300 hover:text-blue-200 transition-colors"
-                          >
-                            <Settings className="w-3 h-3" />
-                          </button>
-                        )}
                         <button
                           onClick={() => toggleIndicator(indicator)}
                           title="Remover indicador"
-                          className="text-red-400 hover:text-red-300 transition-colors"
+                          className="text-red-400 hover:text-red-300 transition-colors shrink-0"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -6602,8 +6602,18 @@ export function ChartView({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
+                      {/* 🆕 Card já ativo com parâmetro editável (ex: médias móveis) -- clicar
+                          no próprio card abre o editor (onde fica "+ Adicionar linha" pras MA)
+                          em vez de desligar o indicador. Antes só a engrenagem minúscula fazia
+                          isso e passava despercebida -- pedido do Cleber pra ficar mais óbvio.
+                          Desligar agora é só pela lixeira. Card inativo continua ligando normal. */}
                       <button
-                        onClick={() => toggleIndicator(indicator)}
+                        onClick={() => {
+                          if (!isActive) { toggleIndicator(indicator); return; }
+                          if ((indicator.defaultParams?.length ?? 0) > 0) {
+                            isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
+                          }
+                        }}
                         className="flex-1 flex flex-col items-start text-left min-w-0"
                       >
                         <span className={`text-sm font-medium ${isActive ? 'text-blue-300' : 'text-white'}`}>
@@ -6611,15 +6621,6 @@ export function ChartView({
                         </span>
                         <span className="text-xs text-gray-500 truncate w-full">{indicator.description}</span>
                       </button>
-                      {isActive && (indicator.defaultParams?.length ?? 0) > 0 && (
-                        <button
-                          onClick={() => (isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator))}
-                          title={isMovingAverageIndicator(indicator) ? 'Editar / adicionar linha' : 'Editar parâmetros'}
-                          className="p-1.5 rounded-md text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 transition-colors shrink-0"
-                        >
-                          <Settings className="w-4 h-4" />
-                        </button>
-                      )}
                       {isActive && (
                         <button
                           onClick={() => toggleIndicator(indicator)}
