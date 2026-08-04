@@ -8,7 +8,7 @@ import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
 import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { backtestDataService } from '@/app/services/BacktestDataService';
-import { MarketScoreEngine } from '@/app/services/MarketScoreEngine';
+import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine';
 import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { symbolMappingService } from '@/app/services/SymbolMappingService';
@@ -1531,9 +1531,11 @@ export function useApexLogic(
           // a falta de confirmação do Score.
           const LATERAL_CONFIDENCE_PENALTY = 15;
           let scoreConfidence: number | null = null;
+          let computedRegime: MarketRegime | null = null; // reaproveitado pelo gate de marketMode logo abaixo
           try {
             const scoreResult = await MarketScoreEngine.compute(selectedSymbol, opTimeframe);
             if (scoreResult.provenance !== 'unavailable') {
+              computedRegime = scoreResult.regime;
               const expectedClassification = side === 'LONG' ? 'COMPRADOR' : 'VENDEDOR';
               const opposite = side === 'LONG' ? 'VENDEDOR' : 'COMPRADOR';
               if (scoreResult.classification === opposite) {
@@ -1589,6 +1591,51 @@ export function useApexLogic(
           if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
             console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
             return;
+          }
+
+          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode (TREND/RANGE/COUNTER/SCALP).
+          // Antes só SCALP tinha efeito real (aperta TP/SL) — TREND/RANGE/COUNTER
+          // eram selecionáveis na UI mas idênticos entre si no motor (achado da
+          // auditoria de 2026-08-04). Isso não é reivindicação de edge novo — é
+          // só a config existente passando a filtrar o setup pelo REGIME real já
+          // calculado pelo Market Score (`scoreResult.regime`, ADX + Bollinger,
+          // mesmo dado que o Dashboard mostra) e pelo RSI real do ativo, em vez de
+          // ser cosmética. Só filtra quando há regime calculado (`provenance`
+          // disponível) — sem dado real, não bloqueia por suposição.
+          if ((aiConfig.marketMode === 'TREND' || aiConfig.marketMode === 'RANGE') && computedRegime !== null) {
+            const wantsTrend = aiConfig.marketMode === 'TREND';
+            const regimeMatches = wantsTrend
+              ? computedRegime === 'TENDENCIA'
+              : computedRegime === 'LATERAL';
+            if (!regimeMatches) {
+              const reason = `Setup ${side} descartado: modo "${aiConfig.marketMode}" exige regime ${wantsTrend ? 'TENDENCIA' : 'LATERAL'}, mas o Market Score (${opTimeframe}) mede ${computedRegime} agora`;
+              console.log(`[MARKET MODE] 🚫 ${reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: reason, technicalSignals: { regime: computedRegime, marketMode: aiConfig.marketMode },
+                actionTaken: false, vetoStage: 'MARKET_MODE_REGIME_MISMATCH',
+              });
+              return;
+            }
+          } else if (aiConfig.marketMode === 'COUNTER') {
+            // Contra-tendência real = fade de extremo, não "operar contra o Score"
+            // (isso já é vetado por CONTEXT_SCORE_OPPOSITE acima, incondicionalmente
+            // — travar COUNTER nisso quebraria a config pra sempre). Definição
+            // adotada: só entra LONG contra sobrevenda real (RSI<=35) ou SHORT
+            // contra sobrecompra real (RSI>=65), RSI(14) real já calculado acima.
+            const COUNTER_RSI_OVERSOLD = 35;
+            const COUNTER_RSI_OVERBOUGHT = 65;
+            const isValidFade = side === 'LONG' ? rsiValue <= COUNTER_RSI_OVERSOLD : rsiValue >= COUNTER_RSI_OVERBOUGHT;
+            if (!isValidFade) {
+              const reason = `Setup ${side} descartado: modo "COUNTER" exige RSI(14) em extremo real (LONG<=${COUNTER_RSI_OVERSOLD} ou SHORT>=${COUNTER_RSI_OVERBOUGHT}), RSI atual ${rsiValue.toFixed(1)}`;
+              console.log(`[MARKET MODE] 🚫 ${reason}`);
+              persistenceRef.current.saveDecision({
+                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+                reasoning: reason, technicalSignals: { rsi: rsiValue, marketMode: aiConfig.marketMode },
+                actionTaken: false, vetoStage: 'MARKET_MODE_COUNTER_NO_EXTREME',
+              });
+              return;
+            }
           }
 
           // 🔒 GATE DE VIABILIDADE POR CUSTO (Componente 1 do cérebro de execução,
