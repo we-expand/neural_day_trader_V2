@@ -46,11 +46,24 @@ const authShim = {
 };
 
 /**
+ * Forma que o motor enxerga. Precisa ser um tipo concreto (e não
+ * `Record<string, unknown>`): com `unknown`, `supabase.auth.getSession()` não
+ * type-checa no Deno e o erro aparece dentro de BacktestDataService, longe da
+ * causa. O teste de costura pegou exatamente isso.
+ */
+interface ServerSupabaseShim {
+  auth: typeof authShim;
+}
+
+/**
  * Proxy que só deixa passar o que foi realmente implementado. Qualquer outro
  * acesso (`.from`, `.rpc`, `.channel`, ...) lança apontando o caminho a seguir,
  * em vez de virar `undefined is not a function` três camadas adiante.
+ *
+ * O cast é deliberado e seguro: o tipo declara só o que o Proxy de fato serve;
+ * tudo além disso estoura em runtime por desenho.
  */
-export const supabase = new Proxy({} as Record<string, unknown>, {
+export const supabase = new Proxy({} as ServerSupabaseShim, {
   get(_target, prop: string | symbol) {
     if (prop === 'auth') return authShim;
     throw new Error(
@@ -60,4 +73,4 @@ export const supabase = new Proxy({} as Record<string, unknown>, {
       `troque o import map por um client de browser.`
     );
   },
-});
+}) as ServerSupabaseShim;
