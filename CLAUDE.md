@@ -12,6 +12,15 @@
 > completo de sessão se acumular aqui de novo (foi isso que aconteceu entre
 > 07-24 e 08-04, e motivou este segundo corte).
 
+## ▶ COMECE AQUI
+
+Trabalho corrente: **redesenho do cérebro de decisão** (aberto em 2026-08-04,
+depois de 4h40 de IA ligada com zero entradas). Leia
+**[NEXT_SESSION.md](NEXT_SESSION.md)** antes de qualquer coisa — ele diz onde
+paramos, o que já foi decidido, o que está bloqueando e qual é o próximo passo.
+Detalhe completo com evidência em
+`SESSAO_2026-08-04_FASE0_TELEMETRIA_FUNIL.md`.
+
 ## O que é
 
 SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5).
@@ -92,11 +101,13 @@ no [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
 
 O que ainda está genuinamente em aberto:
 
-1. **Múltiplas instâncias de indicador no gráfico — corrigido em
-   2026-08-04.** Cada média móvel clicada repetidamente agora vira instância
-   real (nome variante registrado na klinecharts), com ⚙/✕ própria na
-   legenda. Limitação conhecida: trocar posição (overlay/painel) de um
-   indicador com múltiplas instâncias só preserva a 1ª. Ver
+0. **[ATIVO] Redesenho do cérebro de decisão.** Fase 0 (telemetria de funil +
+   heartbeat) implementada, commitada (`cddb66cf3`) e com a migration 014 já
+   aplicada em 2026-08-04. Próximo passo: rodar uma sessão de mercado com a IA
+   ligada e ler `ai_funnel_snapshots`. Ver [NEXT_SESSION.md](NEXT_SESSION.md).
+1. Múltiplas instâncias de indicador no gráfico — corrigido em 2026-08-04.
+   Limitação conhecida: trocar posição (overlay/painel) de um indicador com
+   múltiplas instâncias só preserva a 1ª. Detalhe em
    `SESSAO_2026-08-04_MULTIPLAS_INSTANCIAS_INDICADOR.md`.
 2. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 3. **Decisão pendente do Cleber (roteamento de cripto)**: manter Binance
