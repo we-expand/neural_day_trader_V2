@@ -14,8 +14,8 @@ import {
   calculateWilliamsR,
   calculateSAR,
   calculateDonchian,
-} from '../indicators/TechnicalIndicators';
-import { IndicatorType, OperatorType, Strategy, StrategyBlock, StrategySignal } from '../../types/strategy';
+} from '../indicators/TechnicalIndicators.ts';
+import { IndicatorType, OperatorType, Strategy, StrategyBlock, StrategySignal } from '../../types/strategy.ts';
 
 /**
  * Cache de séries de indicador por (indicador, período) para não recalcular

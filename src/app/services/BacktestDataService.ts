@@ -15,7 +15,7 @@
 import { supabase } from '@/lib/supabaseClient';
 // Caminho relativo de propósito: o path absoluto '/utils/...' só resolve no Vite,
 // deixando o type-check cego para este módulo (que é caminho crítico do motor).
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
 import { getBrokerSymbol } from '@/app/config/brokerRegistry';
 
 export interface CandleData {

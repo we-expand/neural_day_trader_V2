@@ -1,0 +1,23 @@
+{
+  "//": [
+    "Import map do runner de decisão no servidor (Fase 0 do redesenho do cérebro).",
+    "",
+    "POR QUE EXISTE: o motor de decisão vive em src/app/ e é compartilhado com o",
+    "browser — um motor, dois drivers. Duplicar a lógica em Deno garantiria",
+    "divergência entre o que o Cleber testa na tela e o que opera sozinho no",
+    "servidor, que é exatamente o defeito que este redesenho existe pra corrigir.",
+    "",
+    "Os módulos do motor usam o alias '@/' do Vite, que o Deno não conhece. Em vez",
+    "de editar o caminho crítico só pra agradar o runtime, o alias é resolvido aqui.",
+    "",
+    "'@/lib/supabaseClient' é o ÚNICO ponto do fecho do motor preso ao browser",
+    "(usa supabase.auth.getSession() pra autenticar a chamada de candles). Ele é",
+    "apontado pra um shim de servidor — assim o módulo do motor não precisa de",
+    "nenhuma edição, e o client de browser jamais é carregado no Deno."
+  ],
+  "imports": {
+    "@/lib/supabaseClient": "./shims/supabaseClient.ts",
+    "@/app/config/brokerRegistry": "../../../src/app/config/brokerRegistry.ts",
+    "@/": "../../../src/"
+  }
+}
