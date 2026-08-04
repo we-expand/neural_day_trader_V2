@@ -6278,7 +6278,13 @@ export function ChartView({
                 menu de botão direito) */}
             {indicatorEditor && (
               <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
+                // ⚠️ z-[95] -- precisa ficar ACIMA do modal "Indicadores" (z-[90], onde a
+                // engrenagem que abre este popover normalmente é clicada) e do modal de
+                // busca de ativo (z-[90]/[100]). Em z-[56] original o popover abria de
+                // verdade (estado React setado, log confirmando) mas renderizava ESCONDIDO
+                // atrás do backdrop do modal -- clique na engrenagem "não fazia nada" na
+                // prática, mesmo funcionando por baixo. Mesmo bug em maEditor abaixo.
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[95] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-2">
@@ -6326,7 +6332,10 @@ export function ChartView({
                 outra média móvel" aqui é "adicionar outra linha" na instância existente. */}
             {maEditor && (
               <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-80 max-h-[80vh] overflow-y-auto"
+                // ⚠️ z-[95] -- mesmo motivo do indicatorEditor acima (ver comentário lá):
+                // precisa ficar acima do modal "Indicadores" (z-[90]) que normalmente abre
+                // este popover pela engrenagem do chip.
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[95] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-80 max-h-[80vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-3">
