@@ -2621,6 +2621,9 @@ export function ChartView({
   // quanto sob demanda ("Templates › Carregar", com ou sem troca de timeframe).
   const applyChartTemplateConfig = (chart: any, templateConfig: ChartTemplateConfig) => {
     const appliedIds: string[] = [];
+    // 🐛 FIX: precisa ser o valor MIGRADO (com `.lines`), não o `templateConfig.indicatorMASettings`
+    // bruto salvo -- ver comentário abaixo, no loop, sobre o bug real que isso causava.
+    const migratedMASettings: Record<string, MAUISettings> = {};
     templateConfig.indicatorIds.forEach(id => {
       const indicatorConfig = INDICATORS.find(ind => ind.id === id);
       if (!indicatorConfig) return; // indicador removido/renomeado desde o save
@@ -2635,6 +2638,16 @@ export function ChartView({
           ? raw
           : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
         Object.assign(config, buildMAChartConfig(indicatorConfig.klinechartsName, settings));
+        // 🐛 FIX (achado real, relatado pelo Cleber): mais embaixo, `setIndicatorMASettings`
+        // usava `templateConfig.indicatorMASettings` DIRETO (o `raw` de cima, não migrado) --
+        // pra um setup favorito salvo em formato antigo, o GRÁFICO desenhava com o `settings`
+        // migrado (período correto, ex. 20) mas o estado React que alimenta o editor ficava
+        // com o objeto bruto sem `.lines`. Consequência: abrir o editor de uma média já
+        // carregada de um setup salvo mostrava parâmetro errado/default, e clicar Salvar
+        // sobrescrevia a média correta do gráfico pela errada do editor (ex. 20 -> 200).
+        // Guarda aqui o MESMO `settings` migrado que foi de fato desenhado, pra estado e
+        // gráfico nunca mais divergirem.
+        migratedMASettings[id] = settings;
       } else {
         const params = templateConfig.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
         if (params.length > 0) config.calcParams = params;
@@ -2656,7 +2669,7 @@ export function ChartView({
     setActiveIndicators(new Set(appliedIds));
     setIndicatorParamsById(templateConfig.indicatorParamsById);
     setIndicatorPlacement(templateConfig.indicatorPlacement);
-    setIndicatorMASettings(templateConfig.indicatorMASettings as any);
+    setIndicatorMASettings(migratedMASettings);
     setShowGridOverlay(templateConfig.showGridOverlay);
     if (templateConfig.showSrOverlay !== showSrOverlay) {
       setShowSrOverlay(templateConfig.showSrOverlay);
