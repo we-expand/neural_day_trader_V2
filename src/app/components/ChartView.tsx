@@ -2447,8 +2447,24 @@ export function ChartView({
 
   const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; settings: MAUISettings } | null>(null);
 
-  const openMAEditor = (indicator: IndicatorConfig) => {
-    setMaEditor({ indicator, settings: { ...getMASettings(indicator), lines: getMASettings(indicator).lines.map(l => ({ ...l })) } });
+  // 🆕 `addLine`: usado quando o clique veio do banner/card do indicador JÁ ATIVO no
+  // modal "Indicadores" -- pedido explícito do Cleber: clicar ali deve INSERIR outra
+  // média direto (uma linha nova, período = última+10), não só abrir o editor mostrando
+  // a linha existente sem tocar nela. Sem isso, editar o período da linha já existente e
+  // clicar Salvar SUBSTITUÍA a média (ex: 20 -> 200) em vez de adicionar uma 2ª -- o
+  // usuário via a média antiga "sumir" do gráfico, porque ela realmente tinha sido
+  // editada, não duplicada. A engrenagem do menu de botão direito continua abrindo só
+  // pra editar (addLine=false), sem surpresa pra quem clica ali de propósito pra ajustar
+  // a linha existente.
+  const openMAEditor = (indicator: IndicatorConfig, addLine: boolean = false) => {
+    const current = getMASettings(indicator);
+    let lines = current.lines.map(l => ({ ...l }));
+    if (addLine) {
+      const nextColor = MA_LINE_COLOR_PALETTE[lines.length % MA_LINE_COLOR_PALETTE.length];
+      const lastPeriod = lines[lines.length - 1]?.period ?? 20;
+      lines = [...lines, { period: lastPeriod + 10, color: nextColor, lineStyle: 'solid', lineWidth: 1 }];
+    }
+    setMaEditor({ indicator, settings: { ...current, lines } });
   };
 
   const addMAEditorLine = () => {
@@ -6571,13 +6587,15 @@ export function ChartView({
                       className="flex items-center justify-between p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs"
                     >
                       {/* 🆕 Clicar no próprio nome (não só na engrenagem, escondida demais)
-                          abre direto o editor -- pra MA/EMA/SMA/WMA é onde fica "+ Adicionar
-                          linha" pra colocar uma 2ª média com outro período. Pedido do Cleber:
-                          a engrenagem sozinha não era intuitiva o suficiente. */}
+                          insere direto outra linha (outra média, no caso das MA/EMA/SMA/WMA)
+                          e abre o editor já com ela pronta pra ajustar período/cor. Pedido do
+                          Cleber: precisava ser o clique óbvio "quero mais uma média", não só
+                          abrir o editor da que já existe (editar o período dela e salvar
+                          SUBSTITUÍA a média, nunca duplicava). */}
                       <button
-                        onClick={() => hasParams && (isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator))}
+                        onClick={() => hasParams && (isMovingAverageIndicator(indicator) ? openMAEditor(indicator, true) : openIndicatorEditor(indicator))}
                         disabled={!hasParams}
-                        title={hasParams ? (isMovingAverageIndicator(indicator) ? 'Editar / adicionar linha' : 'Editar parâmetros') : undefined}
+                        title={hasParams ? (isMovingAverageIndicator(indicator) ? 'Adicionar outra linha' : 'Editar parâmetros') : undefined}
                         className={`text-blue-400 font-medium text-left flex-1 ${hasParams ? 'hover:text-blue-300 cursor-pointer' : 'cursor-default'}`}
                       >
                         {indicator.name.split(' - ')[0]}
@@ -6615,16 +6633,18 @@ export function ChartView({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      {/* 🆕 Card já ativo com parâmetro editável (ex: médias móveis) -- clicar
-                          no próprio card abre o editor (onde fica "+ Adicionar linha" pras MA)
-                          em vez de desligar o indicador. Antes só a engrenagem minúscula fazia
-                          isso e passava despercebida -- pedido do Cleber pra ficar mais óbvio.
-                          Desligar agora é só pela lixeira. Card inativo continua ligando normal. */}
+                      {/* 🆕 Card já ativo com parâmetro editável -- clicar de novo insere direto
+                          outra linha (pras MA/EMA/SMA/WMA, é literalmente "quero mais uma
+                          média") e abre o editor já com ela, em vez de desligar o indicador ou
+                          só abrir o editor da linha existente sem tocar nela. Antes só a
+                          engrenagem minúscula fazia algo parecido e passava despercebida --
+                          pedido do Cleber pra ficar mais óbvio. Desligar agora é só pela
+                          lixeira. Card inativo continua ligando normal. */}
                       <button
                         onClick={() => {
                           if (!isActive) { toggleIndicator(indicator); return; }
                           if ((indicator.defaultParams?.length ?? 0) > 0) {
-                            isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
+                            isMovingAverageIndicator(indicator) ? openMAEditor(indicator, true) : openIndicatorEditor(indicator);
                           }
                         }}
                         className="flex-1 flex flex-col items-start text-left min-w-0"
