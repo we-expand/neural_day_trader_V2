@@ -1250,87 +1250,117 @@ export function useApexLogic(
       console.log(`[AI LOOP] ✅ Cooldown OK - Analisando mercado...`);
 
       // === ASSET SELECTION WITH PRIORITY SYSTEM ===
-      // 🎯 TIER 1: High volatility, high profit assets (70% probability)
-      const tier1Assets = ['BTCUSDT', 'SPX500']; // BTC & S&P500 (Nomenclatura Infinox)
-
-      // 🔸 TIER 2: Medium volatility assets (25% probability)
-      const tier2Assets = ['ETHUSDT', 'NAS100', 'XAUUSD'];
-
-      // 🔹 TIER 3: Low volatility assets (5% probability)
-      const tier3Assets = ['EURUSD', 'GBPUSD', 'US30'];
-
-      // 🔒 RESPEITAR CONFIG DO USUÁRIO: symbols internos do motor (Binance/CFD) →
-      // símbolos do catálogo que o usuário marca em "Universo de Ativos" (AssetUniverse.tsx,
-      // nomenclatura Infinox). Sem esse mapa, os 3 tiers acima ignoravam completamente
-      // aiConfig.activeAssets e o sorteio podia cair em Ouro/Forex/Índices mesmo com
-      // o usuário tendo selecionado só criptomoedas.
-      const TRADING_SYMBOL_TO_CATALOG: Record<string, string[]> = {
-        BTCUSDT: ['BTCUSD', 'XBNUSD'],
-        ETHUSDT: ['XETUSD'],
-        SPX500: ['SPX500', 'SPX500R'],
-        NAS100: ['NAS100', 'NAS100R'],
-        XAUUSD: ['XAUUSD'],
-        EURUSD: ['EURUSD'],
-        GBPUSD: ['GBPUSD'],
-        US30: ['US30'],
-      };
-
+      // 🔴 FIX 2026-08-04 (achado da auditoria de config): a versão anterior
+      // filtrava aiConfig.activeAssets contra uma tabela fixa de só 8 símbolos
+      // legados (TRADING_SYMBOL_TO_CATALOG) — qualquer coisa fora dela era
+      // silenciosamente ignorada, mesmo aparecendo como "ativa" na UI. Usuário
+      // selecionava 15+ ativos no Universo de Ativos e só ~5-6 (os que batiam
+      // com a tabela) eram de fato analisados pela IA. O pipeline de dado real
+      // (getRealMarketData/BacktestDataService/MarketScoreEngine) já é
+      // genérico pro catálogo inteiro (~350 ativos) desde 2026-07-28 — o
+      // gargalo era só este sorteio. Agora usa TODO aiConfig.activeAssets,
+      // classificado por tier via categoria REAL do catálogo
+      // (getAssetBySymbol/assetDatabase.ts), não mais uma lista hardcoded.
       const userAssets = aiConfig.activeAssets || [];
-      const isAllowedByUser = (symbol: string) =>
-        (TRADING_SYMBOL_TO_CATALOG[symbol] || []).some(catalogSymbol => userAssets.includes(catalogSymbol));
-
-      const allowedTier1 = tier1Assets.filter(isAllowedByUser);
-      const allowedTier2 = tier2Assets.filter(isAllowedByUser);
-      const allowedTier3 = tier3Assets.filter(isAllowedByUser);
-
-      if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
-        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário está disponível no motor agora (config: ${userAssets.join(', ') || 'vazia'}) - pulando ciclo`);
+      if (userAssets.length === 0) {
+        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado em "Universo de Ativos" - pulando ciclo`);
         return;
       }
 
-      // Weighted random selection (mesmos pesos de antes, só que restrito ao que o usuário permitiu)
+      // 🎯 TIER 1 (70%): Cripto + Índices — historicamente mais líquidos/voláteis
+      // 🔸 TIER 2 (25%): Metais preciosos + Forex Major Pairs
+      // 🔹 TIER 3 (5%): resto do que foi selecionado (Forex minor/exótico, Energia,
+      //    Agrícolas, Ações, Bonds) — ativos ainda operados, só com menos peso.
+      const allowedTier1: string[] = [];
+      const allowedTier2: string[] = [];
+      const allowedTier3: string[] = [];
+      for (const symbol of userAssets) {
+        const asset = getAssetBySymbol(symbol);
+        if (!asset) {
+          console.warn(`[AI LOOP] ⚠️ Ativo "${symbol}" selecionado mas não encontrado no catálogo (assetDatabase.ts) — ignorado neste ciclo`);
+          continue;
+        }
+        if (asset.category === 'CRYPTO' || asset.category === 'INDICES') {
+          allowedTier1.push(symbol);
+        } else if (asset.category === 'COMMODITIES' && asset.subCategory === 'Precious Metals') {
+          allowedTier2.push(symbol);
+        } else if (asset.category === 'FOREX' && asset.subCategory === 'Major Pairs') {
+          allowedTier2.push(symbol);
+        } else {
+          allowedTier3.push(symbol);
+        }
+      }
+
+      if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
+        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário foi reconhecido no catálogo (config: ${userAssets.join(', ')}) - pulando ciclo`);
+        return;
+      }
+
+      // 🚀 VELOCIDADE (2026-08-04, pedido do Cleber: "mais rápido com a mesma
+      // eficiência"): antes só 1 ativo era analisado por tick de 5s. Com o
+      // fix acima (universo real do usuário em vez da tabela fixa de 8), um
+      // setup com 15+ ativos passaria a ter cada ativo revisitado só a cada
+      // ~1-2min em média — mais ativos configurados, mais lento por ativo.
+      // Agora analisa até ASSETS_PER_TICK ativos DIFERENTES por tick, cada um
+      // passando pelos MESMOS gates de sempre (nada foi afrouxado) — só
+      // aumenta quantos ativos reais cabem na mesma janela de 5s.
+      const ASSETS_PER_TICK = Math.min(3, allowedTier1.length + allowedTier2.length + allowedTier3.length);
+      const pickedThisTick = new Set<string>();
+
+      for (let __assetBatchIdx = 0; __assetBatchIdx < ASSETS_PER_TICK; __assetBatchIdx++) {
+      // Weighted random selection (mesmos pesos de antes, agora sobre o universo real do
+      // usuário, excluindo o que este mesmo tick já escolheu em iteração anterior)
       const rand = Math.random();
       let selectedAssets: string[];
       let tierName = '';
 
-      if (rand < 0.70 && allowedTier1.length > 0) {
-        selectedAssets = allowedTier1; // 70% chance - BTC & S&P
-        tierName = 'TIER 1 (Alta Volatilidade)';
-      } else if (rand < 0.95 && allowedTier2.length > 0) {
-        selectedAssets = allowedTier2; // 25% chance - ETH, NAS, Gold
-        tierName = 'TIER 2 (Média Volatilidade)';
-      } else if (allowedTier3.length > 0) {
-        selectedAssets = allowedTier3; // 5% chance - Forex & Dow
-        tierName = 'TIER 3 (Baixa Volatilidade)';
+      const tier1Left = allowedTier1.filter(s => !pickedThisTick.has(s));
+      const tier2Left = allowedTier2.filter(s => !pickedThisTick.has(s));
+      const tier3Left = allowedTier3.filter(s => !pickedThisTick.has(s));
+
+      if (tier1Left.length === 0 && tier2Left.length === 0 && tier3Left.length === 0) {
+        break; // já analisou todos os ativos disponíveis do usuário neste tick
+      }
+
+      if (rand < 0.70 && tier1Left.length > 0) {
+        selectedAssets = tier1Left; // 70% chance - Cripto/Índices
+        tierName = 'TIER 1 (Cripto/Índices - Alta Volatilidade)';
+      } else if (rand < 0.95 && tier2Left.length > 0) {
+        selectedAssets = tier2Left; // 25% chance - Metais/Forex Major
+        tierName = 'TIER 2 (Metais/Forex Major - Média Volatilidade)';
+      } else if (tier3Left.length > 0) {
+        selectedAssets = tier3Left; // 5% chance - demais ativos selecionados
+        tierName = 'TIER 3 (Demais ativos selecionados - Baixa Volatilidade)';
       } else {
-        // Tier sorteada ficou vazia após o filtro do usuário - cai pra qualquer tier não-vazia
-        selectedAssets = allowedTier1.length > 0 ? allowedTier1 : allowedTier2.length > 0 ? allowedTier2 : allowedTier3;
+        // Tier sorteada ficou vazia — cai pra qualquer tier não-vazia restante
+        selectedAssets = tier1Left.length > 0 ? tier1Left : tier2Left.length > 0 ? tier2Left : tier3Left;
         tierName = 'FALLBACK (restrito à config do usuário)';
       }
 
       const selectedSymbol = selectedAssets[Math.floor(Math.random() * selectedAssets.length)];
-      
+      pickedThisTick.add(selectedSymbol);
+
       // 🚫 ANTI-REPETIÇÃO: NÃO pode fazer 2 trades seguidos no mesmo ativo
       if (lastTradedSymbolRef.current === selectedSymbol) {
         console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${selectedSymbol}. Aguardando outro ativo...`);
-        return;
+        continue;
       }
-      
+
       // 🛡️ ANTI-HEDGING CHECK: Verificar se já existe posição neste ativo
       const existingPositionOnAsset = activeOrders.find(order => order.symbol === selectedSymbol);
-      
+
       if (existingPositionOnAsset) {
         // Já existe posição neste ativo, NÃO abrir nova posição (previne hedging)
         console.log(`[ANTI-HEDGING] ⚠️ Bloqueado: Já existe posição ${existingPositionOnAsset.side} em ${selectedSymbol}`);
-        return;
+        continue;
       }
-      
+
       // 🎯 CHECK: Verificar número de ativos diferentes simultâneos
       const uniqueAssets = new Set(activeOrders.map(order => order.symbol));
       if (uniqueAssets.size >= aiConfig.maxAssets) {
         // Já atingiu o máximo de ativos diferentes
         console.log(`[ASSET LIMIT] ⚠️ Bloqueado: Máximo de ${aiConfig.maxAssets} ativos diferentes atingido`);
-        return;
+        continue;
       }
 
       // ✅ ANÁLISE PROFISSIONAL DE MERCADO
@@ -2235,6 +2265,7 @@ export function useApexLogic(
           console.error('[TRADING] ❌ Erro crítico na análise:', error);
         }
       })();
+      } // fecha o for de ASSETS_PER_TICK (batch de ativos analisados neste tick)
     }, 5000); // 🚀 OTIMIZAÇÃO #3: REDUZIDO de 15s para 5s (200% mais rápido!) ⚡
 
     return () => {
