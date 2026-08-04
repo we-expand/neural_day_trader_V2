@@ -2418,8 +2418,20 @@ export function ChartView({
   const isMovingAverageIndicator = (indicator: IndicatorConfig): boolean => indicator.id in MA_DEFAULT_METHOD;
 
   const [indicatorMASettings, setIndicatorMASettings] = useState<Record<string, MAUISettings>>({});
+  // 🐛 FIX: `indicatorMASettings` é state do React (assíncrono) -- clicar várias vezes
+  // seguidas no banner de uma média (mesmo tick, antes do re-render) fazia cada clique
+  // ler o MESMO `indicatorMASettings` desatualizado e calcular a MESMA linha nova
+  // (mesmo período/cor), sobrescrevendo o resultado do clique anterior no gráfico em vez
+  // de empilhar. `indicatorMASettingsRef` é atualizada de forma síncrona em todo clique
+  // (ver `addMALineDirect`), então cada clique dentro da mesma rajada enxerga o resultado
+  // real do clique imediatamente anterior. O `state` continua existindo só pra re-render
+  // da UI (badges, editor); a ref é a fonte de verdade pra lógica.
+  const indicatorMASettingsRef = useRef<Record<string, MAUISettings>>({});
+  useEffect(() => {
+    indicatorMASettingsRef.current = indicatorMASettings;
+  }, [indicatorMASettings]);
   const getMASettings = (indicator: IndicatorConfig): MAUISettings =>
-    indicatorMASettings[indicator.id] ?? {
+    indicatorMASettingsRef.current[indicator.id] ?? {
       shift: 0,
       method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
       appliedPrice: 'CLOSE',
@@ -2619,7 +2631,17 @@ export function ChartView({
   const addMALineDirect = (indicator: IndicatorConfig) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
-    const wasActive = activeIndicators.has(indicator.id);
+    // 🐛 FIX: `wasActive` tinha que vir de algo síncrono. `activeIndicators.has(...)` é
+    // state do React -- em uma rajada de cliques no mesmo tick, o 2º/3º/4º clique ainda
+    // enxergavam `wasActive = false` (o `setActiveIndicators` do 1º clique não tinha
+    // sido aplicado ainda), cada um tentava `chart.createIndicator` de novo pro MESMO
+    // nome no MESMO painel -- a klinecharts recusa 2 instâncias do mesmo nome no mesmo
+    // painel ("Duplicate indicators", ver IndicatorStore.addInstance em
+    // node_modules/klinecharts/dist/index.esm.js:4181) e o erro era engolido pelo catch
+    // abaixo, então só a 1ª linha de fato entrava apesar de N cliques.
+    // `indicatorPaneIdRef` é uma ref, sempre atualizada de forma síncrona no clique que
+    // criou a instância -- é a fonte de verdade correta aqui.
+    const wasActive = indicatorPaneIdRef.current[indicator.id] !== undefined;
     const current: MAUISettings = wasActive
       ? getMASettings(indicator)
       : { shift: 0, method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE', appliedPrice: 'CLOSE', lines: [] };
@@ -2630,6 +2652,9 @@ export function ChartView({
       ...current,
       lines: [...current.lines, { period: newPeriod, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
     };
+    // Atualiza a ref de forma SÍNCRONA (fonte de verdade pro próximo clique da rajada);
+    // o `setState` continua disparado só pra re-renderizar UI (badge, editor).
+    indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [indicator.id]: settings };
     setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: settings }));
     try {
       if (wasActive) {
@@ -2662,7 +2687,12 @@ export function ChartView({
   const addGenericIndicatorInstance = (indicator: IndicatorConfig) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
-    const wasActive = activeIndicators.has(indicator.id);
+    // 🐛 FIX: mesma causa raiz de `addMALineDirect` -- `activeIndicators.has(...)` é
+    // state assíncrono, então cliques em rajada no mesmo tick todos viam `wasActive =
+    // false` e todos tentavam `createIndicatorInstance` pro mesmo nome/painel, batendo
+    // no "Duplicate indicators" da klinecharts a partir do 2º. `indicatorPaneIdRef` é
+    // ref, atualizada de forma síncrona -- fonte de verdade correta.
+    const wasActive = indicatorPaneIdRef.current[indicator.id] !== undefined;
     try {
       if (!wasActive) {
         createIndicatorInstance(chart, indicator, getIndicatorPlacement(indicator));
