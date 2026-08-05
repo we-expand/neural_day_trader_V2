@@ -8,7 +8,7 @@
  * Roda com: npx esbuild src/app/services/strategy/__validate__.ts --bundle --platform=node --outfile=/tmp/validate-strategy.js && node /tmp/validate-strategy.js
  */
 import { runBacktest } from './BacktestEngine';
-import { calculatePositionSize } from './TradeSizing';
+import { calculatePositionSize, getPointValue, calculateTpSl } from './TradeSizing';
 import { Strategy, StrategyBlock } from '../../types/strategy';
 import { Candle } from '../indicators/TechnicalIndicators';
 
@@ -118,6 +118,30 @@ function makeStrategy(overrides: Partial<Strategy>): Strategy {
 
   assertTrue('MFE captura o high da barra 61 (16% acima da entrada), não o high da barra de saída', res.trades.length === 1 && Math.abs(res.trades[0].mfePercent - 16) < 0.01);
   assertTrue('MAE captura o low da barra 62 (10% abaixo da entrada), independente do SL ter sido tocado antes nesse nível', res.trades.length === 1 && Math.abs(res.trades[0].maePercent - 10) < 0.01);
+}
+
+// ─── CASO 5: escala de pointValue por símbolo ────────────────────────────
+// Novo em 2026-08-05. Este bug já voltou DUAS vezes: em 2026-07-24 pra
+// BTCUSD/BTCUSDT (par cripto contém "USD" e batia na regra de forex, pip
+// 0.0001, com preço em dólares cheios), e de novo agora pra a família de
+// contratos "X**" da Infinox — XBNUSD (Binance Coin), XETUSD (Ethereum),
+// XLCUSD (Litecoin) —, que a lista de prefixos de base não reconhecia. Com
+// pointValue 10.000x menor que o correto, um alvo de 400 pontos em um ativo
+// de US$64.000 vira US$0,04 de distância: o trade fecha no candle de entrada.
+// Sem asserção, volta uma terceira vez.
+{
+  assertTrue('pointValue de BTCUSD = 1.0 (cripto, dólares cheios)', getPointValue('BTCUSD') === 1.0);
+  assertTrue('pointValue de BTCUSDT = 1.0 (notação nativa de exchange, fora do catálogo)', getPointValue('BTCUSDT') === 1.0);
+  assertTrue('pointValue de XBNUSD = 1.0 (Binance Coin, contrato da Infinox — regressão 2026-08-05)', getPointValue('XBNUSD') === 1.0);
+  assertTrue('pointValue de XETUSD = 1.0 (Ethereum, contrato da Infinox)', getPointValue('XETUSD') === 1.0);
+  assertTrue('pointValue de XLCUSD = 1.0 (Litecoin, contrato da Infinox)', getPointValue('XLCUSD') === 1.0);
+  assertTrue('pointValue de EURUSD = 0.0001 (forex de verdade continua com pip)', getPointValue('EURUSD') === 0.0001);
+  assertTrue('pointValue de XAUUSD = 0.1 (ouro)', getPointValue('XAUUSD') === 0.1);
+
+  // O TP não pode ficar a centavos do preço de entrada num ativo de milhares
+  // de dólares — é a forma como o bug aparece na prática.
+  const tpSl = calculateTpSl('XBNUSD', 'LONG', 64000, 'MÉDIO', 'TREND');
+  assertTrue('TP de XBNUSD a 400 pontos fica a US$400 da entrada, não a US$0,04', Math.abs(tpSl.tpDistance - 400) < 1e-9);
 }
 
 console.log(`\n${passed} passaram, ${failed} falharam.`);

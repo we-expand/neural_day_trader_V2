@@ -18,8 +18,9 @@ Trabalho corrente: **redesenho do cérebro de decisão** (aberto em 2026-08-04,
 depois de 4h40 de IA ligada com zero entradas). Leia
 **[NEXT_SESSION.md](NEXT_SESSION.md)** antes de qualquer coisa — ele diz onde
 paramos, o que já foi decidido, o que está bloqueando e qual é o próximo passo.
-Detalhe completo com evidência em
-`SESSAO_2026-08-04_FASE0_TELEMETRIA_FUNIL.md`.
+Detalhe completo com evidência, em ordem de leitura:
+`SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (mais recente) e
+`SESSAO_2026-08-05_RUNNER_24_7_E_TAXA_BASE.md`.
 
 ## O que é
 
@@ -102,9 +103,20 @@ no [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
 O que ainda está genuinamente em aberto:
 
 0. **[ATIVO] Redesenho do cérebro de decisão.** Fase 0 (telemetria de funil +
-   heartbeat) implementada, commitada (`cddb66cf3`) e com a migration 014 já
-   aplicada em 2026-08-04. Próximo passo: rodar uma sessão de mercado com a IA
-   ligada e ler `ai_funnel_snapshots`. Ver [NEXT_SESSION.md](NEXT_SESSION.md).
+   heartbeat) no ar, com gravação provada sob RLS. Fatia 1 do runner no
+   servidor (costura que torna o motor importável pelo Deno) commitada na
+   branch `dev` (`81c1237da`, `52f0f6ea0`). Taxa base medida em 2026-08-05:
+   **nenhum dos 5 presets é lucrativo líquido de custo** sobre as 135
+   combinações ativo×timeframe testadas — ver
+   `SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (**com a errata no topo da seção de
+   bugs**: as 15 linhas de `XBNUSD` daquela tabela mediram Bitcoin por erro de
+   mapa, a conclusão agregada não muda). Bugs achados no processo já
+   **corrigidos** em 2026-08-05: mapa de backtest de `XBNUSD`/`XLCUSD`, escala
+   de `pointValue` da família de contratos `X**` da Infinox (agora derivada da
+   categoria do catálogo), e a cópia divergente da tabela de `pointValue` que
+   existia inline em `useApexLogic`. Asserção de regressão no gate.
+   Próximo passo: extrair o ciclo de trading do `useEffect` pra módulo puro.
+   Ver [NEXT_SESSION.md](NEXT_SESSION.md).
 1. Múltiplas instâncias de indicador no gráfico — corrigido em 2026-08-04.
    Limitação conhecida: trocar posição (overlay/painel) de um indicador com
    múltiplas instâncias só preserva a 1ª. Detalhe em
