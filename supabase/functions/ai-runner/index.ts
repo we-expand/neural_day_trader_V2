@@ -328,7 +328,18 @@ Deno.serve(async (req) => {
   const deadline = Date.now() + MAX_RUNTIME_MS;
   const loaded = (await Promise.all(sessions.map(loadSession))).filter((s): s is RunnerSessionState => s !== null);
 
-  await Promise.all(loaded.map(s => runSession(s, deadline)));
+  // Sessões rodam em SÉRIE, nunca em paralelo — a conta MetaAPI da plataforma é
+  // compartilhada entre todos os usuários (ver CLAUDE.md, "Risco crônico
+  // conhecido"), e chamadas concorrentes contra ela batem em guarda de
+  // concorrência da própria MetaAPI ("Conflicting API keys"). Achado em
+  // 2026-08-07 testando o runner contra o Supabase real pela primeira vez: com
+  // Promise.all aqui, 3 sessões RUNNING disparavam candle fetch simultâneo e
+  // toda tentativa de 15m falhava. O driver do browser nunca teve esse
+  // problema porque só roda uma sessão por vez (a do usuário logado na aba).
+  for (const s of loaded) {
+    if (Date.now() >= deadline) break;
+    await runSession(s, deadline);
+  }
 
   return new Response(JSON.stringify({
     sessions: loaded.length,
