@@ -680,6 +680,18 @@ export function useApexLogic(
 
         const { session, openTrades, lastSnapshot } = restored;
 
+        // 🔴 FIX 2026-08-07 (achado do Cleber: "liguei a IA, fechei o app,
+        // voltei e estava desligada"): `restoreActiveSession()` só existe se
+        // já filtrou `status='RUNNING'` no Supabase (getActiveSession, em
+        // AITradingPersistenceService.ts), mas até aqui essa hidratação só
+        // repopulava portfolio/trades — nunca ligava o toggle visual. O
+        // motor real (runner server-side) continuava rodando a sessão o
+        // tempo todo; só a tela mentia que estava desligada. `setIsActive`
+        // de mais acima (localStorage, "Always start inactive") é
+        // sobrescrito aqui de propósito porque o Supabase é a fonte de
+        // verdade, não o cache local.
+        setIsActive(true);
+
         // Sessão restaurada (não uma nova) — o "início" pro gate de perda
         // diária é quando ELA começou, não agora (senão um reload no meio
         // do dia resetaria o relógio indevidamente).
