@@ -14,7 +14,7 @@
  * @date 21 Janeiro 2026
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/app/components/ui/card';
 import { Badge } from '@/app/components/ui/badge';
 import { Button } from '@/app/components/ui/button';
@@ -43,6 +43,7 @@ import {
 } from '@/app/components/ui/dialog';
 import { ATRTrailingStopManager } from '@/app/components/tools/ATRTrailingStopManager';
 import { PyramidingConfigPanel, DEFAULT_PYRAMIDING_CONFIG, type PyramidingConfig } from '@/app/components/trading/PyramidingConfigPanel';
+import { useTradingContext } from '@/app/contexts/TradingContext';
 
 interface AITool {
   id: string;
@@ -65,19 +66,55 @@ interface ATRConfig {
 }
 
 export function AIToolsControl() {
-  const [tools, setTools] = useState<AITool[]>([
+  // 🔴 FIX 2026-08-04 (auditoria de config): este painel era 100% decorativo —
+  // números hardcoded no useState, toggle não ligava em nada real, "Detalhes"
+  // do Pyramiding abria modal vazio. Agora lê/escreve `aiConfig` de verdade via
+  // TradingContext (mesma fonte que o motor em useApexLogic.ts consome) e
+  // calcula as métricas a partir de `activeOrders` reais, nunca de números fixos.
+  const { aiConfig, updateAIConfig, activeOrders } = useTradingContext();
+
+  const atrEnabled = aiConfig.stopLossMode === 'DINAMICO';
+  const pyramidingEnabled = aiConfig.pyramiding?.enabled ?? false;
+
+  // Métricas REAIS do ATR Trailing Stop: só conta posições elegíveis pro
+  // trailing (originalSl > 0) enquanto o modo DINAMICO está ligado. Lucro
+  // protegido = distância real já percorrida pelo stop (sl atual vs originalSl)
+  // × tamanho da posição — aritmética sobre dado real, nunca estimativa.
+  const atrMetrics = useMemo(() => {
+    if (!atrEnabled) return { posicoesAtivas: 0, lucroProtegido: 0, movimentos: 0 };
+    const eligible = activeOrders.filter(o => o.originalSl > 0);
+    const lucroProtegido = eligible.reduce((sum, o) => {
+      const moved = o.side === 'LONG' ? o.sl - o.originalSl : o.originalSl - o.sl;
+      return sum + (moved > 0 ? moved * (o.amount / o.price) : 0);
+    }, 0);
+    const movimentos = eligible.reduce((sum, o) => sum + (o.trailMoves || 0), 0);
+    return { posicoesAtivas: eligible.length, lucroProtegido, movimentos };
+  }, [atrEnabled, activeOrders]);
+
+  // Métricas REAIS do Pyramiding: grupos com pelo menos 1 layer adicionado.
+  const pyramidMetrics = useMemo(() => {
+    if (!pyramidingEnabled) return { posicoesEmpilhadas: 0, lucroAdicional: 0, winRate: null as number | null };
+    // Camadas adicionadas = ordens com pyramidGroupId setado (layer 2+)
+    const addedLayers = activeOrders.filter(o => o.pyramidGroupId);
+    const lucroAdicional = addedLayers.reduce((sum, o) => sum + (o.currentProfit || 0), 0);
+    const winningLayers = addedLayers.filter(o => (o.currentProfit || 0) > 0).length;
+    const winRate = addedLayers.length > 0 ? (winningLayers / addedLayers.length) * 100 : null;
+    return { posicoesEmpilhadas: addedLayers.length, lucroAdicional, winRate };
+  }, [pyramidingEnabled, activeOrders]);
+
+  const tools: AITool[] = [
     // ✅ REMOVIDO: Detector de Liquidez (agora está na sidebar do ChartView)
     {
       id: 'atr-trailing-stop',
       name: 'ATR Trailing Stop',
       description: 'Proteção automática de lucros baseada em volatilidade',
       icon: Target,
-      enabled: true,
-      status: 'active',
+      enabled: atrEnabled,
+      status: atrEnabled ? 'active' : 'idle',
       metrics: [
-        { label: 'Posições Ativas', value: 3 },
-        { label: 'Lucro Protegido', value: '$142' },
-        { label: 'Movimentos', value: 18 }
+        { label: 'Posições Ativas', value: atrMetrics.posicoesAtivas },
+        { label: 'Lucro Protegido', value: `$${atrMetrics.lucroProtegido.toFixed(0)}` },
+        { label: 'Movimentos', value: atrMetrics.movimentos }
       ]
     },
     {
@@ -85,85 +122,63 @@ export function AIToolsControl() {
       name: 'Pyramiding System',
       description: 'Adiciona posições automaticamente em tendências favoráveis',
       icon: Layers,
-      enabled: true,
-      status: 'active',
+      enabled: pyramidingEnabled,
+      status: pyramidingEnabled ? 'active' : 'idle',
       metrics: [
-        { label: 'Posições Empilhadas', value: 2 },
-        { label: 'Lucro Adicional', value: '+$87' },
-        { label: 'Win Rate', value: '73%' }
+        { label: 'Posições Empilhadas', value: pyramidMetrics.posicoesEmpilhadas },
+        { label: 'Lucro Adicional', value: `${pyramidMetrics.lucroAdicional >= 0 ? '+' : ''}$${pyramidMetrics.lucroAdicional.toFixed(0)}` },
+        { label: 'Win Rate', value: pyramidMetrics.winRate !== null ? `${pyramidMetrics.winRate.toFixed(0)}%` : '—' }
       ]
     }
-  ]);
+  ];
 
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [selectedTool, setSelectedTool] = useState<AITool | null>(null);
   
-  // ✅ Estado para configurações do ATR
-  const [atrConfig, setAtrConfig] = useState<ATRConfig>({
-    mode: 'CHANDELIER',
-    atrPeriod: 14,
-    atrMultiplier: 2.0,
-    preset: 'conservador'
-  });
+  // ✅ Config do ATR — deriva direto de `aiConfig` (fonte real lida pelo motor
+  // em useApexLogic.ts), preset é só rótulo de exibição pra período+multiplicador.
+  const [atrPreset, setAtrPreset] = useState<'conservador' | 'balanceado' | 'agressivo' | 'personalizado'>('conservador');
+  const atrConfig: ATRConfig = {
+    mode: 'CHANDELIER', // única lógica de trailing implementada no motor hoje
+    atrPeriod: aiConfig.atrTrailingPeriod,
+    atrMultiplier: aiConfig.atrTrailingMultiplier,
+    preset: atrPreset,
+  };
 
-  // ✅ Estado para configurações do Pyramiding
-  const [pyramidingConfig, setPyramidingConfig] = useState<PyramidingConfig>(DEFAULT_PYRAMIDING_CONFIG);
-
-  // ✅ Aplicar preset
-  const applyPreset = (preset: 'conservador' | 'balanceado' | 'agressivo' | 'personalizado') => {
-    const configs: Record<string, ATRConfig> = {
-      conservador: {
-        mode: 'CHANDELIER',
-        atrPeriod: 14,
-        atrMultiplier: 2.0,
-        preset: 'conservador'
-      },
-      balanceado: {
-        mode: 'CHANDELIER',
-        atrPeriod: 14,
-        atrMultiplier: 1.5,
-        preset: 'balanceado'
-      },
-      agressivo: {
-        mode: 'SIMPLE_ATR',
-        atrPeriod: 7,
-        atrMultiplier: 1.0,
-        preset: 'agressivo'
-      },
-      personalizado: {
-        ...atrConfig,
-        preset: 'personalizado'
-      }
+  // ✅ Aplicar preset — escreve direto no aiConfig real (updateAIConfig), não
+  // mais num estado local desconectado do motor.
+  const applyPreset = (preset: 'conservador' | 'balanceado' | 'agressivo') => {
+    const presets: Record<'conservador' | 'balanceado' | 'agressivo', { atrPeriod: number; atrMultiplier: number }> = {
+      conservador: { atrPeriod: 14, atrMultiplier: 2.0 },
+      balanceado: { atrPeriod: 14, atrMultiplier: 1.5 },
+      agressivo: { atrPeriod: 7, atrMultiplier: 1.0 },
     };
-
-    setAtrConfig(configs[preset]);
+    setAtrPreset(preset);
+    updateAIConfig({ atrTrailingPeriod: presets[preset].atrPeriod, atrTrailingMultiplier: presets[preset].atrMultiplier });
     toast.success(`Preset "${preset}" aplicado com sucesso!`, {
-      description: `ATR ${configs[preset].atrMultiplier}x • Período ${configs[preset].atrPeriod}`,
+      description: `ATR ${presets[preset].atrMultiplier}x • Período ${presets[preset].atrPeriod}`,
       duration: 3000
     });
   };
 
-  // ✅ Salvar configurações
   const saveSettings = () => {
-    // TODO: Integrar com backend para persistir configurações
-    localStorage.setItem('atr-config', JSON.stringify(atrConfig));
-    
     toast.success('Configurações salvas!', {
-      description: `ATR Trailing Stop configurado: ${atrConfig.preset}`,
+      description: `ATR Trailing Stop configurado: ${atrPreset}`,
       duration: 3000,
       icon: <Check className="w-4 h-4" />
     });
-    
     setShowSettingsModal(false);
   };
 
+  // ✅ Liga/desliga de verdade: ATR = aiConfig.stopLossMode (mesmo toggle que
+  // o resto do motor respeita); Pyramiding = aiConfig.pyramiding.enabled.
   const toggleTool = (toolId: string) => {
-    setTools(prev => prev.map(tool => 
-      tool.id === toolId 
-        ? { ...tool, enabled: !tool.enabled, status: !tool.enabled ? 'active' : 'idle' }
-        : tool
-    ));
+    if (toolId === 'atr-trailing-stop') {
+      updateAIConfig({ stopLossMode: atrEnabled ? 'FIXO' : 'DINAMICO' });
+    } else if (toolId === 'pyramiding') {
+      updateAIConfig({ pyramiding: { ...(aiConfig.pyramiding ?? DEFAULT_PYRAMIDING_CONFIG), enabled: !pyramidingEnabled } });
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -183,19 +198,6 @@ export function AIToolsControl() {
       default: return 'Desconhecido';
     }
   };
-
-  // ✅ Carregar configurações do localStorage
-  useEffect(() => {
-    const savedAtrConfig = localStorage.getItem('atr-config');
-    if (savedAtrConfig) {
-      setAtrConfig(JSON.parse(savedAtrConfig));
-    }
-
-    const savedPyramidingConfig = localStorage.getItem('pyramiding-config');
-    if (savedPyramidingConfig) {
-      setPyramidingConfig(JSON.parse(savedPyramidingConfig));
-    }
-  }, []);
 
   return (
     <Card className="p-4 bg-gradient-to-br from-slate-900/50 via-slate-900/50 to-purple-900/10 border-slate-800/50">
@@ -381,7 +383,7 @@ export function AIToolsControl() {
                       </p>
                     </div>
                     <Switch
-                      checked={selectedTool.enabled}
+                      checked={atrEnabled}
                       onCheckedChange={() => toggleTool(selectedTool.id)}
                       className="data-[state=checked]:bg-purple-500"
                     />
@@ -510,11 +512,9 @@ export function AIToolsControl() {
           {selectedTool?.id === 'pyramiding' && (
             <div className="mt-6">
               <PyramidingConfigPanel
-                config={pyramidingConfig}
+                config={aiConfig.pyramiding ?? DEFAULT_PYRAMIDING_CONFIG}
                 onChange={(newConfig) => {
-                  setPyramidingConfig(newConfig);
-                  // Salvar automaticamente no localStorage
-                  localStorage.setItem('pyramiding-config', JSON.stringify(newConfig));
+                  updateAIConfig({ pyramiding: newConfig }); // grava direto no config real lido pelo motor
                   toast.success('Configuração do Pyramiding atualizada!', {
                     description: `${newConfig.maxLayers} camadas • ${newConfig.scalingStrategy}`,
                     duration: 2000
