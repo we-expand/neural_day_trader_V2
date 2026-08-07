@@ -43,10 +43,10 @@
  * implementação — ver `AI_COGNITIVE_SPEC.md` para o racional completo.
  */
 
-import type { Candle as IndicatorCandle } from '@/app/services/indicators/TechnicalIndicators';
-import { calculateADX, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
-import { detectSwingPoints, detectStructureEvents } from '@/app/services/smc/marketStructure';
-import type { Candle as SmcCandle } from '@/app/services/smc/types';
+import type { Candle as IndicatorCandle } from '@/app/services/indicators/TechnicalIndicators.ts';
+import { calculateADX, calculateATR } from '@/app/services/indicators/TechnicalIndicators.ts';
+import { detectSwingPoints, detectStructureEvents } from '@/app/services/smc/marketStructure.ts';
+import type { Candle as SmcCandle } from '@/app/services/smc/types.ts';
 
 export type RegimeClassification = 'TRENDING' | 'RANGING' | 'HIGH_VOLATILITY' | 'ILLIQUID_NO_DATA';
 export type StructureBias = 'bullish' | 'bearish' | 'neutral';

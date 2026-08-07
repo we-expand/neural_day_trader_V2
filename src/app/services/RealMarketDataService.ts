@@ -11,10 +11,10 @@
 
 // Caminho relativo de propósito: '/utils/...' só resolve no Vite e deixava o
 // type-check cego para este módulo (fonte de preço de todo o motor).
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { PriceValidator } from './PriceValidator';
-import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService';
-import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
+import { PriceValidator } from './PriceValidator.ts';
+import { fetchDirectBinance, isBinanceSymbol } from './DirectBinanceService.ts';
+import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
 import { getBrokerSymbol, isAvailableOnBroker, isCryptoCfdAvailable } from '@/app/config/brokerRegistry';
 import { supabase } from '@/lib/supabaseClient';
 

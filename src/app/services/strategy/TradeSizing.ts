@@ -1,5 +1,5 @@
-import { RiskProfileType, Strategy } from '../../types/strategy';
-import { getAssetBySymbol } from '../../config/assetDatabase';
+import { RiskProfileType, Strategy } from '../../types/strategy.ts';
+import { getAssetBySymbol } from '../../config/assetDatabase.ts';
 
 /**
  * Extraído de useApexLogic.ts (mesmos valores/regras usados ao vivo) para ser

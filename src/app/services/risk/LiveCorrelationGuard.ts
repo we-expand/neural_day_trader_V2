@@ -17,7 +17,7 @@
  * (aproximado, mas sempre disponível) do que operar sem nenhum guard de
  * correlação. Ver ponto de integração em `useApexLogic.ts`.
  */
-import { backtestDataService, type Timeframe } from '../BacktestDataService';
+import { backtestDataService, type Timeframe } from '../BacktestDataService.ts';
 
 export interface CorrelationGuardConfig {
   /** Limiar absoluto de correlação acima do qual a nova entrada é bloqueada. Reaproveita aiConfig.correlationThreshold por padrão. */

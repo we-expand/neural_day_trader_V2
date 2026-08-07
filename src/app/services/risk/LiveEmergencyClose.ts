@@ -10,7 +10,7 @@
  * consistência imediata do lado da MetaAPI.
  */
 
-import { closeAllPositions, getPositions } from '../BrokerClient';
+import { closeAllPositions, getPositions } from '../BrokerClient.ts';
 
 export interface EmergencyCloseResult {
   closed: boolean;

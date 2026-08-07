@@ -10,31 +10,31 @@
 // `npm run validate` verde + equivalência de `stage_counts` (telemetria de
 // funil já existente) pro mesmo estado de entrada.
 
-import type { Strategy as StrategyDef } from '@/app/types/strategy';
-import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
-import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
-import type { Candle } from '@/app/services/indicators/TechnicalIndicators';
-import { backtestDataService } from '@/app/services/BacktestDataService';
-import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine';
-import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
-import { getPointValue } from '@/app/services/strategy/TradeSizing';
-import { symbolMappingService } from '@/app/services/SymbolMappingService';
-import { getAssetBySymbol } from '@/app/config/assetDatabase';
-import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
-import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
-import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector';
-import { evaluateContextGate } from '@/app/services/risk/ContextGate';
-import { evaluateTailRisk } from '@/app/services/risk/TailRiskGuard';
-import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../../research/CostModel';
-import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../../lib/modules/RiskManager';
-import { computeLiveCorrelationGuard } from '@/app/services/risk/LiveCorrelationGuard';
-import { funnelTelemetry } from '@/app/services/telemetry/FunnelTelemetry';
+import type { Strategy as StrategyDef } from '@/app/types/strategy.ts';
+import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator.ts';
+import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators.ts';
+import type { Candle } from '@/app/services/indicators/TechnicalIndicators.ts';
+import { backtestDataService } from '@/app/services/BacktestDataService.ts';
+import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine.ts';
+import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService.ts';
+import { getPointValue } from '@/app/services/strategy/TradeSizing.ts';
+import { symbolMappingService } from '@/app/services/SymbolMappingService.ts';
+import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
+import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate.ts';
+import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose.ts';
+import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector.ts';
+import { evaluateContextGate } from '@/app/services/risk/ContextGate.ts';
+import { evaluateTailRisk } from '@/app/services/risk/TailRiskGuard.ts';
+import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../../research/CostModel.ts';
+import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../../lib/modules/RiskManager.ts';
+import { computeLiveCorrelationGuard } from '@/app/services/risk/LiveCorrelationGuard.ts';
+import { funnelTelemetry } from '@/app/services/telemetry/FunnelTelemetry.ts';
 // Tipos neutros de propósito (sem nenhum import) — ver comentário no topo de
 // src/app/types/tradingState.ts. Import de @/app/hooks/useApexLogic aqui
 // quebrava a costura Deno: mesmo sendo `import type`, o resolvedor de
 // módulos ainda precisa carregar o grafo de useApexLogic.ts (react, sonner,
 // motion/react via PyramidingConfigPanel), impedindo o runner de rodar.
-import type { TradeVisual, AIConfig, PortfolioState } from '@/app/types/tradingState';
+import type { TradeVisual, AIConfig, PortfolioState } from '@/app/types/tradingState.ts';
 
 /**
  * Normaliza o timeframe operacional escolhido na UI (aiConfig.timeframe, ex:

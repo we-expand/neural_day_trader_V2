@@ -1,4 +1,4 @@
-import { Strategy, StrategyBlock } from '../types/strategy';
+import { Strategy, StrategyBlock } from '../types/strategy.ts';
 
 let blockCounter = 0;
 function block(partial: Omit<StrategyBlock, 'id' | 'enabled'>): StrategyBlock {

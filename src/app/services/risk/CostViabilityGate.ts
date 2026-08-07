@@ -37,7 +37,7 @@
  * (margem de segurança), não mais uma conclusão herdada daqueles backtests.
  */
 
-import { CRYPTO_CFD_ROUND_TRIP_COST_PERCENT } from '../../../../research/CostModel';
+import { CRYPTO_CFD_ROUND_TRIP_COST_PERCENT } from '../../../../research/CostModel.ts';
 
 export type CostViabilityClassification = 'VIAVEL' | 'FRONTEIRA' | 'INVIAVEL';
 
