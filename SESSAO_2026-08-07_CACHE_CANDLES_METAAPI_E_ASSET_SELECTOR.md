@@ -1,31 +1,51 @@
 # Sessão 2026-08-07 — Cache de candles MetaAPI + diagnóstico de conta + fix do seletor de ativo do backtest
 
+> **STATUS: FECHADO em 2026-08-07.** Todos os 4 itens desta frente foram
+> resolvidos e confirmados no mesmo dia (ver "Próximos passos" no fim do
+> arquivo — os 4 estão riscados). Nada pendente aqui. Se você está abrindo
+> este arquivo numa sessão nova só pra dar continuidade geral do projeto (não
+> especificamente desta frente de infra), o trabalho ativo real é outro: leia
+> **[NEXT_SESSION.md](NEXT_SESSION.md)** e a seção "▶ COMECE AQUI" do
+> **[CLAUDE.md](CLAUDE.md)**, que apontam o redesenho do cérebro de decisão
+> como frente corrente do projeto.
+
 > Sessão iniciada a partir de uma dúvida de consultoria (QuantConnect vs
 > MetaAPI) que evoluiu pra investigação real de um bug de produção: rate
-> limit da conta MetaAPI de plataforma mesmo com 1 usuário ativo. Não é
+> limit da conta MetaAPI de plataforma mesmo com 1 usuário ativo. Não foi
 > continuação do trabalho de "redesenho do cérebro de decisão" que
-> `NEXT_SESSION.md`/`CLAUDE.md` apontam como ativo — é uma frente paralela de
-> infra. Este arquivo é o handoff desta frente específica.
+> `NEXT_SESSION.md`/`CLAUDE.md` apontam como ativo — foi uma frente paralela
+> de infra, já concluída. Este arquivo é o handoff (fechado) desta frente
+> específica.
 
 ## ▶ COMECE AQUI (se retomar esta frente)
 
-**Bloqueador real, fora do meu alcance por código**: a conta MetaAPI de
-plataforma (`bb99f865-96fb-4573-98a7-1f32895f84f7`) está retornando
-`TimeoutError` ("account not connected to broker yet") no subsistema de
-**market-data** (histórico de candles) — reproduzido diretamente via curl
-contra `/mt5-candles-history` pra EURUSD **e** SPX500 (este último já tinha
-3211 candles em cache, prova de que funcionava antes). Não é rate-limit
-(429), é desconexão. **Ação pendente do Cleber**: checar o status da conta em
-`app.metaapi.cloud` → conta `bb99f865-96fb-4573-98a7-1f32895f84f7` → ver se
-`connectionStatus` está `CONNECTED`; se não, redeployar/reconectar
-manualmente por lá. Se persistir, abrir chamado com o suporte do MetaApi
-citando esse account ID e a mensagem de erro exata (ver seção "Achados"
-abaixo pro payload completo).
+**RESOLVIDO em 2026-08-07 (mesmo dia).** Cleber reconectou a conta MetaAPI de
+plataforma (`bb99f865-96fb-4573-98a7-1f32895f84f7`) no painel. Verificado
+depois via Supabase MCP (dado real, não relato):
+- `ohlcv_data`: `EURUSD/1h` com 4245 candles, última barra
+  `2026-08-07 17:00:00+00`; `SPX500/1h` com 3211, última barra `16:00:00+00`
+  — cache seguindo populando normalmente para os dois.
+- Logs da edge function: `/mt5-candles-history` voltando `200` (sem
+  `TimeoutError`/502 na janela mais recente); `/mt5-prices` seguindo `200`
+  de forma consistente.
+- Único erro remanescente nos logs: `GET /real/yahoo/SUGUSD` (500,
+  repetido) — já registrado abaixo como pré-existente e fora de escopo, não
+  investigado.
 
-Enquanto isso não for resolvido, gráficos e backtests de qualquer ativo que
-dependa de candle histórico via MetaAPI (forex, índices, commodities — não
-ações, que vão por Yahoo) vão continuar falhando com 502, **independente**
-das duas correções desta sessão (que já estão commitadas e com push feito).
+Nada pendente nesta frente além do item 4 abaixo (visual do seletor de
+ativo, também já confirmado pelo Cleber) e do opcional do CHECK de `30m`.
+
+<details>
+<summary>Contexto original do bloqueador (histórico, já resolvido)</summary>
+
+A conta MetaAPI de plataforma estava retornando `TimeoutError` ("account not
+connected to broker yet") no subsistema de **market-data** (histórico de
+candles) — reproduzido diretamente via curl contra `/mt5-candles-history`
+pra EURUSD **e** SPX500 (este último já tinha 3211 candles em cache, prova
+de que funcionava antes). Não era rate-limit (429), era desconexão. Ver
+seção "Achados" abaixo pro payload completo do erro original.
+
+</details>
 
 ## O que foi feito
 
@@ -105,12 +125,16 @@ deste handoff.
 
 ## Próximos passos (em ordem)
 
-1. Cleber verificar/reconectar a conta MetaAPI de plataforma no painel
-   (bloqueador de tudo que depende de candle real via MT5).
-2. Depois de reconectada, confirmar que `/mt5-candles-history` volta a
-   funcionar (retestar EURUSD e SPX500) e que o cache continua populando
-   `ohlcv_data` para novos símbolos/timeframes.
-3. Cleber confirmar visualmente (clicando na UI logada) que o seletor de
-   ativo do backtest abre e reflete o ativo do gráfico.
-4. Opcional/não bloqueante: decidir se abre o CHECK de `timeframe` pra
-   incluir `30m`.
+1. ~~Cleber verificar/reconectar a conta MetaAPI de plataforma no painel~~ —
+   **feito**, reconectada em 2026-08-07.
+2. ~~Confirmar que `/mt5-candles-history` volta a funcionar e que o cache
+   continua populando `ohlcv_data`~~ — **confirmado** via Supabase MCP (ver
+   seção "COMECE AQUI").
+3. ~~Cleber confirmar visualmente que o seletor de ativo do backtest abre e
+   reflete o ativo do gráfico~~ — **confirmado** pelo Cleber.
+4. ~~Abrir o CHECK de `timeframe` pra incluir `30m`~~ — **feito e
+   confirmado** em 2026-08-07 (Cleber rodou o SQL, constraint verificado via
+   Supabase MCP agora inclui `30m`). Candles de 30m passam a ser cacheados
+   normalmente em `ohlcv_data` daqui pra frente.
+
+Nada pendente nesta frente.
