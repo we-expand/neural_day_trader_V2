@@ -374,7 +374,7 @@ async function analyzeAsset(
     }
 
     if (!priceData) {
-      const { getRealMarketData } = await import('@/app/services/RealMarketDataService');
+      const { getRealMarketData } = await import('@/app/services/RealMarketDataService.ts');
       const marketData = await getRealMarketData(selectedSymbol);
       priceData = {
         price: marketData.price,
