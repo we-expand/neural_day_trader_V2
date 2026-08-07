@@ -115,7 +115,10 @@ O que ainda está genuinamente em aberto:
    de `pointValue` da família de contratos `X**` da Infinox (agora derivada da
    categoria do catálogo), e a cópia divergente da tabela de `pointValue` que
    existia inline em `useApexLogic`. Asserção de regressão no gate.
-   Próximo passo: extrair o ciclo de trading do `useEffect` pra módulo puro.
+   Ciclo de trading extraído do `useEffect` pra módulo puro em 2026-08-07
+   (`src/app/services/strategy/runTradingCycle.ts`, verificado via
+   `npm run validate` + type-check — falta só a verificação comportamental
+   ao vivo, `stage_counts`). Próximo passo: runner Deno sobre esse módulo.
    Ver [NEXT_SESSION.md](NEXT_SESSION.md).
 1. Múltiplas instâncias de indicador no gráfico — corrigido em 2026-08-04.
    Limitação conhecida: trocar posição (overlay/painel) de um indicador com

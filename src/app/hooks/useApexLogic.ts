@@ -5,33 +5,11 @@ import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de 
 import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
-import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
-import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
-import { backtestDataService } from '@/app/services/BacktestDataService';
-import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine';
+import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
-import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
-import { symbolMappingService } from '@/app/services/SymbolMappingService';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
-import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
-import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector';
-import { evaluateContextGate } from '@/app/services/risk/ContextGate';
-import { evaluateTailRisk } from '@/app/services/risk/TailRiskGuard';
-import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../research/CostModel';
-
-/**
- * Normaliza o timeframe operacional escolhido na UI (aiConfig.timeframe, ex:
- * '1H'/'4H') pro tipo que o MarketScoreEngine/BacktestDataService esperam
- * (minúsculo). Sem isso, o Score seria calculado sempre no timeframe errado
- * (ou falharia silenciosamente) sempre que o usuário escolhesse 1H/4H.
- */
-function normalizeAiTimeframe(tf: string | undefined): ScoreTimeframe {
-  const valid: ScoreTimeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
-  const lower = (tf || '5m').toLowerCase() as ScoreTimeframe;
-  return valid.includes(lower) ? lower : '5m';
-}
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -71,11 +49,10 @@ const toast = {
   }
 };
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
-import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../lib/modules/RiskManager'; // Fase 1: validação de risco
-import { computeLiveCorrelationGuard } from '../services/risk/LiveCorrelationGuard'; // Componente 3 do cérebro de execução (correlação real, RISK_MODULE_SPEC.md 3.5)
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase 0 do redesenho do cérebro: instrumentação do funil de decisão
+import { runTradingCycle, type TradingCycleEffect } from '../services/strategy/runTradingCycle'; // Passo 2 do plano do runner (2026-08-07): módulo puro do ciclo, "um motor, dois drivers"
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -86,30 +63,10 @@ import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase
 /** Rótulos de perfil de risco de versões antigas, ainda presentes no localStorage. */
 export type LegacyRiskProfile = 'EQUILIBRADO' | 'DEGEN';
 
-const RISK_PROFILE_ADJUSTMENTS: Record<string, { confidenceAdjust: number; sizeMultiplier: number }> = {
-  CONSERVATIVE: { confidenceAdjust: 15, sizeMultiplier: 0.7 },
-  MODERATE: { confidenceAdjust: 0, sizeMultiplier: 1.0 },
-  EQUILIBRADO: { confidenceAdjust: 0, sizeMultiplier: 1.0 }, // legado, equivalente a MODERATE
-  AGGRESSIVE: { confidenceAdjust: -10, sizeMultiplier: 1.3 },
-  DEGEN: { confidenceAdjust: -10, sizeMultiplier: 1.3 }, // legado, equivalente a AGGRESSIVE
-  INSTITUTIONAL: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
-  INSTITUTIONAL_SMC: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
-};
-const DEFAULT_RISK_ADJUSTMENT = { confidenceAdjust: 0, sizeMultiplier: 1.0 };
-
-// Grupos de correlação estáticos (heurística, não é correlação de retornos calculada ao vivo —
-// ver research/RISK_MODULE_SPEC.md seção 3.5 para o plano de evoluir isso pra correlação real).
-const CORRELATION_GROUPS: Record<string, string> = {
-  EURUSD: 'USD_MAJORS', GBPUSD: 'USD_MAJORS', AUDUSD: 'USD_MAJORS', NZDUSD: 'USD_MAJORS',
-  USDJPY: 'USD_JPY_CHF', USDCHF: 'USD_JPY_CHF', USDCAD: 'USD_JPY_CHF',
-  XAUUSD: 'METALS', XAGUSD: 'METALS', XPTUSD: 'METALS', XPDUSD: 'METALS',
-  BTCUSD: 'CRYPTO_MAJOR', XBNUSD: 'CRYPTO_MAJOR', XETUSD: 'CRYPTO_MAJOR', XLCUSD: 'CRYPTO_MAJOR',
-  SPX500: 'US_INDICES', NAS100: 'US_INDICES', US30: 'US_INDICES', US2000: 'US_INDICES',
-  GER40: 'EU_INDICES', FRA40: 'EU_INDICES', UK100: 'EU_INDICES', ESP35: 'EU_INDICES',
-};
-function getCorrelationGroup(symbol: string): string | null {
-  return CORRELATION_GROUPS[symbol] || null;
-}
+// RISK_PROFILE_ADJUSTMENTS, CORRELATION_GROUPS e demais constantes/funções só
+// usadas pelo ciclo de trading moraram aqui até 2026-08-07 — extraídas pra
+// src/app/services/strategy/runTradingCycle.ts (passo 2 do plano do runner,
+// "um motor, dois drivers"). Não duplicar de volta aqui.
 
 // Ordem pendente DEMO (limit/stop) — virtual, monitorada localmente pelo
 // preço da tela; dispara chamando openManualPosition quando o gatilho é
@@ -491,6 +448,10 @@ export function useApexLogic(
   onLiveDecision?: (decision: TradeVisual) => void
 ) {
   const onLiveDecisionRef = useRef(onLiveDecision);
+  // Instância do WebSocket de cripto já conectada (ver `connectWebSocket` no
+  // loop de trading abaixo) — exposta aqui pra `runTradingCycle` poder ler
+  // preço em tempo real via `deps.getWsPrice` sem precisar reconectar.
+  const wsManagerRef = useRef<ReturnType<typeof import('../services/BinanceWebSocketManager').getBinanceWebSocketManager> | null>(null);
   useEffect(() => { onLiveDecisionRef.current = onLiveDecision; }, [onLiveDecision]);
 
   // Ref pra sempre ler a lista de estratégias mais atual dentro do setInterval sem recriar o loop
@@ -1193,7 +1154,8 @@ export function useApexLogic(
       try {
         const { getBinanceWebSocketManager } = await import('@/app/services/BinanceWebSocketManager');
         const wsManager = getBinanceWebSocketManager();
-        
+        wsManagerRef.current = wsManager;
+
         // Conectar aos principais cryptos
         const cryptoSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT'];
         wsManager.connect(cryptoSymbols);
@@ -1257,1099 +1219,89 @@ export function useApexLogic(
       }
     };
 
+    // Aplica um efeito devolvido por `runTradingCycle` (módulo puro,
+    // src/app/services/strategy/runTradingCycle.ts) no estado React deste
+    // driver. O driver servidor (runner Deno, próximo passo) aplica os
+    // mesmos efeitos de outro jeito (sem React) — é isso que torna o motor
+    // reaproveitável nos dois lugares.
+    const applyTradingCycleEffect = (effect: TradingCycleEffect) => {
+      switch (effect.type) {
+        case 'ADD_ORDER':
+          setActiveOrders(prev => [...prev, effect.trade]);
+          break;
+        case 'CLOSE_ALL_ORDERS':
+          setActiveOrders([]);
+          break;
+        case 'SET_ACTIVE':
+          setIsActive(effect.value);
+          break;
+        case 'SET_SAFE_MODE':
+          setIsSafeMode(effect.value);
+          if (effect.reason !== undefined) setSafeModeReason(effect.reason);
+          break;
+        case 'LOG':
+          addLog(effect.message);
+          break;
+        case 'TOAST_SUCCESS':
+          toastOriginal.success(effect.title, { description: effect.description, duration: effect.duration });
+          break;
+        case 'TOAST_WARNING':
+          toastOriginal.warning(effect.title, { description: effect.description, duration: effect.duration });
+          break;
+        case 'TOAST_ERROR':
+          toastOriginal.error(effect.title, { description: effect.description, duration: effect.duration });
+          break;
+      }
+    };
+
     const tradingInterval = setInterval(() => {
-      console.log(`[AI LOOP] 🔄 Verificando oportunidades... (Posições: ${activeOrders.length}/${aiConfig.maxPositions})`);
-
-      // 📊 Telemetria de funil (Fase 0, 2026-08-04): marca que o tick realmente
-      // disparou. É esta contagem que distingue "IA parada porque a aba está em
-      // segundo plano" de "IA rodando e sendo vetada" — em 2026-08-04 essa
-      // pergunta ficou 4h40 sem resposta possível.
-      const telemetrySessionId = persistenceRef.current.getSessionId();
-      if (telemetrySessionId && user?.id) {
-        funnelTelemetry.start(telemetrySessionId, user.id);
-      }
-      funnelTelemetry.recordTick();
-
-      // Check if we can trade
-      if (activeOrders.length >= aiConfig.maxPositions) {
-        console.log(`[AI LOOP] ⏸️ Máximo de posições atingido (${aiConfig.maxPositions})`);
-        funnelTelemetry.recordStage('TICK_MAX_POSITIONS');
-        return; // Max positions reached
-      }
-
-      // 🔒 Gate de notícias: pula o ciclo se houver evento de alto impacto na janela de ±15min.
-      // O fetch é assíncrono (dispara em background e atualiza o cache), mas o gate em si
-      // precisa ser síncrono pra realmente bloquear o ciclo - por isso lê o cache já
-      // atualizado por uma chamada anterior, em vez de esperar o `.then()` (que só resolveria
-      // depois que o resto do ciclo síncrono já teria rodado).
-      if (aiConfig.newsFilter) {
-        fetchNewsCached(); // fire-and-forget: mantém o cache atualizado pros próximos ciclos
-        const NEWS_WINDOW_MS = 15 * 60 * 1000;
-        const nowTs = Date.now();
-        const highImpactNearby = cachedNewsEventsRef.current.some(e => e.impact === 'high' && Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS);
-        if (highImpactNearby) {
-          console.log('[NEWS FILTER] 🚫 Evento de alto impacto próximo - pulando ciclo');
-          funnelTelemetry.recordStage('TICK_NEWS_BLACKOUT');
-          return;
-        }
-      }
-
-      // 🔄 Mantém o cache de VIX aquecido (fire-and-forget, respeita o próprio
-      // throttle interno de 60s) — é dele que o Bloco E (TailRiskGuard) lê de
-      // forma síncrona mais adiante no ciclo, via `cachedVIXRef`.
-      fetchVIXCached();
-
-      // ✅ COOLDOWN: Tempo mínimo entre trades
-      const timeSinceLastTrade = Date.now() - lastTradeTimestampRef.current;
-
-      // 🆕 2026-07-31: cooldown curto é OPT-IN do usuário (`aggressiveModeEnabled`),
-      // nunca mais um "modo agressivo" automático disparado por VIX alto — ver
-      // comentário completo na definição de `AIConfig.aggressiveModeEnabled`.
-      // Mesmo com o opt-in ligado, isto controla só a CADÊNCIA de avaliação sob
-      // risco normal — nunca compete com o Bloco E (TailRiskGuard), que segue
-      // bloqueando/fechando de forma independente quando ATR ou VIX real
-      // indicam choque de volatilidade, mais adiante neste mesmo ciclo.
-      const COOLDOWN_AGGRESSIVE = 2 * 1000;   // 2s — só com opt-in explícito do usuário
-      const COOLDOWN_NORMAL = 5 * 1000;       // 5s — padrão
-
-      const COOLDOWN_MS = aiConfig.aggressiveModeEnabled ? COOLDOWN_AGGRESSIVE : COOLDOWN_NORMAL;
-
-      if (timeSinceLastTrade < COOLDOWN_MS && lastTradeTimestampRef.current > 0) {
-        const remainingSeconds = Math.floor((COOLDOWN_MS - timeSinceLastTrade) / 1000);
-        console.log(`[COOLDOWN] ⏳ Aguardando ${remainingSeconds}s antes do próximo trade`);
-        funnelTelemetry.recordStage('TICK_COOLDOWN');
-        return;
-      }
-      
-      console.log(`[AI LOOP] ✅ Cooldown OK - Analisando mercado...`);
-
-      // === ASSET SELECTION WITH PRIORITY SYSTEM ===
-      // 🔴 FIX 2026-08-04 (achado da auditoria de config): a versão anterior
-      // filtrava aiConfig.activeAssets contra uma tabela fixa de só 8 símbolos
-      // legados (TRADING_SYMBOL_TO_CATALOG) — qualquer coisa fora dela era
-      // silenciosamente ignorada, mesmo aparecendo como "ativa" na UI. Usuário
-      // selecionava 15+ ativos no Universo de Ativos e só ~5-6 (os que batiam
-      // com a tabela) eram de fato analisados pela IA. O pipeline de dado real
-      // (getRealMarketData/BacktestDataService/MarketScoreEngine) já é
-      // genérico pro catálogo inteiro (~350 ativos) desde 2026-07-28 — o
-      // gargalo era só este sorteio. Agora usa TODO aiConfig.activeAssets,
-      // classificado por tier via categoria REAL do catálogo
-      // (getAssetBySymbol/assetDatabase.ts), não mais uma lista hardcoded.
-      const userAssets = aiConfig.activeAssets || [];
-      if (userAssets.length === 0) {
-        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado em "Universo de Ativos" - pulando ciclo`);
-        funnelTelemetry.recordStage('TICK_NO_ASSETS_CONFIGURED');
-        return;
-      }
-
-      // 🎯 TIER 1 (70%): Cripto + Índices — historicamente mais líquidos/voláteis
-      // 🔸 TIER 2 (25%): Metais preciosos + Forex Major Pairs
-      // 🔹 TIER 3 (5%): resto do que foi selecionado (Forex minor/exótico, Energia,
-      //    Agrícolas, Ações, Bonds) — ativos ainda operados, só com menos peso.
-      const allowedTier1: string[] = [];
-      const allowedTier2: string[] = [];
-      const allowedTier3: string[] = [];
-      for (const symbol of userAssets) {
-        const asset = getAssetBySymbol(symbol);
-        if (!asset) {
-          console.warn(`[AI LOOP] ⚠️ Ativo "${symbol}" selecionado mas não encontrado no catálogo (assetDatabase.ts) — ignorado neste ciclo`);
-          continue;
-        }
-        if (asset.category === 'CRYPTO' || asset.category === 'INDICES') {
-          allowedTier1.push(symbol);
-        } else if (asset.category === 'COMMODITIES' && asset.subCategory === 'Precious Metals') {
-          allowedTier2.push(symbol);
-        } else if (asset.category === 'FOREX' && asset.subCategory === 'Major Pairs') {
-          allowedTier2.push(symbol);
-        } else {
-          allowedTier3.push(symbol);
-        }
-      }
-
-      if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
-        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário foi reconhecido no catálogo (config: ${userAssets.join(', ')}) - pulando ciclo`);
-        funnelTelemetry.recordStage('TICK_NO_ASSET_IN_CATALOG', undefined, userAssets.join(', '));
-        return;
-      }
-
-      // 🚀 VELOCIDADE (2026-08-04, pedido do Cleber: "mais rápido com a mesma
-      // eficiência"): antes só 1 ativo era analisado por tick de 5s. Com o
-      // fix acima (universo real do usuário em vez da tabela fixa de 8), um
-      // setup com 15+ ativos passaria a ter cada ativo revisitado só a cada
-      // ~1-2min em média — mais ativos configurados, mais lento por ativo.
-      // Agora analisa até ASSETS_PER_TICK ativos DIFERENTES por tick, cada um
-      // passando pelos MESMOS gates de sempre (nada foi afrouxado) — só
-      // aumenta quantos ativos reais cabem na mesma janela de 5s.
-      const ASSETS_PER_TICK = Math.min(3, allowedTier1.length + allowedTier2.length + allowedTier3.length);
-      const pickedThisTick = new Set<string>();
-
-      for (let __assetBatchIdx = 0; __assetBatchIdx < ASSETS_PER_TICK; __assetBatchIdx++) {
-      // Weighted random selection (mesmos pesos de antes, agora sobre o universo real do
-      // usuário, excluindo o que este mesmo tick já escolheu em iteração anterior)
-      const rand = Math.random();
-      let selectedAssets: string[];
-      let tierName = '';
-
-      const tier1Left = allowedTier1.filter(s => !pickedThisTick.has(s));
-      const tier2Left = allowedTier2.filter(s => !pickedThisTick.has(s));
-      const tier3Left = allowedTier3.filter(s => !pickedThisTick.has(s));
-
-      if (tier1Left.length === 0 && tier2Left.length === 0 && tier3Left.length === 0) {
-        break; // já analisou todos os ativos disponíveis do usuário neste tick
-      }
-
-      if (rand < 0.70 && tier1Left.length > 0) {
-        selectedAssets = tier1Left; // 70% chance - Cripto/Índices
-        tierName = 'TIER 1 (Cripto/Índices - Alta Volatilidade)';
-      } else if (rand < 0.95 && tier2Left.length > 0) {
-        selectedAssets = tier2Left; // 25% chance - Metais/Forex Major
-        tierName = 'TIER 2 (Metais/Forex Major - Média Volatilidade)';
-      } else if (tier3Left.length > 0) {
-        selectedAssets = tier3Left; // 5% chance - demais ativos selecionados
-        tierName = 'TIER 3 (Demais ativos selecionados - Baixa Volatilidade)';
-      } else {
-        // Tier sorteada ficou vazia — cai pra qualquer tier não-vazia restante
-        selectedAssets = tier1Left.length > 0 ? tier1Left : tier2Left.length > 0 ? tier2Left : tier3Left;
-        tierName = 'FALLBACK (restrito à config do usuário)';
-      }
-
-      const selectedSymbol = selectedAssets[Math.floor(Math.random() * selectedAssets.length)];
-      pickedThisTick.add(selectedSymbol);
-
-      // 🚫 ANTI-REPETIÇÃO: NÃO pode fazer 2 trades seguidos no mesmo ativo
-      if (lastTradedSymbolRef.current === selectedSymbol) {
-        console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${selectedSymbol}. Aguardando outro ativo...`);
-        funnelTelemetry.recordEvaluation();
-        funnelTelemetry.recordStage('ASSET_ANTI_REPEAT', selectedSymbol);
-        continue;
-      }
-
-      // 🛡️ ANTI-HEDGING CHECK: Verificar se já existe posição neste ativo
-      const existingPositionOnAsset = activeOrders.find(order => order.symbol === selectedSymbol);
-
-      if (existingPositionOnAsset) {
-        // Já existe posição neste ativo, NÃO abrir nova posição (previne hedging)
-        console.log(`[ANTI-HEDGING] ⚠️ Bloqueado: Já existe posição ${existingPositionOnAsset.side} em ${selectedSymbol}`);
-        funnelTelemetry.recordEvaluation();
-        funnelTelemetry.recordStage('ASSET_ALREADY_OPEN', selectedSymbol);
-        continue;
-      }
-
-      // 🎯 CHECK: Verificar número de ativos diferentes simultâneos
-      const uniqueAssets = new Set(activeOrders.map(order => order.symbol));
-      if (uniqueAssets.size >= aiConfig.maxAssets) {
-        // Já atingiu o máximo de ativos diferentes
-        console.log(`[ASSET LIMIT] ⚠️ Bloqueado: Máximo de ${aiConfig.maxAssets} ativos diferentes atingido`);
-        funnelTelemetry.recordEvaluation();
-        funnelTelemetry.recordStage('ASSET_MAX_DISTINCT', selectedSymbol);
-        continue;
-      }
-
-      // ✅ ANÁLISE PROFISSIONAL DE MERCADO
-      // 🚀 OTIMIZAÇÃO #4 & #5: WebSocket + Batch paralelo com fallback inteligente
-      (async () => {
-        try {
-          console.log(`[TRADING] 🔍 Analisando ${selectedSymbol} (buscando dados reais)...`);
-          funnelTelemetry.recordEvaluation();
-
-          let priceData = null;
-          
-          // 🚀 OTIMIZAÇÃO #4: Tentar WebSocket primeiro (TEMPO REAL - 100ms!)
-          const isCrypto = /BTC|ETH|SOL|XRP|BNB|ADA|DOGE|POL|LINK|USDT/i.test(selectedSymbol); // POL = Polygon (rebrandado de MATIC)
-          
-          if (isCrypto) {
-            try {
-              const { getBinanceWebSocketManager } = await import('@/app/services/BinanceWebSocketManager');
-              const wsManager = getBinanceWebSocketManager();
-              
-              // Verificar se temos preço em cache do WebSocket
-              const wsPrice = wsManager.getPrice(selectedSymbol);
-              
-              if (wsPrice && wsManager.isConnected()) {
-                // ✅ SUCESSO: Usar preço do WebSocket (INSTANTÂNEO!)
-                priceData = {
-                  price: wsPrice.price,
-                  changePercent24h: wsPrice.priceChangePercent,
-                  change24h: wsPrice.priceChange,
-                  volume: wsPrice.volume,
-                  source: 'WEBSOCKET' as any, // Tempo real!
-                  timestamp: wsPrice.timestamp
-                };
-                console.log(`[WebSocket] ⚡ ${selectedSymbol}: Preço em tempo real obtido! (latência ~100ms)`);
-              } else {
-                console.log(`[WebSocket] ⚠️ Cache vazio ou desconectado, usando REST...`);
-              }
-            } catch (error) {
-              console.warn('[WebSocket] ⚠️ Erro ao acessar WebSocket, usando REST...', error);
-            }
-          }
-          
-          // 🔄 FALLBACK: Se WebSocket falhou, usar REST API
-          // 🔧 FIX: `fetchRealPrice` (singular) foi removido de realPriceProvider.ts
-          // num refactor anterior (só sobrou `fetchRealPricesBatch`, desabilitado) e
-          // nunca foi atualizado aqui — toda chamada disparava
-          // "TypeError: fetchRealPrice is not a function", travando a análise pra
-          // TODO símbolo sem preço em cache do WebSocket e bloqueando qualquer
-          // entrada de trade. `getRealMarketData` é a função real usada com sucesso
-          // em outros lugares do app (dashboard, BinanceWebSocketManager).
-          if (!priceData) {
-            const { getRealMarketData } = await import('@/app/services/RealMarketDataService');
-            const marketData = await getRealMarketData(selectedSymbol);
-            priceData = {
-              price: marketData.price,
-              changePercent24h: marketData.changePercent || 0,
-              change24h: marketData.change || 0,
-              volume: marketData.volume || 0,
-              source: marketData.source as any,
-              timestamp: marketData.timestamp
+      runTradingCycle(
+        {
+          activeOrders,
+          aiConfig,
+          portfolio: portfolioRef.current,
+          orderHistory: orderHistoryRef.current,
+          lastTradeTimestamp: lastTradeTimestampRef.current,
+          lastTradedSymbol: lastTradedSymbolRef.current,
+          cooldownUntil: cooldownUntilRef.current,
+          lastStaleDataWarningAt: lastStaleDataWarningAtRef.current,
+          cachedNewsEvents: cachedNewsEventsRef.current,
+          cachedVIX: cachedVIXRef.current,
+        },
+        {
+          strategies: strategiesRef.current,
+          executionMode: configRef.current.executionMode,
+          telemetrySessionId: persistenceRef.current.getSessionId(),
+          userId: user?.id,
+          candleBuffer: candleBufferRef.current,
+          persistence: persistenceRef.current,
+          onLiveDecision: onLiveDecisionRef.current,
+          fetchNewsCached,
+          fetchVIXCached,
+          getWsPrice: (symbol: string) => {
+            const wsManager = wsManagerRef.current;
+            if (!wsManager || !wsManager.isConnected()) return null;
+            const wsPrice = wsManager.getPrice(symbol);
+            if (!wsPrice) return null;
+            return {
+              price: wsPrice.price,
+              changePercent24h: wsPrice.priceChangePercent,
+              change24h: wsPrice.priceChange,
+              volume: wsPrice.volume,
+              timestamp: wsPrice.timestamp,
             };
-            console.log(`[REST API] 📡 ${selectedSymbol}: Preço obtido via ${marketData.source} (${marketData.isRealData ? 'real' : 'fallback'})`);
-
-            // 🔒 Nunca decide/abre trade (DEMO ou LIVE) em cima de dado que não é
-            // real — `getFallbackOrLastKnown` já filtra preço SIMULATED antes de
-            // chegar aqui, então isRealData:false só acontece quando nem o último
-            // preço real em cache existe (price:0) ou quando ele está claramente
-            // obsoleto. Pular o ciclo e avisar é melhor que arriscar operar
-            // (mesmo em treino) sobre postura de mercado que não é real.
-            if (!marketData.isRealData) {
-              console.warn(`[TRADING] ⚠️ ${selectedSymbol}: sem dado de mercado real neste ciclo, pulando análise de entrada.`);
-              funnelTelemetry.recordStage('DATA_NOT_REAL', selectedSymbol, `fonte=${marketData.source}`);
-              const now = Date.now();
-              if (now - lastStaleDataWarningAtRef.current > 60000) {
-                lastStaleDataWarningAtRef.current = now;
-                toast.warning('Dados de mercado indisponíveis no momento', {
-                  description: `${selectedSymbol}: sem preço real da corretora agora. Novas entradas ficam pausadas até o dado voltar.`,
-                  duration: 8000,
-                });
-              }
-              return;
-            }
-          }
-
-          if (!priceData) {
-            throw new Error('Nenhum dado de preço disponível');
-          }
-
-          const currentPrice = priceData.price;
-          const priceChangePercent = priceData.changePercent24h;
-          const volume24h = priceData.volume || 50000; // Volume padrão se não disponível
-          
-          console.log(`[TRADING] ✅ ${selectedSymbol}:`, {
-            price: currentPrice.toFixed(2),
-            change: `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
-            source: priceData.source
-          });
-          
-          // 🔒 2026-07-24: o "score de confiança" antigo aqui era uma heurística
-          // caseira (volatilidade%+volume+VIX), sem nenhuma relação com o Market
-          // Score real/calibrado que o Dashboard usa (MarketScoreEngine.ts) — a
-          // IA e o Dashboard liam dois "cérebros" diferentes e podiam discordar.
-          // Removido o pré-filtro cego daqui; a confiança real (estratégia +
-          // Score calibrado, no MESMO timeframe operado) é checada mais abaixo,
-          // depois que a estratégia já sugeriu um lado — ver "GATE DO SCORE".
-          const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
-          const MIN_CONFIDENCE = 45 + riskAdjustment.confidenceAdjust; // 🚀 BASE REDUZIDA DE 60% PARA 45% - Muito mais oportunidades!
-
-          // 🆕 ESTRATÉGIA REAL: mesma função (evaluateStrategyAt) e mesmos indicadores
-          // reais (RSI/MACD/EMA/etc.) usados pelo Backtest — a IA ao vivo roda
-          // exatamente a estratégia escolhida pelo usuário, não mais uma lógica
-          // hardcoded própria. Antes disso existia RSI aproximado por
-          // `50 + variação%×5` e uma cascata fixa reversão→tendência→momentum,
-          // ignorando qualquer configuração de estratégia.
-          const activeStrategy = strategiesRef.current.find(s => s.id === aiConfig.activeStrategyId);
-          if (!activeStrategy) {
-            console.log(`[ESTRATÉGIA] 🚫 Nenhuma estratégia ativa selecionada - pulando ciclo`);
-            funnelTelemetry.recordStage('NO_ACTIVE_STRATEGY', selectedSymbol);
-            return;
-          }
-
-          // 🔒 2026-07-24: timeframe operacional deixa de ser fixo em 5m —
-          // usa o que o próprio usuário escolheu na UI (aiConfig.timeframe,
-          // já existia como campo selecionável mas era ignorado aqui). Isso
-          // é o que torna o Score (chamado logo abaixo) e a estratégia
-          // exclusivos do timeframe pedido, essencial pro modo Scalper (1m)
-          // não operar em cima de candle de 5m.
-          const opTimeframe = normalizeAiTimeframe(aiConfig.timeframe);
-          const barMs: Record<ScoreTimeframe, number> = {
-            '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
-          };
-          const bufferKey = `${selectedSymbol}_${opTimeframe}`;
-
-          // Buffer de candles reais do ativo+timeframe (renovado a cada 60s)
-          let bufferEntry = candleBufferRef.current.get(bufferKey);
-          if (!bufferEntry || Date.now() - bufferEntry.fetchedAt > 60_000) {
-            try {
-              const end = new Date();
-              const start = new Date(end.getTime() - 100 * barMs[opTimeframe]); // ~100 candles do TF operado
-              const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, opTimeframe);
-              bufferEntry = { candles: history.candles, fetchedAt: Date.now() };
-              candleBufferRef.current.set(bufferKey, bufferEntry);
-            } catch (error) {
-              console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} (${opTimeframe}) agora, pulando ciclo`, error);
-              funnelTelemetry.recordStage('CANDLES_FETCH_FAILED', selectedSymbol, `${opTimeframe}: ${error instanceof Error ? error.message : String(error)}`);
-              return;
-            }
-          }
-
-          const candles = bufferEntry.candles;
-          if (candles.length < 30) {
-            console.log(`[ESTRATÉGIA] ⏸️ Histórico insuficiente de ${selectedSymbol} (${candles.length} candles) - pulando ciclo`);
-            funnelTelemetry.recordStage('CANDLES_INSUFFICIENT', selectedSymbol, `${candles.length} candles`);
-            return;
-          }
-
-          const strategySignal = evaluateStrategyAt(activeStrategy, candles, candles.length - 1);
-          if (!strategySignal.signal) {
-            console.log(`[ESTRATÉGIA] ⏸️ "${activeStrategy.name}" sem sinal em ${selectedSymbol} agora`);
-            funnelTelemetry.recordStage('NO_SIGNAL', selectedSymbol, strategySignal.reasons[0] ?? activeStrategy.name);
-            return;
-          }
-
-          const side: 'LONG' | 'SHORT' = strategySignal.signal === 'BUY' ? 'LONG' : 'SHORT';
-          const strategyName = activeStrategy.name;
-          let confidenceScore = strategySignal.confidence;
-          const rsiSeries = calculateRSI(candles, 14);
-          const rsiValue = rsiSeries[rsiSeries.length - 1] ?? 50; // RSI real do ativo, mesmo cálculo usado no evaluator
-
-          // 🔒 marketMode continua influenciando o preset de TP/SL (ver seção de pontos abaixo);
-          // a decisão de entrada em si agora vem 100% da estratégia escolhida.
-
-          // VALIDAÇÃO FINAL DE CONFIANÇA
-          if (confidenceScore < MIN_CONFIDENCE) {
-            console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
-            funnelTelemetry.recordStage('STRATEGY_CONFIDENCE_LOW', selectedSymbol, `${confidenceScore}% < ${MIN_CONFIDENCE}%`);
-            return;
-          }
-
-          // 🔒 GATE DO MARKET SCORE (2026-07-24) — o motor recalibrado do
-          // Dashboard (MarketScoreEngine.ts, mesmo usado no card "Análise
-          // Neural") passa a ser consultado aqui como CONFIRMAÇÃO/VETO do
-          // sinal da estratégia, no MESMO timeframe operado (`opTimeframe`)
-          // — nunca decide sozinho, nunca substitui o gatilho de entrada da
-          // estratégia (`evaluateStrategyAt`, já validado via
-          // MarketScoreValidator). Se o Score classificar o ativo pro lado
-          // OPOSTO do que a estratégia sugeriu, o setup é descartado — é
-          // exatamente o cenário que motivou este gate: a IA não deve
-          // comprar quando o Score (mesmo motor que o usuário vê na tela)
-          // está classificando o ativo como VENDEDOR, e vice-versa. Isso é
-          // um passo intermediário — ainda não é o "cérebro definitivo" da
-          // IA, só a conexão real entre os dois motores que hoje existiam
-          // desconectados.
-          //
-          // ✅ 2026-07-24 (2ª rodada): LATERAL não veta (Score sem opinião
-          // forte não é "contra" a estratégia) — mas achado real via
-          // MarketScoreValidator: a faixa de score onde a maioria dos casos
-          // LATERAL cai (35-50) tem retorno futuro historicamente fraco/
-          // neutro pro BTC diário — ou seja, é uma zona de baixo edge
-          // conhecida, não só "sem informação". Deixar a IA operar aí com o
-          // MESMO limiar de confiança de sempre ignorava esse dado. Fix:
-          // Score LATERAL exige uma barra de confiança EXTRA da estratégia
-          // (nunca bloqueia por completo, só levanta a exigência) — a IA
-          // continua podendo operar em regime lateral, mas só quando a
-          // própria estratégia tem convicção forte o bastante pra compensar
-          // a falta de confirmação do Score.
-          const LATERAL_CONFIDENCE_PENALTY = 15;
-          let scoreConfidence: number | null = null;
-          let computedRegime: MarketRegime | null = null; // reaproveitado pelo gate de marketMode logo abaixo
-          try {
-            const scoreResult = await MarketScoreEngine.compute(selectedSymbol, opTimeframe);
-            if (scoreResult.provenance !== 'unavailable') {
-              computedRegime = scoreResult.regime;
-              const expectedClassification = side === 'LONG' ? 'COMPRADOR' : 'VENDEDOR';
-              const opposite = side === 'LONG' ? 'VENDEDOR' : 'COMPRADOR';
-              if (scoreResult.classification === opposite) {
-                const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`;
-                console.log(`[SCORE] 🚫 ${reason}`);
-                persistenceRef.current.saveDecision({
-                  symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: strategySignal.confidence,
-                  reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe },
-                  actionTaken: false, vetoStage: 'CONTEXT_SCORE_OPPOSITE',
-                });
-                return;
-              }
-              if (scoreResult.classification === 'LATERAL') {
-                const requiredConfidence = MIN_CONFIDENCE + LATERAL_CONFIDENCE_PENALTY;
-                if (strategySignal.confidence < requiredConfidence) {
-                  const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${strategySignal.confidence}% de confiança (exige ${requiredConfidence}% nesse regime)`;
-                  console.log(`[SCORE] 🚫 ${reason}`);
-                  persistenceRef.current.saveDecision({
-                    symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: strategySignal.confidence,
-                    reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe, requiredConfidence },
-                    actionTaken: false, vetoStage: 'CONTEXT_SCORE_LATERAL',
-                  });
-                  return;
-                }
-                console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${strategySignal.confidence}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
-              }
-              scoreConfidence = scoreResult.confidence;
-              console.log(`[SCORE] ✅ Market Score (${opTimeframe}) confirma/não contradiz: ${scoreResult.classification} (confiança ${scoreResult.confidence}%)${scoreResult.classification === expectedClassification ? ' — concorda' : ' — neutro'}`);
-            }
-          } catch (error) {
-            console.warn(`[SCORE] ⚠️ Falha ao consultar o Market Score pra ${selectedSymbol} (${opTimeframe}) — seguindo só com a confiança da estratégia`, error);
-          }
-          // Confiança final = a mais conservadora entre estratégia e Score (quando disponível).
-          if (scoreConfidence !== null) {
-            confidenceScore = Math.min(confidenceScore, scoreConfidence);
-            if (confidenceScore < MIN_CONFIDENCE) {
-              const reason = `Confiança combinada (estratégia+Score) abaixo do mínimo: ${confidenceScore}% < ${MIN_CONFIDENCE}%`;
-              console.log(`[SEGURANÇA] ❌ ${reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: reason, actionTaken: false, vetoStage: 'CONTEXT_CONFIDENCE',
-              });
-              return;
-            }
-          }
-
-          // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção (aiConfig.direction = 'AUTO' | 'LONG' | 'SHORT')
-          // Antes, o lado do trade vinha só da estratégia (RSI/momentum), ignorando
-          // completamente essa config - se o usuário travasse "somente compra", o bot
-          // podia vender do mesmo jeito. Em vez de forçar o lado (o que inventaria uma
-          // entrada sem sinal real da estratégia), descartamos o setup quando ele não
-          // bate com a direção permitida - mais seguro e ainda respeita 100% a config.
-          if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
-            console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
-            funnelTelemetry.recordStage('CONFIG_DIRECTION', selectedSymbol, `setup ${side}, travado em ${aiConfig.direction}`);
-            return;
-          }
-
-          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode (TREND/RANGE/COUNTER/SCALP).
-          // Antes só SCALP tinha efeito real (aperta TP/SL) — TREND/RANGE/COUNTER
-          // eram selecionáveis na UI mas idênticos entre si no motor (achado da
-          // auditoria de 2026-08-04). Isso não é reivindicação de edge novo — é
-          // só a config existente passando a filtrar o setup pelo REGIME real já
-          // calculado pelo Market Score (`scoreResult.regime`, ADX + Bollinger,
-          // mesmo dado que o Dashboard mostra) e pelo RSI real do ativo, em vez de
-          // ser cosmética. Só filtra quando há regime calculado (`provenance`
-          // disponível) — sem dado real, não bloqueia por suposição.
-          if ((aiConfig.marketMode === 'TREND' || aiConfig.marketMode === 'RANGE') && computedRegime !== null) {
-            const wantsTrend = aiConfig.marketMode === 'TREND';
-            const regimeMatches = wantsTrend
-              ? computedRegime === 'TENDENCIA'
-              : computedRegime === 'LATERAL';
-            if (!regimeMatches) {
-              const reason = `Setup ${side} descartado: modo "${aiConfig.marketMode}" exige regime ${wantsTrend ? 'TENDENCIA' : 'LATERAL'}, mas o Market Score (${opTimeframe}) mede ${computedRegime} agora`;
-              console.log(`[MARKET MODE] 🚫 ${reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: reason, technicalSignals: { regime: computedRegime, marketMode: aiConfig.marketMode },
-                actionTaken: false, vetoStage: 'MARKET_MODE_REGIME_MISMATCH',
-              });
-              return;
-            }
-          } else if (aiConfig.marketMode === 'COUNTER') {
-            // Contra-tendência real = fade de extremo, não "operar contra o Score"
-            // (isso já é vetado por CONTEXT_SCORE_OPPOSITE acima, incondicionalmente
-            // — travar COUNTER nisso quebraria a config pra sempre). Definição
-            // adotada: só entra LONG contra sobrevenda real (RSI<=35) ou SHORT
-            // contra sobrecompra real (RSI>=65), RSI(14) real já calculado acima.
-            const COUNTER_RSI_OVERSOLD = 35;
-            const COUNTER_RSI_OVERBOUGHT = 65;
-            const isValidFade = side === 'LONG' ? rsiValue <= COUNTER_RSI_OVERSOLD : rsiValue >= COUNTER_RSI_OVERBOUGHT;
-            if (!isValidFade) {
-              const reason = `Setup ${side} descartado: modo "COUNTER" exige RSI(14) em extremo real (LONG<=${COUNTER_RSI_OVERSOLD} ou SHORT>=${COUNTER_RSI_OVERBOUGHT}), RSI atual ${rsiValue.toFixed(1)}`;
-              console.log(`[MARKET MODE] 🚫 ${reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: reason, technicalSignals: { rsi: rsiValue, marketMode: aiConfig.marketMode },
-                actionTaken: false, vetoStage: 'MARKET_MODE_COUNTER_NO_EXTREME',
-              });
-              return;
-            }
-          }
-
-          // 🔒 GATE DE VIABILIDADE POR CUSTO (Componente 1 do cérebro de execução,
-          // decisão (B) — research/AI_BRAIN_SPEC.md seção 14.5, src/app/services/risk/
-          // CostViabilityGate.ts). Aritmética pura: recusa operar quando o custo
-          // round-trip estimado (research/CostModel.ts, mesma calibração usada na
-          // pesquisa) devora fração grande demais do movimento típico do ativo AGORA.
-          // "Movimento típico" aqui é o ATR(14) real do próprio ativo/timeframe operado
-          // — não a tabela fixa de BTCUSDT da seção 14.3 (que não pode ser extrapolada
-          // pra outro ativo sem medição própria, regra de nunca fabricar dado). ATR é
-          // uma proxy padrão de volatilidade, não o MFE medido na pesquisa; os limiares
-          // (7%/12%) foram calibrados contra MFE, então esta aplicação com ATR é uma
-          // aproximação deliberada, não a mesma métrica.
-          {
-            const atrSeriesForCostGate = calculateATR(candles, 14);
-            const atrValueForCostGate = atrSeriesForCostGate[atrSeriesForCostGate.length - 1];
-            if (!atrValueForCostGate || atrValueForCostGate <= 0) {
-              const reason = `Setup ${side} descartado: ATR indisponível pra ${selectedSymbol} agora — sem dado real pra avaliar viabilidade de custo`;
-              console.log(`[CUSTO] 🚫 ${reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: reason, actionTaken: false, vetoStage: 'COST_GATE_NO_DATA',
-              });
-              return;
-            }
-            const movementPercentForCostGate = (atrValueForCostGate / currentPrice) * 100;
-
-            // Classificação por classe de ativo reaproveita o `type` já mapeado em
-            // SymbolMappingService — FOREX_MINOR/EXOTIC não são distinguidos de
-            // FOREX_MAJOR aqui (granularidade que o mapeamento de símbolo não guarda),
-            // então o custo forex sempre usa o piso mais barato (major); ativo sem
-            // mapeamento cai no mesmo fallback, registrado no log como aproximação.
-            const symbolType = symbolMappingService.findMapping(selectedSymbol)?.type;
-            const assetClassForCostGate: CostAssetClass =
-              symbolType === 'crypto' ? 'CRYPTO' :
-              symbolType === 'commodity' ? 'COMMODITY' :
-              symbolType === 'index' ? 'INDEX' :
-              symbolType === 'stock' ? 'STOCK' :
-              'FOREX_MAJOR';
-            if (!symbolType) {
-              console.log(`[CUSTO] ⚠️ ${selectedSymbol} sem mapeamento em SymbolMappingService — usando FOREX_MAJOR como aproximação conservadora pro custo`);
-            }
-
-            const pointValueForCostGate = getPointValue(selectedSymbol);
-            const costPercentForCostGate = estimateCostPercent(assetClassForCostGate, currentPrice, pointValueForCostGate) * 2 * 100; // round-trip, em % (não fração)
-
-            const costGateResult = evaluateCostViability(costPercentForCostGate, movementPercentForCostGate);
-            if (!costGateResult.approved) {
-              const reason = `Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. ATR ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate})`;
-              console.log(`[CUSTO] 🚫 ${reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: reason, actionTaken: false, vetoStage: 'COST_GATE',
-                riskAssessment: { costPercent: costPercentForCostGate, movementPercent: movementPercentForCostGate, assetClass: assetClassForCostGate },
-              });
-              return;
-            }
-            console.log(`[CUSTO] ✅ Gate de custo aprova ${selectedSymbol}: ${costGateResult.reason}`);
-          }
-
-          // 🔒 CONTEXT GATE (Bloco B do cérebro cognitivo, research/AI_COGNITIVE_SPEC.md)
-          // — regime (ADX/ATR crus) + estrutura (BOS/CHoCH, subconjunto mecânico de
-          // Price Action, entra só como VETO, nunca como gatilho — decisão do Cleber
-          // em 2026-07-31). Deliberadamente NÃO usa o Market Score: medido e testado
-          // em holdout na mesma data, sem poder preditivo (ver ContextGate.ts). Este
-          // veto é ADICIONAL ao veto de Market Score acima, não substitui — decisão
-          // de remover aquele é separada, não tomada aqui. Heurística mecânica não
-          // validada estatisticamente (mesma disciplina do EconomicCalendarGuard
-          // ainda não implementado) — meta é reduzir trade contra a leitura de
-          // estrutura corrente, não prever direção.
-          {
-            const contextResult = evaluateContextGate(candles, side);
-            if (!contextResult.podeOperar) {
-              console.log(`[CONTEXTO] 🚫 Setup ${side} descartado em ${selectedSymbol}: ${contextResult.motivo}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: contextResult.motivo, actionTaken: false, vetoStage: 'CONTEXT_GATE',
-                technicalSignals: { regime: contextResult.classification, structureBias: contextResult.structureBias, adx: contextResult.adx, atrExpansionRatio: contextResult.atrExpansionRatio },
-              });
-              return;
-            }
-            console.log(`[CONTEXTO] ✅ Context Gate aprova ${selectedSymbol}: ${contextResult.motivo}`);
-
-            // 🔒 TAIL RISK GUARD (Bloco E do cérebro cognitivo,
-            // research/AI_COGNITIVE_SPEC.md) — "gestão de cenários extremos",
-            // reação a estado JÁ OBSERVADO (ATR do próprio ativo + VIX de
-            // mercado, sempre a leitura mais severa das duas), nunca previsão.
-            // Distinto do Bloco B: aquele só veta entrada NOVA; este também
-            // pode reagir a POSIÇÃO JÁ ABERTA no extremo (EMERGENCY_CLOSE),
-            // mesmo padrão de segurança do kill-switch abaixo
-            // (forceCloseAllLivePositions, retry + confirmação real, nunca
-            // assume sucesso).
-            //
-            // VIX vem do cache já existente (`cachedVIXRef`, `VIX_CACHE_DURATION`
-            // = 60s, linha ~1001) — zero chamada de rede nova aqui. `0` é o
-            // valor inicial antes do primeiro fetch bem-sucedido do ciclo de
-            // vida do componente, nunca um VIX real; tratado como "sem dado
-            // ainda" em vez de fabricar leitura de mercado.
-            const openExposurePercent = portfolioRef.current.balance > 0
-              ? (activeOrdersRef.current.reduce((sum, o) => sum + o.amount, 0) / portfolioRef.current.balance) * 100
-              : 0;
-            const currentVix = cachedVIXRef.current > 0 ? cachedVIXRef.current : null;
-            const tailRisk = evaluateTailRisk({ atrExpansionRatio: contextResult.atrExpansionRatio, vix: currentVix, openExposurePercent });
-
-            if (tailRisk.action === 'EMERGENCY_CLOSE' || tailRisk.action === 'BLOCK_NEW_ENTRIES') {
-              console.log(`[CAUDA] 🚨 [${tailRisk.action}, gatilho: ${tailRisk.triggeredBy}] ${tailRisk.reasoning}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: tailRisk.reasoning, actionTaken: false, vetoStage: 'CONTEXT_GATE',
-                riskAssessment: { tailRiskAction: tailRisk.action, triggeredBy: tailRisk.triggeredBy, atrExpansionRatio: contextResult.atrExpansionRatio, vix: currentVix, openExposurePercent },
-              });
-              if (tailRisk.action === 'EMERGENCY_CLOSE') {
-                addLog(`🚨 Proteção de cauda: ${tailRisk.reasoning}`);
-                toastOriginal.error('🚨 Choque de volatilidade detectado', {
-                  description: tailRisk.reasoning,
-                  duration: 10000,
-                });
-                if (configRef.current.executionMode === 'LIVE' && activeOrdersRef.current.length > 0) {
-                  forceCloseAllLivePositions().then((result) => {
-                    if (result.closed) {
-                      addLog(`🔴 Proteção de cauda: posições LIVE fechadas na corretora (${result.attempts} tentativa(s))`);
-                    } else {
-                      addLog(`🚨 FALHA AO FECHAR POSIÇÕES LIVE (proteção de cauda): ${result.lastError || 'motivo desconhecido'} — intervenção manual necessária`);
-                      toastOriginal.error('🚨 FALHA AO FECHAR POSIÇÕES LIVE NA CORRETORA', {
-                        description: `Feche manualmente na corretora. Motivo: ${result.lastError || 'desconhecido'}`,
-                        duration: 0,
-                      });
-                    }
-                  });
-                }
-              }
-              return;
-            }
-            if (tailRisk.action === 'REDUCE_SIZE') {
-              // Gap declarado: o multiplicador sugerido ainda não é aplicado ao
-              // sizing real (finalTradeCapital é calculado mais adiante, por
-              // fórmula própria) — ligar isso é mudança maior no cálculo de
-              // posição, fora do escopo desta implementação. Registrado no
-              // diário de decisão (Bloco A) pra não ficar escondido.
-              console.log(`[CAUDA] 🟡 ${tailRisk.reasoning} (multiplicador sugerido ${tailRisk.newPositionSizeMultiplier}x — ainda não aplicado ao sizing)`);
-            }
-          }
-
-          // 🔒 GATE DE RISCO (research/RISK_MODULE_SPEC.md) — checado de forma síncrona
-          // logo antes de qualquer entrada, distinto do Health Check Guardian (que audita
-          // o estado geral a cada 5s e só pausa tudo via Safe Mode). Aqui é um veto
-          // pontual, por trade, sem desligar a IA.
-          const now = Date.now();
-
-          // === PHASE 1: Daily Loss Limit Check ===
-          const riskConfig: RiskConfig = {
-            maxDailyLossPercent: aiConfig.dailyLossLimit,
-            maxDrawdownPercent: aiConfig.maxDrawdown,
-            maxPositionSizePercent: aiConfig.riskPerTrade,
-            kellyFraction: 0.25, // conservador por padrão
-            cooldownEnabled: aiConfig.cooldownEnabled,
-            cooldownMinutes: aiConfig.cooldownMinutes,
-            maxTradesPerDay: aiConfig.maxTradesPerDay,
-            killSwitchThreshold: aiConfig.killSwitchThreshold || 0,
-          };
-
-          // Calcular stats diários (trades fechados hoje, PnL realizado/não-realizado)
-          const nowDate = new Date();
-          const startOfUtcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
-          const tradesToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= startOfUtcDay);
-          const realizedPnL = tradesToday.reduce((sum, t) => sum + (t.currentProfit || 0), 0);
-          const unrealizedPnL = activeOrdersRef.current.reduce((sum, o) => sum + (o.currentProfit || 0), 0);
-          const largestLoss = Math.min(...tradesToday.map(t => t.currentProfit || 0));
-
-          // Perdas consecutivas
-          let consecutiveLosses = 0;
-          for (const t of [...tradesToday].reverse()) {
-            if ((t.currentProfit || 0) < 0) consecutiveLosses++;
-            else break;
-          }
-
-          const dailyStats: DailyStats = {
-            closedTradesCount: tradesToday.length,
-            realizedPnL,
-            unrealizedPnL,
-            largestLoss,
-            consecutiveLosses,
-          };
-
-          // Validar trade via RiskManager
-          const riskManager = new RiskManager(riskConfig);
-          const accountState = {
-            balance: portfolioRef.current.balance,
-            initialBalance: portfolioRef.current.initialBalance || 100,
-            dailyStartBalance: portfolioRef.current.dayAnchorEquity || portfolioRef.current.initialBalance || 100,
-            currentDrawdown: portfolioRef.current.currentDrawdown,
-            openPositionsCount: activeOrdersRef.current.length,
-          };
-
-          // Propor tamanho de posição (% riskPerTrade do saldo atual)
-          const proposedTradeSize = portfolioRef.current.balance * (aiConfig.riskPerTrade / 100);
-
-          const riskCheck = riskManager.validateTrade(accountState, proposedTradeSize, dailyStats);
-
-          // 🚨 TÓPICO 6: Kill-Switch (perda catastrófica)
-          const killSwitchCheck = riskManager.shouldActivateKillSwitch(accountState);
-          if (killSwitchCheck.triggered) {
-            console.error(`[RISCO] 🚨 ${killSwitchCheck.reason}`);
-            addLog(`🚨 KILL-SWITCH ATIVADO: ${killSwitchCheck.reason}`);
-            persistenceRef.current.saveDecision({
-              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-              reasoning: killSwitchCheck.reason || 'Kill-switch ativado', actionTaken: false, vetoStage: 'KILL_SWITCH',
-              riskAssessment: { accountState, dailyStats },
-            });
-
-            // Fechar TODAS as posições abertas (estado local — rastreamento DEMO)
-            setActiveOrders([]);
-            console.log('[KILL-SWITCH] 🔴 Fechadas todas as posições abertas (local)');
-
-            // Parar a IA imediatamente
-            setIsActive(false);
-            setIsSafeMode(true);
-            setSafeModeReason(killSwitchCheck.reason || 'Kill-Switch ativado');
-            console.log('[KILL-SWITCH] 🔴 IA PARADA — aguardando intervenção manual');
-
-            // Notificar o usuário com urgência
-            toastOriginal.error('🚨 KILL-SWITCH ATIVADO', {
-              description: killSwitchCheck.reason || 'Perda catastrófica detectada. Todas as posições foram fechadas.',
-              duration: 0 // persistente até o usuário descartar
-            });
-
-            // 🔴 FIX 2026-07-31 (auditoria 2026-07-30): setActiveOrders([]) acima
-            // só limpa estado local. Em modo LIVE precisa fechar de fato na
-            // corretora — não dá pra assumir "fechado" sem confirmação real.
-            if (configRef.current.executionMode === 'LIVE') {
-              forceCloseAllLivePositions().then((result) => {
-                if (result.closed) {
-                  addLog(`🔴 KILL-SWITCH: posições LIVE fechadas na corretora (${result.attempts} tentativa(s))`);
-                } else {
-                  addLog(`🚨 FALHA AO FECHAR POSIÇÕES LIVE: ${result.lastError || 'motivo desconhecido'} — intervenção manual necessária`);
-                  toastOriginal.error('🚨 FALHA AO FECHAR POSIÇÕES LIVE NA CORRETORA', {
-                    description: `Feche manualmente na corretora. Motivo: ${result.lastError || 'desconhecido'}`,
-                    duration: 0,
-                  });
-                }
-              });
-            }
-
-            return;
-          }
-
-          if (!riskCheck.approved) {
-            console.log(`[RISCO] 🚫 ${riskCheck.reason}`);
-            persistenceRef.current.saveDecision({
-              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-              reasoning: riskCheck.reason || 'Risk gate recusou', actionTaken: false, vetoStage: 'RISK_GATE',
-              riskAssessment: { accountState, dailyStats, proposedTradeSize },
-            });
-            return;
-          }
-
-          // Cooldown pós-perdas consecutivas (TAREFA 3 — extraído pra função pura testável
-          // em RiskManager.ts, `evaluateCooldownGate`; comportamento idêntico ao anterior).
-          {
-            const closedTradesDesc = [...orderHistoryRef.current].filter(t => t.closedAt).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
-            let consecutiveLossesForCooldown = 0;
-            for (const t of closedTradesDesc) {
-              if ((t.currentProfit || 0) < 0) consecutiveLossesForCooldown++;
-              else break;
-            }
-
-            const cooldownResult = evaluateCooldownGate(consecutiveLossesForCooldown, now, cooldownUntilRef.current, {
-              cooldownEnabled: aiConfig.cooldownEnabled,
-              consecutiveLossesTrigger: aiConfig.consecutiveLossesTrigger,
-              cooldownMinutes: aiConfig.cooldownMinutes,
-            });
-
-            if (cooldownResult.blocked) {
-              if (cooldownResult.newCooldownUntil) {
-                cooldownUntilRef.current = cooldownResult.newCooldownUntil;
-                addLog(`🧊 Pausa ativada: ${consecutiveLossesForCooldown} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
-              }
-              console.log(`[RISCO] 🧊 ${cooldownResult.reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: cooldownResult.reason || 'Cooldown ativo', actionTaken: false, vetoStage: 'COOLDOWN',
-              });
-              return;
-            }
-          }
-
-          // 🔒 DETECTOR DE REVENGE TRADING (Bloco D do cérebro cognitivo,
-          // research/AI_COGNITIVE_SPEC.md) — distinto do cooldown acima: aquele
-          // reage só a perdas-consecutivas; este cruza ESCALADA DE TAMANHO,
-          // PRESSA e SEQUÊNCIA+FREQUÊNCIA contra a baseline mecânica do PRÓPRIO
-          // usuário (mediana do próprio histórico, nunca limiar fixo). A IA não
-          // tem emoção — quem faz revenge trading é o usuário, através da
-          // própria config; isto detecta o padrão, nunca prevê mercado.
-          {
-            const revengeCheck = detectRevengePattern(
-              orderHistoryRef.current.map(t => ({ amount: t.amount, currentProfit: t.currentProfit, closedAt: t.closedAt, timestamp: t.timestamp })),
-              { sizePercent: proposedTradeSize, timestamp: now },
-            );
-            if (revengeCheck.flagged) {
-              console.log(`[REVENGE] ⚠️ [${revengeCheck.severity}] ${revengeCheck.reasoning}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: revengeCheck.reasoning, actionTaken: revengeCheck.severity !== 'FORCE_COOLDOWN', vetoStage: 'REVENGE_PATTERN',
-                riskAssessment: { signals: revengeCheck.signals, severity: revengeCheck.severity, baselineSampleSize: revengeCheck.baselineSampleSize },
-              });
-              // FORCE_COOLDOWN (3 sinais simultâneos) é o único grau com ação
-              // mecânica pronta — bloqueia e reusa o cooldown já existente.
-              // ALERT/REQUIRE_CONFIRMATION notificam mas NÃO bloqueiam ainda:
-              // "exigir confirmação explícita" precisa de uma UI de diálogo que
-              // não existe neste loop hoje — gap declarado no AI_COGNITIVE_SPEC.md,
-              // não escondido atrás de um bloqueio silencioso que o usuário não pediu.
-              if (revengeCheck.severity === 'FORCE_COOLDOWN') {
-                cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
-                addLog(`🚨 Padrão de revenge trading detectado (${revengeCheck.signals.join(', ')}) — pausa forçada de ${aiConfig.cooldownMinutes}min`);
-                toastOriginal.error('🚨 Padrão de revenge trading detectado', {
-                  description: revengeCheck.reasoning,
-                  duration: 10000,
-                });
-                return;
-              }
-              toastOriginal.warning(`⚠️ Possível revenge trading (${revengeCheck.severity})`, {
-                description: revengeCheck.reasoning,
-                duration: 6000,
-              });
-            }
-          }
-
-          // Limite rígido de trades/dia (TAREFA 3 — função pura `evaluateMaxTradesPerDayGate`)
-          {
-            const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-            const tradesTodayCount = orderHistoryRef.current.filter(t => (t.closedAt || t.timestamp) >= todayStart.getTime()).length + activeOrdersRef.current.length;
-            const maxTradesResult = evaluateMaxTradesPerDayGate(tradesTodayCount, aiConfig.maxTradesPerDay);
-            if (maxTradesResult.blocked) {
-              console.log(`[RISCO] 🚫 ${maxTradesResult.reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: maxTradesResult.reason || 'Limite de trades/dia atingido', actionTaken: false, vetoStage: 'MAX_TRADES_PER_DAY',
-              });
-              return;
-            }
-          }
-
-          console.log(`[DECISÃO FINAL] ${side === 'LONG' ? '🟢 COMPRA' : '🔴 VENDA'} | Estratégia: ${strategyName} | Confiança: ${confidenceScore}%`);
-          
-          // ✅ DETERMINAR DIREÇÃO BASEADA EM ESTRATÉGIA INTELIGENTE (não mais simplesmente priceChangePercent > 0)
-          
-          // 🆕 SISTEMA DE PONTOS BASEADO EM targetPoints (NOVO!)
-          // ✅ AJUSTADO: Valores MAIORES para manter posições por mais tempo
-          // POUCOS: 150 pontos | MÉDIO: 400 pontos | MUITOS: 1500+ pontos
-          let targetPointsValue = 400; // Padrão: MÉDIO (aumentado de 200 para 400)
-          let stopLossPointsValue = 120; // SL padrão (aumentado de 50 para 120)
-          
-          if (aiConfig.targetPoints === 'POUCOS') {
-            targetPointsValue = 150;  // ✅ Aumentado de 50 para 150
-            stopLossPointsValue = 50; // ✅ Aumentado de 25 para 50
-          } else if (aiConfig.targetPoints === 'MÉDIO') {
-            targetPointsValue = 400;  // ✅ Aumentado de 200 para 400
-            stopLossPointsValue = 120; // ✅ Aumentado de 50 para 120
-          } else if (aiConfig.targetPoints === 'MUITOS') {
-            targetPointsValue = 1500; // ✅ Aumentado de 1000 para 1500
-            stopLossPointsValue = 300; // ✅ Aumentado de 100 para 300
-          } else if (aiConfig.targetPoints === 'CURTO') {
-            targetPointsValue = 80;   // ✅ Aumentado de 30 para 80
-            stopLossPointsValue = 35; // ✅ Aumentado de 15 para 35
-          } else if (aiConfig.targetPoints === 'LONGO') {
-            targetPointsValue = 800;  // ✅ Aumentado de 500 para 800
-            stopLossPointsValue = 200; // ✅ Aumentado de 80 para 200
-          }
-
-          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode === 'SCALP' implica trades curtos
-          // por definição - trava o alvo/stop no teto do preset "CURTO" (80/35 pontos),
-          // não importa o que o usuário tenha configurado em targetPoints. Só aperta
-          // (Math.min), nunca alarga - respeita um targetPoints já mais curto que isso.
-          if (aiConfig.marketMode === 'SCALP') {
-            targetPointsValue = Math.min(targetPointsValue, 80);
-            stopLossPointsValue = Math.min(stopLossPointsValue, 35);
-          }
-
-          // 🎯 CONVERTER PONTOS EM PREÇO (Baseado no ativo)
-          // Para índices e ações: 1 ponto = $1
-          // Para Forex: 1 ponto = 0.0001 (pip)
-          // Para Crypto: 1 ponto = $1
-          // Para Ouro: 1 ponto = $0.10
-          
-          // 🔒 2026-07-24: BUG REAL EM PRODUÇÃO — todo par cripto cotado em
-          // dólar (BTCUSDT, BTCUSD, ETHUSD...) também contém a substring
-          // "USD", batendo por engano na regra de forex (pointValue 0.0001).
-          // Isso fazia um alvo de "400 pontos" em BTC virar 400*0.0001 =
-          // US$0,04 de distância — o TP fechava o trade quase no candle de
-          // entrada.
-          // 🔒 2026-08-05: esta lógica existia DUPLICADA aqui e em
-          // TradeSizing.getPointValue, e as duas cópias divergiram (a correção
-          // de escala por catálogo entrou só lá). Duas tabelas de pointValue no
-          // mesmo produto é o próprio bug esperando pra voltar: agora há uma só,
-          // e este caminho chama ela.
-          const pointValue = getPointValue(selectedSymbol);
-
-          // Calcular TP e SL baseado em PONTOS
-          const tpDistance = targetPointsValue * pointValue;
-          const slDistance = stopLossPointsValue * pointValue;
-          
-          const tp = side === 'LONG' 
-            ? currentPrice + tpDistance
-            : currentPrice - tpDistance;
-          
-          const sl = side === 'LONG'
-            ? currentPrice - slDistance
-            : currentPrice + slDistance;
-          
-          // 🆕 CALCULAR RISCO/RETORNO
-          const riskRewardRatio = targetPointsValue / stopLossPointsValue;
-          
-          console.log(`[TP/SL SETUP] 🎯 ${selectedSymbol}:`, {
-            targetPoints: aiConfig.targetPoints,
-            points: targetPointsValue,
-            pointValue: pointValue,
-            tpDistance: `$${tpDistance.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2)}`,
-            slDistance: `$${slDistance.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2)}`,
-            riskReward: `1:${riskRewardRatio.toFixed(1)}`,
-            entry: currentPrice.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2),
-            tp: tp.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2),
-            sl: sl.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2)
-          });
-          
-          // 💰 CALCULAR TAMANHO DA POSIÇÃO (Position Sizing)
-          // Baseado no capital alocado e risco por trade
-          const currentBalance = portfolioRef.current?.balance || 100;
-          const allocatedCapital = Math.min(aiConfig.allocatedCapital, currentBalance);
-          const riskPercentage = aiConfig.riskPerTrade / 100; // Ex: 2% = 0.02
-          
-          // Capital para este trade (% do capital alocado)
-          // 🔒 Ajustado pelo riskProfile do usuário (mesmo sizeMultiplier usado na confiança acima)
-          let tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
-
-          // 🆕 Position sizing por ATR (research/RISK_MODULE_SPEC.md, seção 3.2): em vez do
-          // % linear fixo, ajusta o capital arriscado pela volatilidade real do ativo —
-          // ativo mais volátil arrisca menos capital nominal pro mesmo % de risco.
-          if (aiConfig.positionSizingMode === 'ATR') {
-            const atrSeries = calculateATR(candles, 14);
-            const atrValue = atrSeries[atrSeries.length - 1];
-            if (atrValue && atrValue > 0) {
-              const atrDistance = atrValue * aiConfig.atrMultiplier;
-              const riskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
-              // Normaliza contra o SL fixo já calculado (slDistance em preço), mantendo o
-              // mesmo capital de risco nominal mas escalando pelo tamanho real do stop em ATR
-              tradeCapital = slDistance > 0 ? riskCapital * (slDistance / atrDistance) : riskCapital;
-              console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} | capital ajustado: $${tradeCapital.toFixed(2)}`);
-            }
-          }
-
-          // 🆕 Guard de correlação (research/RISK_MODULE_SPEC.md, seção 3.5, TAREFA 1 —
-          // 2026-07-31): correlação de Pearson REAL sobre log-returns do candle buffer já
-          // mantido por ativo (mesmo `candleBufferRef`, 60s de refresh, sem chamada de rede
-          // extra aqui — só reaproveita o que já está em memória). Bloqueia a entrada (não
-          // só reduz tamanho) quando a correlação com alguma posição já aberta ultrapassa
-          // `correlationThreshold`. Decisão de design: quando não há candle real suficiente
-          // no buffer para algum par (`insufficientData`), este módulo RECUSA calcular —
-          // cai de volta pro heurístico por grupo estático (`getCorrelationGroup`) como
-          // aproximação, em vez de operar sem guard nenhum. Ver `LiveCorrelationGuard.ts`
-          // para a função pura e a justificativa completa do fallback.
-          if (aiConfig.correlationGuardEnabled) {
-            const priceHistoryBySymbol: Record<string, number[]> = {};
-            const relevantSymbols = new Set([selectedSymbol, ...activeOrdersRef.current.map(o => o.symbol)]);
-            for (const sym of relevantSymbols) {
-              const entry = candleBufferRef.current.get(`${sym}_${opTimeframe}`);
-              if (entry) priceHistoryBySymbol[sym] = entry.candles.map(c => c.close);
-            }
-
-            const liveGuard = computeLiveCorrelationGuard(
-              selectedSymbol,
-              activeOrdersRef.current.map(o => ({ symbol: o.symbol })),
-              priceHistoryBySymbol,
-              { thresholdAbs: aiConfig.correlationThreshold, minBars: 30 },
-            );
-
-            if (liveGuard.insufficientData.length > 0) {
-              // Sem candle real suficiente pra algum par -> fallback heurístico por grupo
-              // estático (aproximação declarada, nunca dado fabricado).
-              const group = getCorrelationGroup(selectedSymbol);
-              const hasCorrelatedOpen = group && activeOrdersRef.current.some(o => o.symbol !== selectedSymbol && getCorrelationGroup(o.symbol) === group);
-              if (hasCorrelatedOpen) {
-                tradeCapital *= (1 - aiConfig.correlationThreshold * 0.5);
-                console.log(`[RISCO] 🔗 Correlação real indisponível para [${liveGuard.insufficientData.join(', ')}] — fallback heurístico por grupo ("${group}"), tamanho reduzido para $${tradeCapital.toFixed(2)}`);
-              }
-            } else if (liveGuard.blocked) {
-              console.log(`[RISCO] 🚫 ${liveGuard.reason}`);
-              persistenceRef.current.saveDecision({
-                symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: liveGuard.reason || 'Correlação real acima do limiar', actionTaken: false, vetoStage: 'CORRELATION_GUARD',
-                riskAssessment: { pairwiseCorrelations: liveGuard.pairwiseCorrelations },
-              });
-              return;
-            }
-          }
-
-          // Garantir valor mínimo para evitar P&L zerado
-          const minTradeCapital = 10; // Mínimo $10 por trade
-          const finalTradeCapital = Math.max(tradeCapital, minTradeCapital);
-
-          console.log(`[POSITION SIZING] 💰 ${selectedSymbol}:`, {
-            currentBalance: `$${currentBalance.toFixed(2)}`,
-            allocatedCapital: `$${allocatedCapital.toFixed(2)}`,
-            riskPerTrade: `${aiConfig.riskPerTrade}%`,
-            riskProfile: `${aiConfig.riskProfile} (x${riskAdjustment.sizeMultiplier})`,
-            calculatedTradeCapital: `$${tradeCapital.toFixed(2)}`,
-            finalTradeCapital: `$${finalTradeCapital.toFixed(2)}`,
-            reason: tradeCapital < minTradeCapital ? `⬆️ Aumentado para mínimo de $${minTradeCapital}` : '✅ Valor adequado'
-          });
-          
-          // ✅ CRIAR TRADE PROFISSIONAL
-          const newTrade: TradeVisual = {
-            id: `trade-${Date.now()}-${Math.random()}`,
-            symbol: selectedSymbol,
-            side,
-            amount: finalTradeCapital, // ✅ CORREÇÃO: Usar capital calculado, não maxContracts!
-            price: currentPrice,
-            currentPrice: currentPrice,
-            tp,
-            sl,
-            originalSl: sl,
-            leverage: 1.5,
-            ai_confidence: Math.min(confidenceScore, 95),
-            timestamp: Date.now(),
-            reasoning: `${strategyName} | ${tierName} - ${aiConfig.targetPoints} pts (${targetPointsValue}p) - R/R 1:${riskRewardRatio.toFixed(1)} - ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
-            indicators: {
-              rsi: Math.round(rsiValue),
-              macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-              trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-            },
-          };
-
-          // 🔔 Fase 6 (ponte decisão→execução) — observador aditivo, fire-and-forget.
-          // Não altera nenhum comportamento abaixo (DEMO/LIVE seguem exatamente iguais).
-          try {
-            onLiveDecisionRef.current?.(newTrade);
-          } catch (observerError) {
-            console.error('[FASE 6] Erro no observador onLiveDecision (não afeta o motor):', observerError);
-          }
-
-          // Atualizar último timestamp de trade
-          lastTradeTimestampRef.current = Date.now();
-          
-          // ✅ ATUALIZAR ÚLTIMO ATIVO NEGOCIADO (Anti-repetição)
-          lastTradedSymbolRef.current = selectedSymbol;
-          console.log(`[ANTI-REPETIÇÃO] 📌 Último ativo registrado: ${selectedSymbol}`);
-          
-          setActiveOrders(prev => [...prev, newTrade]);
-          addLog(`✅ ENTRADA ${side}: ${selectedSymbol} @ $${currentPrice.toFixed(2)} - Alvo: ${targetPointsValue}pts (Confiança: ${confidenceScore}%)`);
-
-          // Fase 2: persiste a abertura da posição (fire-and-forget, nunca bloqueia o loop)
-          if (configRef.current.executionMode === 'DEMO') {
-            persistenceRef.current.onTradeOpen({
-              id: newTrade.id,
-              symbol: newTrade.symbol,
-              side: newTrade.side,
-              amount: newTrade.amount,
-              price: newTrade.price,
-              tp: newTrade.tp,
-              sl: newTrade.sl,
-              leverage: newTrade.leverage,
-              ai_confidence: newTrade.ai_confidence,
-              timestamp: newTrade.timestamp,
-              reasoning: newTrade.reasoning,
-              indicators: newTrade.indicators,
-            }).then(() => {
-              // Bloco A (research/AI_COGNITIVE_SPEC.md) — diário de decisão: registra
-              // a decisão de ENTRADA aprovada, já linkada ao trade via tradeId (só
-              // resolve depois do onTradeOpen acima ter populado o mapa local→banco).
-              persistenceRef.current.saveDecision({
-                symbol: newTrade.symbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-                reasoning: newTrade.reasoning, technicalSignals: newTrade.indicators,
-                actionTaken: true, tradeId: newTrade.id,
-              });
-            });
-          }
-          
-          // 📊 Único terminal de SUCESSO do funil. Registrado aqui, de forma
-          // síncrona, e não junto do saveDecision de entrada aprovada — aquele
-          // roda dentro do `.then()` do onTradeOpen e cairia numa janela de
-          // telemetria posterior, quebrando o fechamento do funil.
-          funnelTelemetry.recordStage('ENTRY_EXECUTED', selectedSymbol, `${side} @ ${currentPrice} | ${strategyName}`);
-
-          // 🔔 Toast de notificação para o usuário
-          toastOriginal.success(`${side === 'LONG' ? '🟢' : '🔴'} ENTRADA ${side}`, {
-            description: `${selectedSymbol} @ $${currentPrice.toFixed(2)} | Confiança: ${confidenceScore}% | ${strategyName}`,
-            duration: 4000
-          });
-          
-        } catch (error) {
-          console.error('[TRADING] ❌ Erro crítico na análise:', error);
-          funnelTelemetry.recordStage('ANALYSIS_ERROR', selectedSymbol, error instanceof Error ? error.message : String(error));
-        }
-      })();
-      } // fecha o for de ASSETS_PER_TICK (batch de ativos analisados neste tick)
+          },
+          applyEffect: applyTradingCycleEffect,
+        },
+      ).then((result) => {
+        lastTradeTimestampRef.current = result.nextLastTradeTimestamp;
+        lastTradedSymbolRef.current = result.nextLastTradedSymbol;
+        cooldownUntilRef.current = result.nextCooldownUntil;
+        lastStaleDataWarningAtRef.current = result.nextLastStaleDataWarningAt;
+        for (const effect of result.effects) applyTradingCycleEffect(effect);
+      }).catch((error) => {
+        console.error('[TRADING] ❌ Erro não tratado no ciclo de trading:', error);
+      });
     }, 5000); // 🚀 OTIMIZAÇÃO #3: REDUZIDO de 15s para 5s (200% mais rápido!) ⚡
 
     return () => {
