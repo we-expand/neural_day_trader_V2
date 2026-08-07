@@ -4675,12 +4675,86 @@ app.post('/mt5-candles-history', async (c) => {
         const requestedEnd = new Date(endTime).getTime();
         const intervalMs = msPerCandle[mt5Timeframe] || 3_600_000;
 
+        // ✅ CACHE-AIDE (ohlcv_data): barra fechada é imutável — uma vez que
+        // o candle fechou, o OHLC dele nunca muda. A conta MetaAPI de
+        // plataforma é compartilhada entre streaming-relay e esta rota (ver
+        // CLAUDE.md, "Risco crônico conhecido"); todo backtest/gráfico
+        // batendo direto no MetaApi a cada chamada é o que estoura o teto de
+        // créditos da conta sob uso concorrente. Fail-open: qualquer erro de
+        // leitura/escrita no cache cai pro comportamento 100% ao vivo de
+        // antes — nunca deixa o motor sem dado por causa do cache.
+        let cachedCandles: any[] = [];
+        let cacheUsable = false;
+        try {
+            const supabaseUrl = Deno.env.get('SUPABASE_URL');
+            const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+            if (supabaseUrl && supabaseServiceKey) {
+                const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+                const { data, error } = await supabaseAdmin
+                    .from('ohlcv_data')
+                    .select('timestamp, open, high, low, close, volume')
+                    .eq('asset_symbol', symbol)
+                    .eq('timeframe', mt5Timeframe)
+                    .gte('timestamp', new Date(requestedStart).toISOString())
+                    .lte('timestamp', new Date(requestedEnd).toISOString())
+                    .order('timestamp', { ascending: true });
+                if (!error && Array.isArray(data)) {
+                    cachedCandles = data;
+                    cacheUsable = true;
+                } else if (error) {
+                    console.warn('[MT5 CANDLES HISTORY] ⚠️ Falha ao ler cache ohlcv_data, seguindo 100% ao vivo:', error.message);
+                }
+            }
+        } catch (cacheErr: any) {
+            console.warn('[MT5 CANDLES HISTORY] ⚠️ Erro inesperado lendo cache ohlcv_data, seguindo 100% ao vivo:', cacheErr.message);
+        }
+
+        // Barra mais recente que já pode ser considerada FECHADA (a atual,
+        // em formação, nunca é cacheada — pode mudar até fechar).
+        const lastClosedBarStart = Math.floor(Date.now() / intervalMs) * intervalMs - intervalMs;
+
+        // Cobertura do cache: se já temos candles cobrindo do início pedido
+        // até a última barra fechada dentro do range, só falta buscar ao
+        // vivo a partir dali (tipicamente 0 ou 1 barra).
+        let liveFetchStart = requestedStart;
+        if (cacheUsable && cachedCandles.length > 0) {
+            const cachedTimestamps = new Set(cachedCandles.map((c: any) => new Date(c.timestamp).getTime()));
+            let coverageCursor = requestedStart;
+            while (coverageCursor <= Math.min(lastClosedBarStart, requestedEnd) && cachedTimestamps.has(coverageCursor)) {
+                coverageCursor += intervalMs;
+            }
+            liveFetchStart = coverageCursor;
+        }
+
+        if (cacheUsable && liveFetchStart > requestedEnd) {
+            // Cache cobre o intervalo inteiro pedido — zero chamada ao MetaApi.
+            const formattedCandles = cachedCandles.map((cd: any) => ({
+                timestamp: new Date(cd.timestamp).getTime(),
+                open: cd.open || 0,
+                high: cd.high || 0,
+                low: cd.low || 0,
+                close: cd.close || 0,
+                volume: cd.volume || 0,
+            }));
+            console.log(`[MT5 CANDLES HISTORY] ✅ Cache hit total (${formattedCandles.length} candles, 0 chamadas MetaApi) para ${symbol}/${mt5Timeframe}`);
+            return c.json({
+                success: true,
+                source: 'cache',
+                symbol,
+                timeframe: mt5Timeframe,
+                count: formattedCandles.length,
+                candles: formattedCandles,
+                timestamp: new Date().toISOString()
+            });
+        }
+
         const allCandles: any[] = [];
         let cursor = requestedEnd; // ponto mais recente; anda pra trás a cada chamada
         let iterations = 0;
         const MAX_ITERATIONS = 60; // trava de segurança (não bate a corretora indefinidamente)
+        const effectiveStart = cacheUsable ? liveFetchStart : requestedStart;
 
-        while (cursor > requestedStart && iterations < MAX_ITERATIONS) {
+        while (cursor > effectiveStart && iterations < MAX_ITERATIONS) {
             iterations++;
 
             const response = await fetch(
@@ -4711,7 +4785,7 @@ app.post('/mt5-candles-history', async (c) => {
             await new Promise(resolve => setTimeout(resolve, 150));
         }
 
-        if (allCandles.length === 0) {
+        if (allCandles.length === 0 && cachedCandles.length === 0) {
             return c.json({
                 success: false,
                 error: 'NO_DATA',
@@ -4720,22 +4794,75 @@ app.post('/mt5-candles-history', async (c) => {
         }
 
         const dedup = new Map<number, any>();
-        for (const c2 of allCandles) dedup.set(new Date(c2.time).getTime(), c2);
+        // Base: o que já veio do cache (formato já normalizado).
+        for (const cached of cachedCandles) {
+            const ts = new Date(cached.timestamp).getTime();
+            dedup.set(ts, {
+                timestamp: ts,
+                open: cached.open || 0,
+                high: cached.high || 0,
+                low: cached.low || 0,
+                close: cached.close || 0,
+                volume: cached.volume || 0,
+            });
+        }
+        // Sobrepõe/completa com o que acabou de ser buscado ao vivo.
+        for (const c2 of allCandles) {
+            const ts = new Date(c2.time).getTime();
+            dedup.set(ts, {
+                timestamp: ts,
+                open: c2.open || 0,
+                high: c2.high || 0,
+                low: c2.low || 0,
+                close: c2.close || 0,
+                volume: c2.tickVolume || c2.realVolume || 0,
+            });
+        }
 
         const formattedCandles = Array.from(dedup.values())
-            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-            .map((cd: any) => ({
-                timestamp: new Date(cd.time).getTime(),
-                open: cd.open || 0,
-                high: cd.high || 0,
-                low: cd.low || 0,
-                close: cd.close || 0,
-                volume: cd.tickVolume || cd.realVolume || 0,
-            }));
+            .filter((cd) => cd.timestamp >= requestedStart && cd.timestamp <= requestedEnd)
+            .sort((a, b) => a.timestamp - b.timestamp);
+
+        // Persiste no cache só as barras já FECHADAS que vieram da busca ao
+        // vivo (nunca a barra corrente, ainda em formação — pode mudar até
+        // fechar). Best-effort: falha aqui não afeta a resposta ao usuário.
+        if (cacheUsable && allCandles.length > 0) {
+            const toUpsert = formattedCandles
+                .filter((cd) => cd.timestamp <= lastClosedBarStart)
+                .map((cd) => ({
+                    asset_symbol: symbol,
+                    timeframe: mt5Timeframe,
+                    timestamp: new Date(cd.timestamp).toISOString(),
+                    open: cd.open,
+                    high: cd.high,
+                    low: cd.low,
+                    close: cd.close,
+                    volume: cd.volume,
+                }));
+            if (toUpsert.length > 0) {
+                try {
+                    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+                    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+                    if (supabaseUrl && supabaseServiceKey) {
+                        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+                        const { error: upsertError } = await supabaseAdmin
+                            .from('ohlcv_data')
+                            .upsert(toUpsert, { onConflict: 'asset_symbol,timeframe,timestamp' });
+                        if (upsertError) {
+                            console.warn('[MT5 CANDLES HISTORY] ⚠️ Falha ao gravar cache ohlcv_data (não afeta a resposta):', upsertError.message);
+                        } else {
+                            console.log(`[MT5 CANDLES HISTORY] 💾 ${toUpsert.length} candles fechados gravados no cache para ${symbol}/${mt5Timeframe}`);
+                        }
+                    }
+                } catch (upsertErr: any) {
+                    console.warn('[MT5 CANDLES HISTORY] ⚠️ Erro inesperado gravando cache ohlcv_data (não afeta a resposta):', upsertErr.message);
+                }
+            }
+        }
 
         return c.json({
             success: true,
-            source: 'metaapi',
+            source: allCandles.length > 0 ? (cachedCandles.length > 0 ? 'metaapi+cache' : 'metaapi') : 'cache',
             symbol,
             timeframe: mt5Timeframe,
             count: formattedCandles.length,
