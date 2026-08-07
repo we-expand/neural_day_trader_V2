@@ -7352,6 +7352,7 @@ export function ChartView({
         isOpen={showBacktestConfig}
         onClose={() => setShowBacktestConfig(false)}
         strategies={strategies}
+        defaultAsset={selectedSymbol}
         onStart={(config) => {
           const strategy = strategies.find(s => s.id === config.strategyId);
           if (!strategy) {
