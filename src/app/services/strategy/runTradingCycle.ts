@@ -29,7 +29,12 @@ import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../..
 import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../../lib/modules/RiskManager';
 import { computeLiveCorrelationGuard } from '@/app/services/risk/LiveCorrelationGuard';
 import { funnelTelemetry } from '@/app/services/telemetry/FunnelTelemetry';
-import type { TradeVisual, AIConfig, PortfolioState } from '@/app/hooks/useApexLogic';
+// Tipos neutros de propósito (sem nenhum import) — ver comentário no topo de
+// src/app/types/tradingState.ts. Import de @/app/hooks/useApexLogic aqui
+// quebrava a costura Deno: mesmo sendo `import type`, o resolvedor de
+// módulos ainda precisa carregar o grafo de useApexLogic.ts (react, sonner,
+// motion/react via PyramidingConfigPanel), impedindo o runner de rodar.
+import type { TradeVisual, AIConfig, PortfolioState } from '@/app/types/tradingState';
 
 /**
  * Normaliza o timeframe operacional escolhido na UI (aiConfig.timeframe, ex:

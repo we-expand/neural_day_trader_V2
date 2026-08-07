@@ -116,10 +116,12 @@ O que ainda está genuinamente em aberto:
    categoria do catálogo), e a cópia divergente da tabela de `pointValue` que
    existia inline em `useApexLogic`. Asserção de regressão no gate.
    Ciclo de trading extraído do `useEffect` pra módulo puro em 2026-08-07
-   (`src/app/services/strategy/runTradingCycle.ts`, verificado via
-   `npm run validate` + type-check — falta só a verificação comportamental
-   ao vivo, `stage_counts`). Próximo passo: runner Deno sobre esse módulo.
-   Ver [NEXT_SESSION.md](NEXT_SESSION.md).
+   (`src/app/services/strategy/runTradingCycle.ts`). Runner Deno (passo 3,
+   `supabase/functions/ai-runner/`) escrito na mesma data — verificado
+   estaticamente (`deno check`, smoke test, `npm run validate`, `tsc`), mas
+   **ainda não rodou contra o Supabase de verdade**. Ver [NEXT_SESSION.md](NEXT_SESSION.md)
+   pro próximo passo obrigatório (deploy de teste + verificação de
+   `stage_counts`) antes de considerar o runner pronto.
 1. Múltiplas instâncias de indicador no gráfico — corrigido em 2026-08-04.
    Limitação conhecida: trocar posição (overlay/painel) de um indicador com
    múltiplas instâncias só preserva a 1ª. Detalhe em

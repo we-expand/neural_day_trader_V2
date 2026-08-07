@@ -154,14 +154,27 @@ Deno.test('costura: shim do supabaseClient responde no lugar do client de browse
     assertEquals(token, null, 'sem service-role, o shim NÃO pode inventar token');
   }
 
-  // Superfície mínima de propósito: qualquer outro acesso tem que estourar.
-  let threw = false;
+  // Atualizado no passo 3 (2026-08-07): `.from(...)` agora é legítimo pras
+  // duas tabelas que FunnelTelemetry.ts usa de verdade — não pode mais
+  // estourar só por ser acessado. O que continua tendo que estourar é
+  // QUALQUER OUTRO uso: tabela fora da lista, ou método fora de auth/from.
+  assert(typeof supabase.from === 'function', 'from(...) deveria estar implementado (FunnelTelemetry.ts usa)');
+
+  let threwOnUnknownTable = false;
   try {
-    (supabase as unknown as { from: unknown }).from;
+    supabase.from('some_other_table' as never);
   } catch {
-    threw = true;
+    threwOnUnknownTable = true;
   }
-  assert(threw, 'shim deveria recusar acesso não implementado em vez de devolver undefined');
+  assert(threwOnUnknownTable, 'shim deveria recusar tabela fora de ai_funnel_snapshots/ai_sessions');
+
+  let threwOnUnknownMethod = false;
+  try {
+    (supabase as unknown as { channel: unknown }).channel;
+  } catch {
+    threwOnUnknownMethod = true;
+  }
+  assert(threwOnUnknownMethod, 'shim deveria recusar acesso não implementado (ex: .channel) em vez de devolver undefined');
 });
 
 Deno.test('costura: MarketScoreEngine importa sem executar I/O na carga', async () => {

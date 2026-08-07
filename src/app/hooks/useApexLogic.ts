@@ -10,6 +10,7 @@ import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/componen
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
+import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -86,65 +87,11 @@ export interface PendingOrderVisual {
   timestamp: number;
 }
 
-// Definition of types for visual state
-export interface TradeVisual {
-  id: string;
-  symbol: string;
-  side: 'LONG' | 'SHORT';
-  amount: number;
-  price: number;
-  currentPrice?: number;
-  currentProfit?: number; // Added for Real PnL from MT5
-  closedAt?: number; // Timestamp when the trade was closed
-  tp: number;
-  sl: number;
-  // Distância original de SL na entrada (nunca sobrescrita depois, ao contrário
-  // de `sl`, que o loop de P&L reescreve a cada tick em modo DINAMICO). Ver
-  // bug do SL Dinâmico fantasma (2026-08-03): usar `sl` para recalcular a
-  // distância de trailing faz ela encolher a cada tick, e o "stop" persegue o
-  // preço até fechar a posição sozinha mesmo sem reversão real de mercado.
-  originalSl: number;
-  // 🆕 2026-08-04: contador real de quantas vezes o trailing stop DINAMICO
-  // avançou esta posição (widget "ATR Trailing Stop" — antes mostrava
-  // números hardcoded). Só runtime/UI, não persistido no Supabase.
-  trailMoves?: number;
-  // 🆕 2026-08-04: pyramiding real (widget "Pyramiding System" — antes 100%
-  // decorativo, sem lógica nenhuma no motor). `pyramidGroupId` = id da
-  // posição ORIGINAL da pilha (undefined = trade normal, fora de pyramiding).
-  // `pyramidLayer` = 1 pra posição original, 2+ pras entradas adicionadas.
-  pyramidGroupId?: string;
-  pyramidLayer?: number;
-  leverage: number;
-  ai_confidence: number;
-  timestamp: number;
-  reasoning: string; 
-  hasTakenPartial?: boolean;
-  indicators: {
-    rsi: number;
-    macd: string;
-    trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-  };
-}
-
-export interface PortfolioState {
-  balance: number;
-  equity: number;
-  maxDrawdownLimit: number;
-  currentDrawdown: number;
-  openPositionsValue: number;
-  initialBalance?: number; // Added to track profit
-  // Âncoras reais de drawdown. Antes o "drawdown" era calculado como
-  // (balance - equity)/balance e acumulado com Math.max() sem nunca resetar —
-  // media só o P&L não-realizado negativo das posições abertas (não é drawdown)
-  // e, uma vez estourado o limite, travava o Safe Mode pra sempre mesmo com a
-  // conta recuperada e em novo topo. Agora existem as duas âncoras reais que o
-  // campo aiConfig.drawdownAnchor seleciona (padrão FTMO/Topstep):
-  peakEquity?: number;        // high-water mark do equity (âncora INTRADAY_PEAK)
-  dayAnchorEquity?: number;   // equity no início do dia UTC (âncora DAILY_CLOSE)
-  dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity se refere
-  maxDrawdownReached?: number; // pior drawdown já atingido (só métrica/histórico,
-                               // NUNCA usado como gate — o gate usa currentDrawdown)
-}
+// TradeVisual/PortfolioState movidos pra src/app/types/tradingState.ts em
+// 2026-08-07 (passo 3 do plano do runner) — o motor (`runTradingCycle.ts`)
+// precisava desses tipos sem puxar React pro grafo de módulos sob Deno.
+// Re-exportados aqui pra não quebrar quem já importa deste arquivo.
+export type { TradeVisual, PortfolioState } from '@/app/types/tradingState';
 
 /**
  * Re-ancora o drawdown quando o capital muda por um salto que NÃO é resultado de
@@ -185,82 +132,14 @@ export interface MetaApiCredentials {
   // initialBalance removed, we calculate it automatically
 }
 
-export interface AIConfig {
-  direction: 'AUTO' | 'LONG' | 'SHORT';
-  marketMode: 'TREND' | 'RANGE' | 'SCALP' | 'COUNTER';
-  targetPoints: 'MÉDIO' | 'CURTO' | 'LONGO' | 'POUCOS' | 'MUITOS';
-  stopLossMode: 'DINAMICO' | 'FIXO';
-  allocatedCapital: number;
-  maxContracts: number;
-  maxPositions: number;
-  maxDrawdown: number;
-  riskPerTrade: number;
-  minWinRate: number;
-  // Inclui os rótulos legados ('EQUILIBRADO'/'DEGEN') porque eles EXISTEM de fato
-  // no localStorage de usuários antigos e são tratados em RISK_PROFILE_ADJUSTMENTS.
-  // Declarar só RiskProfileType deixava o tipo mentir sobre o valor real em uso
-  // (o próprio default do projeto é 'EQUILIBRADO').
-  riskProfile: RiskProfileType | LegacyRiskProfile;
-  
-  // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
-  activeAssets: string[]; // ✅ Lista de ativos selecionados (Infinox válidos)
-  maxAssets: number; // 🆕 AUMENTADO DE 3 PARA 6 - Máximo de ativos simultâneos diferentes
-  timeframe: string; // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
-  newsFilter: boolean; // Filtro de notícias econômicas
-  dailyLossLimit: number; // Limite de perda diária (%)
-  metaApiToken?: string; // 🔑 Token do MetaApi para integração MT5
-  // 🆕 Estratégia ativa (pronta ou customizada) — o motor de decisão passa a
-  // rodar exatamente essa estratégia via evaluateStrategyAt, a mesma função
-  // usada pelo Backtest. null = nenhuma selecionada (ciclo é pulado).
-  activeStrategyId: string | null;
-
-  // 🆕 Módulo de Gerenciamento de Risco (research/RISK_MODULE_SPEC.md) — regras
-  // adicionais, todas customizáveis pelo usuário na aba "Gerenciamento de Risco".
-  drawdownAnchor: 'INTRADAY_PEAK' | 'DAILY_CLOSE'; // FTMO/Topstep ancoram no fechamento diário
-  cooldownEnabled: boolean;
-  consecutiveLossesTrigger: number; // ex: 3 perdas seguidas ativa o cooldown
-  cooldownMinutes: number; // duração do bloqueio de novas entradas
-  maxTradesPerDay: number; // 0 = sem limite
-  positionSizingMode: 'FIXED' | 'ATR'; // FIXED = % linear (riskPerTrade); ATR = ajustado por volatilidade real
-  atrMultiplier: number; // só usado quando positionSizingMode === 'ATR'
-  correlationGuardEnabled: boolean;
-  correlationThreshold: number; // 0-1, acima disso reduz o tamanho da nova posição
-  killSwitchThreshold?: number; // % perda que ativa kill-switch automático (ex: 10.0)
-
-  // 🆕 2026-08-04 (implementação real do widget "ATR Trailing Stop" — antes
-  // era 100% decorativo, card com número hardcoded e mock data explícito no
-  // componente, achado da auditoria de config). Distância de trailing real
-  // (ATR do próprio ativo/timeframe operado, mesmo `calculateATR` usado no
-  // resto do motor) em vez da distância fixa da entrada. Só ativo quando
-  // stopLossMode === 'DINAMICO' (mesmo toggle de sempre).
-  atrTrailingPeriod: number; // período do ATR pro trailing (padrão 14)
-  atrTrailingMultiplier: number; // distância do stop = ATR × este multiplicador (padrão 2.0)
-
-  // 🆕 2026-08-04: Pyramiding real (widget "Pyramiding System" — antes 100%
-  // decorativo). Núcleo implementado: maxLayers, scalingStrategy
-  // fixed/reduced/exponential, entryDistanceType percent/pips/atr,
-  // breakEven, emergencyStop. NÃO implementado nesta passada (ver
-  // PyramidingConfigPanel.tsx e comentário em useApexLogic.ts onde é lido):
-  // scalingStrategy fibonacci/smart-ai, entryDistanceType ai-dynamic,
-  // aiRiskAnalysisEnabled e seus sub-campos, partialTakeProfit,
-  // closeAllOnReversal — desabilitados na UI, nunca fingem funcionar.
-  pyramiding: PyramidingConfig;
-
-  // 🆕 2026-07-31 (correção de achado do Bloco E, research/AI_COGNITIVE_SPEC.md):
-  // cooldown curto entre avaliações de trade (2s em vez do padrão 5s) é OPT-IN
-  // explícito do usuário — nunca mais acionado automaticamente por VIX alto.
-  // Antes disso, `globalVolatility` (VIX>20 -> cooldown mais curto) era
-  // funcionalmente morto (a Promise de `fetchVIXCached()` só resolvia DEPOIS
-  // do valor já ter sido lido de forma síncrona — nunca disparava de verdade)
-  // E, mesmo se funcionasse, ia na direção ERRADA: operar mais rápido com o
-  // mercado mais nervoso contradiz o item 3 do pedido do Cleber ("frieza...
-  // não se deixar levar pela ganância em dias de euforia") e o Bloco E
-  // inteiro (proteção de cauda). Agora é preferência de cadência do usuário
-  // sob risco normal, e NUNCA bypassa o Bloco E — TailRiskGuard continua
-  // bloqueando/fechando independente deste flag quando ATR ou VIX real
-  // indicam choque de volatilidade.
-  aggressiveModeEnabled: boolean;
-}
+// AIConfig movido pra src/app/types/tradingState.ts em 2026-08-07 (passo 3
+// do plano do runner) — mesmo motivo de TradeVisual/PortfolioState acima:
+// precisa ser importável pelo motor sob Deno sem puxar React. `riskProfile`
+// no tipo movido usa a união literal de RiskProfileType inline (em vez de
+// importar de NeuralRiskGuardian.ts) só pra não introduzir mais uma aresta
+// no grafo — o conjunto de valores é idêntico, checado no `select:` do
+// gate de validação (`npm run validate`).
+export type { AIConfig } from '@/app/types/tradingState';
 
 export interface MarketContext {
   prices: Record<string, number>;

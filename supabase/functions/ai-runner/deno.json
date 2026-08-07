@@ -19,5 +19,18 @@
     "@/lib/supabaseClient": "./shims/supabaseClient.ts",
     "@/app/config/brokerRegistry": "../../../src/app/config/brokerRegistry.ts",
     "@/": "../../../src/"
-  }
+  },
+  "unstable": ["sloppy-imports"],
+  "//unstable": [
+    "O motor inteiro (runTradingCycle.ts e toda a árvore que ele importa via",
+    "'@/...') usa imports SEM extensão — estilo Vite normal, nunca escrito",
+    "pensando em Deno. Achado ao rodar `deno check` de verdade na fatia 3",
+    "(2026-08-07): mesmo com o import map resolvendo o prefixo '@/', o Deno",
+    "por padrão exige extensão explícita em todo specifier. 'sloppy-imports'",
+    "é a forma oficial de aceitar extensão implícita SEM editar nenhum import",
+    "do caminho crítico (que continuaria certo pro Vite/browser). A",
+    "alternativa — reescrever toda a árvore de import do motor com '.ts' —",
+    "tocaria dezenas de arquivos só por causa do driver servidor, o oposto",
+    "do espírito de 'um motor, dois drivers'."
+  ]
 }

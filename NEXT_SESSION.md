@@ -1,193 +1,181 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-07**, após extrair `runTradingCycle`. Versões
-> anteriores no git.
+> Reescrito em **2026-08-07** (2ª parte do dia), após implementar a primeira
+> versão do runner Deno (passo 3).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
-> Estado da árvore: ver "Não commitado ainda" abaixo — nada foi commitado
-> nesta sessão (regra do projeto: Claude nunca commita/push sozinho).
+> Estado da árvore: nada commitado nesta sessão (regra do projeto: Claude
+> nunca commita/push sozinho) — ver lista completa de arquivos no fim.
 
-## ▶ COMECE AQUI — passo 3 do plano do runner: runner Deno
+## ▶ COMECE AQUI — runner Deno escrito, falta rodar de verdade
 
-Passo 2 (extrair o ciclo pra módulo puro) está **feito e verificado
-estaticamente** nesta sessão — ver "O que foi feito" abaixo. Falta a
-**verificação comportamental viva** antes de considerar o passo 2 fechado de
-vez (ver "Verificação pendente" logo abaixo) — mas nada impede começar o
-passo 3 em paralelo, já que a extração não mudou nenhuma decisão do motor.
+Passo 3 do plano do runner (ver histórico abaixo) está **escrito e
+verificado estaticamente**: `deno check` limpo, os 4 testes de
+`seam_smoke_test.ts` passam, `npm run validate` verde (15/15), `tsc` sem
+erro novo nos arquivos tocados. **Nada disso prova que funciona contra o
+Supabase de verdade** — esta sessão não tinha acesso à service-role key nem
+a um projeto Supabase pra rodar `deno serve`/testar uma invocação HTTP real.
+Isso é o próximo passo, não opcional antes de considerar o runner pronto.
 
-**Passo 3**: runner Deno sobre `runTradingCycle` (agora importável direto de
-`src/app/services/strategy/runTradingCycle.ts`, sem depender de React):
-lê `ai_sessions` RUNNING, monta `TradingCycleState`/`TradingCycleDeps` a
-partir do banco, chama `runTradingCycle`, aplica os efeitos retornados
-gravando em `ai_trades`/`ai_funnel_snapshots` (em vez de `setState`). Opera
-de verdade em DEMO (abre, gere stop/take/trailing, fecha). Cron **sem trava
-de dia útil** (cripto opera fim de semana), gate de mercado aberto **por
-símbolo**, lock por sessão. Requisito não negociável: rejeitar
-`source: 'SIMULATED'` explicitamente (ver armadilha abaixo).
+### O que existe agora
 
-O driver Deno precisa implementar sua própria `TradingCyclePersistence`
-(`saveDecision`/`onTradeOpen` via Supabase server-side, mesmo formato que
-`useAIPersistence.ts` usa) — **`saveDecision` precisa continuar chamando
-`funnelTelemetry.recordStage` pro `vetoStage`** igual à versão do hook (ver
-`useAIPersistence.ts:382-387`), senão o funil do runner fica incompleto sem
-ninguém perceber.
+`supabase/functions/ai-runner/`:
+- `index.ts` — handler HTTP (`Deno.serve`). Lê `ai_sessions` com
+  `status='RUNNING' AND mode='DEMO'`, reconstrói o estado de cada sessão a
+  partir do banco (`ai_trades` OPEN → `activeOrders`, último
+  `ai_portfolio_snapshots` → `portfolio`, `ai_trades` CLOSED de hoje →
+  `orderHistory`), e roda um loop limitado (`MAX_RUNTIME_MS = 45s`) por
+  invocação: tick de posição a cada 1s, tick de trading (chama
+  `runTradingCycle` de verdade, sem cópia) a cada 5s.
+- `lib/persistence.ts` — implementa `TradingCyclePersistence`
+  (`saveDecision`/`onTradeOpen`) via service-role, espelhando
+  `useAIPersistence.ts` **incluindo** a chamada a
+  `funnelTelemetry.recordStage` antes de qualquer outra coisa em cada veto
+  (era o requisito explícito do handoff anterior, pra não deixar o funil
+  incompleto de novo).
+- `lib/positionManager.ts` — segundo "driver" (fora do motor, igual o loop
+  de 1s que só existia no browser): TP/SL + trailing-stop ATR, fecha via
+  service-role. Rejeita `source: 'SIMULATED'` explicitamente, além de
+  `isRealData` — trava dupla no requisito não-negociável do runner.
+- `shims/supabaseClient.ts` — estendido nesta sessão: além de
+  `auth.getSession()`, agora implementa `from('ai_funnel_snapshots').insert`
+  e `from('ai_sessions').update(...).eq(...)` (as duas chamadas reais que
+  `FunnelTelemetry.ts` faz). Tipado como `SupabaseClient` completo (não a
+  forma mínima real) só pra satisfazer o `deno check` de trechos do grafo do
+  motor que o runner nunca executa em DEMO (ex: `BrokerClient.ts` via
+  `LiveEmergencyClose`) — a trava de runtime (Proxy que lança em qualquer
+  acesso não implementado) continua exatamente tão restrita quanto antes.
+- `seam_smoke_test.ts` — atualizado: o teste que afirmava "`.from` sempre
+  estoura" foi corrigido pra refletir que `.from(...)` agora é legítimo pras
+  duas tabelas acima (e continua estourando pra qualquer outra).
 
-Depois do runner: Fase 2 — medir a curva `k(t)`. Dataset M1 e motor numba já
-existem em `research/experiments/2026-07-30-sma-pullback-crossasset/scripts/`.
+### Achado importante desta sessão (documentar, não só corrigir)
 
-## O que foi feito nesta sessão (2026-08-07)
+A "costura" provada em 2026-08-04 (`seam_smoke_test.ts` original) **nunca
+importava `runTradingCycle.ts`** — só `StrategyEvaluator`/
+`TechnicalIndicators`/`MarketScoreEngine`. Ao tentar rodar o runner de
+verdade, dois problemas apareceram que o smoke test antigo não podia ter
+pego:
 
-Extraído o corpo do `setInterval` de dentro do `useEffect` em
-`useApexLogic.ts` (era ~1.100 linhas, linhas 1260-2353) pro módulo puro
-[runTradingCycle.ts](src/app/services/strategy/runTradingCycle.ts) (981
-linhas). Assinatura: `runTradingCycle(state, deps) → Promise<{ effects, ... }>`
-— sem React, sem `setState`; tudo que era `setActiveOrders`/`setIsActive`/
-`setSafeMode`/`addLog`/`toast` virou um `TradingCycleEffect` tipado que quem
-chama aplica (`applyTradingCycleEffect` em `useApexLogic.ts`). Persistência
-(`saveDecision`/`onTradeOpen`), telemetria de funil e chamadas de rede
-(preço, Market Score, candles, fechamento de emergência) continuam sendo
-chamadas diretas de serviços já genéricos — só o que é genuinamente
-React/UI virou efeito.
+1. `runTradingCycle.ts` importava `TradeVisual`/`AIConfig`/`PortfolioState`
+   como `import type` de `@/app/hooks/useApexLogic` — um arquivo React
+   (`react`, `sonner`, `motion/react` via `PyramidingConfigPanel.tsx`).
+   Mesmo sendo só tipo, o Deno precisa carregar o grafo do módulo alvo pra
+   checar o tipo, e esse grafo não é portável. **Corrigido**: os 3 tipos (+
+   `PyramidingConfig`, que `AIConfig` referencia) foram extraídos pra
+   [src/app/types/tradingState.ts](src/app/types/tradingState.ts) — arquivo
+   sem NENHUM import, de propósito. `useApexLogic.ts` e
+   `PyramidingConfigPanel.tsx` agora re-exportam de lá em vez de definir
+   localmente (sem duplicação, mesmo formato). `npx tsc -p tsconfig.json
+   --noEmit` confirma zero erro novo nos arquivos tocados.
+2. O motor inteiro usa imports **sem extensão** (`from '@/app/types/strategy'`,
+   não `'.../strategy.ts'`) — estilo Vite normal, nunca escrito pensando em
+   Deno. Por padrão o Deno exige extensão explícita. **Corrigido** ativando
+   `"unstable": ["sloppy-imports"]` no `deno.json` do runner — sem editar
+   nenhum import do caminho crítico (ver comentário no próprio `deno.json`).
 
-Achados/decisões durante a extração:
-- `tierName` (label do tier sorteado, ex: "TIER 1 (Cripto/Índices...)")
-  quase ficou de fora do `reasoning` persistido — corrigido antes de fechar
-  (comparação linha a linha contra o original pegou isso).
-- Os `.then()` de `forceCloseAllLivePositions()` (kill-switch e tail-risk
-  EMERGENCY_CLOSE) logavam/notificavam o resultado do fechamento na
-  corretora — como isso só existe DEPOIS do `return` da função (efeito
-  pós-ciclo, fire-and-forget desde sempre), criei `deps.applyEffect(effect)`
-  como saída lateral pra esses dois casos específicos, em vez de perder o
-  log/toast de confirmação.
-- Helpers/constantes que só o ciclo usava (`RISK_PROFILE_ADJUSTMENTS`,
-  `CORRELATION_GROUPS`/`getCorrelationGroup`, `normalizeAiTimeframe`) foram
-  MOVIDOS pra dentro de `runTradingCycle.ts`, não duplicados — removidos de
-  `useApexLogic.ts` (era exatamente o padrão que causou o bug de `pointValue`
-  divergente em 2026-08-05, não repetir).
+Nenhuma lógica de decisão mudou — os dois problemas eram 100% de resolução
+de módulo, não de comportamento. `npm run validate` confirma (15/15 verde).
 
-**Verificado**: `npx tsc -p tsconfig.engine.json --noEmit` limpo, `npm run
-validate` verde (15/15), `npx tsc -p tsconfig.json --noEmit` sem nenhum erro
-novo nos dois arquivos tocados.
+### Limitações conhecidas, documentadas de propósito (não escondidas)
 
-**Verificação pendente (não feita nesta sessão)**: a rede de proteção
-combinada pedida no handoff anterior incluía equivalência de `stage_counts`
-**antes/depois, com a IA rodando de verdade** contra dado real — isso exige
-sessão ao vivo (mercado real, Supabase, telemetria de funil populando), que
-não dá pra rodar headless nesta sessão. Antes de considerar o passo 2
-definitivamente fechado: ligar a IA em DEMO por um período curto, comparar
-`ai_funnel_snapshots.stage_counts` da sessão nova contra o padrão histórico
-(mesma distribuição de estágios pro mesmo tipo de estado de entrada — não
-precisa ser exatamente o mesmo tick, já que o mercado muda entre execuções).
+- **Estado efêmero entre invocações.** Cooldown, `lastTradedSymbol`, cache de
+  notícias/VIX e buffer de candles vivem só dentro de uma invocação (até
+  45s) e resetam a cada novo disparo do cron. Como o cooldown padrão é 5s e
+  o cron é esperado rodar a cada ~1min, o efeito prático é pequeno, mas não
+  é idêntico a um processo contínuo de verdade. Gates que dependem do
+  histórico real (`RISK_GATE`, kill-switch, `MAX_TRADES_PER_DAY`) continuam
+  corretos porque são recalculados a partir de `ai_trades` no banco a cada
+  invocação, não do estado efêmero.
+- **`CLOSE_ALL_ORDERS` (kill-switch) não persiste fechamento em DEMO** — o
+  driver browser (`useApexLogic.ts:1232-1234`) só limpa `activeOrders` em
+  memória, nunca chama `onTradeClose` pras posições fechadas pelo
+  kill-switch. O runner replica esse comportamento EXATAMENTE (pra não
+  divergir do browser), mas isso deixa linhas `ai_trades.status='OPEN'`
+  órfãs no banco quando o kill-switch dispara. Não é bug introduzido por
+  este driver — é um buraco pré-existente, agora visível porque o runner é
+  quem vai rodar sem supervisão. Vale decidir se corrige nos dois drivers
+  numa sessão futura.
+- **Cadência do cron.** Não existe infraestrutura de cron no projeto (sem
+  `config.toml`, sem `pg_cron` habilitado ainda). SQL de exemplo no fim de
+  `index.ts` (comentário, não aplicado) — usa `pg_cron` + `pg_net`,
+  granularidade mínima de 1 minuto. Isso significa até ~15s de gap entre o
+  fim de uma invocação (45s de loop) e o início da próxima.
+- **`positionManager.ts` é lógica duplicada de propósito**, não do motor
+  compartilhado — o trailing-stop ATR só existia inline no hook do browser
+  (nunca foi extraído pra módulo puro, ao contrário do ciclo de entrada).
+  Qualquer mudança futura na lógica de TP/SL/trailing do browser
+  (`useApexLogic.ts:1313-1561`) precisa ser replicada aqui manualmente até
+  existir um módulo puro compartilhado — fora do escopo desta sessão.
 
-## Decisão do Cleber ainda em aberto (não bloqueia o passo acima)
+## Próximo passo obrigatório antes de considerar o runner pronto
 
-Taxa base medida em 2026-08-05: **nenhum dos 5 presets de produção é lucrativo
-líquido de custo** no agregado (135 combinações preset×ativo×timeframe,
-motor/presets/custo reais). Não há candidato bom pra "config padrão" da IA
-hoje. Extrair o ciclo é infraestrutura e vale rodar mesmo assim — mas o
-problema de fundo (ausência de edge) segue sem solução à vista.
+**Rodar de verdade**, na ordem:
 
-Detalhe completo: `SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` — **leia a ERRATA no
-topo da seção de bugs antes de citar qualquer número de XBNUSD daquela
-tabela** (resumo: 15 das 135 linhas mediam Bitcoin com rótulo XBN errado; não
-muda a conclusão agregada, corrigido em código, tabela em si não foi
-reexecutada).
+1. Cleber configura `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` (e opcional
+   `AI_RUNNER_SHARED_SECRET`, recomendado) como secrets da function:
+   ```bash
+   supabase secrets set --env-file <(echo "AI_RUNNER_SHARED_SECRET=<algo-aleatorio>")
+   ```
+2. Deploy manual pra teste (Cleber roda, não Claude):
+   ```bash
+   supabase functions deploy ai-runner --project-ref wyvdsxtcmizettljxtbg
+   ```
+3. Com uma sessão RUNNING/DEMO de verdade no banco, invocar manualmente:
+   ```bash
+   curl -X POST https://wyvdsxtcmizettljxtbg.supabase.co/functions/v1/ai-runner \
+     -H "x-runner-secret: <o mesmo valor do passo 1>"
+   ```
+4. Comparar `ai_funnel_snapshots.stage_counts` da invocação contra o padrão
+   histórico do driver browser pro mesmo tipo de estado de entrada — mesma
+   verificação comportamental que já estava pendente do passo 2 (extração do
+   ciclo), agora estendida ao passo 3.
+5. Só depois disso, decidir junto com o Cleber se/quando ligar o
+   `pg_cron` (SQL de exemplo no fim de `index.ts`) pra rodar sem supervisão.
 
-**Opcional, barato, não bloqueia nada**: reexecutar a medição agora que o mapa
-está certo, pra ter as 15 linhas de XBNUSD medindo Binance Coin de verdade.
-```bash
-node research/experiments/2026-08-05-taxa-base/scripts/fetch_candles.mjs
-npx tsx research/experiments/2026-08-05-taxa-base/scripts/measure.ts
-```
-Ambos idempotentes — **apague o cache de candles de XBNUSD antes**, senão o
-ETL reaproveita as barras de BTC já baixadas com o mapa antigo.
+## Decisão do Cleber ainda em aberto (não bloqueia o runner)
+
+Taxa base medida em 2026-08-05: **nenhum dos 5 presets de produção é
+lucrativo líquido de custo** no agregado. Sem mudança desde o último
+handoff — ver `SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (com errata sobre
+XBNUSD no topo da seção de bugs).
 
 ## O que ficou decidido (não reabrir sem motivo novo)
 
 - **Runner 24/7 operando de verdade em DEMO é requisito de produto**, não
-  otimização. Usuário liga e vai dormir; a IA não pode se desligar sozinha.
-  Execução em conta REAL fica fora desta entrega.
-- **Um motor, dois drivers.** O runner importa o motor do browser, nunca copia.
-- **Nenhum gate/limiar foi afrouxado, e não será.** Taxa base mostrou que
-  afrouxar limiar não teria pra onde ir: nenhum preset é lucrativo mesmo
-  operando mais.
+  otimização. Execução em conta REAL fica fora desta entrega.
+- **Um motor, dois drivers.** O runner importa o motor do browser, nunca
+  copia — `positionManager.ts` é a única exceção documentada (ver acima),
+  porque a lógica de TP/SL/trailing nunca foi extraída em primeiro lugar.
+- **Nenhum gate/limiar foi afrouxado, e não será.**
 - **Calibração ajusta a QUANTIDADE de trades, nunca o SINAL da expectativa.**
-- **Fase 2 = medir a curva `k(t)`**, orçamento e critério de corte já fixados
-  (tabela no doc da Fase 0).
 - **A IA está desligada de propósito.**
 
-## Armadilhas conhecidas, ainda não corrigidas
+## Armadilhas conhecidas, ainda não corrigidas (herdadas, não deste passo)
 
-**Candles simulados com HTTP 200.** `/mt5-candles` devolve dado sintético
-quando o token MetaAPI é inválido
-([server/index.ts:4438](supabase/functions/server/index.ts:4438)). No browser
-o `isRealData` barra. **O runner do servidor precisa rejeitar `source:
-'SIMULATED'` explicitamente** — senão decide trade sobre dado fabricado,
-violando a convenção nº1 do projeto. Requisito não negociável do runner.
-(`/mt5-candles-history`, usada pela taxa base, já falha explícito em vez de
-devolver sintético — verificado em 2026-08-05.)
-
-**Faixa morta do `detectRegime`** (`MarketScoreEngine.ts:437`): ADX 18–25 vira
-`INDEFINIDO`, não satisfaz TREND nem RANGE. Com default `marketMode: 'TREND'`,
-é veto permanente. Introduzida em `6e319e485`. Não confundir com o veto
-observado no funil (esse é o filtro ADX>20 da própria estratégia, estágio
-anterior).
-
-**Pares JPY usam pip de 4 casas.** `getPointValue('USDJPY')` devolve 0.0001,
-mas pip de par com iene é 0.01 — alvo em pontos fica 100× curto. Mesma classe
-dos bugs de `pointValue` corrigidos em 2026-08-05 (ver histórico), achado ao
-revisar a função; não corrigido porque nenhum par JPY está no fluxo ativo
-hoje. Corrigir antes de qualquer par JPY entrar em produção.
-
-**Desperdício de amostragem:** ativo sem dado real continua consumindo um dos
-3 slots de avaliação por tick (`ASSETS_PER_TICK`,
-[useApexLogic.ts:1383](src/app/hooks/useApexLogic.ts:1383)).
+**Faixa morta do `detectRegime`**, **pares JPY com pip de 4 casas**,
+**desperdício de amostragem** — sem mudança, ver histórico anterior deste
+arquivo (git log) ou `CLAUDE_HISTORY.md`.
 
 ## Anotado, não priorizado
 
-- `CANDLES_FETCH_FAILED` no funil de 2026-08-05 (2,8% das avaliações) —
-  estágio novo, não investigado.
 - Mudanças de OUTRA sessão continuam não commitadas na árvore:
   `AIToolsControl.tsx`, `ATRTrailingStopManager.tsx`,
-  `PyramidingConfigPanel.tsx` e
-  `SESSAO_2026-08-04_ATR_PYRAMIDING_E_AUDITORIA_CONFIG.md`. Cleber decide.
+  `PyramidingConfigPanel.tsx` (agora TAMBÉM tocado por esta sessão — só a
+  extração do tipo `PyramidingConfig`, ver acima) e
+  `SESSAO_2026-08-04_ATR_PYRAMIDING_E_AUDITORIA_CONFIG.md`. Cleber decide o
+  que fazer com o conjunto.
 
-## Histórico desta sessão (2026-08-05, noite) — só se precisar do detalhe
+## Arquivos tocados/criados nesta sessão (nada commitado)
 
-Corrigidos os dois bugs de XBNUSD achados na medição de taxa base, e no
-processo se descobriu que um diagnóstico anterior estava **invertido**:
-`XBNUSD` nunca foi duplicata de `BTCUSD` — é **Binance Coin**, contrato
-próprio da Infinox (`assetDatabase.ts:158`, preço ~US$576 vs ~US$64.000 do
-BTC). O erro real era o mapa de backtest, que apontava XBNUSD pra baixar
-candles de BTC.
-
-1. **Mapa de backtest** (`BacktestDataService.ts:49`): `XBNUSD: 'BTC'` →
-   `'BNB'`. Adicionado `XLCUSD: 'LTC'` (faltava). Removida chave `XETLC`
-   (não correspondia a símbolo do catálogo).
-2. **Escala de ponto** (`TradeSizing.ts:60`): `getPointValue` agora deriva a
-   categoria do catálogo (`assetDatabase.getAssetBySymbol`) como fonte de
-   verdade; lista de prefixos cripto vira só fallback pra símbolos fora do
-   catálogo (`BTCUSDT`). Conserta de uma vez toda a família `X**` da
-   Infinox — `XBNUSD`, `XETUSD`, `XLCUSD` — que caía no branch de forex
-   (`pointValue` 0.0001 com preço em dólares cheios).
-3. **Cópia divergente eliminada** (`useApexLogic.ts:2143`): caminho ao vivo
-   tinha a tabela de `pointValue` duplicada inline, já divergente da de
-   `TradeSizing.ts`. Agora chama `getPointValue` — uma tabela só no produto.
-4. **Asserção de regressão** (`strategy/__validate__.ts`, CASO 5): 8 casos
-   novos travando escala por símbolo + distância de TP. Bug já tinha voltado
-   uma vez (2026-07-24, BTCUSD); agora custa o gate voltar de novo.
-
-`npm run validate` verde (15/15 na suíte do motor). Commitado
-(`167a56f70`) e pushed pra `origin/dev`.
-
-Leitura de referência, se precisar reconstruir o contexto completo:
-`SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (com a errata),
-`SESSAO_2026-08-05_RUNNER_24_7_E_TAXA_BASE.md` (decisões que motivaram a
-medição). Mais fundo: `SESSAO_2026-08-04_FASE1_LEITURA_FUNIL.md`,
-`SESSAO_2026-08-04_FASE1_COSTURA_RUNNER.md`,
-`SESSAO_2026-08-04_FASE0_TELEMETRIA_FUNIL.md`, `research/AI_BRAIN_SPEC.md`
-(seções 14.5 e **14.7** — não citar número da seção 14 sem ler 14.7).
+Novos: `supabase/functions/ai-runner/index.ts`,
+`supabase/functions/ai-runner/lib/{serviceClient,persistence,positionManager}.ts`,
+`src/app/types/tradingState.ts`.
+Modificados: `supabase/functions/ai-runner/{deno.json,seam_smoke_test.ts,shims/supabaseClient.ts}`,
+`src/app/hooks/useApexLogic.ts` (tipos movidos, comportamento idêntico),
+`src/app/components/trading/PyramidingConfigPanel.tsx` (idem),
+`src/app/services/strategy/runTradingCycle.ts` (só o import de tipos).
 
 ## Workflow (regra fixa do projeto)
 
-Claude **nunca** roda `git commit`/`push` nem aplica migration. Sempre
-entrega código pronto + comandos prontos pro Cleber rodar.
+Claude **nunca** roda `git commit`/`push` nem aplica migration/deploy.
+Sempre entrega código pronto + comandos prontos pro Cleber rodar.
