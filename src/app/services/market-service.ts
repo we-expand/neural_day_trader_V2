@@ -238,17 +238,6 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
-    // 🔎 DIAGNÓSTICO TEMPORÁRIO (2026-08-08) — investigando 401 no gateway
-    // pra chamadas de candles feitas pelo ai-runner. Loga só forma do token
-    // (fonte + tamanho + prefixo), nunca o valor. Remover depois de achar a
-    // causa.
-    const tokenUsed = accessToken || publicAnonKey;
-    console.log(
-      `[MarketService][DIAG] fonte=${accessToken ? 'session' : 'publicAnonKey'} ` +
-      `tipo=${typeof tokenUsed} len=${tokenUsed?.length ?? 'undefined'} ` +
-      `prefixo=${tokenUsed ? String(tokenUsed).slice(0, 12) : 'N/A'}`
-    );
-
     const response = await fetch(MT5_CANDLES_HISTORY_URL, {
       method: 'POST',
       headers: {
