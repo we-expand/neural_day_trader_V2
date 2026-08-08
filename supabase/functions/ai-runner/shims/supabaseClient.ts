@@ -41,15 +41,34 @@ function serviceRoleKey(): string | null {
   return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? null;
 }
 
+// 🚨 CORREÇÃO (2026-08-08): a env var reservada `SUPABASE_SERVICE_ROLE_KEY`
+// (auto-injetada pela plataforma, não configurável via `secrets set`) passou
+// a devolver o formato NOVO de chave (`sb_secret_...`) em vez do JWT clássico
+// nesse projeto — provavelmente por causa de uma migração de formato de
+// chave em andamento do lado da Supabase. O client `supabase-js`
+// (`getRealClient()` abaixo) aceita esse formato novo sem problema, mas o
+// gateway HTTP da function `server` (rota /mt5-candles-history, chamada via
+// fetch cru, não via supabase-js) tem `verify_jwt: true` e só aceita o JWT
+// legado — rejeitava com 401 antes mesmo de o código da function rodar.
+// Confirmado via `curl` manual: o JWT legado de `service_role` (Project
+// Settings → API → Legacy API Keys) passa; o valor da env var reservada não.
+// Corrigido usando um secret PRÓPRIO (não reservado, setável via
+// `supabase secrets set`) guardando esse JWT legado, só pra esta chamada
+// HTTP crua — não mexe no client supabase-js.
+function legacyServiceRoleJwt(): string | null {
+  return Deno.env.get('AI_RUNNER_CANDLES_JWT') ?? null;
+}
+
 const authShim = {
   /**
-   * Devolve a service-role key no formato que `BacktestDataService` espera de
-   * uma sessão do Supabase. Se a env var faltar, devolve sessão nula — o
-   * chamador cai no `publicAnonKey`, e a rota de candles responde o erro real
-   * em vez de este shim inventar um token.
+   * Devolve o JWT legado de service-role no formato que `BacktestDataService`
+   * espera de uma sessão do Supabase (usado só pra autenticar a chamada crua
+   * a /mt5-candles-history — ver comentário acima). Se a env var faltar,
+   * devolve sessão nula — o chamador cai no `publicAnonKey`, e a rota de
+   * candles responde o erro real em vez de este shim inventar um token.
    */
   getSession(): Promise<{ data: { session: { access_token: string } | null } }> {
-    const key = serviceRoleKey();
+    const key = legacyServiceRoleJwt();
     return Promise.resolve({
       data: { session: key ? { access_token: key } : null },
     });

@@ -254,17 +254,6 @@ class BacktestDataService {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
-    // 🔎 DIAGNÓSTICO TEMPORÁRIO (2026-08-08) — investigando 401 no gateway pra
-    // chamadas de candles feitas pelo ai-runner em /mt5-candles-history. Loga
-    // só forma do token (fonte + tamanho + prefixo), nunca o valor. Remover
-    // depois de achar a causa.
-    const diagToken = accessToken || publicAnonKey;
-    console.log(
-      `[BACKTEST_DATA][DIAG] fonte=${accessToken ? 'session' : 'publicAnonKey'} ` +
-      `tipo=${typeof diagToken} len=${diagToken?.length ?? 'undefined'} ` +
-      `prefixo=${diagToken ? String(diagToken).slice(0, 12) : 'N/A'}`
-    );
-
     const attempts = BacktestDataService.METAAPI_RETRY_DELAYS_MS.length + 1; // 1 tentativa original + N retries
     let lastError: BacktestDataUnavailableError | null = null;
 
