@@ -320,6 +320,21 @@ class BacktestDataService {
         volume: c.volume,
       }));
 
+      // ✅ 2026-08-09: `success: true` com `candles: []` (MetaAPI sem histórico
+      // pro timeframe pedido) fazia `candles[0].time` estourar TypeError
+      // genérico ("Cannot read properties of undefined") em vez do erro
+      // explícito que o projeto exige — achado em produção via
+      // ai_funnel_snapshots.samples.CANDLES_FETCH_FAILED, todos os ciclos do
+      // timeframe 15m batendo nesse crash.
+      if (candles.length === 0) {
+        lastError = new BacktestDataUnavailableError(
+          catalogSymbol,
+          `MetaAPI retornou 0 candles para ${catalogSymbol} (${timeframeMap[timeframe]})`
+        );
+        if (attempt < attempts - 1) continue;
+        throw lastError;
+      }
+
       return {
         candles,
         startTime: candles[0].time,
