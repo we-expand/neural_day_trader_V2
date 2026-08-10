@@ -69,9 +69,38 @@ function isCryptoSymbolForSizing(symbol: string): boolean {
   return CRYPTO_BASES.some(base => s.startsWith(base));
 }
 
+/**
+ * 🔒 2026-08-10: mesmo bug de família já corrigido pra cripto em 2026-08-05
+ * (XBNUSD, XETUSD, XLCUSD), reaparecendo em qualquer instrumento catalogado
+ * cujo símbolo contenha um código de moeda como substring sem ser forex de
+ * verdade — não só UKOUSD (Brent Oil). Achado em UKOUSD (trade real 2026-08-10
+ * 18:02 UTC, confiança 78%, stop de 0,0135% do preço fechado em ~80s por
+ * ruído), mas a mesma heurística por nome também pegava errado XAG/XPT/XPD
+ * (prata/platina/paládio — só ouro tinha exceção) e USDX (Índice do Dólar,
+ * categoria INDICES, contém "USD" mas não é par forex).
+ *
+ * Fix estrutural: o heurístico de pip por substring de moeda só pode valer
+ * pra CATEGORIA FOREX de verdade. Pra qualquer símbolo catalogado fora de
+ * FOREX/CRYPTO, a categoria do catálogo é a única fonte de verdade — nunca o
+ * nome. Símbolos fora do catálogo (ex.: notação nativa de exchange tipo
+ * BTCUSDT, já coberta antes pelo check de cripto) caem no fallback por nome,
+ * preservado por retrocompatibilidade.
+ */
+const NON_FOREX_POINT_VALUE_BY_SUBCATEGORY: Record<string, number> = {
+  'Precious Metals': 0.1, // ouro/prata/platina/paládio, preço na casa das centenas/milhares
+  Energy: 0.01,           // petróleo/gás, preço na casa das dezenas/centenas
+  Agriculture: 0.01,
+};
+
 /** Mesma tabela de pip/ponto por classe de ativo usada em useApexLogic.ts. */
 export function getPointValue(symbol: string): number {
   if (isCryptoSymbolForSizing(symbol)) return 1.0; // preço já em dólares cheios, "ponto" = US$1
+
+  const asset = getAssetBySymbol(symbol.toUpperCase());
+  if (asset && asset.category !== 'FOREX') {
+    return NON_FOREX_POINT_VALUE_BY_SUBCATEGORY[asset.subCategory] ?? 1.0;
+  }
+
   let pointValue = 1.0;
   if (
     symbol.includes('EUR') || symbol.includes('GBP') || symbol.includes('USD') ||
