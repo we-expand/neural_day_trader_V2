@@ -304,9 +304,11 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
   });
 }
 
-// Contador de Candles — indicador custom que escreve o número de cada vela (a partir da
-// mais recente, 1 = vela atual, 2 = anterior...) LOGO ACIMA dela, sobre o próprio gráfico
-// de preço -- não é uma linha/barra num painel separado, é texto por cima de cada candle.
+// Contador de Candles — indicador custom que escreve o número de cada vela LOGO ACIMA
+// dela, sobre o próprio gráfico de preço -- não é uma linha/barra num painel separado, é
+// texto por cima de cada candle. Contagem na ordem cronológica (1 = vela mais antiga da
+// abertura do histórico carregado, crescendo até a vela atual) -- pedido explícito do
+// Cleber, direção oposta da 1ª versão (que contava a partir da mais recente pra trás).
 // 🐛 2 tentativas anteriores falharam por limitações reais da klinecharts (não bug de
 // digitação):
 // 1ª) figure `type: 'bar'/'line'` sem `attrs()` -- nunca desenhava nada (indicador
@@ -336,7 +338,6 @@ if (!isIndicatorRegistered('CANDLE_COUNTER')) {
     draw: (ctx: any) => {
       const { ctx: canvas, kLineDataList, visibleRange, xAxis, yAxis } = ctx;
       const { from, to } = visibleRange;
-      const total = kLineDataList.length;
       canvas.save();
       canvas.fillStyle = '#f59e0b';
       canvas.font = 'bold 10px sans-serif';
@@ -347,7 +348,7 @@ if (!isIndicatorRegistered('CANDLE_COUNTER')) {
         if (!bar) continue;
         const x = xAxis.convertToPixel(i);
         const y = yAxis.convertToPixel(bar.high) - 6;
-        canvas.fillText(String(total - i), x, y);
+        canvas.fillText(String(i + 1), x, y);
       }
       canvas.restore();
       return true;
