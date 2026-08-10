@@ -98,6 +98,23 @@ são pré-existentes: categorias de ativos tipo `"Stocks US"`/`"Stocks EU"`,
 `binanceData` não definida, tipos de estilo do klinecharts — nenhum
 relacionado a esta mudança).
 
+## Reset diário da contagem — 3ª correção depois do primeiro commit
+
+Reportado pelo Cleber: BTCUSD virou o dia (novo "% do dia" no dashboard) e o
+Contador de Candles **continuou contando a partir do total acumulado do
+histórico carregado**, sem voltar pra 1 — comportamento errado pra
+**qualquer ativo**, não só BTCUSD. Causa: a contagem usava índice global
+(`i + 1` sobre o `kLineDataList` inteiro), sem noção nenhuma de dia de
+calendário.
+
+**Fix**: contagem agora reseta a cada mudança de dia (`new Date(bar.timestamp
+).toDateString()` comparado entre velas consecutivas). Calculado uma vez
+dentro de `calc()` (só roda quando os dados mudam, não a cada frame) e
+guardado em `indicator.result[i].label`; o `draw()` (que roda todo frame)
+só lê o valor já pronto, sem recalcular. Verificado visualmente arrastando o
+gráfico (timeframe 1H) até cruzar a virada 08-09 → 08-10: números que
+estavam em ~40-50 (acumulado) voltam pra 1-2-3... logo depois da virada.
+
 ## Commits desta sessão (prontos, não aplicados — regra do projeto)
 
 ```bash
@@ -105,9 +122,10 @@ git add src/app/components/ChartView.tsx
 git commit -m "fix: corrige countdown de vela (nó DOM órfão) e indicador Contador de Candles (draw customizado)"
 git commit -m "fix: fixa countdown de vela abaixo da boleta em vez de acompanhar linha de preço instável"
 git commit -m "fix: inverte direção da contagem do Contador de Candles (1 = abertura, crescente até agora)"
+git commit -m "fix: reseta contagem do Contador de Candles a cada novo dia (não acumular entre dias, nenhum ativo)"
 git push origin dev
 ```
 
-(Os 3 commits foram feitos separadamente ao longo da sessão à medida que
+(Os 4 commits foram feitos separadamente ao longo da sessão à medida que
 cada ajuste foi pedido — mensagens reais já aplicadas localmente, listadas
 aqui só como referência do que aconteceu.)

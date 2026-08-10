@@ -307,8 +307,15 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
 // Contador de Candles — indicador custom que escreve o número de cada vela LOGO ACIMA
 // dela, sobre o próprio gráfico de preço -- não é uma linha/barra num painel separado, é
 // texto por cima de cada candle. Contagem na ordem cronológica (1 = vela mais antiga da
-// abertura do histórico carregado, crescendo até a vela atual) -- pedido explícito do
-// Cleber, direção oposta da 1ª versão (que contava a partir da mais recente pra trás).
+// abertura do dia, crescendo até a vela atual) -- pedido explícito do Cleber, direção
+// oposta da 1ª versão (que contava a partir da mais recente pra trás).
+// 🐛 FIX: a contagem por índice global (`i + 1` sobre o `kLineDataList` inteiro) não
+// reiniciava ao virar o dia -- BTCUSD (e qualquer ativo) começando um novo dia de
+// candles continuava contando a partir do total acumulado do histórico carregado, nunca
+// voltando pra 1. Contagem agora reseta a cada mudança de dia de calendário (comparando
+// `new Date(bar.timestamp).toDateString()` entre velas consecutivas) -- calculado uma vez
+// em `calc()` (só roda quando os dados mudam) e guardado em `indicator.result`, lido
+// depois dentro de `draw()` (que roda todo frame) em vez de recalcular ali.
 // 🐛 2 tentativas anteriores falharam por limitações reais da klinecharts (não bug de
 // digitação):
 // 1ª) figure `type: 'bar'/'line'` sem `attrs()` -- nunca desenhava nada (indicador
@@ -334,10 +341,23 @@ if (!isIndicatorRegistered('CANDLE_COUNTER')) {
     calcParams: [],
     shouldOhlc: false,
     figures: [],
-    calc: (dataList) => dataList.map(() => ({} as any)),
+    calc: (dataList) => {
+      let dayKey: string | null = null;
+      let count = 0;
+      return dataList.map((bar) => {
+        const key = new Date(bar.timestamp).toDateString();
+        if (key !== dayKey) {
+          dayKey = key;
+          count = 0;
+        }
+        count += 1;
+        return { label: count } as any;
+      });
+    },
     draw: (ctx: any) => {
-      const { ctx: canvas, kLineDataList, visibleRange, xAxis, yAxis } = ctx;
+      const { ctx: canvas, kLineDataList, indicator, visibleRange, xAxis, yAxis } = ctx;
       const { from, to } = visibleRange;
+      const result = indicator?.result ?? [];
       canvas.save();
       canvas.fillStyle = '#f59e0b';
       canvas.font = 'bold 10px sans-serif';
@@ -346,9 +366,11 @@ if (!isIndicatorRegistered('CANDLE_COUNTER')) {
       for (let i = from; i < to; i++) {
         const bar = kLineDataList[i];
         if (!bar) continue;
+        const label = result[i]?.label;
+        if (typeof label !== 'number') continue;
         const x = xAxis.convertToPixel(i);
         const y = yAxis.convertToPixel(bar.high) - 6;
-        canvas.fillText(String(i + 1), x, y);
+        canvas.fillText(String(label), x, y);
       }
       canvas.restore();
       return true;
@@ -1304,7 +1326,7 @@ const INDICATORS: IndicatorConfig[] = [
   {
     id: 'candle_counter',
     name: 'Contador de Candles',
-    description: 'Numera as velas em ordem cronológica, da abertura até agora',
+    description: 'Numera as velas do dia atual, reinicia a cada novo dia',
     category: 'volume',
     klinechartsName: 'CANDLE_COUNTER',
     defaultParams: [],
