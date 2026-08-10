@@ -449,13 +449,13 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             <button
               onClick={toggleAI}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
-                status === 'RUNNING'
+                status === 'running'
                   ? 'bg-red-600 border-red-500 text-white hover:bg-red-700'
                   : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
               }`}
-              title={status === 'RUNNING' ? 'Desligar AI' : 'Iniciar AI'}
+              title={status === 'running' ? 'Desligar AI' : 'Iniciar AI'}
             >
-              {status === 'RUNNING' ? (
+              {status === 'running' ? (
                 <>
                   <Power className="w-4 h-4" />
                   <span className="text-xs font-bold uppercase">Desligar AI</span>
