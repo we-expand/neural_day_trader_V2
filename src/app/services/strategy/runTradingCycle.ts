@@ -436,10 +436,21 @@ async function analyzeAsset(
     let bufferEntry = deps.candleBuffer.get(bufferKey);
     if (!bufferEntry || Date.now() - bufferEntry.fetchedAt > 60_000) {
       try {
+        const REQUIRED_BARS = 100;
+        // ✅ 2026-08-10: uma janela de calendário igual a exatamente 100 barras
+        // (25h pra 15m) fazia índices/ouro (GER40, SPX500, XAUUSD — fecham fora
+        // do pregão, ao contrário de FX/cripto) caírem sistematicamente abaixo
+        // do piso de 30 candles reais sempre que parte da janela caía em
+        // horário de mercado fechado — achado via ai_funnel_snapshots.symbol_stage_counts
+        // (CANDLES_INSUFFICIENT concentrado nesses 3 ativos). Pede uma janela de
+        // calendário 4x mais larga (folga pra fins de semana/gaps de sessão) e
+        // recorta pras últimas REQUIRED_BARS candles reais recebidas — nunca
+        // inventa dado, só evita descartar o ciclo por causa da janela curta.
         const end = new Date();
-        const start = new Date(end.getTime() - 100 * barMs[opTimeframe]);
+        const start = new Date(end.getTime() - REQUIRED_BARS * 4 * barMs[opTimeframe]);
         const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, opTimeframe);
-        bufferEntry = { candles: history.candles, fetchedAt: Date.now() };
+        const candles = history.candles.slice(-REQUIRED_BARS);
+        bufferEntry = { candles, fetchedAt: Date.now() };
         deps.candleBuffer.set(bufferKey, bufferEntry);
       } catch (error) {
         console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} (${opTimeframe}) agora, pulando ciclo`, error);
