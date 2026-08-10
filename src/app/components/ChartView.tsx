@@ -304,23 +304,55 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
   });
 }
 
-// Contador de Candles — indicador custom simples: numera as barras visíveis a
-// partir da mais recente (0 = vela atual, 1 = anterior, ...), útil pra contar
-// "há quantas velas" algo aconteceu sem precisar passar o mouse.
+// Contador de Candles — indicador custom que escreve o número de cada vela (a partir da
+// mais recente, 1 = vela atual, 2 = anterior...) LOGO ACIMA dela, sobre o próprio gráfico
+// de preço -- não é uma linha/barra num painel separado, é texto por cima de cada candle.
+// 🐛 2 tentativas anteriores falharam por limitações reais da klinecharts (não bug de
+// digitação):
+// 1ª) figure `type: 'bar'/'line'` sem `attrs()` -- nunca desenhava nada (indicador
+//     ativo, sem erro, mas invisível).
+// 2ª) figure `type: 'text'` COM `attrs()` -- ainda invisível. Causa raiz: o motor padrão
+//     de desenho de figura de indicador (`eachFigures` em index.esm.js:962) só sabe
+//     posicionar 'circle'/'bar'/'line' (switch sem case pra 'text' → `defaultFigureStyles`
+//     fica undefined → `attrs()`/`styles()` NUNCA são chamados, confirmado com log que
+//     nunca disparou). 'text' não é um tipo de figura suportado no caminho de desenho
+//     automático de indicador, só em overlays.
+// ✅ Fix: usar o callback `draw` do indicador (IndicatorImp.draw, chamado em
+// IndicatorView.drawImp, index.esm.js:7894) -- dá acesso direto ao `ctx` do canvas e ao
+// `xAxis`/`yAxis` já resolvidos, sem depender do sistema de `figures`. Desenhamos o
+// número de cada vela manualmente com `ctx.fillText`, só nas velas do `visibleRange`
+// (evita desenhar fora da tela). Retornar `true` sinaliza "já cobri o desenho, não
+// precisa rodar o caminho padrão de figures" (que de qualquer forma é vazio aqui).
 if (!isIndicatorRegistered('CANDLE_COUNTER')) {
   registerIndicator<number>({
     name: 'CANDLE_COUNTER',
     shortName: 'CANDLES',
-    series: 'normal' as any,
+    series: 'price' as any,
     precision: 0,
     calcParams: [],
     shouldOhlc: false,
-    figures: [{ key: 'count', title: 'Candles: ', type: 'line' }],
-    calc: (dataList) => {
-      const total = dataList.length;
-      return dataList.map((_, i) => ({ count: total - i } as any));
+    figures: [],
+    calc: (dataList) => dataList.map(() => ({} as any)),
+    draw: (ctx: any) => {
+      const { ctx: canvas, kLineDataList, visibleRange, xAxis, yAxis } = ctx;
+      const { from, to } = visibleRange;
+      const total = kLineDataList.length;
+      canvas.save();
+      canvas.fillStyle = '#f59e0b';
+      canvas.font = 'bold 10px sans-serif';
+      canvas.textAlign = 'center';
+      canvas.textBaseline = 'bottom';
+      for (let i = from; i < to; i++) {
+        const bar = kLineDataList[i];
+        if (!bar) continue;
+        const x = xAxis.convertToPixel(i);
+        const y = yAxis.convertToPixel(bar.high) - 6;
+        canvas.fillText(String(total - i), x, y);
+      }
+      canvas.restore();
+      return true;
     }
-  });
+  } as any);
 }
 
 // Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
@@ -1275,7 +1307,11 @@ const INDICATORS: IndicatorConfig[] = [
     category: 'volume',
     klinechartsName: 'CANDLE_COUNTER',
     defaultParams: [],
-    isPaneIndicator: true
+    // 🆕 Sempre overlay (número escrito em cima do candle, no gráfico de preço) -- não
+    // faz sentido num painel separado, já que o texto é posicionado via yAxis do preço
+    // (ver attrs() no registerIndicator lá em cima). "Painel abaixo" continua clicável
+    // na UI (todo indicador tem os 2 botões) mas não vai desenhar nada de útil ali.
+    isPaneIndicator: false
   },
 ];
 // Nota: "Fibonacci Retracement" foi removido desta lista — não é um indicador
@@ -1327,6 +1363,11 @@ export function ChartView({
   const [dailyChangePercent, setDailyChangePercent] = useState(0);
   const [isPositive, setIsPositive] = useState(true);
   const [candleCountdown, setCandleCountdown] = useState(0);
+  // 🆕 Posição vertical (em px, relativa ao container do gráfico) da linha pontilhada de
+  // preço atual -- o countdown precisa acompanhar essa linha, não ficar fixo no meio do
+  // gráfico. Recalculada via chart.convertToPixel (preço → pixel) sempre que o preço muda
+  // ou o usuário dá zoom/scroll no gráfico (ver useEffect de sincronização mais abaixo).
+  const [lastPriceLineY, setLastPriceLineY] = useState<number | null>(null);
   const [showAssetList, setShowAssetList] = useState(false);
   const [assetSearch, setAssetSearch] = useState('');
   const [selectedSymbol, setSelectedSymbol] = useState(selectedAsset || 'BTCUSD'); // 🔥 Inicializar com ativo global
@@ -3919,6 +3960,46 @@ export function ChartView({
     return () => clearInterval(timer);
   }, [timeframe]);
 
+  // 🆕 Mantém o badge do countdown GRUDADO na linha pontilhada de preço atual (pedido do
+  // Cleber -- antes ficava travado em top:50%, sem relação nenhuma com a linha de fato).
+  // chart.convertToPixel converte o preço pro pixel Y real dentro do pane. O `y` retornado
+  // já é relativo ao CONTAINER do gráfico (Pane.getBounding() em index.esm.js devolve
+  // coordenadas internas do chart, não da página -- `absolute: true` só soma o offset do
+  // próprio pane dentro do chart, não faz `getBoundingClientRect` nenhum), e o badge é
+  // `position: absolute` dentro desse mesmo container -- então o `y` já serve direto como
+  // `top`, sem subtrair nada (1ª tentativa subtraía getBoundingClientRect().top por engano
+  // e jogava o badge ~130px pra cima da linha real). Recalcula em todo tick de preço e
+  // sempre que o usuário faz scroll/zoom no gráfico (a linha de preço sobe/desce na tela
+  // mesmo com o preço parado, se o zoom mudar a escala do eixo Y).
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart || currentPrice === null) return;
+
+    const updateLastPriceLineY = () => {
+      try {
+        const point = chart.convertToPixel(
+          { value: currentPrice },
+          { paneId: 'candle_pane', absolute: true }
+        );
+        const y = Array.isArray(point) ? point[0]?.y : point?.y;
+        if (typeof y === 'number' && !Number.isNaN(y)) {
+          setLastPriceLineY(y);
+        }
+      } catch (_) {
+        // chart ainda não montou o pane / preço fora do range visível -- sem problema,
+        // o badge simplesmente não atualiza nesse tick.
+      }
+    };
+
+    updateLastPriceLineY();
+    chart.subscribeAction('onScroll', updateLastPriceLineY);
+    chart.subscribeAction('onZoom', updateLastPriceLineY);
+    return () => {
+      chart.unsubscribeAction('onScroll', updateLastPriceLineY);
+      chart.unsubscribeAction('onZoom', updateLastPriceLineY);
+    };
+  }, [currentPrice, timeframe]);
+
   const formatCountdown = (ms: number) => {
     const s = Math.floor(ms / 1000);
     const h = Math.floor(s / 3600);
@@ -6408,20 +6489,6 @@ export function ChartView({
               }}
             >
 
-            {/* 🔥 CANDLE COUNTDOWN - COLADO NA LINHA DO PREÇO */}
-            <div 
-              className="absolute right-[80px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
-              style={{ 
-                top: '50%',
-                transform: 'translateY(-50%)'
-              }}
-            >
-              <Clock className="w-2.5 h-2.5 text-blue-400" />
-              <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
-                {formatCountdown(candleCountdown)}
-              </span>
-            </div>
-
             {/* 📝 INPUT DE TEXTO DA LINHA COM INFORMAÇÕES — abre ao clicar numa infoLine */}
             {infoLineEditor && (
               <div
@@ -6593,6 +6660,26 @@ export function ChartView({
                 )}
               </>
             )}
+            </div>
+
+            {/* 🔥 CANDLE COUNTDOWN - COLADO NA LINHA DO PREÇO -- fica FORA da div do
+                chartContainerRef de propósito: aquela div leva innerHTML='' toda vez que o
+                gráfico reinicializa (troca de timeframe/símbolo, ver efeito de init do
+                klinecharts), o que arranca do DOM qualquer filho renderizado pelo React ali
+                dentro sem o React saber -- o nó fica "órfão" (React segue atualizando o
+                texto internamente, mas ele nunca aparece na tela). Era por isso que o
+                countdown nunca aparecia antes desta correção. */}
+            <div
+              className="absolute right-[80px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
+              style={{
+                top: lastPriceLineY !== null ? `${lastPriceLineY}px` : '50%',
+                transform: 'translateY(-50%)'
+              }}
+            >
+              <Clock className="w-2.5 h-2.5 text-blue-400" />
+              <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
+                {formatCountdown(candleCountdown)}
+              </span>
             </div>
 
             {/* ❌ Removido o box flutuante em HTML que replicava editar/remover por
