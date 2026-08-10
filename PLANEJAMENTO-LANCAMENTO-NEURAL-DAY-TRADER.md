@@ -36,47 +36,80 @@
 
 **Específicos do produto:** prompt injection no agente (isolamento por conversa/usuário no contexto do LLM); tokens de corretora dos usuários = ativo mais sensível (criptografia + acesso mínimo + log de uso).
 
-## 3. Modelo de negócio final (decidido 11/07/2026)
+## 3. Modelo de negócio (decidido 11/07/2026, **refeito do zero em 2026-08-10** — ver §3.1)
 
-**Espelhado na Infinox, cobrando um pouco abaixo dela.** 4 receitas:
+### 3.1 ⚠️ REESCRITO 2026-08-10 — planilha reconstruída, preços e comissão atualizados
 
-| Receita | Valor (pess/real/otim) | Referência de mercado |
+O plano de 11/07 citava `projecao-financeira-5anos.xlsx` como se já existisse — **não existia**,
+era só um resumo em texto de uma sessão de planejamento, nunca uma planilha rastreável. A "correção"
+registrada aqui em 08-10 mais cedo (mix de tier, ARPU escalado a mão) também foi **descartada** — era
+aritmética manual sobre um modelo que nunca existia de fato, sem mês a mês, sem despesas reais, sem
+teto de mercado.
+
+**O que existe agora**: [`projecao-financeira-5anos.xlsx`](projecao-financeira-5anos.xlsx), planilha
+real, versionada neste repositório, mês a mês (mês 0 a 60 = 5 anos), 3 cenários, 100% fórmula
+(zero número hardcoded fora da aba Premissas), recalculada com LibreOffice — 4.626 fórmulas,
+**zero erros**. Abrir essa planilha antes de citar qualquer número financeiro do projeto — este `.md`
+só resume, a planilha é a fonte de verdade.
+
+**Preços de mensalidade — MEDIDOS, direto do código da landing** (`src/app/components/landing/translations.ts:106-132`):
+
+| Tier | Preço/mês | Gera mensalidade? |
 |---|---|---|
-| Mensalidade (IA/disciplina de risco justifica) | R$ 97 / 147 / 197 | Infinox não cobra mensalidade — é o diferencial |
-| Comissão da plataforma por volume | US$ 6/lote padrão (US$ 0,06 por 0,01 lote) | Infinox ECN: US$ 7–7,50/lote → ~15–20% abaixo |
-| Rebate IB (a corretora paga, trader não vê) | US$ 4 / 6 / 8 por lote | INFINOX Partners paga até US$ 20/lote, diário, vitalício |
-| Marketplace de indicadores/apps | US$ 0,50–2,00 líquido/usuário/mês | MQL5 retém ~25% → cobrar ~20% |
+| Node: Starter | **R$ 0** (grátis) | Não — funil de aquisição |
+| Node: Pro | **R$ 199,00** | Sim |
+| Node: Institutional | **R$ 399,00** (selo "Recommended" na landing) | Sim |
+| Syndicate Core | Sob medida (sem preço público) | Não — modelado como canal B2B à parte, ver aba "Sugestões de Crescimento" |
 
-**Histórico da decisão:** a ideia original de US$ 0,30 por 0,01 lote (= US$ 30/lote padrão) foi **abandonada** — pesquisa mostrou 3–10× acima do benchmark (rebates IB: US$ 2–10/lote; comissões ECN cTrader: US$ 4–8/lote).
+**Comissionamento — realinhado com prática de mercado, decisão explícita do Cleber em 2026-08-10**:
+comissão própria de **R$30/lote (≈ US$6/lote)** cobrada em **todos os tiers** (Starter, Pro,
+Institutional) — não só no funil grátis. Isso empilha sobre o custo de execução na corretora
+(spread/comissão ECN) e sobre o rebate IB que a corretora paga por baixo do mesmo volume — ver aba
+"Comissionamento" da planilha pro alerta de custo total ao trader (~US$13/lote empilhado, quase 2×
+uma conta ECN pura) e o racional de mercado completo, com fontes.
 
-**Alertas registrados:**
-- Custo empilhado do trader ≈ US$ 13/lote (corretora + plataforma) ≈ 2× uma ECN pura — a mensalidade+IA precisam justificar; monitorar churn de heavy users. Alternativa recomendada no lançamento: **zerar a comissão própria e viver de mensalidade + rebate** (a comissão gera só ~13% da receita e exige carteira pré-paga via Stripe, pois o MetaAPI não desconta da conta MT5; o rebate IB não tem fricção nenhuma).
-- Como funciona a Infinox: STP = spread com markup (0,8–0,9 pip EUR/USD); ECN = spread cru + US$ 7–7,50/lote; + swap overnight + float dos depósitos. Programa de parceiros: rebate por lote (até US$ 20, negociável por instrumento/volume) ou CPA (até US$ 1.200/cliente).
-- Risco de concentração em uma corretora — cada corretora nova = programa IB novo a negociar (o brokerRegistry já prepara o lado técnico).
+Rebate IB (pago pela corretora, invisível ao trader) mantido nos mesmos R$15/25/35 por lote
+(pess/real/otim) do plano de 11/07, convertido de US$4/6/8.
 
-## 4. Projeção financeira 5 anos (planilha `projecao-financeira-5anos.xlsx`)
+### 3.2 O que mudou de arquitetura no modelo (não só de preço)
 
-3 cenários, 60 meses, premissas editáveis. Números do modelo atual:
+1. **Funil com tier grátis de verdade** — a planilha de 11/07 tratava 100% da base como pagante; a
+   nova modela cadastro grátis (Starter) → conversão pra pago com defasagem de 2 meses, com taxa de
+   conversão como premissa explícita (não medida — produto ainda não lançado).
+2. **Teto de saturação de mercado** — crescimento composto mês a mês sem teto explode
+   matematicamente em 60 meses (achado nesta sessão: Otimista sem teto gerava R$217 milhões em 5
+   anos, >15 mil cadastros/mês só no último mês — correto na conta, irreal pro nicho). Corrigido com
+   um teto de novos cadastros/mês por cenário, marcado como premissa de bom senso, não medição.
+3. **Custos reais incorporados** — CAC, infraestrutura variável por usuário, degrau de equipe,
+   custos fixos administrativos e Simples Nacional agora entram na conta (o plano de 11/07 listava
+   esses furos mas nunca os somava ao faturamento).
+
+### Resultado — Comparativo Total 5 anos (aba "Resumo Anual" da planilha, valores exatos)
 
 | | Pessimista | Realista | Otimista |
 |---|---|---|---|
-| Novos usuários/mês (Ano 1 → 5) | 5 → 25 | 10 → 80 | 25 → 200 |
-| Churn mensal | 8% | 6% | 4% |
-| Usuários fim Ano 1 / Ano 5 | 40 / 276 | 87 / 1.055 | 242 / 3.358 |
-| Faturamento Ano 1 | R$ 30 mil | R$ 110 mil | R$ 449 mil |
-| Faturamento Ano 5 | R$ 341 mil | R$ 2,12 mi | R$ 10,07 mi |
-| **Faturamento total 5 anos** | **R$ 895 mil** | **R$ 4,97 mi** | **R$ 22,7 mi** |
-| Caixa final Ano 5 | R$ 525 mil | R$ 4,08 mi | R$ 20,7 mi |
-| Menor caixa no período | R$ 11,5 mil | R$ 14,3 mil | R$ 12,1 mil |
-| 1º mês lucrativo | 7 | 3 | 2 |
+| Faturamento total 5 anos | R$ 737 mil | R$ 11,5 mi | R$ 134,4 mi |
+| Despesas totais 5 anos | R$ 2,29 mi | R$ 11,0 mi | R$ 61,7 mi |
+| **Lucro líquido total 5 anos** | **−R$ 1,55 mi** | **R$ 512 mil** | **R$ 72,7 mi** |
+| Caixa acumulado — fim do Ano 5 | −R$ 1,57 mi | R$ 491 mil | R$ 72,7 mi |
+| Pagantes ativos — fim do Ano 5 | 38 | 579 | 4.466 |
+| Usuários ativos totais — fim do Ano 5 | 787 | 6.634 | 25.284 |
 
-Composição da receita: mensalidade 64–78%, comissão ~13%, rebate IB 8–19%, marketplace 2–4%.
-Receita média por usuário/mês (realista): R$ 147 + R$ 25 + R$ 25 + R$ 5,50 ≈ **R$ 200**.
+**Leitura honesta, sem maquiar**: o cenário Pessimista **fecha no vermelho** em 5 anos — churn alto +
+conversão baixa + CAC de R$180-260/cadastro não pagam a conta com esse funil. Isso não é defeito do
+modelo, é o resultado de premissas pessimistas de verdade — se o produto performar pior que o
+cenário Realista, o caixa não fecha sem correção de rota (ver aba "Sugestões de Crescimento" da
+planilha, especialmente a alavanca de conversão e a de churn).
 
-### Furos conhecidos da planilha (correções pendentes, em ordem de impacto)
-1. **Sem impostos** — Simples ~6–15,5% do faturamento (come R$ 300–700 mil do realista em 5 anos).
-2. **Sem CAC** — aquisição em trading de varejo custa R$ 100–400/usuário; falta também degrau de equipe (~1 pessoa por 300–500 usuários).
-3. **Churn otimista** — varejo de trading tem vida média de 3–6 meses para a maioria; pessimista honesto seria 12–15%/mês com volume decaindo por coorte.
+### Furos conhecidos da planilha nova (em ordem de impacto)
+1. Taxa de conversão Starter→Pago é premissa de julgamento (2-5% benchmark de mercado freemium), sem
+   dado real — produto ainda não lançado. Recalibrar assim que houver conversão medida.
+2. Billing anual (upsell de caixa) discutido na aba "Sugestões de Crescimento" mas não modelado como
+   premissa numérica — precisa de uma linha nova pra entrar na planilha.
+3. Syndicate Core (B2B, sem preço público) não entra na receita recorrente — deve ser rastreado como
+   pipeline separado, dinâmica de venda diferente do varejo.
+4. Custo mensal por funcionário (R$9.000 CLT completo) e custos fixos administrativos não foram
+   pesquisados com RH/contador real nesta sessão — mesma ressalva do plano de 11/07 original.
 
 ## 5. Discussão honesta sobre a IA ("80% de acerto")
 
