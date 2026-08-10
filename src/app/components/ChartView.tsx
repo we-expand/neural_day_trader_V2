@@ -1304,7 +1304,7 @@ const INDICATORS: IndicatorConfig[] = [
   {
     id: 'candle_counter',
     name: 'Contador de Candles',
-    description: 'Numera as velas visíveis a partir da mais recente',
+    description: 'Numera as velas em ordem cronológica, da abertura até agora',
     category: 'volume',
     klinechartsName: 'CANDLE_COUNTER',
     defaultParams: [],
