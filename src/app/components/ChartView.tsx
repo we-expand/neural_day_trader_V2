@@ -304,6 +304,25 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
   });
 }
 
+// Contador de Candles — indicador custom simples: numera as barras visíveis a
+// partir da mais recente (0 = vela atual, 1 = anterior, ...), útil pra contar
+// "há quantas velas" algo aconteceu sem precisar passar o mouse.
+if (!isIndicatorRegistered('CANDLE_COUNTER')) {
+  registerIndicator<number>({
+    name: 'CANDLE_COUNTER',
+    shortName: 'CANDLES',
+    series: 'normal' as any,
+    precision: 0,
+    calcParams: [],
+    shouldOhlc: false,
+    figures: [{ key: 'count', title: 'Candles: ', type: 'line' }],
+    calc: (dataList) => {
+      const total = dataList.length;
+      return dataList.map((_, i) => ({ count: total - i } as any));
+    }
+  });
+}
+
 // Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
 // Trend, um indicador completamente diferente) e chamava isso de "Pivot Points" na UI.
 if (!isIndicatorRegistered('PIVOT_POINTS')) {
@@ -1246,6 +1265,17 @@ const INDICATORS: IndicatorConfig[] = [
     klinechartsName: 'PIVOT_POINTS',
     defaultParams: [],
     isPaneIndicator: false
+  },
+
+  // ===== OUTROS =====
+  {
+    id: 'candle_counter',
+    name: 'Contador de Candles',
+    description: 'Numera as velas visíveis a partir da mais recente',
+    category: 'volume',
+    klinechartsName: 'CANDLE_COUNTER',
+    defaultParams: [],
+    isPaneIndicator: true
   },
 ];
 // Nota: "Fibonacci Retracement" foi removido desta lista — não é um indicador
