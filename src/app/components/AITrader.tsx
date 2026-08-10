@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Brain, Play, Pause, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
+import { Bot, Brain, Play, Pause, Power, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
@@ -448,17 +448,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             {/* START/STOP AI Button */}
             <button
               onClick={toggleAI}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${ 
-                status === 'RUNNING' 
-                  ? 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-700' 
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
+                status === 'RUNNING'
+                  ? 'bg-red-600 border-red-500 text-white hover:bg-red-700'
                   : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
               }`}
-              title={status === 'RUNNING' ? 'Pausar AI' : 'Iniciar AI'}
+              title={status === 'RUNNING' ? 'Desligar AI' : 'Iniciar AI'}
             >
               {status === 'RUNNING' ? (
                 <>
-                  <Pause className="w-4 h-4" /> 
-                  <span className="text-xs font-bold uppercase">Pausar AI</span>
+                  <Power className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase">Desligar AI</span>
                 </>
               ) : (
                 <>
