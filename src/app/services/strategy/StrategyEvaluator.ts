@@ -14,8 +14,8 @@ import {
   calculateWilliamsR,
   calculateSAR,
   calculateDonchian,
-} from '../indicators/TechnicalIndicators';
-import { IndicatorType, OperatorType, Strategy, StrategyBlock, StrategySignal } from '../../types/strategy';
+} from '../indicators/TechnicalIndicators.ts';
+import { IndicatorType, OperatorType, Strategy, StrategyBlock, StrategySignal } from '../../types/strategy.ts';
 
 /**
  * Cache de séries de indicador por (indicador, período) para não recalcular
@@ -216,10 +216,20 @@ export function evaluateStrategyAt(
 
   activeEntry.forEach(block => reasons.push(`Entrada OK: ${block.label}`));
 
-  // Direção do sinal inferida pelo tipo dominante de operador (bearish vs bullish)
-  const bearishOps: OperatorType[] = ['CROSS_BELOW', 'BELOW', 'FALLING'];
-  const bearishCount = activeEntry.filter(b => bearishOps.includes(b.operator)).length;
-  const signal: 'BUY' | 'SELL' = bearishCount > activeEntry.length / 2 ? 'SELL' : 'BUY';
+  // Direção do sinal: usa strategy.entrySignal quando declarado explicitamente
+  // (todos os presets do catálogo declaram — ver types/strategy.ts). Cai para
+  // a inferência antiga por contagem de operador só em estratégias
+  // customizadas legadas sem o campo (StrategyBuilderPro.tsx) — mantida por
+  // retrocompatibilidade, mas é uma aproximação sujeita ao mesmo tipo de erro
+  // que inverteu o preset 3 (ver comentário em types/strategy.ts).
+  let signal: 'BUY' | 'SELL';
+  if (strategy.entrySignal) {
+    signal = strategy.entrySignal;
+  } else {
+    const bearishOps: OperatorType[] = ['CROSS_BELOW', 'BELOW', 'FALLING'];
+    const bearishCount = activeEntry.filter(b => bearishOps.includes(b.operator)).length;
+    signal = bearishCount > activeEntry.length / 2 ? 'SELL' : 'BUY';
+  }
 
   // Direção travada pela estratégia (equivalente ao filtro `direction` do useApexLogic)
   if (strategy.direction === 'LONG' && signal === 'SELL') {

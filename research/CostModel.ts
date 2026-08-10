@@ -3,9 +3,12 @@
  * usada pelo research/CRITERIA.md para converter retorno BRUTO em retorno LÍQUIDO
  * antes de qualquer decisão de promoção pra produto.
  *
- * Não é chamado hoje por nenhum caminho de produto (Dashboard/IA ao vivo/Backtest).
- * É consumido só por scripts de pesquisa em research/experiments/*, junto do
- * MarketScoreValidator.ts, pra medir edge líquido.
+ * Consumido por scripts de pesquisa em research/experiments/*, junto do
+ * MarketScoreValidator.ts, pra medir edge líquido — e, desde 2026-07-30, também
+ * pelo caminho de produto: `useApexLogic.ts` chama `estimateCostPercent()` no
+ * gate de viabilidade por custo (`src/app/services/risk/CostViabilityGate.ts`,
+ * Componente 1 do cérebro de execução, decisão (B) da seção 14.5 do
+ * AI_BRAIN_SPEC.md) antes de abrir qualquer posição.
  *
  * CALIBRADO EM 2026-07-24 contra pesquisa real de corretoras concorrentes da
  * Infinox (IC Markets, Pepperstone, FXTM, Exness — contas Raw/ECN, que são o
@@ -18,6 +21,17 @@
  * CFD), o número abaixo é uma extrapolação explícita marcada como tal — nunca
  * apresentada como fato confirmado. Recalibrar quando houver dado real de
  * execução (comparar preço solicitado vs. preço reportado por /broker/execute).
+ *
+ * ⚠️ CORREÇÃO 2026-08-02 — classe CRYPTO recalibrada (era ~18x alta).
+ * A calibração de 2026-07-24 pôs `commissionPercent: 0.08` em CRYPTO, número
+ * compatível com taxa de EXCHANGE SPOT (Binance/Coinbase), não com CFD — onde
+ * não existe comissão separada, só o spread. Round-trip resultante: 0,26%.
+ * A medição real (Pepperstone, BTCUSD, janela 01–30/04/2026) dá 0,0145% de
+ * spread round-trip. Ver `research/experiments/2026-07-30-sma-pullback-crossasset/HANDOFF.md`
+ * (achado #1) e `research/experiments/2026-08-02-viability-gates/verdict.md` (seção 1),
+ * que quantificou o impacto: com 0,26% o gate de viabilidade exige sinal 4,4x mais
+ * forte que o melhor `k` já medido no projeto — reprova qualquer coisa por construção.
+ * Detalhe da nova decomposição nas constantes abaixo.
  */
 
 export type AssetClass = 'FOREX_MAJOR' | 'FOREX_MINOR' | 'FOREX_EXOTIC' | 'INDEX' | 'COMMODITY' | 'CRYPTO' | 'STOCK';
@@ -36,13 +50,63 @@ export interface CostEstimate {
 //   COMMODITY    XAUUSD 1,0-1,5 pip (Infinox/Pepperstone Raw)
 //   CRYPTO       spread modelado em % do notional, não pips fixos (cripto tem spread proporcional ao preço)
 //   STOCK        NÃO pesquisado nesta rodada — mantido o valor anterior, marcado como pendente
+
+/**
+ * Spread round-trip MEDIDO de cripto CFD, em % do notional.
+ *
+ * Fonte: Pepperstone, BTCUSD, spread médio 15,82 USD sobre preço 108.829,77,
+ * janela 01–30/04/2026, sem comissão separada (cripto CFD não cobra comissão).
+ * Registrado em `research/experiments/2026-07-30-sma-pullback-crossasset/HANDOFF.md`,
+ * achado #1, e usado como custo real em `scripts/trailing.py` do mesmo experimento.
+ *
+ * É round-trip, não por perna: num instrumento com spread, entra-se no ask e
+ * sai-se no bid — o spread inteiro é pago UMA vez ao longo do ciclo completo.
+ * Por isso o custo por perna da COST_TABLE é metade deste número.
+ *
+ * A Infinox (corretora de referência) não publica custo de cripto em nenhuma
+ * fonte verificável — nem Trading Conditions, nem Product Information listam
+ * BTCUSD. Este número é de terceiro, declarado como tal, não da corretora
+ * própria. Recalibrar quando houver execução real medida.
+ */
+export const CRYPTO_CFD_SPREAD_ROUND_TRIP_PERCENT = (15.82 / 108_829.77) * 100; // 0,01454%
+
+/**
+ * Provisão de slippage por perna para cripto CFD — ⚠️ NÃO MEDIDA.
+ *
+ * Não existe medição de slippage de cripto CFD neste projeto (a única medição é
+ * de spread). Escolha deliberada e conservadora: reservar um spread inteiro
+ * ADICIONAL ao longo do round-trip, o que leva o custo total a 0,0291% —
+ * exatamente a leitura `cryptoCfdConservative` do experimento
+ * `2026-08-02-viability-gates` (`scripts/gates.mjs`, COST_SOURCES).
+ *
+ * Por que a leitura conservadora e não os 0,0145% otimistas: este número alimenta
+ * um gate que decide entrada com dinheiro real. Errar para o lado caro recusa
+ * trades viáveis (custo mensurável); errar para o lado barato aprova trades
+ * inviáveis (perda direta). Trocar por `0` reproduz a leitura otimista — mudança
+ * de uma linha, se algum dia houver medição de execução real que a justifique.
+ */
+const CRYPTO_CFD_SLIPPAGE_PER_LEG_PERCENT = CRYPTO_CFD_SPREAD_ROUND_TRIP_PERCENT / 2; // 0,00727%
+
+/** Custo round-trip total de cripto CFD em % do notional — 0,0291% (spread medido + provisão de slippage). */
+export const CRYPTO_CFD_ROUND_TRIP_COST_PERCENT =
+  (CRYPTO_CFD_SPREAD_ROUND_TRIP_PERCENT / 2 + CRYPTO_CFD_SLIPPAGE_PER_LEG_PERCENT) * 2;
+
 const COST_TABLE: Record<AssetClass, CostEstimate> = {
   FOREX_MAJOR: { spreadPoints: 0.5, commissionPercent: 0, slippagePoints: 0.2 },   // spread Raw ~0,1 + comissão (~$7/lote ≈ 0,5-0,7pt em EURUSD) + slippage residual
   FOREX_MINOR: { spreadPoints: 1.0, commissionPercent: 0, slippagePoints: 0.3 },   // ⚠️ extrapolado (sem dado direto): ~+50% sobre major
   FOREX_EXOTIC: { spreadPoints: 12.0, commissionPercent: 0, slippagePoints: 3.0 }, // ancorado em USDTRY real (~16pt spread), com folga p/ slippage de baixa liquidez
   INDEX: { spreadPoints: 3.0, commissionPercent: 0, slippagePoints: 1.5 },        // Pepperstone US30 Raw; gaps de abertura de sessão contam no slippage
   COMMODITY: { spreadPoints: 1.2, commissionPercent: 0, slippagePoints: 0.5 },     // XAUUSD Raw (Infinox/Pepperstone)
-  CRYPTO: { spreadPoints: 0, commissionPercent: 0.08, slippagePoints: 0.05 },      // spread + comissão modelados juntos em %, cripto tem spread proporcional ao preço, não pips fixos
+  // ⚠️ CORRIGIDO 2026-08-02 (era `{ spreadPoints: 0, commissionPercent: 0.08, slippagePoints: 0.05 }`
+  // = 0,26% round-trip, ~18x o medido). spreadPoints/slippagePoints de CRYPTO são
+  // percentuais diretos do notional POR PERNA (0,05 = 0,05%), não pontos em dólar.
+  // commissionPercent volta a 0: cripto CFD não tem comissão separada — os 0,08%
+  // antigos eram taxa de exchange spot, instrumento diferente.
+  CRYPTO: {
+    spreadPoints: CRYPTO_CFD_SPREAD_ROUND_TRIP_PERCENT / 2, // 0,00727% por perna (spread round-trip medido ÷ 2)
+    commissionPercent: 0,
+    slippagePoints: CRYPTO_CFD_SLIPPAGE_PER_LEG_PERCENT,    // 0,00727% por perna — ⚠️ provisão, não medição
+  },
   STOCK: { spreadPoints: 0, commissionPercent: 0.05, slippagePoints: 0.1 },        // ⚠️ NÃO pesquisado nesta rodada (2026-07-24) — valor anterior mantido, pendente calibração real
 };
 
@@ -60,9 +124,10 @@ export function estimateCostPercent(assetClass: AssetClass, priceLevel: number, 
   // preço, não pips fixos" mas a implementação nunca tratou esse caso — pra
   // ativos de escala BTC/ETH (milhares de dólares) o erro é desprezível, mas
   // pra moedas sub-US$1 (DOGE, XRP, ADA) a mesma fórmula gera custo de
-  // dezenas/centenas de % por trade (ex.: DOGEUSDT ~US$0,073, slippagePoints
-  // 0,05 ÷ preço = 68% só de slippage numa perna). spreadPoints/slippagePoints
-  // de CRYPTO já são percentuais diretos (0,05 = 0,05%), não pontos em dólar.
+  // dezenas/centenas de % por trade (ex.: DOGEUSDT ~US$0,073, o slippagePoints
+  // 0,05 de então ÷ preço = 68% só de slippage numa perna). spreadPoints/
+  // slippagePoints de CRYPTO são percentuais diretos do notional por perna
+  // (0,00727 = 0,00727%), não pontos em dólar.
   if (assetClass === 'CRYPTO') {
     const spreadCost = cost.spreadPoints / 100;
     const slippageCost = cost.slippagePoints / 100;

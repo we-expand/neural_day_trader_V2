@@ -1,0 +1,10 @@
+=== TESTE DO LCG (DeflatedSharpe.ts:130-134) ===
+período detectado: 10466
+valores únicos nos primeiros 200k: 15824
+primeiros 12 valores: 0.582308 0.519819 0.914940 0.698716 0.753081 0.689433 0.521116 0.151823 0.049062 0.226315 0.287364 0.997033
+histograma 10 buckets: 1631 1610 1627 1615 1610 1528 1532 1526 1525 1621
+chi2 uniformidade (df=9, crítico 5% = 16.9): 12.9 ✅ passa
+
+=== PERDA DE PRECISÃO ===
+Number.MAX_SAFE_INTEGER = 9007199254740991
+pior caso state*1103515245 = 2369780942852698600 | excede 2^53? true

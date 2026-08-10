@@ -61,6 +61,17 @@ interface Strategy {
   entryBlocks: StrategyBlock[];
   exitBlocks: StrategyBlock[];
   filterBlocks: StrategyBlock[];
+  /**
+   * Direção do sinal de entrada — precisa ser escolhida explicitamente pelo
+   * usuário, nunca inferida. O motor (StrategyEvaluator.ts) tem um fallback
+   * de inferência por contagem de operador (CROSS_BELOW/BELOW/FALLING =
+   * "bearish" = SELL) que é CORRETO pra breakout/trend-following mas ERRADO
+   * pra reversão à média/osciladores extremos (ex: "Estocástico cruza abaixo
+   * de 20" é sinal de COMPRA — sobrevenda — não de venda). Já inverteu um
+   * preset em produção antes (ver types/strategy.ts, preset 3). Por isso este
+   * campo é obrigatório aqui, não opcional.
+   */
+  entrySignal?: 'BUY' | 'SELL';
   stopLoss: number;
   takeProfit: number;
   trailingStop: boolean;
@@ -389,6 +400,10 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
       alert('Adicione pelo menos uma condição de entrada');
       return;
     }
+    if (!strategy.entrySignal) {
+      alert('Escolha se esta entrada é de Compra ou Venda (campo "Sinal de Entrada", na aba Entrada) — sem isso a direção não é confiável.');
+      return;
+    }
     onSave(strategy);
   }, [strategy, onSave]);
 
@@ -702,6 +717,40 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
                     </button>
                   </div>
 
+                  {/* Sinal de Entrada — obrigatório, nunca inferido (ver comentário no tipo Strategy) */}
+                  {activeTab === 'entry' && (
+                    <div className="px-6 pt-4 pb-2 bg-zinc-900/20 border-b border-zinc-800/50">
+                      <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">
+                        Sinal de Entrada — o que essa condição significa?
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setStrategy({ ...strategy, entrySignal: 'BUY' })}
+                          className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold border transition-all ${
+                            strategy.entrySignal === 'BUY'
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                              : 'bg-zinc-800/50 border-zinc-700/50 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Compra (Long)
+                        </button>
+                        <button
+                          onClick={() => setStrategy({ ...strategy, entrySignal: 'SELL' })}
+                          className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold border transition-all ${
+                            strategy.entrySignal === 'SELL'
+                              ? 'bg-red-500/20 border-red-500 text-red-400'
+                              : 'bg-zinc-800/50 border-zinc-700/50 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Venda (Short)
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1.5">
+                        Escolha pelo que você quer que aconteça, não pelo nome do operador — ex: "Estocástico cruza abaixo de 20" é sinal de <strong>Compra</strong> (sobrevenda), mesmo usando o operador "Cruza Abaixo".
+                      </p>
+                    </div>
+                  )}
+
                   {/* Canvas - Blocos da Estratégia */}
                   <div 
                     className="flex-1 p-6 overflow-y-auto"
@@ -942,7 +991,7 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
                                   {(block.operator === 'CROSS_ABOVE' || block.operator === 'CROSS_BELOW') && (
                                     <div className="grid grid-cols-2 gap-3 mt-3">
                                       <div>
-                                        <label className="text-xs text-slate-500 mb-1 block">Comparar com (deixe vazio pra comparar com "Valor")</label>
+                                        <label className="text-xs text-slate-500 mb-1 block">Cruzar com</label>
                                         <select
                                           value={block.compareIndicator || ''}
                                           onChange={(e) => {

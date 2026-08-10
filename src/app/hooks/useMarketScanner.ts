@@ -1,106 +1,107 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { MarketScoreEngine, type MarketScoreResult } from '../services/MarketScoreEngine';
 
-// Definição dos Ativos Suportados e seus Horários
-const MARKET_ASSETS = [
-    { symbol: 'EURUSD', type: 'FOREX', name: 'Euro / US Dollar' },
-    { symbol: 'GBPUSD', type: 'FOREX', name: 'British Pound / US Dollar' },
-    { symbol: 'USDJPY', type: 'FOREX', name: 'US Dollar / Jap. Yen' },
-    { symbol: 'XAUUSD', type: 'COMMODITIES', name: 'Gold / US Dollar' },
-    { symbol: 'BTCUSDT', type: 'CRYPTO', name: 'Bitcoin / Tether' },
-    { symbol: 'ETHUSDT', type: 'CRYPTO', name: 'Ethereum / Tether' },
-    { symbol: 'SOLUSDT', type: 'CRYPTO', name: 'Solana / Tether' },
-    { symbol: 'SPX500', type: 'INDICES', name: 'S&P 500' },
-    { symbol: 'US30', type: 'INDICES', name: 'Dow Jones 30' }
-];
+// Cesta cripto (Binance, sem limite de conta MetaAPI compartilhada — risco
+// crônico documentado no projeto) — mesmos 7 pares usados na pesquisa quant
+// (AI_BRAIN_SPEC.md seção 11.13), 24/7, sem gap de calendário.
+const SCAN_BASKET = ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD'] as const;
+const SCAN_TIMEFRAME = '15m' as const;
+// 60s: MarketScoreEngine já cacheia por barra (BacktestDataService), então
+// varrer os 7 ativos aqui não gera 7 requisições novas por ciclo dentro da
+// mesma barra de 15m — só quando a barra vira.
+const SCAN_INTERVAL_MS = 60_000;
 
-interface ScannerResult {
-    bestAsset: string;
+export interface ScannedAsset {
+    symbol: string;
     score: number;
-    status: 'OPEN' | 'CLOSED';
+    classification: MarketScoreResult['classification'];
+    confidence: number;
+    provenance: MarketScoreResult['provenance'];
     insight: string;
-    isScanning: boolean;
 }
 
+interface ScannerResult {
+    status: 'OPEN' | 'CLOSED';
+    isScanning: boolean;
+    assets: ScannedAsset[];
+    bestAsset: ScannedAsset | null;
+}
+
+/**
+ * Varredura real de mercado (cripto, via `MarketScoreEngine` — mesmo motor de
+ * fatores ortogonais que o Dashboard usa por ativo). Antes gerava
+ * score/insight por `Math.random()` a cada 30s; agora computa o Score real de
+ * cada ativo da cesta e expõe a lista rankeada + o melhor ativo real
+ * (`provenance: 'real'|'stale'`, nunca `'unavailable'`) — pronto para a IA
+ * consumir na escolha de ativo, sem depender de MetaAPI (auditoria 2026-07-29).
+ * Sequencial (não `Promise.all`) para não rajar a API pública da Binance.
+ */
 export function useMarketScanner() {
     const [result, setResult] = useState<ScannerResult>({
-        bestAsset: 'EURUSD',
-        score: 50,
         status: 'OPEN',
-        insight: 'Inicializando varredura neural...',
-        isScanning: true
+        isScanning: true,
+        assets: [],
+        bestAsset: null,
     });
+    const isScanningRef = useRef(false);
 
-    // Simula a varredura real do mercado
     useEffect(() => {
-        const scanMarkets = async () => {
-            setResult(prev => ({ ...prev, isScanning: true }));
-            
-            const now = new Date();
-            const day = now.getDay(); // 0 = Sun, 6 = Sat
-            const isWeekend = day === 0 || day === 6;
+        let cancelled = false;
 
-            // 1. Filtrar ativos ABERTOS
-            const openAssets = MARKET_ASSETS.filter(asset => {
-                if (asset.type === 'CRYPTO') return true; // Cripto sempre aberto
-                return !isWeekend; // Outros fecham fds
-            });
+        const scan = async () => {
+            if (isScanningRef.current) return;
+            isScanningRef.current = true;
+            setResult((prev) => ({ ...prev, isScanning: true }));
 
-            // Se for fds e não tiver cripto (improvável), fallback
-            if (openAssets.length === 0) {
-                setResult({
-                    bestAsset: 'MARKET_CLOSED',
-                    score: 50,
-                    status: 'CLOSED',
-                    insight: 'Mercados Globais Fechados. Aguardando abertura.',
-                    isScanning: false
-                });
-                return;
+            const assets: ScannedAsset[] = [];
+            for (const symbol of SCAN_BASKET) {
+                if (cancelled) break;
+                try {
+                    const r = await MarketScoreEngine.compute(symbol, SCAN_TIMEFRAME);
+                    assets.push({
+                        symbol,
+                        score: r.score,
+                        classification: r.classification,
+                        confidence: r.confidence,
+                        provenance: r.provenance,
+                        insight: r.insight,
+                    });
+                } catch (e: any) {
+                    // MarketScoreEngine.compute() já não lança (sempre resolve com
+                    // 'unavailable'/'stale') — este catch é só rede de segurança extra.
+                    assets.push({
+                        symbol,
+                        score: 50,
+                        classification: 'LATERAL',
+                        confidence: 0,
+                        provenance: 'unavailable',
+                        insight: e?.message || 'Falha ao buscar dado real deste ativo.',
+                    });
+                }
             }
 
-            // 2. Simular cálculo de score para cada ativo aberto
-            // Na versão real, isso bateria no backend Python para pegar o score real
-            await new Promise(r => setTimeout(r, 1500)); // Delay dramático de "scanning"
+            if (cancelled) return;
 
-            let bestCandidate = openAssets[0];
-            let highestDeviation = 0;
-            let finalScore = 50;
-
-            openAssets.forEach(asset => {
-                // Simula um score aleatório para o ativo (50 +/- desvio)
-                // Cripto tende a ser mais volátil no fds
-                const volatility = asset.type === 'CRYPTO' ? 40 : 20; 
-                const randomScore = 50 + (Math.random() * volatility - (volatility/2));
-                const deviation = Math.abs(randomScore - 50);
-
-                if (deviation > highestDeviation) {
-                    highestDeviation = deviation;
-                    bestCandidate = asset;
-                    finalScore = randomScore;
-                }
-            });
-
-            // 3. Definir Insight baseado no Score
-            let insight = "";
-            if (finalScore > 75) insight = `Fluxo Institucional agressivo detectado em ${bestCandidate.symbol}. Oportunidade de Compra.`;
-            else if (finalScore > 60) insight = `Tendência de alta se formando em ${bestCandidate.symbol} com volume crescente.`;
-            else if (finalScore < 25) insight = `Despejo Institucional em ${bestCandidate.symbol}. Oportunidade de Venda Forte.`;
-            else if (finalScore < 40) insight = `Pressão vendedora detectada em ${bestCandidate.symbol}. Aguardando rompimento.`;
-            else insight = `Mercado lateralizado em ${bestCandidate.symbol}. Aguardando definição de fluxo.`;
+            // Só ativos com dado real (ou stale, última leitura real conhecida)
+            // entram no ranking — nunca promove um 'unavailable' a "melhor ativo".
+            const withRealData = assets.filter((a) => a.provenance === 'real' || a.provenance === 'stale');
+            const ranked = [...withRealData].sort((a, b) => Math.abs(b.score - 50) - Math.abs(a.score - 50));
 
             setResult({
-                bestAsset: bestCandidate.symbol,
-                score: Math.round(finalScore),
-                status: 'OPEN',
-                insight: insight,
-                isScanning: false
+                status: 'OPEN', // cripto é 24/7 — cesta desta varredura nunca fecha
+                isScanning: false,
+                assets,
+                bestAsset: ranked[0] ?? null,
             });
+            isScanningRef.current = false;
         };
 
-        // Rodar Scanner na montagem e a cada 30s
-        scanMarkets();
-        const interval = setInterval(scanMarkets, 30000); 
-
-        return () => clearInterval(interval);
+        scan();
+        const interval = setInterval(scan, SCAN_INTERVAL_MS);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
     }, []);
 
     return result;

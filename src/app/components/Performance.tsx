@@ -4,6 +4,7 @@ import { TrendingUp, Calendar, DollarSign, Target, Zap, ArrowLeftRight, Settings
 import { useTradingContext } from '../contexts/TradingContext';
 import { SlippageSimulator } from './admin/SlippageSimulator';
 import { LatencyBenchmark } from './performance/LatencyBenchmark'; // Added import
+import { TradeEfficiencyPanel } from './performance/TradeEfficiencyPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 
 type Period = '7d' | '30d' | '90d' | '1y' | 'all';
@@ -180,27 +181,78 @@ export function Performance() {
     };
   }, [baseData]);
 
-  const monthlyReturns = [
-    { month: 'Jan', return: 8.5 },
-    { month: 'Fev', return: -2.3 },
-    { month: 'Mar', return: 12.7 },
-    { month: 'Abr', return: 5.2 },
-    { month: 'Mai', return: 15.8 },
-    { month: 'Jun', return: 3.4 },
-    { month: 'Jul', return: 9.1 },
-    { month: 'Ago', return: -1.5 },
-    { month: 'Set', return: 11.3 },
-    { month: 'Out', return: 7.8 },
-    { month: 'Nov', return: 14.2 },
-    { month: 'Dez', return: 6.5 },
-  ];
+  // ✅ 2026-07-29 (auditoria): antes eram arrays 100% fabricados (Jan-Dez fixo,
+  // 45/25/20/10% fixo) que apareciam até com $0 de patrimônio e zero trades —
+  // achado do Cleber. Agora computados a partir de `tradeHistory` real (mesma
+  // fonte usada pela Curva de Capital e pela tabela de trades logo abaixo);
+  // sem trade real, os `useMemo` retornam array vazio e a UI mostra estado
+  // "sem dados" explícito (nunca mais preenche com número inventado).
+  const monthlyReturns = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const byMonth = new Map<string, number>();
+    validHistory.forEach((t: any) => {
+      if (!t || !t.timestamp || isNaN(Number(t.timestamp))) return;
+      const d = new Date(Number(t.timestamp));
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const profit = Number(t.currentProfit) || 0;
+      byMonth.set(key, (byMonth.get(key) || 0) + profit);
+    });
+    const base = safePortfolio.initialBalance || 100;
+    return Array.from(byMonth.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, profit]) => {
+        const [y, m] = key.split('-');
+        const monthLabel = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('pt-BR', { month: 'short' });
+        return { month: monthLabel, return: base > 0 ? (profit / base) * 100 : 0 };
+      });
+  }, [tradeHistory, safePortfolio.initialBalance]);
 
-  const assetDistribution = [
-    { name: 'Forex', value: 45, color: '#10b981' },
-    { name: 'Ações', value: 25, color: '#3b82f6' },
-    { name: 'Índices', value: 20, color: '#f59e0b' },
-    { name: 'Cripto', value: 10, color: '#8b5cf6' },
-  ];
+  const assetDistribution = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const palette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+    const byAsset = new Map<string, number>();
+    let total = 0;
+    validHistory.forEach((t: any) => {
+      if (!t) return;
+      const symbol = t.symbol || 'Desconhecido';
+      const volume = Math.abs(Number(t.amount) || 0) * (Number(t.leverage) || 1);
+      const weight = volume > 0 ? volume : 1; // sem valor de posição real, conta como 1 trade
+      byAsset.set(symbol, (byAsset.get(symbol) || 0) + weight);
+      total += weight;
+    });
+    if (total === 0) return [];
+    return Array.from(byAsset.entries())
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, weight], idx) => ({
+        name,
+        value: Math.round((weight / total) * 1000) / 10,
+        color: palette[idx % palette.length],
+      }));
+  }, [tradeHistory]);
+
+  const bestDayReal = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const byDay = new Map<string, number>();
+    validHistory.forEach((t: any) => {
+      if (!t || !t.timestamp || isNaN(Number(t.timestamp))) return;
+      const d = new Date(Number(t.timestamp));
+      if (isNaN(d.getTime())) return;
+      const key = d.toISOString().slice(0, 10);
+      const profit = Number(t.currentProfit) || 0;
+      byDay.set(key, (byDay.get(key) || 0) + profit);
+    });
+    if (byDay.size === 0) return null;
+    let bestKey = '';
+    let bestVal = -Infinity;
+    byDay.forEach((v, k) => {
+      if (v > bestVal) {
+        bestVal = v;
+        bestKey = k;
+      }
+    });
+    return { value: bestVal, label: new Date(bestKey).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) };
+  }, [tradeHistory]);
 
   // Real Metrics Calculation - Safety Checks
   const initialBalance = safePortfolio.initialBalance;
@@ -218,8 +270,6 @@ export function Performance() {
   const profitFactor = safeStats.grossLoss > 0 
     ? (safeStats.grossProfit / safeStats.grossLoss) 
     : safeStats.grossProfit > 0 ? 100 : 0; // Cap at 100 instead of infinite/99.9 for cleaner UI
-
-  const bestDay = 0; // Requires daily tracking, leaving as 0 or could track separately
 
   if (!portfolio) {
       return <div className="p-8 text-center text-slate-500">Carregando dados de performance...</div>;
@@ -334,8 +384,12 @@ export function Performance() {
             </div>
             <span className="text-xs font-bold uppercase tracking-widest">Melhor Dia</span>
           </div>
-          <p className="text-3xl font-bold text-white tracking-tight">$8,400</p>
-          <p className="text-[10px] text-yellow-400 mt-2 uppercase tracking-wider font-bold">15 de Dezembro</p>
+          <p className="text-3xl font-bold text-white tracking-tight">
+            {bestDayReal ? bestDayReal.value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }) : '—'}
+          </p>
+          <p className="text-[10px] text-yellow-400 mt-2 uppercase tracking-wider font-bold">
+            {bestDayReal ? bestDayReal.label : 'Sem trades ainda'}
+          </p>
         </div>
       </div>
 
@@ -410,7 +464,12 @@ export function Performance() {
         <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Retornos Mensais</h2>
           <div className="h-[300px] w-full" style={{ minWidth: '100px', minHeight: '300px' }}>
-            {mounted ? (
+            {monthlyReturns.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <Calendar className="w-8 h-8 text-slate-600 mb-2" />
+                <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">Sem trades no período</p>
+              </div>
+            ) : mounted ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={300}>
                 <BarChart data={monthlyReturns}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
@@ -445,7 +504,12 @@ export function Performance() {
         <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Distribuição por Ativo</h2>
           <div className="h-[300px] flex items-center justify-center w-full" style={{ minWidth: '100px', minHeight: '300px' }}>
-            {mounted ? (
+            {assetDistribution.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <Activity className="w-8 h-8 text-slate-600 mb-2" />
+                <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">Sem trades no período</p>
+              </div>
+            ) : mounted ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={300}>
                 <PieChart>
                   <Pie
@@ -573,6 +637,9 @@ export function Performance() {
           </div>
         )}
       </div>
+
+      {/* Eficiência de saída (Componente 5 do cérebro de execução) — análise retrospectiva, nunca previsão */}
+      <TradeEfficiencyPanel tradeHistory={tradeHistory} />
     </div>
   );
 }

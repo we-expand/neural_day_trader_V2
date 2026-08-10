@@ -1,4 +1,4 @@
-import type { Candle, SwingPoint, StructureEvent } from './types';
+import type { Candle, SwingPoint, StructureEvent } from './types.ts';
 
 /**
  * Detecta topos/fundos locais (swing points) pelo método fractal clássico:

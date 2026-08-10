@@ -23,22 +23,18 @@ interface Product {
   premium?: boolean;
 }
 
+// TAREFA 5 (2026-07-31, CLAUDE.md pendência #6): o item 'strat-001' ("Neural
+// Scalper Pro", 87% win rate hardcoded + rating/reviews/sales fabricados) foi
+// REMOVIDO do catálogo — sem dado real por trás do win rate, e o arquétipo
+// anunciado (scalping) é o pior de toda a investigação do projeto (Sharpe
+// pooled -3,36 em cripto, `AI_BRAIN_SPEC.md` seção 14). Opção escolhida: (a)
+// remover em vez de reescrever a descrição, porque os outros produtos deste
+// catálogo (abaixo) também têm rating/reviews/sales fabricados e o `Product`
+// exige esses campos como não-opcionais — reescrever só este item exigiria
+// tornar o schema inteiro opcional, fora do escopo desta tarefa. O resto do
+// catálogo mantém dado fabricado como estava: achado registrado mas não
+// tratado nesta sessão (não pedido explicitamente).
 const products: Product[] = [
-  {
-    id: 'strat-001',
-    name: 'Neural Scalper Pro',
-    description: 'Estratégia de scalping baseada em IA para forex e cripto. 87% win rate nos últimos 3 meses.',
-    price: 299.90,
-    originalPrice: 499.90,
-    category: 'strategy',
-    rating: 4.9,
-    reviews: 342,
-    sales: 1284,
-    icon: Zap,
-    features: ['IA Proprietária', 'Backtesting', 'Multi-timeframe', 'Stop Loss Dinâmico'],
-    tag: 'MAIS VENDIDO',
-    popular: true
-  },
   {
     id: 'bot-001',
     name: 'AutoTrader Elite',

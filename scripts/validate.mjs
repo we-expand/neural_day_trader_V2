@@ -31,6 +31,46 @@ const SUITES = [
     name: 'Motor SMC (Order Blocks, FVG, Liquidity Pools, BOS/CHoCH)',
     entry: 'src/app/services/smc/__validate__.ts',
   },
+  {
+    name: 'Motor de backtest (trailing stop, empate TP/SL, sizing por stop)',
+    entry: 'src/app/services/strategy/__validate__.ts',
+  },
+  {
+    name: 'Gate de viabilidade por custo (Componente 1 do cérebro de execução)',
+    entry: 'src/app/services/risk/__validate__.ts',
+  },
+  {
+    name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',
+    entry: 'src/app/services/analysis/__validate__.ts',
+  },
+  {
+    name: 'Expectancy Engine — expectativa, risco de ruína, Kelly honesto (Bloco C, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__expectancy__.ts',
+  },
+  {
+    name: 'Detector de revenge trading (Bloco D, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__revenge__.ts',
+  },
+  {
+    name: 'Context Gate — regime ADX/ATR + estrutura BOS/CHoCH, nunca Market Score (Bloco B, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__context__.ts',
+  },
+  {
+    name: 'Tail Risk Guard — proteção de cauda / cisne negro (Bloco E, cérebro cognitivo)',
+    entry: 'src/app/services/risk/__validate__tailrisk__.ts',
+  },
+  {
+    name: 'Ranking mecânico de ativos elegíveis (seleção por custo, não por alpha)',
+    entry: 'src/app/services/risk/__validate__ranking__.ts',
+  },
+  {
+    name: 'Guard de correlação ao vivo — Pearson real sobre log-returns (Componente 3, cérebro de execução)',
+    entry: 'src/app/services/risk/__validate__correlation__.ts',
+  },
+  {
+    name: 'Cooldown pós-perdas-consecutivas + limite rígido de trades/dia (RISK_MODULE_SPEC.md 3.3/3.4)',
+    entry: 'src/app/services/risk/__validate__cooldown__.ts',
+  },
 ];
 
 const workDir = mkdtempSync(join(tmpdir(), 'ndt-validate-'));

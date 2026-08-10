@@ -207,40 +207,46 @@ export const ALL_ASSETS: Asset[] = [
   // ============================================================================
   // 📊 INDICES - ÍNDICES GLOBAIS (16 ÍNDICES)
   // ============================================================================
-  
+  // ⚠️ 2026-08-03: minLot de todo índice baixado de 0.1 pra 0.01 — pesquisa
+  // (ver CLAUDE.md/handoff da sessão) confirmou que 0.01 é o padrão de micro
+  // lote mais comum entre corretoras CFD de varejo pra índices hoje (0.1
+  // existe em alguns brokers como OANDA, mas é minoria). Infinox não tem
+  // valor mínimo publicado que eu tenha conseguido confirmar — aproximação
+  // de mercado, não número verificado direto na corretora.
+
   // US INDICES
-  { symbol: 'SPX500', name: 'S&P 500', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'S&P 500' },
-  { symbol: 'NAS100', name: 'NASDAQ 100', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'NASDAQ 100' },
-  { symbol: 'US30', name: 'Dow Jones Industrial Average', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Dow Jones' },
-  { symbol: 'US2000', name: 'Russell 2000', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Russell 2000' },
+  { symbol: 'SPX500', name: 'S&P 500', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'S&P 500' },
+  { symbol: 'NAS100', name: 'NASDAQ 100', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'NASDAQ 100' },
+  { symbol: 'US30', name: 'Dow Jones Industrial Average', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Dow Jones' },
+  { symbol: 'US2000', name: 'Russell 2000', category: 'INDICES', subCategory: 'US Indices', icon: '🇺🇸', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 ET', description: 'Russell 2000' },
   // ✅ 2026-07-16: confirmado CFD real na Infinox via /mt5-prices, nome
   // unificado funciona direto. Nota: o ChartView.tsx tinha um "DXY" que
   // testado agora dá HTTP 404 (nunca existiu de verdade) — corrigido junto.
-  { symbol: 'USDX', name: 'US Dollar Index', category: 'INDICES', subCategory: 'US Indices', icon: '💵', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'US Dollar Index' },
-  { symbol: 'VIX', name: 'CBOE Volatility Index', category: 'INDICES', subCategory: 'US Indices', icon: '📉', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:15 ET', description: 'CBOE Volatility Index' },
+  { symbol: 'USDX', name: 'US Dollar Index', category: 'INDICES', subCategory: 'US Indices', icon: '💵', precision: 3, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '24/5', description: 'US Dollar Index' },
+  { symbol: 'VIX', name: 'CBOE Volatility Index', category: 'INDICES', subCategory: 'US Indices', icon: '📉', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:15 ET', description: 'CBOE Volatility Index' },
   
   // EUROPEAN INDICES
-  { symbol: 'UK100', name: 'FTSE 100', category: 'INDICES', subCategory: 'European Indices', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '08:00-16:30 GMT', description: 'FTSE 100' },
-  { symbol: 'GER40', name: 'DAX 40', category: 'INDICES', subCategory: 'European Indices', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '08:00-22:00 CET', description: 'DAX 40' },
-  { symbol: 'FRA40', name: 'CAC 40', category: 'INDICES', subCategory: 'European Indices', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'CAC 40' },
-  { symbol: 'ESP35', name: 'IBEX 35', category: 'INDICES', subCategory: 'European Indices', icon: '🇪🇸', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'IBEX 35' },
-  { symbol: 'ITA40', name: 'FTSE MIB', category: 'INDICES', subCategory: 'European Indices', icon: '🇮🇹', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'FTSE MIB' },
-  { symbol: 'NETH25', name: 'AEX 25', category: 'INDICES', subCategory: 'European Indices', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'AEX 25' },
-  { symbol: 'SUI20', name: 'SMI 20', category: 'INDICES', subCategory: 'European Indices', icon: '🇨🇭', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'SMI 20' },
-  { symbol: 'EUSTX50', name: 'Euro Stoxx 50', category: 'INDICES', subCategory: 'European Indices', icon: '🇪🇺', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-22:00 CET', description: 'Euro Stoxx 50' },
+  { symbol: 'UK100', name: 'FTSE 100', category: 'INDICES', subCategory: 'European Indices', icon: '🇬🇧', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '08:00-16:30 GMT', description: 'FTSE 100' },
+  { symbol: 'GER40', name: 'DAX 40', category: 'INDICES', subCategory: 'European Indices', icon: '🇩🇪', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '08:00-22:00 CET', description: 'DAX 40' },
+  { symbol: 'FRA40', name: 'CAC 40', category: 'INDICES', subCategory: 'European Indices', icon: '🇫🇷', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'CAC 40' },
+  { symbol: 'ESP35', name: 'IBEX 35', category: 'INDICES', subCategory: 'European Indices', icon: '🇪🇸', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'IBEX 35' },
+  { symbol: 'ITA40', name: 'FTSE MIB', category: 'INDICES', subCategory: 'European Indices', icon: '🇮🇹', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'FTSE MIB' },
+  { symbol: 'NETH25', name: 'AEX 25', category: 'INDICES', subCategory: 'European Indices', icon: '🇳🇱', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'AEX 25' },
+  { symbol: 'SUI20', name: 'SMI 20', category: 'INDICES', subCategory: 'European Indices', icon: '🇨🇭', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-17:30 CET', description: 'SMI 20' },
+  { symbol: 'EUSTX50', name: 'Euro Stoxx 50', category: 'INDICES', subCategory: 'European Indices', icon: '🇪🇺', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-22:00 CET', description: 'Euro Stoxx 50' },
   
   // ASIAN INDICES
-  { symbol: 'JP225', name: 'Nikkei 225', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇯🇵', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 JST', description: 'Nikkei 225' },
-  { symbol: 'HK50', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng' },
-  { symbol: 'AUS200', name: 'ASX 200', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇦🇺', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '10:00-16:00 AEST', description: 'ASX 200' },
-  { symbol: 'CHINA50', name: 'FTSE China A50', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇨🇳', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 CST', description: 'FTSE China A50' },
+  { symbol: 'JP225', name: 'Nikkei 225', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇯🇵', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 JST', description: 'Nikkei 225' },
+  { symbol: 'HK50', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng' },
+  { symbol: 'AUS200', name: 'ASX 200', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇦🇺', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '10:00-16:00 AEST', description: 'ASX 200' },
+  { symbol: 'CHINA50', name: 'FTSE China A50', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇨🇳', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 CST', description: 'FTSE China A50' },
 
   // LATAM INDICES
   // ✅ 2026-07-16: BVSPX (Ibovespa) confirmado real via /mt5-prices antes de
   // adicionar — alternativas testadas (IBOV, BVSP, IBOVX, BRA50, WIN) deram
   // HTTP 404, nome real na corretora é BVSPX. Estava faltando no catálogo
   // (Cleber reportou "não existe").
-  { symbol: 'BVSPX', name: 'Ibovespa', category: 'INDICES', subCategory: 'LatAm Indices', icon: '🇧🇷', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 100, leverage: 100, tradingHours: '10:00-17:00 BRT', description: 'Ibovespa' },
+  { symbol: 'BVSPX', name: 'Ibovespa', category: 'INDICES', subCategory: 'LatAm Indices', icon: '🇧🇷', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '10:00-17:00 BRT', description: 'Ibovespa' },
 
   // ============================================================================
   // 🏅 COMMODITIES - METAIS E ENERGIA (14 ATIVOS)

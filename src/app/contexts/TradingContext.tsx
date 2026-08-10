@@ -1,10 +1,17 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { useApexLogic, TradeVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
+import { useApexLogic, TradeVisual, PendingOrderVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
 import { useStrategies } from '../hooks/useStrategies';
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
 import { useMarketContext } from './MarketContext';
 import { useLiveAlertStage, LiveAlertEvent } from '../modules/liveAlertStage/useLiveAlertStage';
+import {
+  useTradeConfirmationStage,
+  PendingTradeConfirmation,
+  ResolvedTradeConfirmation,
+} from '../modules/tradeConfirmationStage/useTradeConfirmationStage';
+import { useAutoExecutionStage, AutoExecutedTrade } from '../modules/autoExecutionStage/useAutoExecutionStage';
+import { useFullSizeExecutionStage, FullSizeExecutedTrade } from '../modules/fullSizeExecutionStage/useFullSizeExecutionStage';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -36,6 +43,28 @@ interface TradingContextType {
   resumeLogic: () => void;
   resetLogic: () => void;
   forceCloseAll: () => void;
+  openManualPosition: (params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => { success: boolean; error?: string; tradeId?: string };
+  closeManualPosition: (tradeId: string, currentPrice: number) => void;
+  pendingOrders: PendingOrderVisual[];
+  openManualPendingOrder: (params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    orderType: 'LIMIT' | 'STOP';
+    volume: number;
+    triggerPrice: number;
+    currentPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => { success: boolean; error?: string; orderId?: string };
+  cancelManualPendingOrder: (orderId: string) => void;
+  checkPendingOrderTriggers: (symbol: string, price: number) => void;
   updateAIConfig: (config: Partial<AIConfig>) => void;
   connectToMT5: (credentials: any) => Promise<void>;
   disconnectFromMT5: () => void;
@@ -83,6 +112,24 @@ interface TradingContextType {
   liveAlertStageEnabled: boolean;
   setLiveAlertStageEnabled: (next: boolean) => void;
   liveAlerts: LiveAlertEvent[];
+
+  // Fase 6, estágio 2 — LIVE + confirmação manual por trade (AI_BRAIN_SPEC.md seção 9.1)
+  tradeConfirmationStageEnabled: boolean;
+  setTradeConfirmationStageEnabled: (next: boolean) => void;
+  pendingTradeConfirmations: PendingTradeConfirmation[];
+  tradeConfirmationHistory: ResolvedTradeConfirmation[];
+  approveTradeConfirmation: (id: string) => void;
+  rejectTradeConfirmation: (id: string) => void;
+
+  // Fase 6, estágio 3 — execução automática, tamanho mínimo travado (AI_BRAIN_SPEC.md seção 9.1)
+  autoExecutionStageEnabled: boolean;
+  setAutoExecutionStageEnabled: (next: boolean) => void;
+  autoExecutionHistory: AutoExecutedTrade[];
+
+  // Fase 6, estágio 4 — execução automática, TAMANHO REAL do motor (exige Estágio 3 ligado, AI_BRAIN_SPEC.md seção 9.1)
+  fullSizeExecutionStageEnabled: boolean;
+  setFullSizeExecutionStageEnabled: (next: boolean) => void;
+  fullSizeExecutionHistory: FullSizeExecutedTrade[];
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
@@ -103,12 +150,18 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   
   // 🔥 PERSISTÊNCIA GLOBAL: Ativo selecionado sincronizado entre todas as páginas
   const [selectedAsset, setSelectedAsset] = useState<string>(() => {
-    // Carregar do localStorage ao inicializar
+    // 🐛 FIX 2026-08-03: default era 'BTCUSDT' (formato Binance, com T) — esse
+    // símbolo NUNCA existiu em assetDatabase.ts (só 'BTCUSD', sem T), então
+    // todo usuário novo (sem preferência salva) caía num ativo que tem
+    // cotação pro gráfico (via Binance) mas nunca conseguia abrir ordem —
+    // getAssetBySymbol('BTCUSDT') sempre undefined, bloqueava a boleta em
+    // silêncio antes do fix de blockedReason. 'BTCUSD' é o símbolo unificado
+    // real, usado em todo o motor (contractSpecs, brokerRegistry, etc).
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('selectedAsset');
-      return saved || 'BTCUSDT'; // Default: BTC
+      return saved || 'BTCUSD';
     }
-    return 'BTCUSDT';
+    return 'BTCUSD';
   });
   
   // 🔥 Atualizar localStorage sempre que o ativo mudar
@@ -130,7 +183,39 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // precisa de `logic.executionMode`, que só existe DEPOIS de useApexLogic ser
   // chamado. O ref resolve a dependência circular sem acoplar os dois hooks.
   const liveDecisionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  const confirmationStageHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  const autoExecutionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  const fullSizeExecutionHandlerRef = useRef<(decision: TradeVisual) => void>(() => {});
+  // Precedência quando mais de um estágio está ligado ao mesmo tempo em LIVE
+  // (não deveria acontecer via UI normal, mas o motor não pode assumir isso):
+  // Estágio 4 (execução automática, tamanho real) > Estágio 3 (execução
+  // automática, lote mínimo) > Estágio 2 (confirmação manual) > Estágio 1
+  // (só alerta) — do mais consequente pro menos, cada decisão só é tratada
+  // por um estágio, nunca duplicada entre eles. Estágio 4 só pode vencer essa
+  // precedência se o Estágio 3 também estiver ligado (pré-requisito rígido,
+  // reforçado de novo dentro do próprio `useFullSizeExecutionStage`).
+  // Refs porque `logic`/os estados de enabled só existem depois desses hooks.
+  const tradeConfirmationStageEnabledRef = useRef(false);
+  const autoExecutionStageEnabledRef = useRef(false);
+  const fullSizeExecutionStageEnabledRef = useRef(false);
+  const executionModeRef = useRef<'DEMO' | 'LIVE'>('DEMO');
   const forwardLiveDecision = useCallback((decision: TradeVisual) => {
+    if (executionModeRef.current !== 'LIVE') {
+      liveDecisionHandlerRef.current(decision);
+      return;
+    }
+    if (autoExecutionStageEnabledRef.current && fullSizeExecutionStageEnabledRef.current) {
+      fullSizeExecutionHandlerRef.current(decision);
+      return;
+    }
+    if (autoExecutionStageEnabledRef.current) {
+      autoExecutionHandlerRef.current(decision);
+      return;
+    }
+    if (tradeConfirmationStageEnabledRef.current) {
+      confirmationStageHandlerRef.current(decision);
+      return;
+    }
     liveDecisionHandlerRef.current(decision);
   }, []);
 
@@ -147,12 +232,65 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  // Estágio 2, mesmo padrão do Estágio 1 — chave de localStorage própria.
+  const [tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_trade_confirmation_stage_enabled') === 'true';
+  });
+  const setTradeConfirmationStageEnabledPersistent = useCallback((next: boolean) => {
+    setTradeConfirmationStageEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_trade_confirmation_stage_enabled', String(next));
+    }
+  }, []);
+  tradeConfirmationStageEnabledRef.current = tradeConfirmationStageEnabled;
+
+  // Estágio 3, mesmo padrão — chave de localStorage própria. Desligado por
+  // padrão: ligar isto é a única forma de dinheiro real se mover sem
+  // aprovação humana por trade, então nunca pode nascer ligado.
+  const [autoExecutionStageEnabled, setAutoExecutionStageEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_auto_execution_stage_enabled') === 'true';
+  });
+  const setAutoExecutionStageEnabledPersistent = useCallback((next: boolean) => {
+    setAutoExecutionStageEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_auto_execution_stage_enabled', String(next));
+    }
+  }, []);
+  autoExecutionStageEnabledRef.current = autoExecutionStageEnabled;
+
+  // Estágio 4, mesmo padrão — chave de localStorage própria. Desligado por
+  // padrão. Pré-requisito rígido: se o Estágio 3 for desligado enquanto o 4
+  // estiver ligado, o 4 desliga junto (nunca fica "ligado" sem o pré-requisito
+  // — reforçado abaixo com um efeito, além do próprio hook do Estágio 4 checar
+  // `stage3Enabled` a cada decisão).
+  const [fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabledState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('neural_full_size_execution_stage_enabled') === 'true';
+  });
+  const setFullSizeExecutionStageEnabledPersistent = useCallback((next: boolean) => {
+    setFullSizeExecutionStageEnabledState(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('neural_full_size_execution_stage_enabled', String(next));
+    }
+  }, []);
+  fullSizeExecutionStageEnabledRef.current = fullSizeExecutionStageEnabled;
+
+  useEffect(() => {
+    if (!autoExecutionStageEnabled && fullSizeExecutionStageEnabled) {
+      setFullSizeExecutionStageEnabledPersistent(false);
+    }
+  }, [autoExecutionStageEnabled, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabledPersistent]);
+
   // Initialize the hook once here, so it persists across page navigations
   // ✅ SEMPRE chamar hooks na mesma ordem (Rules of Hooks)
   const logic = useApexLogic({
     prices: marketContext?.marketState?.prices || {}, // ✅ Fallback seguro
     mt5Offset: 0
   }, strategies, forwardLiveDecision);
+
+  executionModeRef.current = logic.executionMode;
 
   const liveAlertStage = useLiveAlertStage({
     executionMode: logic.executionMode,
@@ -161,7 +299,35 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     liveDecisionHandlerRef.current = liveAlertStage.onLiveDecision;
   }, [liveAlertStage.onLiveDecision]);
-  
+
+  const tradeConfirmationStage = useTradeConfirmationStage({
+    executionMode: logic.executionMode,
+    enabled: tradeConfirmationStageEnabled,
+    isSafeMode: logic.isSafeMode,
+  });
+  useEffect(() => {
+    confirmationStageHandlerRef.current = tradeConfirmationStage.onLiveDecision;
+  }, [tradeConfirmationStage.onLiveDecision]);
+
+  const autoExecutionStage = useAutoExecutionStage({
+    executionMode: logic.executionMode,
+    enabled: autoExecutionStageEnabled,
+    isSafeMode: logic.isSafeMode,
+  });
+  useEffect(() => {
+    autoExecutionHandlerRef.current = autoExecutionStage.onLiveDecision;
+  }, [autoExecutionStage.onLiveDecision]);
+
+  const fullSizeExecutionStage = useFullSizeExecutionStage({
+    executionMode: logic.executionMode,
+    enabled: fullSizeExecutionStageEnabled,
+    stage3Enabled: autoExecutionStageEnabled,
+    isSafeMode: logic.isSafeMode,
+  });
+  useEffect(() => {
+    fullSizeExecutionHandlerRef.current = fullSizeExecutionStage.onLiveDecision;
+  }, [fullSizeExecutionStage.onLiveDecision]);
+
   // Legacy functions mapped to new logic - memoized to prevent infinite loops
   const toggleAI = useCallback(() => {
     if (logic.isActive) {
@@ -251,6 +417,12 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     resumeLogic: logic.resumeLogic,
     resetLogic: logic.resetLogic,
     forceCloseAll: logic.forceCloseAll,
+    openManualPosition: logic.openManualPosition,
+    closeManualPosition: logic.closeManualPosition,
+    pendingOrders: logic.pendingOrders,
+    openManualPendingOrder: logic.openManualPendingOrder,
+    cancelManualPendingOrder: logic.cancelManualPendingOrder,
+    checkPendingOrderTriggers: logic.checkPendingOrderTriggers,
     updateAIConfig: logic.updateAIConfig,
     connectToMT5: logic.connectToMT5,
     disconnectFromMT5: logic.disconnectFromMT5,
@@ -287,6 +459,18 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     liveAlertStageEnabled,
     setLiveAlertStageEnabled: setLiveAlertStageEnabledPersistent,
     liveAlerts: liveAlertStage.alerts,
+    tradeConfirmationStageEnabled,
+    setTradeConfirmationStageEnabled: setTradeConfirmationStageEnabledPersistent,
+    pendingTradeConfirmations: tradeConfirmationStage.pending,
+    tradeConfirmationHistory: tradeConfirmationStage.history,
+    approveTradeConfirmation: tradeConfirmationStage.approve,
+    rejectTradeConfirmation: tradeConfirmationStage.reject,
+    autoExecutionStageEnabled,
+    setAutoExecutionStageEnabled: setAutoExecutionStageEnabledPersistent,
+    autoExecutionHistory: autoExecutionStage.history,
+    fullSizeExecutionStageEnabled,
+    setFullSizeExecutionStageEnabled: setFullSizeExecutionStageEnabledPersistent,
+    fullSizeExecutionHistory: fullSizeExecutionStage.history,
   }), [
     logic.isActive,
     logic.isPaused,
@@ -313,6 +497,12 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.resumeLogic,
     logic.resetLogic,
     logic.forceCloseAll,
+    logic.openManualPosition,
+    logic.closeManualPosition,
+    logic.pendingOrders,
+    logic.openManualPendingOrder,
+    logic.cancelManualPendingOrder,
+    logic.checkPendingOrderTriggers,
     logic.updateAIConfig,
     logic.connectToMT5,
     logic.disconnectFromMT5,
@@ -341,6 +531,18 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     liveAlertStageEnabled,
     setLiveAlertStageEnabledPersistent,
     liveAlertStage.alerts,
+    tradeConfirmationStageEnabled,
+    setTradeConfirmationStageEnabledPersistent,
+    tradeConfirmationStage.pending,
+    tradeConfirmationStage.history,
+    tradeConfirmationStage.approve,
+    tradeConfirmationStage.reject,
+    autoExecutionStageEnabled,
+    setAutoExecutionStageEnabledPersistent,
+    autoExecutionStage.history,
+    fullSizeExecutionStageEnabled,
+    setFullSizeExecutionStageEnabledPersistent,
+    fullSizeExecutionStage.history,
   ]);
 
   return (

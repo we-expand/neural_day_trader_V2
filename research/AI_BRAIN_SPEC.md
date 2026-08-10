@@ -1393,3 +1393,275 @@ lá, o custo é estimado conservadoramente (a favor da recusa, nunca da entrada)
 **L5 — Nenhum edge é permanente.** Todo modelo promovido tem prazo de validade e
 revalidação obrigatória. Degradação de desempenho é esperada, não é anomalia — a
 resposta é reduzir exposição e revalidar, nunca "esperar voltar".
+
+---
+
+## 14. Encerramento formal da busca por edge de sinal (2026-07-30)
+
+> Esta seção existe para que nenhuma sessão futura reabra do zero uma linha já
+> refutada. Contém a razão **matemática** (não apenas empírica) pela qual a busca
+> por "a combinação certa de stop/alvo" foi encerrada, e a decisão de produto
+> tomada em consequência.
+>
+> ⚠️ **REVISADA EM 2026-08-02 — ler a [seção 14.7](#147-revisão-de-2026-08-02--o-que-caiu-e-o-que-ficou-de-pé)
+> ANTES de citar qualquer número desta seção.** O custo de transação usado em
+> 14.3 estava ~8,9x alto, e as amostras de 14.1/14.3 foram medidas depois como
+> sem poder estatístico. **O argumento central (14.2, parada opcional) sobrevive
+> intacto** — é teorema, não medição. A tabela de viabilidade por custo de 14.3
+> **não** sobrevive. Detalhe e re-medição em 14.7.
+
+### 14.1 Contexto: os testes de 2026-07-30
+
+Nesta data foram rodados, a pedido do Cleber, dois blocos de experimentos novos:
+
+- `research/experiments/2026-07-30-custom-sma-pullback/` — cruzamento SMA40/100 +
+  pullback, 4 desenhos de saída diferentes (ATR 1,5×/3×; pontos fixos 100/400;
+  pontos fixos 30/200; multi-timeframe 15m/1h).
+- `research/experiments/2026-07-30-breakout-mfe-mae-diagnostic/` e
+  `research/experiments/2026-07-30-breakout-donchian-executable/` — rompimento
+  Donchian(20)/saída Donchian(10), diagnóstico MFE/MAE sem custo (7 criptos,
+  24 meses, n=4.058 em 15m e n=973 em 1h) seguido de teste executável com custo
+  real e contrato fixo 0,01 BTC.
+
+**Hipótese testada** (formulada pelo Cleber): um cérebro eficiente precisa de
+payoff assimétrico — "quando ganha, ganha muito; quando perde, perde pouco" — e
+um sinal com poder preditivo sobre a **magnitude** do movimento (não só direção)
+tornaria isso alcançável.
+
+### 14.2 O achado que unifica todos os fracassos: teorema da parada opcional
+
+O diagnóstico MFE/MAE **confirmou** que a assimetria é mecanicamente construível:
+payoff ratio real medido de **1,79x (15m)** e **1,88x (1h)**, consistente através
+dos 7 instrumentos. Mas o win rate caiu junto, para 35,4% e 34,1% — e o breakeven
+matemático para esses payoffs é 35,8% e 34,7% respectivamente.
+
+Comparando o EV **bruto** (antes de qualquer custo) de três desenhos de saída
+completamente diferentes:
+
+| Desenho de saída | EV bruto por trade |
+|---|---|
+| SMA+pullback, ATR 1,5×/3× (1min) | +0,0074% |
+| Donchian 20/10 (15m) | -0,011% |
+| Donchian 20/10 (1h) | -0,033% |
+
+Todos ≈ zero. Isso não é coincidência nem má parametrização — é o **teorema da
+parada opcional** (optional stopping theorem): se o preço é aproximadamente um
+martingale sob a informação disponível, então para **qualquer** regra de parada
+limitada τ, vale `E[P_τ] = P_0`. Consequência operacional:
+
+> **Stop e alvo escolhem a FORMA da distribuição de payoff — nunca a MÉDIA dela.**
+> É possível ter 90% de acerto ganhando pouco, ou 10% ganhando muito. A média é a
+> mesma: zero bruto, negativa após custo. A assimetria é *paga* com win rate, não
+> *criada*.
+
+**Consequência normativa para este projeto**: qualquer proposta futura da forma
+"vamos testar stop X com alvo Y" está refutada **a priori**, salvo se vier
+acompanhada de evidência de que o sinal prevê magnitude condicional. Não é
+necessário rodar o backtest para saber o resultado. Isto encerra formalmente a
+classe de experimentos que dominou as seções 11.x.
+
+### 14.3 O gate de viabilidade por custo, agora quantificado
+
+> ❌ **ESTA SUBSEÇÃO ESTÁ SUPERADA. Os números abaixo estão preservados como
+> registro do que foi concluído em 2026-07-30, não como fato corrente.**
+> O custo de entrada (0,26%) foi medido em 2026-08-02 como ~8,9x o real.
+> A tabela corrigida e a re-medição estão em **14.7**. Não citar nada daqui.
+
+Custo round-trip real em cripto (`CostModel.ts`): **0,26%**. Comparado ao
+movimento típico realmente disponível (MFE médio medido em BTCUSDT):
+
+| Timeframe | Movimento típico (MFE médio) | Custo como % do movimento | Viável? |
+|---|---|---|---|
+| 15m | 1,05% | **25%** | ❌ |
+| 1h | 2,52% | **10%** | ⚠️ fronteira |
+| 4h | ~5% (extrapolado por √t, não medido) | ~5% | ✓ |
+| Diário | ~12% (extrapolado por √t, não medido) | ~2% | ✓✓ |
+
+**Todo teste desta sessão rodou abaixo ou na fronteira do piso de viabilidade** —
+o resultado estava determinado pela aritmética de custo antes de olhar o sinal.
+As linhas de 4h e diário são extrapolação declarada (escala √t), não medição.
+
+Confirmação executável (BTCUSDT, contrato 0,01 BTC, custo real, holdout com
+embargo, 24 meses): 15m pooled **-US$1.447,73** (n=615, DSR 0,0%); 1h pooled
+**-US$73,55** (n=133, DSR 35,9%). O único subgrupo positivo foi SHORT em 1h
+(+US$186,65, n=70, DSR 72,4%) — abaixo do piso de 95% do `CRITERIA.md` e abaixo
+do piso de 100 sinais. Não promovido.
+
+### 14.4 Onde a convexidade "ganha muito, perde pouco" realmente vive
+
+O perfil desejado tem nome — **convexidade** — e a literatura o localiza em
+trend-following diversificado de horizonte longo (Hurst/Ooi/Pedersen, AQR "A
+Century of Evidence", já citado em `presetStrategies.ts`): win rate 30-40%,
+payoff 2-3x, lucro concentrado em poucos trades de cauda por ano.
+
+**Por que este projeto nunca testou isso de fato**: o edge do trend-following é
+de **portfólio, não de trade**. A literatura exige dezenas de mercados
+genuinamente descorrelacionados. As cestas usadas em 11.13 e 2026-07-30 têm 7
+criptos com correlação típica 0,7-0,9 entre si — isso é efetivamente **~1,5
+apostas independentes, não 7**. O pooling cross-sectional aumentou o `n` da
+mesma aposta, nunca a diversificação real. Este é um erro metodológico que
+atravessa as seções 11.10-11.13 e só foi nomeado agora.
+
+✅ **Confirmado numericamente em 2026-08-02** (única parte da seção 14 que a
+revisão *reforçou* em vez de derrubar): sobre 999 retornos diários reais da
+Binance, a cesta de 7 tem correlação média **0,687** e primeiro autovalor
+carregando **73% da variância** — `N_eff = 1,81` (participation ratio) ou `1,37`
+(correlação média). O "~1,5" estimado acima estava certo. Ver
+`research/experiments/2026-08-02-viability-gates/verdict.md` seção 2.
+
+### 14.5 Decisão de produto (Cleber, 2026-07-30)
+
+Apresentadas duas saídas mutuamente exclusivas:
+
+- **(A)** perseguir o perfil convexo onde ele comprovadamente vive — trend-following
+  diário/swing, cesta multi-classe, horizonte de 10-20 anos — com reposicionamento
+  do produto para fora de day trading;
+- **(B)** manter o produto intraday e assumir que o cérebro é de **execução e
+  disciplina**, não de alfa.
+
+**Cleber escolheu (B).** Consequências registradas:
+
+1. A função objetivo do cérebro deixa de ser "maximizar retorno" e passa a ser
+   **minimizar perda por causa evitável, com burn rate mínimo e comportamento
+   auditável**. Com edge ≈ 0, o EV por trade é ≈ `−C`; portanto **o cérebro mais
+   eficiente é o que opera menos**. Isto é matemática, não conservadorismo.
+2. Da hipótese original do Cleber, **apenas metade é construível sem edge**:
+   "quando perde, perde pouco" é garantível mecanicamente (hard stop, sizing
+   inverso à vol, daily loss limit, cooldown); "quando ganha, ganha muito" só é
+   maximizável condicionalmente (trailing que não corta o vencedor cedo), e o
+   tamanho do ganho depende do movimento existir. A assimetria **por trade** é
+   impossível (14.2); a assimetria **de exposição ao longo do tempo** é real e
+   implementável.
+3. Onde ML entra legitimamente: **previsão de volatilidade, nunca de direção**.
+   Volatilidade é autocorrelacionada e previsível (base da família GARCH);
+   direção não é. Sizing condicional à vol reduz drawdown sem exigir edge
+   direcional. ML sobre OHLCV público para prever direção apenas overfitaria com
+   mais eficiência — as seções 11.x já mediram que a informação não está lá.
+4. A pendência #2 do `CLAUDE.md` (ponte decisão→execução) fica destravada: a
+   questão em aberto era "vale avançar além do estágio 2 sem edge comprovado?".
+   Sob (B), a ponte de execução **é** o produto, não um veículo para alfa.
+5. **Restrição de comunicação, inegociável**: um produto sem edge não pode exibir
+   número de acurácia/win rate como capacidade do sistema. Ver achado de
+   2026-07-30 em `src/app/components/Marketplace.tsx:30` ("87% win rate nos
+   últimos 3 meses", hardcoded, em produto de scalping — arquétipo que este
+   projeto mediu como o **pior** de toda a investigação, seções 11.12/11.13).
+
+### 14.6 O que faria esta conclusão mudar
+
+Registrado para que a decisão seja revisável com critério, não por impulso:
+
+- Evidência de sinal que preveja **magnitude condicional** (não só direção) —
+  única coisa que reabre a discussão de stop/alvo (14.2).
+- Teste de trend-following nas condições da literatura (14.4): horizonte diário,
+  cesta multi-classe genuinamente descorrelacionada, 10-20 anos, vol targeting.
+  Nunca foi feito aqui; sua ausência não é evidência de fracasso.
+- Queda estrutural do custo de transação, que moveria o piso de viabilidade
+  da tabela 14.3 para timeframes menores.
+  → **Esta condição se realizou em 2026-08-02** — não porque o mercado mudou,
+  mas porque o custo que a seção usava estava errado. Ver 14.7.
+
+### 14.7 Revisão de 2026-08-02 — o que caiu e o que ficou de pé
+
+Origem: `research/experiments/2026-08-02-viability-gates/` (gates de viabilidade)
+e `research/experiments/2026-08-02-cost-correction-remeasure/` (re-medição).
+
+#### O que CAIU
+
+**(a) O custo de entrada de 14.3 estava ~8,9x alto.** `COST_TABLE.CRYPTO` cobrava
+0,26% round-trip, com `commissionPercent: 0.08` — número compatível com taxa de
+**exchange spot**, não com **CFD**, onde não há comissão separada, só spread. O
+custo medido (Pepperstone, BTCUSD, spread médio 15,82 USD sobre 108.829,77,
+janela 01–30/04/2026) é 0,0145% de spread round-trip; com provisão conservadora
+de slippage, **0,0291%**. Corrigido em `research/CostModel.ts` na mesma data.
+
+Tabela 14.3 refeita com o custo corrigido (mesmo MFE medido, só o custo muda):
+
+| Timeframe | Movimento típico (MFE médio) | Custo como % do movimento | Viável? |
+|---|---|---|---|
+| 15m | 1,05% | **2,8%** | ✓ |
+| 1h | 2,52% | **1,2%** | ✓ |
+| 4h | ~5% (extrapolado por √t, não medido) | ~0,6% | ✓✓ |
+| Diário | ~12% (extrapolado por √t, não medido) | ~0,24% | ✓✓ |
+
+A frase "todo teste desta sessão rodou abaixo ou na fronteira do piso de
+viabilidade" é **falsa** com o custo real. Nenhum deles rodou abaixo do piso.
+
+**(b) A confirmação executável mudou de sinal em 1h.** O `output.json` daquele
+experimento guardou cada trade com `entryPrice` e `grossProfitPercent` (retorno
+**antes** de custo), então dá pra reaplicar o custo novo sem re-executar nada —
+os trades são idênticos, a regra de entrada não depende do custo. O script
+valida a reconstrução reproduzindo primeiro o resultado antigo (bateu em
+Δ US$0,0000) antes de reportar o novo:
+
+| | n | total @0,26% | total @0,0291% | Sharpe | DSR |
+|---|---:|---:|---:|---:|---:|
+| 15m LONG | 312 | -US$1.038,70 | -US$408,89 | -0,157 | 0,3% |
+| 15m SHORT | 303 | -US$409,03 | **+US$189,12** | 0,021 | 64,1% |
+| **15m pooled** | 615 | -US$1.447,73 | **-US$219,78** | -0,056 | 8,2% |
+| 1h LONG | 63 | -US$260,20 | -US$130,29 | -0,108 | 19,9% |
+| 1h SHORT | 70 | +US$186,65 | +US$328,24 | 0,144 | 88,3% |
+| **1h pooled** | 133 | -US$73,55 | **+US$197,94** | 0,056 | 73,8% |
+
+**(c) Nenhuma amostra da seção 14 tinha poder para decidir.** Detectar o único
+`k` já medido no projeto (0,0338; BTCUSD n=202.075, z=+16,38) com α=5% e poder
+80% exige 5.412 trades **independentes**. Aplicado o desconto de independência
+medido na própria cesta (N_eff/N = 0,259):
+
+| amostra | n | N_eff | poder |
+|---|---:|---:|---:|
+| diagnóstico MFE/MAE 15m (14.1) | 4.058 | 1.051 | 29,1% ❌ |
+| diagnóstico MFE/MAE 1h (14.1) | 973 | 252 | 13,4% ❌ |
+| executável 15m pooled (14.3) | 615 | 159 | 11,2% ❌ |
+| executável 1h pooled (14.3) | 133 | 34 | 7,4% ❌ |
+| executável 1h SHORT (14.3) | 70 | 18 | 6,7% ❌ |
+
+#### ⚠️ O que isto NÃO autoriza a concluir
+
+**Nada disso é evidência de que existe edge.** Três razões, todas vinculantes:
+
+1. **Nenhum resultado passa o piso de 95% de DSR** do `CRITERIA.md`. O melhor
+   (1h SHORT, 88,3%) segue abaixo, e também abaixo do piso de 100 sinais. A
+   conclusão "nenhum candidato promovido" de 14.3 **sobrevive intacta**.
+2. **Re-pontuar o mesmo holdout não é teste novo.** É a mesma amostra re-scorada
+   com outro parâmetro de custo — não tem o valor probatório de dado inédito.
+3. **A virada de sinal em 1h tem poder de 7,4%.** Um resultado que passa de
+   -US$73 para +US$198 numa amostra assim é indistinguível de ruído. A leitura
+   correta é **indeterminado**, não "positivo".
+
+O efeito líquido da revisão é converter os veredictos empíricos da seção 14 de
+"medido como negativo" para **"nunca foi medido com poder suficiente"**. Isso
+abre a pergunta de novo; não a responde.
+
+#### O que FICOU DE PÉ
+
+- **14.2 (parada opcional) — intacta, e é o coração da seção.** É teorema, não
+  medição: para qualquer regra de parada limitada sobre um martingale,
+  `E[P_τ] = P_0`. Stop e alvo escolhem a FORMA da distribuição, nunca a MÉDIA.
+  Custo não entra nesse argumento — o EV bruto de 14.2 é medido **antes** de
+  custo. **A refutação a priori de "vamos testar stop X com alvo Y" continua
+  valendo**, e nada em 14.7 a afrouxa. Ressalva honesta: o teorema diz que
+  stop/alvo não mudam a média, **não** que a média é zero — essa segunda parte é
+  a alegação empírica, e é ela que perdeu sustentação em (c).
+- **14.4 — reforçada.** O `~1,5 apostas independentes` foi confirmado
+  numericamente (`N_eff = 1,81`). Ver nota na própria 14.4.
+- **14.5 (decisão de produto do Cleber, opção B) — de pé, e mais defensável do
+  que era.** O Gate 2 mostrou que a alternativa (A) — trend-following
+  diário/swing nesta cesta — precisaria de **~12 anos** (holding diário) a
+  **~60 anos** (semanal) de dado para atingir poder de 80%, contra **~1 ano**
+  em holding intradiário de ~3h. Poder estatístico se acumula por trade, não por
+  ano de calendário. Manter intraday é a única região onde a prova é obtenível
+  dentro de uma vida útil de pesquisa.
+- **A função objetivo sob (B)** (minimizar perda por causa evitável) segue
+  válida como escolha de produto. O que mudou é a premissa "EV por trade ≈ −C":
+  o `C` é ~8,9x menor do que se acreditava, então o custo de operar é bem menor
+  — mas com edge ainda não comprovado, o sinal do EV continua não estabelecido.
+
+#### Próximo passo que isto define
+
+Medir a **curva `k(t)`** — como o edge bruto por trade varia com o holding period.
+Hoje só existem dois pontos: positivo em ~42 min (stop de 60 pts, teste de
+2026-07-30) e negativo em ~39h (stop de 446 pts). O `t*` da aritmética de custo
+aponta ~2,9h, região nunca medida. É hipótese **única** (sem penalidade de DSR
+por busca ampla), barata (dataset M1 e motor em numba já existem em
+`2026-07-30-sma-pullback-crossasset/scripts/`) e de resultado binário. Ver
+`2026-08-02-viability-gates/verdict.md` seção 5.

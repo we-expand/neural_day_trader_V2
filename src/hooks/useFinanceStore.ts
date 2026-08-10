@@ -55,7 +55,7 @@ export function useFinanceStore() {
     return newBalance;
   }
 
-  const addSale = (productName: string, amount: number) => {
+  const addSale = (productName: string, amount: number, customerName: string) => {
     // CRITICAL: Always read from localStorage to ensure we have the latest state
     // This prevents race conditions or stale closures if multiple sales happen quickly
     let currentSales: Sale[] = [];
@@ -72,7 +72,7 @@ export function useFinanceStore() {
       id: Math.random().toString(36).substr(2, 9),
       productName,
       amount,
-      customerName: 'Cliente ' + Math.floor(Math.random() * 1000), // Simulated
+      customerName,
       date: new Date().toISOString(),
       status: 'completed'
     };

@@ -16,6 +16,9 @@ import { Candle } from '../services/indicators/TechnicalIndicators';
 import { Strategy } from '../types/strategy';
 import { backtestDataService, Timeframe as DataTimeframe } from '../services/BacktestDataService';
 import { runBacktest, type Trade } from '../services/strategy/BacktestEngine';
+import { getPointValue } from '../services/strategy/TradeSizing';
+import { symbolMappingService } from '../services/SymbolMappingService';
+import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../research/CostModel';
 
 export type { Trade };
 
@@ -195,7 +198,27 @@ export function useBacktestLiveProgress(initialCapitalDefault: number = 10000) {
       return;
     }
 
-    const { trades, equityCurve } = runBacktest(candles, config.strategy, config.symbol, config.tradeDirection, config.initialCapital);
+    // 🔴 FIX 2026-07-31: até aqui o backtest da UI rodava com custo ZERO —
+    // resultado bruto, sistematicamente mais otimista que qualquer execução
+    // real (o comentário original em BacktestEngine.ts já registrava isso como
+    // "erro #1 de rigor"). Agora usa o mesmo CostModel.ts calibrado, mesma
+    // convenção dos scripts de pesquisa (research/experiments/*) e do gate de
+    // custo em useApexLogic.ts: classe de ativo via SymbolMappingService (forex
+    // sempre cai em FOREX_MAJOR por falta de granularidade minor/exotic — pode
+    // subestimar custo nesses casos, mesma aproximação já documentada) e preço
+    // de referência = último candle do período testado.
+    const symbolType = symbolMappingService.findMapping(config.symbol)?.type;
+    const assetClassForCost: CostAssetClass =
+      symbolType === 'crypto' ? 'CRYPTO' :
+      symbolType === 'commodity' ? 'COMMODITY' :
+      symbolType === 'index' ? 'INDEX' :
+      symbolType === 'stock' ? 'STOCK' :
+      'FOREX_MAJOR';
+    const priceLevel = candles[candles.length - 1]?.close ?? 1;
+    const pointValue = getPointValue(config.symbol);
+    const roundTripCostPercent = estimateCostPercent(assetClassForCost, priceLevel, pointValue) * 2;
+
+    const { trades, equityCurve } = runBacktest(candles, config.strategy, config.symbol, config.tradeDirection, config.initialCapital, roundTripCostPercent);
 
     // Revela os trades já calculados aos poucos, só para dar sensação de execução ao vivo —
     // os números finais já estão 100% definidos aqui, a animação não afeta o resultado.

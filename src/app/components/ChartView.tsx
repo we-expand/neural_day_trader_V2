@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
-import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators } from 'klinecharts';
+import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators, OverlayMode } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate, AxisTick } from 'klinecharts';
 
 // getIndicatorClass() existe na tipagem (.d.ts) mas NÃO é exportada pelo bundle
@@ -100,43 +100,82 @@ interface MAExtendData {
   shift: number;
 }
 
-const registerMovingAverageIndicator = (name: string, defaultMethod: MAMethod) => {
+// 🆕 `registeredName` é o nome único que a klinecharts usa pra identificar a instância
+// (chave de `IndicatorStore.addInstance`/`removeInstance`/`overrideIndicator`, sempre
+// por `ins.name === name` dentro do MESMO painel -- ver node_modules/klinecharts/dist/
+// index.esm.js:4181). `displayName` é só o texto mostrado na legenda ("MA(20): ").
+// Registrar VARIANTES do mesmo motor sob nomes diferentes (MA, MA__2, MA__3...) é o que
+// permite ter N instâncias de MA de verdade sobrepostas no MESMO painel de preço, cada
+// uma com sua própria linha na legenda (e seu próprio ⚙/✕) -- sem isso só dava pra ter
+// UMA instância por painel, e "N cliques = N médias" virava "N cliques = N linhas
+// dentro da MESMA instância", sem gear individual por média (achado do Cleber: as
+// médias apareciam no gráfico mas só existia uma engrenagem pra todas juntas).
+const registerMovingAverageIndicator = (registeredName: string, displayName: string, defaultMethod: MAMethod) => {
   registerIndicator<number>({
-    name,
-    shortName: name,
+    name: registeredName,
+    shortName: displayName,
     series: 'price' as any,
     precision: 2,
     calcParams: [20],
     shouldOhlc: true,
-    figures: [{ key: 'ma', title: `${name}: `, type: 'line' }],
+    // 🆕 calcParams agora é uma LISTA de períodos (ex: [20, 50, 200]) -- cada um vira
+    // uma linha própria, chave `ma{i}`. `figures` estático não dá conta de um número
+    // variável de linhas; `regenerateFigures` é o mecanismo que a própria klinecharts
+    // usa pra indicadores desse tipo (MACD/BOLL), chamado toda vez que calcParams muda.
+    figures: [{ key: 'ma0', title: `${displayName}: `, type: 'line' }],
+    regenerateFigures: (calcParams: any[]) => {
+      const periods = (calcParams as number[]).length > 0 ? (calcParams as number[]) : [20];
+      return periods.map((period, i) => ({ key: `ma${i}`, title: `${displayName}(${period}): `, type: 'line' }));
+    },
     calc: (dataList, indicator) => {
-      const period = ((indicator.calcParams as number[])[0]) || 20;
+      const periods = ((indicator.calcParams as number[]).length > 0 ? (indicator.calcParams as number[]) : [20]);
       const ext: Partial<MAExtendData> = (indicator.extendData as MAExtendData) || {};
       const method = ext.method ?? defaultMethod;
       const appliedPrice = ext.appliedPrice ?? 'CLOSE';
       const shift = ext.shift ?? 0;
       const values = dataList.map(bar => getAppliedPriceValue(bar, appliedPrice));
-      const maValues = computeMovingAverageSeries(values, period, method);
       // Deslocar (shift): positivo empurra a linha pra frente no tempo (mostra o valor
       // calculado N barras atrás na posição atual), negativo puxa pra trás -- mesmo
-      // comportamento do campo "Deslocar" no MT5.
+      // comportamento do campo "Deslocar" no MT5. Mesmo shift vale pras N linhas.
+      const perPeriodValues = periods.map(period => computeMovingAverageSeries(values, period, method));
       return dataList.map((_, i) => {
         const srcIndex = i - shift;
-        const value = srcIndex >= 0 && srcIndex < maValues.length ? maValues[srcIndex] : undefined;
-        return { ma: value } as any;
+        const point: Record<string, number | undefined> = {};
+        perPeriodValues.forEach((maValues, lineIndex) => {
+          point[`ma${lineIndex}`] = srcIndex >= 0 && srcIndex < maValues.length ? maValues[srcIndex] : undefined;
+        });
+        return point as any;
       });
     }
   });
 };
 
+// Nº máximo de instâncias simultâneas do mesmo tipo de média que dá pra empilhar no
+// gráfico clicando repetido no card -- cada uma precisa de um `name` registrado próprio
+// (ver comentário acima), então o teto é o nº de variantes registradas abaixo.
+export const MA_MAX_INSTANCES = 6;
+// registeredName -> { baseName, variantIndex } pra `isMovingAverageIndicator`/lookups
+// conseguirem reconhecer tanto o nome base ('MA') quanto as variantes ('MA__2') como
+// médias móveis de verdade.
+const MA_VARIANT_KLINECHARTS_NAME = (baseKlinechartsName: string, variantIndex: number): string =>
+  variantIndex === 0 ? baseKlinechartsName : `${baseKlinechartsName}__${variantIndex + 1}`;
+
 // 🆕 Indicadores customizados reais (WMA/ATR/Donchian/Pivot Points não existem nos
 // built-ins do klinecharts — antes o app tentava criá-los mesmo assim, o que falhava
 // silenciosamente (createIndicator loga um warning e retorna null, sem desenhar nada),
 // deixando o toggle marcado como "ativo" na UI sem nenhum efeito real no gráfico.
-registerMovingAverageIndicator('MA', 'SIMPLE');
-registerMovingAverageIndicator('SMA', 'SIMPLE');
-registerMovingAverageIndicator('EMA', 'EXPONENTIAL');
-registerMovingAverageIndicator('WMA', 'LINEAR_WEIGHTED');
+(
+  [
+    ['MA', 'SIMPLE'],
+    ['SMA', 'SIMPLE'],
+    ['EMA', 'EXPONENTIAL'],
+    ['WMA', 'LINEAR_WEIGHTED']
+  ] as Array<[string, MAMethod]>
+).forEach(([baseName, method]) => {
+  for (let variantIndex = 0; variantIndex < MA_MAX_INSTANCES; variantIndex++) {
+    registerMovingAverageIndicator(MA_VARIANT_KLINECHARTS_NAME(baseName, variantIndex), baseName, method);
+  }
+});
 
 if (!isIndicatorRegistered('ATR')) {
   registerIndicator<number>({
@@ -193,6 +232,78 @@ if (!isIndicatorRegistered('DC')) {
   });
 }
 
+// Estocástico Lento (Slow Stochastic) — não existe built-in no klinecharts, só
+// KDJ (var. chinesa: RSV suavizado por recursão exponencial tipo Wilder, com
+// uma 3ª linha J). São visualmente parecidos mas numericamente diferentes —
+// Estocástico Lento clássico é: %K rápido (RSV) suavizado por MÉDIA MÓVEL
+// SIMPLES de `smoothK` períodos (isso É o "%K lento"), %D = SMA de `smoothD`
+// períodos sobre esse %K lento. Padrão 14/3/3, igual MT5/TradingView.
+if (!isIndicatorRegistered('STOCH_SLOW')) {
+  registerIndicator<number>({
+    name: 'STOCH_SLOW',
+    shortName: 'STOCH LENTO',
+    series: 'normal' as any,
+    precision: 2,
+    calcParams: [14, 3, 3],
+    shouldOhlc: false,
+    // 🔧 FIX: sem range fixo o painel auto-escalava pro range real de %K/%D no
+    // recorte visível (podendo mostrar algo como "10 a 70"), em vez da escala
+    // padrão 0-100 com sobrecompra/sobrevenda em 80/20 (padrão MT5/TradingView).
+    minValue: 0,
+    maxValue: 100,
+    figures: [
+      { key: 'k', title: '%K: ', type: 'line' },
+      { key: 'd', title: '%D: ', type: 'line' },
+      {
+        key: 'upper',
+        title: '',
+        type: 'line',
+        styles: (_data, _indicator, defaultStyles) => ({
+          ...(defaultStyles as any).lines?.[0],
+          color: '#888888',
+          style: 'dashed' as any,
+          size: 1
+        })
+      },
+      {
+        key: 'lower',
+        title: '',
+        type: 'line',
+        styles: (_data, _indicator, defaultStyles) => ({
+          ...(defaultStyles as any).lines?.[0],
+          color: '#888888',
+          style: 'dashed' as any,
+          size: 1
+        })
+      }
+    ],
+    calc: (dataList, indicator) => {
+      const [period, smoothK, smoothD] = indicator.calcParams as number[];
+      const fastK: Array<number | undefined> = dataList.map((_, i) => {
+        if (i < period - 1) return undefined;
+        const window = dataList.slice(i - period + 1, i + 1);
+        const highestHigh = Math.max(...window.map(d => d.high));
+        const lowestLow = Math.min(...window.map(d => d.low));
+        const range = highestHigh - lowestLow;
+        return range === 0 ? 50 : ((dataList[i].close - lowestLow) / range) * 100;
+      });
+      const sma = (values: Array<number | undefined>, smaPeriod: number): Array<number | undefined> => {
+        return values.map((_, i) => {
+          if (i < smaPeriod - 1) return undefined;
+          const window = values.slice(i - smaPeriod + 1, i + 1);
+          if (window.some(v => v === undefined)) return undefined;
+          return (window as number[]).reduce((a, b) => a + b, 0) / smaPeriod;
+        });
+      };
+      const slowK = sma(fastK, smoothK);
+      const slowD = sma(slowK, smoothD);
+      // Linhas de referência fixas de sobrecompra (80) e sobrevenda (20) —
+      // padrão do Estocástico clássico, não 70/10.
+      return dataList.map((_, i) => ({ k: slowK[i], d: slowD[i], upper: 80, lower: 20 } as any));
+    }
+  });
+}
+
 // Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
 // Trend, um indicador completamente diferente) e chamava isso de "Pivot Points" na UI.
 if (!isIndicatorRegistered('PIVOT_POINTS')) {
@@ -224,6 +335,7 @@ import {
   TrendingUp, 
   TrendingDown,
   ChevronDown,
+  ChevronUp,
   Settings,
   Activity,
   Clock,
@@ -258,7 +370,8 @@ import {
   X,
   Maximize,
   Minimize,
-  Grid3x3
+  Grid3x3,
+  Star
 } from 'lucide-react';
 
 
@@ -274,6 +387,9 @@ import { BacktestErrorBoundary } from '@/app/components/backtest/BacktestErrorBo
 import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
 import { useChartPreferences } from '@/app/hooks/useChartPreferences';
+import { useFavoriteChartSetup, readCachedFavoriteChartSetup } from '@/app/hooks/useFavoriteChartSetup';
+import { useChartTemplates, type ChartTemplateConfig } from '@/app/hooks/useChartTemplates';
+import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
@@ -285,6 +401,8 @@ import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO:
 import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
 import { analyzeSmc, type SmcZone } from '@/app/services/smc';
+import { OrderTicket } from '@/app/components/trading/OrderTicket';
+import type { TradeVisual, PendingOrderVisual } from '@/app/hooks/useApexLogic';
 
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
@@ -1016,6 +1134,15 @@ const INDICATORS: IndicatorConfig[] = [
     isPaneIndicator: true
   },
   {
+    id: 'stoch_slow',
+    name: 'Estocástico Lento (Slow Stochastic)',
+    description: '%K suavizado por SMA + %D — diferente do KDJ acima (que usa suavização exponencial e tem uma 3ª linha J)',
+    category: 'momentum',
+    klinechartsName: 'STOCH_SLOW',
+    defaultParams: [14, 3, 3],
+    isPaneIndicator: true
+  },
+  {
     id: 'cci',
     name: 'CCI - Commodity Channel Index',
     description: 'Índice de Canal de Commodities',
@@ -1134,15 +1261,37 @@ function formatBrazilianPrice(price: number, decimals: number = 2): string {
   return padIntegerPart(price.toFixed(decimals));
 }
 
-export function ChartView() {
+export function ChartView({
+  initialAction,
+  onInitialActionConsumed,
+}: {
+  /** Abre uma tela específica já ao montar — usado pelo botão "Criar personalizada" da tela de IA. */
+  initialAction?: 'open-strategy-builder';
+  onInitialActionConsumed?: () => void;
+} = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset } = useTradingContext();
-  
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers } = useTradingContext();
+  const { user } = useAuth();
+
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
-  
-  const [timeframe, setTimeframe] = useState<Timeframe>('1H');
+
+  const VALID_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'];
+  const [timeframe, setTimeframe] = useState<Timeframe>(() => {
+    // 🆕 Lido de forma SÍNCRONA (cache local) pra já nascer com o timeframe do
+    // setup favorito do usuário, sem precisar de um 2º dispose()+init() do
+    // chart via setState assíncrono depois do mount (ver useFavoriteChartSetup.ts).
+    const cached = readCachedFavoriteChartSetup(user?.id);
+    const tf = cached?.timeframe as Timeframe | undefined;
+    return tf && VALID_TIMEFRAMES.includes(tf) ? tf : '1H';
+  });
   const [currentPrice, setCurrentPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
   const [displayedPrice, setDisplayedPrice] = useState<number | null>(null); // Preço exibido (throttled para UI)
+  // 🆕 Watchdog de preço "desatualizado" -- ver comentário completo no callback de
+  // subscribeToSymbol mais abaixo. Sem isso, uma falha silenciosa no pipeline de preço
+  // (conta MetaAPI compartilhada sob rate-limit, etc.) trava o preço/% na tela pra
+  // sempre sem NENHUM sinal visual, e o usuário só descobre comparando com outra fonte.
+  const lastPriceTickAtRef = useRef(Date.now());
+  const [isPriceStale, setIsPriceStale] = useState(false);
   const [openPrice, setOpenPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
   const [dailyChange, setDailyChange] = useState(0);
   const [dailyChangePercent, setDailyChangePercent] = useState(0);
@@ -1173,8 +1322,33 @@ export function ChartView() {
   // suportar (ex: dentro de um iframe sem allow="fullscreen").
   const chartRootRef = useRef<HTMLDivElement>(null);
   const [isMaximized, setIsMaximized] = useState(false);
+  // 🐛 FIX: ao entrar/sair do fullscreen nativo, o navegador leva alguns frames (às
+  // vezes com animação própria) até o layout terminar de se estabilizar de verdade.
+  // O ResizeObserver do canvas podia disparar ANTES desse reflow final acabar,
+  // deixando o gráfico (e a boleta, ancorada com `right` relativo ao mesmo container)
+  // medido com a largura antiga -- como o `<main>` que envolve a tela tem
+  // `overflow-auto`, isso não cortava nada, virava SCROLL horizontal escondendo a
+  // boleta e a régua de preço fora da área visível (bug relatado: "a barra de preço e
+  // a boleta desapareceram" ao restaurar da tela cheia). Força um resize explícito
+  // depois que o navegador com certeza já terminou a transição -- 2 `requestAnimationFrame`
+  // encadeados garantem que rodamos depois do próximo ciclo completo de layout+paint.
+  const forceLayoutResettleAfterFullscreenChange = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          chartInstanceRef.current?.resize();
+        } catch (_) {
+          // silencioso -- mesma tolerância do resto dos resizes no arquivo
+        }
+        window.dispatchEvent(new Event('resize'));
+      });
+    });
+  };
   useEffect(() => {
-    const handleFullscreenChange = () => setIsMaximized(!!document.fullscreenElement);
+    const handleFullscreenChange = () => {
+      setIsMaximized(!!document.fullscreenElement);
+      forceLayoutResettleAfterFullscreenChange();
+    };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
@@ -1187,20 +1361,47 @@ export function ChartView() {
       }
     } catch (err) {
       // Navegador negou/não suporta (ex: iframe sem allow="fullscreen") — cai pro
-      // modo CSS (cobre só o app, não o browser inteiro).
+      // modo CSS (cobre só o app, não o browser inteiro). Esse caminho não dispara
+      // 'fullscreenchange' nenhum (não é fullscreen nativo), então precisa do mesmo
+      // resize forçado aqui manualmente.
       console.warn('[ChartView] Fullscreen API indisponível, usando modo CSS:', err);
       setIsMaximized((prev) => !prev);
+      forceLayoutResettleAfterFullscreenChange();
     }
   };
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
   const [showBacktestConfig, setShowBacktestConfig] = useState(false); // 🆕 Modal de configuração do Backtest
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
+
+  // Entrada vinda de fora (ex: botão "Criar personalizada" na tela de IA) — abre
+  // o construtor direto, sem passar pela tela de config de backtest.
+  useEffect(() => {
+    if (initialAction === 'open-strategy-builder') {
+      setShowStrategyBuilder(true);
+      onInitialActionConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAction]);
   const [isReplayMode, setIsReplayMode] = useState(false); // 🆕 Flag para modo replay (efeito visual)
   
   // 🎯 BACKTEST LIVE PROGRESS (motor real: estratégia + candles históricos reais)
   const backtestProgress = useBacktestLiveProgress(10000);
   const { strategies, saveStrategy, deleteStrategy, error: strategiesError } = useStrategies();
   const { showSrOverlay, showSrOverlayRef, setShowSrOverlay } = useChartPreferences(selectedSymbol);
+  // 🆕 Setup favorito do gráfico (indicadores + parâmetros, grade, S/R) — salvo
+  // via "Salvar configuração atual como favorita" no menu de botão direito,
+  // aplicado automaticamente na 1ª carga do gráfico (ver useEffect de init mais abaixo).
+  const { favoriteSetup, saveFavoriteSetup } = useFavoriteChartSetup();
+  const favoriteSetupAppliedRef = useRef(false);
+  // 🆕 Templates nomeados (CRUD completo — salvar/carregar/remover, menu "Templates"
+  // do botão direito). `pendingTemplateApplyRef` existe porque "Carregar" pode exigir
+  // trocar o timeframe primeiro (dispose()+init() do chart) -- nesse caso os
+  // indicadores/posição só podem ser aplicados DEPOIS que o chart novo recarregar os
+  // dados, então o template fica "pendente" até o próximo fetchData rodar.
+  const { templates, saveTemplate, deleteTemplate } = useChartTemplates();
+  const [templatesExpanded, setTemplatesExpanded] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const pendingTemplateApplyRef = useRef<ChartTemplateConfig | null>(null);
   // 🆕 Toggle de grade de fundo (guias horizontais/verticais) — persistido localmente
   // (preferência de exibição, não precisa ser por usuário+ativo no Supabase como o S/R).
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(() => {
@@ -1221,6 +1422,47 @@ export function ChartView() {
   // pra painel próprio); sem isso, removeIndicator(indicator.id) nunca casava com nada e
   // o "Remover" nunca tirava o desenho de verdade da tela (só mudava o estado da UI).
   const indicatorPaneIdRef = useRef<Record<string, string>>({});
+  // 🆕 Instâncias EXTRAS de um indicador (2ª, 3ª... clicada de novo no card já ativo),
+  // além da 1ª rastreada em `indicatorPaneIdRef` -- a klinecharts recusa 2 instâncias do
+  // MESMO nome no MESMO painel ("Duplicate indicators"), então cada clique extra cria um
+  // painel novo só pra ela. Ver `addGenericIndicatorInstance`. Limitação conhecida: essas
+  // instâncias extras não são salvas em Setup Favorito/Template (só a 1ª é) -- ficam só
+  // na sessão atual do gráfico.
+  const genericIndicatorExtraPaneIdsRef = useRef<Record<string, string[]>>({});
+  // 🆕 Instâncias reais de MÉDIA MÓVEL por indicador base (ex: 'ma' -> [instância 1,
+  // instância 2, ...]) -- cada uma é registrada na klinecharts sob um `name` PRÓPRIO
+  // (ver MA_VARIANT_KLINECHARTS_NAME/registerMovingAverageIndicator), então cada uma
+  // ganha sua própria linha/gear/✕ na legenda nativa do gráfico, em vez de todas
+  // dividirem uma engrenagem só (achado do Cleber: médias apareciam mas só existia 1
+  // engrenagem pra todas). A 1ª instância (variantIndex 0) usa `instanceId ===
+  // indicator.id` -- mantém compatibilidade com todo código antigo que já lia/gravava
+  // por `indicator.id` (templates, indicatorPaneIdRef, activeIndicators).
+  const maInstancesRef = useRef<Record<string, Array<{ instanceId: string; klinechartsName: string; paneId: string }>>>({});
+  const findMAInstance = (baseId: string, instanceId: string) =>
+    (maInstancesRef.current[baseId] ?? []).find(inst => inst.instanceId === instanceId);
+  // 🆕 Altura (em px) do painel de cada indicador que está em painel próprio (RSI/MACD/
+  // Estocástico/etc, não sobreposto no preço) -- a klinecharts já permite arrastar a
+  // divisória entre painéis pra redimensionar (dragEnabled é true por padrão na lib),
+  // mas o usuário pediu um controle explícito também. `PANE_DEFAULT_HEIGHT` é o valor
+  // que a própria klinecharts usa quando nenhuma altura é passada em `createIndicator`.
+  const PANE_DEFAULT_HEIGHT = 100;
+  const PANE_MIN_HEIGHT = 60;
+  const PANE_MAX_HEIGHT = 400;
+  const PANE_HEIGHT_STEP = 30;
+  const [indicatorPaneHeightById, setIndicatorPaneHeightById] = useState<Record<string, number>>({});
+  const adjustIndicatorPaneHeight = (indicator: IndicatorConfig, delta: number) => {
+    const chart = chartInstanceRef.current;
+    const paneId = indicatorPaneIdRef.current[indicator.id];
+    if (!chart || !paneId) return;
+    const current = indicatorPaneHeightById[indicator.id] ?? PANE_DEFAULT_HEIGHT;
+    const next = Math.min(PANE_MAX_HEIGHT, Math.max(PANE_MIN_HEIGHT, current + delta));
+    try {
+      chart.setPaneOptions({ id: paneId, height: next });
+      setIndicatorPaneHeightById(prev => ({ ...prev, [indicator.id]: next }));
+    } catch (error) {
+      console.error('[ChartView] ❌ Erro ajustando altura do painel:', error);
+    }
+  };
   const [indicatorSearchTerm, setIndicatorSearchTerm] = useState(''); // 🆕 Busca de indicadores
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // 🆕 Filtro por categoria
   
@@ -1236,6 +1478,10 @@ export function ChartView() {
   const [crosshairMode, setCrosshairMode] = useState<'point' | 'arrow' | 'presentation' | 'eraser'>('arrow'); // 🆕 Modo da cruz - PADRÃO: SETA
   const [dataWindowEnabled, setDataWindowEnabled] = useState(true); // 🆕 Janela de dados com clique longo
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null); // 🆕 Ferramenta de desenho ativa
+  // 🆕 Modo Magnético: liga/desliga o encaixe automático de NOVOS desenhos no OHLC do
+  // candle mais próximo (klinecharts nativo via `mode: OverlayMode.WeakMagnet` na
+  // criação do overlay) -- antes o botão só mostrava um toast "em desenvolvimento".
+  const [magnetActive, setMagnetActive] = useState(false);
   const [showContextToolbar, setShowContextToolbar] = useState(false); // 🆕 Mostrar toolbar contextual
   const [contextToolbarPosition, setContextToolbarPosition] = useState({ x: 0, y: 0 }); // 🆕 Posição da toolbar
   const [selectedDrawing, setSelectedDrawing] = useState<any>(null); // 🆕 Desenho selecionado
@@ -1311,6 +1557,7 @@ export function ChartView() {
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
+  const positionOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids das linhas de posição aberta (entrada/SL/TP) desenhadas no gráfico
   // 🆕 Cache da estrutura de longo prazo (SMC, 1D/~5 anos) por símbolo — mesma ideia do
   // Detector de Liquidez do Dashboard: sem isso, S/R só enxerga a janela curta do gráfico
   // e nunca acha zona real acima/abaixo quando o preço está longe de qualquer extremo recente.
@@ -2188,69 +2435,153 @@ export function ChartView() {
   // 🆕 Médias móveis (MA/EMA/SMA/WMA) têm um editor completo no padrão MT5 — Período,
   // Deslocar, Método, Aplicar a e Estilo (ver registerMovingAverageIndicator no topo
   // do arquivo). As demais continuam com o editor genérico (só período) acima.
-  interface MAUISettings {
+  // 🆕 Cada MA agora suporta VÁRIAS linhas (períodos) na mesma instância -- é o jeito
+  // nativo que o klinecharts suporta (calcParams é uma lista, uma linha por item; ver
+  // registerMovingAverageIndicator acima). Tentar criar uma 2ª instância do mesmo
+  // indicador no mesmo painel é rejeitado pela própria lib ("Duplicate indicators"),
+  // então "adicionar outra média móvel" tem que ser "adicionar outra linha" aqui.
+  interface MALineSettings {
     period: number;
-    shift: number;
-    method: MAMethod;
-    appliedPrice: AppliedPrice;
     color: string;
     lineStyle: 'solid' | 'dashed';
     lineWidth: number;
   }
+  interface MAUISettings {
+    shift: number;
+    method: MAMethod;
+    appliedPrice: AppliedPrice;
+    lines: MALineSettings[];
+  }
+  const MA_LINE_COLOR_PALETTE = ['#f97316', '#3b82f6', '#a855f7', '#22c55e', '#eab308', '#ec4899', '#14b8a6', '#ef4444'];
   const MA_DEFAULT_METHOD: Record<string, MAMethod> = { ma: 'SIMPLE', sma: 'SIMPLE', ema: 'EXPONENTIAL', wma: 'LINEAR_WEIGHTED' };
   const isMovingAverageIndicator = (indicator: IndicatorConfig): boolean => indicator.id in MA_DEFAULT_METHOD;
 
   const [indicatorMASettings, setIndicatorMASettings] = useState<Record<string, MAUISettings>>({});
-  const getMASettings = (indicator: IndicatorConfig): MAUISettings =>
-    indicatorMASettings[indicator.id] ?? {
-      period: indicator.defaultParams?.[0] ?? 20,
+  // 🐛 FIX: `indicatorMASettings` é state do React (assíncrono) -- clicar várias vezes
+  // seguidas no banner de uma média (mesmo tick, antes do re-render) fazia cada clique
+  // ler o MESMO `indicatorMASettings` desatualizado e calcular a MESMA linha nova
+  // (mesmo período/cor), sobrescrevendo o resultado do clique anterior no gráfico em vez
+  // de empilhar. `indicatorMASettingsRef` é atualizada de forma síncrona em todo clique
+  // (ver `addMALineDirect`), então cada clique dentro da mesma rajada enxerga o resultado
+  // real do clique imediatamente anterior. O `state` continua existindo só pra re-render
+  // da UI (badges, editor); a ref é a fonte de verdade pra lógica.
+  const indicatorMASettingsRef = useRef<Record<string, MAUISettings>>({});
+  useEffect(() => {
+    indicatorMASettingsRef.current = indicatorMASettings;
+  }, [indicatorMASettings]);
+  // 🆕 `instanceId` default = `indicator.id` -- mantém todo caller antigo (que só
+  // conhece o indicador base, nunca uma instância extra) funcionando sem mudança.
+  const getMASettings = (indicator: IndicatorConfig, instanceId: string = indicator.id): MAUISettings =>
+    indicatorMASettingsRef.current[instanceId] ?? {
       shift: 0,
       method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
       appliedPrice: 'CLOSE',
-      color: '#f97316',
-      lineStyle: 'solid',
-      lineWidth: 1
+      lines: [{ period: indicator.defaultParams?.[0] ?? 20, color: MA_LINE_COLOR_PALETTE[0], lineStyle: 'solid', lineWidth: 1 }]
     };
 
-  const applyMASettingsToChart = (chart: any, indicator: IndicatorConfig, settings: MAUISettings) => {
-    const paneId = indicatorPaneIdRef.current[indicator.id];
+  // Constrói o `config` que o klinecharts espera (calcParams/extendData/styles) a
+  // partir de um MAUISettings -- usado na criação (createIndicatorInstance), na edição
+  // (applyMASettingsToChart) e na aplicação de templates (applyChartTemplateConfig).
+  const buildMAChartConfig = (klinechartsName: string, settings: MAUISettings) => ({
+    name: klinechartsName,
+    calcParams: settings.lines.map(l => l.period),
+    extendData: { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift },
+    // ⚠️ dashedValue é obrigatório aqui -- a própria klinecharts acessa
+    // `styles.dashedValue[0]/[1]` sem nenhum fallback ao mesclar segmentos consecutivos
+    // da linha antes de desenhar (ver eachChildren/mergeLines em IndicatorView.drawImp,
+    // node_modules/klinecharts/dist/index.esm.js:8027) -- sem essa chave o acesso lança
+    // TypeError e a linha inteira do indicador nunca chega a ser desenhada (só o rótulo
+    // aparece, que vem de um caminho separado). [4,4] é só usado quando style='dashed'.
+    // `styles.lines[i]` mapeia por ÍNDICE pra `figures[i]` (mesma ordem/tamanho) --
+    // confirmado lendo eachFigures() em node_modules/klinecharts/dist/index.esm.js:970-997.
+    styles: {
+      lines: settings.lines.map(l => ({ color: l.color, style: l.lineStyle, size: l.lineWidth, dashedValue: [4, 4] }))
+    }
+  });
+
+  const applyMASettingsToChart = (chart: any, indicator: IndicatorConfig, settings: MAUISettings, instanceId: string = indicator.id) => {
+    // 🆕 Instância extra (variantIndex > 0) tem `name`/`paneId` PRÓPRIOS, rastreados em
+    // `maInstancesRef` -- não dá pra assumir `indicator.klinechartsName`/
+    // `indicatorPaneIdRef` (esses só valem pra 1ª instância, ver `addMALineDirect`).
+    const instance = findMAInstance(indicator.id, instanceId);
+    const paneId = instance?.paneId ?? indicatorPaneIdRef.current[indicator.id];
+    const klinechartsName = instance?.klinechartsName ?? indicator.klinechartsName;
     if (!chart || !paneId) return;
-    chart.overrideIndicator({
-      name: indicator.klinechartsName,
-      calcParams: [settings.period],
-      extendData: { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift },
-      // ⚠️ dashedValue é obrigatório aqui -- a própria klinecharts acessa
-      // `styles.dashedValue[0]/[1]` sem nenhum fallback ao mesclar segmentos consecutivos
-      // da linha antes de desenhar (ver eachChildren/mergeLines em IndicatorView.drawImp,
-      // node_modules/klinecharts/dist/index.esm.js:8027) -- sem essa chave o acesso lança
-      // TypeError e a linha inteira do indicador nunca chega a ser desenhada (só o rótulo
-      // aparece, que vem de um caminho separado). [4,4] é só usado quando style='dashed'.
-      styles: { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] }
-    }, paneId);
+    chart.overrideIndicator(buildMAChartConfig(klinechartsName, settings), paneId);
   };
 
-  const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; settings: MAUISettings } | null>(null);
+  const [maEditor, setMaEditor] = useState<{ indicator: IndicatorConfig; instanceId: string; settings: MAUISettings } | null>(null);
 
-  const openMAEditor = (indicator: IndicatorConfig) => {
-    setMaEditor({ indicator, settings: { ...getMASettings(indicator) } });
+  // 🆕 `addLine`: usado quando o clique veio do banner/card do indicador JÁ ATIVO no
+  // modal "Indicadores" -- pedido explícito do Cleber: clicar ali deve INSERIR outra
+  // média direto (uma linha nova, período = última+10), não só abrir o editor mostrando
+  // a linha existente sem tocar nela. Sem isso, editar o período da linha já existente e
+  // clicar Salvar SUBSTITUÍA a média (ex: 20 -> 200) em vez de adicionar uma 2ª -- o
+  // usuário via a média antiga "sumir" do gráfico, porque ela realmente tinha sido
+  // editada, não duplicada. A engrenagem do menu de botão direito continua abrindo só
+  // pra editar (addLine=false), sem surpresa pra quem clica ali de propósito pra ajustar
+  // a linha existente. `instanceId` identifica QUAL das N instâncias desse indicador
+  // está sendo editada -- default = a 1ª (`indicator.id`), mas o gear nativo da legenda
+  // do gráfico (ver `onTooltipIconClick`) passa a instância exata clicada.
+  const openMAEditor = (indicator: IndicatorConfig, addLine: boolean = false, instanceId: string = indicator.id) => {
+    const current = getMASettings(indicator, instanceId);
+    let lines = current.lines.map(l => ({ ...l }));
+    if (addLine) {
+      const nextColor = MA_LINE_COLOR_PALETTE[lines.length % MA_LINE_COLOR_PALETTE.length];
+      const lastPeriod = lines[lines.length - 1]?.period ?? 20;
+      lines = [...lines, { period: lastPeriod + 10, color: nextColor, lineStyle: 'solid', lineWidth: 1 }];
+    }
+    setMaEditor({ indicator, instanceId, settings: { ...current, lines } });
+  };
+
+  const addMAEditorLine = () => {
+    if (!maEditor) return;
+    const nextColor = MA_LINE_COLOR_PALETTE[maEditor.settings.lines.length % MA_LINE_COLOR_PALETTE.length];
+    const lastPeriod = maEditor.settings.lines[maEditor.settings.lines.length - 1]?.period ?? 20;
+    setMaEditor({
+      ...maEditor,
+      settings: {
+        ...maEditor.settings,
+        lines: [...maEditor.settings.lines, { period: lastPeriod + 10, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
+      }
+    });
+  };
+
+  const removeMAEditorLine = (index: number) => {
+    if (!maEditor || maEditor.settings.lines.length <= 1) return; // sempre pelo menos 1 linha
+    setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lines: maEditor.settings.lines.filter((_, i) => i !== index) } });
+  };
+
+  const updateMAEditorLine = (index: number, patch: Partial<MALineSettings>) => {
+    if (!maEditor) return;
+    setMaEditor({
+      ...maEditor,
+      settings: { ...maEditor.settings, lines: maEditor.settings.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) }
+    });
   };
 
   const saveMAEditor = () => {
     if (!maEditor) return;
-    const { indicator, settings } = maEditor;
-    if (!Number.isFinite(settings.period) || settings.period <= 0) {
-      toast.error('Período precisa ser um número válido maior que zero');
+    const { indicator, instanceId, settings } = maEditor;
+    if (settings.lines.length === 0) {
+      toast.error('Adicione ao menos uma linha');
+      return;
+    }
+    if (settings.lines.some(l => !Number.isFinite(l.period) || l.period <= 0)) {
+      toast.error('Todo período precisa ser um número válido maior que zero');
       return;
     }
     if (!Number.isFinite(settings.shift)) {
       toast.error('Deslocar precisa ser um número válido');
       return;
     }
-    setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: settings }));
+    indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [instanceId]: settings };
+    setIndicatorMASettings(prev => ({ ...prev, [instanceId]: settings }));
     const chart = chartInstanceRef.current;
-    if (chart && activeIndicators.has(indicator.id)) {
+    const isActive = instanceId === indicator.id ? activeIndicators.has(indicator.id) : !!findMAInstance(indicator.id, instanceId);
+    if (chart && isActive) {
       try {
-        applyMASettingsToChart(chart, indicator, settings);
+        applyMASettingsToChart(chart, indicator, settings, instanceId);
       } catch (error) {
         console.error('[ChartView] ❌ Error updating moving average settings:', error);
       }
@@ -2299,6 +2630,38 @@ export function ChartView() {
     // continuava desenhado no gráfico como órfão, mesmo com o estado React já limpo.
     chart.removeIndicator(paneId, indicator.klinechartsName);
     delete indicatorPaneIdRef.current[indicator.id];
+
+    // 🆕 Remove também qualquer instância extra criada por cliques repetidos no card
+    // (ver `addGenericIndicatorInstance`) -- lixeira sempre desliga TUDO daquele indicador.
+    const extraPaneIds = genericIndicatorExtraPaneIdsRef.current[indicator.id];
+    if (extraPaneIds) {
+      extraPaneIds.forEach(extraPaneId => {
+        try { chart.removeIndicator(extraPaneId, indicator.klinechartsName); } catch (_) {}
+      });
+      delete genericIndicatorExtraPaneIdsRef.current[indicator.id];
+    }
+
+    // 🆕 Remove também TODAS as instâncias extras de média móvel (2ª, 3ª... clicadas em
+    // "Adicionar outra média") -- cada uma tem `name` registrado próprio (MA__2, MA__3...),
+    // então precisa do `removeIndicator(paneId, klinechartsName)` de CADA uma, não só do
+    // nome base. A 1ª instância (variantIndex 0) já foi removida acima via
+    // `indicator.klinechartsName` -- filtra pra não tentar de novo.
+    const maInstances = maInstancesRef.current[indicator.id];
+    if (maInstances) {
+      const removedInstanceIds = maInstances.map(inst => inst.instanceId);
+      maInstances.forEach(inst => {
+        if (inst.instanceId === indicator.id) return;
+        try { chart.removeIndicator(inst.paneId, inst.klinechartsName); } catch (_) {}
+      });
+      delete maInstancesRef.current[indicator.id];
+      removedInstanceIds.forEach(id => { delete indicatorMASettingsRef.current[id]; });
+      setIndicatorMASettings(prev => {
+        const next = { ...prev };
+        removedInstanceIds.forEach(id => { delete next[id]; });
+        return next;
+      });
+    }
+    delete indicatorMASettingsRef.current[indicator.id];
   };
 
   const createIndicatorInstance = (chart: any, indicator: IndicatorConfig, placement: 'overlay' | 'pane') => {
@@ -2309,28 +2672,303 @@ export function ChartView() {
       // (styles.tooltip.icons por instância é ignorado pela klinecharts — ver comentário lá)
     };
     if (isMovingAverageIndicator(indicator)) {
-      // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo já
-      // na criação (não só via editor depois) — ver registerMovingAverageIndicator.
-      const settings = getMASettings(indicator);
-      config.calcParams = [settings.period];
-      config.extendData = { method: settings.method, appliedPrice: settings.appliedPrice, shift: settings.shift };
-      // ⚠️ dashedValue obrigatório -- ver comentário idêntico em applyMASettingsToChart.
-      config.styles = { lines: [{ color: settings.color, style: settings.lineStyle, size: settings.lineWidth, dashedValue: [4, 4] }] };
+      // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo (e todas
+      // as linhas/períodos já configurados) já na criação — ver registerMovingAverageIndicator.
+      Object.assign(config, buildMAChartConfig(indicator.klinechartsName, getMASettings(indicator)));
     } else {
       const params = getIndicatorParams(indicator);
       if (params.length > 0) {
         config.calcParams = params;
       }
     }
+    let resolvedPaneId: string;
     if (placement === 'pane') {
-      chart.createIndicator(config, false, { id: `pane_${indicator.id}` });
-      indicatorPaneIdRef.current[indicator.id] = `pane_${indicator.id}`;
+      resolvedPaneId = `pane_${indicator.id}`;
+      chart.createIndicator(config, false, { id: resolvedPaneId });
     } else {
       // paneOptions.id precisa apontar pro pane existente (candle_pane) -- sem isso,
       // createIndicator faz getDrawPaneById('') = null e cai no ramo de criar um pane NOVO
       // (ver ChartImp.prototype.createIndicator em node_modules/klinecharts/dist/index.esm.js)
-      chart.createIndicator(config, true, { id: 'candle_pane' });
-      indicatorPaneIdRef.current[indicator.id] = 'candle_pane';
+      resolvedPaneId = 'candle_pane';
+      chart.createIndicator(config, true, { id: resolvedPaneId });
+    }
+    indicatorPaneIdRef.current[indicator.id] = resolvedPaneId;
+    if (isMovingAverageIndicator(indicator)) {
+      // 🆕 Registra esta como a instância 0 (variantIndex 0, `name` = klinechartsName
+      // base) em `maInstancesRef` -- sem isso, um clique subsequente em "Adicionar outra
+      // média" não saberia que já existe 1 instância e tentaria criar OUTRA sob o
+      // mesmo `name` base, batendo em "Duplicate indicators" na klinecharts.
+      maInstancesRef.current = {
+        ...maInstancesRef.current,
+        [indicator.id]: [{ instanceId: indicator.id, klinechartsName: indicator.klinechartsName, paneId: resolvedPaneId }]
+      };
+    }
+  };
+
+  // 🆕 Clique no card/banner de uma média móvel (MA/EMA/SMA/WMA) no modal "Indicadores"
+  // -- pedido do Cleber: N cliques têm que inserir N médias DISTINTAS DE VERDADE no
+  // gráfico, cada uma com sua PRÓPRIA engrenagem/✕ na legenda nativa (achado do Cleber:
+  // a versão anterior empilhava tudo numa instância só -- N linhas dentro de UMA
+  // engrenagem, não N engrenagens). Cada clique cria uma instância nova, registrada sob
+  // um `name` variante próprio (MA, MA__2, MA__3... -- ver MA_VARIANT_KLINECHARTS_NAME),
+  // sempre no MESMO painel (overlay no preço ou painel próprio, conforme o indicador),
+  // porque `name`s diferentes não colidem na trava "Duplicate indicators" da klinecharts
+  // mesmo estando no mesmo painel. 1º clique usa o período default do indicador (ex.
+  // 20); cada clique seguinte usa período do anterior + 10, cor nova da paleta.
+  const addMALineDirect = (indicator: IndicatorConfig) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    // 🐛 FIX histórico: `wasActive`/contagem de instância tinha que vir de algo síncrono.
+    // `activeIndicators` é state do React -- numa rajada de cliques no mesmo tick, cada
+    // clique enxergava o state de ANTES do clique anterior ser aplicado. `maInstancesRef`
+    // é uma ref, atualizada de forma síncrona a cada clique -- fonte de verdade correta.
+    const existing = maInstancesRef.current[indicator.id] ?? [];
+    if (existing.length >= MA_MAX_INSTANCES) {
+      toast.error(`Máximo de ${MA_MAX_INSTANCES} instâncias de ${indicator.name.split(' - ')[0]} no gráfico`);
+      return;
+    }
+    const variantIndex = existing.length;
+    const instanceId = variantIndex === 0 ? indicator.id : `${indicator.id}__${variantIndex + 1}`;
+    const variantKlinechartsName = MA_VARIANT_KLINECHARTS_NAME(indicator.klinechartsName, variantIndex);
+    const nextColor = MA_LINE_COLOR_PALETTE[variantIndex % MA_LINE_COLOR_PALETTE.length];
+    const lastInstance = existing[existing.length - 1];
+    const lastPeriod = lastInstance
+      ? indicatorMASettingsRef.current[lastInstance.instanceId]?.lines.slice(-1)[0]?.period
+      : undefined;
+    const newPeriod = lastPeriod !== undefined ? lastPeriod + 10 : (indicator.defaultParams?.[0] ?? 20);
+    const settings: MAUISettings = {
+      shift: 0,
+      method: MA_DEFAULT_METHOD[indicator.id] ?? 'SIMPLE',
+      appliedPrice: 'CLOSE',
+      lines: [{ period: newPeriod, color: nextColor, lineStyle: 'solid', lineWidth: 1 }]
+    };
+    // Atualiza a ref de forma SÍNCRONA (fonte de verdade pro próximo clique da rajada);
+    // o `setState` continua disparado só pra re-renderizar UI (badge, editor).
+    indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [instanceId]: settings };
+    setIndicatorMASettings(prev => ({ ...prev, [instanceId]: settings }));
+    try {
+      const placement = getIndicatorPlacement(indicator);
+      const config: any = { name: variantKlinechartsName, id: instanceId, ...buildMAChartConfig(variantKlinechartsName, settings) };
+      let paneId: string;
+      if (placement === 'pane') {
+        paneId = variantIndex === 0 ? `pane_${indicator.id}` : `pane_${indicator.id}_extra_${variantIndex + 1}`;
+        chart.createIndicator(config, false, { id: paneId });
+      } else {
+        paneId = 'candle_pane';
+        chart.createIndicator(config, true, { id: paneId });
+      }
+      maInstancesRef.current = {
+        ...maInstancesRef.current,
+        [indicator.id]: [...existing, { instanceId, klinechartsName: variantKlinechartsName, paneId }]
+      };
+      if (variantIndex === 0) {
+        indicatorPaneIdRef.current[indicator.id] = paneId;
+        setActiveIndicators(prev => new Set(prev).add(indicator.id));
+      }
+    } catch (error) {
+      console.error('[ChartView] ❌ Erro adicionando instância de média móvel:', indicator.id, error);
+    }
+  };
+
+  // 🆕 Remove UMA instância específica de média móvel (✕ da legenda nativa de uma
+  // variante, ex: MA__2) sem mexer nas outras instâncias do mesmo indicador. Se for a
+  // ÚLTIMA instância restante, desliga o indicador por completo (`activeIndicators`).
+  const removeMAInstance = (indicator: IndicatorConfig, instanceId: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const instances = maInstancesRef.current[indicator.id] ?? [];
+    const target = instances.find(inst => inst.instanceId === instanceId);
+    if (!target) return;
+    try { chart.removeIndicator(target.paneId, target.klinechartsName); } catch (_) {}
+    const remaining = instances.filter(inst => inst.instanceId !== instanceId);
+    maInstancesRef.current = { ...maInstancesRef.current, [indicator.id]: remaining };
+    delete indicatorMASettingsRef.current[instanceId];
+    setIndicatorMASettings(prev => {
+      const next = { ...prev };
+      delete next[instanceId];
+      return next;
+    });
+    if (remaining.length === 0) {
+      delete indicatorPaneIdRef.current[indicator.id];
+      delete maInstancesRef.current[indicator.id];
+      setActiveIndicators(prev => {
+        const next = new Set(prev);
+        next.delete(indicator.id);
+        return next;
+      });
+    }
+  };
+
+  // 🆕 Clique no card/banner de um indicador QUALQUER (RSI, MACD, ADX, etc, tudo que não
+  // é média móvel) já ativo -- mesmo pedido acima, mas indicadores comuns não têm o truque
+  // de "várias linhas" (só existe pra MA/EMA/SMA/WMA). A única forma de ter uma 2ª
+  // instância do mesmo indicador visível ao mesmo tempo, respeitando o limite real da
+  // klinecharts ("Duplicate indicators" pra 2 instâncias do mesmo nome no MESMO painel),
+  // é cada clique extra criar um painel novo só pra ela. Sempre "painel abaixo" mesmo pra
+  // indicador que normalmente fica sobreposto no preço -- overlay de verdade exige o
+  // truque de linhas, que só existe pra médias móveis.
+  const addGenericIndicatorInstance = (indicator: IndicatorConfig) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    // 🐛 FIX: mesma causa raiz de `addMALineDirect` -- `activeIndicators.has(...)` é
+    // state assíncrono, então cliques em rajada no mesmo tick todos viam `wasActive =
+    // false` e todos tentavam `createIndicatorInstance` pro mesmo nome/painel, batendo
+    // no "Duplicate indicators" da klinecharts a partir do 2º. `indicatorPaneIdRef` é
+    // ref, atualizada de forma síncrona -- fonte de verdade correta.
+    const wasActive = indicatorPaneIdRef.current[indicator.id] !== undefined;
+    try {
+      if (!wasActive) {
+        createIndicatorInstance(chart, indicator, getIndicatorPlacement(indicator));
+        setActiveIndicators(prev => new Set(prev).add(indicator.id));
+        return;
+      }
+      const params = getIndicatorParams(indicator);
+      const config: any = { name: indicator.klinechartsName, id: indicator.id };
+      if (params.length > 0) config.calcParams = params;
+      const extraIds = genericIndicatorExtraPaneIdsRef.current[indicator.id] ?? [];
+      const newPaneId = `pane_${indicator.id}_extra_${extraIds.length + 2}`;
+      chart.createIndicator(config, false, { id: newPaneId });
+      genericIndicatorExtraPaneIdsRef.current[indicator.id] = [...extraIds, newPaneId];
+    } catch (error) {
+      console.error('[ChartView] ❌ Erro adicionando instância extra do indicador:', indicator.id, error);
+    }
+  };
+
+  // 🆕 Captura o setup atual do gráfico (indicadores + parâmetros, grade, S/R,
+  // timeframe, zoom/scroll) — usado tanto por "Salvar como favorita" quanto por
+  // "Templates › Salvar". barSpace/offsetRightDistance são os únicos dois valores
+  // que a klinecharts expõe pra reproduzir zoom+posição exatamente (ver setOffsetRightDistance
+  // no fix do gráfico "voltando pra posição inicial").
+  const captureCurrentChartConfig = (): ChartTemplateConfig => {
+    const chart = chartInstanceRef.current;
+    let barSpace: number | null = null;
+    let offsetRightDistance: number | null = null;
+    if (chart) {
+      try { barSpace = chart.getBarSpace(); } catch (_) {}
+      try { offsetRightDistance = chart.getOffsetRightDistance(); } catch (_) {}
+    }
+    return {
+      timeframe,
+      indicatorIds: Array.from(activeIndicators),
+      indicatorParamsById,
+      indicatorPlacement,
+      indicatorMASettings,
+      showGridOverlay,
+      showSrOverlay,
+      barSpace,
+      offsetRightDistance
+    };
+  };
+
+  // 🆕 Remove todos os indicadores ativos do chart (mas não mexe no state React --
+  // quem chama é responsável por atualizar activeIndicators/etc depois). Usado antes
+  // de aplicar um template pra não deixar instância órfã de um indicador que o
+  // template não usa.
+  const clearAllChartIndicators = (chart: any) => {
+    activeIndicators.forEach(id => {
+      const indicator = INDICATORS.find(ind => ind.id === id);
+      if (indicator) {
+        try { removeIndicatorInstance(chart, indicator); } catch (_) {}
+      }
+    });
+  };
+
+  // 🆕 Aplica um ChartTemplateConfig salvo diretamente no chart (via API do klinecharts,
+  // nunca via getIndicatorParams/getMASettings -- que leem state React, assíncrono
+  // demais pra estar pronto na mesma passada). Usado tanto na 1ª carga (setup favorito)
+  // quanto sob demanda ("Templates › Carregar", com ou sem troca de timeframe).
+  const applyChartTemplateConfig = (chart: any, templateConfig: ChartTemplateConfig) => {
+    const appliedIds: string[] = [];
+    // 🐛 FIX: precisa ser o valor MIGRADO (com `.lines`), não o `templateConfig.indicatorMASettings`
+    // bruto salvo -- ver comentário abaixo, no loop, sobre o bug real que isso causava.
+    const migratedMASettings: Record<string, MAUISettings> = {};
+    templateConfig.indicatorIds.forEach(id => {
+      const indicatorConfig = INDICATORS.find(ind => ind.id === id);
+      if (!indicatorConfig) return; // indicador removido/renomeado desde o save
+      const placement = templateConfig.indicatorPlacement[id] ?? (indicatorConfig.isPaneIndicator ? 'pane' : 'overlay');
+      const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
+      if (isMovingAverageIndicator(indicatorConfig)) {
+        const raw = (templateConfig.indicatorMASettings[id] as any) ?? getMASettings(indicatorConfig);
+        // Templates salvos antes do suporte a múltiplas linhas guardavam {period, color,
+        // lineStyle, lineWidth} direto no objeto -- migra pro formato novo {lines: [...]}
+        // na hora de carregar, sem quebrar template antigo.
+        const settings: MAUISettings = Array.isArray(raw?.lines)
+          ? raw
+          : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
+        Object.assign(config, buildMAChartConfig(indicatorConfig.klinechartsName, settings));
+        // 🐛 FIX (achado real, relatado pelo Cleber): mais embaixo, `setIndicatorMASettings`
+        // usava `templateConfig.indicatorMASettings` DIRETO (o `raw` de cima, não migrado) --
+        // pra um setup favorito salvo em formato antigo, o GRÁFICO desenhava com o `settings`
+        // migrado (período correto, ex. 20) mas o estado React que alimenta o editor ficava
+        // com o objeto bruto sem `.lines`. Consequência: abrir o editor de uma média já
+        // carregada de um setup salvo mostrava parâmetro errado/default, e clicar Salvar
+        // sobrescrevia a média correta do gráfico pela errada do editor (ex. 20 -> 200).
+        // Guarda aqui o MESMO `settings` migrado que foi de fato desenhado, pra estado e
+        // gráfico nunca mais divergirem.
+        migratedMASettings[id] = settings;
+      } else {
+        const params = templateConfig.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
+        if (params.length > 0) config.calcParams = params;
+      }
+      try {
+        if (placement === 'pane') {
+          chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
+          indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
+        } else {
+          chart.createIndicator(config, true, { id: 'candle_pane' });
+          indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+        }
+        appliedIds.push(id);
+      } catch (error) {
+        console.error('[ChartView] ❌ Erro aplicando indicador do template:', indicatorConfig.id, error);
+      }
+    });
+
+    setActiveIndicators(new Set(appliedIds));
+    setIndicatorParamsById(templateConfig.indicatorParamsById);
+    setIndicatorPlacement(templateConfig.indicatorPlacement);
+    setIndicatorMASettings(migratedMASettings);
+    setShowGridOverlay(templateConfig.showGridOverlay);
+    if (templateConfig.showSrOverlay !== showSrOverlay) {
+      setShowSrOverlay(templateConfig.showSrOverlay);
+    }
+
+    // Posição/zoom em tela por último -- criar indicador em painel próprio pode
+    // redimensionar o pane principal e desfazer o offset se aplicado antes.
+    try {
+      // 🐛 FIX: barSpace/offsetRightDistance são valores em PIXELS, salvos crus na
+      // sessão em que o template foi criado -- não são portáveis pra outra sessão
+      // com largura de janela e/ou quantidade de candles carregados diferente.
+      // Restaurar sem limite podia deixar candles enormes (barSpace grande) e/ou
+      // uma folga de scroll enorme (offsetRightDistance grande), sobrando margem
+      // em branco nas duas laterais em vez de preencher a tela -- exatamente o
+      // sintoma relatado ("indicadores no meio da tela"). Trava os dois valores a
+      // um range que sempre preenche o container atual.
+      const containerWidth = chartContainerRef.current?.clientWidth ?? 0;
+      const candleCount = chart.getDataList().length;
+
+      if (templateConfig.barSpace !== null && templateConfig.barSpace !== undefined) {
+        let barSpaceToApply = templateConfig.barSpace;
+        if (containerWidth > 0 && candleCount > 0) {
+          // Nunca deixa menos de ~60 candles cabendo na largura atual (ou todos os
+          // candles carregados, se houver menos que isso) -- evita o "zoom" salvo
+          // de outra sessão encolher demais o conteúdo visível.
+          const minVisibleCandles = Math.min(candleCount, 60);
+          const maxBarSpaceToFill = containerWidth / minVisibleCandles;
+          barSpaceToApply = Math.min(barSpaceToApply, maxBarSpaceToFill);
+        }
+        chart.setBarSpace(barSpaceToApply);
+      }
+      if (templateConfig.offsetRightDistance !== null && templateConfig.offsetRightDistance !== undefined) {
+        // Folga à direita do último candle nunca maior que ~15% da largura do
+        // container -- um offset gigante herdado de outra sessão empurra os
+        // candles reais pra longe da borda direita, deixando a mesma margem em
+        // branco indevida.
+        const maxOffset = containerWidth > 0 ? containerWidth * 0.15 : templateConfig.offsetRightDistance;
+        chart.setOffsetRightDistance(Math.min(templateConfig.offsetRightDistance, maxOffset));
+      }
+    } catch (error) {
+      console.warn('[ChartView] ⚠️ Não foi possível restaurar zoom/posição do template:', error);
     }
   };
 
@@ -2386,6 +3024,12 @@ export function ChartView() {
         setActiveIndicators(prev => new Set(prev).add(indicator.id));
         return;
       }
+      // ⚠️ Limitação conhecida (mesmo padrão já aceito pras instâncias extras de
+      // indicador genérico, ver `genericIndicatorExtraPaneIdsRef`): reposicionar remove
+      // TODAS as instâncias de média móvel desse indicador (`removeIndicatorInstance`
+      // limpa `maInstancesRef` inteiro), mas `createIndicatorInstance` só recria a 1ª.
+      // Instâncias extras (2ª, 3ª... de "Adicionar outra média") não sobrevivem a uma
+      // troca de "No gráfico"/"Painel abaixo" -- caso raro, não tratado por ora.
       removeIndicatorInstance(chart, indicator);
       createIndicatorInstance(chart, indicator, placement);
     } catch (error) {
@@ -2410,6 +3054,10 @@ export function ChartView() {
   const openIndicatorEditorRef = useRef(openIndicatorEditor);
   useEffect(() => {
     openIndicatorEditorRef.current = openIndicatorEditor;
+  });
+  const removeMAInstanceRef = useRef(removeMAInstance);
+  useEffect(() => {
+    removeMAInstanceRef.current = removeMAInstance;
   });
 
   // 🆕 FILTRAR INDICADORES POR CATEGORIA E BUSCA
@@ -2571,6 +3219,10 @@ export function ChartView() {
       const overlayId = chartInstanceRef.current.createOverlay({
         name: overlayType,
         groupId: USER_DRAWINGS_GROUP,
+        // 🆕 Modo Magnético (ver toggle no DrawingToolbar) -- weak_magnet faz os pontos
+        // do desenho encaixarem no OHLC do candle mais próximo em vez de ficarem soltos
+        // em qualquer coordenada crua do mouse. Suporte nativo da klinecharts.
+        mode: magnetActive ? OverlayMode.WeakMagnet : OverlayMode.Normal,
         onClick: (event: any) => {
           if (overlayType === 'infoLine') {
             const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
@@ -3531,7 +4183,7 @@ export function ChartView() {
 
     selected.forEach((zone) => {
       const isSupport = zone.type === 'support';
-      const isSolid = zone.significance === 'critical' || zone.significance === 'strong';
+      const isCritical = zone.significance === 'critical' || zone.significance === 'strong';
       const overlayId = `sr_${zone.type}_${zone.price.toFixed(5)}`;
 
       try {
@@ -3540,14 +4192,14 @@ export function ChartView() {
           id: overlayId,
           points: [{ value: zone.price }],
           styles: {
-            line: {
-              color: isSupport ? '#22c55e' : '#ef4444',
-              style: isSolid ? 'solid' : 'dashed',
-              size: isSolid ? 2 : 1
-            },
+            // Laranja pontilhado pros dois lados (suporte e resistência) — cor
+            // e verde/vermelho sólido eram fáceis de confundir com as linhas
+            // de posição/SL/TP da boleta (mesmo verde de COMPRA, mesmo
+            // vermelho de VENDA). Mantém só a espessura pra sinalizar força.
+            line: { color: '#f97316', style: 'dashed', size: isCritical ? 2 : 1 },
             text: {
               color: '#ffffff',
-              backgroundColor: isSupport ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)',
+              backgroundColor: 'rgba(249,115,22,0.85)',
               size: 11
             }
           },
@@ -3559,6 +4211,139 @@ export function ChartView() {
       }
     });
   };
+
+  // 🆕 Desenha as posições abertas (DEMO ou LIVE, incluindo as abertas pela
+  // boleta manual) direto no gráfico — linha de entrada + SL/TP, mesmo padrão
+  // visual/técnico de renderSrOverlays (horizontalStraightLine, groupId
+  // próprio pra limpar sem afetar desenho do usuário). Só desenha posições do
+  // símbolo selecionado — trocar de ativo limpa as linhas do ativo anterior.
+  const renderPositionOverlays = (orders: TradeVisual[], symbol: string, pending: PendingOrderVisual[] = []) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+
+    positionOverlayIdsRef.current.forEach((id) => {
+      try {
+        chart.removeOverlay(id);
+      } catch (e) {
+        // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+      }
+    });
+    positionOverlayIdsRef.current = [];
+
+    const symbolOrders = orders.filter((o) => o.symbol === symbol);
+    if (symbolOrders.length === 0) return;
+
+    symbolOrders.forEach((order) => {
+      const isLong = order.side === 'LONG';
+      const entryId = `position_entry_${order.id}`;
+      try {
+        // P&L ao vivo na própria linha da posição — reflete o preço atual do
+        // tick (order.currentPrice, atualizado a cada ciclo do PNL LOOP em
+        // useApexLogic.ts) e o P&L em dólar já calculado lá (currentProfit).
+        // Pontos = distância favorável ao lado da posição (positivo quando o
+        // preço se move a favor, negativo contra), não a diferença bruta.
+        const livePrice = order.currentPrice ?? order.price;
+        const pointsFavorable = isLong ? livePrice - order.price : order.price - livePrice;
+        const pnl = order.currentProfit ?? 0;
+        const pnlSign = pnl >= 0 ? '+' : '';
+        const pointsSign = pointsFavorable >= 0 ? '+' : '';
+        const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(2)} pts)`;
+
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: entryId,
+          points: [{ value: order.price }],
+          styles: {
+            line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
+            text: {
+              color: '#ffffff',
+              backgroundColor: isLong ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
+              size: 11,
+            },
+          },
+          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
+        });
+        positionOverlayIdsRef.current.push(entryId);
+      } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de entrada da posição:', e);
+      }
+
+      if (order.sl > 0) {
+        const slId = `position_sl_${order.id}`;
+        try {
+          chart.createOverlay({
+            name: 'horizontalStraightLine',
+            id: slId,
+            points: [{ value: order.sl }],
+            styles: {
+              line: { color: '#ef4444', style: 'dashed', size: 1 },
+              text: { color: '#ffffff', backgroundColor: 'rgba(239,68,68,0.7)', size: 10 },
+            },
+            text: `SL ${order.sl.toFixed(2)}`,
+          });
+          positionOverlayIdsRef.current.push(slId);
+        } catch (e) {
+          // silencioso — mesma tolerância do resto dos overlays de sistema
+        }
+      }
+
+      if (order.tp > 0) {
+        const tpId = `position_tp_${order.id}`;
+        try {
+          chart.createOverlay({
+            name: 'horizontalStraightLine',
+            id: tpId,
+            points: [{ value: order.tp }],
+            styles: {
+              line: { color: '#22c55e', style: 'dashed', size: 1 },
+              text: { color: '#ffffff', backgroundColor: 'rgba(34,197,94,0.7)', size: 10 },
+            },
+            text: `TP ${order.tp.toFixed(2)}`,
+          });
+          positionOverlayIdsRef.current.push(tpId);
+        } catch (e) {
+          // silencioso — mesma tolerância do resto dos overlays de sistema
+        }
+      }
+    });
+
+    // Linhas tracejadas (cor neutra) pra ordem pendente ainda não disparada.
+    pending.filter((o) => o.symbol === symbol).forEach((order) => {
+      const isBuy = order.side === 'LONG';
+      const pendingId = `pending_${order.id}`;
+      try {
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: pendingId,
+          points: [{ value: order.triggerPrice }],
+          styles: {
+            line: { color: '#94a3b8', style: 'dashed', size: 1 },
+            text: { color: '#0f172a', backgroundColor: 'rgba(148,163,184,0.9)', size: 10 },
+          },
+          text: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}`,
+        });
+        positionOverlayIdsRef.current.push(pendingId);
+      } catch (e) {
+        // silencioso — mesma tolerância do resto dos overlays de sistema
+      }
+    });
+  };
+
+  // Redesenha as linhas de posição sempre que uma posição/ordem pendente
+  // abre/fecha ou o usuário troca de ativo — inclui as abertas pela boleta
+  // manual, já que todas passam pelo mesmo TradingContext.
+  useEffect(() => {
+    renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+  }, [activeOrders, pendingOrders, selectedSymbol]);
+
+  // Verifica a cada tick de preço se alguma ordem pendente (limit/stop) do
+  // ativo selecionado cruzou o gatilho — único lugar do app que tem o preço
+  // ao vivo do símbolo atual, por isso o watcher mora aqui, não no hook.
+  useEffect(() => {
+    if (currentPrice != null) {
+      checkPendingOrderTriggers(selectedSymbol, currentPrice);
+    }
+  }, [currentPrice, selectedSymbol, checkPendingOrderTriggers]);
 
   // 🆕 Re-desenha (ou limpa) as linhas de S/R só quando o toggle muda — as
   // zonas em si já são desenhadas no momento em que são calculadas (dentro do
@@ -4064,6 +4849,23 @@ export function ChartView() {
       // gráfico, sem precisar abrir o modal de Indicadores nem o antigo box flutuante.
       // data = { paneId, indicatorName (nome real na klinecharts, ex: 'RSI'), iconId }.
       chart.subscribeAction('onTooltipIconClick', (data: any) => {
+        // 🆕 Primeiro tenta achar como INSTÂNCIA de média móvel (`name` variante, ex:
+        // MA__2) -- cada instância tem sua própria linha na legenda com seu próprio
+        // ⚙/✕ (ver `addMALineDirect`/`maInstancesRef`), então precisa resolver qual
+        // instância exata foi clicada antes de cair no fallback abaixo (que só conhece
+        // a 1ª instância de cada indicador, via `indicatorPaneIdRef`).
+        for (const ind of INDICATORS) {
+          if (!isMovingAverageIndicator(ind)) continue;
+          const instances = maInstancesRef.current[ind.id] ?? [];
+          const found = instances.find(inst => inst.klinechartsName === data?.indicatorName && inst.paneId === data?.paneId);
+          if (!found) continue;
+          if (data.iconId === 'remove') {
+            removeMAInstanceRef.current(ind, found.instanceId);
+          } else if (data.iconId === 'settings') {
+            openMAEditorRef.current(ind, false, found.instanceId);
+          }
+          return;
+        }
         const matched = INDICATORS.find(
           (ind) => ind.klinechartsName === data?.indicatorName && indicatorPaneIdRef.current[ind.id] === data?.paneId
         );
@@ -4239,13 +5041,34 @@ export function ChartView() {
           }
           
           console.log('[ChartView] 🎯 Calling chart.applyNewData with', candles.length, 'candles');
-          
+
           // 🔍 DEBUG: Mostrar formato exato dos primeiros 3 candles
           console.log('[ChartView] 🔍 First 3 candles (exact format):', JSON.stringify(candles.slice(0, 3), null, 2));
           console.log('[ChartView] 🔍 Last candle (exact format):', JSON.stringify(candles[candles.length - 1], null, 2));
-          
+
+          // 🔧 FIX: applyNewData reseta o offset/viewport internamente (ChartStore.clear()
+          // + resetOffsetRightDistance()), mesmo fora da primeira carga. Salvamos a posição
+          // do usuário antes e restauramos depois, pra não "puxar" o gráfico de volta.
+          let savedOffsetRightDistance: number | null = null;
+          if (!isInitialLoadRef.current) {
+            try {
+              savedOffsetRightDistance = chart.getOffsetRightDistance();
+            } catch (e) {
+              console.warn('[ChartView] ⚠️ Could not read offset before refresh:', e);
+            }
+          }
+
           chart.applyNewData(candles);
           console.log('[ChartView] ✅ chart.applyNewData completed!');
+
+          if (savedOffsetRightDistance !== null) {
+            try {
+              chart.setOffsetRightDistance(savedOffsetRightDistance);
+              console.log('[ChartView] 🔧 Posição do usuário restaurada após refresh');
+            } catch (e) {
+              console.warn('[ChartView] ⚠️ Could not restore offset after refresh:', e);
+            }
+          }
           
           // 🔍 DEBUG: Verificar se os dados foram aplicados
           try {
@@ -4289,7 +5112,40 @@ export function ChartView() {
           } else {
             console.log('[ChartView] ⏭️ Skipping auto-scroll - não é primeira carga (mantendo posição do usuário)');
           }
-          
+
+          // 🆕 Aplica o setup favorito do usuário (indicadores + parâmetros, grade, S/R)
+          // uma única vez por montagem do componente — não repete a cada refresh de 30s
+          // nem a cada troca de símbolo/timeframe (favoriteSetupAppliedRef nunca reseta).
+          // Construído direto do objeto salvo (nunca via getIndicatorParams/getMASettings,
+          // que leem o state React — assíncrono demais pra estar pronto aqui).
+          if (favoriteSetup && !favoriteSetupAppliedRef.current) {
+            favoriteSetupAppliedRef.current = true;
+            try {
+              // Setup favorito não guarda barSpace/offsetRightDistance (é "como eu gosto
+              // de ver qualquer gráfico", não uma posição fixa) — undefined preserva o
+              // scroll automático já feito acima (scrollToRealTime).
+              applyChartTemplateConfig(chart, { ...favoriteSetup, barSpace: null, offsetRightDistance: null });
+              console.log('[ChartView] ⭐ Setup favorito aplicado:', favoriteSetup.indicatorIds);
+            } catch (error) {
+              console.error('[ChartView] ❌ Erro aplicando setup favorito:', error);
+            }
+          }
+
+          // 🆕 Template carregado via menu "Templates" que exigiu troca de timeframe
+          // primeiro (dispose()+init() do chart) — só dá pra aplicar indicadores/posição
+          // DEPOIS que os dados do timeframe novo chegarem, por isso fica "pendente" até
+          // este ponto do próximo fetchData.
+          if (pendingTemplateApplyRef.current) {
+            const templateToApply = pendingTemplateApplyRef.current;
+            pendingTemplateApplyRef.current = null;
+            try {
+              applyChartTemplateConfig(chart, templateToApply);
+              console.log('[ChartView] 📐 Template pendente aplicado após troca de timeframe');
+            } catch (error) {
+              console.error('[ChartView] ❌ Erro aplicando template pendente:', error);
+            }
+          }
+
           // 🎯 Configurar precisão de preço para exibição correta na régua
           chart.setPriceVolumePrecision(2, 0); // 2 casas decimais para preço, 0 para volume
           console.log('[ChartView] 🎯 Precision set to 2 decimal places');
@@ -4369,6 +5225,16 @@ export function ChartView() {
           setLiquidityZones(zones);
           renderSrOverlays(zones, showSrOverlayRef.current);
           console.log('[ChartView] 🎯 Detected', zones.length, 'liquidity zones');
+
+          // 🐛 FIX: troca de timeframe/ativo dispara dispose()+init() do chart
+          // (linhas acima) — um chart novo não tem overlay nenhum, e o
+          // useEffect que desenha posição/ordem pendente só reage a mudança
+          // de activeOrders/pendingOrders/selectedSymbol, nunca de timeframe.
+          // Resultado: trocar o timeframe com uma posição aberta fazia a
+          // linha sumir do gráfico até a próxima mudança em activeOrders. O
+          // S/R acima já não tinha esse problema por já redesenhar aqui —
+          // mesma correção, mesmo ponto (chart pronto, dados já aplicados).
+          renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
 
           // 🆕 Busca a estrutura de longo prazo (SMC, 1D/~5 anos) em paralelo e, quando
           // chegar, re-desenha o S/R combinando com a janela curta acima — sem isso as
@@ -4557,7 +5423,14 @@ export function ChartView() {
       setDailyChange(change);
       setDailyChangePercent(changePercent);
       setIsPositive(changePercent >= 0);
-      
+      // 🆕 FIX: preço/% travados SEM nenhum sinal visual -- getRealMarketData cai
+      // silenciosamente pro último valor real em cache quando a conta MetaAPI
+      // compartilhada falha/tranca (rate-limit 429/504, etc), e o polling continua
+      // "funcionando" (sem erro) reaplicando o MESMO valor indefinidamente. Marca
+      // quando o tick chegou de verdade pra alimentar o watchdog de "desatualizado" logo abaixo.
+      lastPriceTickAtRef.current = Date.now();
+      setIsPriceStale(false);
+
       console.log(`[🎯 CHARTVIEW] 📌 ESTADOS ATUALIZADOS:`, {
         currentPrice: newPrice,
         dailyChange: change,
@@ -4652,6 +5525,22 @@ export function ChartView() {
         chartUpdateTimeoutRef.current = null;
       }
     };
+  }, [selectedSymbol]);
+
+  // 🆕 Watchdog de "preço desatualizado" -- o polling de 2s acima nunca para de rodar
+  // mesmo quando toda tentativa falha (getRealMarketData cai pro último valor real em
+  // cache, sem erro nenhum pra quem está olhando a tela). Se nenhum tick de verdade
+  // chegou nos últimos 15s (7x o intervalo normal — folga generosa pra latência de rede),
+  // assume que o pipeline está travado/degradado e sinaliza na UI, em vez de deixar o
+  // preço/% congelados parecendo normais pra sempre.
+  useEffect(() => {
+    lastPriceTickAtRef.current = Date.now();
+    setIsPriceStale(false);
+    const STALE_THRESHOLD_MS = 15000;
+    const watchdog = setInterval(() => {
+      setIsPriceStale(Date.now() - lastPriceTickAtRef.current > STALE_THRESHOLD_MS);
+    }, 3000);
+    return () => clearInterval(watchdog);
   }, [selectedSymbol]);
 
   // 🎯 SMOOTH ANIMATION: Animar preço com transição suave via requestAnimationFrame
@@ -5278,7 +6167,22 @@ export function ChartView() {
             <div className="flex items-center gap-6 pl-6 border-l border-gray-800">
               {/* Current Price - ESTILO BINANCE */}
               <div>
-                <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Preço Atual</div>
+                <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide flex items-center gap-1.5">
+                  Preço Atual
+                  {/* 🆕 Sinal visual de dado travado -- ver watchdog no useEffect logo
+                      acima da animação suave. Sem isso o usuário só descobria comparando
+                      com outra fonte (foi exatamente o que aconteceu: preço/% congelados
+                      sem nenhum aviso na tela). */}
+                  {isPriceStale && (
+                    <span
+                      className="flex items-center gap-1 text-amber-400 normal-case tracking-normal"
+                      title="Sem atualização de preço nos últimos segundos — pode estar desatualizado (falha temporária na fonte de dados)"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      desatualizado
+                    </span>
+                  )}
+                </div>
                 <div className="text-4xl font-bold text-white tracking-tight tabular-nums" style={{fontFamily: 'ui-monospace, monospace'}}>
                   {displayedPrice !== null ? (
                     formatBrazilianPrice(displayedPrice, getPrecisionForSymbol(selectedSymbol, displayedPrice))
@@ -5437,6 +6341,7 @@ export function ChartView() {
             onLockToggle={handleToggleLockDrawings}
             onHideToggle={handleToggleHideDrawings}
             onEmojiSelect={handleEmojiSelect}
+            onMagnetToggle={setMagnetActive}
             className="shrink-0"
           />
 
@@ -5671,7 +6576,13 @@ export function ChartView() {
                 menu de botão direito) */}
             {indicatorEditor && (
               <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
+                // ⚠️ z-[95] -- precisa ficar ACIMA do modal "Indicadores" (z-[90], onde a
+                // engrenagem que abre este popover normalmente é clicada) e do modal de
+                // busca de ativo (z-[90]/[100]). Em z-[56] original o popover abria de
+                // verdade (estado React setado, log confirmando) mas renderizava ESCONDIDO
+                // atrás do backdrop do modal -- clique na engrenagem "não fazia nada" na
+                // prática, mesmo funcionando por baixo. Mesmo bug em maEditor abaixo.
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[95] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-56"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-2">
@@ -5713,37 +6624,22 @@ export function ChartView() {
             )}
 
             {/* 🆕 Popover completo de médias móveis (MA/EMA/SMA/WMA) — mesmos campos do
-                diálogo "Moving Average" do MT5: Período, Deslocar, Método, Aplicar a,
-                Estilo (cor/traço/espessura). */}
+                diálogo "Moving Average" do MT5, mais suporte a VÁRIAS linhas/períodos na
+                mesma instância (ex: MA(20) + MA(50) + MA(200) juntas) — o klinecharts não
+                permite duas instâncias do mesmo indicador no mesmo painel, então "adicionar
+                outra média móvel" aqui é "adicionar outra linha" na instância existente. */}
             {maEditor && (
               <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[56] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-72"
+                // ⚠️ z-[95] -- mesmo motivo do indicatorEditor acima (ver comentário lá):
+                // precisa ficar acima do modal "Indicadores" (z-[90]) que normalmente abre
+                // este popover pela engrenagem do chip.
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[95] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 w-80 max-h-[80vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="text-xs font-semibold text-white mb-3">
                   {maEditor.indicator.name.split(' - ')[0]} — Parâmetros
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Período</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={maEditor.settings.period}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, period: Number(e.target.value) } })}
-                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Deslocar</label>
-                    <input
-                      type="number"
-                      value={maEditor.settings.shift}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, shift: Number(e.target.value) } })}
-                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
+
                 <div className="mt-2">
                   <label className="text-[11px] text-gray-400 block mb-1">Método</label>
                   <select
@@ -5757,52 +6653,93 @@ export function ChartView() {
                     <option value="LINEAR_WEIGHTED">Ponderada Linear</option>
                   </select>
                 </div>
-                <div className="mt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Aplicar a</label>
-                  <select
-                    value={maEditor.settings.appliedPrice}
-                    onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, appliedPrice: e.target.value as AppliedPrice } })}
-                    className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="CLOSE">Fechamento</option>
-                    <option value="OPEN">Abertura</option>
-                    <option value="HIGH">Máxima</option>
-                    <option value="LOW">Mínima</option>
-                    <option value="MEDIAN">Mediana (A+B)/2</option>
-                    <option value="TYPICAL">Típico (A+B+F)/3</option>
-                    <option value="WEIGHTED">Ponderado (A+B+2F)/4</option>
-                  </select>
-                </div>
-                <div className="mt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Estilo</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={maEditor.settings.color}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, color: e.target.value } })}
-                      className="w-8 h-7 bg-black border border-gray-700 rounded cursor-pointer"
-                      title="Cor da linha"
-                    />
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Aplicar a</label>
                     <select
-                      value={maEditor.settings.lineStyle}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lineStyle: e.target.value as 'solid' | 'dashed' } })}
-                      className="flex-1 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                      value={maEditor.settings.appliedPrice}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, appliedPrice: e.target.value as AppliedPrice } })}
+                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
                     >
-                      <option value="solid">Sólida</option>
-                      <option value="dashed">Tracejada</option>
-                    </select>
-                    <select
-                      value={maEditor.settings.lineWidth}
-                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, lineWidth: Number(e.target.value) } })}
-                      className="w-16 bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value={1}>1px</option>
-                      <option value={2}>2px</option>
-                      <option value={3}>3px</option>
-                      <option value={4}>4px</option>
+                      <option value="CLOSE">Fechamento</option>
+                      <option value="OPEN">Abertura</option>
+                      <option value="HIGH">Máxima</option>
+                      <option value="LOW">Mínima</option>
+                      <option value="MEDIAN">Mediana (A+B)/2</option>
+                      <option value="TYPICAL">Típico (A+B+F)/3</option>
+                      <option value="WEIGHTED">Ponderado (A+B+2F)/4</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Deslocar</label>
+                    <input
+                      type="number"
+                      value={maEditor.settings.shift}
+                      onChange={(e) => setMaEditor({ ...maEditor, settings: { ...maEditor.settings, shift: Number(e.target.value) } })}
+                      className="w-full bg-black border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
                 </div>
+
+                <div className="mt-3 pt-3 border-t border-gray-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] text-gray-400 uppercase">Linhas ({maEditor.settings.lines.length})</label>
+                    <button
+                      onClick={addMAEditorLine}
+                      className="text-[10px] px-2 py-1 rounded bg-blue-600/20 border border-blue-500/40 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
+                    >
+                      + Adicionar linha
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {maEditor.settings.lines.map((line, index) => (
+                      <div key={index} className="flex items-center gap-1.5 bg-black/40 border border-gray-700 rounded p-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          value={line.period}
+                          onChange={(e) => updateMAEditorLine(index, { period: Number(e.target.value) })}
+                          title="Período"
+                          className="w-14 bg-black border border-gray-700 rounded px-1.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="color"
+                          value={line.color}
+                          onChange={(e) => updateMAEditorLine(index, { color: e.target.value })}
+                          className="w-7 h-7 shrink-0 bg-black border border-gray-700 rounded cursor-pointer"
+                          title="Cor da linha"
+                        />
+                        <select
+                          value={line.lineStyle}
+                          onChange={(e) => updateMAEditorLine(index, { lineStyle: e.target.value as 'solid' | 'dashed' })}
+                          className="flex-1 min-w-0 bg-black border border-gray-700 rounded px-1 py-1 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="solid">Sólida</option>
+                          <option value="dashed">Tracejada</option>
+                        </select>
+                        <select
+                          value={line.lineWidth}
+                          onChange={(e) => updateMAEditorLine(index, { lineWidth: Number(e.target.value) })}
+                          className="w-12 shrink-0 bg-black border border-gray-700 rounded px-1 py-1 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value={1}>1px</option>
+                          <option value={2}>2px</option>
+                          <option value={3}>3px</option>
+                          <option value={4}>4px</option>
+                        </select>
+                        <button
+                          onClick={() => removeMAEditorLine(index)}
+                          disabled={maEditor.settings.lines.length <= 1}
+                          title={maEditor.settings.lines.length <= 1 ? 'Precisa de ao menos 1 linha' : 'Remover esta linha'}
+                          className="shrink-0 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 mt-3">
                   <button
                     onClick={saveMAEditor}
@@ -5819,6 +6756,28 @@ export function ChartView() {
                 </div>
               </div>
             )}
+
+            {/* Boleta de ordem manual — flutuante DENTRO do gráfico, estilo one-click
+                trading de terminal profissional (MT5/cTrader). Ancorada no canto
+                superior DIREITO (não no esquerdo — ali colide com a legenda nativa
+                de OHLCV da klinecharts e com o flyout da barra de desenho, que ficam
+                no canto superior esquerdo). 2px do topo, 2px à ESQUERDA da régua de
+                preços do eixo Y (não da borda do gráfico) — a klinecharts não expõe
+                a largura exata do eixo (varia com a quantidade de dígitos do preço),
+                então usa a mesma largura aproximada (80px) já calibrada no badge do
+                candle countdown logo abaixo ("colado na linha do preço"), +2px de
+                respiro. Recolhida por padrão (barra compacta SELL/BUY); expande pra
+                ficha completa por dentro do próprio componente. */}
+            {/* z-[220] deliberadamente acima de TUDO no gráfico (inclusive do modo
+                tela cheia, z-[200] — ver isMaximized acima) + pointer-events-auto
+                explícito: nenhum log novo de diagnóstico apareceu no console ao
+                clicar, o que só acontece se o clique nunca chega no botão —
+                suspeita forte de alguma camada do gráfico (canvas de crosshair/
+                desenho, gerenciada fora do React pela klinecharts) capturando o
+                clique por cima. Isto elimina essa hipótese de vez. */}
+            <div className="absolute top-[17px] right-[99px] z-[220] pointer-events-auto">
+              <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
+            </div>
           </div>
 
         </div>
@@ -5889,20 +6848,37 @@ export function ChartView() {
               <div className="px-3 py-2 border-b border-gray-800 shrink-0">
                 <div className="text-xs font-medium text-gray-400 mb-2">ATIVOS ({activeIndicators.size})</div>
                 <div className="space-y-1">
-                  {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => (
+                  {INDICATORS.filter(ind => activeIndicators.has(ind.id)).map(indicator => {
+                    return (
                     <div
                       key={indicator.id}
                       className="flex items-center justify-between p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs"
                     >
-                      <span className="text-blue-400 font-medium">{indicator.name.split(' - ')[0]}</span>
+                      {/* 🆕 Clicar no próprio nome insere OUTRA instância direto no gráfico, sem
+                          abrir modal nenhum -- pedido explícito do Cleber: N cliques = N
+                          indicadores distintos, configuração fica pro clique direito no gráfico
+                          depois, se precisar. MA/EMA/SMA/WMA vira nova linha na mesma instância
+                          (sobreposta no preço); os demais ganham painel próprio a cada clique
+                          extra (ver addMALineDirect/addGenericIndicatorInstance). */}
                       <button
-                        onClick={() => toggleIndicator(indicator)}
-                        className="text-red-400 hover:text-red-300 transition-colors"
+                        onClick={() => (isMovingAverageIndicator(indicator) ? addMALineDirect(indicator) : addGenericIndicatorInstance(indicator))}
+                        title={isMovingAverageIndicator(indicator) ? 'Adicionar outra média' : 'Adicionar outra instância'}
+                        className="text-blue-400 font-medium text-left flex-1 hover:text-blue-300 cursor-pointer"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {indicator.name.split(' - ')[0]}
                       </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => toggleIndicator(indicator)}
+                          title="Remover indicador"
+                          className="text-red-400 hover:text-red-300 transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -5924,8 +6900,13 @@ export function ChartView() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
+                      {/* 🆕 Clicar no card sempre INSERE uma instância nova direto no gráfico,
+                          sem abrir modal -- pedido explícito do Cleber: N cliques = N
+                          indicadores distintos (1º clique liga, cada clique seguinte soma mais
+                          um). Configuração fica pro clique direito no gráfico depois, se
+                          precisar. Desligar tudo é só pela lixeira. */}
                       <button
-                        onClick={() => toggleIndicator(indicator)}
+                        onClick={() => (isMovingAverageIndicator(indicator) ? addMALineDirect(indicator) : addGenericIndicatorInstance(indicator))}
                         className="flex-1 flex flex-col items-start text-left min-w-0"
                       >
                         <span className={`text-sm font-medium ${isActive ? 'text-blue-300' : 'text-white'}`}>
@@ -5988,10 +6969,23 @@ export function ChartView() {
       </div>
 
       {/* Context Menu */}
-      {contextMenu && (
-        <div 
-          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] min-w-[360px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+      {contextMenu && (() => {
+        // 🐛 FIX: o menu tem altura variável (cresce com indicadores ativos, Templates
+        // expandido, etc.) e antes sempre abria a partir do ponto do clique pra BAIXO --
+        // se o clique fosse na metade de baixo da tela, o menu "nascia" cortado, sem
+        // scroll nem reposicionamento, literalmente sumindo no rodapé da página. Agora:
+        // se o clique foi na metade de baixo, o menu abre pra CIMA a partir do ponto
+        // clicado; se ainda assim não couber tudo, o próprio menu ganha scroll interno
+        // (nunca mais fica invisível, na pior das hipóteses rola dentro dele mesmo).
+        const openUpward = contextMenu.y > window.innerHeight / 2;
+        const left = Math.min(contextMenu.x, window.innerWidth - 380);
+        const menuStyle: React.CSSProperties = openUpward
+          ? { left, bottom: window.innerHeight - contextMenu.y, maxHeight: contextMenu.y - 8 }
+          : { left, top: contextMenu.y, maxHeight: window.innerHeight - contextMenu.y - 8 };
+        return (
+        <div
+          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] min-w-[360px] overflow-y-auto"
+          style={menuStyle}
         >
           {/* Redefinir visão do gráfico */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3">
@@ -6097,12 +7091,112 @@ export function ChartView() {
             Lista de Objetos...
           </button>
           
-          {/* Template do gráfico */}
-          <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center justify-between">
-            <span>Template do gráfico</span>
-            <ChevronDown className="w-4 h-4 text-gray-400 rotate-[-90deg]" />
+          {/* 🆕 Templates — CRUD completo (salvar/carregar/remover), inclui zoom+scroll
+              (barSpace/offsetRightDistance) além de indicadores/grade/S/R/timeframe. */}
+          <button
+            onClick={(e) => {
+              // 🐛 FIX: sem isso, o clique subia até o listener global em `document`
+              // que fecha o menu de contexto inteiro em QUALQUER clique fora dele (ver
+              // handleClick perto do fim do arquivo) -- o próprio botão "Templates"
+              // contava como "clique fora", então o menu inteiro sumia antes mesmo do
+              // painel expandir. Sintoma relatado: "clico em Templates e o botão some".
+              e.stopPropagation();
+              setTemplatesExpanded(prev => !prev);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center justify-between"
+          >
+            <span>Templates{templates.length > 0 ? ` (${templates.length})` : ''}</span>
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${templatesExpanded ? '' : 'rotate-[-90deg]'}`} />
           </button>
-          
+
+          {templatesExpanded && (
+            <div className="px-3 py-2 space-y-2 bg-black/20">
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="Nome do novo template"
+                  className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!user?.id) {
+                      toast.error('Faça login para salvar templates');
+                      return;
+                    }
+                    const name = newTemplateName.trim();
+                    if (!name) {
+                      toast.error('Dê um nome ao template');
+                      return;
+                    }
+                    const ok = await saveTemplate(name, captureCurrentChartConfig());
+                    if (ok) {
+                      toast.success(`Template "${name}" salvo`);
+                      setNewTemplateName('');
+                    } else {
+                      toast.error('Falha ao salvar o template');
+                    }
+                  }}
+                  className="shrink-0 px-2.5 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+                >
+                  Salvar
+                </button>
+              </div>
+
+              {templates.length === 0 ? (
+                <p className="text-[10px] text-gray-500 px-1">Nenhum template salvo ainda.</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {templates.map(template => (
+                    <div
+                      key={template.id}
+                      className="w-full px-2 py-1.5 rounded flex items-center justify-between text-xs text-white hover:bg-gray-700/50 transition-colors group"
+                    >
+                      <button
+                        onClick={() => {
+                          const chart = chartInstanceRef.current;
+                          if (!chart) return;
+                          if (template.config.timeframe !== timeframe && VALID_TIMEFRAMES.includes(template.config.timeframe as Timeframe)) {
+                            pendingTemplateApplyRef.current = template.config;
+                            setTimeframe(template.config.timeframe as Timeframe);
+                          } else {
+                            clearAllChartIndicators(chart);
+                            applyChartTemplateConfig(chart, template.config);
+                          }
+                          setContextMenu(null);
+                          toast.success(`Template "${template.name}" carregado`);
+                        }}
+                        className="flex-1 min-w-0 text-left truncate"
+                        title="Carregar este template"
+                      >
+                        {template.name}
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const ok = await deleteTemplate(template.id);
+                          if (ok) {
+                            toast.success(`Template "${template.name}" removido`);
+                          } else {
+                            toast.error('Falha ao remover o template');
+                          }
+                        }}
+                        title="Remover template"
+                        className="shrink-0 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded p-1 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="h-px bg-gray-700 my-2"></div>
           
           {/* 🆕 Indicadores ativos — Editar parâmetros / Remover, individualmente */}
@@ -6113,6 +7207,26 @@ export function ChartView() {
                 <div key={indicator.id} className="w-full px-4 py-1.5 flex items-center justify-between text-sm text-white">
                   <span className="truncate">{indicator.name.split(' - ')[0]}</span>
                   <div className="flex items-center gap-1 shrink-0">
+                    {/* 🆕 Aumentar/diminuir altura do painel -- só faz sentido pra indicador
+                        em painel próprio (RSI/MACD/Estocástico embaixo), não sobreposto no preço. */}
+                    {getIndicatorPlacement(indicator) === 'pane' && (
+                      <>
+                        <button
+                          onClick={() => adjustIndicatorPaneHeight(indicator, -PANE_HEIGHT_STEP)}
+                          title="Diminuir altura do painel"
+                          className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-1 transition-colors"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => adjustIndicatorPaneHeight(indicator, PANE_HEIGHT_STEP)}
+                          title="Aumentar altura do painel"
+                          className="text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded p-1 transition-colors"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                     {(indicator.defaultParams?.length ?? 0) > 0 && (
                       <button
                         onClick={() => {
@@ -6155,14 +7269,39 @@ export function ChartView() {
           )}
           
           <div className="h-px bg-gray-700 my-2"></div>
-          
+
+          {/* 🆕 Salvar setup favorito — indicadores + parâmetros, grade, S/R. Reaplicado
+              automaticamente na próxima vez que o gráfico for montado (ver useEffect de
+              init + useFavoriteChartSetup.ts). Não inclui símbolo/ativo selecionado de
+              propósito — o favorito é "como eu gosto de ver qualquer gráfico", não uma
+              posição fixa em um ativo específico. */}
+          <button
+            onClick={() => {
+              if (!user?.id) {
+                toast.error('Faça login para salvar sua configuração favorita');
+                setContextMenu(null);
+                return;
+              }
+              saveFavoriteSetup(captureCurrentChartConfig());
+              toast.success('Configuração atual salva como favorita — será aplicada automaticamente da próxima vez');
+              setContextMenu(null);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3"
+          >
+            <Star className="w-4 h-4 text-yellow-400" />
+            <span>Salvar configuração atual como favorita</span>
+          </button>
+
+          <div className="h-px bg-gray-700 my-2"></div>
+
           {/* Configurações */}
           <button className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-gray-700/50 transition-colors flex items-center gap-3">
             <Settings className="w-4 h-4 text-gray-400" />
             <span>Configurações...</span>
           </button>
         </div>
-      )}
+        );
+      })()}
 
       {/* 🆕 DRAWING CONTEXT TOOLBAR - Aparece ao selecionar um desenho */}
       <DrawingContextToolbar
@@ -6213,6 +7352,7 @@ export function ChartView() {
         isOpen={showBacktestConfig}
         onClose={() => setShowBacktestConfig(false)}
         strategies={strategies}
+        defaultAsset={selectedSymbol}
         onStart={(config) => {
           const strategy = strategies.find(s => s.id === config.strategyId);
           if (!strategy) {
@@ -6233,7 +7373,7 @@ export function ChartView() {
             endDate: new Date(config.endDate),
             timeframe: resolvedTimeframe,
             tradeDirection: config.tradeDirection,
-            initialCapital: 10000,
+            initialCapital: config.initialCapital,
           });
         }}
         onCreateStrategy={() => {
@@ -6306,6 +7446,11 @@ export function ChartView() {
             exitBlocks: strategy.exitBlocks as any,
             filterBlocks: strategy.filterBlocks as any,
             direction: 'AUTO',
+            // Escolhido explicitamente pelo usuário no builder (campo "Sinal de
+            // Entrada") — nunca deixar undefined aqui, senão StrategyEvaluator
+            // cai no fallback de inferência por operador, que inverte sinal em
+            // qualquer estratégia de reversão (ver comentário em types/strategy.ts).
+            entrySignal: strategy.entrySignal,
             stopLoss: strategy.stopLoss,
             takeProfit: strategy.takeProfit,
             trailingStop: strategy.trailingStop,

@@ -2,116 +2,119 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import { FileText, FileSpreadsheet, Download, ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import { FileText, FileSpreadsheet, Download, Info, Loader2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { aiPersistence, AITrade } from '@/app/services/AITradingPersistenceService';
 
-// Mock Data Generator for Reports
-const generateMockTradeData = (count = 50) => {
-  const data = [];
-  const assets = ['EURUSD', 'BTCUSD', 'XAUUSD', 'US30', 'GBPUSD'];
-  const types = ['BUY', 'SELL'];
-  
-  for (let i = 0; i < count; i++) {
-    const asset = assets[Math.floor(Math.random() * assets.length)];
-    const type = types[Math.floor(Math.random() * types.length)];
-    const entry = 1000 + Math.random() * 100;
-    const exit = entry + (Math.random() * 10 - 5);
-    const profit = (exit - entry) * (type === 'BUY' ? 1 : -1) * 100; // Mock profit
-    
-    data.push({
-      id: `TRD-${10000 + i}`,
-      date: newjhDate(Date.now() - Math.floor(Math.random() * 1000000000)).toISOString().split('T')[0],
-      asset,
-      type,
-      volume: (Math.random() * 2).toFixed(2),
-      entry: entry.toFixed(4),
-      exit: exit.toFixed(4),
-      profit: profit.toFixed(2),
-      status: profit > 0 ? 'PROFIT' : 'LOSS'
-    });
-  }
-  return data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-};
+/**
+ * Exporta o histórico real de trades (Supabase `ai_trades`, sessões DEMO do
+ * usuário) — antes gerava 50-100 trades inteiramente fictícios via
+ * `Math.random()`, com ID de relatório fixo e "SECURE HASH" aleatório,
+ * apresentados como relatório de conformidade/auditoria (auditoria 2026-07-29).
+ * Sem trade real, não exporta nada fabricado — mostra estado vazio explícito.
+ */
+async function loadRealTradesForExport(userId: string) {
+  const sessions = await aiPersistence.getUserSessions(userId, 50);
+  if (sessions.length === 0) return [] as AITrade[];
+  const bySession = await Promise.all(sessions.map(s => aiPersistence.getSessionTrades(s.id!)));
+  return bySession.flat();
+}
 
-function newjhDate(arg0: number): Date {
-    return new Date(arg0);
+function toExportRow(t: AITrade) {
+  return {
+    id: t.id ?? '',
+    date: t.entry_time ? new Date(t.entry_time).toISOString().split('T')[0] : '',
+    asset: t.symbol,
+    type: t.type,
+    volume: t.quantity,
+    entry: t.entry_price?.toFixed(4) ?? '',
+    exit: t.exit_price?.toFixed(4) ?? '',
+    profit: t.pnl?.toFixed(2) ?? '',
+    status: t.status
+  };
 }
 
 export function ReportExporter() {
+  const { user } = useAuth();
   const [isExporting, setIsExporting] = useState<string | null>(null);
 
   const handleExportPDF = async () => {
+    if (!user?.id) return;
     setIsExporting('PDF');
-    
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      const trades = await loadRealTradesForExport(user.id);
+      if (trades.length === 0) {
+        toast.info('Nenhum trade real registrado ainda — nada para exportar.');
+        return;
+      }
+      const data = trades.map(toExportRow);
 
-    const doc = new jsPDF();
-    const data = generateMockTradeData();
+      const doc = new jsPDF();
+      doc.setFontSize(20);
+      doc.text('Neural Day Trader - Histórico de Operações (DEMO)', 14, 22);
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 30);
+      doc.text(`${trades.length} operações reais desta conta`, 14, 36);
 
-    // Header
-    doc.setFontSize(20);
-    doc.text('Neural Day Trader - Relatório de Performance', 14, 22);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 30);
-    doc.text('ID do Relatório: NT-REP-2024-OX92', 14, 36);
+      autoTable(doc, {
+        startY: 46,
+        head: [['ID', 'Data', 'Ativo', 'Tipo', 'Vol', 'Entrada', 'Saída', 'P/L ($)', 'Status']],
+        body: data.map(d => [d.id, d.date, d.asset, d.type, d.volume, d.entry, d.exit, d.profit, d.status]),
+        theme: 'grid',
+        headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        styles: { fontSize: 8 }
+      });
 
-    // AI Analysis Section in PDF
-    doc.setDrawColor(0, 0, 0);
-    doc.setFillColor(240, 240, 240);
-    doc.rect(14, 45, 182, 20, 'F');
-    doc.setFontSize(10);
-    doc.setTextColor(50);
-    doc.text('Análise da IA: Padrão de conformidade administrativa detectado. Auditoria interna recomendada.', 16, 58);
-
-    // Table
-    autoTable(doc, {
-      startY: 70,
-      head: [['ID', 'Data', 'Ativo', 'Tipo', 'Vol', 'Entrada', 'Saída', 'P/L ($)']],
-      body: data.map(d => [d.id, d.date, d.asset, d.type, d.volume, d.entry, d.exit, d.profit]),
-      theme: 'grid',
-      headStyles: { fillColor: [41, 128, 185], textColor: 255 },
-      alternateRowStyles: { fillColor: [245, 245, 245] },
-      styles: { fontSize: 8 }
-    });
-
-    // Footer
-    const pageCount = doc.getNumberOfPages();
-    for(let i = 1; i <= pageCount; i++) {
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(8);
         doc.setTextColor(150);
-        doc.text(`Página ${i} de ${pageCount} - Confidencial Neural Day Trader`, 14, doc.internal.pageSize.height - 10);
-    }
+        doc.text(`Página ${i} de ${pageCount} — modo DEMO, não é histórico de dinheiro real`, 14, doc.internal.pageSize.height - 10);
+      }
 
-    doc.save('neural_trader_report.pdf');
-    setIsExporting(null);
+      doc.save('neural_trader_historico.pdf');
+    } catch (e) {
+      console.error('[ReportExporter] Falha ao exportar PDF:', e);
+      toast.error('Falha ao gerar o PDF.');
+    } finally {
+      setIsExporting(null);
+    }
   };
 
   const handleExportExcel = async () => {
+    if (!user?.id) return;
     setIsExporting('EXCEL');
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const data = generateMockTradeData(100);
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "TradeData");
-    
-    XLSX.writeFile(wb, "neural_trader_dump.xlsx");
-    setIsExporting(null);
+    try {
+      const trades = await loadRealTradesForExport(user.id);
+      if (trades.length === 0) {
+        toast.info('Nenhum trade real registrado ainda — nada para exportar.');
+        return;
+      }
+      const data = trades.map(toExportRow);
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "TradeData");
+      XLSX.writeFile(wb, "neural_trader_historico.xlsx");
+    } catch (e) {
+      console.error('[ReportExporter] Falha ao exportar Excel:', e);
+      toast.error('Falha ao gerar a planilha.');
+    } finally {
+      setIsExporting(null);
+    }
   };
 
   return (
     <Card className="bg-slate-950/50 border-slate-800 backdrop-blur-sm relative overflow-hidden">
-        {/* Decorative background elements */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -z-10 pointer-events-none" />
-        
+
         <CardHeader>
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -121,43 +124,39 @@ export function ReportExporter() {
                     <div>
                         <CardTitle className="text-white text-lg">Exportação de Dados</CardTitle>
                         <CardDescription className="text-slate-400 text-xs">
-                            Relatórios de conformidade e auditoria
+                            Histórico real de operações desta conta (modo DEMO)
                         </CardDescription>
                     </div>
                 </div>
-                <Badge variant="outline" className="border-blue-500/30 text-blue-400 bg-blue-500/10">
-                    <ShieldCheck className="h-3 w-3 mr-1" />
-                    COMPLIANCE
+                <Badge variant="outline" className="border-slate-700 text-slate-400 bg-slate-900/50">
+                    DEMO
                 </Badge>
             </div>
         </CardHeader>
 
         <CardContent className="space-y-6">
-            
-            {/* AI Analysis Block */}
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-slate-900/80 border border-l-4 border-l-amber-500 border-slate-800 p-4 rounded-r-lg"
+                className="bg-slate-900/80 border border-l-4 border-l-blue-500 border-slate-800 p-4 rounded-r-lg"
             >
                 <div className="flex items-start gap-3">
                     <div className="mt-1">
-                        <AlertTriangle className="h-4 w-4 text-amber-500 animate-pulse" />
+                        <Info className="h-4 w-4 text-blue-400" />
                     </div>
                     <div>
-                        <h4 className="text-sm font-bold text-slate-200 mb-1">Análise da IA</h4>
+                        <h4 className="text-sm font-bold text-slate-200 mb-1">O que é exportado</h4>
                         <p className="text-xs text-slate-400 leading-relaxed">
-                            <span className="text-amber-400 font-mono">DETECTADO:</span> Necessidade administrativa de registro externo. 
-                            Recomenda-se exportação diária para fins de auditoria fiscal e conformidade regulatória (CVM/IRS).
+                            Todas as operações reais desta conta em modo DEMO (Supabase). Não é dinheiro real e não substitui
+                            documento fiscal ou de auditoria — é só o seu histórico de uso da ferramenta.
                         </p>
                     </div>
                 </div>
             </motion.div>
 
-            {/* Export Actions */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button 
-                    variant="outline" 
+                <Button
+                    variant="outline"
                     className="h-24 flex flex-col items-center justify-center gap-3 border-slate-800 hover:bg-slate-900 hover:border-red-500/50 hover:text-red-400 transition-all group"
                     onClick={handleExportPDF}
                     disabled={!!isExporting}
@@ -173,8 +172,8 @@ export function ReportExporter() {
                     </div>
                 </Button>
 
-                <Button 
-                    variant="outline" 
+                <Button
+                    variant="outline"
                     className="h-24 flex flex-col items-center justify-center gap-3 border-slate-800 hover:bg-slate-900 hover:border-emerald-500/50 hover:text-emerald-400 transition-all group"
                     onClick={handleExportExcel}
                     disabled={!!isExporting}
@@ -185,18 +184,11 @@ export function ReportExporter() {
                         <FileSpreadsheet className="h-8 w-8 text-slate-500 group-hover:text-emerald-500 transition-colors" />
                     )}
                     <div className="text-center">
-                        <span className="block text-sm font-bold text-slate-300 group-hover:text-white">Dados Raw (Excel)</span>
-                        <span className="block text-[10px] text-slate-500">Para análise quantitativa</span>
+                        <span className="block text-sm font-bold text-slate-300 group-hover:text-white">Dados (Excel)</span>
+                        <span className="block text-[10px] text-slate-500">Para análise própria</span>
                     </div>
                 </Button>
             </div>
-
-            <div className="text-center">
-                <p className="text-[10px] text-slate-600 font-mono">
-                    SECURE HASH: {Math.random().toString(36).substring(2, 15).toUpperCase()}
-                </p>
-            </div>
-
         </CardContent>
     </Card>
   );

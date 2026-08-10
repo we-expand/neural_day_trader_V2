@@ -187,15 +187,6 @@ const swotData = [
   }
 ];
 
-// --- DATA: BENCHMARK ---
-const benchmarkData = [
-  { name: 'Terminal Bloomberg', speed: '450ms', cost: '$24k/ano', ui: 'Legacy (1980s)', ai: 'Limitada', type: 'Tradicional' },
-  { name: 'TradingView Premium', speed: '120ms', cost: '$600/ano', ui: 'Moderna', ai: 'Scripts (Pine)', type: 'Varejo' },
-  { name: 'Glassnode Studio', speed: 'N/A', cost: '$9.6k/ano', ui: 'Analítica', ai: 'Não', type: 'On-Chain' },
-  { name: 'Neural Finance', speed: '45ms', cost: '$6k/ano', ui: 'Futurista', ai: 'Nativa (Deep Learning)', highlight: true, type: 'Institucional' },
-  { name: 'Bots Open Source', speed: '800ms', cost: 'Grátis', ui: 'Linha de Comando', ai: 'Regras Básicas', type: 'Maker' },
-];
-
 // --- DATA: COSTS BREAKDOWN ---
 const costStructureData = [
   { name: 'Infraestrutura GPU/Cloud', value: 40, fill: '#38bdf8' },
@@ -577,67 +568,6 @@ export const StrategyDashboard = () => {
                  </Card>
               </div>
 
-              <Card className="bg-black/40 border-white/10 backdrop-blur-md overflow-hidden">
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <BarChart3 className="w-4 h-4 text-cyan-400" />
-                    Comparativo de Mercado
-                  </CardTitle>
-                  <CardDescription className="text-[10px]">Neural Day Trader vs Soluções Existentes</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="w-full overflow-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-[10px] text-slate-500 uppercase bg-white/5">
-                        <tr>
-                          <th className="px-4 py-2.5 font-medium tracking-wider">Plataforma</th>
-                          <th className="px-4 py-2.5 font-medium tracking-wider">Tipo</th>
-                          <th className="px-4 py-2.5 font-medium tracking-wider">Latência</th>
-                          <th className="px-4 py-2.5 font-medium tracking-wider">Custo Anual</th>
-                          <th className="px-4 py-2.5 font-medium tracking-wider">Interface</th>
-                          <th className="px-4 py-2.5 font-medium tracking-wider">Integração AI</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {benchmarkData.map((row) => (
-                          <motion.tr 
-                            key={row.name}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className={`
-                              group transition-colors
-                              ${row.highlight ? 'bg-cyan-900/10 hover:bg-cyan-900/20' : 'hover:bg-white/5'}
-                            `}
-                          >
-                            <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
-                              {row.name}
-                              {row.highlight && (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-[0_0_10px_rgba(34,211,238,0.2)]">
-                                  NÓS
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-slate-400 text-xs">{row.type}</td>
-                            <td className="px-4 py-3 text-slate-300 font-mono text-xs">{row.speed}</td>
-                            <td className="px-4 py-3 text-slate-300 text-xs">{row.cost}</td>
-                            <td className="px-4 py-3 text-slate-300 text-xs">{row.ui}</td>
-                            <td className="px-4 py-3">
-                              <span className={`
-                                inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border
-                                ${row.ai.includes('Nativa') 
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)]' 
-                                  : 'text-slate-500 bg-slate-800/50 border-transparent'}
-                              `}>
-                                {row.ai}
-                              </span>
-                            </td>
-                          </motion.tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
             </motion.div>
           )}
 

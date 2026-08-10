@@ -20,6 +20,7 @@
   "include": [
     "src/app/hooks/useApexLogic.ts",
     "src/app/hooks/useAIPersistence.ts",
+    "src/app/services/telemetry/**/*.ts",
     "src/app/hooks/useBacktestLiveProgress.ts",
     "src/app/hooks/useStrategies.ts",
     "src/app/services/MarketScoreEngine.ts",

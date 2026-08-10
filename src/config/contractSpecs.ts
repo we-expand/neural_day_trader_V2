@@ -128,12 +128,29 @@ export function calculatePnLWithLeverage(
   marginAmount: number,
   leverage: number
 ): number {
-  // ✅ CORREÇÃO CRÍTICA: Incluir contractSize no cálculo de effectiveSize
-  // ANTES: const effectiveSize = (marginAmount * leverage) / entryPrice; (INCORRETO - gera P&L 100,000x maior)
-  // AGORA: Divide também pelo contractSize para converter para lotes padrão
+  // ❌ BUG REAL ENCONTRADO (2026-08-03): esta função recebe `TradeVisual.amount`
+  // em todo lugar que chama (useApexLogic.ts), e `amount` já É o capital/
+  // exposição total alocado à posição — não a margem pré-alavancagem. Isso é
+  // documentado explicitamente em lotSizeConversion.ts ("TradeVisual.amount
+  // (motor de decisão) é capital em $ alocado à posição" / "leverage do asset
+  // é informativo de UI, não entra nesta conta"), e essa mesma função já usa
+  // `units = amountUsd / price` SEM multiplicar por leverage. A correção
+  // "CRÍTICA" anterior (comentário abaixo, mantido como histórico) resolveu
+  // o erro de escala de contractSize mas manteve a multiplicação por
+  // `leverage` — reintroduzindo alavancagem em cima de um valor que já é o
+  // nocional cheio, inflando o P&L em `leverage`x além do esperado. Confirmado
+  // numericamente numa ordem manual BTCEUR 0.01 lote: com a multiplicação,
+  // P&L de +$1.570,50 pra um movimento de preço de -0,06% (deveria ser
+  // ~$0,31). `leverage` é mantido como parâmetro (não remover a assinatura
+  // sem checar todos os 5 chamadores) mas não entra mais na conta de tamanho.
+  //
+  // ✅ CORREÇÃO ANTERIOR (histórico): incluir contractSize no cálculo de
+  // effectiveSize. ANTES: const effectiveSize = (marginAmount * leverage) /
+  // entryPrice; (INCORRETO — gerava P&L 100.000x maior). Contexto mantido
+  // pra não perder o porquê do contractSize estar aqui.
   const spec = getContractSpec(symbol);
-  const effectiveSize = (marginAmount * leverage) / (entryPrice * spec.contractSize);
-  
+  const effectiveSize = marginAmount / (entryPrice * spec.contractSize);
+
   // Usar a função de P&L realista
   return calculateRealisticPnL(symbol, entryPrice, exitPrice, side, effectiveSize);
 }

@@ -18,7 +18,7 @@
  * as duas tabelas abaixo com o resultado real.
  */
 
-import { ALL_ASSETS } from './assetDatabase';
+import { ALL_ASSETS } from './assetDatabase.ts';
 
 export type BrokerId = 'infinox';
 

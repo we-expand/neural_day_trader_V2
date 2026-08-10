@@ -13,6 +13,170 @@ import { processUserQuestion, generateAlertResponse } from './neural-assistant.t
 
 const app = new Hono().basePath('/server');
 
+// 🚨 FIX CRÍTICO DE SEGURANÇA (auditoria 2026-08-03, módulo "Inteligência de
+// Usuários"): as rotas administrativas abaixo (/list-users, /user-data e
+// derivadas) só exigiam o header `Authorization: Bearer <publicAnonKey>` — que
+// é uma chave PÚBLICA embutida no bundle JS do client, visível a qualquer um
+// que abra o DevTools. Não havia NENHUMA verificação de identidade nem de
+// permissão de admin no backend; o "gate de admin" existia só na UI
+// (`checkAdminPermissions`/`ADMIN_EMAILS` em `src/app/config/adminConfig.ts`),
+// que não protege nada contra alguém chamando a API diretamente. Na prática:
+// qualquer pessoa sem estar logada conseguia listar email+metadata de TODOS os
+// usuários (/list-users) e ler/exportar em CSV TODOS os dados de onboarding
+// (nome completo, CPF/documento, telefone, endereço, renda — /user-data e
+// /user-data/export/csv), além de poder DELETAR o registro LGPD de qualquer
+// usuário (/user-data/:id DELETE). Corrigido exigindo um JWT de usuário real
+// (não a anon key) cujo email esteja na lista de admins — mesma lista de
+// `adminConfig.ts`, duplicada aqui porque a Edge Function roda num runtime
+// Deno isolado do bundle do client, sem import cruzado possível.
+const ADMIN_EMAILS = ['clbrcouto@gmail.com'];
+
+async function requireAdmin(c: any): Promise<{ ok: true; email: string } | { ok: false; response: Response }> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const authHeader = c.req.header('Authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  if (!token || !supabaseUrl || !supabaseServiceKey) {
+    return { ok: false, response: c.json({ error: 'Não autenticado' }, 401) };
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  const email = data?.user?.email?.toLowerCase();
+
+  if (error || !email || !ADMIN_EMAILS.includes(email)) {
+    return { ok: false, response: c.json({ error: 'Acesso restrito a administradores' }, 403) };
+  }
+
+  return { ok: true, email };
+}
+
+// 🔒 HELPER: Validação de Risco (Tópico 7: Enforcement na rota /broker/execute)
+// Implementa as 3 primeiras validações do RiskManager para gate crítico
+interface RiskValidationRequest {
+  maxDailyLossPercent: number;
+  maxDrawdownPercent: number;
+  maxPositionSizePercent: number;
+  currentBalance: number;
+  dailyStartBalance: number;
+  currentDrawdown: number;
+  proposedTradeSize: number;
+  killSwitchThreshold?: number;
+}
+
+function validateTradeRisk(req: RiskValidationRequest): { approved: boolean; reason?: string } {
+  // 1. Kill-Switch (crítico — perda catastrófica)
+  if (req.killSwitchThreshold && req.killSwitchThreshold > 0) {
+    const dailyLoss = req.dailyStartBalance - req.currentBalance;
+    const dailyLossPercent = (dailyLoss / req.dailyStartBalance) * 100;
+
+    if (dailyLoss > 0 && dailyLossPercent >= req.killSwitchThreshold) {
+      return {
+        approved: false,
+        reason: `Kill-Switch ativado: perda diária ${dailyLossPercent.toFixed(2)}% ≥ limite de ${req.killSwitchThreshold}%`
+      };
+    }
+
+    if (req.currentDrawdown >= req.killSwitchThreshold) {
+      return {
+        approved: false,
+        reason: `Kill-Switch ativado: drawdown ${req.currentDrawdown.toFixed(2)}% ≥ limite de ${req.killSwitchThreshold}%`
+      };
+    }
+  }
+
+  // 2. Daily Loss Limit
+  const dailyLoss = req.dailyStartBalance - req.currentBalance;
+  const dailyLossPercent = (dailyLoss / req.dailyStartBalance) * 100;
+
+  if (dailyLoss > 0 && dailyLossPercent >= req.maxDailyLossPercent) {
+    return {
+      approved: false,
+      reason: `Limite diário de perda atingido: -${dailyLossPercent.toFixed(2)}% (limite ${req.maxDailyLossPercent}%)`
+    };
+  }
+
+  // 3. Drawdown Check
+  if (req.currentDrawdown > req.maxDrawdownPercent) {
+    return {
+      approved: false,
+      reason: `Drawdown excedido: ${req.currentDrawdown.toFixed(2)}% (limite ${req.maxDrawdownPercent}%)`
+    };
+  }
+
+  // 4. Position Sizing
+  const maxTradeSize = req.currentBalance * (req.maxPositionSizePercent / 100);
+  if (req.proposedTradeSize > maxTradeSize) {
+    return {
+      approved: false,
+      reason: `Tamanho da posição excede limite: ${req.proposedTradeSize.toFixed(2)} > ${maxTradeSize.toFixed(2)} (max ${req.maxPositionSizePercent}%)`
+    };
+  }
+
+  return { approved: true };
+}
+
+// 🔒 CONFIG DE RISCO AUTORITATIVA (Tópico 7, hardening pós-Fase 1)
+// Antes, os thresholds de risco (maxDailyLossPercent, maxDrawdownPercent etc.)
+// vinham do body da requisição em /broker/execute — mas nenhum caller real
+// (BrokerClient.ts) jamais enviava esses campos, então o gate SEMPRE caía nos
+// defaults hardcoded (5%/15%/2%, kill-switch desativado), ignorando por
+// completo a config real do usuário (aiConfig.dailyLossLimit etc). Corrigido
+// guardando a config no KV store, escrita só por um endpoint autenticado
+// (POST /server/risk-config), nunca aceita como parâmetro de /broker/execute.
+interface ServerRiskConfig {
+  maxDailyLossPercent: number;
+  maxDrawdownPercent: number;
+  maxPositionSizePercent: number;
+  killSwitchThreshold: number;
+  dailyStartBalance: number;
+  dayAnchorUtcDay: number; // epoch day (Math.floor(ms / 86400000)) da última âncora
+  peakEquity: number; // maior equity observado, usado pro cálculo de drawdown
+}
+
+// Defaults conservadores usados quando o usuário nunca sincronizou config
+// (ex: primeira chamada de um client desatualizado) — propositalmente mais
+// restritivos que os defaults do AIConfig do client, nunca mais permissivos.
+const DEFAULT_SERVER_RISK_CONFIG: Omit<ServerRiskConfig, 'dailyStartBalance' | 'peakEquity'> = {
+  maxDailyLossPercent: 5,
+  maxDrawdownPercent: 15,
+  maxPositionSizePercent: 2,
+  killSwitchThreshold: 10, // ao contrário do client (default 0=desativado), aqui fica ATIVO por padrão
+  dayAnchorUtcDay: 0,
+};
+
+function riskConfigKey(userId: string): string {
+  return `risk-config:${userId}`;
+}
+
+async function loadServerRiskConfig(userId: string, currentBalance: number): Promise<ServerRiskConfig> {
+  try {
+    const stored = await kv.get(riskConfigKey(userId));
+    const todayUtcDay = Math.floor(Date.now() / 86_400_000);
+
+    if (!stored) {
+      return { ...DEFAULT_SERVER_RISK_CONFIG, dailyStartBalance: currentBalance, peakEquity: currentBalance };
+    }
+
+    // Âncora diária vencida (novo dia UTC desde a última sync) — reancora no saldo atual.
+    // Isso é seguro porque só afeta o cálculo de perda diária, não os thresholds.
+    if (stored.dayAnchorUtcDay !== todayUtcDay) {
+      return {
+        ...stored,
+        dailyStartBalance: currentBalance,
+        dayAnchorUtcDay: todayUtcDay,
+        peakEquity: Math.max(stored.peakEquity || currentBalance, currentBalance),
+      };
+    }
+
+    return { ...stored, peakEquity: Math.max(stored.peakEquity || currentBalance, currentBalance) };
+  } catch (e) {
+    console.warn('[RISK-CONFIG] ⚠️ Erro ao carregar config do KV, usando defaults conservadores:', e);
+    return { ...DEFAULT_SERVER_RISK_CONFIG, dailyStartBalance: currentBalance, peakEquity: currentBalance };
+  }
+}
+
 // 🔍 HELPER: Get MetaAPI Token with detailed logging
 async function getMetaApiToken(bodyToken?: string): Promise<string | null> {
     const envToken = Deno.env.get('METAAPI_TOKEN');
@@ -393,6 +557,21 @@ app.post("/delete-user", async (c) => {
             return c.json({ message: "Usuário não encontrado (já estava limpo)." });
         }
 
+        // 🚨 FIX CRÍTICO DE SEGURANÇA (auditoria 2026-08-03): esta rota é chamada
+        // ANTES do login (tela de signup, "Erro na ativação" → oferece resetar e
+        // criar de novo), recebendo só o email digitado no formulário — sem NENHUMA
+        // prova de que quem chamou é dono daquela conta. Sem essa checagem, era um
+        // account-takeover trivial: qualquer pessoa sabendo (ou adivinhando) o email
+        // de outra pessoa conseguia deletar a conta dela permanentemente, mesmo já
+        // ativa e em uso. Agora só permite apagar contas que NUNCA terminaram de
+        // confirmar o email (o cenário real de "signup travou, deixa eu tentar de
+        // novo") — uma conta já confirmada/ativa nunca é elegível por esta rota.
+        if (userToDelete.email_confirmed_at) {
+            return c.json({
+                error: "Esta conta já está ativa. Por segurança, contas ativas não podem ser excluídas por este fluxo — faça login normalmente ou entre em contato com o suporte."
+            }, 403);
+        }
+
         // Delete User
         const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userToDelete.id);
         if (deleteError) return c.json({ error: deleteError.message }, 500);
@@ -406,6 +585,8 @@ app.post("/delete-user", async (c) => {
 
 // List Users Route (Admin Only)
 app.get("/list-users", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -426,6 +607,7 @@ app.get("/list-users", async (c) => {
             email: u.email,
             created_at: u.created_at,
             last_sign_in_at: u.last_sign_in_at,
+            email_confirmed_at: u.email_confirmed_at,
             user_metadata: u.user_metadata,
             app_metadata: u.app_metadata
         }));
@@ -1043,6 +1225,45 @@ app.post('/broker/undeploy-inactive', async (c) => {
     }
 });
 
+// 🔒 Config de risco autoritativa (Tópico 7, hardening) — só o próprio usuário
+// autenticado escreve a SUA config, nunca aceita userId do body. Chamada pelo
+// client (useApexLogic.ts) sempre que os thresholds de risco do aiConfig mudam.
+app.post('/risk-config', async (c) => {
+    try {
+        const authenticatedUserId = await getAuthenticatedUserId(c);
+        if (!authenticatedUserId) return c.json({ error: 'Não autenticado' }, 401);
+
+        const body = await c.req.json();
+        const { maxDailyLossPercent, maxDrawdownPercent, maxPositionSizePercent, killSwitchThreshold } = body;
+
+        if (
+            typeof maxDailyLossPercent !== 'number' ||
+            typeof maxDrawdownPercent !== 'number' ||
+            typeof maxPositionSizePercent !== 'number'
+        ) {
+            return c.json({ error: 'maxDailyLossPercent, maxDrawdownPercent e maxPositionSizePercent são obrigatórios (number)' }, 400);
+        }
+
+        // Preserva a âncora diária/pico existente (não é o client que decide isso) —
+        // só os thresholds configuráveis pelo usuário são atualizados aqui.
+        const existing = await kv.get(riskConfigKey(authenticatedUserId));
+
+        const updated: Partial<ServerRiskConfig> = {
+            ...(existing || {}),
+            maxDailyLossPercent,
+            maxDrawdownPercent,
+            maxPositionSizePercent,
+            killSwitchThreshold: typeof killSwitchThreshold === 'number' ? killSwitchThreshold : (existing?.killSwitchThreshold ?? DEFAULT_SERVER_RISK_CONFIG.killSwitchThreshold),
+        };
+
+        await kv.set(riskConfigKey(authenticatedUserId), updated);
+        return c.json({ success: true });
+    } catch (e: any) {
+        console.error('[RISK-CONFIG] Erro ao salvar:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
 // Executa leituras (preços/conta/posições) e ordens reais (compra/venda/fechar/modificar)
 // na conta MT5 do usuário autenticado, chamando a REST Client API do MetaAPI server-side.
 // O token nunca trafega de volta pro client.
@@ -1087,6 +1308,16 @@ app.post('/broker/execute', async (c) => {
             return c.json({ success: true, positions: await res.json() });
         }
 
+        if (action === 'getOrders') {
+            // Ordens pendentes (limit/stop/stop-limit) — endpoint separado de posições
+            // na MetaAPI, uma ordem só vira posição depois de disparar.
+            const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/orders`, {
+                headers: metaApiHeaders,
+            });
+            if (!res.ok) return c.json({ error: `MetaApi HTTP ${res.status}` }, 502);
+            return c.json({ success: true, orders: await res.json() });
+        }
+
         if (action === 'getPrices') {
             const { symbols } = body;
             if (!Array.isArray(symbols)) return c.json({ error: 'symbols deve ser um array' }, 400);
@@ -1114,6 +1345,72 @@ app.post('/broker/execute', async (c) => {
         }
 
         // --- Execução de ordens reais ---
+        // 🔒 TÓPICO 7: ENFORCEMENT - Validação de risco ANTES de qualquer execução
+        // Se a ação é de abertura de posição (trade), validar risco primeiro
+        // Ordens pendentes (limit/stop/stop-limit) também abrem exposição nova assim que
+        // disparam na corretora — mesmo gate de risco fail-closed do mercado se aplica
+        // no momento da COLOCAÇÃO da ordem (a MetaAPI não nos avisa quando ela dispara
+        // sozinha depois; validar aqui é a única janela real de controle que temos).
+        const isOpenPositionAction = [
+            'createMarketBuyOrder', 'createMarketSellOrder',
+            'createLimitBuyOrder', 'createLimitSellOrder',
+            'createStopBuyOrder', 'createStopSellOrder',
+            'createStopLimitBuyOrder', 'createStopLimitSellOrder',
+        ].includes(action);
+
+        if (isOpenPositionAction) {
+            // Buscar informações de conta REAIS para validação de risco — nunca aceitar
+            // saldo/drawdown vindos do body (só a MetaAPI é fonte de verdade pro saldo).
+            const accountRes = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/account-information`, {
+                headers: metaApiHeaders,
+            });
+
+            if (!accountRes.ok) {
+                // Sem saldo real não dá pra validar risco com segurança — bloqueia por
+                // padrão (fail-closed), ao contrário da versão anterior que deixava passar.
+                console.error(`[BROKER] ❌ Não foi possível buscar info de conta (HTTP ${accountRes.status}) — bloqueando por segurança`);
+                return c.json({ success: false, error: 'Não foi possível verificar saldo da conta para validação de risco', riskBlocked: true }, 502);
+            }
+
+            const accountInfo = await accountRes.json();
+            const currentBalance = accountInfo.balance || 0;
+
+            // 🔒 Config de risco vem SEMPRE do KV server-side (nunca do body) —
+            // fecha a lacuna onde os thresholds do usuário eram ignorados.
+            const riskConfig = await loadServerRiskConfig(authenticatedUserId, currentBalance);
+            const currentDrawdownPercent = riskConfig.peakEquity > 0
+                ? Math.max(0, ((riskConfig.peakEquity - currentBalance) / riskConfig.peakEquity) * 100)
+                : 0;
+
+            const riskValidationReq: RiskValidationRequest = {
+                maxDailyLossPercent: riskConfig.maxDailyLossPercent,
+                maxDrawdownPercent: riskConfig.maxDrawdownPercent,
+                maxPositionSizePercent: riskConfig.maxPositionSizePercent,
+                currentBalance,
+                dailyStartBalance: riskConfig.dailyStartBalance,
+                currentDrawdown: currentDrawdownPercent,
+                proposedTradeSize: currentBalance * (riskConfig.maxPositionSizePercent / 100),
+                killSwitchThreshold: riskConfig.killSwitchThreshold,
+            };
+
+            const riskCheck = validateTradeRisk(riskValidationReq);
+
+            // Persiste o pico de equity atualizado independente do resultado (não é
+            // uma decisão do trade, é só o estado de referência pro próximo cálculo).
+            kv.set(riskConfigKey(authenticatedUserId), riskConfig).catch((e) =>
+                console.warn('[RISK-CONFIG] ⚠️ Falha ao persistir âncora atualizada:', e)
+            );
+
+            if (!riskCheck.approved) {
+                console.log(`[BROKER] 🚫 Risco bloqueado: ${riskCheck.reason}`);
+                return c.json({
+                    success: false,
+                    error: `Validação de risco: ${riskCheck.reason}`,
+                    riskBlocked: true
+                }, 400);
+            }
+        }
+
         const tradeActionMap: Record<string, (b: any) => any> = {
             createMarketBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY', symbol: b.symbol, volume: b.volume, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
             createMarketSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL', symbol: b.symbol, volume: b.volume, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
@@ -1121,6 +1418,15 @@ app.post('/broker/execute', async (c) => {
             closePositionPartially: (b) => ({ actionType: 'POSITION_PARTIAL', positionId: b.positionId, volume: b.volume }),
             modifyPosition: (b) => ({ actionType: 'POSITION_MODIFY', positionId: b.positionId, stopLoss: b.stopLoss, takeProfit: b.takeProfit }),
             closeAllPositionsBySymbol: (b) => ({ actionType: 'POSITIONS_CLOSE_SYMBOL', symbol: b.symbol }),
+            // Ordens pendentes reais — a MetaAPI é quem monitora o preço e dispara sozinha
+            // depois disso, não precisamos (nem conseguimos) simular isso pro caminho LIVE.
+            createLimitBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createLimitSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY_STOP', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL_STOP', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopLimitBuyOrder: (b) => ({ actionType: 'ORDER_TYPE_BUY_STOP_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLimitPrice: b.stopLimitPrice, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            createStopLimitSellOrder: (b) => ({ actionType: 'ORDER_TYPE_SELL_STOP_LIMIT', symbol: b.symbol, volume: b.volume, openPrice: b.price, stopLimitPrice: b.stopLimitPrice, stopLoss: b.stopLoss, takeProfit: b.takeProfit, comment: b.comment || 'Neural Day Trader' }),
+            cancelPendingOrder: (b) => ({ actionType: 'ORDER_CANCEL', orderId: b.orderId }),
         };
 
         if (action === 'closeAllPositions') {
@@ -1369,6 +1675,8 @@ app.post("/user-data", async (c) => {
 
 // Get All User Data (Admin)
 app.get("/user-data", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         // Get index of all user IDs
         const userIndex = await kv.get('user-data-index') || [];
@@ -1396,6 +1704,8 @@ app.get("/user-data", async (c) => {
 
 // Get Single User Data by ID
 app.get("/user-data/:id", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const userId = c.req.param('id');
         const userData = await kv.get(`user-data:${userId}`);
@@ -1414,6 +1724,8 @@ app.get("/user-data/:id", async (c) => {
 
 // Delete User Data (Admin - GDPR Compliance)
 app.delete("/user-data/:id", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const userId = c.req.param('id');
 
@@ -1440,6 +1752,8 @@ app.delete("/user-data/:id", async (c) => {
 
 // Export User Data as CSV (Admin)
 app.get("/user-data/export/csv", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
     try {
         const userIndex = await kv.get('user-data-index') || [];
         
@@ -4361,12 +4675,86 @@ app.post('/mt5-candles-history', async (c) => {
         const requestedEnd = new Date(endTime).getTime();
         const intervalMs = msPerCandle[mt5Timeframe] || 3_600_000;
 
+        // ✅ CACHE-AIDE (ohlcv_data): barra fechada é imutável — uma vez que
+        // o candle fechou, o OHLC dele nunca muda. A conta MetaAPI de
+        // plataforma é compartilhada entre streaming-relay e esta rota (ver
+        // CLAUDE.md, "Risco crônico conhecido"); todo backtest/gráfico
+        // batendo direto no MetaApi a cada chamada é o que estoura o teto de
+        // créditos da conta sob uso concorrente. Fail-open: qualquer erro de
+        // leitura/escrita no cache cai pro comportamento 100% ao vivo de
+        // antes — nunca deixa o motor sem dado por causa do cache.
+        let cachedCandles: any[] = [];
+        let cacheUsable = false;
+        try {
+            const supabaseUrl = Deno.env.get('SUPABASE_URL');
+            const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+            if (supabaseUrl && supabaseServiceKey) {
+                const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+                const { data, error } = await supabaseAdmin
+                    .from('ohlcv_data')
+                    .select('timestamp, open, high, low, close, volume')
+                    .eq('asset_symbol', symbol)
+                    .eq('timeframe', mt5Timeframe)
+                    .gte('timestamp', new Date(requestedStart).toISOString())
+                    .lte('timestamp', new Date(requestedEnd).toISOString())
+                    .order('timestamp', { ascending: true });
+                if (!error && Array.isArray(data)) {
+                    cachedCandles = data;
+                    cacheUsable = true;
+                } else if (error) {
+                    console.warn('[MT5 CANDLES HISTORY] ⚠️ Falha ao ler cache ohlcv_data, seguindo 100% ao vivo:', error.message);
+                }
+            }
+        } catch (cacheErr: any) {
+            console.warn('[MT5 CANDLES HISTORY] ⚠️ Erro inesperado lendo cache ohlcv_data, seguindo 100% ao vivo:', cacheErr.message);
+        }
+
+        // Barra mais recente que já pode ser considerada FECHADA (a atual,
+        // em formação, nunca é cacheada — pode mudar até fechar).
+        const lastClosedBarStart = Math.floor(Date.now() / intervalMs) * intervalMs - intervalMs;
+
+        // Cobertura do cache: se já temos candles cobrindo do início pedido
+        // até a última barra fechada dentro do range, só falta buscar ao
+        // vivo a partir dali (tipicamente 0 ou 1 barra).
+        let liveFetchStart = requestedStart;
+        if (cacheUsable && cachedCandles.length > 0) {
+            const cachedTimestamps = new Set(cachedCandles.map((c: any) => new Date(c.timestamp).getTime()));
+            let coverageCursor = requestedStart;
+            while (coverageCursor <= Math.min(lastClosedBarStart, requestedEnd) && cachedTimestamps.has(coverageCursor)) {
+                coverageCursor += intervalMs;
+            }
+            liveFetchStart = coverageCursor;
+        }
+
+        if (cacheUsable && liveFetchStart > requestedEnd) {
+            // Cache cobre o intervalo inteiro pedido — zero chamada ao MetaApi.
+            const formattedCandles = cachedCandles.map((cd: any) => ({
+                timestamp: new Date(cd.timestamp).getTime(),
+                open: cd.open || 0,
+                high: cd.high || 0,
+                low: cd.low || 0,
+                close: cd.close || 0,
+                volume: cd.volume || 0,
+            }));
+            console.log(`[MT5 CANDLES HISTORY] ✅ Cache hit total (${formattedCandles.length} candles, 0 chamadas MetaApi) para ${symbol}/${mt5Timeframe}`);
+            return c.json({
+                success: true,
+                source: 'cache',
+                symbol,
+                timeframe: mt5Timeframe,
+                count: formattedCandles.length,
+                candles: formattedCandles,
+                timestamp: new Date().toISOString()
+            });
+        }
+
         const allCandles: any[] = [];
         let cursor = requestedEnd; // ponto mais recente; anda pra trás a cada chamada
         let iterations = 0;
         const MAX_ITERATIONS = 60; // trava de segurança (não bate a corretora indefinidamente)
+        const effectiveStart = cacheUsable ? liveFetchStart : requestedStart;
 
-        while (cursor > requestedStart && iterations < MAX_ITERATIONS) {
+        while (cursor > effectiveStart && iterations < MAX_ITERATIONS) {
             iterations++;
 
             const response = await fetch(
@@ -4397,7 +4785,7 @@ app.post('/mt5-candles-history', async (c) => {
             await new Promise(resolve => setTimeout(resolve, 150));
         }
 
-        if (allCandles.length === 0) {
+        if (allCandles.length === 0 && cachedCandles.length === 0) {
             return c.json({
                 success: false,
                 error: 'NO_DATA',
@@ -4406,22 +4794,75 @@ app.post('/mt5-candles-history', async (c) => {
         }
 
         const dedup = new Map<number, any>();
-        for (const c2 of allCandles) dedup.set(new Date(c2.time).getTime(), c2);
+        // Base: o que já veio do cache (formato já normalizado).
+        for (const cached of cachedCandles) {
+            const ts = new Date(cached.timestamp).getTime();
+            dedup.set(ts, {
+                timestamp: ts,
+                open: cached.open || 0,
+                high: cached.high || 0,
+                low: cached.low || 0,
+                close: cached.close || 0,
+                volume: cached.volume || 0,
+            });
+        }
+        // Sobrepõe/completa com o que acabou de ser buscado ao vivo.
+        for (const c2 of allCandles) {
+            const ts = new Date(c2.time).getTime();
+            dedup.set(ts, {
+                timestamp: ts,
+                open: c2.open || 0,
+                high: c2.high || 0,
+                low: c2.low || 0,
+                close: c2.close || 0,
+                volume: c2.tickVolume || c2.realVolume || 0,
+            });
+        }
 
         const formattedCandles = Array.from(dedup.values())
-            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-            .map((cd: any) => ({
-                timestamp: new Date(cd.time).getTime(),
-                open: cd.open || 0,
-                high: cd.high || 0,
-                low: cd.low || 0,
-                close: cd.close || 0,
-                volume: cd.tickVolume || cd.realVolume || 0,
-            }));
+            .filter((cd) => cd.timestamp >= requestedStart && cd.timestamp <= requestedEnd)
+            .sort((a, b) => a.timestamp - b.timestamp);
+
+        // Persiste no cache só as barras já FECHADAS que vieram da busca ao
+        // vivo (nunca a barra corrente, ainda em formação — pode mudar até
+        // fechar). Best-effort: falha aqui não afeta a resposta ao usuário.
+        if (cacheUsable && allCandles.length > 0) {
+            const toUpsert = formattedCandles
+                .filter((cd) => cd.timestamp <= lastClosedBarStart)
+                .map((cd) => ({
+                    asset_symbol: symbol,
+                    timeframe: mt5Timeframe,
+                    timestamp: new Date(cd.timestamp).toISOString(),
+                    open: cd.open,
+                    high: cd.high,
+                    low: cd.low,
+                    close: cd.close,
+                    volume: cd.volume,
+                }));
+            if (toUpsert.length > 0) {
+                try {
+                    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+                    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+                    if (supabaseUrl && supabaseServiceKey) {
+                        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+                        const { error: upsertError } = await supabaseAdmin
+                            .from('ohlcv_data')
+                            .upsert(toUpsert, { onConflict: 'asset_symbol,timeframe,timestamp' });
+                        if (upsertError) {
+                            console.warn('[MT5 CANDLES HISTORY] ⚠️ Falha ao gravar cache ohlcv_data (não afeta a resposta):', upsertError.message);
+                        } else {
+                            console.log(`[MT5 CANDLES HISTORY] 💾 ${toUpsert.length} candles fechados gravados no cache para ${symbol}/${mt5Timeframe}`);
+                        }
+                    }
+                } catch (upsertErr: any) {
+                    console.warn('[MT5 CANDLES HISTORY] ⚠️ Erro inesperado gravando cache ohlcv_data (não afeta a resposta):', upsertErr.message);
+                }
+            }
+        }
 
         return c.json({
             success: true,
-            source: 'metaapi',
+            source: allCandles.length > 0 ? (cachedCandles.length > 0 ? 'metaapi+cache' : 'metaapi') : 'cache',
             symbol,
             timeframe: mt5Timeframe,
             count: formattedCandles.length,

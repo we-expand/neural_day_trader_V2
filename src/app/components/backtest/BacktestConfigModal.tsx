@@ -11,8 +11,9 @@
  */
 
 import React, { useState } from 'react';
-import { X, Play, Calendar, TrendingUp, Settings, Zap, Clock, ArrowUp, ArrowDown, ArrowUpDown, Trash2 } from 'lucide-react';
+import { X, Play, Calendar, TrendingUp, Settings, Zap, Clock, ArrowUp, ArrowDown, ArrowUpDown, Trash2, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { AssetSelector } from '@/app/components/dashboard/AssetSelector';
 
 type PeriodPreset = '1M' | '3M' | '6M' | '1Y' | 'custom';
 type TradeDirection = 'long' | 'short' | 'both';
@@ -31,8 +32,8 @@ interface BacktestConfig {
   startDate: string;
   endDate: string;
   analysisDate: string;
-  quantity: number;
-  maxQuantity: number;
+  /** Capital fictício com que a simulação começa — nunca foi configurável antes (fixo em $10.000 no código), sem relação com o "Capital para IA" real das configurações de IA. */
+  initialCapital: number;
   tradeDirection: TradeDirection;
   tradingHours: TradingHours;
   strategyId: string | null;
@@ -54,6 +55,8 @@ interface BacktestConfigModalProps {
   strategies?: StrategySummary[];
   /** Apaga uma estratégia customizada do usuário (nunca chamado para presets). */
   onDeleteStrategy?: (id: string) => void;
+  /** Ativo atualmente selecionado no gráfico — usado como padrão ao abrir o modal (antes fixo em 'BTCUSD', ignorando o que estava na tela). */
+  defaultAsset?: string;
 }
 
 export function BacktestConfigModal({
@@ -63,9 +66,11 @@ export function BacktestConfigModal({
   onCreateStrategy,
   strategies: strategiesProp,
   onDeleteStrategy,
+  defaultAsset,
 }: BacktestConfigModalProps) {
+  const [showAssetSelector, setShowAssetSelector] = useState(false);
   const [config, setConfig] = useState<BacktestConfig>({
-    asset: 'BTCUSD',
+    asset: defaultAsset || 'BTCUSD',
     timeframe: '1h',
     periodPreset: '1M',
     startDate: (() => {
@@ -79,8 +84,7 @@ export function BacktestConfigModal({
       date.setFullYear(date.getFullYear() - 1);
       return date.toISOString().split('T')[0];
     })(),
-    quantity: 1,
-    maxQuantity: 10,
+    initialCapital: 10000,
     tradeDirection: 'both',
     tradingHours: {
       enabled: false,
@@ -89,6 +93,16 @@ export function BacktestConfigModal({
     },
     strategyId: null
   });
+
+  // Sincroniza com o ativo do gráfico toda vez que o modal abre — o
+  // componente fica montado o tempo todo (só alterna `isOpen`), então sem
+  // isso o `asset` do state inicial nunca acompanharia trocas de símbolo no
+  // gráfico depois do primeiro mount.
+  React.useEffect(() => {
+    if (isOpen && defaultAsset) {
+      setConfig((prev) => ({ ...prev, asset: defaultAsset }));
+    }
+  }, [isOpen, defaultAsset]);
 
   // Períodos pré-definidos
   const periodPresets = [
@@ -200,13 +214,17 @@ export function BacktestConfigModal({
                       <TrendingUp className="w-4 h-4" />
                       Ativo
                     </label>
-                    <div className="flex items-center gap-2 bg-zinc-800 rounded px-3 py-2.5 border border-zinc-700">
-                      <div className="w-6 h-6 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center">
-                        <span className="text-xs font-bold text-white">₿</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAssetSelector(true)}
+                      className="w-full flex items-center gap-2 bg-zinc-800 rounded px-3 py-2.5 border border-zinc-700 hover:border-blue-500 transition-colors"
+                    >
+                      <div className="w-6 h-6 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center">
+                        <span className="text-xs font-bold text-white">{config.asset.substring(0, 1)}</span>
                       </div>
-                      <span className="text-sm text-white font-medium">BTCUSD</span>
-                      <span className="text-xs text-slate-500 ml-auto">Bitcoin</span>
-                    </div>
+                      <span className="text-sm text-white font-medium">{config.asset}</span>
+                      <ChevronDown className="w-4 h-4 text-slate-500 ml-auto" />
+                    </button>
                   </div>
 
                   {/* Timeframe do Gráfico */}
@@ -409,34 +427,26 @@ export function BacktestConfigModal({
                     <p className="text-xs text-slate-600 mt-1">Período usado para cálculo de indicadores</p>
                   </div>
 
-                  {/* Quantidade */}
+                  {/* Capital Inicial — antes fixo em $10.000 no código, sem relação com o capital real configurado na IA */}
                   <div>
                     <label className="flex items-center gap-2 text-sm text-slate-400 mb-2">
                       <Zap className="w-4 h-4" />
-                      Quantidade
+                      Capital Inicial do Teste
                     </label>
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Contratos</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={config.quantity}
-                          onChange={(e) => setConfig({ ...config, quantity: parseInt(e.target.value) || 1 })}
-                          className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Máximo</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={config.maxQuantity}
-                          onChange={(e) => setConfig({ ...config, maxQuantity: parseInt(e.target.value) || 1 })}
-                          className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
-                        />
-                      </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={config.initialCapital}
+                        onChange={(e) => setConfig({ ...config, initialCapital: parseFloat(e.target.value) || 1 })}
+                        className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 pl-7 border border-zinc-700 focus:border-blue-500 focus:outline-none"
+                      />
                     </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Capital fictício da simulação — independente do capital real configurado na IA
+                    </p>
                   </div>
                 </div>
 
@@ -528,6 +538,18 @@ export function BacktestConfigModal({
                 </button>
               </div>
             </div>
+
+            {/* Seletor de ativo (mesmo componente do gráfico) — renderizado
+                como último filho do painel pra ficar acima do conteúdo do
+                modal de backtest (o painel tem z-[101] via stacking context
+                próprio do framer-motion; como último filho, o AssetSelector
+                pinta por cima mesmo com seu z-[100] interno). */}
+            <AssetSelector
+              isOpen={showAssetSelector}
+              onClose={() => setShowAssetSelector(false)}
+              onSelect={(symbol) => setConfig((prev) => ({ ...prev, asset: symbol }))}
+              currentSymbol={config.asset}
+            />
           </motion.div>
         </>
       )}

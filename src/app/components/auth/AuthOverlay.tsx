@@ -1,19 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  ArrowRight, 
-  Check, 
-  ChevronLeft, 
-  ScanFace, 
-  Fingerprint, 
-  ShieldCheck,
+import {
+  ArrowRight,
+  Check,
+  ChevronLeft,
   Loader2,
-  Camera,
   X,
   AlertCircle,
-  Mail,
   Zap,
-  Lock,
   Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -46,11 +40,8 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
   const [userName, setUserName] = useState('');
   const [userLastName, setUserLastName] = useState('');
   
-  // Camera State
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [scanProgress, setScanProgress] = useState(0);
-  const streamRef = useRef<MediaStream | null>(null);
+  // Latência real do servidor de auth (medida, não decorativa — ver measurePing abaixo)
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
 
   // --- Logic Helpers ---
 
@@ -268,33 +259,28 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
     }
   };
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      streamRef.current = stream;
-      setCameraActive(true);
-    } catch (err) {
-      toast.error("Erro ao acessar câmera", { description: "Verifique as permissões do navegador." });
-    }
-  };
-
+  // Latência real medida contra o servidor de auth (Supabase) — antes era um
+  // "Latency: 12ms" fixo no rodapé, nunca medido de verdade (auditoria
+  // 2026-07-29). `HEAD` numa rota leve só pra medir round-trip; falha de rede
+  // não quebra a tela, só deixa o campo como "—".
   useEffect(() => {
-    if (cameraActive && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      
-      // Auto-start scan simulation
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 1.5;
-        setScanProgress(progress);
-        if (progress >= 100) {
-           clearInterval(interval);
-           setCameraActive(true); 
-        }
-      }, 50);
-      return () => clearInterval(interval);
-    }
-  }, [cameraActive]);
+    let cancelled = false;
+    const measurePing = async () => {
+      const start = performance.now();
+      try {
+        await fetch(`https://${projectId}.supabase.co/auth/v1/health`, { method: 'GET' });
+        if (!cancelled) setLatencyMs(Math.round(performance.now() - start));
+      } catch {
+        if (!cancelled) setLatencyMs(null);
+      }
+    };
+    measurePing();
+    const interval = setInterval(measurePing, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   // --- Animation Variants ---
   const variants = {
@@ -648,10 +634,10 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
         <footer className="absolute bottom-0 w-full p-8 flex justify-between items-end z-50 text-[10px] text-slate-600 uppercase tracking-widest font-medium">
             <div className="flex flex-col gap-1">
                 <span>System Status: Online</span>
-                <span>Latency: 12ms</span>
+                <span>Latency: {latencyMs !== null ? `${latencyMs}ms` : '—'}</span>
             </div>
             <div>
-                Encrypted Connection (TLS 1.3)
+                {typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'Conexão HTTPS' : 'Conexão sem TLS (dev)'}
             </div>
         </footer>
 

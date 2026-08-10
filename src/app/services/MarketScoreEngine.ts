@@ -34,9 +34,9 @@ import {
   type Timeframe,
   type CandleData,
   BacktestDataUnavailableError,
-} from './BacktestDataService';
-import { analyzeCryptoOrderBook, type DepthImbalanceResult } from './orderbook/CryptoOrderBookAnalyzer';
-import { getAssetBySymbol } from '../config/assetDatabase';
+} from './BacktestDataService.ts';
+import { analyzeCryptoOrderBook, type DepthImbalanceResult } from './orderbook/CryptoOrderBookAnalyzer.ts';
+import { getAssetBySymbol } from '../config/assetDatabase.ts';
 import {
   calculateEMA,
   calculateSMA,
@@ -48,7 +48,7 @@ import {
   calculateBollingerBands,
   calculateOBV,
   type Candle,
-} from './indicators/TechnicalIndicators';
+} from './indicators/TechnicalIndicators.ts';
 
 export type ScoreClassification = 'COMPRADOR' | 'VENDEDOR' | 'LATERAL';
 export type MarketRegime = 'TENDENCIA' | 'LATERAL' | 'INDEFINIDO';

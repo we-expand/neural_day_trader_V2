@@ -1,0 +1,34 @@
+=== DSR: simplificacao gaussiana vs formula completa ===
+Header do DeflatedSharpe.ts afirma: "tende a ser LIBERAL demais, nao conservadora"
+
+
+secao 11.10 (EMA+ADX pooled 3a)  SR/trade=0.11  n=92
+  projeto (g3=0,g4=3): DSR = 85.2%
+  trend-following tipico   g3= 1.5 g4=8: DSR = 87.2%  (+1.9pp) -> projeto foi CONSERVADOR (subestimou)
+  skew leve                g3= 0.5 g4=6: DSR = 85.8%  (+0.6pp) -> projeto foi CONSERVADOR (subestimou)
+  mean-reversion (skew-)   g3=  -1 g4=8: DSR = 83.8%  (-1.4pp) -> projeto foi LIBERAL (superestimou)
+
+secao 11.11 (EMA+ADX pooled 10a)  SR/trade=-0.015  n=322
+  projeto (g3=0,g4=3): DSR = 39.4%
+  trend-following tipico   g3= 1.5 g4=8: DSR = 39.5%  (+0.1pp) -> diferenca desprezivel
+  skew leve                g3= 0.5 g4=6: DSR = 39.4%  (+0.0pp) -> diferenca desprezivel
+  mean-reversion (skew-)   g3=  -1 g4=8: DSR = 39.3%  (-0.1pp) -> diferenca desprezivel
+
+secao 11.13 (Donchian cripto)  SR/trade=0.003  n=80
+  projeto (g3=0,g4=3): DSR = 51.1%
+  trend-following tipico   g3= 1.5 g4=8: DSR = 51.1%  (+0.0pp) -> diferenca desprezivel
+  skew leve                g3= 0.5 g4=6: DSR = 51.1%  (+0.0pp) -> diferenca desprezivel
+  mean-reversion (skew-)   g3=  -1 g4=8: DSR = 51.1%  (-0.0pp) -> diferenca desprezivel
+
+hipotetico com edge real  SR/trade=0.15  n=300
+  projeto (g3=0,g4=3): DSR = 99.5%
+  trend-following tipico   g3= 1.5 g4=8: DSR = 99.8%  (+0.3pp) -> diferenca desprezivel
+  skew leve                g3= 0.5 g4=6: DSR = 99.6%  (+0.1pp) -> diferenca desprezivel
+  mean-reversion (skew-)   g3=  -1 g4=8: DSR = 99.1%  (-0.4pp) -> diferenca desprezivel
+
+=== Decomposicao: qual termo domina no regime de SR observado? ===
+  SR=0.01  termo skew(-g3*SR)=-0.0150  termo curtose=0.0002  dominante: SKEW (empurra DSR pra CIMA)
+  SR=0.05  termo skew(-g3*SR)=-0.0750  termo curtose=0.0044  dominante: SKEW (empurra DSR pra CIMA)
+  SR=0.11  termo skew(-g3*SR)=-0.1650  termo curtose=0.0212  dominante: SKEW (empurra DSR pra CIMA)
+  SR=0.3   termo skew(-g3*SR)=-0.4500  termo curtose=0.1575  dominante: SKEW (empurra DSR pra CIMA)
+  SR=1     termo skew(-g3*SR)=-1.5000  termo curtose=1.7500  dominante: CURTOSE (empurra DSR pra BAIXO)

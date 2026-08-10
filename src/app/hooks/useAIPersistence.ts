@@ -6,13 +6,47 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { aiPersistence, AISession, AITrade, PortfolioSnapshot } from '@/app/services/AITradingPersistenceService';
+import { aiPersistence, AISession, AITrade, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { funnelTelemetry, FunnelStage } from '@/app/services/telemetry/FunnelTelemetry';
+
+/**
+ * Tradução veto de negócio (`ai_decisions.veto_stage`) → estágio de funil
+ * (`ai_funnel_snapshots.stage_counts`). Vive aqui, no ponto ÚNICO por onde todo
+ * veto passa, em vez de espalhada por 15 chamadas no motor: qualquer gate novo
+ * que grave decisão entra no funil automaticamente, sem depender de alguém
+ * lembrar de instrumentar. Foi exatamente esse "lembrar de instrumentar" que
+ * falhou e deixou 12 dos 27 pontos de saída invisíveis até 2026-08-04.
+ *
+ * Duas tabelas porque medem coisas diferentes: `ai_decisions` guarda a decisão
+ * individual auditável (com razão em texto, score, indicadores); o funil guarda
+ * só a CONTAGEM agregada, que é o que responde "onde os setups morrem".
+ */
+const VETO_TO_FUNNEL_STAGE: Record<DecisionVetoStage, FunnelStage> = {
+  CONTEXT_SCORE_OPPOSITE: 'SCORE_OPPOSITE',
+  CONTEXT_SCORE_LATERAL: 'SCORE_LATERAL',
+  CONTEXT_CONFIDENCE: 'COMBINED_CONFIDENCE_LOW',
+  CONTEXT_GATE: 'CONTEXT_GATE',
+  CONFIG_DIRECTION: 'CONFIG_DIRECTION',
+  COST_GATE: 'COST_GATE',
+  COST_GATE_NO_DATA: 'COST_GATE_NO_DATA',
+  RISK_GATE: 'RISK_GATE',
+  KILL_SWITCH: 'KILL_SWITCH',
+  COOLDOWN: 'COOLDOWN_GATE',
+  MAX_TRADES_PER_DAY: 'MAX_TRADES_PER_DAY',
+  REVENGE_PATTERN: 'REVENGE_PATTERN',
+  CORRELATION_GUARD: 'CORRELATION_GUARD',
+  MARKET_MODE_REGIME_MISMATCH: 'MARKET_MODE_MISMATCH',
+  MARKET_MODE_COUNTER_NO_EXTREME: 'MARKET_MODE_MISMATCH',
+};
 
 interface UseAIPersistenceOptions {
   enabled: boolean; // Se persistência está ativada
   autoSnapshot: boolean; // Se deve fazer snapshot automático
   snapshotInterval?: number; // Intervalo de snapshot em ms (padrão: 60000 = 1 min)
+  // Chamado quando uma escrita de persistência falha silenciosamente (rede caiu,
+  // RLS rejeitou o insert etc.) — sem isso, o erro só aparecia no console.
+  onPersistenceError?: (context: 'session' | 'trade_open' | 'trade_close' | 'snapshot', error: unknown) => void;
 }
 
 interface TradeData {
@@ -42,6 +76,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   const sessionIdRef = useRef<string | null>(null);
   const snapshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const tradeDbIdsRef = useRef<Map<string, string>>(new Map()); // Mapeia trade.id local → trade.id DB
+  const isStartingSessionRef = useRef(false); // Trava clique duplo/chamada concorrente de startSession
 
   const LOG_PREFIX = '[AI Persistence Hook]';
 
@@ -65,6 +100,13 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       return null;
     }
 
+    // Evita criar duas sessões se startSession for chamado duas vezes antes da
+    // primeira resolver (ex: clique duplo no botão de start).
+    if (sessionIdRef.current || isStartingSessionRef.current) {
+      return sessionIdRef.current;
+    }
+    isStartingSessionRef.current = true;
+
     try {
       console.log(`${LOG_PREFIX} 🚀 Iniciando sessão...`);
 
@@ -82,21 +124,25 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       if (session?.id) {
         sessionIdRef.current = session.id;
         console.log(`${LOG_PREFIX} ✅ Sessão criada:`, session.id);
-        
+
         // Iniciar snapshot automático se habilitado
         if (options.autoSnapshot) {
           startSnapshotInterval();
         }
-        
+
         return session.id;
       }
 
+      options.onPersistenceError?.('session', new Error('createSession retornou vazio'));
       return null;
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao iniciar sessão:`, error);
+      options.onPersistenceError?.('session', error);
       return null;
+    } finally {
+      isStartingSessionRef.current = false;
     }
-  }, [user, options.enabled, options.autoSnapshot]);
+  }, [user, options.enabled, options.autoSnapshot, options.onPersistenceError]);
 
   /**
    * Finalizar sessão atual
@@ -190,16 +236,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       };
 
       const tradeId = await aiPersistence.saveTrade(tradeData);
-      
+
       if (tradeId) {
         // Mapear ID local → ID do banco
         tradeDbIdsRef.current.set(trade.id, tradeId);
         console.log(`${LOG_PREFIX} ✅ Trade salvo:`, tradeId);
+      } else {
+        options.onPersistenceError?.('trade_open', new Error(`saveTrade retornou vazio para ${trade.id}`));
       }
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao salvar trade:`, error);
+      options.onPersistenceError?.('trade_open', error);
     }
-  }, [user, options.enabled]);
+  }, [user, options.enabled, options.onPersistenceError]);
 
   /**
    * Atualizar trade quando fechar posição
@@ -221,7 +270,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       const exitTime = new Date().toISOString();
       const entryTime = new Date(); // Precisaríamos buscar do banco, mas vamos simplificar
 
-      await aiPersistence.updateTrade(dbTradeId, {
+      const ok = await aiPersistence.updateTrade(dbTradeId, {
         exit_price: exitPrice,
         exit_time: exitTime,
         pnl: pnl,
@@ -235,11 +284,16 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
       // Remover do mapeamento
       tradeDbIdsRef.current.delete(tradeId);
 
-      console.log(`${LOG_PREFIX} ✅ Trade fechado:`, dbTradeId);
+      if (ok) {
+        console.log(`${LOG_PREFIX} ✅ Trade fechado:`, dbTradeId);
+      } else {
+        options.onPersistenceError?.('trade_close', new Error(`updateTrade retornou falso para ${dbTradeId}`));
+      }
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao fechar trade:`, error);
+      options.onPersistenceError?.('trade_close', error);
     }
-  }, [options.enabled]);
+  }, [options.enabled, options.onPersistenceError]);
 
   // ==========================================================================
   // PORTFOLIO SNAPSHOTS
@@ -264,11 +318,15 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         timestamp: new Date().toISOString(),
       };
 
-      await aiPersistence.saveSnapshot(snapshot);
+      const ok = await aiPersistence.saveSnapshot(snapshot);
+      if (!ok) {
+        options.onPersistenceError?.('snapshot', new Error('saveSnapshot retornou falso'));
+      }
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao salvar snapshot:`, error);
+      options.onPersistenceError?.('snapshot', error);
     }
-  }, [user, options.enabled]);
+  }, [user, options.enabled, options.onPersistenceError]);
 
   /**
    * Iniciar intervalo de snapshot automático
@@ -314,8 +372,22 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     technicalSignals?: any;
     riskAssessment?: any;
     actionTaken: boolean;
+    vetoStage?: DecisionVetoStage;
     tradeId?: string;
   }) => {
+    // 📊 Funil ANTES do guard de sessão: um veto continua sendo um veto mesmo
+    // quando a persistência está desligada ou a sessão ainda não subiu. Se a
+    // contagem dependesse do mesmo `return` do INSERT, o funil não fecharia
+    // justamente nos casos em que o banco está indisponível — que é quando
+    // saber onde os setups morrem importa mais.
+    if (decision.vetoStage) {
+      funnelTelemetry.recordStage(
+        VETO_TO_FUNNEL_STAGE[decision.vetoStage],
+        decision.symbol,
+        decision.reasoning,
+      );
+    }
+
     if (!sessionIdRef.current || !user?.id || !options.enabled) return;
 
     try {
@@ -331,6 +403,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         technical_signals: decision.technicalSignals,
         risk_assessment: decision.riskAssessment,
         action_taken: decision.actionTaken,
+        veto_stage: decision.vetoStage,
         trade_id: decision.tradeId ? tradeDbIdsRef.current.get(decision.tradeId) : undefined,
       });
     } catch (error) {
@@ -356,6 +429,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   const getSessionTrades = useCallback(async (sessionId: string) => {
     return await aiPersistence.getSessionTrades(sessionId);
   }, []);
+
+  /**
+   * Buscar TODOS os trades FECHADOS do usuário, através de todas as sessões
+   * (não só a sessão ativa) — fonte real do "Histórico de Trades" da tela de
+   * Performance. Antes desta função, `orderHistory` só acumulava trades
+   * fechados durante a aba/sessão de navegador atual (cache local), então o
+   * histórico "sumia" a cada reload/troca de dispositivo mesmo com o trade
+   * salvo no banco.
+   */
+  const getUserTradeHistory = useCallback(async (limit = 200) => {
+    if (!user?.id) return [];
+    return await aiPersistence.getUserTrades(user.id, { limit });
+  }, [user]);
 
   /**
    * Buscar equity curve de uma sessão
@@ -385,6 +471,14 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     endSession,
     restoreActiveSession,
     currentSessionId: sessionIdRef.current,
+    /**
+     * Leitura AO VIVO do id da sessão (lê o ref, não o snapshot de render).
+     * `currentSessionId` acima congela no valor do último render — dentro do
+     * setInterval do motor (useApexLogic) isso devolve o valor de quando o
+     * loop foi montado, tipicamente `null`, porque a sessão só é criada
+     * depois. Quem roda dentro do loop precisa desta função, não do campo.
+     */
+    getSessionId: () => sessionIdRef.current,
     
     // Trades
     onTradeOpen,
@@ -399,6 +493,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Queries
     getSessionHistory,
     getSessionTrades,
+    getUserTradeHistory,
     getEquityCurve,
     
     // Utils

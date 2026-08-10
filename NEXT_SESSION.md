@@ -1,127 +1,181 @@
-# Handoff — próxima sessão (escrito em 2026-07-28)
+# Handoff — próxima sessão
 
-> Arquivo temporário de retomada rápida. Não é memória permanente do projeto —
-> isso é o `CLAUDE.md` (carrega automático) e o `AI_BRAIN_SPEC.md` (fonte de
-> verdade do motor de decisão). Este arquivo existe só pra você abrir uma
-> janela nova e retomar sem reconstruir o raciocínio do zero. Pode apagar
-> depois de ler/absorver.
+> Reescrito em **2026-08-07** (2ª parte do dia), após implementar a primeira
+> versão do runner Deno (passo 3).
+> **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
+> Estado da árvore: nada commitado nesta sessão (regra do projeto: Claude
+> nunca commita/push sozinho) — ver lista completa de arquivos no fim.
 
-## Onde a conversa chegou
+## ▶ COMECE AQUI — runner Deno escrito, falta rodar de verdade
 
-Sessão inteira focada em **revisar a tela "IA Preditiva" (`LiquidityPrediction.tsx`)** — auditoria completa de mock vs. real, correção do timeframe da previsão, unificação do seletor de ativos, controle de voz, e três bugs reais achados no meio do caminho (preço zerado, voz que não desligava, botões duplicados). Ver detalhe por tópico abaixo.
+Passo 3 do plano do runner (ver histórico abaixo) está **escrito e
+verificado estaticamente**: `deno check` limpo, os 4 testes de
+`seam_smoke_test.ts` passam, `npm run validate` verde (15/15), `tsc` sem
+erro novo nos arquivos tocados. **Nada disso prova que funciona contra o
+Supabase de verdade** — esta sessão não tinha acesso à service-role key nem
+a um projeto Supabase pra rodar `deno serve`/testar uma invocação HTTP real.
+Isso é o próximo passo, não opcional antes de considerar o runner pronto.
 
-### 1. Auditoria mock vs. real + reescrita da tela "IA Preditiva" (já commitado)
+### O que existe agora
 
-A tela inteira (`src/app/components/innovation/LiquidityPrediction.tsx`) foi auditada e reescrita:
+`supabase/functions/ai-runner/`:
+- `index.ts` — handler HTTP (`Deno.serve`). Lê `ai_sessions` com
+  `status='RUNNING' AND mode='DEMO'`, reconstrói o estado de cada sessão a
+  partir do banco (`ai_trades` OPEN → `activeOrders`, último
+  `ai_portfolio_snapshots` → `portfolio`, `ai_trades` CLOSED de hoje →
+  `orderHistory`), e roda um loop limitado (`MAX_RUNTIME_MS = 45s`) por
+  invocação: tick de posição a cada 1s, tick de trading (chama
+  `runTradingCycle` de verdade, sem cópia) a cada 5s.
+- `lib/persistence.ts` — implementa `TradingCyclePersistence`
+  (`saveDecision`/`onTradeOpen`) via service-role, espelhando
+  `useAIPersistence.ts` **incluindo** a chamada a
+  `funnelTelemetry.recordStage` antes de qualquer outra coisa em cada veto
+  (era o requisito explícito do handoff anterior, pra não deixar o funil
+  incompleto de novo).
+- `lib/positionManager.ts` — segundo "driver" (fora do motor, igual o loop
+  de 1s que só existia no browser): TP/SL + trailing-stop ATR, fecha via
+  service-role. Rejeita `source: 'SIMULATED'` explicitamente, além de
+  `isRealData` — trava dupla no requisito não-negociável do runner.
+- `shims/supabaseClient.ts` — estendido nesta sessão: além de
+  `auth.getSession()`, agora implementa `from('ai_funnel_snapshots').insert`
+  e `from('ai_sessions').update(...).eq(...)` (as duas chamadas reais que
+  `FunnelTelemetry.ts` faz). Tipado como `SupabaseClient` completo (não a
+  forma mínima real) só pra satisfazer o `deno check` de trechos do grafo do
+  motor que o runner nunca executa em DEMO (ex: `BrokerClient.ts` via
+  `LiveEmergencyClose`) — a trava de runtime (Proxy que lança em qualquer
+  acesso não implementado) continua exatamente tão restrita quanto antes.
+- `seam_smoke_test.ts` — atualizado: o teste que afirmava "`.from` sempre
+  estoura" foi corrigido pra refletir que `.from(...)` agora é legítimo pras
+  duas tabelas acima (e continua estourando pra qualquer outra).
 
-- **Previsão "Próxima Xh"**: era 100% mock hardcoded (68% de confiança fixo, `+0.8%` fixo, sempre "1h" independente do timeframe selecionado). Reescrita pra usar o `MarketScoreEngine` real (mesmo motor do Dashboard) — título, classificação, confiança e níveis agora reagem de verdade ao timeframe escolhido (1m/5m/15m/1h/4h/1d — `'1w'` removido, o motor não suporta).
-- **Suporte/Resistência**: era ±0,2% arbitrário sobre o preço. Agora é pivô real (swing high/low de 20 barras) calculado a partir de candles reais (`backtestDataService.fetchHistoricalData`).
-- **Mapa de Liquidez**: era `Math.sin()+Math.random()` fabricado. Agora usa order book real da Binance (`GET /api/v3/depth`) para pares cripto resolvíveis; para o resto do catálogo (forex/índices via Infinox) mostra estado "indisponível" honesto — **isso é estrutural, não falta de fonte escolhida**: não existe order book público gratuito pra forex/CFD em nenhuma API de mercado (Alpha Vantage, EODHD, Tiingo etc. também não têm).
-- **Feed Neural**: os ~17 templates de alerta fabricados (baleia, spoofing, iceberg, RSI fake) foram removidos. Ficaram só alertas reais: horário de mercado, contagem de candle, trade grande via `aggTrades` da Binance (cripto), pressão de book real via `describeMicrostructure` (agora exportada do `MarketScoreEngine.ts`).
-- **Narração por voz** (`hourlyVoiceAnalysis.ts`): RSI e "probabilidade de alta" eram sorteados com `Math.random()` mesmo recebendo dado real de entrada. Corrigido pra vir do `MarketScoreResult` real; frase de probabilidade fabricada foi removida (não existe fonte real calibrada pra ela).
-- **Seletor de ativos**: unificado no `InfinoxAssetsBrowser` (o mesmo modal que o Dashboard usa em produção) — ganhou um modo `multi` novo, reaproveitado também pelo `AssetUniverse.tsx` do AI Trader.
+### Achado importante desta sessão (documentar, não só corrigir)
 
-### 2. Bug achado e corrigido: narração sempre dizia "uma hora" (já commitado)
+A "costura" provada em 2026-08-04 (`seam_smoke_test.ts` original) **nunca
+importava `runTradingCycle.ts`** — só `StrategyEvaluator`/
+`TechnicalIndicators`/`MarketScoreEngine`. Ao tentar rodar o runner de
+verdade, dois problemas apareceram que o smoke test antigo não podia ter
+pego:
 
-`hourlyVoiceAnalysis.ts` tinha o texto "Previsão em uma hora" hardcoded, ignorando o timeframe real selecionado no seletor. Corrigido — `HourlyAnalysisData` ganhou `timeframeLabel`, preenchido com `TIMEFRAME_LABELS[timeframe]` nos dois call-sites da narração.
+1. `runTradingCycle.ts` importava `TradeVisual`/`AIConfig`/`PortfolioState`
+   como `import type` de `@/app/hooks/useApexLogic` — um arquivo React
+   (`react`, `sonner`, `motion/react` via `PyramidingConfigPanel.tsx`).
+   Mesmo sendo só tipo, o Deno precisa carregar o grafo do módulo alvo pra
+   checar o tipo, e esse grafo não é portável. **Corrigido**: os 3 tipos (+
+   `PyramidingConfig`, que `AIConfig` referencia) foram extraídos pra
+   [src/app/types/tradingState.ts](src/app/types/tradingState.ts) — arquivo
+   sem NENHUM import, de propósito. `useApexLogic.ts` e
+   `PyramidingConfigPanel.tsx` agora re-exportam de lá em vez de definir
+   localmente (sem duplicação, mesmo formato). `npx tsc -p tsconfig.json
+   --noEmit` confirma zero erro novo nos arquivos tocados.
+2. O motor inteiro usa imports **sem extensão** (`from '@/app/types/strategy'`,
+   não `'.../strategy.ts'`) — estilo Vite normal, nunca escrito pensando em
+   Deno. Por padrão o Deno exige extensão explícita. **Corrigido** ativando
+   `"unstable": ["sloppy-imports"]` no `deno.json` do runner — sem editar
+   nenhum import do caminho crítico (ver comentário no próprio `deno.json`).
 
-### 3. Toggle de voz independente + mutex entre telas de voz (já commitado)
+Nenhuma lógica de decisão mudou — os dois problemas eram 100% de resolução
+de módulo, não de comportamento. `npm run validate` confirma (15/15 verde).
 
-A pedido do Cleber: novo botão "Voz ON/OFF" no Feed Neural, separado do "AI ON/OFF" (que continua desligando o feed inteiro) — permite acompanhar só os logs sem narração. Criado `VoiceCoordinatorContext` (novo, `src/app/contexts/`) que arbitra mutex entre a voz da IA Preditiva e a da tela "AI Trader Voice" — ligar uma desliga a outra na hora. No caminho, achado e corrigido um **bug real**: o cleanup do loop de narração do `AITraderVoice.tsx` não fazia nada de fato (só um `console.log`) — trocar de tela com a voz ligada deixava o loop rodando "zumbi" em segundo plano, brigando com a voz da outra tela. Agora cancela `speechSynthesis`, aborta o loop e libera a voz de verdade no unmount.
+### Limitações conhecidas, documentadas de propósito (não escondidas)
 
-### 4. Bug achado e corrigido: "Voz OFF" não parava a narração em andamento (já commitado)
+- **Estado efêmero entre invocações.** Cooldown, `lastTradedSymbol`, cache de
+  notícias/VIX e buffer de candles vivem só dentro de uma invocação (até
+  45s) e resetam a cada novo disparo do cron. Como o cooldown padrão é 5s e
+  o cron é esperado rodar a cada ~1min, o efeito prático é pequeno, mas não
+  é idêntico a um processo contínuo de verdade. Gates que dependem do
+  histórico real (`RISK_GATE`, kill-switch, `MAX_TRADES_PER_DAY`) continuam
+  corretos porque são recalculados a partir de `ai_trades` no banco a cada
+  invocação, não do estado efêmero.
+- **`CLOSE_ALL_ORDERS` (kill-switch) não persiste fechamento em DEMO** — o
+  driver browser (`useApexLogic.ts:1232-1234`) só limpa `activeOrders` em
+  memória, nunca chama `onTradeClose` pras posições fechadas pelo
+  kill-switch. O runner replica esse comportamento EXATAMENTE (pra não
+  divergir do browser), mas isso deixa linhas `ai_trades.status='OPEN'`
+  órfãs no banco quando o kill-switch dispara. Não é bug introduzido por
+  este driver — é um buraco pré-existente, agora visível porque o runner é
+  quem vai rodar sem supervisão. Vale decidir se corrige nos dois drivers
+  numa sessão futura.
+- **Cadência do cron.** Não existe infraestrutura de cron no projeto (sem
+  `config.toml`, sem `pg_cron` habilitado ainda). SQL de exemplo no fim de
+  `index.ts` (comentário, não aplicado) — usa `pg_cron` + `pg_net`,
+  granularidade mínima de 1 minuto. Isso significa até ~15s de gap entre o
+  fim de uma invocação (45s de loop) e o início da próxima.
+- **`positionManager.ts` é lógica duplicada de propósito**, não do motor
+  compartilhado — o trailing-stop ATR só existia inline no hook do browser
+  (nunca foi extraído pra módulo puro, ao contrário do ciclo de entrada).
+  Qualquer mudança futura na lógica de TP/SL/trailing do browser
+  (`useApexLogic.ts:1313-1561`) precisa ser replicada aqui manualmente até
+  existir um módulo puro compartilhado — fora do escopo desta sessão.
 
-Causa raiz: os loops de narração (`for + await speak(...)`) capturavam a função `speak()` da closure vigente no clique do botão — como `speak()` é recriada a cada mudança de `voiceEnabled`, o loop já em andamento continuava vendo o `voiceEnabled` **antigo**. Corrigido com `voiceEnabledRef` (sempre sincronizada via `useEffect`), checada a cada iteração dos dois loops pra cortar de verdade. Layout também corrigido: "Voz ON/OFF" estava espalhado pro extremo direito da tela por causa de um `justify-between` mal escopado — agora fica agrupado ao lado do "AI ON/OFF".
+## Próximo passo obrigatório antes de considerar o runner pronto
 
-### 5. Bug achado e corrigido + consolidação de botões — **AINDA NÃO COMMITADO**
+**Rodar de verdade**, na ordem:
 
-- **Preço zerado**: `realPrices[selectedAsset]` usava chave errada (`'BTC'` sem sufixo vs. `selectedAsset` guardando o ticker completo `'BTCUSDT'`) — nunca batia, caía sempre em `$0`, que ia parar tanto no card "Preço Atual" quanto na narração ("Preço atual: 0 dólares"). Trocado por `livePrice`, derivado do fechamento real do último candle já buscado pro pivô (cobre qualquer ativo do catálogo, não só os 10 pares cripto do `realPrices` antigo, que foi removido — tinha ficado órfão).
-- **3 botões duplicados → 1**: "Escaneamento Profundo" não tinha `onClick` nenhum (não fazia nada) e "Análise Completa por Voz" duplicava exatamente a lógica de "Análise | Próxima Xh". Os dois foram removidos — o único botão "Análise | Próxima Xh" já é profundo (Market Score Engine + pivô real) e já narra por voz por padrão, não mais 3 ações separadas.
-- **Retry/backoff no 504 da MetaAPI**: `BacktestDataService.fetchFromMetaApiHistory` agora tenta até 2 vezes a mais (800ms, depois 2s) quando a resposta é 504/502/503/429 — ataca a causa raiz documentada no `CLAUDE.md` (conta MetaAPI compartilhada sob carga), em vez de aceitar "indisponível" na primeira falha transitória. Se todas as tentativas falharem, o erro real ainda propaga — nunca fabrica candle.
-- Decisão tomada nesta sessão: **não** integrar Alpha Vantage/EODHD/Tiingo como fallback — cota diária grátis (≈25 req/dia) é baixa demais pro volume real do app, e nenhuma delas resolve o gap de order book de forex/índices de qualquer forma (isso é estrutural).
+1. Cleber configura `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` (e opcional
+   `AI_RUNNER_SHARED_SECRET`, recomendado) como secrets da function:
+   ```bash
+   supabase secrets set --env-file <(echo "AI_RUNNER_SHARED_SECRET=<algo-aleatorio>")
+   ```
+2. Deploy manual pra teste (Cleber roda, não Claude):
+   ```bash
+   supabase functions deploy ai-runner --project-ref wyvdsxtcmizettljxtbg
+   ```
+3. Com uma sessão RUNNING/DEMO de verdade no banco, invocar manualmente:
+   ```bash
+   curl -X POST https://wyvdsxtcmizettljxtbg.supabase.co/functions/v1/ai-runner \
+     -H "x-runner-secret: <o mesmo valor do passo 1>"
+   ```
+4. Comparar `ai_funnel_snapshots.stage_counts` da invocação contra o padrão
+   histórico do driver browser pro mesmo tipo de estado de entrada — mesma
+   verificação comportamental que já estava pendente do passo 2 (extração do
+   ciclo), agora estendida ao passo 3.
+5. Só depois disso, decidir junto com o Cleber se/quando ligar o
+   `pg_cron` (SQL de exemplo no fim de `index.ts`) pra rodar sem supervisão.
 
-## Verificação feita
+## Decisão do Cleber ainda em aberto (não bloqueia o runner)
 
-- `npm run validate` (28/28) depois de cada mudança que tocou o motor.
-- `npx tsc --noEmit` — 689 erros no total durante toda a sessão (baseline pré-existente, mesmo número antes/depois de cada mudança — **zero erro novo introduzido**, confirmado repetidamente com `git stash`).
-- `npm run build` — sempre limpo, sem aviso de chunk circular.
-- Verificação visual real no browser (login mock via `sessionStorage`, não credencial real) pra cada mudança: timeframe atualizando a previsão ao vivo, seletor de ativos unificado abrindo o modal certo, voz cortando de verdade no meio da narração (capturado via mock de `speechSynthesis`, array de mensagens faladas parou exatamente no ponto do clique), preço real aparecendo (`$63.748,47` em vez de `$0`), botão único substituindo os 3 antigos.
-- **Não testado**: nenhuma ação irreversível/financeira.
+Taxa base medida em 2026-08-05: **nenhum dos 5 presets de produção é
+lucrativo líquido de custo** no agregado. Sem mudança desde o último
+handoff — ver `SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (com errata sobre
+XBNUSD no topo da seção de bugs).
 
-## Próximo trabalho concreto sugerido
+## O que ficou decidido (não reabrir sem motivo novo)
 
-1. **Commitar e dar push no que está pendente** (item 5 acima — preço, consolidação de botões, retry MetaAPI). Comandos prontos abaixo.
-2. Confirmar em produção (pós-deploy) que o preço real aparece corretamente pra ativos forex/índices também (só testei BTCUSDT localmente — o `livePrice` deveria funcionar pra qualquer ativo do catálogo via `backtestDataService`, mas vale conferir visualmente pelo menos 1 ativo não-cripto).
-3. Considerar migrar `AssetSelector.tsx`/`AssetSpecsSelector.tsx` (usados na view "Pirâmide") pro mesmo padrão `InfinoxAssetsBrowser` — ficou fora de escopo desta sessão de propósito (evitar aumentar a superfície de regressão numa área não relacionada ao pedido original).
-4. Pendência antiga, ainda não retomada: decisão sobre estágio 3 da ponte decisão→execução real (`CLAUDE.md`, seção "Pendências reais em aberto", item 2).
-5. `npm run validate` obrigatório antes de qualquer commit que toque o motor.
+- **Runner 24/7 operando de verdade em DEMO é requisito de produto**, não
+  otimização. Execução em conta REAL fica fora desta entrega.
+- **Um motor, dois drivers.** O runner importa o motor do browser, nunca
+  copia — `positionManager.ts` é a única exceção documentada (ver acima),
+  porque a lógica de TP/SL/trailing nunca foi extraída em primeiro lugar.
+- **Nenhum gate/limiar foi afrouxado, e não será.**
+- **Calibração ajusta a QUANTIDADE de trades, nunca o SINAL da expectativa.**
+- **A IA está desligada de propósito.**
 
-## Arquivos-chave pra retomar
+## Armadilhas conhecidas, ainda não corrigidas (herdadas, não deste passo)
 
-- [`src/app/components/innovation/LiquidityPrediction.tsx`](src/app/components/innovation/LiquidityPrediction.tsx) — a tela inteira, reescrita nesta sessão. Maior arquivo tocado.
-- [`src/app/utils/hourlyVoiceAnalysis.ts`](src/app/utils/hourlyVoiceAnalysis.ts) — narração por voz, RSI/timeframe reais.
-- [`src/app/contexts/VoiceCoordinatorContext.tsx`](src/app/contexts/VoiceCoordinatorContext.tsx) — novo, mutex entre telas de voz.
-- [`src/app/components/modules/AITraderVoice.tsx`](src/app/components/modules/AITraderVoice.tsx) — fix do cleanup zumbi + integração com o coordenador.
-- [`src/app/components/dashboard/InfinoxAssetsBrowser.tsx`](src/app/components/dashboard/InfinoxAssetsBrowser.tsx) — ganhou modo `multi`.
-- [`src/app/services/BacktestDataService.ts`](src/app/services/BacktestDataService.ts) — retry/backoff no fetch da MetaAPI (pendente de commit).
-- [`src/app/services/MarketScoreEngine.ts`](src/app/services/MarketScoreEngine.ts) — `describeMicrostructure` exportada.
+**Faixa morta do `detectRegime`**, **pares JPY com pip de 4 casas**,
+**desperdício de amostragem** — sem mudança, ver histórico anterior deste
+arquivo (git log) ou `CLAUDE_HISTORY.md`.
 
-## Regras fixas do projeto (não esquecer ao retomar)
+## Anotado, não priorizado
 
-- Claude nunca faz `git commit`/`git push` sozinho — sempre entregar comando pronto pro Cleber rodar (Cleber pediu explicitamente que **o comando de push venha sempre junto** com o de commit a partir desta sessão).
-- `npm run validate` obrigatório antes de qualquer commit que toque o motor.
-- Nunca fabricar dado — sempre erro/estado "indisponível" explícito quando não há fonte real.
-- Comunicação sempre em português, rigor de especialista sênior — nunca inflar resultado, sempre reportar achado negativo por completo.
-- Ações irreversíveis/financeiras nunca são executadas por Claude sozinho, mesmo em teste.
+- Mudanças de OUTRA sessão continuam não commitadas na árvore:
+  `AIToolsControl.tsx`, `ATRTrailingStopManager.tsx`,
+  `PyramidingConfigPanel.tsx` (agora TAMBÉM tocado por esta sessão — só a
+  extração do tipo `PyramidingConfig`, ver acima) e
+  `SESSAO_2026-08-04_ATR_PYRAMIDING_E_AUDITORIA_CONFIG.md`. Cleber decide o
+  que fazer com o conjunto.
 
-## Estado do git
+## Arquivos tocados/criados nesta sessão (nada commitado)
 
-**Pendente de commit** (working tree neste momento):
+Novos: `supabase/functions/ai-runner/index.ts`,
+`supabase/functions/ai-runner/lib/{serviceClient,persistence,positionManager}.ts`,
+`src/app/types/tradingState.ts`.
+Modificados: `supabase/functions/ai-runner/{deno.json,seam_smoke_test.ts,shims/supabaseClient.ts}`,
+`src/app/hooks/useApexLogic.ts` (tipos movidos, comportamento idêntico),
+`src/app/components/trading/PyramidingConfigPanel.tsx` (idem),
+`src/app/services/strategy/runTradingCycle.ts` (só o import de tipos).
 
-```
-M src/app/components/innovation/LiquidityPrediction.tsx
-M src/app/services/BacktestDataService.ts
-```
+## Workflow (regra fixa do projeto)
 
-Comandos prontos pra rodar:
-
-```bash
-git add src/app/components/innovation/LiquidityPrediction.tsx src/app/services/BacktestDataService.ts
-```
-
-```bash
-git commit -m "fix: preco zerado na IA Preditiva, consolida botoes de analise, retry no 504 da MetaAPI
-
-- LiquidityPrediction: realPrices[selectedAsset] usava chave errada (base
-  cripto sem sufixo vs ticker completo do catalogo Infinox) -- sempre caia
-  em 0, aparecia no card Preco Atual e na narracao por voz. Trocado por
-  livePrice, derivado do candle real ja buscado pro pivo (cobre qualquer
-  ativo, nao so os 10 pares cripto do realPrices antigo, removido por
-  ficar orfao).
-- LiquidityPrediction: Escaneamento Profundo (sem onClick, nao fazia nada)
-  e Analise Completa por Voz (duplicava a logica de Analise | Proxima Xh)
-  removidos -- um unico botao, ja profundo e ja narrado por voz por
-  padrao, nao mais 3 acoes separadas pra mesma analise.
-- BacktestDataService: retry com backoff (2 tentativas, 800ms/2s) em
-  fetchFromMetaApiHistory pra 504/502/503/429 -- ataca a causa raiz
-  documentada (conta MetaAPI compartilhada sob carga) em vez de mascarar
-  com falha imediata; erro real ainda propaga se todas as tentativas
-  falharem, nunca fabrica candle."
-```
-
-```bash
-git push origin main
-```
-
-Últimos commits já feitos, mais recente primeiro:
-
-```
-15ae00db3 fix: Voz OFF nao parava narracao em andamento + reposiciona botao ao lado do AI ON
-75ff47cb8 Reescreve seção de sentimento de mercado com dados reais do crawler RSS
-d66d6b835 feat: toggle de voz independente no Feed Neural + mutex entre vozes do app
-106e6b331 fix: narracao de voz da IA Preditiva ficava presa em 'uma hora' fixo
-5defd71f7 Atualiza preços em reais e dados do rodapé (endereço/contato)
-d9cdec709 fix: remove dado fabricado (Math.random) de voz, liquidez e feed neural
-```
-
-(Commit `75ff47cb8` e `5defd71f7` foram feitos por fora desta conversa — provavelmente pelo Cleber direto ou outra ferramenta — não fazem parte do trabalho documentado acima, citados só pra contexto do log.)
+Claude **nunca** roda `git commit`/`push` nem aplica migration/deploy.
+Sempre entrega código pronto + comandos prontos pro Cleber rodar.

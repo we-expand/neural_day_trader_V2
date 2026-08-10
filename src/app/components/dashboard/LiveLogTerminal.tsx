@@ -1,126 +1,121 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInView } from 'react-intersection-observer';
-import { Terminal, AlertCircle, ShieldAlert, Wifi, Activity, Cpu, Play, Square, XCircle, RotateCw, Loader2 } from 'lucide-react';
+import { Terminal, ShieldAlert, Wifi, Activity, Play, Square, XCircle, Loader2 } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 
 interface LogEntry {
   id: string;
   timestamp: string;
-  category: 'CORE' | 'FAIL' | 'RETRY' | 'CRITICAL' | 'EXEC' | 'RISK' | 'NETWORK' | 'INFO';
+  category: 'CORE' | 'CRITICAL' | 'EXEC' | 'NETWORK' | 'INFO';
   message: string;
-  details?: string;
 }
 
+/**
+ * Terminal de eventos reais da sessão de trading — antes gerava latência de
+ * broker, margin level, CPU/Memory/PID/Uptime inteiramente fabricados a cada
+ * 2s via `Math.random()`. Reescrito (auditoria 2026-07-29) pra só logar
+ * transições reais de estado (`useTradingContext`): conexão MT5, status
+ * rodando/parado, ordens abertas/fechadas. Sem evento real, não loga nada —
+ * nunca mais inventa telemetria.
+ */
 export function LiveLogTerminal({ embedded = false }: { embedded?: boolean }) {
-  const { status, activeOrders } = useTradingContext();
+  const { status, activeOrders, isConnectedToMT5 } = useTradingContext();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  
-  // Infinite Scroll Trigger
-  const { ref: topLoaderRef, inView } = useInView({
-    threshold: 0,
-  });
+  const sessionStartRef = useRef<number>(Date.now());
+  const [uptimeLabel, setUptimeLabel] = useState('0s');
 
-  // Load History Effect
+  const prevStatusRef = useRef(status);
+  const prevConnectedRef = useRef(isConnectedToMT5);
+  const prevOrderIdsRef = useRef<Set<string>>(new Set());
+
+  const { ref: topLoaderRef, inView } = useInView({ threshold: 0 });
+
+  const pushLog = (category: LogEntry['category'], message: string) => {
+    const now = new Date();
+    setLogs(prev => [...prev.slice(-50), {
+      id: `${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: now.toLocaleTimeString('pt-BR', { hour12: false }),
+      category,
+      message
+    }]);
+  };
+
+  // Log inicial real — reflete o estado de conexão no momento em que a tela abriu.
   useEffect(() => {
-    if (inView && !isLoadingHistory) {
-      loadMoreHistory();
+    pushLog('CORE', 'Terminal de eventos iniciado.');
+    pushLog('NETWORK', isConnectedToMT5 ? 'MT5 conectado.' : 'MT5 não conectado.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Uptime real da sessão (tempo desde que este terminal foi montado).
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const seconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      setUptimeLabel(h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Transição real de status (rodando/parado).
+  useEffect(() => {
+    if (prevStatusRef.current !== status) {
+      pushLog(status === 'running' ? 'EXEC' : 'INFO', status === 'running' ? 'Sessão iniciada.' : 'Sessão parada.');
+      prevStatusRef.current = status;
     }
-  }, [inView]);
+  }, [status]);
+
+  // Transição real de conexão MT5.
+  useEffect(() => {
+    if (prevConnectedRef.current !== isConnectedToMT5) {
+      pushLog(isConnectedToMT5 ? 'NETWORK' : 'CRITICAL', isConnectedToMT5 ? 'MT5 conectado.' : 'MT5 desconectado.');
+      prevConnectedRef.current = isConnectedToMT5;
+    }
+  }, [isConnectedToMT5]);
+
+  // Ordens reais abertas/fechadas (diff pelo id).
+  useEffect(() => {
+    const currentIds = new Set(activeOrders.map(o => o.id));
+    const prevIds = prevOrderIdsRef.current;
+
+    activeOrders.forEach(order => {
+      if (!prevIds.has(order.id)) {
+        pushLog('EXEC', `Ordem aberta: ${order.symbol ?? order.id}.`);
+      }
+    });
+    prevIds.forEach(id => {
+      if (!currentIds.has(id)) {
+        pushLog('EXEC', `Ordem encerrada: ${id}.`);
+      }
+    });
+
+    prevOrderIdsRef.current = currentIds;
+  }, [activeOrders]);
 
   const loadMoreHistory = () => {
     setIsLoadingHistory(true);
-    // Simulate API delay
-    setTimeout(() => {
-      const olderLogs: LogEntry[] = Array.from({ length: 10 }).map((_, i) => ({
-        id: `history-${Date.now()}-${i}`,
-        timestamp: new Date(Date.now() - (86400000 + i * 60000)).toLocaleTimeString('pt-BR'), // Yesterday
-        category: 'INFO',
-        message: `Log Histórico Recuperado #${i + 1} - Análise Retroativa`,
-        details: 'Dados carregados do arquivo morto (Cold Storage)'
-      }));
-      
-      setLogs(prev => [...olderLogs, ...prev]);
-      setIsLoadingHistory(false);
-      
-      // Adjust scroll to prevent jump (Basic implementation)
-      if (scrollRef.current) {
-          scrollRef.current.scrollTop += 50; 
-      }
-    }, 1000);
+    setTimeout(() => setIsLoadingHistory(false), 400);
   };
 
-  // Initial Mock Data to match the image
   useEffect(() => {
-    const initialLogs: LogEntry[] = [
-      { id: '1', timestamp: '20:40:49', category: 'CORE', message: 'Sistema Neural Iniciado. Carregando modelos...' },
-      { id: '5', timestamp: '20:40:50', category: 'EXEC', message: 'Conexão MT5 Estabelecida. Ping: 14ms' },
-      { id: '7', timestamp: '20:40:51', category: 'NETWORK', message: 'Feed de Dados Sincronizado: MT5 + APIs' },
-      { id: '8', timestamp: '20:40:51', category: 'INFO', message: 'Mapeamento Inteligente Ativo. Aguardando oportunidades.' },
-    ];
-    setLogs(initialLogs);
-  }, []);
+    if (inView && !isLoadingHistory) loadMoreHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inView]);
 
-  // Simulating Live Logs based on context status
   useEffect(() => {
-    if (status !== 'running') return;
-
-    const interval = setInterval(() => {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('pt-BR', { hour12: false });
-      
-      const categories: LogEntry['category'][] = ['CORE', 'NETWORK', 'EXEC', 'RISK', 'INFO'];
-      const randomCategory = categories[Math.floor(Math.random() * categories.length)];
-      
-      let message = '';
-      switch (randomCategory) {
-        case 'CORE':
-          message = `Otimizando pesos da rede neural (Epoch ${Math.floor(Math.random() * 100)})...`;
-          break;
-        case 'NETWORK':
-          message = `Latência do Broker: ${Math.floor(Math.random() * 50) + 10}ms. Conexão Estável.`;
-          break;
-        case 'EXEC':
-          message = `Monitorando tick data para ${Math.random() > 0.5 ? 'BTCUSDT' : 'EURUSD'}... Spread: 0.2`;
-          break;
-        case 'RISK':
-          message = `Verificação de exposição global: OK. Margin Level: ${(Math.random() * 500 + 100).toFixed(2)}%`;
-          break;
-        case 'INFO':
-          message = `Análise de sentimento: ${Math.random() > 0.5 ? 'Bullish' : 'Bearish'}. Score: ${(Math.random() * 100).toFixed(0)}`;
-          break;
-      }
-
-      const newLog: LogEntry = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: timeStr,
-        category: randomCategory,
-        message
-      };
-
-      setLogs(prev => [...prev.slice(-50), newLog]); // Keep last 50
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [status]);
-
-  // Auto Scroll
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [logs]);
 
   const getCategoryColor = (cat: LogEntry['category']) => {
     switch (cat) {
       case 'CORE': return 'text-slate-400';
-      case 'FAIL': return 'text-red-500 font-bold';
-      case 'RETRY': return 'text-orange-400';
       case 'CRITICAL': return 'text-red-500 font-bold bg-red-500/10 px-1 rounded';
       case 'EXEC': return 'text-white font-bold';
-      case 'RISK': return 'text-rose-400';
       case 'NETWORK': return 'text-cyan-400';
       default: return 'text-slate-500';
     }
@@ -128,8 +123,7 @@ export function LiveLogTerminal({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div className={`flex flex-col bg-black font-mono text-xs md:text-sm overflow-hidden border border-white/10 rounded-xl shadow-2xl relative ${embedded ? 'h-full' : 'h-[600px]'}`}>
-      
-      {/* Terminal Header */}
+
       <div className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-white/5 select-none">
         <div className="flex items-center gap-2">
            <Terminal className="w-4 h-4 text-emerald-500" />
@@ -143,12 +137,10 @@ export function LiveLogTerminal({ embedded = false }: { embedded?: boolean }) {
         </div>
       </div>
 
-      {/* Main Log Area */}
-      <div 
+      <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 space-y-1 bg-black/90 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent font-mono"
       >
-        {/* History Loader Trigger */}
         <div ref={topLoaderRef} className="h-4 flex justify-center items-center opacity-50">
             {isLoadingHistory && <Loader2 className="w-3 h-3 animate-spin text-emerald-500" />}
         </div>
@@ -167,52 +159,44 @@ export function LiveLogTerminal({ embedded = false }: { embedded?: boolean }) {
               </span>
               <span className="text-slate-300 break-all group-hover:text-white transition-colors">
                 {log.message}
-                {log.details && (
-                    <span className="block text-slate-500 text-xs mt-0.5 ml-2 border-l-2 border-slate-700 pl-2">
-                        {log.details}
-                    </span>
-                )}
               </span>
             </motion.div>
           ))}
         </AnimatePresence>
-        
-        {/* Typing Cursor Effect */}
+
         {status === 'running' && (
-            <motion.div 
-                animate={{ opacity: [0, 1, 0] }} 
+            <motion.div
+                animate={{ opacity: [0, 1, 0] }}
                 transition={{ repeat: Infinity, duration: 0.8 }}
                 className="w-2 h-4 bg-emerald-500 mt-2"
             />
         )}
       </div>
 
-      {/* Status Footer */}
+      {/* Rodapé — só métricas reais (antes tinha CPU/Memory/PID hardcoded fixos) */}
       <div className="bg-neutral-900 border-t border-white/5 px-4 py-2 flex items-center justify-between text-[10px] text-slate-500 uppercase tracking-widest">
         <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
-                <Wifi className="w-3 h-3 text-emerald-500" />
-                MT5: Connected
+                <Wifi className={`w-3 h-3 ${isConnectedToMT5 ? 'text-emerald-500' : 'text-red-500'}`} />
+                MT5: {isConnectedToMT5 ? 'Connected' : 'Disconnected'}
             </span>
             <span className="flex items-center gap-1.5">
-                <Cpu className="w-3 h-3 text-purple-500" />
-                CPU: 12%
+                {status === 'running' ? <Play className="w-3 h-3 text-emerald-500" /> : <Square className="w-3 h-3 text-slate-500" />}
+                {status === 'running' ? 'Running' : 'Idle'}
             </span>
             <span className="flex items-center gap-1.5">
                 <Activity className="w-3 h-3 text-blue-500" />
-                Memory: 480MB
+                Ordens ativas: {activeOrders.length}
             </span>
         </div>
         <div className="flex items-center gap-2">
-            <span>Pid: 8492</span>
-            <span>Uptime: 4d 12h</span>
+            <span>Sessão: {uptimeLabel}</span>
         </div>
       </div>
 
-      {/* Toast Notification Simulation (Fixed Position inside Terminal) */}
       <AnimatePresence>
-         {logs.some(l => (l.category === 'CRITICAL' || l.category === 'FAIL') && logs.indexOf(l) === logs.length - 1) && (
-            <motion.div 
+         {logs.length > 0 && logs[logs.length - 1].category === 'CRITICAL' && (
+            <motion.div
                 initial={{ opacity: 0, y: 20, x: 20 }}
                 animate={{ opacity: 1, y: 0, x: 0 }}
                 exit={{ opacity: 0, y: 20 }}
@@ -224,16 +208,8 @@ export function LiveLogTerminal({ embedded = false }: { embedded?: boolean }) {
                 <div>
                     <h4 className="text-white font-bold text-sm mb-1">Alerta do Sistema</h4>
                     <p className="text-slate-400 text-xs leading-relaxed">
-                        {logs.find(l => l.category === 'CRITICAL' || l.category === 'FAIL')?.message || "Erro detectado na execução."}
+                        {logs[logs.length - 1].message}
                     </p>
-                    <div className="mt-3 flex gap-2">
-                        <button className="text-[10px] bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded font-bold transition-colors">
-                            Ver Detalhes
-                        </button>
-                        <button className="text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-3 py-1.5 rounded font-bold transition-colors">
-                            Dispensar
-                        </button>
-                    </div>
                 </div>
                 <button className="text-slate-500 hover:text-white h-fit">
                     <XCircle className="w-4 h-4" />

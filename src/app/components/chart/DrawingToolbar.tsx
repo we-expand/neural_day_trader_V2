@@ -86,10 +86,11 @@ interface DrawingToolbarProps {
   onLockToggle?: (locked: boolean) => void; // 🆕 Travar/destravar desenhos de verdade no gráfico
   onHideToggle?: (hidden: boolean) => void; // 🆕 Ocultar/mostrar desenhos de verdade no gráfico
   onEmojiSelect?: (emoji: string) => void; // 🆕 Emoji escolhido no picker → marcador real no gráfico
+  onMagnetToggle?: (enabled: boolean) => void; // 🆕 Liga/desliga o encaixe automático de desenhos no OHLC do candle
   className?: string;
 }
 
-export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeChange, onDataWindowToggle, onDeleteAll, onLockToggle, onHideToggle, onEmojiSelect, className = '' }: DrawingToolbarProps) {
+export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeChange, onDataWindowToggle, onDeleteAll, onLockToggle, onHideToggle, onEmojiSelect, onMagnetToggle, className = '' }: DrawingToolbarProps) {
   const [activeTool, setActiveTool] = useState<DrawingTool | null>(null);
   const [isMagneticMode, setIsMagneticMode] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
@@ -128,11 +129,17 @@ export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeC
 
     // Toggle tools especiais
     if (tool === 'magnet') {
-      // 🚧 Snapping ainda não implementado — ser honesto em vez de fingir sucesso
-      // (antes mostrava "Ativado · desenhos se encaixam automaticamente" sem nenhum efeito real).
-      toast.warning('Modo Magnético em desenvolvimento', {
-        description: 'O encaixe automático de desenhos ainda não está disponível.',
-        duration: 2500
+      // 🔧 FIX: antes só mostrava um toast "em desenvolvimento" e retornava — nunca
+      // ligava nada de verdade. A klinecharts já suporta magnet nativamente via
+      // `OverlayMode` (weak_magnet/strong_magnet) passado na criação do overlay; o
+      // ChartView aplica esse modo a cada novo desenho enquanto isso estiver ativo
+      // (ver `onMagnetToggle` e uso de `OverlayMode` em ChartView.tsx).
+      const next = !isMagneticMode;
+      setIsMagneticMode(next);
+      onMagnetToggle?.(next);
+      toast.success(`Modo Magnético ${next ? 'Ativado' : 'Desativado'}`, {
+        description: next ? 'Novos desenhos se encaixam no OHLC do candle mais próximo' : undefined,
+        duration: 2000
       });
       return;
     }

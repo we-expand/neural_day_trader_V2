@@ -1,4 +1,5 @@
-import { RiskProfileType, Strategy } from '../../types/strategy';
+import { RiskProfileType, Strategy } from '../../types/strategy.ts';
+import { getAssetBySymbol } from '../../config/assetDatabase.ts';
 
 /**
  * Extraído de useApexLogic.ts (mesmos valores/regras usados ao vivo) para ser
@@ -48,10 +49,22 @@ export interface TpSlResult {
 // 4-5 casas decimais. Achado testando resolveTpSl em modo POINTS (fallback)
 // contra BTCUSDT: dava alvo de US$0,016 de distância — fecharia o trade no
 // próprio candle de entrada, sempre.
+//
+// 🔒 2026-08-05: a lista de prefixos sozinha reintroduziu o MESMO bug para toda
+// a família de contratos "X**" da Infinox — `XBNUSD` (Binance Coin), `XETUSD`
+// (Ethereum), `XLCUSD` (Litecoin) não começam por nenhuma base da lista e
+// contêm "USD", então caíam no branch forex e recebiam pointValue 0.0001 com
+// preço em dólares cheios. Achado medindo a taxa base (pontos líquidos/trade de
+// XBNUSD saíam na casa das centenas de milhares). Correção estrutural: o
+// catálogo (`assetDatabase.ts`) já declara a categoria de cada símbolo — ele é a
+// fonte de verdade, e a lista de prefixos vira só fallback para símbolos que não
+// estão no catálogo (ex.: 'BTCUSDT', notação nativa de exchange).
 const CRYPTO_BASES = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'LTC', 'DOGE', 'AVAX', 'MATIC', 'POL', 'BAT', 'LINK', 'UNI', 'XLM'];
 
 function isCryptoSymbolForSizing(symbol: string): boolean {
   const s = symbol.toUpperCase();
+  const catalogCategory = getAssetBySymbol(s)?.category;
+  if (catalogCategory) return catalogCategory === 'CRYPTO';
   if (s.endsWith('USDT')) return true;
   return CRYPTO_BASES.some(base => s.startsWith(base));
 }
@@ -113,21 +126,61 @@ export interface PositionSizeInput {
   allocatedCapital: number;
   riskPerTradePercent: number;
   riskProfile: RiskProfileType | string;
+  /**
+   * Distância do stop em % do preço de entrada (ex: 0,02 = stop a 2% do
+   * preço). Quando fornecida, o sizing vira fixed-fractional DE VERDADE:
+   * o nocional é dimensionado para que perder o stop perca exatamente
+   * `capital × riskPerTradePercent%` — não um % fixo de capital independente
+   * da distância do stop (ver aviso abaixo). Opcional, só usado pelo
+   * BacktestEngine (motor ao vivo tem sizing próprio, fora de escopo).
+   */
+  stopDistancePercent?: number;
 }
 
-/** Mesmo cálculo de tradeCapital/finalTradeCapital de useApexLogic.ts. */
+/**
+ * Dimensiona o nocional da posição (tradeCapital) a partir do risco desejado.
+ *
+ * 2026-07-30: FIX DE BUG — sem `stopDistancePercent`, esta função sempre
+ * calculou `capital × risco% × multiplicador` como o NOCIONAL da posição,
+ * nunca considerando a distância do stop. Isso significa que dois trades com
+ * o mesmo `positionSizePercent` mas stops de tamanhos diferentes (ex: 1×ATR
+ * vs. 4×ATR, como os presets deste catálogo usam) arriscavam quantias em
+ * dinheiro MUITO diferentes — o oposto do que "fixed-fractional 1%" deveria
+ * garantir (Van Tharp: o risco em $ por trade é o que deveria ser constante,
+ * não o nocional). O comentário antigo em `presetStrategies.ts` alegava que
+ * isso já normalizava risco entre ativos — não normalizava.
+ *
+ * IMPORTANTE: este bug NÃO contamina nenhum Sharpe/DSR já medido nas seções
+ * 11.x do AI_BRAIN_SPEC.md, porque os scripts de pesquisa usam
+ * `profitPercent` (retorno % sobre o preço, independente do nocional), nunca
+ * o `profit` em dinheiro. Afeta só o dinheiro real that fica exposto — que é
+ * o que finalmente importa quando o produto opera com capital de verdade.
+ *
+ * Com `stopDistancePercent` fornecido: nocional = risco em $ / distância do
+ * stop em %. Sem ele: comportamento antigo preservado (fallback), para não
+ * quebrar nenhum chamador que ainda não tenha essa informação disponível.
+ */
 export function calculatePositionSize({
   currentBalance,
   allocatedCapital,
   riskPerTradePercent,
   riskProfile,
+  stopDistancePercent,
 }: PositionSizeInput): number {
   const capital = Math.min(allocatedCapital, currentBalance);
   const riskPercentage = riskPerTradePercent / 100;
   const { sizeMultiplier } = getRiskAdjustment(riskProfile);
-  const tradeCapital = capital * riskPercentage * sizeMultiplier;
+  const riskCapital = capital * riskPercentage * sizeMultiplier;
   const minTradeCapital = 10;
-  return Math.max(tradeCapital, minTradeCapital);
+
+  if (stopDistancePercent !== undefined && stopDistancePercent > 0) {
+    const tradeCapital = riskCapital / stopDistancePercent;
+    return Math.max(tradeCapital, minTradeCapital);
+  }
+
+  // Fallback: comportamento antigo (nocional = risco% de capital, sem
+  // considerar distância do stop) — preservado por retrocompatibilidade.
+  return Math.max(riskCapital, minTradeCapital);
 }
 
 export interface AtrTpSlResult {

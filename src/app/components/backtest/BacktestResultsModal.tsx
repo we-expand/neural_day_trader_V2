@@ -145,6 +145,9 @@ export function BacktestResultsModal({
                 {formatCurrency(metrics.initialCapital)} → {formatCurrency(metrics.currentEquity)}
                 {' '}({isProfit ? '+' : ''}{formatCurrency(metrics.totalProfit)})
               </div>
+              <div className="text-[11px] text-slate-500 mt-2">
+                Resultado líquido — já descontado o custo estimado de execução (spread + comissão + slippage, ida e volta, calibrado por classe de ativo).
+              </div>
             </div>
           </div>
 

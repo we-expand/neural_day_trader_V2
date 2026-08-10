@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Brain, Play, Pause, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
+import { Bot, Brain, Play, Pause, Power, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
@@ -25,12 +25,15 @@ import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
 import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
+import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/TradeConfirmationPanel';
+import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecutionPanel';
+import { FullSizeExecutionPanel } from '@/app/modules/fullSizeExecutionStage/FullSizeExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
 
-export function AITrader({ compact = false, onNavigate }: { compact?: boolean; onNavigate?: (view: string) => void }) {
+export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }: { compact?: boolean; onNavigate?: (view: string) => void; onCreateCustomStrategy?: () => void }) {
   console.log('[AI_TRADER] 🤖 v3.1 - AI Trader carregado', { compact, timestamp: Date.now() });
   
   // Mode: 'MONITOR' (Dashboard) | 'ENGINEER' (Configuration) | 'VOICE' (AI Trader Voice)
@@ -74,7 +77,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory } = useTradingContext();
   const { strategies } = useStrategies();
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
@@ -445,17 +448,17 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
             {/* START/STOP AI Button */}
             <button
               onClick={toggleAI}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${ 
-                status === 'RUNNING' 
-                  ? 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-700' 
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
+                status === 'running'
+                  ? 'bg-red-600 border-red-500 text-white hover:bg-red-700'
                   : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
               }`}
-              title={status === 'RUNNING' ? 'Pausar AI' : 'Iniciar AI'}
+              title={status === 'running' ? 'Desligar AI' : 'Iniciar AI'}
             >
-              {status === 'RUNNING' ? (
+              {status === 'running' ? (
                 <>
-                  <Pause className="w-4 h-4" /> 
-                  <span className="text-xs font-bold uppercase">Pausar AI</span>
+                  <Power className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase">Desligar AI</span>
                 </>
               ) : (
                 <>
@@ -576,6 +579,43 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
             alerts={liveAlerts}
             enabled={liveAlertStageEnabled}
             onToggle={setLiveAlertStageEnabled}
+          />
+        </div>
+      )}
+
+      {/* Fase 6, estágio 2 (LIVE + confirmação manual por trade) — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {!compact && executionMode === 'LIVE' && (
+        <div className="mb-4">
+          <TradeConfirmationPanel
+            pending={pendingTradeConfirmations}
+            history={tradeConfirmationHistory}
+            enabled={tradeConfirmationStageEnabled}
+            onToggle={setTradeConfirmationStageEnabled}
+            onApprove={approveTradeConfirmation}
+            onReject={rejectTradeConfirmation}
+          />
+        </div>
+      )}
+
+      {/* Fase 6, estágio 3 (LIVE + execução automática, lote mínimo travado) — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {!compact && executionMode === 'LIVE' && (
+        <div className="mb-4">
+          <AutoExecutionPanel
+            history={autoExecutionHistory}
+            enabled={autoExecutionStageEnabled}
+            onToggle={setAutoExecutionStageEnabled}
+          />
+        </div>
+      )}
+
+      {/* Fase 6, estágio 4 (LIVE + execução automática, TAMANHO REAL) — exige Estágio 3 ligado — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {!compact && executionMode === 'LIVE' && (
+        <div className="mb-4">
+          <FullSizeExecutionPanel
+            history={fullSizeExecutionHistory}
+            enabled={fullSizeExecutionStageEnabled}
+            stage3Enabled={autoExecutionStageEnabled}
+            onToggle={setFullSizeExecutionStageEnabled}
           />
         </div>
       )}
@@ -967,7 +1007,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                             <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             {/* COLUMN 1: ESTRATÉGIA */}
                             <div className="space-y-6">
                             <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
@@ -998,7 +1038,18 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
 
                             {/* 🆕 Estratégia ativa — mesma estratégia (pronta ou customizada) usada no Backtest */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
+                                    {onCreateCustomStrategy && (
+                                        <button
+                                            onClick={onCreateCustomStrategy}
+                                            className="flex items-center gap-1 text-[10px] font-bold text-purple-400 hover:text-purple-300 transition-colors"
+                                            title="Desenhar uma estratégia personalizada — mesmo construtor usado no Backtest"
+                                        >
+                                            <Sliders className="w-3 h-3" /> Criar personalizada
+                                        </button>
+                                    )}
+                                </div>
                                 <select
                                     value={config.activeStrategyId || ''}
                                     onChange={(e) => setConfig({ ...config, activeStrategyId: e.target.value || null })}
@@ -1204,51 +1255,15 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                             </div>
                             </div>
 
-                            {/* COLUMN 3: PROTEÇÃO (Risk/News) */}
-                            <div className="space-y-6">
-                            <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
-                                <Lock className="w-4 h-4" /> Proteção e Risco
-                            </h3>
-
-                            {/* Daily Loss Limit */}
-                            <div className="space-y-2">
-                                <div className="flex justify-between">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Limite de Perda Diária (%)</label>
-                                    <span className="text-xs font-mono text-red-400">{(config.dailyLossLimit || 0).toFixed(1)}%</span>
-                                </div>
-                                <input 
-                                type="range" 
-                                min="0.5" 
-                                max="5.0" 
-                                step="0.1"
-                                value={config.dailyLossLimit} 
-                                onChange={(e) => setConfig({ ...config, dailyLossLimit: parseFloat(e.target.value) })}
-                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
-                                />
-                                <p className="text-[9px] text-slate-500">O sistema entra em "Lockdown" se atingir este limite.</p>
-                            </div>
-
-                            {/* News Filter */}
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase">Filtro de Notícias (Economic Calendar)</label>
-                                <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
-                                    <Zap className={`w-4 h-4 ${config.newsFilter ? 'text-yellow-500' : 'text-slate-600'}`} />
-                                    <div className="flex-1">
-                                    <span className="text-xs font-bold text-white block">Evitar Alta Volatilidade</span>
-                                    <span className="text-[9px] text-slate-500">Pausar durante Payroll/FOMC</span>
-                                    </div>
-                                    <button 
-                                    onClick={() => setConfig({ ...config, newsFilter: !config.newsFilter })}
-                                    className={`w-10 h-5 rounded-full relative transition-colors ${config.newsFilter ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                    >
-                                    <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.newsFilter ? 'left-6' : 'left-1'}`} />
-                                    </button>
-                                </div>
-                            </div>
-                            </div>
                         </div>
 
-                        {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md */}
+                        {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md.
+                            🆕 "Proteção e Risco" (Limite de Perda Diária + Filtro de Notícias) e "Limites
+                            de Capital" (Risco por Trade + Max Drawdown) eram duas seções separadas na tela
+                            (uma coluna acima, outra aqui embaixo) sem nenhum campo redundante entre elas —
+                            mas o nome parecido e a separação visual passavam a impressão de duplicidade.
+                            Unificado num único bloco "Gerenciamento de Risco" com 4 cards lado a lado —
+                            nenhum campo foi removido, todos continuam lidos no motor (useApexLogic.ts). */}
                         <div className="mt-8 pt-6 border-t border-white/5">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
@@ -1257,7 +1272,7 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                                 <span className="text-[9px] text-slate-500">Você controla exatamente quando a IA para de operar</span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
                                 {/* Modo Stop Loss */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
@@ -1277,6 +1292,42 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                                         </button>
                                     </div>
                                     <p className="text-[9px] text-slate-500">"Dinâmico" ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade.</p>
+                                </div>
+
+                                {/* Perda diária + Filtro de notícias */}
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Proteção e Risco</span>
+
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Limite de Perda Diária (%)</label>
+                                            <span className="text-xs font-mono text-red-400">{(config.dailyLossLimit || 0).toFixed(1)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0.5" max="5.0" step="0.1"
+                                            value={config.dailyLossLimit}
+                                            onChange={(e) => setConfig({ ...config, dailyLossLimit: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                        />
+                                        <p className="text-[9px] text-slate-500">O sistema entra em "Lockdown" se atingir este limite.</p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Filtro de Notícias (Economic Calendar)</label>
+                                        <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
+                                            <Zap className={`w-4 h-4 ${config.newsFilter ? 'text-yellow-500' : 'text-slate-600'}`} />
+                                            <div className="flex-1">
+                                                <span className="text-xs font-bold text-white block">Evitar Alta Volatilidade</span>
+                                                <span className="text-[9px] text-slate-500">Pausar durante Payroll/FOMC</span>
+                                            </div>
+                                            <button
+                                                onClick={() => setConfig({ ...config, newsFilter: !config.newsFilter })}
+                                                className={`w-10 h-5 rounded-full relative transition-colors ${config.newsFilter ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                                            >
+                                                <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.newsFilter ? 'left-6' : 'left-1'}`} />
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Risco por trade + Max Drawdown */}
@@ -1433,6 +1484,25 @@ export function AITrader({ compact = false, onNavigate }: { compact?: boolean; o
                                             className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                         />
                                         <p className="text-[9px] text-slate-500">0 = sem limite. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
+                                    </div>
+
+                                    {/* 🆕 2026-07-31: cadência agressiva é OPT-IN explícito — nunca mais
+                                        automática por VIX alto (achado corrigido em research/AI_COGNITIVE_SPEC.md).
+                                        Mesmo ligado, nunca compete com a Proteção de Cauda (Bloco E), que
+                                        continua bloqueando/fechando de forma independente sob choque real
+                                        de volatilidade (ATR ou VIX). */}
+                                    <div className="flex items-center gap-3 p-3 bg-black border border-amber-500/20 rounded-lg">
+                                        <Gauge className={`w-4 h-4 ${config.aggressiveModeEnabled ? 'text-amber-400' : 'text-slate-600'}`} />
+                                        <div className="flex-1">
+                                            <span className="text-xs font-bold text-white block">Cadência Agressiva</span>
+                                            <span className="text-[9px] text-slate-500">Avalia trades a cada 2s em vez de 5s. Você assume o risco — a Proteção de Cauda continua ativa independente disto.</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setConfig({ ...config, aggressiveModeEnabled: !config.aggressiveModeEnabled })}
+                                            className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${config.aggressiveModeEnabled ? 'bg-amber-500' : 'bg-slate-700'}`}
+                                        >
+                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.aggressiveModeEnabled ? 'left-6' : 'left-1'}`} />
+                                        </button>
                                     </div>
                                 </div>
 

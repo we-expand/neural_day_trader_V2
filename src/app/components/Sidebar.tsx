@@ -1,8 +1,8 @@
 import React, { memo } from 'react';
-import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap } from 'lucide-react';
+import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'pyramiding' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'pyramiding' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs';
 
 interface SidebarProps {
   currentView: View;
@@ -78,18 +78,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
 
             <div className="space-y-1">
               <button
-                onClick={() => handleViewChange('dev-lab')}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'dev-lab'
-                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-indigo-400'
-                }`}
-              >
-                <Beaker className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">DEV LAB</span>
-              </button>
-
-              <button
                 onClick={() => handleViewChange('admin' as View)}
                 className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
                   currentView === 'admin'
@@ -99,6 +87,18 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               >
                 <ShieldCheck className="w-5 h-5 shrink-0" />
                 <span className="text-sm font-medium tracking-wide">Admin</span>
+              </button>
+
+              <button
+                onClick={() => handleViewChange('dev-lab')}
+                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
+                  currentView === 'dev-lab'
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                    : 'text-slate-400 hover:bg-white/5 hover:text-indigo-400'
+                }`}
+              >
+                <Beaker className="w-5 h-5 shrink-0" />
+                <span className="text-sm font-medium tracking-wide">DEV LAB</span>
               </button>
 
               <button
@@ -195,6 +195,18 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               >
                 <Zap className="w-5 h-5 shrink-0" />
                 <span className="text-sm font-medium tracking-wide">Trading ao Vivo</span>
+              </button>
+
+              <button
+                onClick={() => handleViewChange('operation-logs' as View)}
+                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
+                  currentView === 'operation-logs'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : 'text-slate-400 hover:bg-white/5 hover:text-emerald-400'
+                }`}
+              >
+                <ScrollText className="w-5 h-5 shrink-0" />
+                <span className="text-sm font-medium tracking-wide">Logs de Operações</span>
               </button>
             </div>
           </div>

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { Mic, MicOff, Settings, Brain, TrendingUp, Activity } from 'lucide-react';
-import { QuantumChart } from './QuantumChart';
-import { ButterflyMatrix } from './ButterflyMatrix';
+import { Mic, MicOff, Settings, Brain, Activity, AlertTriangle } from 'lucide-react';
 import { OperationModeSelector, OperationMode } from './OperationModeSelector';
 import { DisciplineScore } from './DisciplineScore';
 import { VoiceConfigPanel } from './VoiceConfigPanel';
@@ -53,37 +51,6 @@ export const QuantumAnalysis: React.FC<QuantumAnalysisProps> = ({
     }
   }, [voiceAnalysis, operationMode]);
 
-  // Handle spoofing detection from chart
-  const handleSpoofingDetected = useCallback((alert: any) => {
-    console.log('[Quantum Analysis] Spoofing detected:', alert);
-    NexusAlertSystem.alertSpoofing(
-      alert.price,
-      alert.type,
-      alert.message
-    );
-  }, []);
-
-  // Handle correlation detection from chart
-  const handleCorrelationDetected = useCallback((alert: any) => {
-    console.log('[Quantum Analysis] Correlation detected:', alert);
-    NexusAlertSystem.alertCorrelation(
-      alert.asset,
-      symbol,
-      alert.impact,
-      15
-    );
-  }, [symbol]);
-
-  // Handle lead asset detection from butterfly matrix
-  const handleLeadAssetDetected = useCallback((asset: any) => {
-    console.log('[Quantum Analysis] Lead asset detected:', asset);
-    NexusAlertSystem.alertCorrelation(
-      asset.name,
-      symbol,
-      asset.changePercent > 0 ? 'bullish' : 'bearish',
-      asset.leadTime
-    );
-  }, [symbol]);
 
   // Handle mode change
   const handleModeChange = (mode: OperationMode) => {
@@ -204,26 +171,30 @@ export const QuantumAnalysis: React.FC<QuantumAnalysisProps> = ({
         />
       </div>
 
-      {/* Main Grid: Chart + Butterfly Matrix */}
+      {/* Maintenance Notice */}
+      <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4 flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-yellow-100">
+          <p className="font-bold mb-1">Componentes em manutenção</p>
+          <p className="text-xs text-yellow-200">
+            Os painéis de análise técnica (QuantumChart, ButterflyMatrix) foram desativados por auditoria de qualidade de dados.
+            Mantemos o monitor de análise de voz e controle de modo.
+          </p>
+        </div>
+      </div>
+
+      {/* Main Grid: Voice Analysis Only */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Chart (2/3 width) */}
-        <div className="lg:col-span-2 h-[600px]">
-          <QuantumChart
-            symbol={symbol}
-            timeframe={timeframe}
-            onSpoofingDetected={handleSpoofingDetected}
-            onCorrelationDetected={handleCorrelationDetected}
-          />
+        {/* Placeholder for chart */}
+        <div className="lg:col-span-2 h-[600px] bg-neutral-900/50 border border-white/5 rounded-lg flex items-center justify-center">
+          <div className="text-center text-slate-500">
+            <p className="text-sm">Gráfico e matriz de análise desativados</p>
+            <p className="text-xs text-slate-600 mt-1">Monitore a voz abaixo para análise de disciplina</p>
+          </div>
         </div>
 
-        {/* Butterfly Matrix + Stats (1/3 width) */}
+        {/* Voice Analysis Card (moved from inside the removed components) */}
         <div className="space-y-4">
-          <ButterflyMatrix
-            targetSymbol={symbol}
-            onLeadAssetDetected={handleLeadAssetDetected}
-          />
-
-          {/* Voice Analysis Card */}
           {voiceAnalysis && isListening && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}

@@ -50,6 +50,29 @@ export interface Strategy {
   entryBlocks: StrategyBlock[];
   exitBlocks: StrategyBlock[];
   filterBlocks: StrategyBlock[];
+  /**
+   * Sinal que a satisfação de TODOS os entryBlocks (AND lógico) representa.
+   * Declarado explicitamente por quem desenha a estratégia — nunca inferido.
+   *
+   * 2026-07-30: substitui a inferência por contagem de operador
+   * (CROSS_BELOW/BELOW/FALLING = "bearish") que existia antes em
+   * StrategyEvaluator.ts. Bug real encontrado por auditoria: a Reversão à
+   * Média (preset 3) tem entryBlocks com `PRICE CROSS_BELOW BB_LOWER` +
+   * `RSI BELOW 30` — ambos "bearish" pelo critério antigo, então o sistema
+   * classificava como sinal de VENDA, quando a intenção declarada é o
+   * oposto (comprar na sobrevenda, esperar reversão para cima). A inferência
+   * por operador não tem como saber a intenção — só a contagem de sinais
+   * "menor que"/"abaixo de", que numa estratégia de reversão aponta pro lado
+   * errado por desenho.
+   *
+   * Opcional para retrocompatibilidade com estratégias customizadas
+   * (`StrategyBuilderPro.tsx`) criadas antes deste campo existir — nesse
+   * caso o motor cai de volta pra inferência antiga (ver
+   * StrategyEvaluator.evaluateStrategyAt), que continua sendo uma
+   * aproximação sujeita ao mesmo tipo de erro. Todo preset do catálogo
+   * (`presetStrategies.ts`) declara este campo explicitamente.
+   */
+  entrySignal?: 'BUY' | 'SELL';
   direction: 'AUTO' | 'LONG' | 'SHORT';
   /** Regime de mercado pretendido — ver StrategyRegime. Opcional para retrocompatibilidade
    *  com estratégias customizadas salvas antes deste campo existir. */

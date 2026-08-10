@@ -1,23 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
-import { ArrowRight, Brain, Zap, Lock, ChevronDown } from 'lucide-react';
+import { ArrowRight, Brain, ShieldCheck, Lock, ChevronDown, Zap } from 'lucide-react';
 import { PricingSection } from './Pricing';
 import { translations, Language } from './translations';
 import { NeuralLogo } from '../BrandLogo';
 // import { downloadProposalAsDoc } from '../../utils/generateProposal'; // ❌ REMOVIDO - Causando erro
 
-const rotatingText = [
-  "Sinais Quantitativos.",
-  "Trading Algorítmico.", // ✅ MUDADO: Arbitragem HF → Trading Algorítmico (preciso!)
-  "Inteligência de Mercado.",
-  "Execução Quântica.", // ✅ ATUALIZADO: Auto-Execução Rápida → Execução Quântica (sofisticado!)
-  "Poder Institucional."
-];
-
-const MagneticCycleTitle = () => {
+const MagneticCycleTitle = ({ phrases: sourcePhrases }: { phrases: string[] }) => {
   const [phrases] = useState(() => {
     // Shuffle phrases on mount to ensure randomness without repetition in session
-    const p = [...rotatingText];
+    const p = [...sourcePhrases];
     for (let i = p.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [p[i], p[j]] = [p[j], p[i]];
@@ -132,7 +124,7 @@ export const LandingPage = ({ onLoginClick, lang, setLang }: { onLoginClick: () 
             {t.hero.systemStatus}
           </motion.div>
           
-          <MagneticCycleTitle />
+          <MagneticCycleTitle phrases={t.hero.rotating} />
           
           <p className="text-base md:text-lg text-slate-300 mb-12 max-w-3xl mx-auto leading-relaxed drop-shadow-lg">
             {t.hero.subtitle}
@@ -171,10 +163,10 @@ export const LandingPage = ({ onLoginClick, lang, setLang }: { onLoginClick: () 
         
         <div className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8 text-center relative z-10">
           {[
-            { label: t.stats.nodes, value: '24,000+' },
-            { label: t.stats.volume, value: '$1.2B' },
-            { label: t.stats.leverage, value: '1:1000' },
-            { label: t.stats.uptime, value: '99.99%' },
+            t.stats.newsSources,
+            t.stats.backtestYears,
+            t.stats.dataCost,
+            t.stats.realData,
           ].map((stat, i) => (
             <motion.div 
               key={stat.label}
@@ -201,9 +193,9 @@ export const LandingPage = ({ onLoginClick, lang, setLang }: { onLoginClick: () 
                 desc: t.features.neural.desc
               },
               {
-                icon: <Zap className="w-8 h-8 text-purple-400" />,
-                title: t.features.flash.title,
-                desc: t.features.flash.desc
+                icon: <ShieldCheck className="w-8 h-8 text-purple-400" />,
+                title: t.features.risk.title,
+                desc: t.features.risk.desc
               },
               {
                 icon: <Lock className="w-8 h-8 text-emerald-400" />,

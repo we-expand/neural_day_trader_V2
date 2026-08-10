@@ -20,6 +20,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/app/components/ui/card';
 import { Badge } from '@/app/components/ui/badge';
 import { Button } from '@/app/components/ui/button';
+import { useTradingContext } from '@/app/contexts/TradingContext';
+import { backtestDataService } from '@/app/services/BacktestDataService';
+import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
+import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { 
   Target, 
   TrendingUp, 
@@ -90,81 +94,82 @@ interface ATRTrailingStopManagerProps {
 // ============================================================================
 
 export function ATRTrailingStopManager({ className = '' }: ATRTrailingStopManagerProps) {
-  const [config, setConfig] = useState<TrailingStopConfig>({
-    mode: 'CHANDELIER',
-    atrPeriod: 14,
-    atrMultiplier: 2.0,
-    enabled: true
-  });
+  // 🔴 FIX 2026-08-04 (auditoria de config): antes este painel gerava
+  // `mockPositions` fixas (`// TODO: Integrar com ApexLogicCore`) a cada 2s —
+  // 3 posições fabricadas, nunca ligadas ao motor real. Agora deriva das
+  // posições REAIS (`activeOrders` de useApexLogic via TradingContext),
+  // filtradas pras que são elegíveis pro trailing (mesmo critério do motor:
+  // `originalSl > 0`) e com `stopLossMode` real refletido no toggle.
+  const { activeOrders, aiConfig, updateAIConfig } = useTradingContext();
 
-  const [positions, setPositions] = useState<ActivePosition[]>([]);
+  const config: TrailingStopConfig = {
+    mode: 'CHANDELIER', // única lógica de trailing implementada no motor hoje
+    atrPeriod: aiConfig.atrTrailingPeriod,
+    atrMultiplier: aiConfig.atrTrailingMultiplier,
+    enabled: aiConfig.stopLossMode === 'DINAMICO',
+  };
+
   const [expandedPosition, setExpandedPosition] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [movementHistory, setMovementHistory] = useState<Record<string, StopMovement[]>>({});
 
-  // Buscar posições ativas
+  // ATR real por símbolo (mesmo pipeline de candle real do resto do app —
+  // BacktestDataService/calculateATR). Sem candle real disponível, o campo
+  // fica de fora do mapa e a UI mostra "—", nunca um número inventado.
+  const [atrBySymbol, setAtrBySymbol] = useState<Record<string, number>>({});
+
+  const eligibleOrders = useMemo(
+    () => activeOrders.filter(o => o.originalSl > 0),
+    [activeOrders]
+  );
+
   useEffect(() => {
-    const fetchPositions = async () => {
-      // TODO: Integrar com ApexLogicCore para buscar posições reais
-      // Por enquanto, mock data
-      const mockPositions: ActivePosition[] = [
-        {
-          id: 'pos-1',
-          symbol: 'EURUSD',
-          side: 'LONG',
-          entryPrice: 1.08450,
-          currentPrice: 1.08650,
-          amount: 10000,
-          initialStop: 1.08200,
-          currentStop: 1.08420,
-          atr: 0.00085,
-          stopMoves: 8,
-          pipsProtected: 22,
-          profitProtected: 22,
-          trailingActive: true,
-          lastMoveTime: Date.now() - 3600000
-        },
-        {
-          id: 'pos-2',
-          symbol: 'GBPUSD',
-          side: 'SHORT',
-          entryPrice: 1.26800,
-          currentPrice: 1.26450,
-          amount: 5000,
-          initialStop: 1.27100,
-          currentStop: 1.26680,
-          atr: 0.00120,
-          stopMoves: 5,
-          pipsProtected: 42,
-          profitProtected: 21,
-          trailingActive: true,
-          lastMoveTime: Date.now() - 1800000
-        },
-        {
-          id: 'pos-3',
-          symbol: 'XAUUSD',
-          side: 'LONG',
-          entryPrice: 2042.50,
-          currentPrice: 2048.80,
-          amount: 1,
-          initialStop: 2038.00,
-          currentStop: 2044.20,
-          atr: 3.50,
-          stopMoves: 3,
-          pipsProtected: 620,
-          profitProtected: 6.20,
-          trailingActive: true,
-          lastMoveTime: Date.now() - 900000
+    if (!config.enabled || eligibleOrders.length === 0) return;
+    let cancelled = false;
+    const symbols = Array.from(new Set(eligibleOrders.map(o => o.symbol)));
+    (async () => {
+      const entries = await Promise.all(symbols.map(async (symbol) => {
+        try {
+          const end = new Date();
+          const start = new Date(end.getTime() - 100 * 60_000);
+          const history = await backtestDataService.fetchHistoricalData(symbol, start, end, '1m');
+          const atrSeries = calculateATR(history.candles, config.atrPeriod);
+          const lastAtr = atrSeries[atrSeries.length - 1];
+          return lastAtr && lastAtr > 0 ? [symbol, lastAtr] as const : null;
+        } catch {
+          return null; // sem dado real pro símbolo agora — nunca fabrica
         }
-      ];
+      }));
+      if (!cancelled) {
+        setAtrBySymbol(Object.fromEntries(entries.filter((e): e is [string, number] => e !== null)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [config.enabled, config.atrPeriod, eligibleOrders.map(o => o.symbol).join(',')]);
 
-      setPositions(mockPositions);
+  const positions: ActivePosition[] = useMemo(() => eligibleOrders.map((o): ActivePosition => {
+    const currentPrice = o.currentPrice || o.price;
+    const stopMoved = o.side === 'LONG' ? o.sl - o.originalSl : o.originalSl - o.sl;
+    const pointValue = getPointValue(o.symbol);
+    return {
+      id: o.id,
+      symbol: o.symbol,
+      side: o.side,
+      entryPrice: o.price,
+      currentPrice,
+      amount: o.amount / o.price, // amount em TradeVisual é notional USD — converte pra unidades reais
+      initialStop: o.originalSl,
+      currentStop: o.sl,
+      atr: atrBySymbol[o.symbol] ?? 0,
+      stopMoves: o.trailMoves || 0,
+      pipsProtected: stopMoved > 0 && pointValue > 0 ? stopMoved / pointValue : 0,
+      profitProtected: stopMoved > 0 ? stopMoved * (o.amount / o.price) : 0,
+      trailingActive: config.enabled,
+      // Motor não guarda timestamp por movimento individual (só o contador
+      // `trailMoves`) — nunca fabrica um "agora mesmo" falso, fica undefined.
+      lastMoveTime: undefined,
     };
-
-    fetchPositions();
-    const interval = setInterval(fetchPositions, 2000); // 🚀 OTIMIZADO: Update a cada 2s (foi 5s)
-    return () => clearInterval(interval);
-  }, []);
+  }), [eligibleOrders, atrBySymbol, config.enabled]);
 
   // Calcular métricas agregadas
   const metrics = useMemo(() => {
@@ -422,17 +427,12 @@ export function ATRTrailingStopManager({ className = '' }: ATRTrailingStopManage
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="text-xs text-slate-400 mb-2 block">Modo</label>
-                <Select
-                  value={config.mode}
-                  onValueChange={(value: any) => setConfig({ ...config, mode: value })}
-                >
+                <Select value={config.mode} disabled>
                   <SelectTrigger className="h-9 bg-slate-800 border-slate-700">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-800">
-                    <SelectItem value="CHANDELIER">Chandelier Exit</SelectItem>
-                    <SelectItem value="SIMPLE_ATR">Simple ATR</SelectItem>
-                    <SelectItem value="PARABOLIC_SAR">Parabolic SAR</SelectItem>
+                    <SelectItem value="CHANDELIER">Chandelier Exit (único implementado)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -441,7 +441,7 @@ export function ATRTrailingStopManager({ className = '' }: ATRTrailingStopManage
                 <label className="text-xs text-slate-400 mb-2 block">Período ATR</label>
                 <Select
                   value={config.atrPeriod.toString()}
-                  onValueChange={(value) => setConfig({ ...config, atrPeriod: parseInt(value) })}
+                  onValueChange={(value) => updateAIConfig({ atrTrailingPeriod: parseInt(value) })}
                 >
                   <SelectTrigger className="h-9 bg-slate-800 border-slate-700">
                     <SelectValue />
@@ -458,7 +458,7 @@ export function ATRTrailingStopManager({ className = '' }: ATRTrailingStopManage
                 <label className="text-xs text-slate-400 mb-2 block">Multiplicador</label>
                 <Select
                   value={config.atrMultiplier.toString()}
-                  onValueChange={(value) => setConfig({ ...config, atrMultiplier: parseFloat(value) })}
+                  onValueChange={(value) => updateAIConfig({ atrTrailingMultiplier: parseFloat(value) })}
                 >
                   <SelectTrigger className="h-9 bg-slate-800 border-slate-700">
                     <SelectValue />

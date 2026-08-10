@@ -16,7 +16,13 @@ export function initFigmaErrorSuppressor() {
 
         const element = node as HTMLElement;
         const text = element.textContent || '';
-        const className = element.className || '';
+        // 🐛 FIX: `element.className` em elementos SVG (todo ícone lucide-react é
+        // um <svg>) não é string — é um `SVGAnimatedString`, sem `.includes()`.
+        // Isso jogava `TypeError: className.includes is not a function` no
+        // console TODA VEZ que qualquer ícone SVG entrava no DOM (o app inteiro
+        // usa lucide-react), erro real confirmado em produção. `getAttribute`
+        // funciona igual pra HTML e SVG.
+        const className = element.getAttribute('class') || '';
         const id = element.id || '';
 
         // Detectar elementos de erro do Figma

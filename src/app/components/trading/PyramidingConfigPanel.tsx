@@ -28,46 +28,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-export interface PyramidingConfig {
-  // ========== CONFIGURAÇÕES PRINCIPAIS ==========
-  enabled: boolean;
-  maxLayers: number; // Máximo de entradas (ex: 5 = 1 inicial + 4 adds)
-  
-  // ========== ESTRATÉGIA DE SCALING ==========
-  scalingStrategy: 'fixed' | 'reduced' | 'fibonacci' | 'exponential' | 'smart-ai';
-  initialSize: number; // Tamanho inicial em contratos
-  sizeMultiplier: number; // Multiplicador para cada layer (usado em algumas estratégias)
-  
-  // ========== DISTÂNCIA ENTRE ENTRADAS ==========
-  entryDistanceType: 'pips' | 'percent' | 'atr' | 'ai-dynamic';
-  entryDistance: number; // Distância mínima para próxima entrada
-  atrMultiplier: number; // Se usar ATR, multiplicador (ex: 0.5 ATR)
-  
-  // ========== TRAILING STOP DINÂMICO ==========
-  trailingStopEnabled: boolean;
-  trailingStopType: 'pips' | 'percent' | 'atr';
-  trailingStopDistance: number;
-  trailingStopPerLayer: boolean; // Trailing stop independente por layer
-  
-  // ========== BREAK-EVEN & TAKE PROFIT ==========
-  breakEvenEnabled: boolean;
-  breakEvenAfterLayers: number; // Mover para break-even após X layers
-  partialTakeProfitEnabled: boolean;
-  partialTakeProfitPercent: number; // % de posição a fechar em cada TP
-  partialTakeProfitLayers: number[]; // Em quais layers fechar parcial (ex: [2, 4])
-  
-  // ========== AI RISK MANAGEMENT ==========
-  aiRiskAnalysisEnabled: boolean;
-  maxRiskPercentPerLayer: number; // Risco máximo por layer (% da conta)
-  stopAddingOnDivergence: boolean; // Parar se detectar divergência
-  stopAddingOnHighVolatility: boolean; // Parar se volatilidade aumentar muito
-  requiredMomentumScore: number; // Score mínimo de momentum para adicionar (0-100)
-  
-  // ========== STOP DE EMERGÊNCIA ==========
-  emergencyStopEnabled: boolean;
-  emergencyStopLossPercent: number; // Stop loss de emergência para posição total
-  closeAllOnReversal: boolean; // Fechar tudo se detectar reversão forte
-}
+// Tipo movido pra src/app/types/tradingState.ts em 2026-08-07 (passo 3 do
+// plano do runner) — precisava ser importável sem puxar React/motion pro
+// grafo de módulos do motor de decisão sob Deno. Re-exportado aqui pra não
+// quebrar quem já importa `PyramidingConfig` deste arquivo.
+export type { PyramidingConfig } from '@/app/types/tradingState';
+import type { PyramidingConfig } from '@/app/types/tradingState';
 
 interface PyramidingConfigPanelProps {
   config: PyramidingConfig;
@@ -92,6 +58,10 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
     { id: 'emergency', label: 'Stop de Emergência', icon: AlertTriangle },
   ];
 
+  // 🔴 2026-08-04: `implemented: false` = motor real (useApexLogic.ts) não
+  // sabe calcular esse tamanho de layer — selecionar não faz nada além de
+  // salvar a preferência. Cartão fica desabilitado, nunca finge escolher de
+  // verdade. Ver comentário em aiConfig.pyramiding.
   const scalingStrategies = [
     {
       id: 'fixed',
@@ -99,7 +69,8 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
       description: 'Mesmo tamanho em todas as entradas',
       example: '1.0 → 1.0 → 1.0 → 1.0',
       icon: Lock,
-      risk: 'Médio'
+      risk: 'Médio',
+      implemented: true
     },
     {
       id: 'reduced',
@@ -107,15 +78,17 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
       description: 'Tamanho decrescente para reduzir risco',
       example: '1.0 → 0.5 → 0.25 → 0.125',
       icon: TrendingUp,
-      risk: 'Baixo'
+      risk: 'Baixo',
+      implemented: true
     },
     {
       id: 'fibonacci',
       name: 'Fibonacci',
-      description: 'Baseado em sequência de Fibonacci',
+      description: 'Baseado em sequência de Fibonacci — não implementado ainda',
       example: '1 → 1 → 2 → 3 → 5',
       icon: Activity,
-      risk: 'Alto'
+      risk: 'Alto',
+      implemented: false
     },
     {
       id: 'exponential',
@@ -123,15 +96,17 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
       description: 'Crescimento exponencial (muito agressivo)',
       example: '1 → 2 → 4 → 8 → 16',
       icon: Zap,
-      risk: 'Muito Alto'
+      risk: 'Muito Alto',
+      implemented: true
     },
     {
       id: 'smart-ai',
       name: 'Smart AI',
-      description: 'AI decide baseado em análise em tempo real',
+      description: 'AI decide baseado em análise em tempo real — não implementado ainda',
       example: 'Variável (AI decide)',
       icon: Brain,
-      risk: 'Adaptativo'
+      risk: 'Adaptativo',
+      implemented: false
     }
   ];
 
@@ -246,9 +221,12 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                       return (
                         <button
                           key={strategy.id}
-                          onClick={() => updateConfig({ scalingStrategy: strategy.id as any })}
+                          disabled={!strategy.implemented}
+                          onClick={() => strategy.implemented && updateConfig({ scalingStrategy: strategy.id as any })}
                           className={`p-4 rounded-xl border text-left transition-all ${
-                            isSelected
+                            !strategy.implemented
+                              ? 'opacity-40 cursor-not-allowed bg-[#080808] border-white/5'
+                              : isSelected
                               ? 'bg-amber-500/10 border-amber-500/30'
                               : 'bg-[#080808] border-white/10 hover:bg-white/5'
                           }`}
@@ -260,20 +238,21 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                                 {strategy.name}
                               </span>
                             </div>
-                            
+
                             <div className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
+                              !strategy.implemented ? 'bg-slate-600/30 text-slate-400' :
                               strategy.risk === 'Baixo' ? 'bg-emerald-500/20 text-emerald-400' :
                               strategy.risk === 'Médio' ? 'bg-yellow-500/20 text-yellow-400' :
                               strategy.risk === 'Alto' ? 'bg-orange-500/20 text-orange-400' :
                               strategy.risk === 'Muito Alto' ? 'bg-rose-500/20 text-rose-400' :
                               'bg-blue-500/20 text-blue-400'
                             }`}>
-                              {strategy.risk}
+                              {!strategy.implemented ? 'Não implementado' : strategy.risk}
                             </div>
                           </div>
-                          
+
                           <p className="text-xs text-slate-400 mb-2">{strategy.description}</p>
-                          
+
                           <div className="px-3 py-2 bg-white/5 rounded-lg">
                             <div className="text-[10px] text-slate-500 mb-1">Exemplo:</div>
                             <div className="text-xs font-mono text-slate-300">{strategy.example}</div>
@@ -349,16 +328,19 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                   {/* Distance Type */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {[
-                      { id: 'pips', label: 'Pips', description: 'Distância fixa em pips' },
-                      { id: 'percent', label: 'Porcentagem', description: 'Distância em % do preço' },
-                      { id: 'atr', label: 'ATR', description: 'Baseado em volatilidade (ATR)' },
-                      { id: 'ai-dynamic', label: 'AI Dinâmico', description: 'AI decide baseado em condições' },
+                      { id: 'pips', label: 'Pips', description: 'Distância fixa em pips', implemented: true },
+                      { id: 'percent', label: 'Porcentagem', description: 'Distância em % do preço', implemented: true },
+                      { id: 'atr', label: 'ATR', description: 'Baseado em volatilidade (ATR)', implemented: true },
+                      { id: 'ai-dynamic', label: 'AI Dinâmico', description: 'Não implementado ainda', implemented: false },
                     ].map((type) => (
                       <button
                         key={type.id}
-                        onClick={() => updateConfig({ entryDistanceType: type.id as any })}
+                        disabled={!type.implemented}
+                        onClick={() => type.implemented && updateConfig({ entryDistanceType: type.id as any })}
                         className={`p-3 rounded-lg border text-center transition-all ${
-                          config.entryDistanceType === type.id
+                          !type.implemented
+                            ? 'opacity-40 cursor-not-allowed bg-[#080808] border-white/5'
+                            : config.entryDistanceType === type.id
                             ? 'bg-amber-500/10 border-amber-500/30'
                             : 'bg-[#080808] border-white/10 hover:bg-white/5'
                         }`}
@@ -540,25 +522,21 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                     )}
                   </div>
                   
-                  {/* Partial Take Profit */}
-                  <div className="p-4 bg-[#080808] rounded-lg border border-white/10 space-y-3">
+                  {/* Partial Take Profit — 🔴 2026-08-04: sem infra de fechamento parcial no motor ainda */}
+                  <div className="p-4 bg-[#080808] rounded-lg border border-white/10 space-y-3 opacity-40">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-sm font-bold text-white mb-1">Take Profit Parcial</div>
-                        <div className="text-xs text-slate-500">Fechar parte da posição em layers específicos</div>
+                        <div className="text-xs text-slate-500">Fechar parte da posição em layers específicos — não implementado ainda</div>
                       </div>
                       <button
-                        onClick={() => updateConfig({ partialTakeProfitEnabled: !config.partialTakeProfitEnabled })}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                          config.partialTakeProfitEnabled
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-white/5 text-slate-400 border border-white/10'
-                        }`}
+                        disabled
+                        className="px-4 py-2 rounded-lg text-xs font-bold cursor-not-allowed bg-white/5 text-slate-500 border border-white/10"
                       >
-                        {config.partialTakeProfitEnabled ? 'Ativo' : 'Inativo'}
+                        Não implementado
                       </button>
                     </div>
-                    
+
                     {config.partialTakeProfitEnabled && (
                       <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -604,23 +582,16 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                     <h4 className="text-sm font-bold uppercase tracking-wider">AI Risk Management</h4>
                   </div>
                   
-                  <div className="flex items-center justify-between p-4 bg-[#080808] rounded-lg border border-white/10">
+                  <div className="flex items-center justify-between p-4 bg-[#080808] rounded-lg border border-white/10 opacity-40">
                     <div>
                       <div className="text-sm font-bold text-white mb-1">AI Risk Analysis</div>
-                      <div className="text-xs text-slate-500">AI analisa cada add antes de executar</div>
+                      <div className="text-xs text-slate-500">AI analisa cada add antes de executar — não implementado ainda, o motor real hoje só respeita maxLayers/entryDistance/emergencyStop</div>
                     </div>
-                    <button
-                      onClick={() => updateConfig({ aiRiskAnalysisEnabled: !config.aiRiskAnalysisEnabled })}
-                      className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                        config.aiRiskAnalysisEnabled
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-white/5 text-slate-400 border border-white/10'
-                      }`}
-                    >
-                      {config.aiRiskAnalysisEnabled ? 'Ativo' : 'Inativo'}
+                    <button disabled className="px-4 py-2 rounded-lg text-xs font-bold cursor-not-allowed bg-white/5 text-slate-500 border border-white/10">
+                      Não implementado
                     </button>
                   </div>
-                  
+
                   {config.aiRiskAnalysisEnabled && (
                     <>
                       <div>
@@ -740,20 +711,13 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                         </p>
                       </div>
                       
-                      <div className="flex items-center justify-between p-3 bg-[#080808] rounded-lg border border-white/10">
+                      <div className="flex items-center justify-between p-3 bg-[#080808] rounded-lg border border-white/10 opacity-40">
                         <div>
                           <div className="text-xs font-bold text-white mb-1">Fechar tudo em reversão</div>
-                          <div className="text-[10px] text-slate-500">Detecta reversão forte e fecha posição</div>
+                          <div className="text-[10px] text-slate-500">Não implementado — o stop de emergência acima (% de perda) é o único gatilho real de fechamento hoje</div>
                         </div>
-                        <button
-                          onClick={() => updateConfig({ closeAllOnReversal: !config.closeAllOnReversal })}
-                          className={`px-3 py-1 rounded text-[10px] font-bold transition-all ${
-                            config.closeAllOnReversal
-                              ? 'bg-rose-500/20 text-rose-400'
-                              : 'bg-white/5 text-slate-400'
-                          }`}
-                        >
-                          {config.closeAllOnReversal ? 'Sim' : 'Não'}
+                        <button disabled className="px-3 py-1 rounded text-[10px] font-bold cursor-not-allowed bg-white/5 text-slate-500">
+                          N/D
                         </button>
                       </div>
                     </>
@@ -787,12 +751,19 @@ export const DEFAULT_PYRAMIDING_CONFIG: PyramidingConfig = {
   partialTakeProfitEnabled: false,
   partialTakeProfitPercent: 50,
   partialTakeProfitLayers: [2, 4],
-  aiRiskAnalysisEnabled: true,
+  // 🔴 2026-08-04: aiRiskAnalysisEnabled e seus sub-campos (divergência,
+  // volatilidade, momentum score) NÃO têm implementação real no motor ainda
+  // — ver comentário em useApexLogic.ts (aiConfig.pyramiding). Default
+  // desligado pra nunca mostrar "Ativo" pra algo que não roda de fato.
+  aiRiskAnalysisEnabled: false,
   maxRiskPercentPerLayer: 0.5,
-  stopAddingOnDivergence: true,
-  stopAddingOnHighVolatility: true,
+  stopAddingOnDivergence: false,
+  stopAddingOnHighVolatility: false,
   requiredMomentumScore: 60,
   emergencyStopEnabled: true,
   emergencyStopLossPercent: 5,
-  closeAllOnReversal: true,
+  // 🔴 2026-08-04: fechamento por detecção de reversão não implementado —
+  // o motor real hoje só fecha o grupo pelo emergencyStopLossPercent (stop de
+  // perda), nunca por "detectar reversão". Default desligado pelo mesmo motivo.
+  closeAllOnReversal: false,
 };

@@ -45,6 +45,7 @@ import { LaunchStrategy } from '@/app/components/LaunchStrategy';
 import { TraderInsights } from '@/app/components/TraderInsights';
 import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
 import { AITradingEngine } from '@/app/components/AITradingEngine';
+import { OperationLogs } from '@/app/components/admin/OperationLogs';
 import { Toaster } from 'sonner';
 
 // 🚀 LAZY LOADING - Componentes pesados carregados sob demanda
@@ -170,14 +171,14 @@ if (typeof window !== 'undefined') {
 
 type Language = 'en' | 'pt' | 'es';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'pyramiding' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'pyramiding' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   const [language, setLanguage] = useState<Language>('pt');
-  const { user, signOut, mockLogin, loading } = useAuth();
+  const { user, signOut, loading } = useAuth();
   const { fullName } = useUserProfile();
   const { isAssistantOpen, toggleAssistant, closeAssistant } = useAssistant();
   
@@ -194,6 +195,15 @@ function AppContent() {
     setCurrentView(newView);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []); // ← empty deps = stable reference forever
+
+  // Botão "Criar personalizada" na tela de IA — navega pro gráfico já com o
+  // construtor de estratégias aberto, em vez de só cair na tela do gráfico.
+  const [chartInitialAction, setChartInitialAction] = useState<'open-strategy-builder' | undefined>(undefined);
+  const handleCreateCustomStrategy = useCallback(() => {
+    setChartInitialAction('open-strategy-builder');
+    setCurrentView('chart');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   const isAdmin = useMemo(() => checkAdminPermissions(user), [user]);
 
@@ -215,7 +225,7 @@ function AppContent() {
     
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onNavigate={handleViewChange} />;
       case 'wallet':
       case 'funds':
         return <Funds />;
@@ -224,13 +234,16 @@ function AppContent() {
       case 'chart':
         return (
           <ErrorBoundary>
-            <ChartView />
+            <ChartView
+              initialAction={chartInitialAction}
+              onInitialActionConsumed={() => setChartInitialAction(undefined)}
+            />
           </ErrorBoundary>
         );
       case 'ai-trader':
         return (
           <ErrorBoundary>
-            <AITrader onNavigate={handleViewChange} />
+            <AITrader onNavigate={handleViewChange} onCreateCustomStrategy={handleCreateCustomStrategy} />
           </ErrorBoundary>
         );
       case 'ai-engine':
@@ -285,12 +298,18 @@ function AppContent() {
         return <LaunchStrategy />;
       case 'trader-insights':
         return <TraderInsights />;
+      case 'operation-logs':
+        return (
+          <ErrorBoundary>
+            <OperationLogs />
+          </ErrorBoundary>
+        );
       // case 'live-trading-test':
       //   return <LiveTradingTest />;
       default:
         return <Dashboard />;
     }
-  }, [currentView]);
+  }, [currentView, chartInitialAction, handleCreateCustomStrategy]);
 
   // ✅ LOADING GUARD — declared AFTER all hooks, BEFORE JSX return
   // Prevents LandingPage from flashing for ~200ms while auth reads sessionStorage
@@ -323,10 +342,12 @@ function AppContent() {
           ) : (
             <div className="flex h-screen overflow-hidden">
               <AuthOverlay
-                onAuthenticated={(userData) => {
-                  if (userData?.email && typeof mockLogin === 'function') {
-                    mockLogin(userData.email, userData.name);
-                  }
+                onAuthenticated={() => {
+                  // Sessão real já foi setada pelo listener onAuthStateChange
+                  // do AuthContext assim que supabase.auth.signInWithPassword
+                  // teve sucesso (auditoria 2026-07-29: chamar mockLogin aqui
+                  // sobrescrevia o user.id UUID real por 'mock-user-123',
+                  // quebrando a persistência de ai_sessions/ai_trades em prod).
                 }}
               />
             </div>

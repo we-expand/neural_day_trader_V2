@@ -1,0 +1,140 @@
+{
+  "generatedAt": "2026-08-03T01:13:01.609Z",
+  "source": "research/experiments/2026-07-30-breakout-donchian-executable/output.json",
+  "legacyRoundTripPercent": 0.26,
+  "correctedRoundTripPercent": 0.02907292738007257,
+  "rows": [
+    {
+      "interval": "15m",
+      "group": "LONG",
+      "n": 312,
+      "antes": {
+        "totalUsd": -1038.7018657200001,
+        "sharpe": -0.38265833315533676,
+        "dsr": 3.676769999572116e-11
+      },
+      "depois": {
+        "totalUsd": -408.8942245562041,
+        "sharpe": -0.1565449906718566,
+        "dsr": 0.00303537551367683,
+        "winRate": 0.2916666666666667
+      }
+    },
+    {
+      "interval": "15m",
+      "group": "SHORT",
+      "n": 303,
+      "antes": {
+        "totalUsd": -409.02835406000025,
+        "sharpe": -0.15027534711901183,
+        "dsr": 0.004703675507639393
+      },
+      "depois": {
+        "totalUsd": 189.11713227500124,
+        "sharpe": 0.02083971350125658,
+        "dsr": 0.6413673739867807,
+        "winRate": 0.33993399339933994
+      }
+    },
+    {
+      "interval": "15m",
+      "group": "POOLED",
+      "n": 615,
+      "antes": {
+        "totalUsd": -1447.730219780001,
+        "sharpe": -0.24909247987918012,
+        "dsr": 6.081037895455665e-10
+      },
+      "depois": {
+        "totalUsd": -219.7770922812029,
+        "sharpe": -0.05618116841783587,
+        "dsr": 0.08211014766901437,
+        "winRate": 0.3154471544715447
+      }
+    },
+    {
+      "interval": "1h",
+      "group": "LONG",
+      "n": 63,
+      "antes": {
+        "totalUsd": -260.19781526000077,
+        "sharpe": -0.2325549382855892,
+        "dsr": 0.035391016204598835
+      },
+      "depois": {
+        "totalUsd": -130.29377381873613,
+        "sharpe": -0.10778435384021638,
+        "dsr": 0.19870921621826843,
+        "winRate": 0.38095238095238093
+      }
+    },
+    {
+      "interval": "1h",
+      "group": "SHORT",
+      "n": 70,
+      "antes": {
+        "totalUsd": 186.6498454999992,
+        "sharpe": 0.07166691378480683,
+        "dsr": 0.7239269430200004
+      },
+      "depois": {
+        "totalUsd": 328.23581185249157,
+        "sharpe": 0.1439178973004024,
+        "dsr": 0.8828448714653373,
+        "winRate": 0.38571428571428573
+      }
+    },
+    {
+      "interval": "1h",
+      "group": "POOLED",
+      "n": 133,
+      "antes": {
+        "totalUsd": -73.54796976000146,
+        "sharpe": -0.03136317960172125,
+        "dsr": 0.3593313070130301
+      },
+      "depois": {
+        "totalUsd": 197.9420380337554,
+        "sharpe": 0.0555587538895275,
+        "dsr": 0.7382077111570988,
+        "winRate": 0.38345864661654133
+      }
+    }
+  ],
+  "power": {
+    "kEmpirical": 0.0338,
+    "nEffRatio": 0.259,
+    "rows": [
+      {
+        "label": "diagnóstico MFE/MAE 15m (14.1)",
+        "n": 4058,
+        "nEff": 1051.022,
+        "power": 0.29147676691329844
+      },
+      {
+        "label": "diagnóstico MFE/MAE 1h (14.1)",
+        "n": 973,
+        "nEff": 252.007,
+        "power": 0.13386881213220136
+      },
+      {
+        "label": "executável 15m pooled (14.3)",
+        "n": 615,
+        "nEff": 159.285,
+        "power": 0.11156074867722109
+      },
+      {
+        "label": "executável 1h pooled (14.3)",
+        "n": 133,
+        "nEff": 34.447,
+        "power": 0.07402189259921275
+      },
+      {
+        "label": "executável 1h SHORT (14.3)",
+        "n": 70,
+        "nEff": 18.13,
+        "power": 0.06668615419876178
+      }
+    ]
+  }
+}

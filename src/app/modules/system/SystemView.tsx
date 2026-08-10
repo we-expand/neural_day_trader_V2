@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { SystemPage } from './types';
 import { AdminDashboard } from '@/app/components/admin/AdminDashboard';
-import { LabIntelligence } from '@/app/components/admin/LabIntelligence';
+import DevLab from '@/app/components/DevLab';
 import { AssetHealthMonitor } from '@/app/components/system/AssetHealthMonitor';
 import { UserIntelligence } from '@/app/components/admin/UserIntelligence';
 import { DefensiveArchitecture } from '@/app/components/admin/DefensiveArchitecture';
@@ -139,7 +139,7 @@ export function SystemView() {
                     IA auxiliando com sugestões inteligentes para novas funcionalidades da plataforma
                   </p>
                 </div>
-                <LabIntelligence embedded={false} />
+                <DevLab embedded={false} />
               </div>
             )}
 

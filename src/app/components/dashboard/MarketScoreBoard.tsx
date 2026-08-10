@@ -40,6 +40,7 @@ import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { getRealMarketData, getLastKnownRealPrice, subscribeToRealtimePrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard). subscribeToRealtimePrice: streaming-relay (2026-07-14)
+import { useAnimatedNumber } from '@/app/hooks/useAnimatedNumber';
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
 import { MiniEquityChart } from './MiniEquityChart'; // ✅ NOVO: Mini Equity Chart
 import { BtcPriceDebug } from '../debug/BtcPriceDebug'; // 🐛 DEBUG: BTC Price Debug
@@ -170,8 +171,18 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
   return normalized.endsWith('USDT') || ['BTC', 'ETH', 'SOL'].some(c => normalized.includes(c));
 }
 
-export const MarketScoreBoard = () => {
-  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason } = useTradingContext();
+// 🆕 P&L de posição atualiza a cada 1s (loop em useApexLogic.ts) sem nenhuma
+// suavização — o número saltava direto de um valor pro outro ("duro"). Interpola
+// visualmente via useAnimatedNumber, sem mexer no pipeline de dados. Componente
+// separado porque é usado dentro de um `.map()` (hooks não podem ser chamados
+// direto dentro do callback do map).
+function AnimatedOrderPnl({ value, className }: { value: number; className: string }) {
+  const animated = useAnimatedNumber(value);
+  return <div className={className}>{animated >= 0 ? '+' : ''}{animated.toFixed(2)}</div>;
+}
+
+export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) => void } = {}) => {
+  const { portfolio, activeOrders, config, syncWallet, status, toggleAI, selectedAsset, setSelectedAsset, closeManualPosition, setDashboardActiveSymbol, setDashboardScoreResult, equityHistory, isSafeMode, safeModeReason, disableSafeMode } = useTradingContext();
   const { marketState } = useMarketContext();
   const scanner = useMarketScanner();
 
@@ -799,6 +810,7 @@ export const MarketScoreBoard = () => {
   };
 
   const activePnL = activeOrders.reduce((acc, o) => acc + (o.currentProfit || 0), 0);
+  const animatedActivePnL = useAnimatedNumber(activePnL);
   const profitAi = (portfolio?.equity || 0) - (config.initialBalance || 100);
 
   // ✅ 2026-07-20: "Risco da Conta" usava só o P&L flutuante das posições
@@ -883,10 +895,17 @@ export const MarketScoreBoard = () => {
                     </span>
                 </button>
 
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                <div
+                    className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20"
+                    title={scanner?.bestAsset ? `Melhor ativo real (cripto): ${scanner.bestAsset.symbol} — score ${scanner.bestAsset.score.toFixed(0)}, ${scanner.bestAsset.classification}` : undefined}
+                >
                      <div className={`w-1.5 h-1.5 rounded-full ${scanner?.isScanning ? 'bg-purple-400 animate-pulse' : 'bg-emerald-400'}`} />
                      <span className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
-                        {scanner?.isScanning ? 'SCANNING...' : 'AI LOCKED'}
+                        {scanner?.isScanning
+                          ? 'SCANNING...'
+                          : scanner?.bestAsset
+                          ? `MELHOR: ${scanner.bestAsset.symbol} (${scanner.bestAsset.score.toFixed(0)})`
+                          : 'AI LOCKED'}
                      </span>
                 </div>
 
@@ -1019,8 +1038,27 @@ export const MarketScoreBoard = () => {
                 </div>
 
                 <div className="text-2xl font-bold tracking-tight text-white font-mono">
-                    {isSafeMode ? (
-                        <span className="text-rose-400" title={safeModeReason || undefined}>SAFE MODE</span>
+                    {/* 🆕 FIX: Safe Mode é config da IA — nunca pode aparecer/interferir no
+                        Modo Livre (IA desligada, usuário operando só pela boleta manual).
+                        `status === 'running'` reflete `isActive` do motor (só true com a IA
+                        ligada); belt-and-suspenders junto do fix em useApexLogic.ts que já
+                        impede o Safe Mode de ativar OU permanecer ativo com a IA desligada. */}
+                    {isSafeMode && status === 'running' ? (
+                        <div className="flex items-center gap-2">
+                            <span className="text-rose-400" title={safeModeReason || undefined}>SAFE MODE</span>
+                            {/* disableSafeMode já existia no motor mas nunca tinha botão — a
+                                única saída antes disso era resetar a conta inteira (perder o
+                                saldo). Sai do Safe Mode sem mexer no saldo; se a causa raiz
+                                (drawdown, perda diária etc.) continuar valendo, o Health Check
+                                Guardian dispara de novo sozinho no próximo ciclo. */}
+                            <button
+                                onClick={() => disableSafeMode()}
+                                className="text-[9px] px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 hover:text-white transition-colors font-bold uppercase tracking-wider"
+                                title="Sair do Safe Mode sem resetar a conta"
+                            >
+                                Sair
+                            </button>
+                        </div>
                     ) : riskRatio > 0.8 ? (
                         <span className="text-rose-400">RISCO ALTO</span>
                     ) : riskRatio > 0.5 ? (
@@ -1075,7 +1113,7 @@ export const MarketScoreBoard = () => {
                         <div className="text-right">
                             <div className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider">P&L Total</div>
                             <div className={`text-lg font-bold font-mono ${activePnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {formatPnL(activePnL)}
+                                {formatPnL(animatedActivePnL)}
                             </div>
                         </div>
                     </div>
@@ -1085,11 +1123,23 @@ export const MarketScoreBoard = () => {
                     {activeOrders.map((order) => {
                         const pnl = order.currentProfit || 0;
                         const pnlPercent = order.price > 0 ? ((order.currentPrice! - order.price) / order.price * 100) * (order.side === 'LONG' ? 1 : -1) : 0;
-                        
+                        // order.amount é o capital/exposição em USD alocado à posição
+                        // (TradeVisual.amount, ver comentário em lotSizeConversion.ts),
+                        // nunca uma contagem de lotes — antes essa contagem exibia esse
+                        // valor em dólar como se fosse "lotes" e ainda multiplicava por
+                        // preço de novo pro "Volume", inflando o número em milhões.
+                        const asset = getAssetBySymbol(order.symbol);
+                        const estimatedLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
+
                         return (
-                            <div 
+                            <div
                                 key={order.id}
-                                className="bg-black/40 border border-white/10 rounded-lg p-3 hover:border-blue-500/50 transition-all group"
+                                onClick={() => {
+                                    setSelectedAsset(order.symbol);
+                                    onNavigate?.('chart');
+                                }}
+                                className="bg-black/40 border border-white/10 rounded-lg p-3 hover:border-blue-500/50 transition-all group cursor-pointer"
+                                title={`Ver ${order.symbol} no gráfico`}
                             >
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex items-center gap-2">
@@ -1097,26 +1147,43 @@ export const MarketScoreBoard = () => {
                                             {order.symbol.replace('USDT', '').replace('USD', '')}
                                         </span>
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                                            order.side === 'LONG' 
-                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                                            order.side === 'LONG'
+                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                                 : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                                         }`}>
                                             {order.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                                         </span>
                                     </div>
-                                    
-                                    {/* ✅ P&L + Percentual Destacado */}
-                                    <div className="flex flex-col items-end gap-0.5">
-                                        <div className={`text-sm font-black font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                            {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+
+                                    <div className="flex items-start gap-1.5">
+                                        {/* ✅ P&L + Percentual Destacado */}
+                                        <div className="flex flex-col items-end gap-0.5">
+                                            <AnimatedOrderPnl value={pnl} className={`text-sm font-black font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                                            <div className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                                pnlPercent >= 0
+                                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                                    : 'bg-rose-500/20 text-rose-400'
+                                            }`}>
+                                                {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                                            </div>
                                         </div>
-                                        <div className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                            pnlPercent >= 0 
-                                                ? 'bg-emerald-500/20 text-emerald-400' 
-                                                : 'bg-rose-500/20 text-rose-400'
-                                        }`}>
-                                            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
-                                        </div>
+
+                                        {/* Fechar posição direto do banner — não precisa entrar no gráfico
+                                            pra fechar. stopPropagation pra não disparar a navegação do card. */}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const closePrice = order.currentPrice || order.price;
+                                                closeManualPosition(order.id, closePrice);
+                                                toast.success('Posição fechada', {
+                                                    description: `${order.symbol} @ ${closePrice.toFixed(order.symbol.includes('JPY') ? 2 : 5)}`,
+                                                });
+                                            }}
+                                            className="p-1 rounded bg-black/40 border border-white/10 text-neutral-500 hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/10 transition-colors shrink-0"
+                                            title="Fechar posição"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                 </div>
 
@@ -1131,11 +1198,11 @@ export const MarketScoreBoard = () => {
                                     </div>
                                     <div className="flex justify-between text-[10px]">
                                         <span className="text-neutral-500">Contratos:</span>
-                                        <span className="text-white font-mono font-bold">{order.amount.toFixed(2)} lotes</span>
+                                        <span className="text-white font-mono font-bold">{estimatedLots !== null ? `${estimatedLots.toFixed(4)} lotes` : '—'}</span>
                                     </div>
                                     <div className="flex justify-between text-[10px]">
-                                        <span className="text-neutral-500">Volume:</span>
-                                        <span className="text-neutral-300 font-mono">${(order.amount * order.price).toFixed(2)}</span>
+                                        <span className="text-neutral-500">Exposição:</span>
+                                        <span className="text-neutral-300 font-mono">${order.amount.toFixed(2)}</span>
                                     </div>
                                 </div>
 

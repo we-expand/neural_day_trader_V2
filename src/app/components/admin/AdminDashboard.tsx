@@ -4,7 +4,7 @@ import { LayoutDashboard, Wallet, Megaphone, Settings, LogOut, Bell, Search, Men
 import { FinanceModule } from './FinanceModule';
 import { MarketingModule } from './MarketingModule';
 import { AdminSettings } from './AdminSettings';
-import { LabIntelligence } from './LabIntelligence';
+import DevLab from '@/app/components/DevLab';
 import { SocialMediaManager } from './SocialMediaManager';
 import { UserIntelligence } from './UserIntelligence';
 import { DefensiveArchitecture } from './DefensiveArchitecture';
@@ -48,7 +48,7 @@ export function AdminDashboard({ onExit }: AdminDashboardProps) {
         // Important: h-full here ensures the DevLab (flex container) fills the available space
         return (
           <div className="h-full w-full min-h-[calc(100vh-140px)]">
-            <LabIntelligence embedded={true} />
+            <DevLab embedded={true} />
           </div>
         );
       case 'userdata':

@@ -15,6 +15,7 @@ import {
   calculateMACD,
   calculateBollingerBands,
   calculateATR,
+  calculateADX,
   calculateStochastic,
   calculateDonchian,
 } from './TechnicalIndicators';
@@ -167,6 +168,128 @@ function makeCandle(close: number, i: number, high?: number, low?: number): Cand
 
   assertTrue('Donchian NÃO usa o high do próprio candle do pico (sem look-ahead)', upper[spikeIndex] !== 150);
   assertTrue('Donchian passa a refletir o pico no candle SEGUINTE (agora é histórico)', upper[spikeIndex + 1] === 150);
+}
+
+// ─── CASO 9: ADX usa suavização de Wilder (RMA), não SMA ───────────────────
+// Regressão de bug real (2026-07-30): a implementação usava SMA simples para
+// suavizar o DX, produzindo erro médio de ~4,8 pontos de ADX contra a fórmula
+// padrão de Wilder — divergência que mudava a decisão do gate de regime
+// (ADX>18/20/22) em 5,7-10,7% das barras numa série sintética de 3000
+// candles. Este caso prova a diferença com uma série pequena e determinística
+// onde RMA e SMA do DX divergem de forma verificável à mão: tendência forte
+// e constante faz +DM dominar simetricamamente, então o DX real converge
+// para um valor estável — SMA (sem memória geométrica) reage mais devagar
+// que RMA (que pesa o presente mais que o passado) na fase de convergência,
+// então os dois métodos discordam justamente nas primeiras barras após o
+// período de warmup, que é a região testada aqui.
+{
+  // Série com MUDANÇA DE REGIME (tendência forte -> lateral com oscilação
+  // fraca) — necessária pra RMA e SMA do DX divergirem de forma mensurável.
+  // Uma tendência pura e constante faz o DX convergir a um valor estável
+  // onde RMA e SMA do DX coincidem (não prova nada sobre qual suavização é
+  // usada); a mudança de regime testa a velocidade de reação de cada método
+  // (RMA pesa o presente mais que o passado; SMA tem memória uniforme).
+  const trendCandles: Candle[] = Array.from({ length: 30 }, (_, i) =>
+    makeCandle(100 + i * 2, i, 100 + i * 2 + 1, 100 + i * 2 - 1)
+  );
+  const rangeCandles: Candle[] = Array.from({ length: 30 }, (_, i) => {
+    const wobble = (i % 2 === 0 ? 1 : -1) * 0.8;
+    const price = trendCandles[29].close + wobble;
+    return makeCandle(price, 30 + i, price + 1, price - 1);
+  });
+  const candles: Candle[] = [...trendCandles, ...rangeCandles];
+  const adx = calculateADX(candles, 14);
+
+  // Com tendência forte sustentada, ADX de Wilder converge para valor alto
+  // (>40) antes da mudança de regime. Warmup de ADX(14) precisa de ~2×period
+  // candles pra ter primeiro valor (suavização de +DM/-DM/TR, DEPOIS
+  // suavização do DX) — só a partir do índice 27-28 nesta série de 30.
+  assertTrue('ADX(14) de tendência de alta forte e sustentada converge para valor alto (>40) após warmup', (adx[29] ?? 0) > 40);
+
+  // Prova de que a suavização é RMA, não SMA: recalcula com SMA simples do
+  // mesmo DX e confirma que diverge do resultado real em pelo menos 1 barra
+  // da região testada (prova que a implementação NÃO é SMA disfarçada).
+  const len = candles.length;
+  const plusDM: number[] = new Array(len).fill(0), minusDM: number[] = new Array(len).fill(0), tr: number[] = new Array(len).fill(0);
+  for (let i = 1; i < len; i++) {
+    const up = candles[i].high - candles[i - 1].high;
+    const dn = candles[i - 1].low - candles[i].low;
+    plusDM[i] = up > dn && up > 0 ? up : 0;
+    minusDM[i] = dn > up && dn > 0 ? dn : 0;
+    const pc = candles[i - 1].close;
+    tr[i] = Math.max(candles[i].high - candles[i].low, Math.abs(candles[i].high - pc), Math.abs(candles[i].low - pc));
+  }
+  const wilderSmoothLocal = (values: number[], period: number) => {
+    const out: (number | null)[] = new Array(len).fill(null);
+    let prev: number | null = null;
+    for (let i = 0; i < len; i++) {
+      if (i === period) { prev = values.slice(1, period + 1).reduce((a, b) => a + b, 0); out[i] = prev; }
+      else if (i > period) { prev = (prev as number) - (prev as number) / period + values[i]; out[i] = prev; }
+    }
+    return out;
+  };
+  const sTR = wilderSmoothLocal(tr, 14), sP = wilderSmoothLocal(plusDM, 14), sM = wilderSmoothLocal(minusDM, 14);
+  const dx: (number | null)[] = new Array(len).fill(null);
+  for (let i = 0; i < len; i++) {
+    const t = sTR[i], p = sP[i], m = sM[i];
+    if (t === null || p === null || m === null || t === 0) continue;
+    const pdi = (p / t) * 100, mdi = (m / t) * 100, s = pdi + mdi;
+    dx[i] = s === 0 ? 0 : (Math.abs(pdi - mdi) / s) * 100;
+  }
+  const firstValid = dx.findIndex(v => v !== null);
+  const dxValues = dx.slice(firstValid).map(v => v as number);
+  const smaOfDx: (number | null)[] = new Array(len).fill(null);
+  for (let i = 13; i < dxValues.length; i++) {
+    const window = dxValues.slice(i - 13, i + 1);
+    smaOfDx[firstValid + i] = window.reduce((a, b) => a + b, 0) / 14;
+  }
+  const diverges = Array.from({ length: len }, (_, i) => i).some(
+    i => adx[i] !== null && smaOfDx[i] !== null && Math.abs(adx[i]! - smaOfDx[i]!) > 0.5
+  );
+  assertTrue('ADX real diverge de uma versão com SMA do DX (prova de que a implementação usa RMA)', diverges);
+}
+
+// ─── CASO 10: direção do sinal declarada explicitamente, não inferida ──────
+// Regressão de bug real (2026-07-30): a Reversão à Média (preset 3, RSI+
+// Bollinger) tem entryBlocks com operadores CROSS_BELOW/BELOW, que a
+// inferência antiga por contagem de operador classificava como "bearish" →
+// sinal SELL — o oposto da intenção real (comprar na sobrevenda). Prova
+// aqui: monta uma série que dispara sobrevenda genuína (toca banda inferior
+// de Bollinger + RSI<30) e confirma que o preset 3 emite BUY, não SELL.
+{
+  // Série: regime lateral apertado (ADX baixo, satisfaz o filtro ADX<22 do
+  // preset) seguido de UM candle de queda brusca — RSI cai rápido (sobrevenda
+  // genuína) enquanto a banda de Bollinger (que reage a 20 candles de
+  // história) ainda não acompanhou o movimento, então o preço fecha abaixo
+  // dela. Uma queda gradual/sustentada NÃO serve pra este teste: mantém o
+  // ADX alto (tendência forte) e nunca passa o filtro de regime lateral do
+  // preset 3 — só um choque abrupto após lateralização replica o cenário
+  // real de mean-reversion que a estratégia foi desenhada para capturar.
+  const chop = Array.from({ length: 40 }, (_, i) => {
+    const wobble = (i % 2 === 0 ? 1 : -1) * 0.4;
+    return makeCandle(100 + wobble, i, 100 + wobble + 0.15, 100 + wobble - 0.15);
+  });
+  const shock = [makeCandle(88, 40, 88.5, 87.5)];
+  const after = Array.from({ length: 5 }, (_, i) => makeCandle(88 - i * 0.3, 41 + i, 88.2 - i * 0.3, 87.8 - i * 0.3));
+  const candles: Candle[] = [...chop, ...shock, ...after];
+
+  const preset3 = PRESET_STRATEGIES.find(s => s.id === '3')!;
+  const series = evaluateStrategySeries(preset3, candles);
+  const buySignals = series.filter(r => r.signal === 'BUY').length;
+  const sellSignals = series.filter(r => r.signal === 'SELL').length;
+
+  assertTrue('Reversão à Média (preset 3) gera BUY na sobrevenda, nunca SELL (fix de inversão)', buySignals > 0 && sellSignals === 0);
+}
+
+// ─── CASO 11: Rompimento Confirmado (preset 4) não sai por ATR FALLING ─────
+// Regressão de bug real (2026-07-30): o exitBlock antigo `ATR FALLING`
+// disparava em ~44% das barras (medido sobre série sintética de 2000
+// candles), dando holding period esperado de ~2,3 barras — insuficiente pra
+// qualquer rompimento se desenvolver. Removido; a saída agora é só TP/SL por
+// ATR + trailing. Prova aqui: preset 4 não tem nenhum exitBlock configurado.
+{
+  const preset4 = PRESET_STRATEGIES.find(s => s.id === '4')!;
+  assertTrue('Rompimento Confirmado (preset 4) não tem exitBlock de regra prematura (saída só por TP/SL/trailing)', preset4.exitBlocks.length === 0);
 }
 
 console.log(`\n${passed} passaram, ${failed} falharam.`);

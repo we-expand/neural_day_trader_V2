@@ -15,7 +15,7 @@
 import { supabase } from '@/lib/supabaseClient';
 // Caminho relativo de propósito: o path absoluto '/utils/...' só resolve no Vite,
 // deixando o type-check cego para este módulo (que é caminho crítico do motor).
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
 import { getBrokerSymbol } from '@/app/config/brokerRegistry';
 
 export interface CandleData {
@@ -46,9 +46,19 @@ export class BacktestDataUnavailableError extends Error {
 
 // Prefixos/códigos do catálogo (AssetUniverse.tsx) que não batem 1:1 com o
 // código base usado pela Binance — mapeamento manual dos casos conhecidos.
+// 🔒 2026-08-05: `XBNUSD: 'BTC'` estava ERRADO. XBN é o contrato de **Binance
+// Coin** da Infinox (ver assetDatabase.ts:158 e brokerRegistry.ts:192, ambos
+// confirmados via /mt5-prices em 2026-07-16, preço ~US$576 vs ~US$64k do BTC) —
+// o mapa mandava o backtest de XBNUSD baixar candles de BTCUSDT. Foi isso, e não
+// "XBNUSD é duplicata de BTCUSD", que fez as duas séries saírem idênticas na
+// medição de taxa base de 2026-08-05; as 15 combinações de XBNUSD daquela tabela
+// mediram Bitcoin com o rótulo errado. Mesma família: XET = Ethereum,
+// XLC = Litecoin. A chave `XETLC` não correspondia a símbolo nenhum do catálogo
+// (o par cruzado da Infinox é `XETXLC`, e não é cotado em USD) — removida.
 const CRYPTO_CATALOG_TO_BINANCE_BASE: Record<string, string> = {
-  XBNUSD: 'BTC', BTCUSD: 'BTC',
-  XETUSD: 'ETH', XETEUR: 'ETH', XETLC: 'ETC',
+  XBNUSD: 'BNB', BTCUSD: 'BTC',
+  XETUSD: 'ETH', XETEUR: 'ETH',
+  XLCUSD: 'LTC',
   ETCUSD: 'ETC',
 };
 
@@ -309,6 +319,21 @@ class BacktestDataService {
         close: c.close,
         volume: c.volume,
       }));
+
+      // ✅ 2026-08-09: `success: true` com `candles: []` (MetaAPI sem histórico
+      // pro timeframe pedido) fazia `candles[0].time` estourar TypeError
+      // genérico ("Cannot read properties of undefined") em vez do erro
+      // explícito que o projeto exige — achado em produção via
+      // ai_funnel_snapshots.samples.CANDLES_FETCH_FAILED, todos os ciclos do
+      // timeframe 15m batendo nesse crash.
+      if (candles.length === 0) {
+        lastError = new BacktestDataUnavailableError(
+          catalogSymbol,
+          `MetaAPI retornou 0 candles para ${catalogSymbol} (${timeframeMap[timeframe]})`
+        );
+        if (attempt < attempts - 1) continue;
+        throw lastError;
+      }
 
       return {
         candles,

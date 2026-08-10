@@ -92,6 +92,29 @@ export interface PortfolioSnapshot {
   created_at?: string;
 }
 
+/**
+ * Etapa do funil de decisão que gerou o registro (`migrations/009_ai_decisions.sql`).
+ * `undefined`/`null` = decisão de entrada aprovada (action_taken=true).
+ * Lista fechada — estender junto com o CHECK constraint da migration, nunca
+ * usar valor livre fora desta união (perde consultabilidade).
+ */
+export type DecisionVetoStage =
+  | 'CONTEXT_SCORE_OPPOSITE'
+  | 'CONTEXT_SCORE_LATERAL'
+  | 'CONTEXT_CONFIDENCE'
+  | 'CONTEXT_GATE'
+  | 'CONFIG_DIRECTION'
+  | 'COST_GATE'
+  | 'COST_GATE_NO_DATA'
+  | 'RISK_GATE'
+  | 'KILL_SWITCH'
+  | 'COOLDOWN'
+  | 'MAX_TRADES_PER_DAY'
+  | 'REVENGE_PATTERN'
+  | 'CORRELATION_GUARD'
+  | 'MARKET_MODE_REGIME_MISMATCH'
+  | 'MARKET_MODE_COUNTER_NO_EXTREME';
+
 export interface AIDecision {
   id?: string;
   session_id: string;
@@ -105,6 +128,7 @@ export interface AIDecision {
   technical_signals?: any;
   risk_assessment?: any;
   action_taken: boolean;
+  veto_stage?: DecisionVetoStage;
   trade_id?: string;
   created_at?: string;
 }
@@ -347,6 +371,36 @@ class AITradingPersistenceService {
   }
 
   /**
+   * Buscar TODOS os trades do usuário, através de todas as sessões
+   * (DEMO/BACKTEST/LIVE) — usado pelo log de auditoria de operações
+   * (`OperationLogs.tsx`). Filtro de data opcional por `entry_time`.
+   */
+  async getUserTrades(
+    userId: string,
+    options?: { startDate?: string; endDate?: string; limit?: number }
+  ): Promise<AITrade[]> {
+    try {
+      let query = supabase
+        .from('ai_trades')
+        .select('*')
+        .eq('user_id', userId)
+        .order('entry_time', { ascending: false });
+
+      if (options?.startDate) query = query.gte('entry_time', options.startDate);
+      if (options?.endDate) query = query.lte('entry_time', options.endDate);
+      query = query.limit(options?.limit ?? 2000);
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      return (data || []) as AITrade[];
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar trades do usuário:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Buscar trades abertos da sessão
    */
   async getOpenTrades(sessionId: string): Promise<AITrade[]> {
@@ -445,6 +499,38 @@ class AITradingPersistenceService {
       return (data || []) as AIDecision[];
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar decisões:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Buscar TODAS as decisões do usuário, através de todas as sessões —
+   * inclui decisões vetadas (`action_taken=false`), essencial pro log de
+   * auditoria (`OperationLogs.tsx`) mostrar não só o que a IA executou, mas
+   * o que ela recusou operar e por quê. Filtro de data opcional por
+   * `timestamp`.
+   */
+  async getUserDecisions(
+    userId: string,
+    options?: { startDate?: string; endDate?: string; limit?: number }
+  ): Promise<AIDecision[]> {
+    try {
+      let query = supabase
+        .from('ai_decisions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false });
+
+      if (options?.startDate) query = query.gte('timestamp', options.startDate);
+      if (options?.endDate) query = query.lte('timestamp', options.endDate);
+      query = query.limit(options?.limit ?? 2000);
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      return (data || []) as AIDecision[];
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar decisões do usuário:`, error);
       return [];
     }
   }

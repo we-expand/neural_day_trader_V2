@@ -2948,3 +2948,234 @@ Cleber testou contra o MT5 real e reportou um padrão específico por classe:
 **COCUSD — não investigado a fundo, pendente confirmação do Cleber**: o mapeamento `COCUSD → 'Cocoa'` foi validado numa auditoria anterior contra uma conta demo compartilhada, não a conta real do Cleber — corretoras costumam esconder símbolos agrícolas/exóticos do Market Watch por padrão. Pedido a ele pra checar "Mostrar Todos" (Ctrl+U) no MT5 antes de tratar como bug — resposta ainda pendente.
 
 **Pendente pra fechar de vez**: deploy do fix de concorrência e reteste de forex/USDCAD pelo Cleber; decisão sobre roteamento de cripto (Binance vs MetaAPI); resultado da checagem "Mostrar Todos" pro COCUSD no MT5 do Cleber.
+
+## Cérebro de decisão da IA — busca por edge de sinal (2026-07-24 a 2026-08-02, arquivado do CLAUDE.md em 2026-08-04)
+
+> Handoff completo movido do `CLAUDE.md` pra cá na limpeza de 2026-08-04 (arquivo
+> tinha voltado a crescer com handoff completo de sessão, contra a própria regra de
+> manutenção dele). Fonte de verdade pro cérebro de decisão continua sendo
+> `research/AI_BRAIN_SPEC.md` — isto aqui é só o rastro cronológico da investigação.
+
+**Estado resumido (2026-07-25)**: 5 estratégias-preset redesenhadas com fonte
+de evidência declarada (`src/app/data/presetStrategies.ts`), motor de
+ATR/Donchian real, custo de transação calibrado contra concorrência real. Uma
+busca sistemática com correção estatística (Deflated Sharpe Ratio) testou 106
+combinações de parâmetro em 4 arquétipos sobre BTCUSDT — nenhum passou o piso
+de edge comprovado. Ensemble desses 4 sinais por peso de regime (seção
+11.6/11.7) — piorou (DSR 0%, holdout -42%), revelou 2 dos 4 arquétipos
+essencialmente o mesmo sinal (correlação 0,74). Repetida a mesma busca (106
+combinações) em EURUSD real via MetaAPI (seção 11.8, hipótese #1 da 11.5) —
+falhou de novo, pior que em cripto: 3 dos 4 campeões com Sharpe holdout
+negativo. Refeito o ensemble numa versão limpa (seção 11.9): removida a
+duplicação Donchian/Rompimento Confirmado (3 sinais genuinamente
+decorrelacionados, correlação ≤0,05) e a saída original de cada arquétipo
+preservada por posição — melhorou (DSR 29,2% vs. 0% da v1) mas ainda não
+passou o piso de 95%, holdout do campeão segue com Sharpe negativo. As 3
+hipóteses da seção 11.5 (instrumento, sinal único, reposicionamento de risco)
+estão todas exploradas agora (11.5→11.7→11.8→11.9); nenhuma produziu edge
+comprovado. Scripts reproduzíveis em
+`research/experiments/2026-07-24-strategy-validation/`,
+`research/experiments/2026-07-25-ensemble/`,
+`research/experiments/2026-07-25-forex-major/` e
+`research/experiments/2026-07-25-ensemble-v2/`.
+
+**Atualização (2026-07-25, pooling cross-sectional)**: diagnóstico de que as
+buscas anteriores podem ter sido subdimensionadas estatisticamente (holdout
+de n=19-20 tem pouco poder pra detectar Sharpe moderado). Corrigido rodando
+os mesmos parâmetros já calibrados (sem grid search novo) sobre 7 pares forex
+major pooled — Donchian confirma sem edge (n=80, DSR 34%), mas Cruzamento
+EMA+ADX subiu pra DSR 85,3% (n=92, Sharpe pooled +0,110, +6,72%, positivo nos
+7 pares individuais) — melhor resultado da investigação até então, ainda
+abaixo do piso de 95%. Ver seção 11.10 do `AI_BRAIN_SPEC.md`.
+
+**Atualização (2026-07-25, calendário estendido — seção 11.11)**: pendência
+executada no mesmo dia. Estendido `yearsBack` de 3 para 10 anos (mesmo
+script, zero ajuste de parâmetro), n_holdout pooled foi de 92 para 322 (passa
+do n≈226 calculado como suficiente). Resultado reverteu, não confirmou:
+Sharpe pooled caiu de +0,110 para -0,015, DSR caiu de 85,3% para 39,3% ❌, só
+3 dos 7 pares continuam com Sharpe holdout positivo (era 7 de 7). Leitura
+honesta: o DSR 85,3% da 11.10 não sobreviveu a mais dado — mais provável que
+fosse resultado favorecido pela janela de calendário específica (2023-2026)
+do que edge real. Nenhum dos 2 arquétipos testados na cesta forex major tem
+edge comprovado. Fecha as hipóteses das seções 11.5→11.10 sem candidato à
+promoção.
+
+**Atualização (2026-07-25, arquétipos restantes — seção 11.12)**: testados os
+3 presets ainda sem pooling (Reversão à Média, Rompimento Confirmado, Scalp),
+mesma disciplina (zero ajuste, 10 anos desde já). Todos os 3 falharam com DSR
+0,0% — Reversão à Média (Sharpe pooled -0,311, 1/7 pares positivos),
+Rompimento Confirmado (-0,204, 0/7) e Scalp (-1,032, 0/7, pior resultado de
+toda a investigação). Os 5 presets da spec estão todos testados agora e
+nenhum tem edge comprovado. Fecha a opção "testar arquétipos novos".
+
+**Atualização (2026-07-25/26, cesta cripto ampliada — seção 11.13)**: cripto
+adicional (BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT via
+Binance público). Primeira rodada deu retornos absurdos em XRP/ADA/DOGE (até
+-80.161% agregado) — bug real encontrado e corrigido:
+`estimateCostPercent('CRYPTO', ...)` em `research/CostModel.ts` usava fórmula
+de custo calibrada pra forex/BTC-scale, gerando até 136,7% de custo
+round-trip por trade em moedas sub-US$1 (DOGE a US$0,073). Corrigido pra
+tratar custo cripto como % direto do preço. `npm run validate` passou 28/28
+depois da correção. Resultado real depois de corrigir: ainda nenhum
+arquétipo passa o piso de 95% DSR, mas Donchian em cripto é o melhor sinal de
+toda a investigação — DSR 52,0% (Sharpe pooled ~0,003, quase zero em vez de
+negativo, 4/7 pares positivos). Scalp confirma ser o pior arquétipo (Sharpe
+pooled -3,36 em cripto limpo). Ver seção 11.13 do `AI_BRAIN_SPEC.md`.
+
+**ENCERRAMENTO DA BUSCA POR EDGE DE SINAL (2026-07-30)**. Ver
+`AI_BRAIN_SPEC.md` seção 14 (completa, com os números). Resumo do que ficou
+decidido:
+
+- Testados 4 desenhos de saída sobre SMA40/100+pullback e 1 sobre rompimento
+  Donchian(20/10) (diagnóstico MFE/MAE com n=4.058 + teste executável com
+  custo real e contrato 0,01 BTC). O payoff assimétrico pedido pelo Cleber é
+  mecanicamente construível (payoff ratio real 1,79x a 1,88x medido), mas o
+  win rate cai exatamente na mesma proporção — EV bruto ≈ 0 em todos os
+  desenhos, antes de qualquer custo.
+- Razão matemática, não empírica: teorema da parada opcional. Stop e alvo
+  escolhem a FORMA da distribuição de payoff, nunca a MÉDIA. Qualquer
+  proposta futura do tipo "testar stop X com alvo Y" está refutada a priori,
+  salvo se vier com evidência de que o sinal prevê magnitude condicional (não
+  só direção).
+- Gate de viabilidade por custo, quantificado inicialmente em 0,26%
+  round-trip — DERRUBADO EM 2026-08-02 (ver seção 14.7 do
+  `AI_BRAIN_SPEC.md`): os 0,26% eram ~8,9x o custo real de cripto CFD (o
+  `commissionPercent: 0.08` era taxa de exchange spot, não CFD). Real:
+  0,0291% round-trip; `CostModel.ts` corrigido. Com o custo certo, 15m gasta
+  2,8% do movimento e 1h gasta 1,2% — nenhum teste daquela sessão rodou
+  abaixo do piso de viabilidade, ao contrário do que ficou registrado.
+  Re-medindo o teste executável sobre os mesmos trades, 1h pooled vira de
+  −US$73,55 para +US$197,94. Isto NÃO é evidência de edge: nada passa o piso
+  de 95% de DSR, e as amostras da seção 14 têm poder de 6,7% a 29,1% — o
+  veredicto passa de "medido como negativo" para "nunca medido com poder
+  suficiente". Handoff completo das duas sessões de 02/08:
+  `SESSAO_2026-08-02_GATES_VIABILIDADE.md` (diagnóstico) e
+  `SESSAO_2026-08-02_CORRECAO_CUSTO_SECAO14.md` (correções aplicadas +
+  próximo passo).
+- Erro metodológico nomeado: a cesta de 7 criptos usada em 11.13 e nos testes
+  de 2026-07-30 tem correlação 0,7-0,9 entre pares — é ~1,5 apostas
+  independentes, não 7. O pooling aumentou o `n` da mesma aposta, nunca a
+  diversificação real.
+- DECISÃO DE PRODUTO DO CLEBER (2026-07-30): opção (B) — o produto segue
+  intraday e o cérebro é assumidamente de execução e disciplina, não de
+  alfa. Recusada a opção (A) (trend-following diário/swing multi-classe, onde
+  a convexidade comprovadamente vive, mas que exigiria reposicionar o produto
+  pra fora de day trading).
+- Função objetivo do cérebro sob (B): minimizar perda por causa evitável,
+  com burn rate mínimo e comportamento auditável. Com edge ≈ 0, EV por trade
+  é ≈ −custo, logo o cérebro mais eficiente é o que opera menos (matemática,
+  não conservadorismo). "Perde pouco" é garantível mecanicamente; "ganha
+  muito" só condicionalmente. ML entra apenas em previsão de volatilidade
+  (tratável, autocorrelacionada), nunca de direção.
+
+## Pendências implementadas — 2026-07-30 a 2026-08-03 (arquivado do CLAUDE.md em 2026-08-04)
+
+- **Fase 0 (remover dado fabricado): CONCLUÍDA em 2026-07-29** — Auditoria
+  sweep de ~60 arquivos com `Math.random()` encontrou 9 casos em que números
+  aleatórios eram apresentados como capacidade real do sistema (latência,
+  uptime, risco de cliente, força de correlação, sincronização com broker).
+  Removidos: `SystemPerformance.tsx`, `QuantumChart.tsx`, `ButterflyMatrix.tsx`,
+  `MarketScore.tsx`, `LiquidityDetector.tsx`, `ChartViewSimple.tsx`,
+  `NeuralBridge.ts`, `liquiditySignals.ts`. Desativados/reescritos:
+  `DefensiveArchitecture.tsx`, `MT5Validator.tsx`, `StrategyDashboard.tsx`,
+  `LiquidityPrediction.tsx`, `UserIntelligence.tsx`, `QuantumAnalysis.tsx`.
+  Motor de decisão intacto (`npm run validate` 28/28 ✅). Commit: "fix:
+  remover dado fabricado (Math.random) da Fase 0 — auditoria completa".
+
+- **Decisão de escopo (2026-07-26)**: linha 11.5→11.15 fechada, sem candidato
+  promovido. 15 sub-investigações (5 presets × 2 cestas × timeframes ×
+  Sharpe/Sortino) não encontraram edge em indicador técnico clássico sobre
+  preço público — resultado consistente com mercado eficiente pra esse tipo
+  de sinal. Produto tem 2 pilares declarados: (a) execução/gestão de risco
+  disciplinada — vendável já; (b) busca de edge com dado estruturalmente
+  diferente (order book cripto, calendário como filtro de regime, features
+  cross-asset) — ver seção 13 do `AI_BRAIN_SPEC.md` ("Trilho 2"). Testadas
+  duas alternativas grátis antes de pagar dado (seção 13.7 CVD via
+  `aggTrades` Binance — 0 de 16 combinações passou; seção 13.8 calendário
+  econômico — bloqueado por falta de fonte grátis com histórico). **Decisão
+  de Cleber (2026-07-27): produto foca 100% no pilar (a) agora.** Trilho 2
+  pausado sem novo trabalho de pesquisa até haver justificativa nova.
+
+- **Ponte decisão→execução real (Fase B/3): Estágios 1-4 IMPLEMENTADOS em
+  2026-07-31.** Desenho de 4 estágios (`AI_BRAIN_SPEC.md` seção 9.1): alerta
+  → confirmação manual → execução automática com hard-stop → remoção de
+  trava de tamanho mínimo. Módulos isolados (não reaproveitam
+  `useApexLogic.ts`): `src/app/modules/liveAlertStage/useLiveAlertStage.ts`
+  (commit `fb57ea900`),
+  `src/app/modules/tradeConfirmationStage/useTradeConfirmationStage.ts`
+  (commit `4073bb0fc`),
+  `src/app/modules/autoExecutionStage/useAutoExecutionStage.ts` (commit
+  `eabb377dc`),
+  `src/app/modules/fullSizeExecutionStage/useFullSizeExecutionStage.ts`
+  (Estágio 4, usa `amountToLotSize` real do motor, exige Estágio 3 ligado
+  como pré-requisito rígido). Orquestrados em `TradingContext.tsx`
+  (`forwardLiveDecision`, precedência 4>3>2>1), cada um com toggle próprio em
+  `localStorage`, todos desligados por padrão, disclaimer permanente
+  (`LIVE_ALERT_DISCLAIMER`) nos 4. UI do Estágio 4 em
+  `FullSizeExecutionPanel.tsx`, montada em `AITrader.tsx`. Só validado via
+  `npm run validate` — não testado no navegador. Detalhe completo em
+  `SESSAO_2026-07-31_PONTE_EXECUCAO.md`.
+
+- **Componentes do cérebro de execução (pilar A) — auditados e implementados
+  entre 2026-07-30 e 2026-07-31**: `RISK_MODULE_SPEC.md` estava desatualizado
+  (dizia "proposto", vários componentes já existiam). (1) Gate de
+  viabilidade por custo: `src/app/services/risk/CostViabilityGate.ts`
+  (`evaluateCostViability`, limiares 7%/12%) + 14 asserções + chamada real em
+  `useApexLogic.ts` antes do `RiskManager`; usa ATR(14) real como proxy de
+  movimento (aproximação declarada, não a mesma métrica calibrada da tabela
+  14.3). (2) Sizing por ATR: já existia
+  (`aiConfig.positionSizingMode === 'ATR'`). (3) Detector de correlação real
+  de portfólio: `src/app/services/risk/LiveCorrelationGuard.ts`
+  (`computeLiveCorrelationGuard`, Pearson real sobre log-returns do
+  `candleBufferRef`) + 16 asserções; heurístico antigo por grupo estático
+  mantido como fallback quando não há candle real suficiente. Cooldown
+  pós-perdas + limite de trades/dia extraídos pra funções puras testáveis em
+  `RiskManager.ts` + 12 asserções. (4) Hard stop + daily loss limit: achado
+  de burla real — Health Check Guardian e Kill-Switch síncrono só impediam
+  ABRIR trade novo, nunca fechavam posição LIVE já aberta na corretora.
+  Fix `src/app/services/risk/LiveEmergencyClose.ts` →
+  `forceCloseAllLivePositions()` (retry com backoff, confirma via
+  `getPositions()` antes de reportar sucesso), chamado no Health Check
+  Guardian e no kill-switch síncrono quando `executionMode === 'LIVE'`
+  (commit `768356c93`); não testado em ambiente real. (5) Diagnóstico de
+  eficiência de saída: `src/app/services/analysis/TradeEfficiencyDiagnostic.ts`
+  (retrospectivo, MFE/MAE real, `exitEfficiency`/`gaveBackPercent`),
+  ligado à UI em `TradeEfficiencyPanel.tsx` dentro de `Performance.tsx`.
+
+- **Marketplace.tsx — RESOLVIDO em 2026-07-31**: item 'strat-001' ("Neural
+  Scalper Pro", 87% win rate fabricado + rating/reviews/vendas hardcoded)
+  removido do catálogo. Demais produtos do catálogo continuam com
+  rating/reviews/vendas fabricados — fora do escopo tratado.
+
+- **Boleta de ordem manual — cadeia de bugs reais encontrada e corrigida em
+  2026-08-03** (bug de clique original já resolvido antes, era
+  instrumentação/z-index): TP/SL zerado fechando posição sozinha, P&L com
+  alavancagem em dobro, 336 de 475 ativos com contract spec ausente ou fuzzy
+  match perigoso, card de posições exibindo dólar como "lotes", lote mínimo
+  de índices desalinhado, overlay de posição sumindo ao trocar
+  timeframe/símbolo, botões de ordem desabilitados sem preço carregado
+  (causa raiz do padrão "clico e nada acontece"), `BTCUSDT` como símbolo
+  padrão nunca existente no catálogo (só `BTCUSD` existe). **Bug mais grave
+  do mesmo dia**: `stopLossMode: 'DINAMICO'` (padrão do sistema, não opt-in)
+  recalculava a distância do stop a partir do próprio `order.sl` já mutado a
+  cada tick, fechando QUALQUER posição vencedora em minutos sem reversão de
+  preço real — confirmado via query direta no Supabase numa posição real do
+  Cleber. Corrigido ancorando a distância num campo imutável novo
+  (`originalSl`, gravado uma vez na abertura). Achado relacionado: tela
+  "Histórico de Trades" nunca lia o Supabase, só sessão de navegador atual +
+  localStorage — corrigido com `getUserTradeHistory` hidratando
+  `orderHistory` do Supabase no mount (efeito colateral: gates de risco por
+  dia/win-rate subcontavam). Feature no mesmo dia: banners de "Posições
+  Abertas" do Dashboard ganharam botão de fechar + clique navega pro gráfico
+  com o ativo selecionado. Achado direto na sequência: Safe Mode disparou com
+  saldo de $95,28 por P&L corrompido de um trade de SPX500 (contract spec já
+  corrigido no mesmo dia, ressuscitado pelo fix do histórico e somado contra
+  a sessão atual) — corrigido escopando o gate por sessão
+  (`sessionStartedAtRef`) em vez de dia calendário. `disableSafeMode()` já
+  existia no motor mas sem botão — adicionado botão "Sair" no Dashboard.
+  `npm run validate` + `npm run build` passaram; nada verificado visualmente
+  (Browser pane bloqueado naquela sessão). Duas ferramentas novas:
+  `scripts/audit-contract-specs.mjs` e
+  `scripts/generate-missing-contract-specs.mjs`. Handoff completo:
+  `SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md` (histórico anterior, já
+  superado: `SESSAO_2026-08-03_BOLETA_ORDEM_MANUAL.md`).

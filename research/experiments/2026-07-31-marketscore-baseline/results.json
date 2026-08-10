@@ -1,0 +1,655 @@
+{
+  "experiment": "2026-07-31-marketscore-baseline",
+  "startedAt": "2026-07-31T21:23:30.464Z",
+  "finishedAt": "2026-07-31T21:25:45.792Z",
+  "config": {
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "BNBUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "ADAUSDT",
+      "DOGEUSDT"
+    ],
+    "timeframes": [
+      "15m",
+      "1h",
+      "4h"
+    ],
+    "forwardBars": 8,
+    "nTests": 21,
+    "alphaBonferroni": 0.002380952380952381,
+    "minConvictionSamples": 30
+  },
+  "criteria": {
+    "c1_significance": "hit rate > 50% com p < 0.00238 (Bonferroni, 21 testes)",
+    "c2_consistency": "efeito presente em compra E venda",
+    "c3_economic": "retorno médio de convicção > custo round-trip",
+    "c4_sample": ">= 30 leituras de convicção"
+  },
+  "combosPassingBonferroni": [
+    "BTCUSDT 4h"
+  ],
+  "pooled": {
+    "caveat": "Cesta com correlação 0,7-0,9 entre pares (AI_BRAIN_SPEC 14.4): ~1,5 apostas independentes, NAO 7. n pooled infla a mesma aposta.",
+    "conclusiveCombos": 20,
+    "convictionSamples": 1340,
+    "hits": 618,
+    "hitRate": 46.12,
+    "pValue": 0.997946
+  },
+  "byTimeframe": [
+    {
+      "timeframe": "15m",
+      "combos": 6,
+      "convictionSamples": 289,
+      "hitRate": 42.9,
+      "pValue": 0.993324
+    },
+    {
+      "timeframe": "1h",
+      "combos": 7,
+      "convictionSamples": 550,
+      "hitRate": 49.3,
+      "pValue": 0.649404
+    },
+    {
+      "timeframe": "4h",
+      "combos": 7,
+      "convictionSamples": 501,
+      "hitRate": 44.5,
+      "pValue": 0.993862
+    }
+  ],
+  "results": [
+    {
+      "symbol": "BTCUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": -0.038,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 32,
+        "hitRate": 43.8,
+        "avgForwardReturnPct": -0.0334
+      },
+      "convictionSell": {
+        "samples": 25,
+        "hitRate": 32,
+        "avgForwardReturnPct": 0.2269
+      },
+      "convictionPooled": {
+        "samples": 57,
+        "hits": 22,
+        "hitRate": 38.6,
+        "pValue": 0.968632,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.3783,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 39% (57 sinais)."
+    },
+    {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": 0.0026,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 31,
+        "hitRate": 61.3,
+        "avgForwardReturnPct": 0.0458
+      },
+      "convictionSell": {
+        "samples": 59,
+        "hitRate": 61,
+        "avgForwardReturnPct": -0.4777
+      },
+      "convictionPooled": {
+        "samples": 90,
+        "hits": 55,
+        "hitRate": 61.1,
+        "pValue": 0.022299,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": 0.0689,
+      "conclusive": true,
+      "validatorVerdict": "🟡 Edge fraco nas leituras de convicção: 61% de acerto (90 sinais) — vale recalibrar."
+    },
+    {
+      "symbol": "BTCUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": -0.0132,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 48,
+        "hitRate": 68.8,
+        "avgForwardReturnPct": 0.2586
+      },
+      "convictionSell": {
+        "samples": 40,
+        "hitRate": 67.5,
+        "avgForwardReturnPct": -1.1197
+      },
+      "convictionPooled": {
+        "samples": 88,
+        "hits": 60,
+        "hitRate": 68.2,
+        "pValue": 0.000423,
+        "passesBonferroni": true
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": 0.39,
+      "conclusive": true,
+      "validatorVerdict": "✅ Edge real nas leituras de convicção: 68% de acerto direcional (88 sinais)."
+    },
+    {
+      "symbol": "ETHUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": -0.0352,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 36,
+        "hitRate": 44.4,
+        "avgForwardReturnPct": -0.0705
+      },
+      "convictionSell": {
+        "samples": 3,
+        "hitRate": 0,
+        "avgForwardReturnPct": 0.4917
+      },
+      "convictionPooled": {
+        "samples": 39,
+        "hits": 16,
+        "hitRate": 41,
+        "pValue": 0.900205,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.3629,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 41% (39 sinais)."
+    },
+    {
+      "symbol": "ETHUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": 0.0053,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 66,
+        "hitRate": 47,
+        "avgForwardReturnPct": -0.1553
+      },
+      "convictionSell": {
+        "samples": 48,
+        "hitRate": 60.4,
+        "avgForwardReturnPct": -1.3536
+      },
+      "convictionPooled": {
+        "samples": 114,
+        "hits": 60,
+        "hitRate": 52.6,
+        "pValue": 0.319885,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": 0.22,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 53% (114 sinais)."
+    },
+    {
+      "symbol": "ETHUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": 0.0422,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 38,
+        "hitRate": 60.5,
+        "avgForwardReturnPct": 1.7051
+      },
+      "convictionSell": {
+        "samples": 37,
+        "hitRate": 37.8,
+        "avgForwardReturnPct": 1.1317
+      },
+      "convictionPooled": {
+        "samples": 75,
+        "hits": 37,
+        "hitRate": 49.3,
+        "pValue": 0.591223,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": 0.0456,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 49% (75 sinais)."
+    },
+    {
+      "symbol": "BNBUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": -0.0335,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 36,
+        "hitRate": 47.2,
+        "avgForwardReturnPct": 0.0779
+      },
+      "convictionSell": {
+        "samples": 29,
+        "hitRate": 44.8,
+        "avgForwardReturnPct": 0.27
+      },
+      "convictionPooled": {
+        "samples": 65,
+        "hits": 30,
+        "hitRate": 46.2,
+        "pValue": 0.77149,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.3373,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 46% (65 sinais)."
+    },
+    {
+      "symbol": "BNBUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": -0.0361,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 39,
+        "hitRate": 56.4,
+        "avgForwardReturnPct": 0.6588
+      },
+      "convictionSell": {
+        "samples": 31,
+        "hitRate": 38.7,
+        "avgForwardReturnPct": 0.0821
+      },
+      "convictionPooled": {
+        "samples": 70,
+        "hits": 34,
+        "hitRate": 48.6,
+        "pValue": 0.639899,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": 0.0707,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 49% (70 sinais)."
+    },
+    {
+      "symbol": "BNBUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": 0.0205,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 27,
+        "hitRate": 29.6,
+        "avgForwardReturnPct": -1.1819
+      },
+      "convictionSell": {
+        "samples": 33,
+        "hitRate": 45.5,
+        "avgForwardReturnPct": 0.0528
+      },
+      "convictionPooled": {
+        "samples": 60,
+        "hits": 23,
+        "hitRate": 38.3,
+        "pValue": 0.974053,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.8209,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 38% (60 sinais)."
+    },
+    {
+      "symbol": "SOLUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": -0.0836,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 14,
+        "hitRate": 0,
+        "avgForwardReturnPct": -0.836
+      },
+      "convictionSell": {
+        "samples": 9,
+        "hitRate": 33.3,
+        "avgForwardReturnPct": 0.2715
+      },
+      "convictionPooled": {
+        "samples": 23,
+        "hits": 3,
+        "hitRate": 13,
+        "pValue": 0.999967,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.8751,
+      "conclusive": false,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 13% (23 sinais)."
+    },
+    {
+      "symbol": "SOLUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": -0.0033,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 30,
+        "hitRate": 30,
+        "avgForwardReturnPct": -0.5885
+      },
+      "convictionSell": {
+        "samples": 52,
+        "hitRate": 57.7,
+        "avgForwardReturnPct": -0.689
+      },
+      "convictionPooled": {
+        "samples": 82,
+        "hits": 39,
+        "hitRate": 47.6,
+        "pValue": 0.709443,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.0384,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 48% (82 sinais)."
+    },
+    {
+      "symbol": "SOLUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": -0.0707,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 25,
+        "hitRate": 44,
+        "avgForwardReturnPct": -1.0002
+      },
+      "convictionSell": {
+        "samples": 29,
+        "hitRate": 31,
+        "avgForwardReturnPct": 2.9614
+      },
+      "convictionPooled": {
+        "samples": 54,
+        "hits": 20,
+        "hitRate": 37,
+        "pValue": 0.979888,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -2.3134,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 37% (54 sinais)."
+    },
+    {
+      "symbol": "XRPUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": -0.0325,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 9,
+        "hitRate": 22.2,
+        "avgForwardReturnPct": -0.4067
+      },
+      "convictionSell": {
+        "samples": 21,
+        "hitRate": 61.9,
+        "avgForwardReturnPct": -0.1521
+      },
+      "convictionPooled": {
+        "samples": 30,
+        "hits": 15,
+        "hitRate": 50,
+        "pValue": 0.572232,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.2755,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 50% (30 sinais)."
+    },
+    {
+      "symbol": "XRPUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": 0.0082,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 37,
+        "hitRate": 37.8,
+        "avgForwardReturnPct": -0.8599
+      },
+      "convictionSell": {
+        "samples": 41,
+        "hitRate": 53.7,
+        "avgForwardReturnPct": -0.1734
+      },
+      "convictionPooled": {
+        "samples": 78,
+        "hits": 36,
+        "hitRate": 46.2,
+        "pValue": 0.785896,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.5768,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 46% (78 sinais)."
+    },
+    {
+      "symbol": "XRPUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": -0.0218,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 52,
+        "hitRate": 50,
+        "avgForwardReturnPct": 0.6941
+      },
+      "convictionSell": {
+        "samples": 69,
+        "hitRate": 27.5,
+        "avgForwardReturnPct": 3.071
+      },
+      "convictionPooled": {
+        "samples": 121,
+        "hits": 45,
+        "hitRate": 37.2,
+        "pValue": 0.998275,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -1.7129,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 37% (121 sinais)."
+    },
+    {
+      "symbol": "ADAUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": 0.0514,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 63,
+        "hitRate": 41.3,
+        "avgForwardReturnPct": 0.1688
+      },
+      "convictionSell": {
+        "samples": 0,
+        "hitRate": 0,
+        "avgForwardReturnPct": 0
+      },
+      "convictionPooled": {
+        "samples": 63,
+        "hits": 26,
+        "hitRate": 41.3,
+        "pValue": 0.935041,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.0912,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 41% (63 sinais)."
+    },
+    {
+      "symbol": "ADAUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": 0.0137,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 45,
+        "hitRate": 17.8,
+        "avgForwardReturnPct": -0.9859
+      },
+      "convictionSell": {
+        "samples": 26,
+        "hitRate": 69.2,
+        "avgForwardReturnPct": -0.9757
+      },
+      "convictionPooled": {
+        "samples": 71,
+        "hits": 26,
+        "hitRate": 36.6,
+        "pValue": 0.991503,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.5276,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 37% (71 sinais)."
+    },
+    {
+      "symbol": "ADAUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": -0.0396,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 12,
+        "hitRate": 33.3,
+        "avgForwardReturnPct": -4.7876
+      },
+      "convictionSell": {
+        "samples": 36,
+        "hitRate": 33.3,
+        "avgForwardReturnPct": 1.8425
+      },
+      "convictionPooled": {
+        "samples": 48,
+        "hits": 16,
+        "hitRate": 33.3,
+        "pValue": 0.993358,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -2.8388,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 33% (48 sinais)."
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "timeframe": "15m",
+      "totalSamples": 3352,
+      "correlation": -0.0275,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 17,
+        "hitRate": 41.2,
+        "avgForwardReturnPct": -0.0102
+      },
+      "convictionSell": {
+        "samples": 18,
+        "hitRate": 44.4,
+        "avgForwardReturnPct": -0.1438
+      },
+      "convictionPooled": {
+        "samples": 35,
+        "hits": 15,
+        "hitRate": 42.9,
+        "pValue": 0.844748,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -0.191,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 43% (35 sinais)."
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "timeframe": "1h",
+      "totalSamples": 3352,
+      "correlation": -0.0977,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 8,
+        "hitRate": 25,
+        "avgForwardReturnPct": -3.1371
+      },
+      "convictionSell": {
+        "samples": 37,
+        "hitRate": 51.4,
+        "avgForwardReturnPct": 0.4205
+      },
+      "convictionPooled": {
+        "samples": 45,
+        "hits": 21,
+        "hitRate": 46.7,
+        "pValue": 0.724258,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -1.1635,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 47% (45 sinais)."
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "timeframe": "4h",
+      "totalSamples": 3352,
+      "correlation": -0.0294,
+      "monotonic": false,
+      "convictionBuy": {
+        "samples": 26,
+        "hitRate": 50,
+        "avgForwardReturnPct": 0.3989
+      },
+      "convictionSell": {
+        "samples": 29,
+        "hitRate": 31,
+        "avgForwardReturnPct": 4.5927
+      },
+      "convictionPooled": {
+        "samples": 55,
+        "hits": 22,
+        "hitRate": 40,
+        "pValue": 0.947605,
+        "passesBonferroni": false
+      },
+      "roundTripCostPercent": 0.26,
+      "netEdgePercent": -2.493,
+      "conclusive": true,
+      "validatorVerdict": "🔴 Sem edge nesta amostra/timeframe: convicção acerta só 40% (55 sinais)."
+    }
+  ]
+}

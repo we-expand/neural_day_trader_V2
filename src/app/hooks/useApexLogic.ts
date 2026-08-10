@@ -5,23 +5,12 @@ import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de 
 import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
-import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator';
-import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators';
-import { backtestDataService } from '@/app/services/BacktestDataService';
-import { MarketScoreEngine } from '@/app/services/MarketScoreEngine';
-import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService';
-
-/**
- * Normaliza o timeframe operacional escolhido na UI (aiConfig.timeframe, ex:
- * '1H'/'4H') pro tipo que o MarketScoreEngine/BacktestDataService esperam
- * (minúsculo). Sem isso, o Score seria calculado sempre no timeframe errado
- * (ou falharia silenciosamente) sempre que o usuário escolhesse 1H/4H.
- */
-function normalizeAiTimeframe(tf: string | undefined): ScoreTimeframe {
-  const valid: ScoreTimeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
-  const lower = (tf || '5m').toLowerCase() as ScoreTimeframe;
-  return valid.includes(lower) ? lower : '5m';
-}
+import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
+import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
+import { getPointValue } from '@/app/services/strategy/TradeSizing';
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
+import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -61,9 +50,10 @@ const toast = {
   }
 };
 import { RiskProfileType } from '../../lib/modules/NeuralRiskGuardian';
-import { getLiquiditySignal } from '../logic/liquiditySignals'; // Shared Liquidity Logic
 import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/ persistência
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
+import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase 0 do redesenho do cérebro: instrumentação do funil de decisão
+import { runTradingCycle, type TradingCycleEffect } from '../services/strategy/runTradingCycle'; // Passo 2 do plano do runner (2026-08-07): módulo puro do ciclo, "um motor, dois drivers"
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -74,74 +64,34 @@ import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sess�
 /** Rótulos de perfil de risco de versões antigas, ainda presentes no localStorage. */
 export type LegacyRiskProfile = 'EQUILIBRADO' | 'DEGEN';
 
-const RISK_PROFILE_ADJUSTMENTS: Record<string, { confidenceAdjust: number; sizeMultiplier: number }> = {
-  CONSERVATIVE: { confidenceAdjust: 15, sizeMultiplier: 0.7 },
-  MODERATE: { confidenceAdjust: 0, sizeMultiplier: 1.0 },
-  EQUILIBRADO: { confidenceAdjust: 0, sizeMultiplier: 1.0 }, // legado, equivalente a MODERATE
-  AGGRESSIVE: { confidenceAdjust: -10, sizeMultiplier: 1.3 },
-  DEGEN: { confidenceAdjust: -10, sizeMultiplier: 1.3 }, // legado, equivalente a AGGRESSIVE
-  INSTITUTIONAL: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
-  INSTITUTIONAL_SMC: { confidenceAdjust: 10, sizeMultiplier: 0.85 },
-};
-const DEFAULT_RISK_ADJUSTMENT = { confidenceAdjust: 0, sizeMultiplier: 1.0 };
+// RISK_PROFILE_ADJUSTMENTS, CORRELATION_GROUPS e demais constantes/funções só
+// usadas pelo ciclo de trading moraram aqui até 2026-08-07 — extraídas pra
+// src/app/services/strategy/runTradingCycle.ts (passo 2 do plano do runner,
+// "um motor, dois drivers"). Não duplicar de volta aqui.
 
-// Grupos de correlação estáticos (heurística, não é correlação de retornos calculada ao vivo —
-// ver research/RISK_MODULE_SPEC.md seção 3.5 para o plano de evoluir isso pra correlação real).
-const CORRELATION_GROUPS: Record<string, string> = {
-  EURUSD: 'USD_MAJORS', GBPUSD: 'USD_MAJORS', AUDUSD: 'USD_MAJORS', NZDUSD: 'USD_MAJORS',
-  USDJPY: 'USD_JPY_CHF', USDCHF: 'USD_JPY_CHF', USDCAD: 'USD_JPY_CHF',
-  XAUUSD: 'METALS', XAGUSD: 'METALS', XPTUSD: 'METALS', XPDUSD: 'METALS',
-  BTCUSD: 'CRYPTO_MAJOR', XBNUSD: 'CRYPTO_MAJOR', XETUSD: 'CRYPTO_MAJOR', XLCUSD: 'CRYPTO_MAJOR',
-  SPX500: 'US_INDICES', NAS100: 'US_INDICES', US30: 'US_INDICES', US2000: 'US_INDICES',
-  GER40: 'EU_INDICES', FRA40: 'EU_INDICES', UK100: 'EU_INDICES', ESP35: 'EU_INDICES',
-};
-function getCorrelationGroup(symbol: string): string | null {
-  return CORRELATION_GROUPS[symbol] || null;
-}
-
-// Definition of types for visual state
-export interface TradeVisual {
+// Ordem pendente DEMO (limit/stop) — virtual, monitorada localmente pelo
+// preço da tela; dispara chamando openManualPosition quando o gatilho é
+// cruzado. Sem stop-limit no lado DEMO (o LIVE tem via BrokerClient direto,
+// que fala com a MetaAPI de verdade — aqui a gente só tem o preço da tela
+// pra decidir, não faz sentido simular uma segunda perna de preço-limite
+// sem dado real de profundidade).
+export interface PendingOrderVisual {
   id: string;
   symbol: string;
   side: 'LONG' | 'SHORT';
-  amount: number;
-  price: number;
-  currentPrice?: number;
-  currentProfit?: number; // Added for Real PnL from MT5
-  closedAt?: number; // Timestamp when the trade was closed
-  tp: number;
-  sl: number;
-  leverage: number;
-  ai_confidence: number;
+  orderType: 'LIMIT' | 'STOP';
+  volume: number;
+  triggerPrice: number;
+  stopLoss?: number;
+  takeProfit?: number;
   timestamp: number;
-  reasoning: string; 
-  hasTakenPartial?: boolean;
-  indicators: {
-    rsi: number;
-    macd: string;
-    trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-  };
 }
 
-export interface PortfolioState {
-  balance: number;
-  equity: number;
-  maxDrawdownLimit: number;
-  currentDrawdown: number;
-  openPositionsValue: number;
-  initialBalance?: number; // Added to track profit
-  // Âncoras reais de drawdown. Antes o "drawdown" era calculado como
-  // (balance - equity)/balance e acumulado com Math.max() sem nunca resetar —
-  // media só o P&L não-realizado negativo das posições abertas (não é drawdown)
-  // e, uma vez estourado o limite, travava o Safe Mode pra sempre mesmo com a
-  // conta recuperada e em novo topo. Agora existem as duas âncoras reais que o
-  // campo aiConfig.drawdownAnchor seleciona (padrão FTMO/Topstep):
-  peakEquity?: number;        // high-water mark do equity (âncora INTRADAY_PEAK)
-  dayAnchorEquity?: number;   // equity no início do dia UTC (âncora DAILY_CLOSE)
-  dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity se refere
-  maxDrawdownReached?: number; // pior drawdown já atingido (só métrica/histórico,
-                               // NUNCA usado como gate — o gate usa currentDrawdown)
-}
+// TradeVisual/PortfolioState movidos pra src/app/types/tradingState.ts em
+// 2026-08-07 (passo 3 do plano do runner) — o motor (`runTradingCycle.ts`)
+// precisava desses tipos sem puxar React pro grafo de módulos sob Deno.
+// Re-exportados aqui pra não quebrar quem já importa deste arquivo.
+export type { TradeVisual, PortfolioState } from '@/app/types/tradingState';
 
 /**
  * Re-ancora o drawdown quando o capital muda por um salto que NÃO é resultado de
@@ -182,47 +132,14 @@ export interface MetaApiCredentials {
   // initialBalance removed, we calculate it automatically
 }
 
-export interface AIConfig {
-  direction: 'AUTO' | 'LONG' | 'SHORT';
-  marketMode: 'TREND' | 'RANGE' | 'SCALP' | 'COUNTER';
-  targetPoints: 'MÉDIO' | 'CURTO' | 'LONGO' | 'POUCOS' | 'MUITOS';
-  stopLossMode: 'DINAMICO' | 'FIXO';
-  allocatedCapital: number;
-  maxContracts: number;
-  maxPositions: number;
-  maxDrawdown: number;
-  riskPerTrade: number;
-  minWinRate: number;
-  // Inclui os rótulos legados ('EQUILIBRADO'/'DEGEN') porque eles EXISTEM de fato
-  // no localStorage de usuários antigos e são tratados em RISK_PROFILE_ADJUSTMENTS.
-  // Declarar só RiskProfileType deixava o tipo mentir sobre o valor real em uso
-  // (o próprio default do projeto é 'EQUILIBRADO').
-  riskProfile: RiskProfileType | LegacyRiskProfile;
-  
-  // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
-  activeAssets: string[]; // ✅ Lista de ativos selecionados (Infinox válidos)
-  maxAssets: number; // 🆕 AUMENTADO DE 3 PARA 6 - Máximo de ativos simultâneos diferentes
-  timeframe: string; // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
-  newsFilter: boolean; // Filtro de notícias econômicas
-  dailyLossLimit: number; // Limite de perda diária (%)
-  metaApiToken?: string; // 🔑 Token do MetaApi para integração MT5
-  // 🆕 Estratégia ativa (pronta ou customizada) — o motor de decisão passa a
-  // rodar exatamente essa estratégia via evaluateStrategyAt, a mesma função
-  // usada pelo Backtest. null = nenhuma selecionada (ciclo é pulado).
-  activeStrategyId: string | null;
-
-  // 🆕 Módulo de Gerenciamento de Risco (research/RISK_MODULE_SPEC.md) — regras
-  // adicionais, todas customizáveis pelo usuário na aba "Gerenciamento de Risco".
-  drawdownAnchor: 'INTRADAY_PEAK' | 'DAILY_CLOSE'; // FTMO/Topstep ancoram no fechamento diário
-  cooldownEnabled: boolean;
-  consecutiveLossesTrigger: number; // ex: 3 perdas seguidas ativa o cooldown
-  cooldownMinutes: number; // duração do bloqueio de novas entradas
-  maxTradesPerDay: number; // 0 = sem limite
-  positionSizingMode: 'FIXED' | 'ATR'; // FIXED = % linear (riskPerTrade); ATR = ajustado por volatilidade real
-  atrMultiplier: number; // só usado quando positionSizingMode === 'ATR'
-  correlationGuardEnabled: boolean;
-  correlationThreshold: number; // 0-1, acima disso reduz o tamanho da nova posição
-}
+// AIConfig movido pra src/app/types/tradingState.ts em 2026-08-07 (passo 3
+// do plano do runner) — mesmo motivo de TradeVisual/PortfolioState acima:
+// precisa ser importável pelo motor sob Deno sem puxar React. `riskProfile`
+// no tipo movido usa a união literal de RiskProfileType inline (em vez de
+// importar de NeuralRiskGuardian.ts) só pra não introduzir mais uma aresta
+// no grafo — o conjunto de valores é idêntico, checado no `select:` do
+// gate de validação (`npm run validate`).
+export type { AIConfig } from '@/app/types/tradingState';
 
 export interface MarketContext {
   prices: Record<string, number>;
@@ -368,10 +285,15 @@ const INITIAL_STATE: ApexLogicState = {
     consecutiveLossesTrigger: 3,
     cooldownMinutes: 60,
     maxTradesPerDay: 0, // 0 = sem limite
-    positionSizingMode: 'FIXED',
+    positionSizingMode: 'ATR', // ✅ Padrão: position sizing por volatilidade real
     atrMultiplier: 1.5,
-    correlationGuardEnabled: false,
+    correlationGuardEnabled: false, // TODO: Implementar correlação real em Fase 2
     correlationThreshold: 0.7,
+    killSwitchThreshold: 0, // 0 = desativado por padrão; pode ser setado pelo usuário (ex: 10% de perda)
+    aggressiveModeEnabled: false, // opt-in explícito — padrão é o cooldown normal (5s), risco assumido só se o usuário ligar
+    atrTrailingPeriod: 14,
+    atrTrailingMultiplier: 2.0,
+    pyramiding: DEFAULT_PYRAMIDING_CONFIG,
   },
   mt5Credentials: null,
   executionMode: 'DEMO',
@@ -405,6 +327,10 @@ export function useApexLogic(
   onLiveDecision?: (decision: TradeVisual) => void
 ) {
   const onLiveDecisionRef = useRef(onLiveDecision);
+  // Instância do WebSocket de cripto já conectada (ver `connectWebSocket` no
+  // loop de trading abaixo) — exposta aqui pra `runTradingCycle` poder ler
+  // preço em tempo real via `deps.getWsPrice` sem precisar reconectar.
+  const wsManagerRef = useRef<ReturnType<typeof import('../services/BinanceWebSocketManager').getBinanceWebSocketManager> | null>(null);
   useEffect(() => { onLiveDecisionRef.current = onLiveDecision; }, [onLiveDecision]);
 
   // Ref pra sempre ler a lista de estratégias mais atual dentro do setInterval sem recriar o loop
@@ -415,12 +341,29 @@ export function useApexLogic(
   // precisam de histórico, não só do preço tick a tick). Renovado a cada 60s por
   // símbolo pra não bater a API a cada ciclo de 5s.
   const candleBufferRef = useRef<Map<string, { candles: import('../services/indicators/TechnicalIndicators').Candle[]; fetchedAt: number }>>(new Map());
+
+  // 🆕 2026-08-04: ATR real e recente (< 5min) pro símbolo, buscando no MESMO
+  // cache de candles do ciclo de análise (sem chamada de rede extra). Usado
+  // pelo trailing DINAMICO e pelo Pyramiding (entryDistanceType 'atr'). Sem
+  // candle fresco pro símbolo, retorna null — nunca fabrica um ATR.
+  const getFreshAtr = (symbol: string, period: number): number | null => {
+    for (const [bufKey, bufEntry] of candleBufferRef.current) {
+      if (bufKey.startsWith(`${symbol}_`) && Date.now() - bufEntry.fetchedAt < 5 * 60_000) {
+        const atrSeries = calculateATR(bufEntry.candles, period);
+        const lastAtr = atrSeries[atrSeries.length - 1];
+        return lastAtr && lastAtr > 0 ? lastAtr : null;
+      }
+    }
+    return null;
+  };
+
   // Gerenciamento de Risco: timestamp (ms) até quando novas entradas ficam bloqueadas por cooldown
   const cooldownUntilRef = useRef<number>(0);
   // === STATE MANAGEMENT ===
   const [isActive, setIsActive] = useState(INITIAL_STATE.isActive);
   const [isPaused, setIsPaused] = useState(INITIAL_STATE.isPaused);
   const [activeOrders, setActiveOrders] = useState<TradeVisual[]>(INITIAL_STATE.activeOrders);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrderVisual[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioState>(INITIAL_STATE.portfolio);
   const [recentLogs, setRecentLogs] = useState<string[]>(INITIAL_STATE.recentLogs);
   const [orderHistory, setOrderHistory] = useState<TradeVisual[]>(INITIAL_STATE.orderHistory);
@@ -475,6 +418,7 @@ export function useApexLogic(
   const assetExposureRef = useRef<Record<string, number>>(INITIAL_STATE.assetExposure);
   const lastAssetClassRef = useRef<string | null>(INITIAL_STATE.lastAssetClass);
   const isSafeModeRef = useRef(INITIAL_STATE.isSafeMode);
+  const isActiveRef = useRef(INITIAL_STATE.isActive);
   const candleCounterRef = useRef(INITIAL_STATE.candlesSinceLastTrade);
   const maxCandlesRef = useRef(INITIAL_STATE.maxCandlesBeforeForceEntry);
   const isRunningCycleRef = useRef(false);
@@ -485,16 +429,54 @@ export function useApexLogic(
 
   // === REFS FOR PNL LOOP ===
   const activeOrdersRef = useRef<TradeVisual[]>([]);
+  const pendingOrdersRef = useRef<PendingOrderVisual[]>([]);
   const orderHistoryRef = useRef<TradeVisual[]>([]); // 🔒 leitura pro Health Check Guardian (dailyLossLimit/minWinRate)
+  // 🔒 FIX 2026-08-03 (achado do Cleber: Safe Mode disparado com $95,28 na conta):
+  // desde que `orderHistory` passou a hidratar trades fechados de TODAS as
+  // sessões do dia via Supabase (fix do histórico, mesmo dia), o gate de
+  // `dailyLossLimit` abaixo (que soma P&L de tudo fechado desde o início do
+  // dia UTC) passou a somar também trades de sessões ANTERIORES já resetadas
+  // pelo usuário — incluindo, neste caso real, um trade de SPX500 com P&L
+  // corrompido (-$950 registrado por um bug de contract spec já corrigido
+  // depois no mesmo dia) que nunca deveria pesar contra a sessão atual.
+  // `resetLogic()` é uma ação explícita de "começar do zero" — o relógio do
+  // limite de perda DIÁRIA deve reiniciar junto, não continuar somando
+  // perdas de tentativas anteriores já descartadas pelo próprio usuário.
+  const sessionStartedAtRef = useRef<number>(Date.now());
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
   const lastSnapshotAtRef = useRef(0);
   const hasHydratedFromSupabaseRef = useRef(false);
 
+  // Preço sem dado real (`isRealData: false` — a conta MetaAPI de plataforma
+  // compartilhada engasgou/retornou SIMULATED e nem havia último preço real em
+  // cache) não deve virar entrada de trade nem ficar invisível ao usuário —
+  // avisa no máximo 1x a cada 60s (evita flood do loop de análise).
+  const lastStaleDataWarningAtRef = useRef(0);
+
   // === FASE 2: PERSISTÊNCIA DEMO NO SUPABASE ===
   const { user } = useAuth();
-  const persistence = useAIPersistence({ enabled: executionMode === 'DEMO', autoSnapshot: false });
+  // Falha de persistência é silenciosa por natureza (fire-and-forget, não trava o
+  // loop de trading) — sem isso, um insert rejeitado (rede caiu, RLS etc.) some
+  // sem o usuário nunca saber que a sessão/trade não foi salvo. Avisa 1x por
+  // sessão (evita flood do loop de 1s) e reseta ao iniciar uma sessão nova.
+  const persistenceErrorNotifiedRef = useRef(false);
+  const handlePersistenceError = useCallback((context: string, error: unknown) => {
+    console.error(`[FASE 2] ❌ Falha de persistência (${context}):`, error);
+    if (!persistenceErrorNotifiedRef.current) {
+      persistenceErrorNotifiedRef.current = true;
+      toast.warning('Falha ao salvar dados da sessão DEMO no servidor', {
+        description: 'A negociação continua normalmente, mas o histórico desta sessão pode ficar incompleto.',
+        duration: 8000,
+      });
+    }
+  }, []);
+  const persistence = useAIPersistence({
+    enabled: executionMode === 'DEMO',
+    autoSnapshot: false,
+    onPersistenceError: handlePersistenceError,
+  });
   // Ref sempre atualizado p/ ser lido dentro de intervals/callbacks sem precisar
   // adicionar `persistence` (objeto novo a cada render) nas dependências dos efeitos.
   const persistenceRef = useRef(persistence);
@@ -565,9 +547,29 @@ export function useApexLogic(
     isSafeModeRef.current = isSafeMode;
   }, [isSafeMode]);
 
+  // 🆕 FIX: config da IA (dailyLossLimit/maxDrawdown/minWinRate) nunca pode
+  // interferir na operação manual do usuário ("Modo Livre" = IA desligada,
+  // só boleta). Antes, o Health Check Guardian abaixo rodava e podia ativar
+  // o Safe Mode mesmo com `isActive=false`, deixando o banner "SAFE MODE"
+  // pipocando no Dashboard sem nenhuma IA rodando de fato. Ver uso deste ref
+  // logo no início do interval do Health Check Guardian.
+  useEffect(() => {
+    isActiveRef.current = isActive;
+    // Some da UI e libera o próximo `startLogic()` assim que a IA para —
+    // "Sair do Safe Mode" nunca deveria ser necessário no Modo Livre.
+    if (!isActive && isSafeModeRef.current) {
+      setIsSafeMode(false);
+      setSafeModeReason(null);
+    }
+  }, [isActive]);
+
   useEffect(() => {
     activeOrdersRef.current = activeOrders;
   }, [activeOrders]);
+
+  useEffect(() => {
+    pendingOrdersRef.current = pendingOrders;
+  }, [pendingOrders]);
 
   useEffect(() => {
     orderHistoryRef.current = orderHistory;
@@ -637,11 +639,65 @@ export function useApexLogic(
     hasHydratedFromSupabaseRef.current = true;
 
     (async () => {
+      // 🔴 FIX 2026-08-03 (achado do Cleber: "histórico só mostra as últimas
+      // 3 ordens"): `orderHistory` nunca era hidratado do Supabase — só
+      // acumulava trades fechados durante a aba/sessão de navegador atual
+      // (mais o cache de localStorage). Trades fechados de sessões
+      // anteriores existiam no banco (`ai_trades`) mas nunca apareciam na
+      // tela de Performance. Roda independente de haver sessão ATIVA agora
+      // (por isso fica fora do `if (!restored?.session) return` abaixo).
+      try {
+        const closedTrades = await persistenceRef.current.getUserTradeHistory();
+        const closedOnly = closedTrades.filter(t => t.status === 'CLOSED');
+        if (closedOnly.length > 0) {
+          setOrderHistory(closedOnly.map((t): TradeVisual => ({
+            id: t.id!,
+            symbol: t.symbol,
+            side: t.side,
+            amount: t.quantity,
+            price: t.entry_price,
+            currentPrice: t.exit_price ?? t.entry_price,
+            currentProfit: t.net_pnl ?? t.pnl ?? 0,
+            closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
+            tp: t.take_profit ?? t.entry_price,
+            sl: t.stop_loss ?? t.entry_price,
+            originalSl: t.stop_loss ?? t.entry_price,
+            leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
+            ai_confidence: t.ai_confidence ?? 50,
+            timestamp: new Date(t.entry_time).getTime(),
+            reasoning: t.ai_reasoning || '',
+            indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+          })));
+          console.log(`[useApexLogic] ☁️ Histórico de trades restaurado do Supabase: ${closedOnly.length} trades fechados`);
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar histórico de trades do Supabase (mantendo localStorage):', e);
+      }
+
       try {
         const restored = await persistenceRef.current.restoreActiveSession();
         if (!restored?.session) return;
 
         const { session, openTrades, lastSnapshot } = restored;
+
+        // 🔴 FIX 2026-08-07 (achado do Cleber: "liguei a IA, fechei o app,
+        // voltei e estava desligada"): `restoreActiveSession()` só existe se
+        // já filtrou `status='RUNNING'` no Supabase (getActiveSession, em
+        // AITradingPersistenceService.ts), mas até aqui essa hidratação só
+        // repopulava portfolio/trades — nunca ligava o toggle visual. O
+        // motor real (runner server-side) continuava rodando a sessão o
+        // tempo todo; só a tela mentia que estava desligada. `setIsActive`
+        // de mais acima (localStorage, "Always start inactive") é
+        // sobrescrito aqui de propósito porque o Supabase é a fonte de
+        // verdade, não o cache local.
+        setIsActive(true);
+
+        // Sessão restaurada (não uma nova) — o "início" pro gate de perda
+        // diária é quando ELA começou, não agora (senão um reload no meio
+        // do dia resetaria o relógio indevidamente).
+        if (session.created_at) {
+          sessionStartedAtRef.current = new Date(session.created_at).getTime();
+        }
 
         if (openTrades.length > 0) {
           setActiveOrders(openTrades.map((t): TradeVisual => ({
@@ -653,6 +709,7 @@ export function useApexLogic(
             currentPrice: t.entry_price,
             tp: t.take_profit ?? t.entry_price,
             sl: t.stop_loss ?? t.entry_price,
+            originalSl: t.stop_loss ?? t.entry_price,
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
             ai_confidence: t.ai_confidence ?? 50,
             timestamp: new Date(t.entry_time).getTime(),
@@ -711,6 +768,41 @@ export function useApexLogic(
       }
     })();
   }, [user, executionMode]);
+
+  // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
+  // (KV store, ver /server/risk-config) sempre que o usuário logado mudar
+  // esses valores no aiConfig. A rota /broker/execute usa exclusivamente essa
+  // config server-side — nunca confia em thresholds vindos do client no body
+  // da requisição — então sem essa sincronização a Edge Function ficaria
+  // presa nos defaults conservadores, ignorando a config real do usuário.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { supabase } = await import('@/lib/supabaseClient');
+        const { error } = await supabase.functions.invoke('server/risk-config', {
+          method: 'POST',
+          body: {
+            maxDailyLossPercent: aiConfig.dailyLossLimit,
+            maxDrawdownPercent: aiConfig.maxDrawdown,
+            maxPositionSizePercent: aiConfig.riskPerTrade,
+            killSwitchThreshold: aiConfig.killSwitchThreshold || 0,
+          },
+        });
+        if (cancelled) return;
+        if (error) throw error;
+        console.log('[useApexLogic] 🔒 Config de risco sincronizada com o servidor');
+      } catch (e) {
+        if (!cancelled) {
+          console.warn('[useApexLogic] ⚠️ Falha ao sincronizar config de risco com o servidor (enforcement server-side usará valor anterior ou default conservador):', e);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [user?.id, aiConfig.dailyLossLimit, aiConfig.maxDrawdown, aiConfig.riskPerTrade, aiConfig.killSwitchThreshold]);
 
   useEffect(() => {
     const state: ApexLogicState = {
@@ -812,6 +904,18 @@ export function useApexLogic(
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {
     const interval = setInterval(() => {
+      // 🆕 FIX: config de risco da IA (dailyLossLimit/maxDrawdown/minWinRate)
+      // NUNCA pode interferir no Modo Livre (usuário operando manual, sem a IA
+      // ligada). Antes este check rodava incondicionalmente a cada 5s e podia
+      // ativar o Safe Mode mesmo sem nenhuma IA rodando — a boleta manual já
+      // nunca era bloqueada de fato (ver openManualPosition), mas o Safe Mode
+      // disparava e ficava mostrado no Dashboard mesmo assim, dando a
+      // impressão errada de que a operação livre estava sob restrição da IA.
+      if (!isActiveRef.current) {
+        setHealthStatus({ isHealthy: true, lastCheckTimestamp: Date.now(), issues: [] });
+        return;
+      }
+
       const issues: string[] = [];
 
       // Check Balance
@@ -837,7 +941,15 @@ export function useApexLogic(
       // (só existia o maxDrawdown, que é acumulado desde o início, não resetado por dia).
       const nowDate = new Date();
       const startOfUtcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
-      const closedToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= startOfUtcDay);
+      // FIX 2026-08-03: `orderHistory` agora hidrata trades fechados de TODAS
+      // as sessões do dia (fix do histórico no Supabase, mesmo dia) — sem o
+      // corte por `sessionStartedAtRef`, um reset explícito de conta
+      // (`resetLogic`) não reiniciava o relógio da perda diária, e P&L de
+      // tentativas já descartadas pelo próprio usuário (inclusive dado
+      // histórico corrompido de bugs já corrigidos) continuava pesando
+      // contra a sessão atual. Ver `sessionStartedAtRef` pra detalhe.
+      const dailyGateCutoff = Math.max(startOfUtcDay, sessionStartedAtRef.current);
+      const closedToday = orderHistoryRef.current.filter(t => t.closedAt && t.closedAt >= dailyGateCutoff);
       const dailyPnL = closedToday.reduce((acc, t) => acc + (t.currentProfit || 0), 0);
       const dailyBase = portfolioRef.current.initialBalance || configRef.current.allocatedCapital || 100;
       const dailyLossPercent = dailyPnL < 0 ? (Math.abs(dailyPnL) / dailyBase) * 100 : 0;
@@ -852,11 +964,19 @@ export function useApexLogic(
       // consistentemente abaixo do mínimo que o usuário definiu como aceitável.
       // Só avalia com uma amostra mínima de trades fechados, pra não pausar a IA
       // logo nos primeiros trades por puro acaso estatístico.
+      // 🔴 FIX 2026-08-04: usava `orderHistoryRef.current` inteiro (todo o
+      // histórico hidratado do Supabase, de qualquer sessão passada) em vez
+      // de `closedToday`/`dailyGateCutoff` como o gate de perda diária logo
+      // acima. Resultado: uma conta com >=10 trades perdedores de testes
+      // antigos ficava permanentemente em Safe Mode — a IA era desligada em
+      // até 5s a cada tentativa de ligar, sem nunca conseguir gerar trade
+      // novo pra recalcular a taxa (deadlock). Agora usa a mesma janela
+      // (reseta com `resetLogic`/virada de dia UTC), igual ao gate de perda.
       const MIN_SAMPLE_FOR_WIN_RATE_CHECK = 10;
-      const allClosedTrades = orderHistoryRef.current.filter(t => t.closedAt);
-      if (allClosedTrades.length >= MIN_SAMPLE_FOR_WIN_RATE_CHECK) {
-        const wins = allClosedTrades.filter(t => (t.currentProfit || 0) > 0).length;
-        const currentWinRate = (wins / allClosedTrades.length) * 100;
+      const winRateSample = closedToday;
+      if (winRateSample.length >= MIN_SAMPLE_FOR_WIN_RATE_CHECK) {
+        const wins = winRateSample.filter(t => (t.currentProfit || 0) > 0).length;
+        const currentWinRate = (wins / winRateSample.length) * 100;
         if (currentWinRate < configRef.current.minWinRate) {
           issues.push(`Taxa de acerto abaixo do mínimo: ${currentWinRate.toFixed(1)}% (mínimo ${configRef.current.minWinRate}%)`);
           console.log('[HEALTH CHECK] ⚠️ Taxa de acerto abaixo do mínimo:', currentWinRate.toFixed(1), '%');
@@ -875,11 +995,39 @@ export function useApexLogic(
         setSafeModeReason(issues.join(', '));
         setIsActive(false);
         toast.error(`🚨 SAFE MODE ATIVADO: ${issues.join(', ')}`);
+
+        // 🔴 FIX 2026-07-31 (auditoria 2026-07-30): safe mode em modo LIVE
+        // só bloqueava trade NOVO — posição já aberta na corretora ficava
+        // sem gestão automática. Agora fecha de fato na MetaAPI.
+        if (configRef.current.executionMode === 'LIVE') {
+          forceCloseAllLivePositions().then((result) => {
+            if (result.closed) {
+              addLog(`🔴 SAFE MODE: posições LIVE fechadas na corretora (${result.attempts} tentativa(s))`);
+            } else {
+              addLog(`🚨 FALHA AO FECHAR POSIÇÕES LIVE: ${result.lastError || 'motivo desconhecido'} — intervenção manual necessária`);
+              toastOriginal.error('🚨 FALHA AO FECHAR POSIÇÕES LIVE NA CORRETORA', {
+                description: `Feche manualmente na corretora. Motivo: ${result.lastError || 'desconhecido'}`,
+                duration: 0,
+              });
+            }
+          });
+        }
       }
     }, 5000);
 
     return () => clearInterval(interval);
   }, [isConnectedToMT5]);
+
+  // === TELEMETRIA DE FUNIL: desligamento ===
+  // Efeito PRÓPRIO, separado do loop de trading de propósito. O useEffect do
+  // loop tem `activeOrders.length` nas dependências, então ele remonta a cada
+  // abertura/fechamento de posição — parar a telemetria no cleanup dele
+  // descarregaria janelas pela metade e picotaria o funil em fragmentos.
+  // Aqui só reage ao que de fato significa "a IA parou".
+  useEffect(() => {
+    if (!isActive) funnelTelemetry.stop();
+    return () => { funnelTelemetry.stop(); };
+  }, [isActive]);
 
   // === SAFE MODE GUARDIAN (Check before ANY trade) ===
   useEffect(() => {
@@ -897,7 +1045,8 @@ export function useApexLogic(
       try {
         const { getBinanceWebSocketManager } = await import('@/app/services/BinanceWebSocketManager');
         const wsManager = getBinanceWebSocketManager();
-        
+        wsManagerRef.current = wsManager;
+
         // Conectar aos principais cryptos
         const cryptoSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT'];
         wsManager.connect(cryptoSymbols);
@@ -961,618 +1110,89 @@ export function useApexLogic(
       }
     };
 
+    // Aplica um efeito devolvido por `runTradingCycle` (módulo puro,
+    // src/app/services/strategy/runTradingCycle.ts) no estado React deste
+    // driver. O driver servidor (runner Deno, próximo passo) aplica os
+    // mesmos efeitos de outro jeito (sem React) — é isso que torna o motor
+    // reaproveitável nos dois lugares.
+    const applyTradingCycleEffect = (effect: TradingCycleEffect) => {
+      switch (effect.type) {
+        case 'ADD_ORDER':
+          setActiveOrders(prev => [...prev, effect.trade]);
+          break;
+        case 'CLOSE_ALL_ORDERS':
+          setActiveOrders([]);
+          break;
+        case 'SET_ACTIVE':
+          setIsActive(effect.value);
+          break;
+        case 'SET_SAFE_MODE':
+          setIsSafeMode(effect.value);
+          if (effect.reason !== undefined) setSafeModeReason(effect.reason);
+          break;
+        case 'LOG':
+          addLog(effect.message);
+          break;
+        case 'TOAST_SUCCESS':
+          toastOriginal.success(effect.title, { description: effect.description, duration: effect.duration });
+          break;
+        case 'TOAST_WARNING':
+          toastOriginal.warning(effect.title, { description: effect.description, duration: effect.duration });
+          break;
+        case 'TOAST_ERROR':
+          toastOriginal.error(effect.title, { description: effect.description, duration: effect.duration });
+          break;
+      }
+    };
+
     const tradingInterval = setInterval(() => {
-      console.log(`[AI LOOP] 🔄 Verificando oportunidades... (Posições: ${activeOrders.length}/${aiConfig.maxPositions})`);
-
-      // Check if we can trade
-      if (activeOrders.length >= aiConfig.maxPositions) {
-        console.log(`[AI LOOP] ⏸️ Máximo de posições atingido (${aiConfig.maxPositions})`);
-        return; // Max positions reached
-      }
-
-      // 🔒 Gate de notícias: pula o ciclo se houver evento de alto impacto na janela de ±15min.
-      // O fetch é assíncrono (dispara em background e atualiza o cache), mas o gate em si
-      // precisa ser síncrono pra realmente bloquear o ciclo - por isso lê o cache já
-      // atualizado por uma chamada anterior, em vez de esperar o `.then()` (que só resolveria
-      // depois que o resto do ciclo síncrono já teria rodado).
-      if (aiConfig.newsFilter) {
-        fetchNewsCached(); // fire-and-forget: mantém o cache atualizado pros próximos ciclos
-        const NEWS_WINDOW_MS = 15 * 60 * 1000;
-        const nowTs = Date.now();
-        const highImpactNearby = cachedNewsEventsRef.current.some(e => e.impact === 'high' && Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS);
-        if (highImpactNearby) {
-          console.log('[NEWS FILTER] 🚫 Evento de alto impacto próximo - pulando ciclo');
-          return;
-        }
-      }
-
-      // 🚀 ANÁLISE DE VOLATILIDADE GLOBAL (VIX + principais ativos)
-      let globalVolatility = false;
-      
-      // Fetch VIX para detectar volatilidade do mercado
-      fetchVIXCached().then(vix => {
-        if (vix > 20) {
-          console.log(`[VOLATILIDADE] 🔥 VIX ALTO: ${vix.toFixed(2)} - MODO AGRESSIVO ATIVADO!`);
-          globalVolatility = true;
-        }
-      });
-
-      // ✅ COOLDOWN: Tempo mínimo entre trades
-      const timeSinceLastTrade = Date.now() - lastTradeTimestampRef.current;
-      
-      // 🚀 MODO OPORTUNISTA: Cooldown dinâmico baseado em volatilidade
-      // - Alta volatilidade (VIX > 20 ou movimento > 3%): 2 segundos
-      // - Volatilidade normal: 5 segundos (ULTRA RÁPIDO!)
-      const COOLDOWN_AGGRESSIVE = 2 * 1000;   // 2s para alta volatilidade (REDUZIDO!)
-      const COOLDOWN_NORMAL = 5 * 1000;       // 5s para volatilidade normal (MUITO MAIS RÁPIDO!)
-      
-      const COOLDOWN_MS = globalVolatility ? COOLDOWN_AGGRESSIVE : COOLDOWN_NORMAL;
-      
-      if (timeSinceLastTrade < COOLDOWN_MS && lastTradeTimestampRef.current > 0) {
-        const remainingSeconds = Math.floor((COOLDOWN_MS - timeSinceLastTrade) / 1000);
-        console.log(`[COOLDOWN] ⏳ Aguardando ${remainingSeconds}s antes do próximo trade`);
-        return;
-      }
-      
-      console.log(`[AI LOOP] ✅ Cooldown OK - Analisando mercado...`);
-
-      // === ASSET SELECTION WITH PRIORITY SYSTEM ===
-      // 🎯 TIER 1: High volatility, high profit assets (70% probability)
-      const tier1Assets = ['BTCUSDT', 'SPX500']; // BTC & S&P500 (Nomenclatura Infinox)
-
-      // 🔸 TIER 2: Medium volatility assets (25% probability)
-      const tier2Assets = ['ETHUSDT', 'NAS100', 'XAUUSD'];
-
-      // 🔹 TIER 3: Low volatility assets (5% probability)
-      const tier3Assets = ['EURUSD', 'GBPUSD', 'US30'];
-
-      // 🔒 RESPEITAR CONFIG DO USUÁRIO: symbols internos do motor (Binance/CFD) →
-      // símbolos do catálogo que o usuário marca em "Universo de Ativos" (AssetUniverse.tsx,
-      // nomenclatura Infinox). Sem esse mapa, os 3 tiers acima ignoravam completamente
-      // aiConfig.activeAssets e o sorteio podia cair em Ouro/Forex/Índices mesmo com
-      // o usuário tendo selecionado só criptomoedas.
-      const TRADING_SYMBOL_TO_CATALOG: Record<string, string[]> = {
-        BTCUSDT: ['BTCUSD', 'XBNUSD'],
-        ETHUSDT: ['XETUSD'],
-        SPX500: ['SPX500', 'SPX500R'],
-        NAS100: ['NAS100', 'NAS100R'],
-        XAUUSD: ['XAUUSD'],
-        EURUSD: ['EURUSD'],
-        GBPUSD: ['GBPUSD'],
-        US30: ['US30'],
-      };
-
-      const userAssets = aiConfig.activeAssets || [];
-      const isAllowedByUser = (symbol: string) =>
-        (TRADING_SYMBOL_TO_CATALOG[symbol] || []).some(catalogSymbol => userAssets.includes(catalogSymbol));
-
-      const allowedTier1 = tier1Assets.filter(isAllowedByUser);
-      const allowedTier2 = tier2Assets.filter(isAllowedByUser);
-      const allowedTier3 = tier3Assets.filter(isAllowedByUser);
-
-      if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
-        console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário está disponível no motor agora (config: ${userAssets.join(', ') || 'vazia'}) - pulando ciclo`);
-        return;
-      }
-
-      // Weighted random selection (mesmos pesos de antes, só que restrito ao que o usuário permitiu)
-      const rand = Math.random();
-      let selectedAssets: string[];
-      let tierName = '';
-
-      if (rand < 0.70 && allowedTier1.length > 0) {
-        selectedAssets = allowedTier1; // 70% chance - BTC & S&P
-        tierName = 'TIER 1 (Alta Volatilidade)';
-      } else if (rand < 0.95 && allowedTier2.length > 0) {
-        selectedAssets = allowedTier2; // 25% chance - ETH, NAS, Gold
-        tierName = 'TIER 2 (Média Volatilidade)';
-      } else if (allowedTier3.length > 0) {
-        selectedAssets = allowedTier3; // 5% chance - Forex & Dow
-        tierName = 'TIER 3 (Baixa Volatilidade)';
-      } else {
-        // Tier sorteada ficou vazia após o filtro do usuário - cai pra qualquer tier não-vazia
-        selectedAssets = allowedTier1.length > 0 ? allowedTier1 : allowedTier2.length > 0 ? allowedTier2 : allowedTier3;
-        tierName = 'FALLBACK (restrito à config do usuário)';
-      }
-
-      const selectedSymbol = selectedAssets[Math.floor(Math.random() * selectedAssets.length)];
-      
-      // 🚫 ANTI-REPETIÇÃO: NÃO pode fazer 2 trades seguidos no mesmo ativo
-      if (lastTradedSymbolRef.current === selectedSymbol) {
-        console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${selectedSymbol}. Aguardando outro ativo...`);
-        return;
-      }
-      
-      // 🛡️ ANTI-HEDGING CHECK: Verificar se já existe posição neste ativo
-      const existingPositionOnAsset = activeOrders.find(order => order.symbol === selectedSymbol);
-      
-      if (existingPositionOnAsset) {
-        // Já existe posição neste ativo, NÃO abrir nova posição (previne hedging)
-        console.log(`[ANTI-HEDGING] ⚠️ Bloqueado: Já existe posição ${existingPositionOnAsset.side} em ${selectedSymbol}`);
-        return;
-      }
-      
-      // 🎯 CHECK: Verificar número de ativos diferentes simultâneos
-      const uniqueAssets = new Set(activeOrders.map(order => order.symbol));
-      if (uniqueAssets.size >= aiConfig.maxAssets) {
-        // Já atingiu o máximo de ativos diferentes
-        console.log(`[ASSET LIMIT] ⚠️ Bloqueado: Máximo de ${aiConfig.maxAssets} ativos diferentes atingido`);
-        return;
-      }
-
-      // ✅ ANÁLISE PROFISSIONAL DE MERCADO
-      // 🚀 OTIMIZAÇÃO #4 & #5: WebSocket + Batch paralelo com fallback inteligente
-      (async () => {
-        try {
-          console.log(`[TRADING] 🔍 Analisando ${selectedSymbol} (buscando dados reais)...`);
-          
-          let priceData = null;
-          
-          // 🚀 OTIMIZAÇÃO #4: Tentar WebSocket primeiro (TEMPO REAL - 100ms!)
-          const isCrypto = /BTC|ETH|SOL|XRP|BNB|ADA|DOGE|POL|LINK|USDT/i.test(selectedSymbol); // POL = Polygon (rebrandado de MATIC)
-          
-          if (isCrypto) {
-            try {
-              const { getBinanceWebSocketManager } = await import('@/app/services/BinanceWebSocketManager');
-              const wsManager = getBinanceWebSocketManager();
-              
-              // Verificar se temos preço em cache do WebSocket
-              const wsPrice = wsManager.getPrice(selectedSymbol);
-              
-              if (wsPrice && wsManager.isConnected()) {
-                // ✅ SUCESSO: Usar preço do WebSocket (INSTANTÂNEO!)
-                priceData = {
-                  price: wsPrice.price,
-                  changePercent24h: wsPrice.priceChangePercent,
-                  change24h: wsPrice.priceChange,
-                  volume: wsPrice.volume,
-                  source: 'WEBSOCKET' as any, // Tempo real!
-                  timestamp: wsPrice.timestamp
-                };
-                console.log(`[WebSocket] ⚡ ${selectedSymbol}: Preço em tempo real obtido! (latência ~100ms)`);
-              } else {
-                console.log(`[WebSocket] ⚠️ Cache vazio ou desconectado, usando REST...`);
-              }
-            } catch (error) {
-              console.warn('[WebSocket] ⚠️ Erro ao acessar WebSocket, usando REST...', error);
-            }
-          }
-          
-          // 🔄 FALLBACK: Se WebSocket falhou, usar REST API
-          // 🔧 FIX: `fetchRealPrice` (singular) foi removido de realPriceProvider.ts
-          // num refactor anterior (só sobrou `fetchRealPricesBatch`, desabilitado) e
-          // nunca foi atualizado aqui — toda chamada disparava
-          // "TypeError: fetchRealPrice is not a function", travando a análise pra
-          // TODO símbolo sem preço em cache do WebSocket e bloqueando qualquer
-          // entrada de trade. `getRealMarketData` é a função real usada com sucesso
-          // em outros lugares do app (dashboard, BinanceWebSocketManager).
-          if (!priceData) {
-            const { getRealMarketData } = await import('@/app/services/RealMarketDataService');
-            const marketData = await getRealMarketData(selectedSymbol);
-            priceData = {
-              price: marketData.price,
-              changePercent24h: marketData.changePercent || 0,
-              change24h: marketData.change || 0,
-              volume: marketData.volume || 0,
-              source: marketData.source as any,
-              timestamp: marketData.timestamp
+      runTradingCycle(
+        {
+          activeOrders,
+          aiConfig,
+          portfolio: portfolioRef.current,
+          orderHistory: orderHistoryRef.current,
+          lastTradeTimestamp: lastTradeTimestampRef.current,
+          lastTradedSymbol: lastTradedSymbolRef.current,
+          cooldownUntil: cooldownUntilRef.current,
+          lastStaleDataWarningAt: lastStaleDataWarningAtRef.current,
+          cachedNewsEvents: cachedNewsEventsRef.current,
+          cachedVIX: cachedVIXRef.current,
+        },
+        {
+          strategies: strategiesRef.current,
+          executionMode: configRef.current.executionMode,
+          telemetrySessionId: persistenceRef.current.getSessionId(),
+          userId: user?.id,
+          candleBuffer: candleBufferRef.current,
+          persistence: persistenceRef.current,
+          onLiveDecision: onLiveDecisionRef.current,
+          fetchNewsCached,
+          fetchVIXCached,
+          getWsPrice: (symbol: string) => {
+            const wsManager = wsManagerRef.current;
+            if (!wsManager || !wsManager.isConnected()) return null;
+            const wsPrice = wsManager.getPrice(symbol);
+            if (!wsPrice) return null;
+            return {
+              price: wsPrice.price,
+              changePercent24h: wsPrice.priceChangePercent,
+              change24h: wsPrice.priceChange,
+              volume: wsPrice.volume,
+              timestamp: wsPrice.timestamp,
             };
-            console.log(`[REST API] 📡 ${selectedSymbol}: Preço obtido via ${marketData.source} (${marketData.isRealData ? 'real' : 'fallback'})`);
-          }
-          
-          if (!priceData) {
-            throw new Error('Nenhum dado de preço disponível');
-          }
-          
-          const currentPrice = priceData.price;
-          const priceChangePercent = priceData.changePercent24h;
-          const volume24h = priceData.volume || 50000; // Volume padrão se não disponível
-          
-          console.log(`[TRADING] ✅ ${selectedSymbol}:`, {
-            price: currentPrice.toFixed(2),
-            change: `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
-            source: priceData.source
-          });
-          
-          // 🔒 2026-07-24: o "score de confiança" antigo aqui era uma heurística
-          // caseira (volatilidade%+volume+VIX), sem nenhuma relação com o Market
-          // Score real/calibrado que o Dashboard usa (MarketScoreEngine.ts) — a
-          // IA e o Dashboard liam dois "cérebros" diferentes e podiam discordar.
-          // Removido o pré-filtro cego daqui; a confiança real (estratégia +
-          // Score calibrado, no MESMO timeframe operado) é checada mais abaixo,
-          // depois que a estratégia já sugeriu um lado — ver "GATE DO SCORE".
-          const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
-          const MIN_CONFIDENCE = 45 + riskAdjustment.confidenceAdjust; // 🚀 BASE REDUZIDA DE 60% PARA 45% - Muito mais oportunidades!
-
-          // 🆕 ESTRATÉGIA REAL: mesma função (evaluateStrategyAt) e mesmos indicadores
-          // reais (RSI/MACD/EMA/etc.) usados pelo Backtest — a IA ao vivo roda
-          // exatamente a estratégia escolhida pelo usuário, não mais uma lógica
-          // hardcoded própria. Antes disso existia RSI aproximado por
-          // `50 + variação%×5` e uma cascata fixa reversão→tendência→momentum,
-          // ignorando qualquer configuração de estratégia.
-          const activeStrategy = strategiesRef.current.find(s => s.id === aiConfig.activeStrategyId);
-          if (!activeStrategy) {
-            console.log(`[ESTRATÉGIA] 🚫 Nenhuma estratégia ativa selecionada - pulando ciclo`);
-            return;
-          }
-
-          // 🔒 2026-07-24: timeframe operacional deixa de ser fixo em 5m —
-          // usa o que o próprio usuário escolheu na UI (aiConfig.timeframe,
-          // já existia como campo selecionável mas era ignorado aqui). Isso
-          // é o que torna o Score (chamado logo abaixo) e a estratégia
-          // exclusivos do timeframe pedido, essencial pro modo Scalper (1m)
-          // não operar em cima de candle de 5m.
-          const opTimeframe = normalizeAiTimeframe(aiConfig.timeframe);
-          const barMs: Record<ScoreTimeframe, number> = {
-            '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
-          };
-          const bufferKey = `${selectedSymbol}_${opTimeframe}`;
-
-          // Buffer de candles reais do ativo+timeframe (renovado a cada 60s)
-          let bufferEntry = candleBufferRef.current.get(bufferKey);
-          if (!bufferEntry || Date.now() - bufferEntry.fetchedAt > 60_000) {
-            try {
-              const end = new Date();
-              const start = new Date(end.getTime() - 100 * barMs[opTimeframe]); // ~100 candles do TF operado
-              const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, opTimeframe);
-              bufferEntry = { candles: history.candles, fetchedAt: Date.now() };
-              candleBufferRef.current.set(bufferKey, bufferEntry);
-            } catch (error) {
-              console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} (${opTimeframe}) agora, pulando ciclo`, error);
-              return;
-            }
-          }
-
-          const candles = bufferEntry.candles;
-          if (candles.length < 30) {
-            console.log(`[ESTRATÉGIA] ⏸️ Histórico insuficiente de ${selectedSymbol} (${candles.length} candles) - pulando ciclo`);
-            return;
-          }
-
-          const strategySignal = evaluateStrategyAt(activeStrategy, candles, candles.length - 1);
-          if (!strategySignal.signal) {
-            console.log(`[ESTRATÉGIA] ⏸️ "${activeStrategy.name}" sem sinal em ${selectedSymbol} agora`);
-            return;
-          }
-
-          const side: 'LONG' | 'SHORT' = strategySignal.signal === 'BUY' ? 'LONG' : 'SHORT';
-          const strategyName = activeStrategy.name;
-          let confidenceScore = strategySignal.confidence;
-          const rsiSeries = calculateRSI(candles, 14);
-          const rsiValue = rsiSeries[rsiSeries.length - 1] ?? 50; // RSI real do ativo, mesmo cálculo usado no evaluator
-
-          // 🔒 marketMode continua influenciando o preset de TP/SL (ver seção de pontos abaixo);
-          // a decisão de entrada em si agora vem 100% da estratégia escolhida.
-
-          // VALIDAÇÃO FINAL DE CONFIANÇA
-          if (confidenceScore < MIN_CONFIDENCE) {
-            console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
-            return;
-          }
-
-          // 🔒 GATE DO MARKET SCORE (2026-07-24) — o motor recalibrado do
-          // Dashboard (MarketScoreEngine.ts, mesmo usado no card "Análise
-          // Neural") passa a ser consultado aqui como CONFIRMAÇÃO/VETO do
-          // sinal da estratégia, no MESMO timeframe operado (`opTimeframe`)
-          // — nunca decide sozinho, nunca substitui o gatilho de entrada da
-          // estratégia (`evaluateStrategyAt`, já validado via
-          // MarketScoreValidator). Se o Score classificar o ativo pro lado
-          // OPOSTO do que a estratégia sugeriu, o setup é descartado — é
-          // exatamente o cenário que motivou este gate: a IA não deve
-          // comprar quando o Score (mesmo motor que o usuário vê na tela)
-          // está classificando o ativo como VENDEDOR, e vice-versa. Isso é
-          // um passo intermediário — ainda não é o "cérebro definitivo" da
-          // IA, só a conexão real entre os dois motores que hoje existiam
-          // desconectados.
-          //
-          // ✅ 2026-07-24 (2ª rodada): LATERAL não veta (Score sem opinião
-          // forte não é "contra" a estratégia) — mas achado real via
-          // MarketScoreValidator: a faixa de score onde a maioria dos casos
-          // LATERAL cai (35-50) tem retorno futuro historicamente fraco/
-          // neutro pro BTC diário — ou seja, é uma zona de baixo edge
-          // conhecida, não só "sem informação". Deixar a IA operar aí com o
-          // MESMO limiar de confiança de sempre ignorava esse dado. Fix:
-          // Score LATERAL exige uma barra de confiança EXTRA da estratégia
-          // (nunca bloqueia por completo, só levanta a exigência) — a IA
-          // continua podendo operar em regime lateral, mas só quando a
-          // própria estratégia tem convicção forte o bastante pra compensar
-          // a falta de confirmação do Score.
-          const LATERAL_CONFIDENCE_PENALTY = 15;
-          let scoreConfidence: number | null = null;
-          try {
-            const scoreResult = await MarketScoreEngine.compute(selectedSymbol, opTimeframe);
-            if (scoreResult.provenance !== 'unavailable') {
-              const expectedClassification = side === 'LONG' ? 'COMPRADOR' : 'VENDEDOR';
-              const opposite = side === 'LONG' ? 'VENDEDOR' : 'COMPRADOR';
-              if (scoreResult.classification === opposite) {
-                console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`);
-                return;
-              }
-              if (scoreResult.classification === 'LATERAL') {
-                const requiredConfidence = MIN_CONFIDENCE + LATERAL_CONFIDENCE_PENALTY;
-                if (strategySignal.confidence < requiredConfidence) {
-                  console.log(`[SCORE] 🚫 Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${strategySignal.confidence}% de confiança (exige ${requiredConfidence}% nesse regime)`);
-                  return;
-                }
-                console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${strategySignal.confidence}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
-              }
-              scoreConfidence = scoreResult.confidence;
-              console.log(`[SCORE] ✅ Market Score (${opTimeframe}) confirma/não contradiz: ${scoreResult.classification} (confiança ${scoreResult.confidence}%)${scoreResult.classification === expectedClassification ? ' — concorda' : ' — neutro'}`);
-            }
-          } catch (error) {
-            console.warn(`[SCORE] ⚠️ Falha ao consultar o Market Score pra ${selectedSymbol} (${opTimeframe}) — seguindo só com a confiança da estratégia`, error);
-          }
-          // Confiança final = a mais conservadora entre estratégia e Score (quando disponível).
-          if (scoreConfidence !== null) {
-            confidenceScore = Math.min(confidenceScore, scoreConfidence);
-            if (confidenceScore < MIN_CONFIDENCE) {
-              console.log(`[SEGURANÇA] ❌ Confiança combinada (estratégia+Score) abaixo do mínimo: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
-              return;
-            }
-          }
-
-          // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção (aiConfig.direction = 'AUTO' | 'LONG' | 'SHORT')
-          // Antes, o lado do trade vinha só da estratégia (RSI/momentum), ignorando
-          // completamente essa config - se o usuário travasse "somente compra", o bot
-          // podia vender do mesmo jeito. Em vez de forçar o lado (o que inventaria uma
-          // entrada sem sinal real da estratégia), descartamos o setup quando ele não
-          // bate com a direção permitida - mais seguro e ainda respeita 100% a config.
-          if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
-            console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
-            return;
-          }
-
-          // 🔒 GATE DE RISCO (research/RISK_MODULE_SPEC.md) — checado de forma síncrona
-          // logo antes de qualquer entrada, distinto do Health Check Guardian (que audita
-          // o estado geral a cada 5s e só pausa tudo via Safe Mode). Aqui é um veto
-          // pontual, por trade, sem desligar a IA.
-          const now = Date.now();
-
-          // Cooldown pós-perdas consecutivas
-          if (aiConfig.cooldownEnabled && now < cooldownUntilRef.current) {
-            const remainingMin = Math.ceil((cooldownUntilRef.current - now) / 60_000);
-            console.log(`[RISCO] 🧊 Cooldown ativo — ${remainingMin}min restantes (${aiConfig.consecutiveLossesTrigger} perdas seguidas)`);
-            return;
-          }
-          if (aiConfig.cooldownEnabled) {
-            const closedTrades = [...orderHistoryRef.current].filter(t => t.closedAt).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
-            let consecutiveLosses = 0;
-            for (const t of closedTrades) {
-              if ((t.currentProfit || 0) < 0) consecutiveLosses++;
-              else break;
-            }
-            if (consecutiveLosses >= aiConfig.consecutiveLossesTrigger) {
-              cooldownUntilRef.current = now + aiConfig.cooldownMinutes * 60_000;
-              console.log(`[RISCO] 🧊 Cooldown ATIVADO: ${consecutiveLosses} perdas seguidas — bloqueando novas entradas por ${aiConfig.cooldownMinutes}min`);
-              addLog(`🧊 Pausa ativada: ${consecutiveLosses} perdas seguidas — pausa de ${aiConfig.cooldownMinutes}min`);
-              return;
-            }
-          }
-
-          // Limite rígido de trades/dia
-          if (aiConfig.maxTradesPerDay > 0) {
-            const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-            const tradesToday = orderHistoryRef.current.filter(t => (t.closedAt || t.timestamp) >= todayStart.getTime()).length + activeOrdersRef.current.length;
-            if (tradesToday >= aiConfig.maxTradesPerDay) {
-              console.log(`[RISCO] 🚫 Limite de trades/dia atingido: ${tradesToday}/${aiConfig.maxTradesPerDay}`);
-              return;
-            }
-          }
-
-          console.log(`[DECISÃO FINAL] ${side === 'LONG' ? '🟢 COMPRA' : '🔴 VENDA'} | Estratégia: ${strategyName} | Confiança: ${confidenceScore}%`);
-          
-          // ✅ DETERMINAR DIREÇÃO BASEADA EM ESTRATÉGIA INTELIGENTE (não mais simplesmente priceChangePercent > 0)
-          
-          // 🆕 SISTEMA DE PONTOS BASEADO EM targetPoints (NOVO!)
-          // ✅ AJUSTADO: Valores MAIORES para manter posições por mais tempo
-          // POUCOS: 150 pontos | MÉDIO: 400 pontos | MUITOS: 1500+ pontos
-          let targetPointsValue = 400; // Padrão: MÉDIO (aumentado de 200 para 400)
-          let stopLossPointsValue = 120; // SL padrão (aumentado de 50 para 120)
-          
-          if (aiConfig.targetPoints === 'POUCOS') {
-            targetPointsValue = 150;  // ✅ Aumentado de 50 para 150
-            stopLossPointsValue = 50; // ✅ Aumentado de 25 para 50
-          } else if (aiConfig.targetPoints === 'MÉDIO') {
-            targetPointsValue = 400;  // ✅ Aumentado de 200 para 400
-            stopLossPointsValue = 120; // ✅ Aumentado de 50 para 120
-          } else if (aiConfig.targetPoints === 'MUITOS') {
-            targetPointsValue = 1500; // ✅ Aumentado de 1000 para 1500
-            stopLossPointsValue = 300; // ✅ Aumentado de 100 para 300
-          } else if (aiConfig.targetPoints === 'CURTO') {
-            targetPointsValue = 80;   // ✅ Aumentado de 30 para 80
-            stopLossPointsValue = 35; // ✅ Aumentado de 15 para 35
-          } else if (aiConfig.targetPoints === 'LONGO') {
-            targetPointsValue = 800;  // ✅ Aumentado de 500 para 800
-            stopLossPointsValue = 200; // ✅ Aumentado de 80 para 200
-          }
-
-          // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode === 'SCALP' implica trades curtos
-          // por definição - trava o alvo/stop no teto do preset "CURTO" (80/35 pontos),
-          // não importa o que o usuário tenha configurado em targetPoints. Só aperta
-          // (Math.min), nunca alarga - respeita um targetPoints já mais curto que isso.
-          if (aiConfig.marketMode === 'SCALP') {
-            targetPointsValue = Math.min(targetPointsValue, 80);
-            stopLossPointsValue = Math.min(stopLossPointsValue, 35);
-          }
-
-          // 🎯 CONVERTER PONTOS EM PREÇO (Baseado no ativo)
-          // Para índices e ações: 1 ponto = $1
-          // Para Forex: 1 ponto = 0.0001 (pip)
-          // Para Crypto: 1 ponto = $1
-          // Para Ouro: 1 ponto = $0.10
-          
-          let pointValue = 1.0; // Padrão: 1 ponto = $1
-
-          // 🔒 2026-07-24: BUG REAL EM PRODUÇÃO — todo par cripto cotado em
-          // dólar (BTCUSDT, BTCUSD, ETHUSD...) também contém a substring
-          // "USD", batendo por engano na regra de forex abaixo (pointValue
-          // 0.0001) antes desta checagem existir. Isso fazia um alvo de "400
-          // pontos" em BTC virar 400*0.0001 = US$0,04 de distância — o TP
-          // fechava o trade quase no candle de entrada. Checar cripto ANTES
-          // do bloco forex resolve pra qualquer símbolo com base conhecida ou
-          // sufixo USDT (mesmo fix aplicado em TradeSizing.getPointValue).
-          const pointValueCryptoBases = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'LTC', 'DOGE', 'AVAX', 'MATIC', 'POL', 'BAT', 'LINK', 'UNI', 'XLM'];
-          const upperSymbolForPointValue = selectedSymbol.toUpperCase();
-          const isCryptoForPointValue = upperSymbolForPointValue.endsWith('USDT') || pointValueCryptoBases.some(base => upperSymbolForPointValue.startsWith(base));
-
-          if (isCryptoForPointValue) {
-            pointValue = 1.0; // preço já em dólares cheios
-          } else if (selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ||
-              selectedSymbol.includes('USD') || selectedSymbol.includes('JPY') ||
-              selectedSymbol.includes('AUD') || selectedSymbol.includes('CAD') ||
-              selectedSymbol.includes('CHF') || selectedSymbol.includes('NZD')) {
-            pointValue = 0.0001; // 1 pip (FOREX)
-          } else if (selectedSymbol.includes('XAU') || selectedSymbol.includes('GOLD')) {
-            pointValue = 0.1; // OURO: 1 ponto = $0.10
-          }
-          // ÍNDICES: 1 ponto = $1 (já é o padrão)
-          
-          // Calcular TP e SL baseado em PONTOS
-          const tpDistance = targetPointsValue * pointValue;
-          const slDistance = stopLossPointsValue * pointValue;
-          
-          const tp = side === 'LONG' 
-            ? currentPrice + tpDistance
-            : currentPrice - tpDistance;
-          
-          const sl = side === 'LONG'
-            ? currentPrice - slDistance
-            : currentPrice + slDistance;
-          
-          // 🆕 CALCULAR RISCO/RETORNO
-          const riskRewardRatio = targetPointsValue / stopLossPointsValue;
-          
-          console.log(`[TP/SL SETUP] 🎯 ${selectedSymbol}:`, {
-            targetPoints: aiConfig.targetPoints,
-            points: targetPointsValue,
-            pointValue: pointValue,
-            tpDistance: `$${tpDistance.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2)}`,
-            slDistance: `$${slDistance.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2)}`,
-            riskReward: `1:${riskRewardRatio.toFixed(1)}`,
-            entry: currentPrice.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2),
-            tp: tp.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2),
-            sl: sl.toFixed(selectedSymbol.includes('EUR') || selectedSymbol.includes('GBP') ? 5 : 2)
-          });
-          
-          // 💰 CALCULAR TAMANHO DA POSIÇÃO (Position Sizing)
-          // Baseado no capital alocado e risco por trade
-          const currentBalance = portfolioRef.current?.balance || 100;
-          const allocatedCapital = Math.min(aiConfig.allocatedCapital, currentBalance);
-          const riskPercentage = aiConfig.riskPerTrade / 100; // Ex: 2% = 0.02
-          
-          // Capital para este trade (% do capital alocado)
-          // 🔒 Ajustado pelo riskProfile do usuário (mesmo sizeMultiplier usado na confiança acima)
-          let tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
-
-          // 🆕 Position sizing por ATR (research/RISK_MODULE_SPEC.md, seção 3.2): em vez do
-          // % linear fixo, ajusta o capital arriscado pela volatilidade real do ativo —
-          // ativo mais volátil arrisca menos capital nominal pro mesmo % de risco.
-          if (aiConfig.positionSizingMode === 'ATR') {
-            const atrSeries = calculateATR(candles, 14);
-            const atrValue = atrSeries[atrSeries.length - 1];
-            if (atrValue && atrValue > 0) {
-              const atrDistance = atrValue * aiConfig.atrMultiplier;
-              const riskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
-              // Normaliza contra o SL fixo já calculado (slDistance em preço), mantendo o
-              // mesmo capital de risco nominal mas escalando pelo tamanho real do stop em ATR
-              tradeCapital = slDistance > 0 ? riskCapital * (slDistance / atrDistance) : riskCapital;
-              console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} | capital ajustado: $${tradeCapital.toFixed(2)}`);
-            }
-          }
-
-          // 🆕 Alerta de correlação (research/RISK_MODULE_SPEC.md, seção 3.5): heurística por
-          // grupo estático (não é correlação de retornos calculada ao vivo — ver TODO na spec)
-          // reduz o tamanho pela metade se já existe posição aberta num ativo do mesmo grupo.
-          if (aiConfig.correlationGuardEnabled) {
-            const group = getCorrelationGroup(selectedSymbol);
-            const hasCorrelatedOpen = group && activeOrdersRef.current.some(o => o.symbol !== selectedSymbol && getCorrelationGroup(o.symbol) === group);
-            if (hasCorrelatedOpen) {
-              tradeCapital *= (1 - aiConfig.correlationThreshold * 0.5);
-              console.log(`[RISCO] 🔗 Correlação detectada (grupo "${group}") — tamanho reduzido para $${tradeCapital.toFixed(2)}`);
-            }
-          }
-
-          // Garantir valor mínimo para evitar P&L zerado
-          const minTradeCapital = 10; // Mínimo $10 por trade
-          const finalTradeCapital = Math.max(tradeCapital, minTradeCapital);
-
-          console.log(`[POSITION SIZING] 💰 ${selectedSymbol}:`, {
-            currentBalance: `$${currentBalance.toFixed(2)}`,
-            allocatedCapital: `$${allocatedCapital.toFixed(2)}`,
-            riskPerTrade: `${aiConfig.riskPerTrade}%`,
-            riskProfile: `${aiConfig.riskProfile} (x${riskAdjustment.sizeMultiplier})`,
-            calculatedTradeCapital: `$${tradeCapital.toFixed(2)}`,
-            finalTradeCapital: `$${finalTradeCapital.toFixed(2)}`,
-            reason: tradeCapital < minTradeCapital ? `⬆️ Aumentado para mínimo de $${minTradeCapital}` : '✅ Valor adequado'
-          });
-          
-          // ✅ CRIAR TRADE PROFISSIONAL
-          const newTrade: TradeVisual = {
-            id: `trade-${Date.now()}-${Math.random()}`,
-            symbol: selectedSymbol,
-            side,
-            amount: finalTradeCapital, // ✅ CORREÇÃO: Usar capital calculado, não maxContracts!
-            price: currentPrice,
-            currentPrice: currentPrice,
-            tp,
-            sl,
-            leverage: 1.5,
-            ai_confidence: Math.min(confidenceScore, 95),
-            timestamp: Date.now(),
-            reasoning: `${strategyName} | ${tierName} - ${aiConfig.targetPoints} pts (${targetPointsValue}p) - R/R 1:${riskRewardRatio.toFixed(1)} - ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
-            indicators: {
-              rsi: Math.round(rsiValue),
-              macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-              trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-            },
-          };
-
-          // 🔔 Fase 6 (ponte decisão→execução) — observador aditivo, fire-and-forget.
-          // Não altera nenhum comportamento abaixo (DEMO/LIVE seguem exatamente iguais).
-          try {
-            onLiveDecisionRef.current?.(newTrade);
-          } catch (observerError) {
-            console.error('[FASE 6] Erro no observador onLiveDecision (não afeta o motor):', observerError);
-          }
-
-          // Atualizar último timestamp de trade
-          lastTradeTimestampRef.current = Date.now();
-          
-          // ✅ ATUALIZAR ÚLTIMO ATIVO NEGOCIADO (Anti-repetição)
-          lastTradedSymbolRef.current = selectedSymbol;
-          console.log(`[ANTI-REPETIÇÃO] 📌 Último ativo registrado: ${selectedSymbol}`);
-          
-          setActiveOrders(prev => [...prev, newTrade]);
-          addLog(`✅ ENTRADA ${side}: ${selectedSymbol} @ $${currentPrice.toFixed(2)} - Alvo: ${targetPointsValue}pts (Confiança: ${confidenceScore}%)`);
-
-          // Fase 2: persiste a abertura da posição (fire-and-forget, nunca bloqueia o loop)
-          if (configRef.current.executionMode === 'DEMO') {
-            persistenceRef.current.onTradeOpen({
-              id: newTrade.id,
-              symbol: newTrade.symbol,
-              side: newTrade.side,
-              amount: newTrade.amount,
-              price: newTrade.price,
-              tp: newTrade.tp,
-              sl: newTrade.sl,
-              leverage: newTrade.leverage,
-              ai_confidence: newTrade.ai_confidence,
-              timestamp: newTrade.timestamp,
-              reasoning: newTrade.reasoning,
-              indicators: newTrade.indicators,
-            });
-          }
-          
-          // 🔔 Toast de notificação para o usuário
-          toastOriginal.success(`${side === 'LONG' ? '🟢' : '🔴'} ENTRADA ${side}`, {
-            description: `${selectedSymbol} @ $${currentPrice.toFixed(2)} | Confiança: ${confidenceScore}% | ${strategyName}`,
-            duration: 4000
-          });
-          
-        } catch (error) {
-          console.error('[TRADING] ❌ Erro crítico na análise:', error);
-        }
-      })();
+          },
+          applyEffect: applyTradingCycleEffect,
+        },
+      ).then((result) => {
+        lastTradeTimestampRef.current = result.nextLastTradeTimestamp;
+        lastTradedSymbolRef.current = result.nextLastTradedSymbol;
+        cooldownUntilRef.current = result.nextCooldownUntil;
+        lastStaleDataWarningAtRef.current = result.nextLastStaleDataWarningAt;
+        for (const effect of result.effects) applyTradingCycleEffect(effect);
+      }).catch((error) => {
+        console.error('[TRADING] ❌ Erro não tratado no ciclo de trading:', error);
+      });
     }, 5000); // 🚀 OTIMIZAÇÃO #3: REDUZIDO de 15s para 5s (200% mais rápido!) ⚡
 
     return () => {
@@ -1635,16 +1255,50 @@ export function useApexLogic(
                 // Agora, em modo DINAMICO, o SL "anda" a favor do trade (trailing stop):
                 // preserva a mesma distância de risco original, mas só sobe (LONG) ou
                 // só desce (SHORT) - nunca piora o stop em relação ao que já estava setado.
+                //
+                // 🔴 FIX 2026-08-03 (achado testando ordem manual real): a distância
+                // original ERA recalculada a partir de `order.sl` — mas esse campo é
+                // reescrito com o próprio `effectiveSl` a cada tick (linha ~2201 abaixo),
+                // então a "distância original" encolhia a cada segundo em vez de ficar
+                // fixa. Resultado: o SL efetivo acumulava o ganho não-realizado inteiro
+                // A CADA TICK (não só o incremento desde o tick anterior), numa
+                // progressão descontrolada que alcançava o preço atual em minutos —
+                // fechando a posição sozinha mesmo sem o mercado nunca ter revertido.
+                // Pior ainda para SL não definido (0): a "distância" de partida virava
+                // o próprio preço de entrada, tornando a progressão ainda mais rápida.
+                // Confirmado em produção: ordem BTCUSD manual sem SL definido
+                // (stop_loss=0 no banco), aberta 15:27 e fechada sozinha 15:47 (20min,
+                // preço subiu só 0,14%) com exit_reason='SL'.
+                // Fix: ancorar a distância em `originalSl` — campo imutável, gravado
+                // uma única vez na abertura da ordem, nunca reescrito pelo loop — e
+                // pular o trailing inteiro quando não há SL real definido (0 = sem
+                // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
-                if (configRef.current.stopLossMode === 'DINAMICO') {
-                  const originalSlDistance = Math.abs(order.price - order.sl);
+                let trailMoved = false;
+                if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
+                  // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
+                  // (mesmo `calculateATR` do resto do motor), não mais fixa na distância
+                  // de entrada — é o que o widget "ATR Trailing Stop" da UI sempre
+                  // anunciou fazer, mas nunca fazia de fato (achado da auditoria de
+                  // config: card com número hardcoded, ATRTrailingStopManager.tsx com
+                  // mock data explícito). Busca no MESMO cache de candles (60s) já
+                  // mantido pelo ciclo de análise — sem chamada de rede extra aqui. Só
+                  // usa ATR real e recente (< 5min); sem candle fresco pro símbolo,
+                  // cai pro fallback antigo (distância fixa da entrada) — nunca
+                  // fabrica um ATR.
+                  const freshAtr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
+                  const atrDistance = freshAtr !== null ? freshAtr * configRef.current.atrTrailingMultiplier : null;
+
+                  const originalSlDistance = Math.abs(order.price - order.originalSl);
+                  const trailDistance = atrDistance ?? originalSlDistance;
                   const trailedSl = order.side === 'LONG'
-                    ? nextPrice - originalSlDistance
-                    : nextPrice + originalSlDistance;
+                    ? nextPrice - trailDistance
+                    : nextPrice + trailDistance;
 
                   effectiveSl = order.side === 'LONG'
                     ? Math.max(order.sl, trailedSl)
                     : Math.min(order.sl, trailedSl);
+                  trailMoved = effectiveSl !== order.sl;
                 }
 
                 // ✅ LOG DE DEBUG (apenas para primeira iteração)
@@ -1667,9 +1321,12 @@ export function useApexLogic(
                 totalUnrealizedPnL += pnl;
                 totalExposure += order.amount * nextPrice * order.leverage;
 
-                // Check TP/SL
-                const hitTP = order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp;
-                const hitSL = order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl;
+                // Check TP/SL — tp/sl igual a 0 significa "não definido" (ordem manual
+                // sem alvo/stop), nunca um preço de gatilho real. Sem esse guard, uma
+                // ordem LONG sem TP fechava sozinha no primeiro tick (nextPrice >= 0 é
+                // sempre verdadeiro), e o mesmo pro SL de uma SHORT sem stop.
+                const hitTP = order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
+                const hitSL = effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
 
                 if (hitTP) {
                     realizedPnL += pnl;
@@ -1690,6 +1347,7 @@ export function useApexLogic(
                         sl: effectiveSl,
                         currentPrice: nextPrice,
                         currentProfit: pnl, // ✅ CRITICAL: Update profit for UI display
+                        trailMoves: trailMoved ? (order.trailMoves || 0) + 1 : order.trailMoves, // 🆕 contador real pro widget ATR Trailing Stop
                     });
                 }
             });
@@ -1811,6 +1469,8 @@ export function useApexLogic(
 
     // Fase 2: garante uma sessão DEMO no Supabase (reaproveita a restaurada no mount, se houver)
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      persistenceErrorNotifiedRef.current = false;
+      sessionStartedAtRef.current = Date.now();
       persistenceRef.current.startSession({
         strategyName: 'Apex AI',
         symbols: configRef.current.activeAssets || [],
@@ -1898,6 +1558,10 @@ export function useApexLogic(
     if (persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
     }
+    // Reset explícito = "começar do zero" — reinicia o relógio do gate de
+    // perda diária junto, senão perdas da tentativa descartada continuam
+    // pesando contra a conta que acabou de voltar pra $100.
+    sessionStartedAtRef.current = Date.now();
 
     setIsActive(false);
     setIsPaused(false);
@@ -1957,6 +1621,340 @@ export function useApexLogic(
     setActiveOrders([]);
     addLog(`🚨 Todas as posições foram fechadas. P&L Total: $${totalRealizedPnL.toFixed(2)}`);
   }, [activeOrders, addLog]);
+
+  // === ORDEM MANUAL (boleta no gráfico) ===
+  // Mesmo caminho de abertura DEMO que a IA usa (TradeVisual + setActiveOrders +
+  // persistência), só que disparado pelo clique do usuário em vez do motor de
+  // decisão. `volume` chega em lotes (padrão da boleta); convertido para o
+  // `amount` em USD que o resto do motor espera — inverso exato de
+  // `amountToLotSize` (src/app/modules/tradeConfirmationStage/lotSizeConversion.ts).
+  const openManualPosition = useCallback((params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): { success: boolean; error?: string; tradeId?: string } => {
+    console.error('🟢[useApexLogic] openManualPosition chamado', params);
+    const asset = getAssetBySymbol(params.symbol);
+    if (!asset) {
+      console.warn('[useApexLogic] openManualPosition: ativo não encontrado em assetDatabase', params.symbol);
+      return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
+    }
+    if (!(params.volume > 0) || !(params.entryPrice > 0)) {
+      return { success: false, error: 'Volume ou preço inválido' };
+    }
+
+    const amountUsd = params.volume * asset.lotSize * params.entryPrice;
+
+    if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      sessionStartedAtRef.current = Date.now();
+      persistenceRef.current.startSession({
+        strategyName: 'Ordem Manual',
+        symbols: [params.symbol],
+        timeframe: configRef.current.timeframe || '1m',
+        initialBalance: portfolioRef.current.balance,
+        initialEquity: portfolioRef.current.equity,
+        config: configRef.current,
+      });
+    }
+
+    const newTrade: TradeVisual = {
+      id: `manual-${Date.now()}-${Math.random()}`,
+      symbol: params.symbol,
+      side: params.side,
+      amount: amountUsd,
+      price: params.entryPrice,
+      currentPrice: params.entryPrice,
+      tp: params.takeProfit ?? 0,
+      sl: params.stopLoss ?? 0,
+      originalSl: params.stopLoss ?? 0,
+      leverage: asset.leverage || 1,
+      ai_confidence: 100,
+      timestamp: Date.now(),
+      reasoning: 'Ordem manual do usuário',
+      indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+    };
+
+    setActiveOrders(prev => {
+      const next = [...prev, newTrade];
+      console.error('🟢[useApexLogic] openManualPosition: setActiveOrders', { antes: prev.length, depois: next.length, newTrade });
+      return next;
+    });
+    addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s)`);
+
+    if (configRef.current.executionMode === 'DEMO') {
+      persistenceRef.current.onTradeOpen({
+        id: newTrade.id,
+        symbol: newTrade.symbol,
+        side: newTrade.side,
+        amount: newTrade.amount,
+        price: newTrade.price,
+        tp: newTrade.tp,
+        sl: newTrade.sl,
+        leverage: newTrade.leverage,
+        ai_confidence: newTrade.ai_confidence,
+        timestamp: newTrade.timestamp,
+        reasoning: newTrade.reasoning,
+        indicators: newTrade.indicators,
+      });
+    }
+
+    return { success: true, tradeId: newTrade.id };
+  }, [addLog]);
+
+  // === PYRAMIDING SYSTEM (núcleo real — ver comentário em aiConfig.pyramiding) ===
+  // 🆕 2026-08-04: widget antes 100% decorativo (achado da auditoria de config
+  // — card com números hardcoded, "Detalhes" abria modal vazio, zero lógica no
+  // motor). Implementado aqui: maxLayers, scalingStrategy fixed/reduced/
+  // exponential, entryDistanceType percent/pips/atr (ATR real via
+  // `getFreshAtr`), break-even real, stop de emergência real. Opt-in
+  // (`aiConfig.pyramiding.enabled`, default false) e só em modo DEMO nesta
+  // primeira passada — LIVE fica pra quando isso passar pelo mesmo rigor da
+  // ponte de execução (research/AI_BRAIN_SPEC.md 9.1). scalingStrategy
+  // fibonacci/smart-ai e entryDistanceType ai-dynamic NÃO estão implementados
+  // — o loop abaixo simplesmente não adiciona layer nesses casos, nunca
+  // fabrica um número, e a UI (PyramidingConfigPanel.tsx) desabilita essas
+  // opções pra não sugerir que funcionam.
+  const pyramidStateRef = useRef<Map<string, { layers: number; lastLayerPrice: number; breakEvenApplied: boolean }>>(new Map());
+
+  useEffect(() => {
+    if (!isActive || isPaused || isSafeMode) return;
+
+    const interval = setInterval(() => {
+      const cfg = configRef.current.pyramiding;
+      if (!cfg?.enabled || configRef.current.executionMode !== 'DEMO') return;
+
+      const orders = activeOrdersRef.current;
+
+      // Adição de novos layers — só a posição ORIGINAL de cada grupo (sem
+      // pyramidGroupId) dispara, nunca um layer adicionando em cima de outro.
+      for (const order of orders) {
+        if (order.pyramidGroupId) continue; // já é um layer, não a raiz do grupo
+        if (activeOrdersRef.current.length >= configRef.current.maxPositions) break;
+
+        let state = pyramidStateRef.current.get(order.id);
+        if (!state) {
+          state = { layers: 1, lastLayerPrice: order.price, breakEvenApplied: false };
+          pyramidStateRef.current.set(order.id, state);
+        }
+        if (state.layers >= cfg.maxLayers) continue;
+
+        const currentPrice = order.currentPrice || order.price;
+        const favorableMove = order.side === 'LONG' ? currentPrice - state.lastLayerPrice : state.lastLayerPrice - currentPrice;
+        if (favorableMove <= 0) continue; // só empilha a favor do trade, nunca contra
+
+        let requiredDistance: number | null = null;
+        if (cfg.entryDistanceType === 'percent') {
+          requiredDistance = state.lastLayerPrice * (cfg.entryDistance / 100);
+        } else if (cfg.entryDistanceType === 'pips') {
+          requiredDistance = cfg.entryDistance * getPointValue(order.symbol);
+        } else if (cfg.entryDistanceType === 'atr') {
+          const atr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
+          requiredDistance = atr !== null ? atr * cfg.atrMultiplier : null;
+        }
+        // entryDistanceType 'ai-dynamic' (não implementado) ou ATR indisponível: requiredDistance fica null, nunca adiciona.
+        if (requiredDistance === null || requiredDistance <= 0 || favorableMove < requiredDistance) continue;
+
+        let sizeMultiplierForLayer: number;
+        if (cfg.scalingStrategy === 'fixed') {
+          sizeMultiplierForLayer = 1;
+        } else if (cfg.scalingStrategy === 'reduced' || cfg.scalingStrategy === 'exponential') {
+          sizeMultiplierForLayer = Math.pow(cfg.sizeMultiplier, state.layers);
+        } else {
+          continue; // 'fibonacci' / 'smart-ai': não implementado nesta passada
+        }
+
+        const asset = getAssetBySymbol(order.symbol);
+        if (!asset) continue;
+        const originalVolumeLots = order.amount / (asset.lotSize * order.price);
+        const newVolumeLots = originalVolumeLots * sizeMultiplierForLayer;
+        const newAmountUsd = newVolumeLots * asset.lotSize * currentPrice;
+        if (!(newVolumeLots > 0)) continue;
+        // 🔒 Trava de segurança: nunca comprometer mais de 50% do saldo atual num único layer.
+        if (newAmountUsd > portfolioRef.current.balance * 0.5) continue;
+
+        const slDistance = order.originalSl > 0 ? Math.abs(order.price - order.originalSl) : 0;
+        const tpDistance = order.tp > 0 ? Math.abs(order.tp - order.price) : 0;
+        const newSl = slDistance > 0 ? (order.side === 'LONG' ? currentPrice - slDistance : currentPrice + slDistance) : undefined;
+        const newTp = tpDistance > 0 ? (order.side === 'LONG' ? currentPrice + tpDistance : currentPrice - tpDistance) : undefined;
+
+        const result = openManualPosition({
+          symbol: order.symbol,
+          side: order.side,
+          volume: newVolumeLots,
+          entryPrice: currentPrice,
+          stopLoss: newSl,
+          takeProfit: newTp,
+        });
+
+        if (result.success && result.tradeId) {
+          state.layers += 1;
+          state.lastLayerPrice = currentPrice;
+          const layerNumber = state.layers;
+          const groupId = order.id;
+          const tradeId = result.tradeId;
+          setActiveOrders(prev => prev.map(o => o.id === tradeId
+            ? { ...o, pyramidGroupId: groupId, pyramidLayer: layerNumber, reasoning: `Pyramiding layer ${layerNumber}/${cfg.maxLayers} de ${order.symbol}` }
+            : o));
+          addLog(`📐 PYRAMIDING: layer ${layerNumber}/${cfg.maxLayers} adicionado em ${order.symbol} @ $${currentPrice.toFixed(2)}`);
+
+          if (cfg.breakEvenEnabled && !state.breakEvenApplied && state.layers >= cfg.breakEvenAfterLayers) {
+            state.breakEvenApplied = true;
+            setActiveOrders(prev => prev.map(o => o.id === groupId
+              ? { ...o, sl: o.price, originalSl: o.price }
+              : o));
+            addLog(`🛡️ PYRAMIDING: break-even aplicado em ${order.symbol} (${state.layers} layers)`);
+          }
+        }
+      }
+
+      // Stop de emergência real por grupo — soma P&L não-realizado de todas as
+      // camadas contra o capital comprometido nelas; se ultrapassar o limite,
+      // move o SL de cada camada pro preço atual, deixando o loop de P&L
+      // (já rodando) fechar de verdade no próximo tick pelo caminho normal de
+      // SL — sem duplicar lógica de fechamento/persistência aqui.
+      if (cfg.emergencyStopEnabled) {
+        const groups = new Map<string, TradeVisual[]>();
+        for (const order of activeOrdersRef.current) {
+          const key = order.pyramidGroupId ?? order.id;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(order);
+        }
+        for (const [key, group] of groups) {
+          if (group.length < 2) continue; // sem layers adicionados, não é pyramid de fato
+          const totalAmount = group.reduce((s, o) => s + o.amount, 0);
+          const totalPnl = group.reduce((s, o) => s + (o.currentProfit || 0), 0);
+          const pnlPercent = totalAmount > 0 ? (totalPnl / totalAmount) * 100 : 0;
+          if (pnlPercent <= -cfg.emergencyStopLossPercent) {
+            setActiveOrders(prev => prev.map(o => (o.pyramidGroupId === key || o.id === key)
+              ? { ...o, sl: o.currentPrice || o.price }
+              : o));
+            addLog(`🚨 PYRAMIDING EMERGENCY STOP: grupo em ${group[0].symbol} a ${pnlPercent.toFixed(1)}% — fechando todas as camadas`);
+            pyramidStateRef.current.delete(key);
+          }
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isActive, isPaused, isSafeMode, addLog, openManualPosition]);
+
+  // Ordem pendente DEMO (limit/stop) — validação de direção igual à que o
+  // MetaAPI faria do lado real: limit de compra só abaixo do preço atual,
+  // stop de compra só acima (e o espelho pro lado de venda).
+  const openManualPendingOrder = useCallback((params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    orderType: 'LIMIT' | 'STOP';
+    volume: number;
+    triggerPrice: number;
+    currentPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): { success: boolean; error?: string; orderId?: string } => {
+    const asset = getAssetBySymbol(params.symbol);
+    if (!asset) {
+      return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
+    }
+    if (!(params.volume > 0) || !(params.triggerPrice > 0)) {
+      return { success: false, error: 'Volume ou preço inválido' };
+    }
+
+    const isBuy = params.side === 'LONG';
+    const aboveMarket = params.triggerPrice > params.currentPrice;
+    // Limit compra abaixo / vende acima do mercado; Stop é o espelho disso.
+    const validDirection = params.orderType === 'LIMIT'
+      ? (isBuy ? !aboveMarket : aboveMarket)
+      : (isBuy ? aboveMarket : !aboveMarket);
+    if (!validDirection) {
+      return {
+        success: false,
+        error: `${params.orderType === 'LIMIT' ? 'Limit' : 'Stop'} de ${isBuy ? 'compra' : 'venda'} precisa estar ${
+          (params.orderType === 'LIMIT') === isBuy ? 'abaixo' : 'acima'
+        } do preço atual`,
+      };
+    }
+
+    const newOrder: PendingOrderVisual = {
+      id: `pending-${Date.now()}-${Math.random()}`,
+      symbol: params.symbol,
+      side: params.side,
+      orderType: params.orderType,
+      volume: params.volume,
+      triggerPrice: params.triggerPrice,
+      stopLoss: params.stopLoss,
+      takeProfit: params.takeProfit,
+      timestamp: Date.now(),
+    };
+    setPendingOrders(prev => [...prev, newOrder]);
+    addLog(`🕓 ORDEM PENDENTE ${params.orderType} ${params.side}: ${params.symbol} @ $${params.triggerPrice.toFixed(2)} — ${params.volume} lote(s)`);
+    return { success: true, orderId: newOrder.id };
+  }, [addLog]);
+
+  const cancelManualPendingOrder = useCallback((orderId: string) => {
+    setPendingOrders(prev => prev.filter(o => o.id !== orderId));
+    addLog(`🗑️ Ordem pendente cancelada: ${orderId}`);
+  }, [addLog]);
+
+  // Chamado a cada tick de preço (ChartView, pro símbolo selecionado) — dispara
+  // qualquer ordem pendente cujo gatilho o preço já cruzou. Preenche no preço
+  // ATUAL da tela (não no preço de gatilho): não temos profundidade real pra
+  // garantir fill exato, e simular "preenchido exatamente no limite" seria
+  // otimismo não sustentado por dado nenhum.
+  const checkPendingOrderTriggers = useCallback((symbol: string, price: number) => {
+    const toFill = pendingOrdersRef.current.filter((o) => {
+      if (o.symbol !== symbol) return false;
+      const isBuy = o.side === 'LONG';
+      if (o.orderType === 'LIMIT') {
+        return isBuy ? price <= o.triggerPrice : price >= o.triggerPrice;
+      }
+      return isBuy ? price >= o.triggerPrice : price <= o.triggerPrice;
+    });
+    if (toFill.length === 0) return;
+
+    setPendingOrders(prev => prev.filter(o => !toFill.some(f => f.id === o.id)));
+    toFill.forEach((order) => {
+      addLog(`⚡ ORDEM PENDENTE DISPAROU: ${order.symbol} ${order.orderType} ${order.side} @ $${price.toFixed(2)}`);
+      openManualPosition({
+        symbol: order.symbol,
+        side: order.side,
+        volume: order.volume,
+        entryPrice: price,
+        stopLoss: order.stopLoss,
+        takeProfit: order.takeProfit,
+      });
+    });
+  }, [addLog, openManualPosition]);
+
+  // Fechamento manual de uma posição DEMO específica (usada pela boleta/lista de posições).
+  const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
+    const order = activeOrdersRef.current.find(o => o.id === tradeId);
+    if (!order) return;
+
+    const tradePnL = calculatePnLWithLeverage(
+      order.symbol,
+      order.price,
+      currentPrice,
+      order.side,
+      order.amount,
+      order.leverage
+    );
+
+    if (configRef.current.executionMode === 'DEMO') {
+      persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+    }
+
+    setPortfolio(prev => ({
+      ...prev,
+      balance: prev.balance + tradePnL,
+      equity: prev.balance + tradePnL,
+    }));
+    setOrderHistory(prev => [...prev, { ...order, closedAt: Date.now() }]);
+    setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
+    addLog(`✅ Posição manual fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
+  }, [addLog]);
 
   // === UPDATE AI CONFIG ===
   const updateAIConfig = useCallback((config: Partial<AIConfig>) => {
@@ -2152,6 +2150,7 @@ export function useApexLogic(
         currentProfit: profit,
         tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
         sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+        originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
         leverage: pos.leverage || 1,
         ai_confidence: 75, // Posição já aberta
         timestamp: pos.time || Date.now(),
@@ -2198,6 +2197,12 @@ export function useApexLogic(
     resumeLogic,
     resetLogic,
     forceCloseAll,
+    openManualPosition,
+    closeManualPosition,
+    pendingOrders,
+    openManualPendingOrder,
+    cancelManualPendingOrder,
+    checkPendingOrderTriggers,
     updateAIConfig,
     connectToMT5,
     disconnectFromMT5,
