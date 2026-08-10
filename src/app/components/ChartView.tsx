@@ -1363,11 +1363,6 @@ export function ChartView({
   const [dailyChangePercent, setDailyChangePercent] = useState(0);
   const [isPositive, setIsPositive] = useState(true);
   const [candleCountdown, setCandleCountdown] = useState(0);
-  // 🆕 Posição vertical (em px, relativa ao container do gráfico) da linha pontilhada de
-  // preço atual -- o countdown precisa acompanhar essa linha, não ficar fixo no meio do
-  // gráfico. Recalculada via chart.convertToPixel (preço → pixel) sempre que o preço muda
-  // ou o usuário dá zoom/scroll no gráfico (ver useEffect de sincronização mais abaixo).
-  const [lastPriceLineY, setLastPriceLineY] = useState<number | null>(null);
   const [showAssetList, setShowAssetList] = useState(false);
   const [assetSearch, setAssetSearch] = useState('');
   const [selectedSymbol, setSelectedSymbol] = useState(selectedAsset || 'BTCUSD'); // 🔥 Inicializar com ativo global
@@ -3959,46 +3954,6 @@ export function ChartView({
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
   }, [timeframe]);
-
-  // 🆕 Mantém o badge do countdown GRUDADO na linha pontilhada de preço atual (pedido do
-  // Cleber -- antes ficava travado em top:50%, sem relação nenhuma com a linha de fato).
-  // chart.convertToPixel converte o preço pro pixel Y real dentro do pane. O `y` retornado
-  // já é relativo ao CONTAINER do gráfico (Pane.getBounding() em index.esm.js devolve
-  // coordenadas internas do chart, não da página -- `absolute: true` só soma o offset do
-  // próprio pane dentro do chart, não faz `getBoundingClientRect` nenhum), e o badge é
-  // `position: absolute` dentro desse mesmo container -- então o `y` já serve direto como
-  // `top`, sem subtrair nada (1ª tentativa subtraía getBoundingClientRect().top por engano
-  // e jogava o badge ~130px pra cima da linha real). Recalcula em todo tick de preço e
-  // sempre que o usuário faz scroll/zoom no gráfico (a linha de preço sobe/desce na tela
-  // mesmo com o preço parado, se o zoom mudar a escala do eixo Y).
-  useEffect(() => {
-    const chart = chartInstanceRef.current;
-    if (!chart || currentPrice === null) return;
-
-    const updateLastPriceLineY = () => {
-      try {
-        const point = chart.convertToPixel(
-          { value: currentPrice },
-          { paneId: 'candle_pane', absolute: true }
-        );
-        const y = Array.isArray(point) ? point[0]?.y : point?.y;
-        if (typeof y === 'number' && !Number.isNaN(y)) {
-          setLastPriceLineY(y);
-        }
-      } catch (_) {
-        // chart ainda não montou o pane / preço fora do range visível -- sem problema,
-        // o badge simplesmente não atualiza nesse tick.
-      }
-    };
-
-    updateLastPriceLineY();
-    chart.subscribeAction('onScroll', updateLastPriceLineY);
-    chart.subscribeAction('onZoom', updateLastPriceLineY);
-    return () => {
-      chart.unsubscribeAction('onScroll', updateLastPriceLineY);
-      chart.unsubscribeAction('onZoom', updateLastPriceLineY);
-    };
-  }, [currentPrice, timeframe]);
 
   const formatCountdown = (ms: number) => {
     const s = Math.floor(ms / 1000);
@@ -6662,19 +6617,16 @@ export function ChartView({
             )}
             </div>
 
-            {/* 🔥 CANDLE COUNTDOWN - COLADO NA LINHA DO PREÇO -- fica FORA da div do
-                chartContainerRef de propósito: aquela div leva innerHTML='' toda vez que o
-                gráfico reinicializa (troca de timeframe/símbolo, ver efeito de init do
-                klinecharts), o que arranca do DOM qualquer filho renderizado pelo React ali
-                dentro sem o React saber -- o nó fica "órfão" (React segue atualizando o
-                texto internamente, mas ele nunca aparece na tela). Era por isso que o
-                countdown nunca aparecia antes desta correção. */}
+            {/* 🔥 CANDLE COUNTDOWN -- fica FORA da div do chartContainerRef de propósito:
+                aquela div leva innerHTML='' toda vez que o gráfico reinicializa (troca de
+                timeframe/símbolo, ver efeito de init do klinecharts), o que arranca do DOM
+                qualquer filho renderizado pelo React ali dentro sem o React saber -- o nó
+                fica "órfão" (nunca aparece na tela). Posição FIXA logo abaixo da boleta
+                (OrderTicket, top-[17px] right-[99px] alguns px abaixo) -- pedido do Cleber:
+                a 1ª versão acompanhava a linha pontilhada de preço via convertToPixel, mas
+                ficava instável/pulando a cada variação de preço. */}
             <div
-              className="absolute right-[80px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
-              style={{
-                top: lastPriceLineY !== null ? `${lastPriceLineY}px` : '50%',
-                transform: 'translateY(-50%)'
-              }}
+              className="absolute top-[142px] right-[99px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
             >
               <Clock className="w-2.5 h-2.5 text-blue-400" />
               <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
