@@ -446,8 +446,16 @@ async function analyzeAsset(
         // calendário 4x mais larga (folga pra fins de semana/gaps de sessão) e
         // recorta pras últimas REQUIRED_BARS candles reais recebidas — nunca
         // inventa dado, só evita descartar o ciclo por causa da janela curta.
+        // ✅ 2026-08-16: em timeframes curtos (1m) o ×4 sozinho dava só ~6h40
+        // de janela — curto demais pra cobrir o horário fechado de GER40/XAUUSD,
+        // que voltou a derrubar CANDLES_FETCH_FAILED nesses ativos. Piso mínimo
+        // de 48h de janela, independente do timeframe, garante folga pra
+        // qualquer fechamento de pregão sem afetar timeframes longos (que já
+        // ficavam bem acima disso).
+        const MIN_WINDOW_MS = 48 * 60 * 60 * 1000;
         const end = new Date();
-        const start = new Date(end.getTime() - REQUIRED_BARS * 4 * barMs[opTimeframe]);
+        const windowMs = Math.max(REQUIRED_BARS * 4 * barMs[opTimeframe], MIN_WINDOW_MS);
+        const start = new Date(end.getTime() - windowMs);
         const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, opTimeframe);
         const candles = history.candles.slice(-REQUIRED_BARS);
         bufferEntry = { candles, fetchedAt: Date.now() };
