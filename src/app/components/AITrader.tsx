@@ -1024,9 +1024,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         <button
                                             key={tf}
                                             onClick={() => setConfig(prev => ({ ...prev, timeframe: tf }))}
+                                            title={tf === '1m' ? 'Custo de corretagem consome a maior parte do movimento típico de 1 minuto — use só para teste manual, não como operação principal.' : undefined}
                                             className={`px-1 py-1.5 rounded text-[10px] font-bold border transition-all ${
-                                                config.timeframe === tf 
-                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]' 
+                                                config.timeframe === tf
+                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                                                 : 'bg-white/5 border-transparent text-slate-500 hover:text-white hover:bg-white/10'
                                             }`}
                                         >

@@ -1474,7 +1474,7 @@ export function useApexLogic(
       persistenceRef.current.startSession({
         strategyName: 'Apex AI',
         symbols: configRef.current.activeAssets || [],
-        timeframe: configRef.current.timeframe || '1m',
+        timeframe: configRef.current.timeframe || '15m',
         initialBalance: portfolioRef.current.balance,
         initialEquity: portfolioRef.current.equity,
         config: configRef.current,
@@ -1653,7 +1653,7 @@ export function useApexLogic(
       persistenceRef.current.startSession({
         strategyName: 'Ordem Manual',
         symbols: [params.symbol],
-        timeframe: configRef.current.timeframe || '1m',
+        timeframe: configRef.current.timeframe || '15m',
         initialBalance: portfolioRef.current.balance,
         initialEquity: portfolioRef.current.equity,
         config: configRef.current,

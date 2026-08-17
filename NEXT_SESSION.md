@@ -76,14 +76,44 @@ score só depois do backtest (medido acima, resultado negativo), desempate
 multi-setup = maior score vence, pesos por bloco = iguais no início (medido
 acima — é justamente essa escolha que não funcionou).
 
+### Item 2 do plano — feito nesta sessão (migração de timeframe padrão)
+
+Investigação prévia (agente Explore) mostrou que a maior parte do código já
+estava em `'15m'`/`'1h'` como default — o `aiConfig.timeframe` global em
+[useApexLogic.ts:276](src/app/hooks/useApexLogic.ts:276) já era `'15m'`, os
+adapters de dado não tinham `'1m'` hardcoded como fallback próprio, e o
+runner Deno (`ai-runner/index.ts`) já cai pra `'5m'` se `tf` vier vazio. Os
+pontos reais que ainda regrediam pra `'1m'` eram 2 fallbacks defensivos em
+[useApexLogic.ts:1477](src/app/hooks/useApexLogic.ts:1477) e
+[:1656](src/app/hooks/useApexLogic.ts:1656) (`configRef.current.timeframe ||
+'1m'`), usados só quando `config.timeframe` vem `undefined`/falsy ao iniciar
+sessão — corrigidos pra `'15m'`. `'1m'` continua no tipo `Timeframe` e nos
+seletores de UI ([AITrader.tsx:1023](src/app/components/AITrader.tsx:1023),
+[AITradingEngine.tsx:119](src/app/components/AITradingEngine.tsx:119)) —
+é modo de teste manual, não deve ser removido, só não é mais o default em
+nenhum caminho. Adicionei tooltip no botão `1m` de ambos os seletores
+avisando que o custo consome a maior parte do movimento e que é só pra teste.
+Nenhuma migration de banco necessária (`ai_sessions.timeframe` é `text` livre,
+sem CHECK constraint). `npm run validate` verde, dev server sobe sem erro de
+build.
+
+**Item 1 e 2 do plano de 5 frentes estão concluídos.** Restam: item 3 (ligar
+Bloco C, ainda bloqueado por falta de amostra — n=3 trades reais hoje), item 4
+(reabrir Trilho 2 — pesquisa desta sessão sobre RenTech/Two Sigma/market
+makers reforça que é a frente certa: arbitragem estatística/cointegração
+entre ativos correlacionados é dado estruturalmente diferente de TA clássico
+e nunca foi testado aqui), item 5 (redesenho do painel, ainda bloqueado —
+depende do item 1 madurecer, que teve resultado negativo).
+
 ## Sessão de calibração do runner ainda ativa
 
 Sessão `41378b46-2a7d-4155-bde0-b3b099df6c1a` (preset 5, 1m, cooldown 5min)
 continua RUNNING — decisão do Cleber em 16/08 foi deixar como está por
-enquanto. Com o achado desta sessão (scalp 1m inviável por custo), ela vai
-continuar gerando poucos ou nenhum trade até a migração de timeframe (item 2
-do plano) acontecer. Não é bug, é esperado — não investigar CANDLES_FETCH_FAILED
-de novo sem necessidade (causa já documentada na sessão anterior).
+enquanto. A migração de default nesta sessão NÃO afeta sessões já em
+andamento (só novas sessões sem `config.timeframe` definido) — essa sessão
+específica continua em 1m até o Cleber decidir parar/reconfigurar. Não é bug,
+é esperado — não investigar CANDLES_FETCH_FAILED de novo sem necessidade
+(causa já documentada na sessão anterior).
 
 ## Runner em produção — estado herdado (2026-08-07, ainda válido)
 
