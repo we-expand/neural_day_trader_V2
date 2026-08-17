@@ -1,9 +1,23 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-16** (fim do dia, 6ª parte). **Regra: este arquivo é
+> Reescrito em **2026-08-16** (fim do dia, 7ª parte). **Regra: este arquivo é
 > handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
-## ▶ COMECE AQUI — (a) e (b) ambas fechadas com resultado negativo nesta sessão; só resta (c) ou escopo grande não testado
+## ▶ COMECE AQUI — meta de ~10 trades/dia NÃO é sustentada pelo dado; decisão final de número pendente do Cleber
+
+**(c) medida nesta parte, resultado claro**: mesmo somando toda a cesta de 9
+ativos × todos os 5 presets (multi-setup hipotético, não implementado hoje),
+sem afrouxar nenhum critério, o teto real fica em **2-6 trades/dia**, nunca
+perto de 10 — e todo cenário com frequência mais alta (5m/15m) tem líquido
+fortemente negativo (custo consome o volume). Detalhe completo, com tabela:
+`research/experiments/2026-08-16-portfolio-amplitude/results/README.md`,
+script `aggregate.ts` (reusa dado já medido em `2026-08-05-taxa-base`, não é
+busca de edge nova). **Próximo passo real: Cleber escolher o número final da
+meta revisada** (recomendação: 2-5/dia dependendo do perfil de risco) — só
+depois disso faz sentido seguir pro item 5 do plano (redesenho do painel,
+"atividade esperada" honesta).
+
+## Seção anterior (contexto — (a) e (b) fechadas nesta sessão, ambas negativas)
 
 Plano completo (5 frentes) em
 **[SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md](SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md)**.

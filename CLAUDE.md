@@ -102,7 +102,15 @@ no [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
 
 O que ainda está genuinamente em aberto:
 
-0. **[ATIVO] Redesenho do cérebro de decisão.** Fase 0 (telemetria de funil +
+0. **[ATIVO] Redesenho do cérebro de decisão.** Meta original de ~10
+   trades/dia (fixada em 2026-08-04 sem medição por trás) foi testada por 3
+   frentes de mais edge (TA clássico julho, score contínuo, arbitragem
+   estatística — todas negativas) e por amplitude pura (multi-setup
+   hipotético somando toda a cesta) — **nenhum cenário chega perto de
+   10/dia com líquido positivo, teto real medido é ~2-6/dia**. Ver
+   `research/experiments/2026-08-16-portfolio-amplitude/results/README.md`.
+   Decisão de número final da meta revisada pendente do Cleber — ver
+   `NEXT_SESSION.md`. Fase 0 (telemetria de funil +
    heartbeat) no ar, com gravação provada sob RLS. Fatia 1 do runner no
    servidor (costura que torna o motor importável pelo Deno) commitada na
    branch `dev` (`81c1237da`, `52f0f6ea0`). Taxa base medida em 2026-08-05:
@@ -134,6 +142,13 @@ O que ainda está genuinamente em aberto:
 4. Vários produtos do catálogo do Marketplace ainda têm
    rating/reviews/vendas fabricados (só o item mais grave, 'strat-001', foi
    removido).
+5. **[NOVO 2026-08-10] Modelo financeiro reconstruído, commit pendente.**
+   `projecao-financeira-5anos.xlsx` — antes só existia como resumo em texto,
+   nunca foi planilha de verdade. Reconstruída do zero (3 cenários mês a mês,
+   preços reais da landing, comissão em todos os tiers, pacote de 6 alavancas
+   pra lucro no Ano 1). Detalhe completo, perguntas respondidas e pendências
+   reais (CAC/conversão/rebate ainda são meta, não medição) em
+   `SESSAO_2026-08-10_MODELO_FINANCEIRO.md`.
 
 ## Convenções do projeto
 
