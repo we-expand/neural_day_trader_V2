@@ -777,6 +777,70 @@ export function useApexLogic(
     })();
   }, [user, executionMode]);
 
+  // === POLLING DE RECONCILIAÇÃO DEMO (2026-08-17) ===
+  // Desde o fix do "motor duplo" (2026-08-17, ver histórico), o navegador não
+  // abre mais posição por conta própria em modo DEMO — só o runner de
+  // servidor decide. Isso deixou uma ponta solta: o efeito de hidratação
+  // acima só roda UMA VEZ por montagem (`hasHydratedFromSupabaseRef`), sem
+  // assinatura em tempo real pra `ai_trades`. Resultado: a tela congela no
+  // que existia no instante do primeiro carregamento — o runner pode abrir
+  // (e fechar) posições reais no banco e a UI nunca mostra, porque nada a
+  // avisa. Achado ao vivo: 2 entradas reais confirmadas em `ai_trades`
+  // (status OPEN) que não apareciam na tela. Corrigido com o jeito mais
+  // simples e seguro: enquanto a IA está ativa em modo DEMO, repuxa as
+  // posições abertas da sessão do Supabase (fonte de verdade) periodicamente
+  // e substitui `activeOrders` — seguro porque em DEMO o navegador nunca mais
+  // escreve posição própria, então não há risco de pisar em estado local que
+  // o servidor não conhece.
+  useEffect(() => {
+    if (!isActive || executionMode !== 'DEMO') return;
+
+    const POLL_MS = 15_000;
+    let cancelled = false;
+
+    const reconcile = async () => {
+      const sessionId = persistenceRef.current.getSessionId();
+      if (!sessionId) return;
+      try {
+        const trades = await persistenceRef.current.getSessionTrades(sessionId);
+        if (cancelled) return;
+        const open = trades.filter(t => t.status === 'OPEN');
+        setActiveOrders(prev => {
+          // Preserva `currentPrice`/`currentProfit` já calculados localmente
+          // pro tick de PnL (linha ~1235) — só sincroniza QUAIS posições
+          // existem e seus dados de abertura, não sobrescreve o preço ao vivo.
+          const prevById = new Map(prev.map(o => [o.id, o]));
+          return open.map((t): TradeVisual => {
+            const existing = prevById.get(t.id!);
+            return {
+              id: t.id!,
+              symbol: t.symbol,
+              side: t.side,
+              amount: t.quantity,
+              price: t.entry_price,
+              currentPrice: existing?.currentPrice ?? t.entry_price,
+              currentProfit: existing?.currentProfit,
+              tp: t.take_profit ?? t.entry_price,
+              sl: t.stop_loss ?? t.entry_price,
+              originalSl: existing?.originalSl ?? t.stop_loss ?? t.entry_price,
+              leverage: 1.5,
+              ai_confidence: t.ai_confidence ?? 50,
+              timestamp: new Date(t.entry_time).getTime(),
+              reasoning: t.ai_reasoning || '',
+              indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+            };
+          });
+        });
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
+      }
+    };
+
+    reconcile();
+    const interval = setInterval(reconcile, POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isActive, executionMode]);
+
   // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
   // (KV store, ver /server/risk-config) sempre que o usuário logado mudar
   // esses valores no aiConfig. A rota /broker/execute usa exclusivamente essa
