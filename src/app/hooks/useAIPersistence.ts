@@ -38,6 +38,7 @@ const VETO_TO_FUNNEL_STAGE: Record<DecisionVetoStage, FunnelStage> = {
   CORRELATION_GUARD: 'CORRELATION_GUARD',
   MARKET_MODE_REGIME_MISMATCH: 'MARKET_MODE_MISMATCH',
   MARKET_MODE_COUNTER_NO_EXTREME: 'MARKET_MODE_MISMATCH',
+  MIN_TRADE_SIZE: 'MIN_TRADE_SIZE',
 };
 
 interface UseAIPersistenceOptions {
@@ -381,11 +382,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // justamente nos casos em que o banco está indisponível — que é quando
     // saber onde os setups morrem importa mais.
     if (decision.vetoStage) {
-      funnelTelemetry.recordStage(
-        VETO_TO_FUNNEL_STAGE[decision.vetoStage],
-        decision.symbol,
-        decision.reasoning,
-      );
+      // 🔒 2026-08-17: `VETO_TO_FUNNEL_STAGE[...]` pode devolver `undefined`
+      // se um `vetoStage` novo for adicionado em runTradingCycle.ts sem
+      // atualizar esta tabela (aconteceu com MIN_TRADE_SIZE — sem esta
+      // guarda, `recordStage(undefined, ...)` grava literalmente a chave
+      // string "undefined" em `stage_counts`, indistinguível de um veto real
+      // na leitura do funil). O driver do runner (persistence.ts) já tinha
+      // essa guarda; faltava aqui.
+      const stage = VETO_TO_FUNNEL_STAGE[decision.vetoStage];
+      if (stage) {
+        funnelTelemetry.recordStage(stage, decision.symbol, decision.reasoning);
+      } else {
+        console.warn(`[FunnelTelemetry] vetoStage "${decision.vetoStage}" sem entrada em VETO_TO_FUNNEL_STAGE — atualize a tabela.`);
+      }
     }
 
     if (!sessionIdRef.current || !user?.id || !options.enabled) return;

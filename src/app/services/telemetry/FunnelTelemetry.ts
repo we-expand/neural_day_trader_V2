@@ -87,6 +87,7 @@ export type FunnelStage =
   | 'REVENGE_PATTERN'
   | 'MAX_TRADES_PER_DAY'
   | 'CORRELATION_GUARD'
+  | 'MIN_TRADE_SIZE'              // nocional calculado abaixo do mínimo executável
 
   // ── Terminais finais ─────────────────────────────────────────────────────
   | 'ENTRY_EXECUTED'              // o único estágio que representa sucesso
@@ -123,6 +124,7 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   REVENGE_PATTERN: 'Padrão de revenge trading detectado',
   MAX_TRADES_PER_DAY: 'Limite diário de trades atingido',
   CORRELATION_GUARD: 'Guard de correlação recusou',
+  MIN_TRADE_SIZE: 'Nocional abaixo do mínimo executável',
   ENTRY_EXECUTED: 'ENTRADA EXECUTADA',
   ANALYSIS_ERROR: 'Erro inesperado na análise',
 };

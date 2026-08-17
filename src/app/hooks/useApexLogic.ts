@@ -1046,6 +1046,28 @@ export function useApexLogic(
       return;
     }
 
+    // 🔒 2026-08-17: em modo DEMO, `useAIPersistence` (linha ~484) sempre cria/
+    // reaproveita uma linha em `ai_sessions` — e É EXATAMENTE essa mesma linha
+    // que o `pg_cron` entrega ao runner de servidor (`ai-runner`) a cada
+    // minuto, independente da aba estar aberta. Rodar este loop TAMBÉM aqui
+    // no navegador não é redundância inofensiva: os dois processos avaliavam
+    // e decidiam sobre a MESMA sessão ao mesmo tempo, sem nenhuma exclusão
+    // mútua — medido em produção, o mesmo candidato (ex: XAUUSD) sendo
+    // reavaliado 3-5x em 18 segundos, o dobro de chamadas à MetaAPI
+    // compartilhada, e risco real de duas entradas na mesma oportunidade (cada
+    // processo só vê o `activeOrders` da SUA própria memória, não do outro).
+    // Achado ao vivo em 2026-08-17 (sessão af1453a2), decisão do Cleber:
+    // desligar a decisão local, deixar só o runner de servidor decidir. O
+    // navegador continua mostrando o estado (portfolio/posições) via
+    // hidratação do Supabase — só para de ABRIR posição por conta própria.
+    // Em modo LIVE isso NÃO se aplica: a ponte de execução real ainda depende
+    // de estágios opt-in específicos do navegador, fora de escopo desta
+    // mudança — não mexer sem pedido explícito.
+    if (executionMode === 'DEMO') {
+      console.log('[TRADING] 🌐 Modo DEMO: decisão de entrada é do runner de servidor (ai-runner via pg_cron) — navegador não abre posição por conta própria.');
+      return;
+    }
+
     console.log('[TRADING] 🚀 Sistema de Trading AI ATIVADO - Procurando oportunidades...');
 
     // 🚀 OTIMIZAÇÃO #4: Conectar WebSocket para cryptos (TEMPO REAL!)
@@ -1206,7 +1228,7 @@ export function useApexLogic(
     return () => {
       clearInterval(tradingInterval);
     };
-  }, [isActive, isPaused, isSafeMode, activeOrders.length, aiConfig.maxPositions, aiConfig.maxContracts, aiConfig.maxAssets, addLog]);
+  }, [isActive, isPaused, isSafeMode, executionMode, activeOrders.length, aiConfig.maxPositions, aiConfig.maxContracts, aiConfig.maxAssets, addLog]);
 
   // === UNREALIZED PNL LOOP (Price Updates & P&L Calculation) ===
   useEffect(() => {

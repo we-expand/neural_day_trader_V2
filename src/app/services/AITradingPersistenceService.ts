@@ -113,7 +113,8 @@ export type DecisionVetoStage =
   | 'REVENGE_PATTERN'
   | 'CORRELATION_GUARD'
   | 'MARKET_MODE_REGIME_MISMATCH'
-  | 'MARKET_MODE_COUNTER_NO_EXTREME';
+  | 'MARKET_MODE_COUNTER_NO_EXTREME'
+  | 'MIN_TRADE_SIZE';
 
 export interface AIDecision {
   id?: string;
