@@ -41,11 +41,15 @@
  * (pula em vez de inflar) filtra desproporcionalmente os trades de stop mais
  * largo — e em XAGUSD 1h isso muda o sinal do resultado líquido médio de
  * positivo (medição original) para NEGATIVO (Conservador: -0,03%; Moderado/
- * Agressivo: -0,47%). Os ranges abaixo já refletem isso (mínimo negativo).
- * Mantido no catálogo porque XAUUSD/NAS100/US30 continuam positivos na
- * mesma cesta — decisão de remover XAGUSD da cesta é decisão de produto do
- * Cleber, não tomada aqui. Ver `results/recalculo_perfis.md` pro detalhe
- * por ativo.
+ * Agressivo: -0,47%). Ver `results/recalculo_perfis.md` pro detalhe por ativo.
+ *
+ * **2026-08-16 (auditoria de setup)**: XAGUSD removido de `activeAssets` nos
+ * 3 perfis por decisão do Cleber — media negativo em capital real e não deve
+ * ficar na cesta padrão só porque era positivo sob condição de teste
+ * ($10.000/1% fixo) que não reflete o aporte mínimo real do produto ($50).
+ * Os ranges de `expectedNetPercentPerTradeRange` ainda incluem o efeito do
+ * XAGUSD nesta revisão (não foram remedidos sem ele) — remedir é trabalho
+ * futuro, não incluído nesta mudança.
  */
 
 export type RiskProfileId = 'CONSERVADOR' | 'MODERADO' | 'AGRESSIVO';
@@ -70,10 +74,10 @@ export const RISK_PROFILES: RiskProfileDefinition[] = [
   {
     id: 'CONSERVADOR',
     label: 'Conservador',
-    description: 'Menor frequência, maior margem de segurança por trade. Rompimento de Canal (Donchian) em 1h — o preset com melhor resultado líquido medido (XAGUSD da cesta mede negativo em capital real, ver comentário do arquivo).',
+    description: 'Menor frequência, maior margem de segurança por trade. Rompimento de Canal (Donchian) em 1h — o preset com melhor resultado líquido medido.',
     activeStrategyId: '1', // Rompimento de Canal (Donchian)
     timeframe: '1H',
-    activeAssets: ['XAUUSD', 'XAGUSD', 'NAS100', 'US30'],
+    activeAssets: ['XAUUSD', 'NAS100', 'US30'],
     riskPerTrade: 0.5,
     cooldownMinutes: 30,
     maxTradesPerDay: 3,
@@ -83,10 +87,10 @@ export const RISK_PROFILES: RiskProfileDefinition[] = [
   {
     id: 'MODERADO',
     label: 'Moderado',
-    description: 'Frequência intermediária. Rompimento Confirmado (Volume) em 1h, cesta de metais + índice (XAGUSD da cesta mede negativo em capital real, ver comentário do arquivo).',
+    description: 'Frequência intermediária. Rompimento Confirmado (Volume) em 1h, cesta de metais + índice.',
     activeStrategyId: '4', // Rompimento Confirmado (Volume)
     timeframe: '1H',
-    activeAssets: ['XAUUSD', 'XAGUSD', 'US30'],
+    activeAssets: ['XAUUSD', 'US30'],
     riskPerTrade: 1.0,
     cooldownMinutes: 15,
     maxTradesPerDay: 5,
@@ -99,7 +103,7 @@ export const RISK_PROFILES: RiskProfileDefinition[] = [
     description: 'Mesma estratégia do perfil Moderado, com risco por trade maior. NÃO é mais frequência com mais edge — é mais risco sobre o mesmo sinal medido. Ver aviso de capital mínimo.',
     activeStrategyId: '4', // Rompimento Confirmado (Volume) — mesmo preset, sem preset mais frequente com resultado líquido positivo medido em 1h
     timeframe: '1H',
-    activeAssets: ['XAUUSD', 'XAGUSD', 'US30'],
+    activeAssets: ['XAUUSD', 'US30'],
     riskPerTrade: 1.5,
     cooldownMinutes: 10,
     maxTradesPerDay: 8,

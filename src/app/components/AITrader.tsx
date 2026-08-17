@@ -1073,6 +1073,14 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                                         {profile.expectedNetPercentPerTradeRange[0].toFixed(2)}–{profile.expectedNetPercentPerTradeRange[1].toFixed(2)}%
                                                     </span>
                                                 </div>
+                                                <div className="flex justify-between text-[10px]">
+                                                    <span className="text-slate-500">Timeframe</span>
+                                                    <span className="font-mono text-slate-300">{profile.timeframe}</span>
+                                                </div>
+                                                <div className="text-[10px] pt-1">
+                                                    <span className="text-slate-500">Opera: </span>
+                                                    <span className="font-mono text-slate-300">{profile.activeAssets.join(', ')}</span>
+                                                </div>
                                             </div>
                                         </button>
                                     ))}
@@ -1082,14 +1090,11 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     <span>
                                         Faixas medidas em dado histórico real (`taxa_base.json`, 2026-08-05), não promessa de retorno.
                                         Passado não garante resultado futuro. Valor em dólar por trade depende do seu capital e do
-                                        tamanho de posição calculado — não exibido aqui de propósito até essa conta fechar.
+                                        tamanho de posição calculado — não exibido aqui de propósito até essa conta fechar. Cesta de
+                                        ativos é fixa por perfil — só os ativos com resultado líquido positivo medido nesse preset/
+                                        timeframe entram.
                                     </span>
                                 </div>
-                                {selectedRiskProfileId && (
-                                    <div className="text-[10px] text-slate-500">
-                                        Cesta ativa: {getRiskProfile(selectedRiskProfileId).activeAssets.join(', ')} · Timeframe: {getRiskProfile(selectedRiskProfileId).timeframe} · Risco/trade: {getRiskProfile(selectedRiskProfileId).riskPerTrade}%
-                                    </div>
-                                )}
                             </div>
                         ) : (
 
@@ -1568,15 +1573,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
                                             <label className="text-[10px] font-bold text-slate-400 uppercase">Máx. Trades/Dia</label>
-                                            <span className="text-xs font-mono text-cyan-400">{config.maxTradesPerDay === 0 ? 'Sem limite' : config.maxTradesPerDay}</span>
+                                            <span className="text-xs font-mono text-cyan-400">{config.maxTradesPerDay}</span>
                                         </div>
                                         <input
-                                            type="range" min="0" max="50" step="1"
-                                            value={config.maxTradesPerDay}
+                                            type="range" min="1" max="15" step="1"
+                                            value={config.maxTradesPerDay || 1}
                                             onChange={(e) => setConfig({ ...config, maxTradesPerDay: parseInt(e.target.value) })}
                                             className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                         />
-                                        <p className="text-[9px] text-slate-500">0 = sem limite. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
+                                        <p className="text-[9px] text-slate-500">Frequência real medida da estratégia é 0,15–0,6 trades/dia — este é um teto de segurança, não uma meta. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
                                     </div>
 
                                     {/* 🆕 2026-07-31: cadência agressiva é OPT-IN explícito — nunca mais
