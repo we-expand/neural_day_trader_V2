@@ -35,6 +35,22 @@
  *
  * O gate segue NÃO aprovando FRONTEIRA por padrão — isso é escolha de projeto
  * (margem de segurança), não mais uma conclusão herdada daqueles backtests.
+ *
+ * ⚠️ ATUALIZAÇÃO 2026-08-17 — MUDOU O DENOMINADOR, não os limiares.
+ * O motor ao vivo (`runTradingCycle.ts`) passou a informar como
+ * `typicalMovementPercent` a DISTÂNCIA ATÉ O ALVO do trade (hoje 3,75×ATR:
+ * stop 1,5×ATR × R:R 2,5 — ver `resolveAtrTargets`), em vez do ATR de UMA
+ * barra. Motivo: a pergunta que este gate responde é "o custo devora fração
+ * grande demais do movimento que preciso capturar?", e o movimento que o trade
+ * precisa capturar é o alvo dele. A tabela 14.3 acima usava movimento de barra
+ * porque naquele desenho não existia alvo explícito em ATR; desde que o
+ * stop/alvo passou a ser dimensionado por ATR, o denominador certo é o alvo.
+ * Medir contra 1 barra inflava a razão custo/movimento por 3,75x e reprovava
+ * setups cujo alvo comporta o custo com folga — medido com dado real de
+ * produção: XAUUSD com custo 0,0077% e ATR de barra 0,0422% era reprovado
+ * (18,2%), e contra o alvo real fica em 4,9%, VIÁVEL.
+ * Os limiares 7%/12% NÃO foram tocados: eles mapeiam uma razão, e a razão
+ * agora responde à pergunta certa. Asserções em `__validate__costclass__.ts`.
  */
 
 import { CRYPTO_CFD_ROUND_TRIP_COST_PERCENT } from '../../../../research/CostModel.ts';

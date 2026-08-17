@@ -29,6 +29,8 @@ import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/Tra
 import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecutionPanel';
 import { FullSizeExecutionPanel } from '@/app/modules/fullSizeExecutionStage/FullSizeExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
+import { RISK_PROFILES, getRiskProfile, type RiskProfileId } from '@/app/data/riskProfiles';
+import { previewPositionSizing } from '@/app/services/strategy/positionSizingPreview';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
@@ -49,6 +51,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const [challengeInitialBalance, setChallengeInitialBalance] = useState(0);
   
   // 🆕 MT5 Connection States
+  // 🆕 Modo Simples (perfil de risco) vs Avançado (preset/timeframe manual) — item 5 do redesenho do cérebro (2026-08-16)
+  const [configMode, setConfigMode] = useState<'SIMPLES' | 'AVANCADO'>('SIMPLES');
+  const [selectedRiskProfileId, setSelectedRiskProfileId] = useState<RiskProfileId | null>(null);
+
   const [showMT5ConfigModal, setShowMT5ConfigModal] = useState(false);
   const [mt5Login, setMt5Login] = useState('');
   const [mt5Password, setMt5Password] = useState('');
@@ -116,6 +122,32 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
   const handleSaveWorkspace = (name: string) => {
       saveWorkspace(name, config, { showEquityChart });
+  };
+
+  const applyRiskProfile = (profileId: RiskProfileId) => {
+    const profile = getRiskProfile(profileId);
+    setSelectedRiskProfileId(profileId);
+    setConfig(prev => ({
+      ...prev,
+      activeStrategyId: profile.activeStrategyId,
+      timeframe: profile.timeframe,
+      activeAssets: profile.activeAssets,
+      riskPerTrade: profile.riskPerTrade,
+      cooldownEnabled: true,
+      cooldownMinutes: profile.cooldownMinutes,
+      maxTradesPerDay: profile.maxTradesPerDay,
+      // 🔒 2026-08-17: escolher um perfil no modo Simples precisa GARANTIR
+      // uma config segura, não só sobrescrever os campos "óbvios". Achado
+      // real: `atrMultiplier`/`positionSizingMode` não eram tocados aqui —
+      // se o usuário tivesse passado pelo Avançado antes e deixado o
+      // multiplicador ATR alto (ex: 4.0x), o Simples herdava esse valor por
+      // baixo e ficava com o MESMO bug (nocional sempre abaixo do mínimo
+      // executável, silenciosamente) mesmo escolhendo um perfil "seguro".
+      // 1.5x = STOP_ATR_MULTIPLIER do motor (runTradingCycle.ts) — razão 1.0,
+      // sem encolher nem inflar o tamanho calculado por risco%.
+      positionSizingMode: 'ATR',
+      atrMultiplier: 1.5,
+    }));
   };
 
   const toggleAsset = (asset: string) => {
@@ -730,13 +762,21 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                       </span>
                     </div>
 
-                    {/* Capital em Aberto (Margem) */}
+                    {/* Exposição total (nocional das posições abertas) */}
+                    {/* 2026-08-17: FIX DE BUG — `order.amount` é exposição/nocional em
+                        dólar (ver TradeVisual, `finalTradeCapital` em runTradingCycle.ts),
+                        NUNCA margem. Rotular a soma como "Margem investida" produz um
+                        número que parece dizer que a conta está alavancada dezenas de
+                        vezes o patrimônio (achado ao vivo: $4.893 "de margem" numa conta
+                        de $92) quando na verdade é só a exposição nocional das posições —
+                        mesma classe de erro já corrigida no Dashboard (MarketScoreBoard.tsx,
+                        mesma sessão). Renomeado pra refletir o que o número é de fato. */}
                     <div className="flex flex-col">
-                      <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Capital em Aberto</span>
+                      <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Exposição Total</span>
                       <span className="text-2xl font-bold text-white font-mono">
                         ${activeOrders.reduce((total, order) => total + (order.amount || 0), 0).toFixed(2)}
                       </span>
-                      <span className="text-xs text-slate-400/60 font-mono mt-1">Margem investida</span>
+                      <span className="text-xs text-slate-400/60 font-mono mt-1">Nocional das posições abertas</span>
                     </div>
 
                     {/* Operações Abertas */}
@@ -1002,6 +1042,118 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         
                         {/* OLD PROFILE UI REPLACED BY WORKSPACE SELECTOR IN HEADER */}
 
+                        {/* 🆕 Toggle Simples/Avançado — item 5 do redesenho do cérebro (2026-08-16) */}
+                        <div className="flex items-center gap-2 p-1 bg-black rounded-lg border border-white/10 mb-6 w-fit">
+                            <button
+                                onClick={() => setConfigMode('SIMPLES')}
+                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
+                                    configMode === 'SIMPLES' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                Simples (perfil de risco)
+                            </button>
+                            <button
+                                onClick={() => setConfigMode('AVANCADO')}
+                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
+                                    configMode === 'AVANCADO' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                Avançado (manual)
+                            </button>
+                        </div>
+
+                        {configMode === 'AVANCADO' && (
+                            <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                                <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                                    <span className="font-bold">Modo manual:</span> os campos abaixo interagem entre si — uma
+                                    combinação errada (ex: risco baixo + Multiplicador ATR alto) pode fazer a IA rejeitar
+                                    TODO trade silenciosamente, mesmo com sinal bom. Fique de olho nos avisos que aparecem
+                                    junto dos campos. No modo "Simples" isso não acontece — os perfis prontos já vêm calibrados.
+                                </p>
+                            </div>
+                        )}
+
+                        {configMode === 'SIMPLES' ? (
+                            <div className="mb-8 space-y-4">
+                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
+                                    <Gauge className="w-4 h-4" /> Perfil de Risco
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {RISK_PROFILES.map(profile => (
+                                        <button
+                                            key={profile.id}
+                                            onClick={() => applyRiskProfile(profile.id)}
+                                            className={`text-left p-4 rounded-lg border transition-all ${
+                                                selectedRiskProfileId === profile.id
+                                                    ? profile.experimental
+                                                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                                                        : 'bg-purple-500/10 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                                                    : profile.experimental
+                                                        ? 'bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50'
+                                                        : 'bg-white/5 border-white/10 hover:border-white/20'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <div className="text-sm font-bold text-white">{profile.label}</div>
+                                                {profile.experimental && (
+                                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                                        Não validado
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 mb-3 leading-relaxed">{profile.description}</div>
+                                            <div className="space-y-1 pt-2 border-t border-white/10">
+                                                <div className="flex justify-between text-[10px]">
+                                                    <span className="text-slate-500">Atividade esperada</span>
+                                                    <span className="font-mono text-cyan-400">
+                                                        {profile.expectedTradesPerDayRange[0].toFixed(1)}–{profile.expectedTradesPerDayRange[1].toFixed(1)}/dia
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-[10px]">
+                                                    <span className="text-slate-500">Líq. medido/trade</span>
+                                                    <span className="font-mono text-emerald-400">
+                                                        {profile.expectedNetPercentPerTradeRange[0].toFixed(2)}–{profile.expectedNetPercentPerTradeRange[1].toFixed(2)}%
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-[10px]">
+                                                    <span className="text-slate-500">Timeframe</span>
+                                                    <span className="font-mono text-slate-300">{profile.timeframe}</span>
+                                                </div>
+                                                <div className="text-[10px] pt-1">
+                                                    <span className="text-slate-500">Opera: </span>
+                                                    <span className="font-mono text-slate-300">{profile.activeAssets.join(', ')}</span>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
+                                    <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                        Faixas medidas em dado histórico real (`taxa_base.json`, 2026-08-05), não promessa de retorno.
+                                        Passado não garante resultado futuro. Valor em dólar por trade depende do seu capital e do
+                                        tamanho de posição calculado — não exibido aqui de propósito até essa conta fechar. Cesta de
+                                        ativos é fixa por perfil — só os ativos com resultado líquido positivo medido nesse preset/
+                                        timeframe entram.
+                                    </span>
+                                </div>
+                                {selectedRiskProfileId === 'EXPERIMENTAL' && (
+                                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded text-[9px] text-amber-300">
+                                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                        <span>
+                                            <strong>Perfil experimental — não validado estatisticamente.</strong> O resultado positivo
+                                            vem de um único backtest histórico, sem correção por múltiplos testes (DSR) nem
+                                            walk-forward — a mesma barra que reprovou os outros presets como "edge comprovado" não foi
+                                            aplicada aqui ainda. Pode reverter no próximo dado. Use com capital que você aceita perder
+                                            testando.
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+
+                        <>
                         {/* ASSET UNIVERSE SELECTOR */}
                         <div className="mb-8">
                             <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
@@ -1024,9 +1176,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         <button
                                             key={tf}
                                             onClick={() => setConfig(prev => ({ ...prev, timeframe: tf }))}
+                                            title={tf === '1m' ? 'Custo de corretagem consome a maior parte do movimento típico de 1 minuto — use só para teste manual, não como operação principal.' : undefined}
                                             className={`px-1 py-1.5 rounded text-[10px] font-bold border transition-all ${
-                                                config.timeframe === tf 
-                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]' 
+                                                config.timeframe === tf
+                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                                                 : 'bg-white/5 border-transparent text-slate-500 hover:text-white hover:bg-white/10'
                                             }`}
                                         >
@@ -1410,6 +1563,25 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         </div>
                                     )}
 
+                                    {(() => {
+                                        const preview = previewPositionSizing({
+                                            allocatedCapital: config.allocatedCapital,
+                                            riskPerTrade: config.riskPerTrade,
+                                            riskProfile: config.riskProfile,
+                                            positionSizingMode: config.positionSizingMode,
+                                            atrMultiplier: config.atrMultiplier,
+                                        });
+                                        const styles = {
+                                            ok: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300',
+                                            warning: 'border-amber-500/30 bg-amber-500/5 text-amber-300',
+                                        }[preview.severity];
+                                        return (
+                                            <div className={`rounded-lg border p-3 text-[10px] leading-relaxed ${styles}`}>
+                                                {preview.message}
+                                            </div>
+                                        );
+                                    })()}
+
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
                                             <label className="text-[10px] font-bold text-slate-400 uppercase">Taxa de Acerto Mínima (%)</label>
@@ -1475,15 +1647,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
                                             <label className="text-[10px] font-bold text-slate-400 uppercase">Máx. Trades/Dia</label>
-                                            <span className="text-xs font-mono text-cyan-400">{config.maxTradesPerDay === 0 ? 'Sem limite' : config.maxTradesPerDay}</span>
+                                            <span className="text-xs font-mono text-cyan-400">{config.maxTradesPerDay}</span>
                                         </div>
                                         <input
-                                            type="range" min="0" max="50" step="1"
-                                            value={config.maxTradesPerDay}
+                                            type="range" min="1" max="15" step="1"
+                                            value={config.maxTradesPerDay || 1}
                                             onChange={(e) => setConfig({ ...config, maxTradesPerDay: parseInt(e.target.value) })}
                                             className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                         />
-                                        <p className="text-[9px] text-slate-500">0 = sem limite. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
+                                        <p className="text-[9px] text-slate-500">Frequência real medida da estratégia é 0,15–0,6 trades/dia — este é um teto de segurança, não uma meta. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
                                     </div>
 
                                     {/* 🆕 2026-07-31: cadência agressiva é OPT-IN explícito — nunca mais
@@ -1538,6 +1710,8 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </div>
                             </div>
                         </div>
+                        </>
+                        )}
 
                         {/* ASSET SELECTION REMOVED - REPLACED BY ASSET UNIVERSE COMPONENT */}
 

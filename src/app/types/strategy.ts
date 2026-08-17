@@ -73,6 +73,23 @@ export interface Strategy {
    * (`presetStrategies.ts`) declara este campo explicitamente.
    */
   entrySignal?: 'BUY' | 'SELL';
+  /**
+   * Blocos de entrada da perna VENDIDA — espelho direcional de `entryBlocks`.
+   * Quando presentes, a estratégia deixa de ser long-only: o motor avalia os
+   * dois lados e opera o de maior score (ver `evaluateStrategyScoreBothSides`).
+   *
+   * 2026-08-17: os 5 presets eram LONG-ONLY por uma decisão de escopo de
+   * 2026-07-30, cujo motivo declarado era que `exitBlocks` não são conscientes
+   * do lado da posição — usar a mesma regra de saída pra fechar um SHORT
+   * introduziria bug silencioso. Esse motivo vale para o BACKTEST, único
+   * caminho que chama `evaluateExitAt` (BacktestEngine.ts:140). O motor AO
+   * VIVO (`runTradingCycle.ts`) nunca consulta `exitBlocks`: sai por TP/SL
+   * dimensionado em ATR + trailing/breakeven. Por isso a perna short é segura
+   * no live e continua ignorada pelo backtest enquanto os exitBlocks não
+   * ganharem consciência de lado — assimetria deliberada e documentada, não
+   * esquecimento.
+   */
+  shortEntryBlocks?: StrategyBlock[];
   direction: 'AUTO' | 'LONG' | 'SHORT';
   /** Regime de mercado pretendido — ver StrategyRegime. Opcional para retrocompatibilidade
    *  com estratégias customizadas salvas antes deste campo existir. */

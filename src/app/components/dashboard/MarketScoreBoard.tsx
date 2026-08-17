@@ -1104,7 +1104,15 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         <div>
                             <h3 className="text-sm font-bold text-white">POSIÇÕES ABERTAS</h3>
                             <p className="text-[10px] text-neutral-400">
-                                {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => sum + (order.amount || 0), 0).toFixed(2)} lotes total
+                                {/* 2026-08-17: FIX DE BUG — somava `order.amount` (exposição em USD)
+                                    e rotulava o resultado como "lotes total". Mesma classe de erro do
+                                    comentário logo abaixo (linha ~1128): dólar não é lote. Corrigido pra
+                                    somar a MESMA conversão usada por posição (nocional / (lotSize × preço)). */}
+                                {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => {
+                                    const asset = getAssetBySymbol(order.symbol);
+                                    const lots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
+                                    return sum + lots;
+                                }, 0).toFixed(2)} lotes total
                             </p>
                         </div>
                     </div>
@@ -1495,15 +1503,26 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                     'text-yellow-400'
                                 }`} />
                                 <div className="flex-1 space-y-1.5">
+                                    {/* 🆕 FIX 2026-08-17: esse card mostrava "SETUP VALIDADO - ENTRADA
+                                        RECOMENDADA" com preço/stop/R:R fabricados aqui mesmo (linhas
+                                        785-787, ±0.5%/1% do preço atual) — sem NENHUMA relação com o
+                                        motor real (runTradingCycle + evaluateStrategyAt), que é quem de
+                                        fato decide entrada e passa por 6 gates (custo, contexto/regime,
+                                        correlação, cooldown, limite diário, tamanho mínimo). Achado ao
+                                        vivo: usuário via "entrada recomendada" aqui e a IA nunca abria
+                                        nada, porque são dois sistemas desconectados — o texto prometia
+                                        uma ação que esse painel não tem poder de causar. Copy corrigida
+                                        pra descrever leitura de mercado (o que o Market Score de fato é),
+                                        não recomendação de entrada. */}
                                     <p className="text-[10px] font-bold text-white uppercase">
-                                        {score > 60 ? '✓ SETUP VALIDADO - ENTRADA RECOMENDADA' :
-                                         score < 40 ? '⚠ RISCO ELEVADO - AGUARDAR CONFIRMAÇÃO' :
-                                         '⏸ AGUARDAR BREAKOUT'}
+                                        {score > 60 ? '📊 VIÉS DE ALTA — LEITURA DE MERCADO' :
+                                         score < 40 ? '⚠ VIÉS DE BAIXA — PRESSÃO VENDEDORA' :
+                                         '⏸ MERCADO INDECISO'}
                                     </p>
                                     <p className="text-[10px] text-slate-400 leading-relaxed">
-                                        {score > 60 ? `Entrada em ${formatPrice(entry)} com R/R 1:2. Stop em ${formatPrice(stopLoss)} (-${((entry - stopLoss) / entry * 100).toFixed(2)}%).` :
-                                         score < 40 ? `Aguardar estabilização acima de ${formatPrice(target1)} antes de operar. Mercado sob pressão vendedora.` :
-                                         `Mercado indeciso. Aguardar rompimento de ${formatPrice(target1)} (alta) ou ${formatPrice(stopLoss)} (baixa).`}
+                                        {score > 60 ? `Viés técnico de alta (score ${score}/100). Não é uma ordem de entrada — a decisão real do AI Trader depende da estratégia ativa e dos gates de risco configurados na sua sessão.` :
+                                         score < 40 ? `Mercado sob pressão vendedora (score ${score}/100). Aguardar estabilização acima de ${formatPrice(target1)} antes de considerar operar.` :
+                                         `Mercado sem direção clara. Aguardar rompimento de ${formatPrice(target1)} (alta) ou ${formatPrice(stopLoss)} (baixa).`}
                                     </p>
                                 </div>
                             </div>

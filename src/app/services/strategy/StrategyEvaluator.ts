@@ -175,6 +175,241 @@ function evaluateBlock(block: StrategyBlock, cache: IndicatorCache, i: number, c
   }
 }
 
+const CROSS_SCORE_LOOKBACK = 10;
+const CROSS_SCORE_DECAY_PER_CANDLE = 10;
+
+/**
+ * Distância (em candles) do cruzamento mais recente dentro da janela de
+ * `CROSS_SCORE_LOOKBACK` candles, decaindo `CROSS_SCORE_DECAY_PER_CANDLE`
+ * pontos por candle — cruzamento no candle atual pontua 100, cruzamento há 3
+ * candles pontua 70, nenhum cruzamento na janela pontua 0.
+ */
+function crossRecencyScore(
+  series: (number | null)[],
+  ref: (number | null)[],
+  i: number,
+  direction: 'above' | 'below'
+): number {
+  for (let back = 0; back < CROSS_SCORE_LOOKBACK; back++) {
+    const idx = i - back;
+    if (idx < 1) break;
+    const crossed = direction === 'above' ? crossedAbove(series, ref, idx) : crossedBelow(series, ref, idx);
+    if (crossed) return Math.max(0, 100 - back * CROSS_SCORE_DECAY_PER_CANDLE);
+  }
+  return 0;
+}
+
+/**
+ * Score parcial (0-100) de um único bloco de entrada no índice `i` —
+ * generalização graduada de `evaluateBlock` (que só retorna booleano).
+ *
+ * Espec. técnica de 2026-08-16 (SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md):
+ * ABOVE/BELOW/BETWEEN/RISING/FALLING são booleanos por natureza — permanecem
+ * 100/0. CROSS_ABOVE/CROSS_BELOW ganham gradação por recência (mais perto do
+ * cruzamento = score mais alto, decai com o tempo) em vez de só o candle exato.
+ * `filterBlocks` NÃO usam esta função — continuam gate binário rígido via
+ * `evaluateBlock` (filtro é "não opere neste regime", não "opere um pouco
+ * menos neste regime" — não misturar as duas semânticas).
+ */
+export function scoreBlock(block: StrategyBlock, cache: IndicatorCache, i: number): number {
+  if (!block.enabled) return 100; // mesmo comportamento de evaluateBlock: bloco desabilitado não pesa contra
+  if (i < 2) return 0;
+
+  const series = cache.get(block.indicator, block.period);
+  const curr = series[i];
+  const prev = series[i - 1];
+  if (curr === null) return 0;
+
+  switch (block.operator) {
+    case 'ABOVE':
+      return block.value !== undefined && curr > block.value ? 100 : 0;
+    case 'BELOW':
+      return block.value !== undefined && curr < block.value ? 100 : 0;
+    case 'BETWEEN':
+      return block.value !== undefined &&
+        block.value2 !== undefined &&
+        curr >= Math.min(block.value, block.value2) &&
+        curr <= Math.max(block.value, block.value2)
+        ? 100
+        : 0;
+    case 'RISING':
+      return prev !== null && curr > prev ? 100 : 0;
+    case 'FALLING':
+      return prev !== null && curr < prev ? 100 : 0;
+    case 'CROSS_ABOVE': {
+      const ref = block.compareIndicator
+        ? cache.get(block.compareIndicator, block.comparePeriod)
+        : series.map(() => block.value ?? null);
+      return crossRecencyScore(series, ref, i, 'above');
+    }
+    case 'CROSS_BELOW': {
+      const ref = block.compareIndicator
+        ? cache.get(block.compareIndicator, block.comparePeriod)
+        : series.map(() => block.value ?? null);
+      return crossRecencyScore(series, ref, i, 'below');
+    }
+    default:
+      return 0;
+  }
+}
+
+export interface StrategyScoreResult {
+  /** Média simples (0-100) dos scores de `entryBlocks` — pesos iguais por decisão do Cleber em 2026-08-16, não medição. */
+  score: number;
+  signal: 'BUY' | 'SELL' | null;
+  blockScores: { label: string; score: number }[];
+  reasons: string[];
+}
+
+/**
+ * Score contínuo de uma estratégia no índice `i` — NÃO substitui
+ * `evaluateStrategyAt` (gate binário, ainda o caminho usado em produção via
+ * `runTradingCycle.ts`). Adicionada em 2026-08-16 como item 1 do redesenho do
+ * cérebro (ver NEXT_SESSION.md): calcular o score ANTES de decidir piso,
+ * pra medir score contínuo vs. gate binário nos dados reais em cache antes
+ * de promover. Ainda não ligada em nenhum caminho de execução.
+ */
+export function evaluateStrategyScoreAt(
+  strategy: Strategy,
+  candles: Candle[],
+  i: number,
+  cache?: IndicatorCache
+): StrategyScoreResult {
+  const indicatorCache = cache ?? new IndicatorCache(candles);
+  const reasons: string[] = [];
+
+  const activeFilters = strategy.filterBlocks.filter(b => b.enabled);
+  for (const block of activeFilters) {
+    if (!evaluateBlock(block, indicatorCache, i, candles.length)) {
+      return { score: 0, signal: null, blockScores: [], reasons: [`Filtro "${block.label}" não satisfeito`] };
+    }
+    reasons.push(`Filtro OK: ${block.label}`);
+  }
+
+  const activeEntry = strategy.entryBlocks.filter(b => b.enabled);
+  if (activeEntry.length === 0) {
+    return { score: 0, signal: null, blockScores: [], reasons: ['Nenhum bloco de entrada configurado'] };
+  }
+
+  const { blockScores, score } = scoreEntryBlocks(activeEntry, indicatorCache, i);
+
+  let signal: 'BUY' | 'SELL';
+  if (strategy.entrySignal) {
+    signal = strategy.entrySignal;
+  } else {
+    const bearishOps: OperatorType[] = ['CROSS_BELOW', 'BELOW', 'FALLING'];
+    const bearishCount = activeEntry.filter(b => bearishOps.includes(b.operator)).length;
+    signal = bearishCount > activeEntry.length / 2 ? 'SELL' : 'BUY';
+  }
+
+  if (strategy.direction === 'LONG' && signal === 'SELL') {
+    return { score, signal: null, blockScores, reasons: [...reasons, 'Sinal SELL descartado: estratégia travada em LONG'] };
+  }
+  if (strategy.direction === 'SHORT' && signal === 'BUY') {
+    return { score, signal: null, blockScores, reasons: [...reasons, 'Sinal BUY descartado: estratégia travada em SHORT'] };
+  }
+
+  blockScores.forEach(b => reasons.push(`${b.label}: score ${b.score.toFixed(0)}`));
+
+  return { score, signal, blockScores, reasons };
+}
+
+/** Média simples dos scores dos blocos de entrada — pesos iguais (mesma decisão de 2026-08-16). */
+function scoreEntryBlocks(
+  blocks: StrategyBlock[],
+  cache: IndicatorCache,
+  i: number
+): { blockScores: { label: string; score: number }[]; score: number } {
+  const blockScores = blocks.map(block => ({
+    label: block.label,
+    score: scoreBlock(block, cache, i),
+  }));
+  const score = blockScores.reduce((sum, b) => sum + b.score, 0) / blockScores.length;
+  return { blockScores, score };
+}
+
+export interface StrategySideScoreResult extends StrategyScoreResult {
+  /** Lado já resolvido, pronto pro motor — null quando nenhum lado é elegível. */
+  side: 'LONG' | 'SHORT' | null;
+}
+
+/**
+ * Avalia AMBAS as pernas (comprada e vendida) da estratégia no índice `i` e
+ * devolve a de maior score. Caminho usado pelo motor ao vivo desde 2026-08-17.
+ *
+ * POR QUE existe, além de `evaluateStrategyScoreAt`: aquela função resolve o
+ * lado por `entrySignal`, um campo único por estratégia — o que torna todo
+ * preset estruturalmente long-only (ver comentário de `shortEntryBlocks` em
+ * types/strategy.ts). Aqui, `entryBlocks` produz o candidato LONG e
+ * `shortEntryBlocks` o candidato SHORT; `filterBlocks` valem para os dois
+ * (ADX>18 é "existe micro-tendência", afirmação sem direção), e por isso são
+ * avaliados uma única vez, como gate binário — não misturar a semântica de
+ * filtro com a de score é a mesma regra já registrada em `scoreBlock`.
+ *
+ * Empate entre os dois lados é decidido a favor de NENHUM: dois lados opostos
+ * com o mesmo score é ausência de informação direcional, não escolha livre.
+ */
+export function evaluateStrategyScoreBothSides(
+  strategy: Strategy,
+  candles: Candle[],
+  i: number,
+  cache?: IndicatorCache
+): StrategySideScoreResult {
+  const indicatorCache = cache ?? new IndicatorCache(candles);
+  const reasons: string[] = [];
+
+  const activeFilters = strategy.filterBlocks.filter(b => b.enabled);
+  for (const block of activeFilters) {
+    if (!evaluateBlock(block, indicatorCache, i, candles.length)) {
+      return { score: 0, signal: null, side: null, blockScores: [], reasons: [`Filtro "${block.label}" não satisfeito`] };
+    }
+    reasons.push(`Filtro OK: ${block.label}`);
+  }
+
+  const longBlocks = strategy.entryBlocks.filter(b => b.enabled);
+  const shortBlocks = (strategy.shortEntryBlocks ?? []).filter(b => b.enabled);
+
+  // `direction` é a trava da própria estratégia (a trava do usuário é separada,
+  // aplicada por `aiConfig.direction` em runTradingCycle).
+  const longAllowed = longBlocks.length > 0 && strategy.direction !== 'SHORT' && strategy.entrySignal !== 'SELL';
+  const shortAllowed = shortBlocks.length > 0 && strategy.direction !== 'LONG';
+
+  if (!longAllowed && !shortAllowed) {
+    return { score: 0, signal: null, side: null, blockScores: [], reasons: [...reasons, 'Nenhuma perna elegível (sem blocos de entrada ou travada por direction)'] };
+  }
+
+  const longResult = longAllowed ? scoreEntryBlocks(longBlocks, indicatorCache, i) : null;
+  const shortResult = shortAllowed ? scoreEntryBlocks(shortBlocks, indicatorCache, i) : null;
+
+  const longScore = longResult?.score ?? -1;
+  const shortScore = shortResult?.score ?? -1;
+
+  if (longScore === shortScore) {
+    return {
+      score: Math.max(longScore, 0),
+      signal: null,
+      side: null,
+      blockScores: [...(longResult?.blockScores ?? []), ...(shortResult?.blockScores ?? [])],
+      reasons: [...reasons, `Empate entre as pernas (LONG ${longScore.toFixed(0)} = SHORT ${shortScore.toFixed(0)}) — sem informação direcional`],
+    };
+  }
+
+  const longWins = longScore > shortScore;
+  const winner = longWins ? longResult! : shortResult!;
+  const side: 'LONG' | 'SHORT' = longWins ? 'LONG' : 'SHORT';
+
+  winner.blockScores.forEach(b => reasons.push(`${b.label}: score ${b.score.toFixed(0)}`));
+  reasons.push(`Perna escolhida: ${side} (LONG ${Math.max(longScore, 0).toFixed(0)} vs SHORT ${Math.max(shortScore, 0).toFixed(0)})`);
+
+  return {
+    score: winner.score,
+    signal: longWins ? 'BUY' : 'SELL',
+    side,
+    blockScores: winner.blockScores,
+    reasons,
+  };
+}
+
 /**
  * Avalia uma estratégia completa no índice `i` do array de candles (candle fechado
  * mais recente disponível no momento da decisão — nunca olha candles futuros).

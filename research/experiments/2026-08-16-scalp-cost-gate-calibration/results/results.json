@@ -1,0 +1,56 @@
+[
+  {
+    "symbol": "BTCUSD",
+    "n": 14387,
+    "medianAtrPercent": 0.01646734851806423,
+    "p25AtrPercent": 0.00608431595471114,
+    "costPercent": 0.02907292738007257,
+    "ratioMedian": 1.7654892861580214,
+    "ratioP25": 4.778339520248146
+  },
+  {
+    "symbol": "XBNUSD",
+    "n": 14387,
+    "medianAtrPercent": 0.01646734851806423,
+    "p25AtrPercent": 0.00608431595471114,
+    "costPercent": 0.02907292738007257,
+    "ratioMedian": 1.7654892861580214,
+    "ratioP25": 4.778339520248146
+  },
+  {
+    "symbol": "EURUSD",
+    "n": 1415,
+    "medianAtrPercent": 0.007319328917912927,
+    "p25AtrPercent": 0.005572482817857397,
+    "costPercent": 0.012096077414895455,
+    "ratioMedian": 1.6526211009990512,
+    "ratioP25": 2.170680073903998
+  },
+  {
+    "symbol": "XAUUSD",
+    "n": 1259,
+    "medianAtrPercent": 0.03692504201471504,
+    "p25AtrPercent": 0.029565393258592212,
+    "costPercent": 0.007770877949219598,
+    "ratioMedian": 0.21045007737899976,
+    "ratioP25": 0.26283695539754903
+  },
+  {
+    "symbol": "GER40",
+    "n": 1146,
+    "medianAtrPercent": 0.018413692750566386,
+    "p25AtrPercent": 0.01191881399667724,
+    "costPercent": 0.034006356921653894,
+    "ratioMedian": 1.846797238463094,
+    "ratioP25": 2.853166173340257
+  },
+  {
+    "symbol": "SPX500",
+    "n": 1359,
+    "medianAtrPercent": 0.00799172201005224,
+    "p25AtrPercent": 0.006033727267496605,
+    "costPercent": 0.11539526725543897,
+    "ratioMedian": 14.439349505687405,
+    "ratioP25": 19.125038660111084
+  }
+]

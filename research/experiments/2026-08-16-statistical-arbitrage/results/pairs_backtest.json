@@ -1,0 +1,134 @@
+[
+  {
+    "pair": "XAUUSD/XAGUSD",
+    "tf": "15m",
+    "candles": 6448,
+    "spanDays": 127.34375,
+    "trades": 173,
+    "tradesPerDay": 1.3585276073619632,
+    "winRate": 0.28901734104046245,
+    "netResultPercent": -25.46796987052967,
+    "avgNetPercent": -0.14721369867358192
+  },
+  {
+    "pair": "XAUUSD/XAGUSD",
+    "tf": "1h",
+    "candles": 2331,
+    "spanDays": 359.625,
+    "trades": 66,
+    "tradesPerDay": 0.1835245046923879,
+    "winRate": 0.3484848484848485,
+    "netResultPercent": -9.729694814450895,
+    "avgNetPercent": -0.14741961840077114
+  },
+  {
+    "pair": "US30/SPX500",
+    "tf": "15m",
+    "candles": 5728,
+    "spanDays": 127.40625,
+    "trades": 193,
+    "tradesPerDay": 1.5148393426539122,
+    "winRate": 0.34196891191709844,
+    "netResultPercent": -8.866448745772411,
+    "avgNetPercent": -0.045940148941825965
+  },
+  {
+    "pair": "US30/SPX500",
+    "tf": "1h",
+    "candles": 1358,
+    "spanDays": 357.625,
+    "trades": 51,
+    "tradesPerDay": 0.14260747990213213,
+    "winRate": 0.27450980392156865,
+    "netResultPercent": -3.131007052258014,
+    "avgNetPercent": -0.06139229514231399
+  },
+  {
+    "pair": "US30/NAS100",
+    "tf": "15m",
+    "candles": 6724,
+    "spanDays": 139.5625,
+    "trades": 199,
+    "tradesPerDay": 1.425884460367219,
+    "winRate": 0.44221105527638194,
+    "netResultPercent": -3.9654270774755056,
+    "avgNetPercent": -0.019926769233545253
+  },
+  {
+    "pair": "US30/NAS100",
+    "tf": "1h",
+    "candles": 2793,
+    "spanDays": 476.5,
+    "trades": 84,
+    "tradesPerDay": 0.17628541448058763,
+    "winRate": 0.5119047619047619,
+    "netResultPercent": 2.290141913579381,
+    "avgNetPercent": 0.027263594209278343
+  },
+  {
+    "pair": "SPX500/NAS100",
+    "tf": "15m",
+    "candles": 5636,
+    "spanDays": 127.40625,
+    "trades": 159,
+    "tradesPerDay": 1.2479764532744666,
+    "winRate": 0.18867924528301888,
+    "netResultPercent": -15.516141474092905,
+    "avgNetPercent": -0.09758579543454657
+  },
+  {
+    "pair": "SPX500/NAS100",
+    "tf": "1h",
+    "candles": 1427,
+    "spanDays": 357.625,
+    "trades": 43,
+    "tradesPerDay": 0.12023767913317022,
+    "winRate": 0.3023255813953488,
+    "netResultPercent": -3.4536176462933725,
+    "avgNetPercent": -0.08031668944868309
+  },
+  {
+    "pair": "GER40/US30",
+    "tf": "15m",
+    "candles": 5249,
+    "spanDays": 125,
+    "trades": 151,
+    "tradesPerDay": 1.208,
+    "winRate": 0.5298013245033113,
+    "netResultPercent": 3.5469164021817328,
+    "avgNetPercent": 0.02348951259723002
+  },
+  {
+    "pair": "GER40/US30",
+    "tf": "1h",
+    "candles": 2515,
+    "spanDays": 449.5416666666667,
+    "trades": 61,
+    "tradesPerDay": 0.1356937621651682,
+    "winRate": 0.4918032786885246,
+    "netResultPercent": -1.442375361853399,
+    "avgNetPercent": -0.023645497735301623
+  },
+  {
+    "pair": "GER40/SPX500",
+    "tf": "15m",
+    "candles": 5162,
+    "spanDays": 125,
+    "trades": 137,
+    "tradesPerDay": 1.096,
+    "winRate": 0.43795620437956206,
+    "netResultPercent": -5.653233460113828,
+    "avgNetPercent": -0.04126447781104984
+  },
+  {
+    "pair": "GER40/SPX500",
+    "tf": "1h",
+    "candles": 1441,
+    "spanDays": 358.5416666666667,
+    "trades": 35,
+    "tradesPerDay": 0.09761766414875073,
+    "winRate": 0.4,
+    "netResultPercent": 0.3414806008999839,
+    "avgNetPercent": 0.009756588597142396
+  }
+]

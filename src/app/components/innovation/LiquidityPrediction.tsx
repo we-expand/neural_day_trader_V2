@@ -800,34 +800,6 @@ export const LiquidityPrediction = () => {
                   <p>Painel desativado por auditoria de qualidade de dados.</p>
                   <p className="text-yellow-200 mt-1">Requer cálculo real de correlação de histórico de preço.</p>
                 </div>
-                <div className="max-h-[300px] overflow-y-auto pr-2 space-y-3"
-                     style={{ display: 'none' }}>
-                  {currentAsset && ASSETS
-                    .filter(a => a.category === currentAsset.category && a.symbol !== selectedAsset)
-                    .slice(0, 6)
-                    .map((asset, idx) => {
-                      return (
-                        <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-neutral-800/30 transition-all">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm">{asset.icon || '💹'}</span>
-                            <span className="font-mono text-xs text-white">{asset.symbol}</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 h-1 bg-neutral-700 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full bg-neutral-500`}
-                                style={{ width: `50%` }}
-                              />
-                            </div>
-                            <span className={`font-mono text-xs font-bold w-12 text-right ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {strength}%
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
              </div>
            </div>
          </div>

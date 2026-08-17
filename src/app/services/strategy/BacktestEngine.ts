@@ -222,6 +222,9 @@ export function runBacktest(
       riskProfile: strategy.riskProfile,
       stopDistancePercent,
     });
+    // 2026-08-16: nocional abaixo do mínimo executável (ver TradeSizing.calculatePositionSize)
+    // — pula o trade em vez de forçar risco além do configurado.
+    if (tradeCapital === null) continue;
 
     openPosition = {
       side, entryPrice, entryIndex: i, tp, sl, originalSl: sl,

@@ -9,6 +9,7 @@ import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { DEFAULT_ANALYSIS_BASKET } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
 
@@ -271,13 +272,20 @@ const INITIAL_STATE: ApexLogicState = {
     riskProfile: 'EQUILIBRADO',
     
     // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
-    activeAssets: ['EURUSD', 'XBNUSD'], // ✅ Lista de ativos selecionados (Infinox válidos)
-    maxAssets: 6, // 🆕 AUMENTADO DE 3 PARA 6 - Máximo de ativos simultâneos diferentes
+    // 2026-08-17: cesta ampla (39 ativos, critério objetivo em
+    // config/defaultBasket.ts) substitui os 2 ativos que eram padrão desde o
+    // início. O motor agora varre a cesta inteira e ranqueia — não sorteia.
+    activeAssets: DEFAULT_ANALYSIS_BASKET,
+    maxAssets: 6, // Máximo de ativos com posição ABERTA ao mesmo tempo (não limita a análise)
     timeframe: '15m', // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
     newsFilter: true, // Filtro de notícias econômicas
     dailyLossLimit: 5, // Limite de perda diária (%)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
     activeStrategyId: '2', // Padrão: "Cruzamento de Médias com Filtro de Regime" (tendência, ADX-gated), mesma estratégia disponível no Backtest
+    // 60 = um bloco de entrada perfeito somado a um cruzamento de até ~8
+    // candles atrás ainda passa. 100 reproduz o comportamento binário antigo
+    // (só o candle exato do cruzamento). Ver doc do campo em tradingState.ts.
+    signalScoreFloor: 60,
 
     // Gerenciamento de Risco — defaults conservadores (modelo FTMO/Topstep)
     drawdownAnchor: 'DAILY_CLOSE',
@@ -480,6 +488,12 @@ export function useApexLogic(
   // Ref sempre atualizado p/ ser lido dentro de intervals/callbacks sem precisar
   // adicionar `persistence` (objeto novo a cada render) nas dependências dos efeitos.
   const persistenceRef = useRef(persistence);
+  // `addLog` só é declarado bem mais abaixo (precisa de `setRecentLogs`) —
+  // esta ref existe pra que o efeito de reconciliação (logo depois da
+  // hidratação, ainda mais acima de `addLog` no corpo da função) consiga
+  // chamá-lo sem sofrer erro de "usado antes de declarado". Sincronizada
+  // pelo próprio `addLog` assim que ele existe (ver comentário lá).
+  const addLogRef = useRef<(message: string) => void>(() => {});
   useEffect(() => {
     persistenceRef.current = persistence;
   });
@@ -769,6 +783,87 @@ export function useApexLogic(
     })();
   }, [user, executionMode]);
 
+  // === POLLING DE RECONCILIAÇÃO DEMO (2026-08-17) ===
+  // Desde o fix do "motor duplo" (2026-08-17, ver histórico), o navegador não
+  // abre mais posição por conta própria em modo DEMO — só o runner de
+  // servidor decide. Isso deixou uma ponta solta: o efeito de hidratação
+  // acima só roda UMA VEZ por montagem (`hasHydratedFromSupabaseRef`), sem
+  // assinatura em tempo real pra `ai_trades`. Resultado: a tela congela no
+  // que existia no instante do primeiro carregamento — o runner pode abrir
+  // (e fechar) posições reais no banco e a UI nunca mostra, porque nada a
+  // avisa. Achado ao vivo: 2 entradas reais confirmadas em `ai_trades`
+  // (status OPEN) que não apareciam na tela. Corrigido com o jeito mais
+  // simples e seguro: enquanto a IA está ativa em modo DEMO, repuxa as
+  // posições abertas da sessão do Supabase (fonte de verdade) periodicamente
+  // e substitui `activeOrders` — seguro porque em DEMO o navegador nunca mais
+  // escreve posição própria, então não há risco de pisar em estado local que
+  // o servidor não conhece.
+  //
+  // 2026-08-17 (mesmo dia, achado logo depois do fix acima): o painel "Logs
+  // do Sistema" da tela (`AITrader.tsx`, lê `recentLogs`) só recebe linha via
+  // `addLog()`, chamado de dentro do efeito `LOG` do `runTradingCycle` — que
+  // só roda quando o ciclo executa NO NAVEGADOR. Com o motor duplo desligado,
+  // esse painel fica preso em "Nenhuma atividade ainda..." pra sempre em
+  // DEMO, mesmo com a IA operando de verdade no servidor (achado ao vivo: 2
+  // posições reais abertas, painel vazio). O painel "Terminal"
+  // (`LiveLogTerminal.tsx`) não tem esse problema porque deriva log de
+  // `activeOrders` mudando — mesma fonte que este polling já atualiza.
+  // Reaproveitado aqui: loga quando este polling detecta um `id` de posição
+  // que não existia no estado anterior.
+  useEffect(() => {
+    if (!isActive || executionMode !== 'DEMO') return;
+
+    const POLL_MS = 15_000;
+    let cancelled = false;
+
+    const reconcile = async () => {
+      const sessionId = persistenceRef.current.getSessionId();
+      if (!sessionId) return;
+      try {
+        const trades = await persistenceRef.current.getSessionTrades(sessionId);
+        if (cancelled) return;
+        const open = trades.filter(t => t.status === 'OPEN');
+        setActiveOrders(prev => {
+          // Preserva `currentPrice`/`currentProfit` já calculados localmente
+          // pro tick de PnL (linha ~1235) — só sincroniza QUAIS posições
+          // existem e seus dados de abertura, não sobrescreve o preço ao vivo.
+          const prevById = new Map(prev.map(o => [o.id, o]));
+          for (const t of open) {
+            if (!prevById.has(t.id!)) {
+              addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${t.entry_price.toFixed(2)} (aberta pelo servidor)`);
+            }
+          }
+          return open.map((t): TradeVisual => {
+            const existing = prevById.get(t.id!);
+            return {
+              id: t.id!,
+              symbol: t.symbol,
+              side: t.side,
+              amount: t.quantity,
+              price: t.entry_price,
+              currentPrice: existing?.currentPrice ?? t.entry_price,
+              currentProfit: existing?.currentProfit,
+              tp: t.take_profit ?? t.entry_price,
+              sl: t.stop_loss ?? t.entry_price,
+              originalSl: existing?.originalSl ?? t.stop_loss ?? t.entry_price,
+              leverage: 1.5,
+              ai_confidence: t.ai_confidence ?? 50,
+              timestamp: new Date(t.entry_time).getTime(),
+              reasoning: t.ai_reasoning || '',
+              indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+            };
+          });
+        });
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
+      }
+    };
+
+    reconcile();
+    const interval = setInterval(reconcile, POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isActive, executionMode]);
+
   // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
   // (KV store, ver /server/risk-config) sempre que o usuário logado mudar
   // esses valores no aiConfig. A rota /broker/execute usa exclusivamente essa
@@ -900,6 +995,7 @@ export function useApexLogic(
   const addLog = useCallback((message: string) => {
     setRecentLogs((prev) => [message, ...prev].slice(0, 50));
   }, []);
+  useEffect(() => { addLogRef.current = addLog; }, [addLog]);
 
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {
@@ -1038,6 +1134,28 @@ export function useApexLogic(
       return;
     }
 
+    // 🔒 2026-08-17: em modo DEMO, `useAIPersistence` (linha ~484) sempre cria/
+    // reaproveita uma linha em `ai_sessions` — e É EXATAMENTE essa mesma linha
+    // que o `pg_cron` entrega ao runner de servidor (`ai-runner`) a cada
+    // minuto, independente da aba estar aberta. Rodar este loop TAMBÉM aqui
+    // no navegador não é redundância inofensiva: os dois processos avaliavam
+    // e decidiam sobre a MESMA sessão ao mesmo tempo, sem nenhuma exclusão
+    // mútua — medido em produção, o mesmo candidato (ex: XAUUSD) sendo
+    // reavaliado 3-5x em 18 segundos, o dobro de chamadas à MetaAPI
+    // compartilhada, e risco real de duas entradas na mesma oportunidade (cada
+    // processo só vê o `activeOrders` da SUA própria memória, não do outro).
+    // Achado ao vivo em 2026-08-17 (sessão af1453a2), decisão do Cleber:
+    // desligar a decisão local, deixar só o runner de servidor decidir. O
+    // navegador continua mostrando o estado (portfolio/posições) via
+    // hidratação do Supabase — só para de ABRIR posição por conta própria.
+    // Em modo LIVE isso NÃO se aplica: a ponte de execução real ainda depende
+    // de estágios opt-in específicos do navegador, fora de escopo desta
+    // mudança — não mexer sem pedido explícito.
+    if (executionMode === 'DEMO') {
+      console.log('[TRADING] 🌐 Modo DEMO: decisão de entrada é do runner de servidor (ai-runner via pg_cron) — navegador não abre posição por conta própria.');
+      return;
+    }
+
     console.log('[TRADING] 🚀 Sistema de Trading AI ATIVADO - Procurando oportunidades...');
 
     // 🚀 OTIMIZAÇÃO #4: Conectar WebSocket para cryptos (TEMPO REAL!)
@@ -1149,7 +1267,7 @@ export function useApexLogic(
       runTradingCycle(
         {
           activeOrders,
-          aiConfig,
+          aiConfig: configRef.current,
           portfolio: portfolioRef.current,
           orderHistory: orderHistoryRef.current,
           lastTradeTimestamp: lastTradeTimestampRef.current,
@@ -1198,7 +1316,7 @@ export function useApexLogic(
     return () => {
       clearInterval(tradingInterval);
     };
-  }, [isActive, isPaused, isSafeMode, activeOrders.length, aiConfig.maxPositions, aiConfig.maxContracts, aiConfig.maxAssets, addLog]);
+  }, [isActive, isPaused, isSafeMode, executionMode, activeOrders.length, aiConfig.maxPositions, aiConfig.maxContracts, aiConfig.maxAssets, addLog]);
 
   // === UNREALIZED PNL LOOP (Price Updates & P&L Calculation) ===
   useEffect(() => {
@@ -1274,6 +1392,28 @@ export function useApexLogic(
                 // pular o trailing inteiro quando não há SL real definido (0 = sem
                 // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
+
+                // 🆕 BREAKEVEN AUTOMÁTICO EM +1R (2026-08-17). Independente de
+                // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
+                // mover ainda mais a favor): quando o trade anda a favor a mesma
+                // distância do risco original (1R), o stop sobe pro preço de
+                // entrada. É o mecanismo que corta a perda média pra ~0 a partir
+                // desse ponto sem precisar prever direção melhor — puro
+                // gerenciamento de saída, não previsão. Ancorado em `originalSl`
+                // (imutável, gravado uma vez na abertura) pelo mesmo motivo do
+                // trailing abaixo: `order.sl` é reescrito a cada tick.
+                if (order.originalSl > 0) {
+                  const originalRisk = Math.abs(order.price - order.originalSl);
+                  if (originalRisk > 0) {
+                    const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
+                    if (favorableMove >= originalRisk) {
+                      effectiveSl = order.side === 'LONG'
+                        ? Math.max(effectiveSl, order.price)
+                        : Math.min(effectiveSl, order.price);
+                    }
+                  }
+                }
+
                 let trailMoved = false;
                 if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
                   // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
@@ -1296,8 +1436,8 @@ export function useApexLogic(
                     : nextPrice + trailDistance;
 
                   effectiveSl = order.side === 'LONG'
-                    ? Math.max(order.sl, trailedSl)
-                    : Math.min(order.sl, trailedSl);
+                    ? Math.max(effectiveSl, trailedSl)
+                    : Math.min(effectiveSl, trailedSl);
                   trailMoved = effectiveSl !== order.sl;
                 }
 
@@ -1474,7 +1614,7 @@ export function useApexLogic(
       persistenceRef.current.startSession({
         strategyName: 'Apex AI',
         symbols: configRef.current.activeAssets || [],
-        timeframe: configRef.current.timeframe || '1m',
+        timeframe: configRef.current.timeframe || '15m',
         initialBalance: portfolioRef.current.balance,
         initialEquity: portfolioRef.current.equity,
         config: configRef.current,
@@ -1537,7 +1677,25 @@ export function useApexLogic(
     } else {
       addLog('🛑 Sistema APEX Parado');
     }
-    
+
+    // 🆕 FIX 2026-08-17 (achado ao investigar "IA religada mas config antiga
+    // continua rodando"): "Desligar AI" nunca encerrava a sessão no Supabase
+    // — só zerava estado local (`setIsActive(false)`). A sessão ficava
+    // RUNNING no banco pra sempre, e o runner server-side (`ai-runner` via
+    // pg_cron) continuava operando com a config antiga indefinidamente,
+    // mesmo com a tela mostrando "desligado". Pior: como `sessionIdRef`
+    // também não era limpo, o próximo "Iniciar AI" via `startLogic` (guard
+    // `!persistenceRef.current.currentSessionId`) nunca criava sessão nova —
+    // só um reload de página resolvia (achado ao vivo nesta sessão,
+    // precisou de intervenção manual direto no banco). `endSession` já
+    // limpa `sessionIdRef.current` sozinho (useAIPersistence.ts:166), então
+    // chamar aqui resolve os dois problemas de uma vez: sessão morre de
+    // verdade no banco, e o próximo start cria uma sessão nova sem precisar
+    // recarregar a página.
+    if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
+      persistenceRef.current.endSession(portfolioRef.current.balance, portfolioRef.current.equity);
+    }
+
     setIsActive(false);
     setIsPaused(false);
   }, [activeOrders, addLog]);
@@ -1653,7 +1811,7 @@ export function useApexLogic(
       persistenceRef.current.startSession({
         strategyName: 'Ordem Manual',
         symbols: [params.symbol],
-        timeframe: configRef.current.timeframe || '1m',
+        timeframe: configRef.current.timeframe || '15m',
         initialBalance: portfolioRef.current.balance,
         initialEquity: portfolioRef.current.equity,
         config: configRef.current,

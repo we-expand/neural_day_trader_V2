@@ -248,7 +248,20 @@ export class SymbolMappingService {
         type: 'index'
       },
       {
-        unified: 'JPN225',
+        // 2026-08-17: FIX DE BUG — chave `unified` estava em 'JPN225' (nome
+        // real da corretora), mas o resto do projeto usa 'JP225' como símbolo
+        // unificado desde 2026-07-16 (`assetDatabase.ts`, `brokerRegistry.ts`
+        // já tem o override JP225->JPN225 correto). `findMapping('JP225')`
+        // (Map keyed por `unified`) sempre retornava `undefined` pra esse
+        // ativo — o loop de fallback por `infinox`/`binance`/`yahoo` também
+        // não achava (`infinox` aqui é 'JPN225', não 'JP225'). Sem mapping,
+        // `fetchCandles` (market-service.ts) caía em `detectAssetType`, que
+        // não reconhece 'JP225' em nenhuma heurística (não é BTC/forex/US
+        // index/commodity) e cai no branch "stock ou desconhecido: sem fonte
+        // real de candles" — retorna `[]` sempre, sem sequer tentar a
+        // MetaAPI. Resultado: gráfico de JP225 nunca abria, silenciosamente
+        // (`ChartView.tsx` só loga erro no console, fica em "loading").
+        unified: 'JP225',
         infinox: 'JPN225',
         binance: undefined,
         yahoo: '^N225',

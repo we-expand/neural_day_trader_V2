@@ -1,0 +1,44 @@
+[
+  {
+    "symbol": "BTCUSD",
+    "tf": "1m",
+    "ok": true,
+    "count": 14400,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "1m",
+    "ok": true,
+    "count": 14400,
+    "source": "binance"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "1m",
+    "ok": true,
+    "count": 1428,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "1m",
+    "ok": true,
+    "count": 1272,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "1m",
+    "ok": true,
+    "count": 1159,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "1m",
+    "ok": true,
+    "count": 1372,
+    "source": "metaapi"
+  }
+]

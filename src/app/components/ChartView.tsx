@@ -304,6 +304,80 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
   });
 }
 
+// Contador de Candles — indicador custom que escreve o número de cada vela LOGO ACIMA
+// dela, sobre o próprio gráfico de preço -- não é uma linha/barra num painel separado, é
+// texto por cima de cada candle. Contagem na ordem cronológica (1 = vela mais antiga da
+// abertura do dia, crescendo até a vela atual) -- pedido explícito do Cleber, direção
+// oposta da 1ª versão (que contava a partir da mais recente pra trás).
+// 🐛 FIX: a contagem por índice global (`i + 1` sobre o `kLineDataList` inteiro) não
+// reiniciava ao virar o dia -- BTCUSD (e qualquer ativo) começando um novo dia de
+// candles continuava contando a partir do total acumulado do histórico carregado, nunca
+// voltando pra 1. Contagem agora reseta a cada mudança de dia de calendário (comparando
+// `new Date(bar.timestamp).toDateString()` entre velas consecutivas) -- calculado uma vez
+// em `calc()` (só roda quando os dados mudam) e guardado em `indicator.result`, lido
+// depois dentro de `draw()` (que roda todo frame) em vez de recalcular ali.
+// 🐛 2 tentativas anteriores falharam por limitações reais da klinecharts (não bug de
+// digitação):
+// 1ª) figure `type: 'bar'/'line'` sem `attrs()` -- nunca desenhava nada (indicador
+//     ativo, sem erro, mas invisível).
+// 2ª) figure `type: 'text'` COM `attrs()` -- ainda invisível. Causa raiz: o motor padrão
+//     de desenho de figura de indicador (`eachFigures` em index.esm.js:962) só sabe
+//     posicionar 'circle'/'bar'/'line' (switch sem case pra 'text' → `defaultFigureStyles`
+//     fica undefined → `attrs()`/`styles()` NUNCA são chamados, confirmado com log que
+//     nunca disparou). 'text' não é um tipo de figura suportado no caminho de desenho
+//     automático de indicador, só em overlays.
+// ✅ Fix: usar o callback `draw` do indicador (IndicatorImp.draw, chamado em
+// IndicatorView.drawImp, index.esm.js:7894) -- dá acesso direto ao `ctx` do canvas e ao
+// `xAxis`/`yAxis` já resolvidos, sem depender do sistema de `figures`. Desenhamos o
+// número de cada vela manualmente com `ctx.fillText`, só nas velas do `visibleRange`
+// (evita desenhar fora da tela). Retornar `true` sinaliza "já cobri o desenho, não
+// precisa rodar o caminho padrão de figures" (que de qualquer forma é vazio aqui).
+if (!isIndicatorRegistered('CANDLE_COUNTER')) {
+  registerIndicator<number>({
+    name: 'CANDLE_COUNTER',
+    shortName: 'CANDLES',
+    series: 'price' as any,
+    precision: 0,
+    calcParams: [],
+    shouldOhlc: false,
+    figures: [],
+    calc: (dataList) => {
+      let dayKey: string | null = null;
+      let count = 0;
+      return dataList.map((bar) => {
+        const key = new Date(bar.timestamp).toDateString();
+        if (key !== dayKey) {
+          dayKey = key;
+          count = 0;
+        }
+        count += 1;
+        return { label: count } as any;
+      });
+    },
+    draw: (ctx: any) => {
+      const { ctx: canvas, kLineDataList, indicator, visibleRange, xAxis, yAxis } = ctx;
+      const { from, to } = visibleRange;
+      const result = indicator?.result ?? [];
+      canvas.save();
+      canvas.fillStyle = '#f59e0b';
+      canvas.font = 'bold 10px sans-serif';
+      canvas.textAlign = 'center';
+      canvas.textBaseline = 'bottom';
+      for (let i = from; i < to; i++) {
+        const bar = kLineDataList[i];
+        if (!bar) continue;
+        const label = result[i]?.label;
+        if (typeof label !== 'number') continue;
+        const x = xAxis.convertToPixel(i);
+        const y = yAxis.convertToPixel(bar.high) - 6;
+        canvas.fillText(String(label), x, y);
+      }
+      canvas.restore();
+      return true;
+    }
+  } as any);
+}
+
 // Pivot Points clássico (Standard) — o slot antigo usava 'PVT' (Price and Volume
 // Trend, um indicador completamente diferente) e chamava isso de "Pivot Points" na UI.
 if (!isIndicatorRegistered('PIVOT_POINTS')) {
@@ -1245,6 +1319,21 @@ const INDICATORS: IndicatorConfig[] = [
     category: 'support_resistance',
     klinechartsName: 'PIVOT_POINTS',
     defaultParams: [],
+    isPaneIndicator: false
+  },
+
+  // ===== OUTROS =====
+  {
+    id: 'candle_counter',
+    name: 'Contador de Candles',
+    description: 'Numera as velas do dia atual, reinicia a cada novo dia',
+    category: 'volume',
+    klinechartsName: 'CANDLE_COUNTER',
+    defaultParams: [],
+    // 🆕 Sempre overlay (número escrito em cima do candle, no gráfico de preço) -- não
+    // faz sentido num painel separado, já que o texto é posicionado via yAxis do preço
+    // (ver attrs() no registerIndicator lá em cima). "Painel abaixo" continua clicável
+    // na UI (todo indicador tem os 2 botões) mas não vai desenhar nada de útil ali.
     isPaneIndicator: false
   },
 ];
@@ -6378,20 +6467,6 @@ export function ChartView({
               }}
             >
 
-            {/* 🔥 CANDLE COUNTDOWN - COLADO NA LINHA DO PREÇO */}
-            <div 
-              className="absolute right-[80px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
-              style={{ 
-                top: '50%',
-                transform: 'translateY(-50%)'
-              }}
-            >
-              <Clock className="w-2.5 h-2.5 text-blue-400" />
-              <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
-                {formatCountdown(candleCountdown)}
-              </span>
-            </div>
-
             {/* 📝 INPUT DE TEXTO DA LINHA COM INFORMAÇÕES — abre ao clicar numa infoLine */}
             {infoLineEditor && (
               <div
@@ -6563,6 +6638,23 @@ export function ChartView({
                 )}
               </>
             )}
+            </div>
+
+            {/* 🔥 CANDLE COUNTDOWN -- fica FORA da div do chartContainerRef de propósito:
+                aquela div leva innerHTML='' toda vez que o gráfico reinicializa (troca de
+                timeframe/símbolo, ver efeito de init do klinecharts), o que arranca do DOM
+                qualquer filho renderizado pelo React ali dentro sem o React saber -- o nó
+                fica "órfão" (nunca aparece na tela). Posição FIXA logo abaixo da boleta
+                (OrderTicket, top-[17px] right-[99px] alguns px abaixo) -- pedido do Cleber:
+                a 1ª versão acompanhava a linha pontilhada de preço via convertToPixel, mas
+                ficava instável/pulando a cada variação de preço. */}
+            <div
+              className="absolute top-[142px] right-[99px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
+            >
+              <Clock className="w-2.5 h-2.5 text-blue-400" />
+              <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
+                {formatCountdown(candleCountdown)}
+              </span>
             </div>
 
             {/* ❌ Removido o box flutuante em HTML que replicava editar/remover por

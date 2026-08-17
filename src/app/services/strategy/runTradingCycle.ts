@@ -11,21 +11,22 @@
 // funil já existente) pro mesmo estado de entrada.
 
 import type { Strategy as StrategyDef } from '@/app/types/strategy.ts';
-import { evaluateStrategyAt } from '@/app/services/strategy/StrategyEvaluator.ts';
+import { evaluateStrategyScoreBothSides } from '@/app/services/strategy/StrategyEvaluator.ts';
+import { ASSETS_REFRESHED_PER_TICK } from '@/app/config/defaultBasket.ts';
 import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators.ts';
 import type { Candle } from '@/app/services/indicators/TechnicalIndicators.ts';
 import { backtestDataService } from '@/app/services/BacktestDataService.ts';
 import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine.ts';
 import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService.ts';
 import { getPointValue } from '@/app/services/strategy/TradeSizing.ts';
-import { symbolMappingService } from '@/app/services/SymbolMappingService.ts';
+import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass.ts';
 import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate.ts';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose.ts';
 import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector.ts';
 import { evaluateContextGate } from '@/app/services/risk/ContextGate.ts';
 import { evaluateTailRisk } from '@/app/services/risk/TailRiskGuard.ts';
-import { estimateCostPercent, type AssetClass as CostAssetClass } from '../../../../research/CostModel.ts';
+import { estimateCostPercent } from '../../../../research/CostModel.ts';
 import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../../lib/modules/RiskManager.ts';
 import { computeLiveCorrelationGuard } from '@/app/services/risk/LiveCorrelationGuard.ts';
 import { funnelTelemetry } from '@/app/services/telemetry/FunnelTelemetry.ts';
@@ -159,6 +160,40 @@ export interface TradingCycleResult {
 
 const NEWS_WINDOW_MS = 15 * 60 * 1000;
 
+// Stop = 1,5×ATR(14) do timeframe operado; alvo = 2,5× o stop (R:R fixo).
+// Ver bloco "STOP/ALVO DINÂMICO POR ATR" no histórico de 2026-08-17.
+// Exportadas (não só `const` interna) porque a UI de configuração precisa da
+// MESMA aritmética pra mostrar uma prévia de "esse tamanho de posição vai dar
+// certo?" antes do usuário salvar — replicar esses números por fora já foi a
+// causa de um bug real neste projeto (pointValue divergente, 2026-08-05).
+export const STOP_ATR_MULTIPLIER = 1.5;
+export const RISK_REWARD_MULTIPLE = 2.5;
+/** Nocional mínimo executável — abaixo disso o motor pula o trade (ver `MIN_TRADE_SIZE` mais abaixo). */
+export const MIN_EXECUTABLE_NOTIONAL_USD = 10;
+
+/**
+ * Distâncias de stop e alvo, em PONTOS, a partir do ATR.
+ *
+ * Fonte ÚNICA desse cálculo de propósito: o gate de custo (que precisa saber a
+ * distância até o alvo pra medir viabilidade) e o cálculo final de TP/SL usam
+ * exatamente esta função. Duas cópias da mesma aritmética divergindo já foi um
+ * bug real neste projeto — a tabela de `pointValue` duplicada em
+ * `useApexLogic`, corrigida em 2026-08-05.
+ */
+export function resolveAtrTargets(
+  atrValue: number,
+  pointValue: number,
+  marketMode: AIConfig['marketMode'],
+): { stopPoints: number; targetPoints: number } {
+  let stopPoints = (atrValue * STOP_ATR_MULTIPLIER) / pointValue;
+  let targetPoints = stopPoints * RISK_REWARD_MULTIPLE;
+  if (marketMode === 'SCALP') {
+    targetPoints = Math.min(targetPoints, 80);
+    stopPoints = Math.min(stopPoints, 35);
+  }
+  return { stopPoints, targetPoints };
+}
+
 export async function runTradingCycle(
   state: TradingCycleState,
   deps: TradingCycleDeps,
@@ -227,82 +262,81 @@ export async function runTradingCycle(
     return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
   }
 
-  // 🎯 TIER 1 (70%): Cripto + Índices — historicamente mais líquidos/voláteis
-  // 🔸 TIER 2 (25%): Metais preciosos + Forex Major Pairs
-  // 🔹 TIER 3 (5%): resto do que foi selecionado
-  const allowedTier1: string[] = [];
-  const allowedTier2: string[] = [];
-  const allowedTier3: string[] = [];
+  const universe: string[] = [];
   for (const symbol of userAssets) {
-    const asset = getAssetBySymbol(symbol);
-    if (!asset) {
+    if (!getAssetBySymbol(symbol)) {
       console.warn(`[AI LOOP] ⚠️ Ativo "${symbol}" selecionado mas não encontrado no catálogo (assetDatabase.ts) — ignorado neste ciclo`);
       continue;
     }
-    if (asset.category === 'CRYPTO' || asset.category === 'INDICES') {
-      allowedTier1.push(symbol);
-    } else if (asset.category === 'COMMODITIES' && asset.subCategory === 'Precious Metals') {
-      allowedTier2.push(symbol);
-    } else if (asset.category === 'FOREX' && asset.subCategory === 'Major Pairs') {
-      allowedTier2.push(symbol);
-    } else {
-      allowedTier3.push(symbol);
-    }
+    universe.push(symbol);
   }
 
-  if (allowedTier1.length === 0 && allowedTier2.length === 0 && allowedTier3.length === 0) {
+  if (universe.length === 0) {
     console.log(`[AI LOOP] 🚫 Nenhum ativo selecionado pelo usuário foi reconhecido no catálogo (config: ${userAssets.join(', ')}) - pulando ciclo`);
     funnelTelemetry.recordStage('TICK_NO_ASSET_IN_CATALOG', undefined, userAssets.join(', '));
     return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
   }
 
-  const ASSETS_PER_TICK = Math.min(3, allowedTier1.length + allowedTier2.length + allowedTier3.length);
-  const pickedThisTick = new Set<string>();
+  const activeStrategy = deps.strategies.find(s => s.id === aiConfig.activeStrategyId);
+  if (!activeStrategy) {
+    console.log(`[ESTRATÉGIA] 🚫 Nenhuma estratégia ativa selecionada - pulando ciclo`);
+    funnelTelemetry.recordStage('NO_ACTIVE_STRATEGY');
+    return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
+  }
 
-  for (let __assetBatchIdx = 0; __assetBatchIdx < ASSETS_PER_TICK; __assetBatchIdx++) {
-    const rand = Math.random();
-    let selectedAssets: string[];
-    let tierName = '';
+  const opTimeframe = normalizeAiTimeframe(aiConfig.timeframe);
 
-    const tier1Left = allowedTier1.filter(s => !pickedThisTick.has(s));
-    const tier2Left = allowedTier2.filter(s => !pickedThisTick.has(s));
-    const tier3Left = allowedTier3.filter(s => !pickedThisTick.has(s));
+  // === FASE 1: REFRESH ESCALONADO DE CANDLES ===
+  // Atualiza só um punhado de ativos por tick, os de cache mais velho primeiro
+  // (round-robin natural). O ranking abaixo roda sobre a cesta INTEIRA que
+  // tiver cache — separar "atualizar dado" de "decidir" é o que torna uma
+  // cesta de dezenas de ativos compatível com o orçamento de chamadas da
+  // conta MetaAPI compartilhada. Ver ASSETS_REFRESHED_PER_TICK.
+  await refreshCandleBuffers(universe, opTimeframe, state, deps);
 
-    if (tier1Left.length === 0 && tier2Left.length === 0 && tier3Left.length === 0) {
-      break; // já analisou todos os ativos disponíveis do usuário neste tick
-    }
+  // === FASE 2: RANKING ===
+  // Pontua TODA a cesta com cache disponível e ordena por score. Substitui o
+  // sorteio por tier (`Math.random()`) que existia até 2026-08-17 — a IA
+  // agora escolhe o melhor candidato do momento, que é o comportamento
+  // pedido desde o início do projeto.
+  const ranked = rankCandidates(universe, activeStrategy, opTimeframe, aiConfig, state, deps);
 
-    if (rand < 0.70 && tier1Left.length > 0) {
-      selectedAssets = tier1Left; // 70% chance - Cripto/Índices
-      tierName = 'TIER 1 (Cripto/Índices - Alta Volatilidade)';
-    } else if (rand < 0.95 && tier2Left.length > 0) {
-      selectedAssets = tier2Left; // 25% chance - Metais/Forex Major
-      tierName = 'TIER 2 (Metais/Forex Major - Média Volatilidade)';
-    } else if (tier3Left.length > 0) {
-      selectedAssets = tier3Left; // 5% chance - demais ativos selecionados
-      tierName = 'TIER 3 (Demais ativos selecionados - Baixa Volatilidade)';
-    } else {
-      selectedAssets = tier1Left.length > 0 ? tier1Left : tier2Left.length > 0 ? tier2Left : tier3Left;
-      tierName = 'FALLBACK (restrito à config do usuário)';
-    }
+  if (ranked.length === 0) {
+    const best = bestScoreSeen;
+    console.log(`[RANKING] ⏸️ Nenhum candidato acima do piso de score (${aiConfig.signalScoreFloor}) — melhor da cesta: ${best.symbol ?? 'n/d'} com ${best.score.toFixed(0)}`);
+    funnelTelemetry.recordStage(
+      'NO_SIGNAL',
+      best.symbol ?? undefined,
+      `melhor score ${best.score.toFixed(0)} < piso ${aiConfig.signalScoreFloor} (cesta de ${universe.length})`,
+    );
+    return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
+  }
 
-    const selectedSymbol = selectedAssets[Math.floor(Math.random() * selectedAssets.length)];
-    pickedThisTick.add(selectedSymbol);
+  console.log(`[RANKING] 🏆 ${ranked.length} candidato(s) acima do piso. Top: ${ranked.slice(0, 3).map(c => `${c.symbol} ${c.side} ${c.score.toFixed(0)}`).join(' | ')}`);
+
+  // === FASE 3: EXECUÇÃO DO MELHOR ELEGÍVEL ===
+  // Percorre o ranking em ordem até abrir UMA posição. Um candidato pode ser
+  // recusado por regra de carteira (já tem posição no ativo, teto de ativos
+  // distintos) ou pelos gates de risco — nesse caso tenta o próximo, em vez
+  // de perder o ciclo inteiro como acontecia com o sorteio.
+  const MAX_EXECUTION_ATTEMPTS = 5;
+  let attempts = 0;
+
+  for (const candidate of ranked) {
+    if (attempts >= MAX_EXECUTION_ATTEMPTS) break;
 
     // 🚫 ANTI-REPETIÇÃO: NÃO pode fazer 2 trades seguidos no mesmo ativo
-    if (nextLastTradedSymbol === selectedSymbol) {
-      console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${selectedSymbol}. Aguardando outro ativo...`);
-      funnelTelemetry.recordEvaluation();
-      funnelTelemetry.recordStage('ASSET_ANTI_REPEAT', selectedSymbol);
+    if (nextLastTradedSymbol === candidate.symbol) {
+      console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${candidate.symbol}. Tentando o próximo do ranking...`);
+      funnelTelemetry.recordStage('ASSET_ANTI_REPEAT', candidate.symbol);
       continue;
     }
 
     // 🛡️ ANTI-HEDGING CHECK
-    const existingPositionOnAsset = activeOrders.find(order => order.symbol === selectedSymbol);
+    const existingPositionOnAsset = activeOrders.find(order => order.symbol === candidate.symbol);
     if (existingPositionOnAsset) {
-      console.log(`[ANTI-HEDGING] ⚠️ Bloqueado: Já existe posição ${existingPositionOnAsset.side} em ${selectedSymbol}`);
-      funnelTelemetry.recordEvaluation();
-      funnelTelemetry.recordStage('ASSET_ALREADY_OPEN', selectedSymbol);
+      console.log(`[ANTI-HEDGING] ⚠️ Bloqueado: Já existe posição ${existingPositionOnAsset.side} em ${candidate.symbol}`);
+      funnelTelemetry.recordStage('ASSET_ALREADY_OPEN', candidate.symbol);
       continue;
     }
 
@@ -310,26 +344,189 @@ export async function runTradingCycle(
     const uniqueAssets = new Set(activeOrders.map(order => order.symbol));
     if (uniqueAssets.size >= aiConfig.maxAssets) {
       console.log(`[ASSET LIMIT] ⚠️ Bloqueado: Máximo de ${aiConfig.maxAssets} ativos diferentes atingido`);
-      funnelTelemetry.recordEvaluation();
-      funnelTelemetry.recordStage('ASSET_MAX_DISTINCT', selectedSymbol);
-      continue;
+      funnelTelemetry.recordStage('ASSET_MAX_DISTINCT', candidate.symbol);
+      break; // limite de carteira, não do candidato — tentar outro não adianta
     }
 
-    const result = await analyzeAsset(selectedSymbol, tierName, state, deps);
+    attempts++;
+    const result = await analyzeAsset(candidate, activeStrategy, opTimeframe, state, deps);
     for (const e of result.effects) effects.push(e);
-    if (result.tradeOpened) {
-      nextLastTradeTimestamp = result.tradeOpened.timestamp;
-      nextLastTradedSymbol = selectedSymbol;
-    }
     if (result.nextLastStaleDataWarningAt !== undefined) {
       nextLastStaleDataWarningAt = result.nextLastStaleDataWarningAt;
     }
     if (result.nextCooldownUntil !== undefined) {
       nextCooldownUntil = result.nextCooldownUntil;
     }
+    if (result.tradeOpened) {
+      nextLastTradeTimestamp = result.tradeOpened.timestamp;
+      nextLastTradedSymbol = candidate.symbol;
+      break; // uma entrada por ciclo — o cooldown do topo cuida do ritmo
+    }
   }
 
   return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
+}
+
+/** Melhor score visto no último `rankCandidates` — usado só pra telemetria de "por que não entrou". */
+let bestScoreSeen: { symbol: string | null; score: number } = { symbol: null, score: 0 };
+
+const BAR_MS: Record<ScoreTimeframe, number> = {
+  '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
+};
+
+/**
+ * TTL do buffer de candles = duração de UMA barra do timeframe operado,
+ * limitado a [60s, 1h].
+ *
+ * Antes era 60s fixo, o que em 15m significava refazer a mesma chamada 15x
+ * por barra pra receber exatamente os mesmos candles fechados — desperdício
+ * direto do orçamento de chamadas que hoje causa HTTP 429. Um candle FECHADO
+ * só muda quando a barra vira; reler antes disso não traz informação nova.
+ * O teto de 1h existe pra que 4h/1d não fiquem com dado velho demais caso o
+ * processo rode por muitas horas seguidas.
+ */
+function candleTtlMs(tf: ScoreTimeframe): number {
+  return Math.min(Math.max(BAR_MS[tf], 60_000), 3_600_000);
+}
+
+/**
+ * Backoff por símbolo após falha de fetch (rate-limit ou instabilidade da
+ * MetaAPI) — chave `${symbol}_${timeframe}`, valor = timestamp até quando
+ * pular esse símbolo no refresh.
+ *
+ * 2026-08-17: antes, uma falha (HTTP 429/500/504) não gravava nada no
+ * `candleBuffer` — o símbolo continuava com `fetchedAt=0` e voltava a ser o
+ * primeiro candidato do próximo `refreshCandleBuffers`, todo tick. Medido em
+ * produção: 5.942 chamadas de histórico em 35 minutos, boa parte reprovada
+ * por 429 e retentada segundos depois, sem nenhuma espera — o padrão exato
+ * que mantém um rate-limit sempre estourado. A MetaAPI já devolve
+ * `retryAfterMs` quando é limite dela (não sempre — HTTP 429/500/504 "cru" da
+ * corretora não vem com esse campo); quando disponível, respeita-se o valor
+ * real; senão usa um piso fixo. Módulo-level (não por-invocação) de propósito:
+ * se a instância do Edge Function ficar "quente" entre ticks do pg_cron, o
+ * backoff sobrevive; se não ficar, o pior caso é voltar ao comportamento
+ * anterior (sem persistência entre invocações) — nunca piora.
+ */
+const symbolBackoffUntil = new Map<string, number>();
+const FAILURE_BACKOFF_DEFAULT_MS = 30_000;
+const FAILURE_BACKOFF_MAX_MS = 5 * 60_000;
+
+function parseRetryAfterMs(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/Retry after (\d+)ms/i);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Atualiza o buffer de candles de até `ASSETS_REFRESHED_PER_TICK` ativos por
+ * tick, priorizando os de cache mais antigo (e pulando os em backoff por
+ * falha recente). Falha de rede em um ativo não derruba o ciclo — só deixa
+ * aquele ativo de fora do ranking deste tick.
+ */
+async function refreshCandleBuffers(
+  universe: string[],
+  opTimeframe: ScoreTimeframe,
+  state: TradingCycleState,
+  deps: TradingCycleDeps,
+): Promise<void> {
+  const now = Date.now();
+  const ttl = candleTtlMs(opTimeframe);
+
+  const stale = universe
+    .map(symbol => {
+      const bufferKey = `${symbol}_${opTimeframe}`;
+      const entry = deps.candleBuffer.get(bufferKey);
+      return { symbol, bufferKey, fetchedAt: entry?.fetchedAt ?? 0 };
+    })
+    .filter(x => now - x.fetchedAt > ttl)
+    .filter(x => (symbolBackoffUntil.get(x.bufferKey) ?? 0) <= now)
+    .sort((a, b) => a.fetchedAt - b.fetchedAt)
+    .slice(0, ASSETS_REFRESHED_PER_TICK);
+
+  if (stale.length === 0) return;
+
+  for (const { symbol, bufferKey } of stale) {
+    try {
+      const REQUIRED_BARS = 100;
+      // Janela de calendário larga (4x as barras necessárias, com piso de 48h)
+      // porque índices/metais fecham fora do pregão — sem essa folga, parte da
+      // janela cai em mercado fechado e o ativo some do ranking por falta de
+      // candles. Achado de 2026-08-10/08-16 via symbol_stage_counts.
+      const MIN_WINDOW_MS = 48 * 60 * 60 * 1000;
+      const end = new Date();
+      const windowMs = Math.max(REQUIRED_BARS * 4 * BAR_MS[opTimeframe], MIN_WINDOW_MS);
+      const start = new Date(end.getTime() - windowMs);
+      const history = await backtestDataService.fetchHistoricalData(symbol, start, end, opTimeframe);
+      deps.candleBuffer.set(bufferKey, {
+        candles: history.candles.slice(-REQUIRED_BARS),
+        fetchedAt: Date.now(),
+      });
+      symbolBackoffUntil.delete(bufferKey);
+    } catch (error) {
+      const retryAfterMs = parseRetryAfterMs(error);
+      const backoffMs = Math.min(retryAfterMs ?? FAILURE_BACKOFF_DEFAULT_MS, FAILURE_BACKOFF_MAX_MS);
+      symbolBackoffUntil.set(bufferKey, Date.now() + backoffMs);
+      console.warn(`[CANDLES] ⚠️ Sem candles reais pra ${symbol} (${opTimeframe}) agora — fica fora do ranking neste tick e em backoff por ${(backoffMs / 1000).toFixed(0)}s`, error);
+      funnelTelemetry.recordStage('CANDLES_FETCH_FAILED', symbol, `${opTimeframe}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+export interface RankedCandidate {
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  score: number;
+  candles: Candle[];
+  reasons: string[];
+}
+
+/**
+ * Pontua toda a cesta com cache disponível e devolve os candidatos acima do
+ * piso, do maior score pro menor. Puro: nenhuma chamada de rede aqui — só lê
+ * o buffer que a Fase 1 já atualizou.
+ */
+function rankCandidates(
+  universe: string[],
+  strategy: StrategyDef,
+  opTimeframe: ScoreTimeframe,
+  aiConfig: AIConfig,
+  state: TradingCycleState,
+  deps: TradingCycleDeps,
+): RankedCandidate[] {
+  const floor = aiConfig.signalScoreFloor ?? 60;
+  const candidates: RankedCandidate[] = [];
+  bestScoreSeen = { symbol: null, score: 0 };
+
+  for (const symbol of universe) {
+    const entry = deps.candleBuffer.get(`${symbol}_${opTimeframe}`);
+    if (!entry) continue;
+
+    const candles = entry.candles;
+    if (candles.length < 30) {
+      funnelTelemetry.recordStage('CANDLES_INSUFFICIENT', symbol, `${candles.length} candles`);
+      continue;
+    }
+
+    funnelTelemetry.recordEvaluation();
+
+    const scored = evaluateStrategyScoreBothSides(strategy, candles, candles.length - 1);
+
+    if (scored.score > bestScoreSeen.score) {
+      bestScoreSeen = { symbol, score: scored.score };
+    }
+
+    if (!scored.side || scored.score < floor) continue;
+
+    // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção travada na tela
+    if (aiConfig.direction !== 'AUTO' && scored.side !== aiConfig.direction) {
+      funnelTelemetry.recordStage('CONFIG_DIRECTION', symbol, `setup ${scored.side}, travado em ${aiConfig.direction}`);
+      continue;
+    }
+
+    candidates.push({ symbol, side: scored.side, score: scored.score, candles, reasons: scored.reasons });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score);
 }
 
 interface AssetAnalysisResult {
@@ -339,21 +536,34 @@ interface AssetAnalysisResult {
   nextCooldownUntil?: number;
 }
 
-/** Analisa um único ativo — corpo do IIFE assíncrono original, agora testável isoladamente. */
+/**
+ * Roda os gates de risco e, se todos aprovarem, abre a posição do candidato
+ * escolhido pelo ranking.
+ *
+ * 2026-08-17: deixou de descobrir o sinal por conta própria — o score, o lado
+ * e os candles chegam prontos de `rankCandidates`. Isso é o que permite buscar
+ * PREÇO só do candidato que vai realmente ser avaliado pra execução, em vez de
+ * um preço por ativo sorteado a cada tick (redução direta de chamadas à
+ * corretora, que é a origem do HTTP 429).
+ */
 async function analyzeAsset(
-  selectedSymbol: string,
-  tierName: string,
+  candidate: RankedCandidate,
+  activeStrategy: StrategyDef,
+  opTimeframe: ScoreTimeframe,
   state: TradingCycleState,
   deps: TradingCycleDeps,
 ): Promise<AssetAnalysisResult> {
   const { aiConfig, portfolio, orderHistory, activeOrders } = state;
+  const selectedSymbol = candidate.symbol;
+  const candles = candidate.candles;
+  const side = candidate.side;
+  const strategyName = activeStrategy.name;
   const effects: TradingCycleEffect[] = [];
   let nextLastStaleDataWarningAt = state.lastStaleDataWarningAt;
   let nextCooldownUntil = state.cooldownUntil;
 
   try {
-    console.log(`[TRADING] 🔍 Analisando ${selectedSymbol} (buscando dados reais)...`);
-    funnelTelemetry.recordEvaluation();
+    console.log(`[TRADING] 🔍 Avaliando candidato #1 ${selectedSymbol} ${side} (score ${candidate.score.toFixed(0)})...`);
 
     let priceData: { price: number; changePercent24h: number; change24h: number; volume: number; source: any; timestamp: number } | null = null;
 
@@ -420,67 +630,17 @@ async function analyzeAsset(
     const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
     const MIN_CONFIDENCE = 45 + riskAdjustment.confidenceAdjust;
 
-    const activeStrategy = deps.strategies.find(s => s.id === aiConfig.activeStrategyId);
-    if (!activeStrategy) {
-      console.log(`[ESTRATÉGIA] 🚫 Nenhuma estratégia ativa selecionada - pulando ciclo`);
-      funnelTelemetry.recordStage('NO_ACTIVE_STRATEGY', selectedSymbol);
-      return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
-    }
-
-    const opTimeframe = normalizeAiTimeframe(aiConfig.timeframe);
-    const barMs: Record<ScoreTimeframe, number> = {
-      '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
-    };
-    const bufferKey = `${selectedSymbol}_${opTimeframe}`;
-
-    let bufferEntry = deps.candleBuffer.get(bufferKey);
-    if (!bufferEntry || Date.now() - bufferEntry.fetchedAt > 60_000) {
-      try {
-        const REQUIRED_BARS = 100;
-        // ✅ 2026-08-10: uma janela de calendário igual a exatamente 100 barras
-        // (25h pra 15m) fazia índices/ouro (GER40, SPX500, XAUUSD — fecham fora
-        // do pregão, ao contrário de FX/cripto) caírem sistematicamente abaixo
-        // do piso de 30 candles reais sempre que parte da janela caía em
-        // horário de mercado fechado — achado via ai_funnel_snapshots.symbol_stage_counts
-        // (CANDLES_INSUFFICIENT concentrado nesses 3 ativos). Pede uma janela de
-        // calendário 4x mais larga (folga pra fins de semana/gaps de sessão) e
-        // recorta pras últimas REQUIRED_BARS candles reais recebidas — nunca
-        // inventa dado, só evita descartar o ciclo por causa da janela curta.
-        const end = new Date();
-        const start = new Date(end.getTime() - REQUIRED_BARS * 4 * barMs[opTimeframe]);
-        const history = await backtestDataService.fetchHistoricalData(selectedSymbol, start, end, opTimeframe);
-        const candles = history.candles.slice(-REQUIRED_BARS);
-        bufferEntry = { candles, fetchedAt: Date.now() };
-        deps.candleBuffer.set(bufferKey, bufferEntry);
-      } catch (error) {
-        console.warn(`[ESTRATÉGIA] ⚠️ Sem candles reais pra ${selectedSymbol} (${opTimeframe}) agora, pulando ciclo`, error);
-        funnelTelemetry.recordStage('CANDLES_FETCH_FAILED', selectedSymbol, `${opTimeframe}: ${error instanceof Error ? error.message : String(error)}`);
-        return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
-      }
-    }
-
-    const candles = bufferEntry.candles;
-    if (candles.length < 30) {
-      console.log(`[ESTRATÉGIA] ⏸️ Histórico insuficiente de ${selectedSymbol} (${candles.length} candles) - pulando ciclo`);
-      funnelTelemetry.recordStage('CANDLES_INSUFFICIENT', selectedSymbol, `${candles.length} candles`);
-      return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
-    }
-
-    const strategySignal = evaluateStrategyAt(activeStrategy, candles, candles.length - 1);
-    if (!strategySignal.signal) {
-      console.log(`[ESTRATÉGIA] ⏸️ "${activeStrategy.name}" sem sinal em ${selectedSymbol} agora`);
-      funnelTelemetry.recordStage('NO_SIGNAL', selectedSymbol, strategySignal.reasons[0] ?? activeStrategy.name);
-      return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
-    }
-
-    const side: 'LONG' | 'SHORT' = strategySignal.signal === 'BUY' ? 'LONG' : 'SHORT';
-    const strategyName = activeStrategy.name;
-    let confidenceScore = strategySignal.confidence;
+    // Confiança = score do ranking. NÃO é probabilidade calibrada de acerto —
+    // é a média dos scores dos blocos de entrada, mesma natureza heurística da
+    // confiança que `evaluateStrategyAt` já devolvia (50 + proporção de blocos
+    // + nº de filtros). Trocar a fórmula por outra sem medição de acerto real
+    // seria trocar uma heurística por outra fingindo precisão.
+    let confidenceScore = Math.round(candidate.score);
     const rsiSeries = calculateRSI(candles, 14);
     const rsiValue = rsiSeries[rsiSeries.length - 1] ?? 50;
 
     if (confidenceScore < MIN_CONFIDENCE) {
-      console.log(`[SEGURANÇA] ❌ Confiança caiu abaixo do mínimo após análise: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
+      console.log(`[SEGURANÇA] ❌ Confiança abaixo do mínimo do perfil de risco: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
       funnelTelemetry.recordStage('STRATEGY_CONFIDENCE_LOW', selectedSymbol, `${confidenceScore}% < ${MIN_CONFIDENCE}%`);
       return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
     }
@@ -501,7 +661,7 @@ async function analyzeAsset(
           const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`;
           console.log(`[SCORE] 🚫 ${reason}`);
           await deps.persistence.saveDecision({
-            symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: strategySignal.confidence,
+            symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
             reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe },
             actionTaken: false, vetoStage: 'CONTEXT_SCORE_OPPOSITE',
           });
@@ -509,17 +669,17 @@ async function analyzeAsset(
         }
         if (scoreResult.classification === 'LATERAL') {
           const requiredConfidence = MIN_CONFIDENCE + LATERAL_CONFIDENCE_PENALTY;
-          if (strategySignal.confidence < requiredConfidence) {
-            const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${strategySignal.confidence}% de confiança (exige ${requiredConfidence}% nesse regime)`;
+          if (confidenceScore < requiredConfidence) {
+            const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${confidenceScore}% de confiança (exige ${requiredConfidence}% nesse regime)`;
             console.log(`[SCORE] 🚫 ${reason}`);
             await deps.persistence.saveDecision({
-              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: strategySignal.confidence,
+              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
               reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe, requiredConfidence },
               actionTaken: false, vetoStage: 'CONTEXT_SCORE_LATERAL',
             });
             return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
           }
-          console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${strategySignal.confidence}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
+          console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${confidenceScore}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
         }
         scoreConfidence = scoreResult.confidence;
         console.log(`[SCORE] ✅ Market Score (${opTimeframe}) confirma/não contradiz: ${scoreResult.classification} (confiança ${scoreResult.confidence}%)${scoreResult.classification === expectedClassification ? ' — concorda' : ' — neutro'}`);
@@ -540,28 +700,43 @@ async function analyzeAsset(
       }
     }
 
-    // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção
-    if (aiConfig.direction !== 'AUTO' && side !== aiConfig.direction) {
-      console.log(`[CONFIG] 🚫 Setup ${side} descartado: direção travada em "${aiConfig.direction}" pelo usuário`);
-      funnelTelemetry.recordStage('CONFIG_DIRECTION', selectedSymbol, `setup ${side}, travado em ${aiConfig.direction}`);
-      return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
-    }
+    // A trava de direção do usuário (`aiConfig.direction`) já foi aplicada no
+    // ranking — um candidato do lado errado nunca chega até aqui.
 
     // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode (TREND/RANGE/COUNTER/SCALP)
+    //
+    // 2026-08-17: era bloqueio duro (AND binário) sempre que o regime medido
+    // não batia exatamente com o modo travado — inclusive quando o Market
+    // Score não tem opinião forte (`INDEFINIDO`, o caso mais comum). Com
+    // `marketMode: 'TREND'` sendo o padrão de toda sessão nova, isso vetava
+    // quase toda avaliação sempre que o mercado não estava em tendência
+    // limpa (medido em produção: 2.526 vetos em 2 sessões de hoje, maior
+    // bloqueio do dia). Convertido pro MESMO padrão que a checagem de
+    // Market Score LATERAL alguns blocos acima já usa: regime que CONTRADIZ
+    // exige confiança extra em vez de vetar sempre; regime `INDEFINIDO` (o
+    // Score não sabe dizer) não é motivo pra descartar um sinal que a
+    // estratégia já validou — deixa passar com a confiança que já tem.
+    const REGIME_MISMATCH_CONFIDENCE_PENALTY = 15;
     if ((aiConfig.marketMode === 'TREND' || aiConfig.marketMode === 'RANGE') && computedRegime !== null) {
       const wantsTrend = aiConfig.marketMode === 'TREND';
-      const regimeMatches = wantsTrend
-        ? computedRegime === 'TENDENCIA'
-        : computedRegime === 'LATERAL';
-      if (!regimeMatches) {
-        const reason = `Setup ${side} descartado: modo "${aiConfig.marketMode}" exige regime ${wantsTrend ? 'TENDENCIA' : 'LATERAL'}, mas o Market Score (${opTimeframe}) mede ${computedRegime} agora`;
-        console.log(`[MARKET MODE] 🚫 ${reason}`);
-        await deps.persistence.saveDecision({
-          symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-          reasoning: reason, technicalSignals: { regime: computedRegime, marketMode: aiConfig.marketMode },
-          actionTaken: false, vetoStage: 'MARKET_MODE_REGIME_MISMATCH',
-        });
-        return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+      const desiredRegime = wantsTrend ? 'TENDENCIA' : 'LATERAL';
+      const regimeMatches = computedRegime === desiredRegime;
+      const regimeInconclusive = computedRegime === 'INDEFINIDO';
+      if (!regimeMatches && !regimeInconclusive) {
+        const requiredConfidence = MIN_CONFIDENCE + REGIME_MISMATCH_CONFIDENCE_PENALTY;
+        if (confidenceScore < requiredConfidence) {
+          const reason = `Setup ${side} descartado: modo "${aiConfig.marketMode}" prefere regime ${desiredRegime}, mas o Market Score (${opTimeframe}) mede ${computedRegime} agora, e a estratégia só tem ${confidenceScore}% de confiança (exige ${requiredConfidence}% contra o regime)`;
+          console.log(`[MARKET MODE] 🚫 ${reason}`);
+          await deps.persistence.saveDecision({
+            symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+            reasoning: reason, technicalSignals: { regime: computedRegime, marketMode: aiConfig.marketMode, requiredConfidence },
+            actionTaken: false, vetoStage: 'MARKET_MODE_REGIME_MISMATCH',
+          });
+          return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+        }
+        console.log(`[MARKET MODE] 🟡 Regime (${computedRegime}) contradiz modo "${aiConfig.marketMode}" — estratégia com confiança suficiente (${confidenceScore}% ≥ ${requiredConfidence}%) pra operar mesmo assim`);
+      } else if (regimeInconclusive) {
+        console.log(`[MARKET MODE] 🟡 Regime INDEFINIDO (${opTimeframe}) — Market Score sem opinião forte, não bloqueia o sinal da estratégia`);
       }
     } else if (aiConfig.marketMode === 'COUNTER') {
       const COUNTER_RSI_OVERSOLD = 35;
@@ -592,17 +767,28 @@ async function analyzeAsset(
         });
         return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
       }
-      const movementPercentForCostGate = (atrValueForCostGate / currentPrice) * 100;
+      // 🆕 2026-08-17: o denominador do gate passa a ser a DISTÂNCIA ATÉ O
+      // ALVO do trade, não o ATR de uma única barra.
+      //
+      // Por que isso é correção e não afrouxamento: o gate pergunta "o custo
+      // devora fração grande demais do movimento que preciso capturar?". O
+      // movimento que este trade precisa capturar é o TP — hoje
+      // `1,5×ATR × 2,5 = 3,75×ATR` (ver `resolveAtrTargets`), não 1×ATR. Usar
+      // 1 barra como denominador media contra um movimento 3,75x menor que o
+      // real e inflava a razão custo/movimento pelo mesmo fator, reprovando
+      // trades cujo alvo comporta o custo com folga. A calibração de 14.3
+      // usava "movimento típico da barra" porque naquele desenho não havia
+      // alvo explícito em ATR; agora há, e o número certo é o alvo.
+      // Os limiares (7%/12%) não mudam: eles mapeiam RAZÃO, e a razão agora
+      // responde à pergunta certa.
+      const targets = resolveAtrTargets(atrValueForCostGate, getPointValue(selectedSymbol), aiConfig.marketMode);
+      const targetDistancePercent = (targets.targetPoints * getPointValue(selectedSymbol) / currentPrice) * 100;
+      const movementPercentForCostGate = targetDistancePercent;
+      const atrBarPercent = (atrValueForCostGate / currentPrice) * 100;
 
-      const symbolType = symbolMappingService.findMapping(selectedSymbol)?.type;
-      const assetClassForCostGate: CostAssetClass =
-        symbolType === 'crypto' ? 'CRYPTO' :
-        symbolType === 'commodity' ? 'COMMODITY' :
-        symbolType === 'index' ? 'INDEX' :
-        symbolType === 'stock' ? 'STOCK' :
-        'FOREX_MAJOR';
-      if (!symbolType) {
-        console.log(`[CUSTO] ⚠️ ${selectedSymbol} sem mapeamento em SymbolMappingService — usando FOREX_MAJOR como aproximação conservadora pro custo`);
+      const { assetClass: assetClassForCostGate, source: costClassSource } = resolveCostAssetClass(selectedSymbol);
+      if (costClassSource === 'FALLBACK') {
+        console.log(`[CUSTO] ⚠️ ${selectedSymbol} sem classe no catálogo nem no SymbolMappingService — usando FOREX_MAJOR como aproximação pro custo`);
       }
 
       const pointValueForCostGate = getPointValue(selectedSymbol);
@@ -610,12 +796,18 @@ async function analyzeAsset(
 
       const costGateResult = evaluateCostViability(costPercentForCostGate, movementPercentForCostGate);
       if (!costGateResult.approved) {
-        const reason = `Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. ATR ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate})`;
+        const reason = `Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. alvo ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate} via ${costClassSource})`;
         console.log(`[CUSTO] 🚫 ${reason}`);
         await deps.persistence.saveDecision({
           symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
           reasoning: reason, actionTaken: false, vetoStage: 'COST_GATE',
-          riskAssessment: { costPercent: costPercentForCostGate, movementPercent: movementPercentForCostGate, assetClass: assetClassForCostGate },
+          riskAssessment: {
+            costPercent: costPercentForCostGate,
+            movementPercent: movementPercentForCostGate,
+            atrBarPercent,
+            assetClass: assetClassForCostGate,
+            costClassSource,
+          },
         });
         return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
       }
@@ -828,28 +1020,44 @@ async function analyzeAsset(
 
     console.log(`[DECISÃO FINAL] ${side === 'LONG' ? '🟢 COMPRA' : '🔴 VENDA'} | Estratégia: ${strategyName} | Confiança: ${confidenceScore}%`);
 
-    // 🆕 SISTEMA DE PONTOS BASEADO EM targetPoints
-    let targetPointsValue = 400;
-    let stopLossPointsValue = 120;
-
-    if (aiConfig.targetPoints === 'POUCOS') {
-      targetPointsValue = 150; stopLossPointsValue = 50;
-    } else if (aiConfig.targetPoints === 'MÉDIO') {
-      targetPointsValue = 400; stopLossPointsValue = 120;
-    } else if (aiConfig.targetPoints === 'MUITOS') {
-      targetPointsValue = 1500; stopLossPointsValue = 300;
-    } else if (aiConfig.targetPoints === 'CURTO') {
-      targetPointsValue = 80; stopLossPointsValue = 35;
-    } else if (aiConfig.targetPoints === 'LONGO') {
-      targetPointsValue = 800; stopLossPointsValue = 200;
-    }
-
-    if (aiConfig.marketMode === 'SCALP') {
-      targetPointsValue = Math.min(targetPointsValue, 80);
-      stopLossPointsValue = Math.min(stopLossPointsValue, 35);
-    }
-
+    // 🆕 STOP/ALVO DINÂMICO POR ATR (2026-08-17, substitui o sistema de
+    // pontos fixos por targetPoints). Pontos fixos (ex.: 120pts) tratavam
+    // mercado calmo e agitado do mesmo jeito: em mercado calmo sobra folga
+    // (perda maior que o necessário quando erra); em mercado agitado o
+    // preço passa do stop por ruído normal, não porque a tese errou — isso
+    // corta taxa de acerto sem motivo real. Stop = k × ATR(14) do timeframe
+    // operado (mesmo indicador já usado pelo gate de custo acima, candles
+    // idênticos — determinístico, não é chamada nova de rede). Alvo é um
+    // múltiplo fixo do stop (R:R constante entre ativos e regimes), não
+    // mais o dropdown "Poucos/Médio/Muitos": ver NEXT_SESSION.md item 3 —
+    // mudar TP/SL não muda o EV sem edge direcional (parada opcional), só
+    // muda a forma da distribuição; aqui a forma é escolhida deliberadamente
+    // (perde pouco, ganha mais) via R:R > 1, não por promessa de mais lucro.
     const pointValue = getPointValue(selectedSymbol);
+    const atrSeriesForStop = calculateATR(candles, 14);
+    const atrValueForStop = atrSeriesForStop[atrSeriesForStop.length - 1];
+
+    let targetPointsValue: number;
+    let stopLossPointsValue: number;
+
+    if (atrValueForStop && atrValueForStop > 0) {
+      // Mesma função que o gate de custo usou pra medir viabilidade — nunca
+      // recalcular essa aritmética por fora (ver `resolveAtrTargets`).
+      const resolved = resolveAtrTargets(atrValueForStop, pointValue, aiConfig.marketMode);
+      stopLossPointsValue = resolved.stopPoints;
+      targetPointsValue = resolved.targetPoints;
+    } else {
+      // Fallback defensivo — na prática inalcançável: o gate de custo acima
+      // já bloqueia o trade quando ATR não está disponível pros mesmos
+      // candles. Mantido só por segurança, nunca deve disparar em produção.
+      console.log(`[TP/SL SETUP] ⚠️ ATR indisponível pra ${selectedSymbol} no cálculo de stop — usando fallback de pontos fixos (não deveria acontecer, gate de custo já validou ATR)`);
+      targetPointsValue = 400; stopLossPointsValue = 120;
+      if (aiConfig.marketMode === 'SCALP') {
+        targetPointsValue = Math.min(targetPointsValue, 80);
+        stopLossPointsValue = Math.min(stopLossPointsValue, 35);
+      }
+    }
+
     const tpDistance = targetPointsValue * pointValue;
     const slDistance = stopLossPointsValue * pointValue;
 
@@ -871,16 +1079,42 @@ async function analyzeAsset(
     const currentBalance = portfolio.balance || 100;
     const allocatedCapital = Math.min(aiConfig.allocatedCapital, currentBalance);
     const riskPercentage = aiConfig.riskPerTrade / 100;
-    let tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+    const fixedRiskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+    // 2026-08-16: FIX DE BUG — modo FIXED usava riskCapital diretamente como
+    // nocional, ignorando a distância do stop (mesma classe de bug já
+    // corrigida em TradeSizing.calculatePositionSize, usada pelo Backtest,
+    // em 2026-07-30 — nunca replicada aqui no motor ao vivo). Dois trades com
+    // o mesmo riskPerTrade% mas stops de tamanhos diferentes arriscavam
+    // quantias em dinheiro muito diferentes. Corrigido: nocional = risco em $
+    // / distância do stop em % (fixed-fractional de verdade — Van Tharp).
+    const stopDistancePercent = currentPrice > 0 ? slDistance / currentPrice : 0;
+    let tradeCapital = stopDistancePercent > 0 ? fixedRiskCapital / stopDistancePercent : fixedRiskCapital;
 
+    // 2026-08-17: FIX DE BUG ESTRUTURAL — a fórmula anterior
+    // (`fixedRiskCapital * (slDistance / atrDistance)`) reescalava o risco em
+    // dólar por uma RAZÃO ADIMENSIONAL entre duas distâncias em ATR — nunca
+    // dividia pelo preço do ativo. Resultado: o nocional calculado ficava
+    // sempre na mesma ordem de grandeza do próprio `fixedRiskCapital` (poucos
+    // dólares numa conta de $100), pra QUALQUER ativo, QUALQUER
+    // `atrMultiplier` razoável — sempre abaixo do piso de $10
+    // (`MIN_EXECUTABLE_NOTIONAL_USD`). Era a causa raiz confirmada de sessões
+    // inteiras (horas, dias) sem nenhuma entrada, porque "Ajustado por ATR" é
+    // o modo padrão de toda sessão nova (`useApexLogic.ts`). Baixar o
+    // multiplicador de 4,0x pra 1,5x (2026-08-16) só trocou "sempre $0,56"
+    // por "sempre ~$1,50" — mitigou a magnitude sem corrigir a fórmula.
+    // Corrigido pra usar o MESMO fixed-fractional (Van Tharp) do modo FIXED
+    // acima: nocional = risco em $ / distância do stop em % do preço — só que
+    // aqui a "distância do stop" pro tamanho da posição é a escolhida pelo
+    // usuário (`atrMultiplier × ATR`), não o stop fixo de 1,5×ATR realmente
+    // colocado na corretora (`STOP_ATR_MULTIPLIER`, ver `resolveAtrTargets`).
     if (aiConfig.positionSizingMode === 'ATR') {
       const atrSeries = calculateATR(candles, 14);
       const atrValue = atrSeries[atrSeries.length - 1];
       if (atrValue && atrValue > 0) {
         const atrDistance = atrValue * aiConfig.atrMultiplier;
-        const riskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
-        tradeCapital = slDistance > 0 ? riskCapital * (slDistance / atrDistance) : riskCapital;
-        console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} | capital ajustado: $${tradeCapital.toFixed(2)}`);
+        const atrDistancePercent = currentPrice > 0 ? atrDistance / currentPrice : 0;
+        tradeCapital = atrDistancePercent > 0 ? fixedRiskCapital / atrDistancePercent : fixedRiskCapital;
+        console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} (${(atrDistancePercent * 100).toFixed(3)}% do preço) | capital ajustado: $${tradeCapital.toFixed(2)}`);
       }
     }
 
@@ -918,17 +1152,56 @@ async function analyzeAsset(
       }
     }
 
-    const minTradeCapital = 10;
-    const finalTradeCapital = Math.max(tradeCapital, minTradeCapital);
+    // 2026-08-17: FIX DE BUG — `aiConfig.maxContracts` ("Lotes Máximos por
+    // Trade" na tela) nunca era lido aqui. O cálculo de sizing acima (risco%
+    // ou ATR) não tem noção de "lote" nenhuma — devolve só um nocional em
+    // dólar — então nada impedia esse nocional de corresponder a uma
+    // contagem de lotes muito maior que o teto configurado pelo usuário.
+    // Achado ao vivo: Solana entrou com ~20 lotes calculados com o config em
+    // 0,8 lote máximo — o motor simplesmente não sabia desse limite. Pra
+    // ativos caros (índices) o nocional natural já cai num range pequeno de
+    // lotes, mascarando o problema; pra ativos baratos e voláteis (cripto
+    // alt-coin) o mesmo nocional em dólar vira muito mais "lotes". Fix:
+    // reconverte nocional → lotes (mesma fórmula da UI, `MarketScoreBoard.tsx`:
+    // nocional / (lotSize do catálogo × preço)) e reduz o nocional se exceder
+    // o teto — nunca aumenta (só clipa pra baixo).
+    if (aiConfig.maxContracts > 0) {
+      const assetForLotCap = getAssetBySymbol(selectedSymbol);
+      const lotSize = assetForLotCap?.lotSize || 1;
+      const estimatedLots = currentPrice > 0 ? tradeCapital / (lotSize * currentPrice) : 0;
+      if (estimatedLots > aiConfig.maxContracts) {
+        const cappedCapital = aiConfig.maxContracts * lotSize * currentPrice;
+        console.log(`[POSITION SIZING] ✂️ ${selectedSymbol}: ${estimatedLots.toFixed(4)} lotes calculados > teto de ${aiConfig.maxContracts} — nocional reduzido de $${tradeCapital.toFixed(2)} para $${cappedCapital.toFixed(2)}`);
+        tradeCapital = cappedCapital;
+      }
+    }
+
+    // 2026-08-16: FIX DE BUG — antes, nocional abaixo de $10 era empurrado pra
+    // cima (`Math.max(tradeCapital, minTradeCapital)`), inflando o risco real
+    // muito além de `aiConfig.riskPerTrade` em contas pequenas (medido em
+    // research/experiments/2026-08-16-portfolio-amplitude/results/floor_check_by_profile.md:
+    // 24% dos sinais numa conta de $50 com risco 0,5%/trade acionavam o piso).
+    // Mesmo fix aplicado em TradeSizing.calculatePositionSize (usado pelo
+    // Backtest) — aqui é a cópia usada pelo motor ao vivo. Corrigido: pula o
+    // trade em vez de forçar tamanho maior que o risco configurado.
+    const minTradeCapital = MIN_EXECUTABLE_NOTIONAL_USD;
+    if (tradeCapital < minTradeCapital) {
+      const reason = `Nocional calculado ($${tradeCapital.toFixed(2)}) abaixo do mínimo executável ($${minTradeCapital}) — pulando trade em vez de inflar risco além de ${aiConfig.riskPerTrade}% configurado.`;
+      console.log(`[POSITION SIZING] ⏭️ ${selectedSymbol}: ${reason}`);
+      await deps.persistence.saveDecision({
+        symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+        reasoning: reason, actionTaken: false, vetoStage: 'MIN_TRADE_SIZE',
+      });
+      return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+    }
+    const finalTradeCapital = tradeCapital;
 
     console.log(`[POSITION SIZING] 💰 ${selectedSymbol}:`, {
       currentBalance: `$${currentBalance.toFixed(2)}`,
       allocatedCapital: `$${allocatedCapital.toFixed(2)}`,
       riskPerTrade: `${aiConfig.riskPerTrade}%`,
       riskProfile: `${aiConfig.riskProfile} (x${riskAdjustment.sizeMultiplier})`,
-      calculatedTradeCapital: `$${tradeCapital.toFixed(2)}`,
       finalTradeCapital: `$${finalTradeCapital.toFixed(2)}`,
-      reason: tradeCapital < minTradeCapital ? `⬆️ Aumentado para mínimo de $${minTradeCapital}` : '✅ Valor adequado',
     });
 
     const newTrade: TradeVisual = {
@@ -944,7 +1217,7 @@ async function analyzeAsset(
       leverage: 1.5,
       ai_confidence: Math.min(confidenceScore, 95),
       timestamp: Date.now(),
-      reasoning: `${strategyName} | ${tierName} - ${aiConfig.targetPoints} pts (${targetPointsValue}p) - R/R 1:${riskRewardRatio.toFixed(1)} - ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
+      reasoning: `${strategyName} | ranking: score ${candidate.score.toFixed(0)} (piso ${aiConfig.signalScoreFloor}) - ${targetPointsValue.toFixed(0)}p - R/R 1:${riskRewardRatio.toFixed(1)} - ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
       indicators: {
         rsi: Math.round(rsiValue),
         macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',

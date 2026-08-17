@@ -69,9 +69,38 @@ function isCryptoSymbolForSizing(symbol: string): boolean {
   return CRYPTO_BASES.some(base => s.startsWith(base));
 }
 
+/**
+ * 🔒 2026-08-10: mesmo bug de família já corrigido pra cripto em 2026-08-05
+ * (XBNUSD, XETUSD, XLCUSD), reaparecendo em qualquer instrumento catalogado
+ * cujo símbolo contenha um código de moeda como substring sem ser forex de
+ * verdade — não só UKOUSD (Brent Oil). Achado em UKOUSD (trade real 2026-08-10
+ * 18:02 UTC, confiança 78%, stop de 0,0135% do preço fechado em ~80s por
+ * ruído), mas a mesma heurística por nome também pegava errado XAG/XPT/XPD
+ * (prata/platina/paládio — só ouro tinha exceção) e USDX (Índice do Dólar,
+ * categoria INDICES, contém "USD" mas não é par forex).
+ *
+ * Fix estrutural: o heurístico de pip por substring de moeda só pode valer
+ * pra CATEGORIA FOREX de verdade. Pra qualquer símbolo catalogado fora de
+ * FOREX/CRYPTO, a categoria do catálogo é a única fonte de verdade — nunca o
+ * nome. Símbolos fora do catálogo (ex.: notação nativa de exchange tipo
+ * BTCUSDT, já coberta antes pelo check de cripto) caem no fallback por nome,
+ * preservado por retrocompatibilidade.
+ */
+const NON_FOREX_POINT_VALUE_BY_SUBCATEGORY: Record<string, number> = {
+  'Precious Metals': 0.1, // ouro/prata/platina/paládio, preço na casa das centenas/milhares
+  Energy: 0.01,           // petróleo/gás, preço na casa das dezenas/centenas
+  Agriculture: 0.01,
+};
+
 /** Mesma tabela de pip/ponto por classe de ativo usada em useApexLogic.ts. */
 export function getPointValue(symbol: string): number {
   if (isCryptoSymbolForSizing(symbol)) return 1.0; // preço já em dólares cheios, "ponto" = US$1
+
+  const asset = getAssetBySymbol(symbol.toUpperCase());
+  if (asset && asset.category !== 'FOREX') {
+    return NON_FOREX_POINT_VALUE_BY_SUBCATEGORY[asset.subCategory] ?? 1.0;
+  }
+
   let pointValue = 1.0;
   if (
     symbol.includes('EUR') || symbol.includes('GBP') || symbol.includes('USD') ||
@@ -159,6 +188,21 @@ export interface PositionSizeInput {
  * Com `stopDistancePercent` fornecido: nocional = risco em $ / distância do
  * stop em %. Sem ele: comportamento antigo preservado (fallback), para não
  * quebrar nenhum chamador que ainda não tenha essa informação disponível.
+ *
+ * 2026-08-16: FIX DE BUG — `minTradeCapital` antes era um PISO que empurrava
+ * o nocional pra cima (`Math.max(tradeCapital, minTradeCapital)`) sempre que
+ * o cálculo fixed-fractional dava um nocional menor que $10. Isso silenciosamente
+ * INFLAVA o risco real muito além do `riskPerTradePercent` configurado —
+ * medido em `research/experiments/2026-08-16-portfolio-amplitude/results/floor_check_by_profile.md`:
+ * numa conta de $50 com risco de 0,5%/trade e stop largo (comum em timeframes
+ * maiores), 24% dos sinais tinham nocional calculado abaixo do piso, e o piso
+ * fixo forçava risco efetivo várias vezes maior que o configurado — o oposto
+ * do que um perfil "Conservador" deveria fazer. Corrigido: quando o nocional
+ * fixed-fractional fica abaixo de `minTradeCapital` (limite prático de
+ * execução, não meta de risco), a função retorna `null` — quem chama deve
+ * PULAR o trade, nunca forçar o tamanho pra cima. Um trade pequeno demais pra
+ * executar de forma economicamente significativa deve ser descartado, não
+ * transformado num trade que arrisca mais do que o usuário configurou.
  */
 export function calculatePositionSize({
   currentBalance,
@@ -166,7 +210,7 @@ export function calculatePositionSize({
   riskPerTradePercent,
   riskProfile,
   stopDistancePercent,
-}: PositionSizeInput): number {
+}: PositionSizeInput): number | null {
   const capital = Math.min(allocatedCapital, currentBalance);
   const riskPercentage = riskPerTradePercent / 100;
   const { sizeMultiplier } = getRiskAdjustment(riskProfile);
@@ -175,12 +219,12 @@ export function calculatePositionSize({
 
   if (stopDistancePercent !== undefined && stopDistancePercent > 0) {
     const tradeCapital = riskCapital / stopDistancePercent;
-    return Math.max(tradeCapital, minTradeCapital);
+    return tradeCapital >= minTradeCapital ? tradeCapital : null;
   }
 
   // Fallback: comportamento antigo (nocional = risco% de capital, sem
   // considerar distância do stop) — preservado por retrocompatibilidade.
-  return Math.max(riskCapital, minTradeCapital);
+  return riskCapital >= minTradeCapital ? riskCapital : null;
 }
 
 export interface AtrTpSlResult {
