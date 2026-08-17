@@ -97,13 +97,44 @@ Nenhuma migration de banco necessária (`ai_sessions.timeframe` é `text` livre,
 sem CHECK constraint). `npm run validate` verde, dev server sobe sem erro de
 build.
 
-**Item 1 e 2 do plano de 5 frentes estão concluídos.** Restam: item 3 (ligar
-Bloco C, ainda bloqueado por falta de amostra — n=3 trades reais hoje), item 4
-(reabrir Trilho 2 — pesquisa desta sessão sobre RenTech/Two Sigma/market
-makers reforça que é a frente certa: arbitragem estatística/cointegração
-entre ativos correlacionados é dado estruturalmente diferente de TA clássico
-e nunca foi testado aqui), item 5 (redesenho do painel, ainda bloqueado —
-depende do item 1 madurecer, que teve resultado negativo).
+### Item 4 do plano — feito nesta sessão (reabertura do Trilho 2, arbitragem estatística)
+
+Motivado pela consultoria/pesquisa desta sessão sobre Renaissance/Two
+Sigma/market makers (achado real: o "segredo" deles não é 1 indicador, é
+relação estatística entre MUITOS instrumentos — ver seção de pesquisa acima
+no histórico do chat, não repetida aqui). Medi cointegração/pairs trading
+(spread mean-reverting via OLS trailing + z-score) em 6 pares × 2 timeframes
+(15m/1h), parâmetros fixos não otimizados, custo real nas 2 pernas. Script e
+dado em `research/experiments/2026-08-16-statistical-arbitrage/`.
+
+**Resultado: sem edge robusto.** 9 de 12 combinações perdem dinheiro líquido
+de custo; as 3 positivas têm amostra pequena (35-84 trades) e edge por trade
+quase zero (0,01%-0,03%) — consistente com ruído, sem correção por múltiplos
+testes aplicada (12 combinações testadas). O par "clássico" de cointegração
+em commodities (`XAUUSD/XAGUSD`) foi o PIOR resultado (-25,47% líquido,
+win rate 28,9%) — não é confirmação de viés de manual de curso. Detalhe
+completo, 3 hipóteses do porquê, e o que faltaria pra testar de verdade (não
+fechar a porta como o Trilho 1) em
+`research/experiments/2026-08-16-statistical-arbitrage/results/README.md`.
+
+**Decisão**: não implementar em produção com esta configuração. Diferente do
+item 2 (score contínuo, onde a causa parece ser a abordagem em si),
+aqui não dá pra saber se é "a ideia não funciona" ou "esta calibração
+específica não funciona" — falta sensibilidade de parâmetros com correção
+estatística, pares de instrumento mais próximos (mesmo mercado, não
+índices/commodities cross-região), e considerar que o custo de CFD de varejo
+pode simplesmente não deixar margem pra esse tipo de estratégia,
+independente da qualidade do sinal.
+
+**Item 1, 2 e 4 do plano de 5 frentes estão concluídos (nenhum produziu
+resultado promovível a produção).** Restam: item 3 (ligar Bloco C, ainda
+bloqueado por falta de amostra — n=3 trades reais hoje), item 5 (redesenho
+do painel, ainda bloqueado — depende do item 1 madurecer, que teve resultado
+negativo). Com 3 de 5 frentes medidas e nenhuma com resultado positivo
+promovível, a conversa necessária pra próxima sessão é com o Cleber: decidir
+se aprofunda alguma das 3 (retestar arbitragem estatística com mais rigor é
+a mais promissora, por não ter fechado a porta como as outras 2) ou se muda
+de direção.
 
 ## Sessão de calibração do runner ainda ativa
 
