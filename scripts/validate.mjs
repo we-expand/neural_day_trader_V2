@@ -36,6 +36,10 @@ const SUITES = [
     entry: 'src/app/services/strategy/__validate__.ts',
   },
   {
+    name: 'Score contínuo por bloco de estratégia (item 1 do redesenho do cérebro, 2026-08-16)',
+    entry: 'src/app/services/strategy/__validate__score__.ts',
+  },
+  {
     name: 'Gate de viabilidade por custo (Componente 1 do cérebro de execução)',
     entry: 'src/app/services/risk/__validate__.ts',
   },
