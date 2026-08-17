@@ -1,34 +1,98 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-17** (15ª parte — reescrita completa, não empilhada).
+> Reescrito em **2026-08-17** (16ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 
-1. **Commitar os 3 lotes de mudança pendentes** (comandos no fim). Nada foi
-   commitado por mim — regra fixa do projeto.
-2. **Fazer os 2 deploys de função** (`ai-runner`), na ordem em que os fixes
-   foram descobertos (ver seção "Deploys pendentes" abaixo) — sem Docker
-   instalado nesta máquina, então é `npx supabase functions deploy` puro.
-3. **Confirmar que o motor duplo (navegador + servidor) parou.** Depois do
-   deploy do fix em `useApexLogic.ts` (item 3 do "O que foi feito"), reabrir a
-   aba com a IA ligada e checar `ai_decisions` — não deve mais aparecer o
-   mesmo símbolo reavaliado 3-5x em poucos segundos (era o sintoma do
-   navegador rodando loop próprio em paralelo com o `pg_cron`).
-4. **Medir o funil de novo, depois de TODOS os fixes de hoje no ar** — a
-   medição feita durante a sessão ficou obsoleta a cada novo bug achado
-   (import dinâmico faltando → rate-limit → motor duplo → sizing matemático).
-   Query:
+**Contexto**: Cleber ligou a IA por 3 sessões seguidas hoje (14h-20h31 UTC,
+incluindo 2 sessões inteiras DEPOIS do deploy dos fixes de sizing/motor duplo)
+e teve **zero entradas nas três**, mesmo com os fixes da rodada anterior no
+ar. Investigação desta sessão (com dado real de produção, não teoria) achou
+2 bugs estruturais novos, mais graves que tudo corrigido antes — ambos no
+**valor padrão de sessão nova**, o que explica por que "refazer do zero" 3x
+nunca resolveu: todo usuário novo nasce configurado pra nunca operar.
+
+1. **Bug 1 (achado e corrigido nesta sessão): fórmula do modo "Ajustado por
+   ATR" (padrão de toda sessão nova) era matematicamente inválida** —
+   reescalava o risco em $ por uma razão adimensional entre duas distâncias
+   ATR, nunca dividia pelo preço do ativo. Resultado: nocional sempre ~igual
+   ao risco em $ bruto (poucos dólares numa conta de $100), sempre abaixo do
+   piso de $10, **para qualquer multiplicador ATR, qualquer ativo**. O fix de
+   ontem (baixar multiplicador 4,0x→1,5x) só reduziu a magnitude do erro, não
+   corrigiu a fórmula — por isso `MIN_TRADE_SIZE` continuou dominante hoje
+   (577 vetos numa sessão só, depois do fix de ontem no ar). Corrigido em
+   `runTradingCycle.ts` pra usar o mesmo fixed-fractional (Van Tharp) que o
+   modo FIXED já usava certo. `positionSizingPreview.ts` reescrito em
+   consequência (não dá mais número exato sem preço/ATR real — vira
+   qualitativa nos dois modos, como o FIXED já era).
+2. **Bug 2 (achado e corrigido nesta sessão): `MARKET_MODE_REGIME_MISMATCH`
+   era veto duro**, inclusive quando o Market Score mede regime `INDEFINIDO`
+   (o caso mais comum — o Score não tem opinião forte). Com `marketMode:
+   'TREND'` sendo o padrão de sessão nova, isso bloqueava quase toda avaliação
+   fora de tendência limpa — maior bloqueio do dia nas 2 sessões pós-deploy
+   (2.526 vetos combinados). Convertido pro mesmo padrão que a checagem de
+   LATERAL já usava: regime `INDEFINIDO` não bloqueia mais (Score sem opinião
+   não é motivo pra descartar sinal validado); regime que CONTRADIZ agora
+   exige confiança extra (+15 pontos) em vez de vetar sempre.
+3. ~~Commitar os 2 fixes acima e fazer o deploy do `ai-runner`~~ — **feito**
+   pelo Cleber ainda na mesma sessão (commits `e370b0b3b` e `400c40557`,
+   deploy versão 24). Ao ligar a IA de verdade (modo scalp) depois do deploy,
+   apareceram **2 execuções reais** (JP225 SHORT, SOLUSD LONG) — primeira vez
+   do dia com `ENTRY_EXECUTED` > 0. Confirma que os bugs 1 e 2 eram mesmo a
+   causa raiz.
+3b. **Bugs NOVOS achados observando essas 2 execuções ao vivo** (mesma
+   sessão, corrigidos e já deployados — versão 25 do `ai-runner`):
+   - **Bug 3 — `aiConfig.maxContracts` ("Lotes Máximos por Trade") nunca era
+     lido no motor ao vivo.** Confirmado com número exato: SOLUSD abriu com
+     20,27 lotes calculados, config travada em 0,8 — 25x acima, sem gate
+     nenhum barrando. JP225 saiu pequeno (0,05 lotes) só por coincidência de
+     preço alto, mascarando o bug até aparecer num ativo barato/volátil.
+     Corrigido: teto duro aplicado depois do cálculo de sizing (risco% ou
+     ATR), mesmo padrão do piso de $10 já existente — reduz o nocional, nunca
+     aumenta. **As 2 posições já abertas antes do fix NÃO foram corrigidas
+     retroativamente** (SOLUSD continua com 20,27 lotes até fechar/expirar).
+   - **Bug 4 (cosmético, mas na tela principal do Dashboard) —
+     `MarketScoreBoard.tsx` somava `order.amount` (exposição em dólar) e
+     rotulava como "lotes total"** no card "Posições Abertas" — mostrava
+     "4.893,00 lotes total" quando o real era ~20,3. Corrigido pra somar a
+     mesma conversão usada por posição individual.
+   - **Tela congelada / gráfico "só mostra 1 ativo" — investigado e não é
+     bug (na maior parte)**: o congelamento era o polling que já tinha sido
+     corrigido antes destes 2 bugs (commit `400c40557`) — confirmado
+     resolvido por print do Cleber (P&L se movendo nas 2 posições). O
+     gráfico mostrando só o ativo selecionado é comportamento esperado (há
+     um banner "posição aberta em X — ver" pra trocar).
+   Commits: `git add src/app/services/strategy/runTradingCycle.ts
+   src/app/components/dashboard/MarketScoreBoard.tsx && git commit -m "fix:
+   teto de lotes maximos nao era aplicado no motor + cabecalho somava dolar
+   como se fosse lote"` — **já commitado e deployado pelo Cleber (versão 25)**.
+4. **Continuar observando o funil com o dado fresco pós-versão-25** — löop de
+   10 em 10 minutos rodando nesta sessão (CronCreate `c997a820`, expira em 7
+   dias). Foco: confirmar que a PRÓXIMA entrada em ativo barato/volátil já
+   sai com lote correto (≤ 0,8 configurado). Query:
    ```sql
    select coalesce(veto_stage,'(EXECUTADO)') as stage, count(*) n
    from ai_decisions
    where session_id = '<sessão ativa>'
    group by 1 order by n desc;
    ```
-   Com o fix de sizing (item 4 abaixo) resolvido, `MIN_TRADE_SIZE` deve sumir
-   do topo. Se `ENTRY_EXECUTED` continuar em zero mesmo assim, o próximo
-   suspeito é `MARKET_MODE_MISMATCH` (regime `INDEFINIDO` vs modo "Trend"
-   travado) — decisão de produto do Cleber, não bug.
+   Expectativa: `MIN_TRADE_SIZE` e `MARKET_MODE_REGIME_MISMATCH` devem cair
+   muito do topo. Se `ENTRY_EXECUTED` continuar em zero, o próximo suspeito
+   pelo volume de hoje é `COST_GATE` (887+750+1235 vetos nas 3 sessões de
+   hoje — pode ter componente real do miscalibre de índice já registrado
+   abaixo, mas ainda não isolado desta vez).
+
+## Verificação desta sessão (bugs 1 e 2 acima)
+
+- `npm run validate`: verde (265 asserções, mesma suíte).
+- `tsc --noEmit` full: 578 erros — igual à baseline pré-existente, zero novo.
+- `deno check` do runner: limpo.
+- **Verificação visual/funcional em produção NÃO feita** — sem servidor de
+  preview disponível nesta sessão. Ligar a IA de verdade e observar
+  `ai_decisions` (passo 4 acima) é a única verificação real que falta, e é
+  obrigatória antes de considerar isso resolvido — os dois bugs foram
+  corrigidos por leitura de código + matemática, não por teste ao vivo ainda.
 
 ## O que foi feito nesta sessão (ordem cronológica real)
 
@@ -148,6 +212,11 @@ o plano de 3 itens colapsou pra 2 entregas reais.
 
 ## Deploys pendentes (Cleber precisa rodar, nesta ordem)
 
+Os 3 commits da rodada anterior (motor duplo, prévia de sizing v1, banner de
+IA travada) **já foram commitados pelo Cleber** antes desta sessão começar —
+nada pendente deles. O que falta agora é só o commit dos 2 bugs novos (acima)
+e o deploy.
+
 Sem Docker nesta máquina — `supabase functions deploy` usa o bundler
 sem-Docker, que precisa do `deno.json` com entradas exatas (não curinga) ou
 sobe a pasta `src/` inteira (já mordeu 2x: erro 413 de tamanho, depois
@@ -159,44 +228,18 @@ cd supabase/functions/ai-runner && deno info --json index.ts > /tmp/di.json
 ```
 
 ```bash
-# 1. Fixes do motor duplo + telemetria (item 3)
-git add src/app/hooks/useAIPersistence.ts src/app/hooks/useApexLogic.ts src/app/services/AITradingPersistenceService.ts src/app/services/telemetry/FunnelTelemetry.ts supabase/functions/ai-runner/lib/persistence.ts
-git commit -m "fix: desliga loop de decisao do navegador em DEMO (so o runner de servidor decide) + completa mapeamento MIN_TRADE_SIZE na telemetria"
-
-# 2. Prévia de sizing + fix do modo Simples (item 4)
+# Fix da fórmula de sizing ATR + suavização do gate de regime (bugs 1 e 2 acima)
 git add src/app/services/strategy/runTradingCycle.ts src/app/services/strategy/positionSizingPreview.ts src/app/components/AITrader.tsx
-git commit -m "feat: previa de tamanho de posicao no modo avancado + modo Simples reseta atrMultiplier ao trocar perfil"
-
-# 3. Banner de IA travada (item 6)
-git add src/app/hooks/useAIStuckDetector.ts src/app/components/dashboard/AIStuckBanner.tsx src/app/components/Dashboard.tsx
-git commit -m "feat: banner de alerta quando a IA esta ligada mas travada por um motivo dominante de veto"
+git commit -m "fix: formula de sizing ATR era invalida (independia do preco) + regime INDEFINIDO nao veta mais entrada"
 
 git push
 
-# Deploy da função (só o commit 1 toca o runner; 2 e 3 são frontend puro,
-# não precisam de supabase functions deploy — só do push + merge pra main)
 npx supabase functions deploy ai-runner --project-ref wyvdsxtcmizettljxtbg --no-verify-jwt
 ```
 
 Depois: **merge `dev` → `main`** pra tudo isso valer no site de produção
 (Vercel só builda a partir de `main`) — ainda não feito, decisão do Cleber
 sobre quando.
-
-## Verificação desta sessão
-
-- `npm run validate`: verde em cada mudança (265 asserções, suítes
-  inalteradas desde a Onda 1 — os fixes de hoje depois da Onda 1 foram todos
-  em camada de driver/UI/telemetria, não no núcleo do motor coberto pelo
-  gate).
-- `tsc --noEmit` full: comparado passo a passo a cada mudança via diff
-  contra a baseline anterior — **zero erro novo em nenhum dos 4 commits**
-  pendentes (578 erros pré-existentes, constantes).
-- `deno check` do runner: limpo depois de cada mudança que tocou o motor
-  compartilhado.
-- **Verificação visual no navegador NÃO feita** (porta 5173 ocupada por
-  outra sessão o dia inteiro) — os 3 componentes novos (`AIStuckBanner`,
-  o card de prévia em `AITrader.tsx`, o aviso do modo Avançado) merecem uma
-  conferência visual rápida do Cleber depois do deploy.
 
 ## Estado herdado, sem mudança nesta sessão
 
