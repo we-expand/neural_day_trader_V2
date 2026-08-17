@@ -37,26 +37,44 @@ Resumo do que já foi medido/decidido nesta sessão:
    "perfil de risco", mostrar atividade esperada calculada do funil real em
    vez de silêncio, trocar timeframe único por "horizonte operacional").
 
-### Próximo passo obrigatório
+### Item 1 e 2 do plano — feitos nesta sessão, com achado negativo importante
 
-**Nada dos 5 itens foi implementado ainda.** A sessão de 16/08 já deixou a
-especificação técnica do item 1 pronta (seção "Especificação técnica do item
-1" no arquivo acima) — começar direto por:
+1. **Item 1 (infraestrutura de score) implementado e testado.** `scoreBlock`
+   + `evaluateStrategyScoreAt` em
+   [StrategyEvaluator.ts:132](src/app/services/strategy/StrategyEvaluator.ts:132)
+   — score 0-100 por bloco (ABOVE/BELOW/BETWEEN/RISING/FALLING continuam
+   booleanos 100/0; CROSS_ABOVE/CROSS_BELOW ganham gradação por recência).
+   `evaluateStrategyAt` (gate binário) **não foi alterado** — continua sendo
+   o único caminho em produção. 16 casos determinísticos em
+   `src/app/services/strategy/__validate__score__.ts`, registrado em
+   `npm run validate` (gate 100% verde).
+2. **Item 2 (medição) feito — resultado NEGATIVO, não promover.** Comparei
+   score contínuo (pesos iguais, pisos 40/50/60/70) vs. gate binário atual,
+   mesmo dado real em cache (`2026-08-05-taxa-base/data/`, 15m/1h, 80
+   combinações preset×ativo×TF), mesmo motor de saída, mesmo CostModel.ts —
+   script em `research/experiments/2026-08-16-score-vs-gate/`. **Em todo
+   piso testado, o score contínuo perde do gate binário na maioria das
+   combinações** (47-53 de 80) e o resultado líquido médio piora (-3 a -19
+   pontos percentuais), mesmo nos pisos que já se aproximam da frequência do
+   gate. Detalhe completo, hipótese do porquê, e alternativas ainda não
+   testadas em
+   `research/experiments/2026-08-16-score-vs-gate/results/README.md`.
 
-1. Adicionar `scoreFn` por tipo de bloco em
-   [StrategyEvaluator.ts:187](src/app/services/strategy/StrategyEvaluator.ts:187)
-   (hoje é gate binário — `entryHits === activeEntry.length` na linha 211),
-   com `__validate__.ts` novo cobrindo casos determinísticos.
-2. Medir score contínuo vs. gate atual nos dados reais já em cache
-   (`research/experiments/2026-08-05-taxa-base/data/`, 15m/1h) — **não
-   promover pra produção sem essa medição.**
-3. Só depois, ligar em `runTradingCycle.ts` + runner Deno.
+**Decisão**: NÃO ligar score contínuo em `runTradingCycle.ts`/runner Deno
+nesta forma — a hipótese "pesos iguais + piso simples resolve frequência"
+não se sustentou na medição. Isso não invalida a infraestrutura do item 1
+(fica pronta pra reuso), mas o item 3 original do plano de 5 frentes (ligar
+Bloco C) segue sem novo motivo pra avançar, e a frente de frequência
+(item 1 do plano) precisa de uma nova hipótese antes de tentar de novo — ver
+as 3 alternativas não testadas na seção "Decisão" do README acima (pesos
+não-uniformes, piso >70, ou score só como desempate multi-setup mantendo o
+gate binário como piso de qualidade).
 
 As 3 perguntas em aberto foram respondidas pelo Cleber em 2026-08-16 (detalhe
 na seção "Perguntas em aberto — respondidas" do arquivo da sessão): piso de
-score só depois do backtest do item 2 (não chutar), desempate multi-setup =
-maior score vence, pesos por bloco = iguais no início. Pode começar direto no
-passo 1 da spec técnica.
+score só depois do backtest (medido acima, resultado negativo), desempate
+multi-setup = maior score vence, pesos por bloco = iguais no início (medido
+acima — é justamente essa escolha que não funcionou).
 
 ## Sessão de calibração do runner ainda ativa
 

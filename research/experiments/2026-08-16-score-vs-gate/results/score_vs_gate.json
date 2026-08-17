@@ -1,0 +1,2802 @@
+[
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "spanDays": 119.98958333333333,
+    "gateTrades": 118,
+    "gateTradesPerDay": 0.9834186995398907,
+    "gateNetPercent": -27.47358770129511,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 162,
+        "tradesPerDay": 1.3501171976734092,
+        "netPercent": -23.404821378190835
+      },
+      {
+        "threshold": 50,
+        "trades": 154,
+        "tradesPerDay": 1.2834447434673149,
+        "netPercent": -23.46934976289071
+      },
+      {
+        "threshold": 60,
+        "trades": 151,
+        "tradesPerDay": 1.2584425731400295,
+        "netPercent": -25.576382074015758
+      },
+      {
+        "threshold": 70,
+        "trades": 142,
+        "tradesPerDay": 1.1834360621581734,
+        "netPercent": -25.905539240734214
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "spanDays": 364.9583333333333,
+    "gateTrades": 94,
+    "gateTradesPerDay": 0.25756364881835825,
+    "gateNetPercent": -36.819187689257106,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 121,
+        "tradesPerDay": 0.33154469688320587,
+        "netPercent": -38.65554471954629
+      },
+      {
+        "threshold": 50,
+        "trades": 115,
+        "tradesPerDay": 0.3151044639799064,
+        "netPercent": -40.128565961368615
+      },
+      {
+        "threshold": 60,
+        "trades": 111,
+        "tradesPerDay": 0.3041443087110401,
+        "netPercent": -42.08234064770096
+      },
+      {
+        "threshold": 70,
+        "trades": 108,
+        "tradesPerDay": 0.2959241922593904,
+        "netPercent": -42.14412458167578
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "spanDays": 131.73958333333334,
+    "gateTrades": 83,
+    "gateTradesPerDay": 0.6300308373527318,
+    "gateNetPercent": -0.9181698652887486,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 117,
+        "tradesPerDay": 0.8881157586779472,
+        "netPercent": -2.423442536890687
+      },
+      {
+        "threshold": 50,
+        "trades": 113,
+        "tradesPerDay": 0.8577528267573337,
+        "netPercent": -2.0972417159799677
+      },
+      {
+        "threshold": 60,
+        "trades": 108,
+        "tradesPerDay": 0.8197991618565668,
+        "netPercent": -1.6248422323174068
+      },
+      {
+        "threshold": 70,
+        "trades": 104,
+        "tradesPerDay": 0.7894362299359531,
+        "netPercent": -1.3868719747678893
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "spanDays": 400.625,
+    "gateTrades": 44,
+    "gateTradesPerDay": 0.10982839313572543,
+    "gateNetPercent": -2.297370661226771,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 54,
+        "tradesPerDay": 0.13478939157566303,
+        "netPercent": -3.197499715271065
+      },
+      {
+        "threshold": 50,
+        "trades": 52,
+        "tradesPerDay": 0.1297971918876755,
+        "netPercent": -2.9203623582665
+      },
+      {
+        "threshold": 60,
+        "trades": 50,
+        "tradesPerDay": 0.12480499219968799,
+        "netPercent": -2.541022293772544
+      },
+      {
+        "threshold": 70,
+        "trades": 50,
+        "tradesPerDay": 0.12480499219968799,
+        "netPercent": -2.7461410525604784
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "spanDays": 127.34375,
+    "gateTrades": 74,
+    "gateTradesPerDay": 0.5811042944785276,
+    "gateNetPercent": -8.538798882080384,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 95,
+        "tradesPerDay": 0.7460122699386503,
+        "netPercent": -7.204380536284451
+      },
+      {
+        "threshold": 50,
+        "trades": 93,
+        "tradesPerDay": 0.7303067484662576,
+        "netPercent": -6.719257457058739
+      },
+      {
+        "threshold": 60,
+        "trades": 92,
+        "tradesPerDay": 0.7224539877300613,
+        "netPercent": -6.163176608089142
+      },
+      {
+        "threshold": 70,
+        "trades": 85,
+        "tradesPerDay": 0.6674846625766871,
+        "netPercent": -6.345912838795807
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "spanDays": 417.8333333333333,
+    "gateTrades": 30,
+    "gateTradesPerDay": 0.07179896290386917,
+    "gateNetPercent": 21.437285753723508,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 38,
+        "tradesPerDay": 0.09094535301156761,
+        "netPercent": 28.113028489014546
+      },
+      {
+        "threshold": 50,
+        "trades": 36,
+        "tradesPerDay": 0.08615875548464301,
+        "netPercent": 29.77315342878865
+      },
+      {
+        "threshold": 60,
+        "trades": 35,
+        "tradesPerDay": 0.0837654567211807,
+        "netPercent": 30.685828517735924
+      },
+      {
+        "threshold": 70,
+        "trades": 34,
+        "tradesPerDay": 0.08137215795771839,
+        "netPercent": 29.619591743019587
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "spanDays": 134.38541666666666,
+    "gateTrades": 72,
+    "gateTradesPerDay": 0.5357724207425781,
+    "gateNetPercent": -46.81662714439034,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 95,
+        "tradesPerDay": 0.7069219440353461,
+        "netPercent": -57.656331549380134
+      },
+      {
+        "threshold": 50,
+        "trades": 90,
+        "tradesPerDay": 0.6697155259282227,
+        "netPercent": -53.563076763911646
+      },
+      {
+        "threshold": 60,
+        "trades": 87,
+        "tradesPerDay": 0.6473916750639486,
+        "netPercent": -53.177573212789476
+      },
+      {
+        "threshold": 70,
+        "trades": 82,
+        "tradesPerDay": 0.6101852569568251,
+        "netPercent": -49.80325641464896
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "spanDays": 365.9583333333333,
+    "gateTrades": 34,
+    "gateTradesPerDay": 0.09290675167938063,
+    "gateNetPercent": 25.7656927548631,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 38,
+        "tradesPerDay": 0.10383695775930776,
+        "netPercent": 60.68997838918359
+      },
+      {
+        "threshold": 50,
+        "trades": 37,
+        "tradesPerDay": 0.10110440623932597,
+        "netPercent": 56.348789464150016
+      },
+      {
+        "threshold": 60,
+        "trades": 36,
+        "tradesPerDay": 0.09837185471934419,
+        "netPercent": 51.45552641528593
+      },
+      {
+        "threshold": 70,
+        "trades": 36,
+        "tradesPerDay": 0.09837185471934419,
+        "netPercent": 25.424163605600185
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "US30",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 79,
+    "gateTradesPerDay": 0.5660546350201523,
+    "gateNetPercent": 2.423530109275965,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 108,
+        "tradesPerDay": 0.77384684281236,
+        "netPercent": 3.817261591300702
+      },
+      {
+        "threshold": 50,
+        "trades": 102,
+        "tradesPerDay": 0.7308553515450067,
+        "netPercent": 3.5197257360955114
+      },
+      {
+        "threshold": 60,
+        "trades": 92,
+        "tradesPerDay": 0.6592028660994178,
+        "netPercent": 4.875432391482728
+      },
+      {
+        "threshold": 70,
+        "trades": 89,
+        "tradesPerDay": 0.6377071204657412,
+        "netPercent": 4.3543927860185425
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "US30",
+    "tf": "1h",
+    "spanDays": 478.0833333333333,
+    "gateTrades": 41,
+    "gateTradesPerDay": 0.0857591075474987,
+    "gateNetPercent": 9.54513083412348,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 56,
+        "tradesPerDay": 0.11713439079658358,
+        "netPercent": 8.746773746963559
+      },
+      {
+        "threshold": 50,
+        "trades": 54,
+        "tradesPerDay": 0.1129510196967056,
+        "netPercent": 8.048942962983823
+      },
+      {
+        "threshold": 60,
+        "trades": 52,
+        "tradesPerDay": 0.10876764859682761,
+        "netPercent": 8.060012452088227
+      },
+      {
+        "threshold": 70,
+        "trades": 47,
+        "tradesPerDay": 0.09830922084713266,
+        "netPercent": 8.10717538746731
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "NAS100",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 83,
+    "gateTradesPerDay": 0.5947156291983878,
+    "gateNetPercent": 1.8752326250135345,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 109,
+        "tradesPerDay": 0.781012091356919,
+        "netPercent": 11.215530003177687
+      },
+      {
+        "threshold": 50,
+        "trades": 105,
+        "tradesPerDay": 0.7523510971786834,
+        "netPercent": 7.629485230972962
+      },
+      {
+        "threshold": 60,
+        "trades": 103,
+        "tradesPerDay": 0.7380206000895656,
+        "netPercent": 6.405889574787865
+      },
+      {
+        "threshold": 70,
+        "trades": 98,
+        "tradesPerDay": 0.7021943573667712,
+        "netPercent": 4.766668137356726
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "NAS100",
+    "tf": "1h",
+    "spanDays": 476.5,
+    "gateTrades": 33,
+    "gateTradesPerDay": 0.06925498426023086,
+    "gateNetPercent": 19.464073089255777,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 43,
+        "tradesPerDay": 0.09024134312696747,
+        "netPercent": 20.616497839882317
+      },
+      {
+        "threshold": 50,
+        "trades": 42,
+        "tradesPerDay": 0.08814270724029381,
+        "netPercent": 20.764260428679663
+      },
+      {
+        "threshold": 60,
+        "trades": 37,
+        "tradesPerDay": 0.0776495278069255,
+        "netPercent": 24.758148507461392
+      },
+      {
+        "threshold": 70,
+        "trades": 34,
+        "tradesPerDay": 0.07135362014690451,
+        "netPercent": 22.937840392047853
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "SPX500",
+    "tf": "15m",
+    "spanDays": 127.40625,
+    "gateTrades": 90,
+    "gateTradesPerDay": 0.7064017660044151,
+    "gateNetPercent": -12.50445088155171,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 116,
+        "tradesPerDay": 0.9104733872945794,
+        "netPercent": -14.34386141674495
+      },
+      {
+        "threshold": 50,
+        "trades": 112,
+        "tradesPerDay": 0.8790777532499386,
+        "netPercent": -15.173234284000902
+      },
+      {
+        "threshold": 60,
+        "trades": 107,
+        "tradesPerDay": 0.8398332106941379,
+        "netPercent": -14.249356042305854
+      },
+      {
+        "threshold": 70,
+        "trades": 100,
+        "tradesPerDay": 0.7848908511160166,
+        "netPercent": -11.938017956487094
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "SPX500",
+    "tf": "1h",
+    "spanDays": 397.5,
+    "gateTrades": 38,
+    "gateTradesPerDay": 0.09559748427672957,
+    "gateNetPercent": -2.8505423513382193,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 50,
+        "tradesPerDay": 0.12578616352201258,
+        "netPercent": 0.3962900857971413
+      },
+      {
+        "threshold": 50,
+        "trades": 49,
+        "tradesPerDay": 0.12327044025157233,
+        "netPercent": -4.368086741843262
+      },
+      {
+        "threshold": 60,
+        "trades": 46,
+        "tradesPerDay": 0.11572327044025157,
+        "netPercent": -3.5796465178123795
+      },
+      {
+        "threshold": 70,
+        "trades": 43,
+        "tradesPerDay": 0.10817610062893082,
+        "netPercent": -2.4214871322603173
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "GER40",
+    "tf": "15m",
+    "spanDays": 125,
+    "gateTrades": 65,
+    "gateTradesPerDay": 0.52,
+    "gateNetPercent": -2.8538360880796434,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 84,
+        "tradesPerDay": 0.672,
+        "netPercent": -3.0223860928781354
+      },
+      {
+        "threshold": 50,
+        "trades": 80,
+        "tradesPerDay": 0.64,
+        "netPercent": -4.450425140983942
+      },
+      {
+        "threshold": 60,
+        "trades": 77,
+        "tradesPerDay": 0.616,
+        "netPercent": -4.786199219288181
+      },
+      {
+        "threshold": 70,
+        "trades": 76,
+        "tradesPerDay": 0.608,
+        "netPercent": -5.411516894161884
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento de Canal (Donchian)",
+    "symbol": "GER40",
+    "tf": "1h",
+    "spanDays": 468.4583333333333,
+    "gateTrades": 33,
+    "gateTradesPerDay": 0.07044383171751312,
+    "gateNetPercent": -2.3835247622823243,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 44,
+        "tradesPerDay": 0.09392510895668417,
+        "netPercent": -1.3147522681231845
+      },
+      {
+        "threshold": 50,
+        "trades": 44,
+        "tradesPerDay": 0.09392510895668417,
+        "netPercent": -2.9943743999228642
+      },
+      {
+        "threshold": 60,
+        "trades": 42,
+        "tradesPerDay": 0.08965578582228943,
+        "netPercent": -3.0019031167916017
+      },
+      {
+        "threshold": 70,
+        "trades": 37,
+        "tradesPerDay": 0.07898247798630259,
+        "netPercent": -0.5796492305056988
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "spanDays": 119.98958333333333,
+    "gateTrades": 40,
+    "gateTradesPerDay": 0.3333622710304714,
+    "gateNetPercent": -6.001388869705388,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 182,
+        "tradesPerDay": 1.516798333188645,
+        "netPercent": -27.059093288499934
+      },
+      {
+        "threshold": 50,
+        "trades": 182,
+        "tradesPerDay": 1.516798333188645,
+        "netPercent": -27.059093288499934
+      },
+      {
+        "threshold": 60,
+        "trades": 73,
+        "tradesPerDay": 0.6083861446306104,
+        "netPercent": -6.810732021028906
+      },
+      {
+        "threshold": 70,
+        "trades": 69,
+        "tradesPerDay": 0.5750499175275632,
+        "netPercent": -6.038020430442764
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "spanDays": 364.9583333333333,
+    "gateTrades": 43,
+    "gateTradesPerDay": 0.11782166914031282,
+    "gateNetPercent": 4.877109197913039,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 134,
+        "tradesPerDay": 0.36716520150702137,
+        "netPercent": -42.18429140625763
+      },
+      {
+        "threshold": 50,
+        "trades": 134,
+        "tradesPerDay": 0.36716520150702137,
+        "netPercent": -42.18429140625763
+      },
+      {
+        "threshold": 60,
+        "trades": 66,
+        "tradesPerDay": 0.1808425619362941,
+        "netPercent": -6.498898786528159
+      },
+      {
+        "threshold": 70,
+        "trades": 62,
+        "tradesPerDay": 0.1698824066674278,
+        "netPercent": 1.5270807177657686
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "spanDays": 131.73958333333334,
+    "gateTrades": 42,
+    "gateTradesPerDay": 0.3188107851664426,
+    "gateNetPercent": -1.3179285906442024,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 125,
+        "tradesPerDay": 0.9488416225191745,
+        "netPercent": -1.5172019580780625
+      },
+      {
+        "threshold": 50,
+        "trades": 125,
+        "tradesPerDay": 0.9488416225191745,
+        "netPercent": -1.5172019580780625
+      },
+      {
+        "threshold": 60,
+        "trades": 66,
+        "tradesPerDay": 0.5009883766901241,
+        "netPercent": -0.14509783151950412
+      },
+      {
+        "threshold": 70,
+        "trades": 63,
+        "tradesPerDay": 0.4782161777496639,
+        "netPercent": 0.15364516166536396
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "spanDays": 400.625,
+    "gateTrades": 23,
+    "gateTradesPerDay": 0.05741029641185647,
+    "gateNetPercent": -3.0338314009941834,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 57,
+        "tradesPerDay": 0.1422776911076443,
+        "netPercent": -2.913867702427853
+      },
+      {
+        "threshold": 50,
+        "trades": 57,
+        "tradesPerDay": 0.1422776911076443,
+        "netPercent": -2.913867702427853
+      },
+      {
+        "threshold": 60,
+        "trades": 34,
+        "tradesPerDay": 0.08486739469578783,
+        "netPercent": -3.3582930302471263
+      },
+      {
+        "threshold": 70,
+        "trades": 33,
+        "tradesPerDay": 0.08237129485179408,
+        "netPercent": -2.7590573066735655
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "spanDays": 127.34375,
+    "gateTrades": 30,
+    "gateTradesPerDay": 0.23558282208588957,
+    "gateNetPercent": -5.68417213433574,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 102,
+        "tradesPerDay": 0.8009815950920245,
+        "netPercent": -3.3444499533867855
+      },
+      {
+        "threshold": 50,
+        "trades": 101,
+        "tradesPerDay": 0.7931288343558283,
+        "netPercent": -2.4700006988063894
+      },
+      {
+        "threshold": 60,
+        "trades": 47,
+        "tradesPerDay": 0.369079754601227,
+        "netPercent": -4.458711593542617
+      },
+      {
+        "threshold": 70,
+        "trades": 43,
+        "tradesPerDay": 0.33766871165644174,
+        "netPercent": -2.405763706585668
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "spanDays": 417.8333333333333,
+    "gateTrades": 17,
+    "gateTradesPerDay": 0.040686078978859196,
+    "gateNetPercent": 2.304987171171666,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 46,
+        "tradesPerDay": 0.11009174311926606,
+        "netPercent": 19.016093068613348
+      },
+      {
+        "threshold": 50,
+        "trades": 46,
+        "tradesPerDay": 0.11009174311926606,
+        "netPercent": 19.016093068613348
+      },
+      {
+        "threshold": 60,
+        "trades": 25,
+        "tradesPerDay": 0.05983246908655764,
+        "netPercent": 13.678004418138057
+      },
+      {
+        "threshold": 70,
+        "trades": 24,
+        "tradesPerDay": 0.05743917032309533,
+        "netPercent": 11.782457179770548
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "spanDays": 134.38541666666666,
+    "gateTrades": 34,
+    "gateTradesPerDay": 0.25300364312843965,
+    "gateNetPercent": -14.85975827209568,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 100,
+        "tradesPerDay": 0.7441283621424696,
+        "netPercent": -36.36103394808685
+      },
+      {
+        "threshold": 50,
+        "trades": 100,
+        "tradesPerDay": 0.7441283621424696,
+        "netPercent": -36.36103394808685
+      },
+      {
+        "threshold": 60,
+        "trades": 49,
+        "tradesPerDay": 0.36462289744981013,
+        "netPercent": -18.497344291978465
+      },
+      {
+        "threshold": 70,
+        "trades": 45,
+        "tradesPerDay": 0.33485776296411135,
+        "netPercent": -17.660053132418476
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "spanDays": 365.9583333333333,
+    "gateTrades": 17,
+    "gateTradesPerDay": 0.046453375839690315,
+    "gateNetPercent": 0.07779569681267251,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 56,
+        "tradesPerDay": 0.15302288511897985,
+        "netPercent": 16.16802732807079
+      },
+      {
+        "threshold": 50,
+        "trades": 56,
+        "tradesPerDay": 0.15302288511897985,
+        "netPercent": 16.16802732807079
+      },
+      {
+        "threshold": 60,
+        "trades": 22,
+        "tradesPerDay": 0.06011613343959923,
+        "netPercent": 8.89446081027803
+      },
+      {
+        "threshold": 70,
+        "trades": 22,
+        "tradesPerDay": 0.06011613343959923,
+        "netPercent": 8.89446081027803
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "US30",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 40,
+    "gateTradesPerDay": 0.28660994178235555,
+    "gateNetPercent": -2.8326348377228308,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 115,
+        "tradesPerDay": 0.8240035826242723,
+        "netPercent": 7.983644498271723
+      },
+      {
+        "threshold": 50,
+        "trades": 115,
+        "tradesPerDay": 0.8240035826242723,
+        "netPercent": 7.958335773561234
+      },
+      {
+        "threshold": 60,
+        "trades": 50,
+        "tradesPerDay": 0.3582624272279445,
+        "netPercent": -0.5611011786726091
+      },
+      {
+        "threshold": 70,
+        "trades": 49,
+        "tradesPerDay": 0.3510971786833856,
+        "netPercent": -1.3020786668770834
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "US30",
+    "tf": "1h",
+    "spanDays": 478.0833333333333,
+    "gateTrades": 19,
+    "gateTradesPerDay": 0.03974202544884086,
+    "gateNetPercent": 2.423250284782411,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 54,
+        "tradesPerDay": 0.1129510196967056,
+        "netPercent": 12.585907011277339
+      },
+      {
+        "threshold": 50,
+        "trades": 54,
+        "tradesPerDay": 0.1129510196967056,
+        "netPercent": 12.585907011277339
+      },
+      {
+        "threshold": 60,
+        "trades": 24,
+        "tradesPerDay": 0.05020045319853582,
+        "netPercent": 4.101824038305212
+      },
+      {
+        "threshold": 70,
+        "trades": 23,
+        "tradesPerDay": 0.04810876764859683,
+        "netPercent": 3.080160333625295
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "NAS100",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 41,
+    "gateTradesPerDay": 0.29377519032691446,
+    "gateNetPercent": -1.6141126588199841,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 116,
+        "tradesPerDay": 0.8311688311688312,
+        "netPercent": 1.4431202857431225
+      },
+      {
+        "threshold": 50,
+        "trades": 115,
+        "tradesPerDay": 0.8240035826242723,
+        "netPercent": 1.672338949443315
+      },
+      {
+        "threshold": 60,
+        "trades": 56,
+        "tradesPerDay": 0.4012539184952978,
+        "netPercent": -2.0288124175917943
+      },
+      {
+        "threshold": 70,
+        "trades": 53,
+        "tradesPerDay": 0.3797581728616211,
+        "netPercent": -3.0107048292425977
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "NAS100",
+    "tf": "1h",
+    "spanDays": 476.5,
+    "gateTrades": 14,
+    "gateTradesPerDay": 0.02938090241343127,
+    "gateNetPercent": 5.140505376573166,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 44,
+        "tradesPerDay": 0.09233997901364113,
+        "netPercent": 17.295877002637543
+      },
+      {
+        "threshold": 50,
+        "trades": 45,
+        "tradesPerDay": 0.0944386149003148,
+        "netPercent": 13.186450526988907
+      },
+      {
+        "threshold": 60,
+        "trades": 19,
+        "tradesPerDay": 0.03987408184679958,
+        "netPercent": 5.473098546793181
+      },
+      {
+        "threshold": 70,
+        "trades": 19,
+        "tradesPerDay": 0.03987408184679958,
+        "netPercent": 5.473098546793181
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "SPX500",
+    "tf": "15m",
+    "spanDays": 127.40625,
+    "gateTrades": 31,
+    "gateTradesPerDay": 0.24331616384596516,
+    "gateNetPercent": -6.337789363790382,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 115,
+        "tradesPerDay": 0.9026244787834192,
+        "netPercent": -2.27435849982483
+      },
+      {
+        "threshold": 50,
+        "trades": 114,
+        "tradesPerDay": 0.8947755702722591,
+        "netPercent": -1.0573541387473249
+      },
+      {
+        "threshold": 60,
+        "trades": 49,
+        "tradesPerDay": 0.38459651704684816,
+        "netPercent": -5.171309623141836
+      },
+      {
+        "threshold": 70,
+        "trades": 48,
+        "tradesPerDay": 0.376747608535688,
+        "netPercent": -6.074973887733014
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "SPX500",
+    "tf": "1h",
+    "spanDays": 397.5,
+    "gateTrades": 14,
+    "gateTradesPerDay": 0.03522012578616352,
+    "gateNetPercent": -4.009883995375691,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 44,
+        "tradesPerDay": 0.11069182389937107,
+        "netPercent": 4.965925932395001
+      },
+      {
+        "threshold": 50,
+        "trades": 43,
+        "tradesPerDay": 0.10817610062893082,
+        "netPercent": 6.0051561269392835
+      },
+      {
+        "threshold": 60,
+        "trades": 17,
+        "tradesPerDay": 0.042767295597484274,
+        "netPercent": -3.3752735166143557
+      },
+      {
+        "threshold": 70,
+        "trades": 15,
+        "tradesPerDay": 0.03773584905660377,
+        "netPercent": -3.977412924180249
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "GER40",
+    "tf": "15m",
+    "spanDays": 125,
+    "gateTrades": 27,
+    "gateTradesPerDay": 0.216,
+    "gateNetPercent": 2.1483170289725795,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 97,
+        "tradesPerDay": 0.776,
+        "netPercent": -3.92887142082776
+      },
+      {
+        "threshold": 50,
+        "trades": 97,
+        "tradesPerDay": 0.776,
+        "netPercent": -3.92887142082776
+      },
+      {
+        "threshold": 60,
+        "trades": 45,
+        "tradesPerDay": 0.36,
+        "netPercent": -2.2175801029893636
+      },
+      {
+        "threshold": 70,
+        "trades": 43,
+        "tradesPerDay": 0.344,
+        "netPercent": -2.478752853550443
+      }
+    ]
+  },
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "symbol": "GER40",
+    "tf": "1h",
+    "spanDays": 468.4583333333333,
+    "gateTrades": 16,
+    "gateTradesPerDay": 0.034154585075157874,
+    "gateNetPercent": -1.5049573361330872,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 56,
+        "tradesPerDay": 0.11954104776305258,
+        "netPercent": 1.6421831987898674
+      },
+      {
+        "threshold": 50,
+        "trades": 56,
+        "tradesPerDay": 0.11954104776305258,
+        "netPercent": 1.6006566235158317
+      },
+      {
+        "threshold": 60,
+        "trades": 21,
+        "tradesPerDay": 0.044827892911144716,
+        "netPercent": 4.313585058412762
+      },
+      {
+        "threshold": 70,
+        "trades": 21,
+        "tradesPerDay": 0.044827892911144716,
+        "netPercent": 4.313585058412762
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "spanDays": 119.98958333333333,
+    "gateTrades": 7,
+    "gateTradesPerDay": 0.0583383974303325,
+    "gateNetPercent": -0.8659951153406225,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 187,
+        "tradesPerDay": 1.5584686170674538,
+        "netPercent": -3.5551043229389085
+      },
+      {
+        "threshold": 50,
+        "trades": 154,
+        "tradesPerDay": 1.2834447434673149,
+        "netPercent": -5.113159689424835
+      },
+      {
+        "threshold": 60,
+        "trades": 24,
+        "tradesPerDay": 0.20001736261828285,
+        "netPercent": -1.6384529512316637
+      },
+      {
+        "threshold": 70,
+        "trades": 24,
+        "tradesPerDay": 0.20001736261828285,
+        "netPercent": -1.6384529512316637
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "spanDays": 364.9583333333333,
+    "gateTrades": 12,
+    "gateTradesPerDay": 0.03288046580659893,
+    "gateNetPercent": -3.8548662885065452,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 155,
+        "tradesPerDay": 0.4247060166685695,
+        "netPercent": -6.406425607208774
+      },
+      {
+        "threshold": 50,
+        "trades": 112,
+        "tradesPerDay": 0.30688434752825666,
+        "netPercent": -7.877861088357882
+      },
+      {
+        "threshold": 60,
+        "trades": 24,
+        "tradesPerDay": 0.06576093161319786,
+        "netPercent": -2.558574748666827
+      },
+      {
+        "threshold": 70,
+        "trades": 24,
+        "tradesPerDay": 0.06576093161319786,
+        "netPercent": -2.558574748666827
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "spanDays": 131.73958333333334,
+    "gateTrades": 8,
+    "gateTradesPerDay": 0.06072586384122716,
+    "gateNetPercent": 0.23491857633396415,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 156,
+        "tradesPerDay": 1.1841543449039298,
+        "netPercent": -2.4402116109351257
+      },
+      {
+        "threshold": 50,
+        "trades": 132,
+        "tradesPerDay": 1.0019767533802482,
+        "netPercent": -1.8962634594744057
+      },
+      {
+        "threshold": 60,
+        "trades": 23,
+        "tradesPerDay": 0.1745868585435281,
+        "netPercent": 0.04050852824551996
+      },
+      {
+        "threshold": 70,
+        "trades": 22,
+        "tradesPerDay": 0.1669961255633747,
+        "netPercent": -0.11101590397020095
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "spanDays": 400.625,
+    "gateTrades": 10,
+    "gateTradesPerDay": 0.0249609984399376,
+    "gateNetPercent": 1.215689532469845,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 80,
+        "tradesPerDay": 0.1996879875195008,
+        "netPercent": 0.6662432563119812
+      },
+      {
+        "threshold": 50,
+        "trades": 70,
+        "tradesPerDay": 0.1747269890795632,
+        "netPercent": 1.2191169924929883
+      },
+      {
+        "threshold": 60,
+        "trades": 18,
+        "tradesPerDay": 0.04492979719188767,
+        "netPercent": 1.9949048424971498
+      },
+      {
+        "threshold": 70,
+        "trades": 18,
+        "tradesPerDay": 0.04492979719188767,
+        "netPercent": 1.9949048424971498
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "spanDays": 127.34375,
+    "gateTrades": 11,
+    "gateTradesPerDay": 0.08638036809815951,
+    "gateNetPercent": -1.7619247985382729,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 123,
+        "tradesPerDay": 0.9658895705521472,
+        "netPercent": -1.5077256254677605
+      },
+      {
+        "threshold": 50,
+        "trades": 111,
+        "tradesPerDay": 0.8716564417177914,
+        "netPercent": -1.2278828704262366
+      },
+      {
+        "threshold": 60,
+        "trades": 24,
+        "tradesPerDay": 0.18846625766871167,
+        "netPercent": -1.9580787619717444
+      },
+      {
+        "threshold": 70,
+        "trades": 24,
+        "tradesPerDay": 0.18846625766871167,
+        "netPercent": -1.9580787619717444
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "spanDays": 417.8333333333333,
+    "gateTrades": 5,
+    "gateTradesPerDay": 0.011966493817311527,
+    "gateNetPercent": 0.29106484939739047,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 44,
+        "tradesPerDay": 0.10530514559234144,
+        "netPercent": 2.081974128820542
+      },
+      {
+        "threshold": 50,
+        "trades": 36,
+        "tradesPerDay": 0.08615875548464301,
+        "netPercent": 2.569321594138262
+      },
+      {
+        "threshold": 60,
+        "trades": 6,
+        "tradesPerDay": 0.014359792580773833,
+        "netPercent": 0.4629312172415698
+      },
+      {
+        "threshold": 70,
+        "trades": 6,
+        "tradesPerDay": 0.014359792580773833,
+        "netPercent": 0.4629312172415698
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "spanDays": 134.38541666666666,
+    "gateTrades": 6,
+    "gateTradesPerDay": 0.04464770172854818,
+    "gateNetPercent": 1.9743627836952926,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 122,
+        "tradesPerDay": 0.907836601813813,
+        "netPercent": -60.87466339445102
+      },
+      {
+        "threshold": 50,
+        "trades": 109,
+        "tradesPerDay": 0.8110999147352919,
+        "netPercent": -54.113490964792
+      },
+      {
+        "threshold": 60,
+        "trades": 20,
+        "tradesPerDay": 0.14882567242849393,
+        "netPercent": -9.399044118234468
+      },
+      {
+        "threshold": 70,
+        "trades": 20,
+        "tradesPerDay": 0.14882567242849393,
+        "netPercent": -9.399044118234468
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "spanDays": 365.9583333333333,
+    "gateTrades": 1,
+    "gateTradesPerDay": 0.002732551519981783,
+    "gateNetPercent": -1.1052445137835774,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 32,
+        "tradesPerDay": 0.08744164863941706,
+        "netPercent": -24.36943383817734
+      },
+      {
+        "threshold": 50,
+        "trades": 28,
+        "tradesPerDay": 0.07651144255948993,
+        "netPercent": -25.119579365182783
+      },
+      {
+        "threshold": 60,
+        "trades": 3,
+        "tradesPerDay": 0.00819765455994535,
+        "netPercent": -3.6457209558091965
+      },
+      {
+        "threshold": 70,
+        "trades": 3,
+        "tradesPerDay": 0.00819765455994535,
+        "netPercent": -3.6457209558091965
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "US30",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 6,
+    "gateTradesPerDay": 0.042991491267353334,
+    "gateNetPercent": 0.2664443645054929,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 92,
+        "tradesPerDay": 0.6592028660994178,
+        "netPercent": -1.7474507362988034
+      },
+      {
+        "threshold": 50,
+        "trades": 84,
+        "tradesPerDay": 0.6018808777429467,
+        "netPercent": -1.0073291486299993
+      },
+      {
+        "threshold": 60,
+        "trades": 18,
+        "tradesPerDay": 0.12897447380206,
+        "netPercent": -0.8877105850680234
+      },
+      {
+        "threshold": 70,
+        "trades": 18,
+        "tradesPerDay": 0.12897447380206,
+        "netPercent": -0.8877105850680234
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "US30",
+    "tf": "1h",
+    "spanDays": 478.0833333333333,
+    "gateTrades": 2,
+    "gateTradesPerDay": 0.004183371099877985,
+    "gateNetPercent": -0.3550971491223426,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 21,
+        "tradesPerDay": 0.04392539654871885,
+        "netPercent": -3.2857341180714785
+      },
+      {
+        "threshold": 50,
+        "trades": 19,
+        "tradesPerDay": 0.03974202544884086,
+        "netPercent": -2.7564817593064554
+      },
+      {
+        "threshold": 60,
+        "trades": 7,
+        "tradesPerDay": 0.014641798849572948,
+        "netPercent": -0.5590235628281741
+      },
+      {
+        "threshold": 70,
+        "trades": 7,
+        "tradesPerDay": 0.014641798849572948,
+        "netPercent": -0.5590235628281741
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "NAS100",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 1,
+    "gateTradesPerDay": 0.007165248544558889,
+    "gateNetPercent": 0.30403533454476794,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 97,
+        "tradesPerDay": 0.6950291088222122,
+        "netPercent": -3.518896109165615
+      },
+      {
+        "threshold": 50,
+        "trades": 83,
+        "tradesPerDay": 0.5947156291983878,
+        "netPercent": -2.7212789049284636
+      },
+      {
+        "threshold": 60,
+        "trades": 10,
+        "tradesPerDay": 0.07165248544558889,
+        "netPercent": 0.8913986484127764
+      },
+      {
+        "threshold": 70,
+        "trades": 10,
+        "tradesPerDay": 0.07165248544558889,
+        "netPercent": 0.8913986484127764
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "NAS100",
+    "tf": "1h",
+    "spanDays": 476.5,
+    "gateTrades": 6,
+    "gateTradesPerDay": 0.012591815320041973,
+    "gateNetPercent": -2.187185497255463,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 29,
+        "tradesPerDay": 0.060860440713536204,
+        "netPercent": -1.9431465393555416
+      },
+      {
+        "threshold": 50,
+        "trades": 26,
+        "tradesPerDay": 0.05456453305351522,
+        "netPercent": -0.9766441997349922
+      },
+      {
+        "threshold": 60,
+        "trades": 6,
+        "tradesPerDay": 0.012591815320041973,
+        "netPercent": -2.187185497255463
+      },
+      {
+        "threshold": 70,
+        "trades": 6,
+        "tradesPerDay": 0.012591815320041973,
+        "netPercent": -2.187185497255463
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "SPX500",
+    "tf": "15m",
+    "spanDays": 127.40625,
+    "gateTrades": 4,
+    "gateTradesPerDay": 0.031395634044640665,
+    "gateNetPercent": -0.6908551885667942,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 98,
+        "tradesPerDay": 0.7691930340936963,
+        "netPercent": -8.88104136024815
+      },
+      {
+        "threshold": 50,
+        "trades": 77,
+        "tradesPerDay": 0.6043659553593328,
+        "netPercent": -7.353693326828744
+      },
+      {
+        "threshold": 60,
+        "trades": 11,
+        "tradesPerDay": 0.08633799362276183,
+        "netPercent": -0.9734910225406439
+      },
+      {
+        "threshold": 70,
+        "trades": 11,
+        "tradesPerDay": 0.08633799362276183,
+        "netPercent": -0.9734910225406439
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "SPX500",
+    "tf": "1h",
+    "spanDays": 397.5,
+    "gateTrades": 5,
+    "gateTradesPerDay": 0.012578616352201259,
+    "gateNetPercent": -2.1151675440983517,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 41,
+        "tradesPerDay": 0.10314465408805032,
+        "netPercent": -6.546738762597742
+      },
+      {
+        "threshold": 50,
+        "trades": 34,
+        "tradesPerDay": 0.08553459119496855,
+        "netPercent": -6.40575821842195
+      },
+      {
+        "threshold": 60,
+        "trades": 10,
+        "tradesPerDay": 0.025157232704402517,
+        "netPercent": -3.9067447146944803
+      },
+      {
+        "threshold": 70,
+        "trades": 10,
+        "tradesPerDay": 0.025157232704402517,
+        "netPercent": -3.9067447146944803
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "GER40",
+    "tf": "15m",
+    "spanDays": 125,
+    "gateTrades": 4,
+    "gateTradesPerDay": 0.032,
+    "gateNetPercent": 0.5530127808932681,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 98,
+        "tradesPerDay": 0.784,
+        "netPercent": -0.014302348728992359
+      },
+      {
+        "threshold": 50,
+        "trades": 84,
+        "tradesPerDay": 0.672,
+        "netPercent": -0.38370822510466995
+      },
+      {
+        "threshold": 60,
+        "trades": 13,
+        "tradesPerDay": 0.104,
+        "netPercent": -0.9763055499831201
+      },
+      {
+        "threshold": 70,
+        "trades": 13,
+        "tradesPerDay": 0.104,
+        "netPercent": -0.9763055499831201
+      }
+    ]
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "symbol": "GER40",
+    "tf": "1h",
+    "spanDays": 468.4583333333333,
+    "gateTrades": 5,
+    "gateTradesPerDay": 0.010673307835986837,
+    "gateNetPercent": -2.4937124556303605,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 44,
+        "tradesPerDay": 0.09392510895668417,
+        "netPercent": -4.690942794586555
+      },
+      {
+        "threshold": 50,
+        "trades": 36,
+        "tradesPerDay": 0.07684781641910522,
+        "netPercent": -1.9818670930164746
+      },
+      {
+        "threshold": 60,
+        "trades": 9,
+        "tradesPerDay": 0.019211954104776306,
+        "netPercent": -2.6795518047061226
+      },
+      {
+        "threshold": 70,
+        "trades": 9,
+        "tradesPerDay": 0.019211954104776306,
+        "netPercent": -2.6795518047061226
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "spanDays": 119.98958333333333,
+    "gateTrades": 266,
+    "gateTradesPerDay": 2.2168591023526347,
+    "gateNetPercent": -19.46592198571219,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 1131,
+        "tradesPerDay": 9.425818213386579,
+        "netPercent": -58.33632473010826
+      },
+      {
+        "threshold": 50,
+        "trades": 1097,
+        "tradesPerDay": 9.142460283010678,
+        "netPercent": -50.52461796457612
+      },
+      {
+        "threshold": 60,
+        "trades": 442,
+        "tradesPerDay": 3.6836530948867092,
+        "netPercent": -29.342041712469037
+      },
+      {
+        "threshold": 70,
+        "trades": 400,
+        "tradesPerDay": 3.3336227103047142,
+        "netPercent": -24.483281080296603
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "spanDays": 364.9583333333333,
+    "gateTrades": 183,
+    "gateTradesPerDay": 0.5014271035506337,
+    "gateNetPercent": -5.396706408058244,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 782,
+        "tradesPerDay": 2.1427103550633637,
+        "netPercent": -76.86721199494347
+      },
+      {
+        "threshold": 50,
+        "trades": 766,
+        "tradesPerDay": 2.098869733987898,
+        "netPercent": -73.21104088232244
+      },
+      {
+        "threshold": 60,
+        "trades": 304,
+        "tradesPerDay": 0.8329718004338396,
+        "netPercent": -27.67892703678476
+      },
+      {
+        "threshold": 70,
+        "trades": 278,
+        "tradesPerDay": 0.7617307911862085,
+        "netPercent": -15.567780998055714
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "spanDays": 131.73958333333334,
+    "gateTrades": 217,
+    "gateTradesPerDay": 1.6471890566932867,
+    "gateNetPercent": -3.607501281651879,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 855,
+        "tradesPerDay": 6.490076698031153,
+        "netPercent": -13.380162375766174
+      },
+      {
+        "threshold": 50,
+        "trades": 843,
+        "tradesPerDay": 6.398987902269313,
+        "netPercent": -13.642913686017403
+      },
+      {
+        "threshold": 60,
+        "trades": 362,
+        "tradesPerDay": 2.7478453388155293,
+        "netPercent": -7.0429402680268804
+      },
+      {
+        "threshold": 70,
+        "trades": 327,
+        "tradesPerDay": 2.4821696845101604,
+        "netPercent": -6.073620714512973
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "spanDays": 400.625,
+    "gateTrades": 86,
+    "gateTradesPerDay": 0.21466458658346335,
+    "gateNetPercent": -2.1121201975217443,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 360,
+        "tradesPerDay": 0.8985959438377535,
+        "netPercent": -5.561278119334086
+      },
+      {
+        "threshold": 50,
+        "trades": 354,
+        "tradesPerDay": 0.883619344773791,
+        "netPercent": -5.772065168131473
+      },
+      {
+        "threshold": 60,
+        "trades": 136,
+        "tradesPerDay": 0.3394695787831513,
+        "netPercent": -1.2079438953603252
+      },
+      {
+        "threshold": 70,
+        "trades": 119,
+        "tradesPerDay": 0.2970358814352574,
+        "netPercent": -3.1839261755570685
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "spanDays": 127.34375,
+    "gateTrades": 147,
+    "gateTradesPerDay": 1.1543558282208588,
+    "gateNetPercent": -2.543729706664924,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 672,
+        "tradesPerDay": 5.2770552147239265,
+        "netPercent": -16.601772243099074
+      },
+      {
+        "threshold": 50,
+        "trades": 662,
+        "tradesPerDay": 5.198527607361963,
+        "netPercent": -19.66580158472869
+      },
+      {
+        "threshold": 60,
+        "trades": 245,
+        "tradesPerDay": 1.9239263803680982,
+        "netPercent": -8.264944142994851
+      },
+      {
+        "threshold": 70,
+        "trades": 221,
+        "tradesPerDay": 1.7354601226993864,
+        "netPercent": -8.079615103695774
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "spanDays": 417.8333333333333,
+    "gateTrades": 73,
+    "gateTradesPerDay": 0.1747108097327483,
+    "gateNetPercent": 14.093441563048646,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 269,
+        "tradesPerDay": 0.6437973673713602,
+        "netPercent": 9.452162293960347
+      },
+      {
+        "threshold": 50,
+        "trades": 267,
+        "tradesPerDay": 0.6390107698444356,
+        "netPercent": 12.444484137196532
+      },
+      {
+        "threshold": 60,
+        "trades": 112,
+        "tradesPerDay": 0.26804946150777825,
+        "netPercent": 15.968207795345993
+      },
+      {
+        "threshold": 70,
+        "trades": 101,
+        "tradesPerDay": 0.24172317510969288,
+        "netPercent": 16.486143070707534
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "spanDays": 134.38541666666666,
+    "gateTrades": 172,
+    "gateTradesPerDay": 1.2799007828850477,
+    "gateNetPercent": -96.40930633586558,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 767,
+        "tradesPerDay": 5.707464537632742,
+        "netPercent": -443.0422156857945
+      },
+      {
+        "threshold": 50,
+        "trades": 757,
+        "tradesPerDay": 5.633051701418495,
+        "netPercent": -437.04581659191166
+      },
+      {
+        "threshold": 60,
+        "trades": 277,
+        "tradesPerDay": 2.061235563134641,
+        "netPercent": -145.93598630083048
+      },
+      {
+        "threshold": 70,
+        "trades": 244,
+        "tradesPerDay": 1.815673203627626,
+        "netPercent": -125.63824805386446
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "spanDays": 365.9583333333333,
+    "gateTrades": 82,
+    "gateTradesPerDay": 0.2240692246385062,
+    "gateNetPercent": -38.09315948577926,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 283,
+        "tradesPerDay": 0.7733120801548446,
+        "netPercent": -142.2031856435631
+      },
+      {
+        "threshold": 50,
+        "trades": 282,
+        "tradesPerDay": 0.7705795286348629,
+        "netPercent": -147.71218327656058
+      },
+      {
+        "threshold": 60,
+        "trades": 138,
+        "tradesPerDay": 0.3770921097574861,
+        "netPercent": -56.7482454572313
+      },
+      {
+        "threshold": 70,
+        "trades": 121,
+        "tradesPerDay": 0.33063873391779575,
+        "netPercent": -61.5327581453561
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "US30",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 185,
+    "gateTradesPerDay": 1.3255709807433946,
+    "gateNetPercent": -0.7045919503056347,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 615,
+        "tradesPerDay": 4.406627854903717,
+        "netPercent": -4.727535255461585
+      },
+      {
+        "threshold": 50,
+        "trades": 607,
+        "tradesPerDay": 4.349305866547246,
+        "netPercent": -2.118896662514245
+      },
+      {
+        "threshold": 60,
+        "trades": 300,
+        "tradesPerDay": 2.1495745633676666,
+        "netPercent": -0.033707155198691094
+      },
+      {
+        "threshold": 70,
+        "trades": 268,
+        "tradesPerDay": 1.9202866099417824,
+        "netPercent": 0.5536896698611194
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "US30",
+    "tf": "1h",
+    "spanDays": 478.0833333333333,
+    "gateTrades": 75,
+    "gateTradesPerDay": 0.15687641624542445,
+    "gateNetPercent": 6.532201350175822,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 250,
+        "tradesPerDay": 0.5229213874847481,
+        "netPercent": 14.807044107027643
+      },
+      {
+        "threshold": 50,
+        "trades": 255,
+        "tradesPerDay": 0.5333798152344431,
+        "netPercent": 14.62740621826636
+      },
+      {
+        "threshold": 60,
+        "trades": 118,
+        "tradesPerDay": 0.24681889489280112,
+        "netPercent": 8.405219539254501
+      },
+      {
+        "threshold": 70,
+        "trades": 108,
+        "tradesPerDay": 0.2259020393934112,
+        "netPercent": 7.900638185760788
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "NAS100",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 176,
+    "gateTradesPerDay": 1.2610837438423645,
+    "gateNetPercent": -4.6836348475032485,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 633,
+        "tradesPerDay": 4.535602328705777,
+        "netPercent": -10.550986775836433
+      },
+      {
+        "threshold": 50,
+        "trades": 614,
+        "tradesPerDay": 4.399462606359158,
+        "netPercent": -9.224494014855908
+      },
+      {
+        "threshold": 60,
+        "trades": 274,
+        "tradesPerDay": 1.9632781012091356,
+        "netPercent": -5.179333422247015
+      },
+      {
+        "threshold": 70,
+        "trades": 252,
+        "tradesPerDay": 1.8056426332288402,
+        "netPercent": -4.154831360455578
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "NAS100",
+    "tf": "1h",
+    "spanDays": 476.5,
+    "gateTrades": 73,
+    "gateTradesPerDay": 0.15320041972717732,
+    "gateNetPercent": 4.0468636766355495,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 248,
+        "tradesPerDay": 0.5204616998950682,
+        "netPercent": 16.228521706188108
+      },
+      {
+        "threshold": 50,
+        "trades": 246,
+        "tradesPerDay": 0.5162644281217209,
+        "netPercent": 13.833426826612614
+      },
+      {
+        "threshold": 60,
+        "trades": 109,
+        "tradesPerDay": 0.22875131164742918,
+        "netPercent": 6.43357888825425
+      },
+      {
+        "threshold": 70,
+        "trades": 100,
+        "tradesPerDay": 0.2098635886673662,
+        "netPercent": 5.447549976709687
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "SPX500",
+    "tf": "15m",
+    "spanDays": 127.40625,
+    "gateTrades": 187,
+    "gateTradesPerDay": 1.4677458915869512,
+    "gateNetPercent": -16.330966445538724,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 611,
+        "tradesPerDay": 4.795683100318862,
+        "netPercent": -54.7916703012454
+      },
+      {
+        "threshold": 50,
+        "trades": 607,
+        "tradesPerDay": 4.764287466274221,
+        "netPercent": -53.87179866141424
+      },
+      {
+        "threshold": 60,
+        "trades": 292,
+        "tradesPerDay": 2.2918812852587687,
+        "netPercent": -24.528635646588175
+      },
+      {
+        "threshold": 70,
+        "trades": 261,
+        "tradesPerDay": 2.0485651214128033,
+        "netPercent": -22.45965536434877
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "SPX500",
+    "tf": "1h",
+    "spanDays": 397.5,
+    "gateTrades": 75,
+    "gateTradesPerDay": 0.18867924528301888,
+    "gateNetPercent": -7.46118672418537,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 259,
+        "tradesPerDay": 0.6515723270440251,
+        "netPercent": -16.973219110915597
+      },
+      {
+        "threshold": 50,
+        "trades": 250,
+        "tradesPerDay": 0.6289308176100629,
+        "netPercent": -15.064410570007977
+      },
+      {
+        "threshold": 60,
+        "trades": 123,
+        "tradesPerDay": 0.30943396226415093,
+        "netPercent": -8.589299051692993
+      },
+      {
+        "threshold": 70,
+        "trades": 113,
+        "tradesPerDay": 0.2842767295597484,
+        "netPercent": -6.847607834525059
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "GER40",
+    "tf": "15m",
+    "spanDays": 125,
+    "gateTrades": 136,
+    "gateTradesPerDay": 1.088,
+    "gateNetPercent": -2.526362156903451,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 573,
+        "tradesPerDay": 4.584,
+        "netPercent": -18.911252777989134
+      },
+      {
+        "threshold": 50,
+        "trades": 564,
+        "tradesPerDay": 4.512,
+        "netPercent": -19.27913415095549
+      },
+      {
+        "threshold": 60,
+        "trades": 224,
+        "tradesPerDay": 1.792,
+        "netPercent": -9.152982240733321
+      },
+      {
+        "threshold": 70,
+        "trades": 196,
+        "tradesPerDay": 1.568,
+        "netPercent": -5.629227580759
+      }
+    ]
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "symbol": "GER40",
+    "tf": "1h",
+    "spanDays": 468.4583333333333,
+    "gateTrades": 77,
+    "gateTradesPerDay": 0.16436894067419727,
+    "gateNetPercent": -6.826167969757148,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 282,
+        "tradesPerDay": 0.6019745619496576,
+        "netPercent": 2.9741513447323142
+      },
+      {
+        "threshold": 50,
+        "trades": 279,
+        "tradesPerDay": 0.5955705772480655,
+        "netPercent": 2.863301818902954
+      },
+      {
+        "threshold": 60,
+        "trades": 118,
+        "tradesPerDay": 0.25189006492928934,
+        "netPercent": -1.9195728828979624
+      },
+      {
+        "threshold": 70,
+        "trades": 104,
+        "tradesPerDay": 0.2220048029885262,
+        "netPercent": -0.37609942194677
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "spanDays": 119.98958333333333,
+    "gateTrades": 157,
+    "gateTradesPerDay": 1.3084469137946002,
+    "gateNetPercent": 0.63116060103236,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 1096,
+        "tradesPerDay": 9.134126226234917,
+        "netPercent": -43.143657272156865
+      },
+      {
+        "threshold": 50,
+        "trades": 1073,
+        "tradesPerDay": 8.942442920392395,
+        "netPercent": -45.146861968393274
+      },
+      {
+        "threshold": 60,
+        "trades": 453,
+        "tradesPerDay": 3.7753277194200887,
+        "netPercent": -11.132365409006198
+      },
+      {
+        "threshold": 70,
+        "trades": 387,
+        "tradesPerDay": 3.225279972219811,
+        "netPercent": -10.304210770839074
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "spanDays": 364.9583333333333,
+    "gateTrades": 110,
+    "gateTradesPerDay": 0.3014042698938235,
+    "gateNetPercent": 5.855081425909805,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 907,
+        "tradesPerDay": 2.4852152072154357,
+        "netPercent": -65.31244504171892
+      },
+      {
+        "threshold": 50,
+        "trades": 867,
+        "tradesPerDay": 2.3756136545267728,
+        "netPercent": -56.51957232855144
+      },
+      {
+        "threshold": 60,
+        "trades": 328,
+        "tradesPerDay": 0.8987327320470374,
+        "netPercent": -23.40469028730155
+      },
+      {
+        "threshold": 70,
+        "trades": 286,
+        "tradesPerDay": 0.7836511017239411,
+        "netPercent": -18.583445786157835
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "spanDays": 131.73958333333334,
+    "gateTrades": 103,
+    "gateTradesPerDay": 0.7818454969557997,
+    "gateNetPercent": -1.5856779634610214,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 870,
+        "tradesPerDay": 6.603937692733454,
+        "netPercent": -11.615572362237176
+      },
+      {
+        "threshold": 50,
+        "trades": 857,
+        "tradesPerDay": 6.50525816399146,
+        "netPercent": -11.122144566117527
+      },
+      {
+        "threshold": 60,
+        "trades": 334,
+        "tradesPerDay": 2.535304815371234,
+        "netPercent": -4.827802935414605
+      },
+      {
+        "threshold": 70,
+        "trades": 288,
+        "tradesPerDay": 2.1861310982841777,
+        "netPercent": -4.047923858033719
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "spanDays": 400.625,
+    "gateTrades": 38,
+    "gateTradesPerDay": 0.09485179407176288,
+    "gateNetPercent": -0.28888818263889554,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 387,
+        "tradesPerDay": 0.9659906396255851,
+        "netPercent": -5.384232404221971
+      },
+      {
+        "threshold": 50,
+        "trades": 370,
+        "tradesPerDay": 0.9235569422776911,
+        "netPercent": -5.03562184698698
+      },
+      {
+        "threshold": 60,
+        "trades": 118,
+        "tradesPerDay": 0.29453978159126365,
+        "netPercent": -2.9449503544465707
+      },
+      {
+        "threshold": 70,
+        "trades": 101,
+        "tradesPerDay": 0.2521060842433697,
+        "netPercent": -2.184566672052759
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "spanDays": 127.34375,
+    "gateTrades": 75,
+    "gateTradesPerDay": 0.588957055214724,
+    "gateNetPercent": 3.9504053448118337,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 666,
+        "tradesPerDay": 5.229938650306749,
+        "netPercent": -11.526414567101977
+      },
+      {
+        "threshold": 50,
+        "trades": 641,
+        "tradesPerDay": 5.033619631901841,
+        "netPercent": -9.087784547851713
+      },
+      {
+        "threshold": 60,
+        "trades": 245,
+        "tradesPerDay": 1.9239263803680982,
+        "netPercent": 1.8042562708584495
+      },
+      {
+        "threshold": 70,
+        "trades": 203,
+        "tradesPerDay": 1.5941104294478528,
+        "netPercent": -0.04732993933416513
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "spanDays": 417.8333333333333,
+    "gateTrades": 42,
+    "gateTradesPerDay": 0.10051854806541684,
+    "gateNetPercent": 0.24964755958865004,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 289,
+        "tradesPerDay": 0.6916633426406064,
+        "netPercent": 0.8513729941651238
+      },
+      {
+        "threshold": 50,
+        "trades": 281,
+        "tradesPerDay": 0.6725169525329079,
+        "netPercent": 0.3198549203775415
+      },
+      {
+        "threshold": 60,
+        "trades": 106,
+        "tradesPerDay": 0.2536896689270044,
+        "netPercent": 1.4743815583316688
+      },
+      {
+        "threshold": 70,
+        "trades": 91,
+        "tradesPerDay": 0.2177901874750698,
+        "netPercent": 1.836583143780837
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "spanDays": 134.38541666666666,
+    "gateTrades": 89,
+    "gateTradesPerDay": 0.662274242306798,
+    "gateNetPercent": -59.921882483943286,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 732,
+        "tradesPerDay": 5.447019610882878,
+        "netPercent": -414.2277115264329
+      },
+      {
+        "threshold": 50,
+        "trades": 706,
+        "tradesPerDay": 5.253546236725835,
+        "netPercent": -404.04757528002267
+      },
+      {
+        "threshold": 60,
+        "trades": 276,
+        "tradesPerDay": 2.053794279513216,
+        "netPercent": -159.0343540135405
+      },
+      {
+        "threshold": 70,
+        "trades": 233,
+        "tradesPerDay": 1.7338190837919543,
+        "netPercent": -138.43601296687424
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "spanDays": 365.9583333333333,
+    "gateTrades": 33,
+    "gateTradesPerDay": 0.09017420015939884,
+    "gateNetPercent": -13.800787987891463,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 314,
+        "tradesPerDay": 0.85802117727428,
+        "netPercent": -195.35371775860386
+      },
+      {
+        "threshold": 50,
+        "trades": 305,
+        "tradesPerDay": 0.8334282135944439,
+        "netPercent": -194.2519378192528
+      },
+      {
+        "threshold": 60,
+        "trades": 108,
+        "tradesPerDay": 0.2951155641580326,
+        "netPercent": -73.96163603691079
+      },
+      {
+        "threshold": 70,
+        "trades": 94,
+        "tradesPerDay": 0.2568598428782876,
+        "netPercent": -58.073188112911495
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "US30",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 81,
+    "gateTradesPerDay": 0.58038513210927,
+    "gateNetPercent": -3.0056152734181603,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 646,
+        "tradesPerDay": 4.6287505597850425,
+        "netPercent": -9.17599517456738
+      },
+      {
+        "threshold": 50,
+        "trades": 622,
+        "tradesPerDay": 4.4567845947156295,
+        "netPercent": -10.061914544844742
+      },
+      {
+        "threshold": 60,
+        "trades": 245,
+        "tradesPerDay": 1.755485893416928,
+        "netPercent": -6.210585419802332
+      },
+      {
+        "threshold": 70,
+        "trades": 209,
+        "tradesPerDay": 1.4975369458128078,
+        "netPercent": -5.089714687155469
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "US30",
+    "tf": "1h",
+    "spanDays": 478.0833333333333,
+    "gateTrades": 28,
+    "gateTradesPerDay": 0.05856719539829179,
+    "gateNetPercent": 2.5602182558554905,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 289,
+        "tradesPerDay": 0.6044971239323689,
+        "netPercent": -1.2262079784598843
+      },
+      {
+        "threshold": 50,
+        "trades": 279,
+        "tradesPerDay": 0.5835802684329789,
+        "netPercent": -2.1326167247277596
+      },
+      {
+        "threshold": 60,
+        "trades": 103,
+        "tradesPerDay": 0.21544361164371623,
+        "netPercent": 0.9388751363917944
+      },
+      {
+        "threshold": 70,
+        "trades": 86,
+        "tradesPerDay": 0.17988495729475337,
+        "netPercent": 0.9298825428400344
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "NAS100",
+    "tf": "15m",
+    "spanDays": 139.5625,
+    "gateTrades": 97,
+    "gateTradesPerDay": 0.6950291088222122,
+    "gateNetPercent": 1.3325591264132495,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 675,
+        "tradesPerDay": 4.83654276757725,
+        "netPercent": -3.400485573314313
+      },
+      {
+        "threshold": 50,
+        "trades": 660,
+        "tradesPerDay": 4.729064039408867,
+        "netPercent": -3.147966747134922
+      },
+      {
+        "threshold": 60,
+        "trades": 291,
+        "tradesPerDay": 2.085087326466637,
+        "netPercent": -2.6327336664525176
+      },
+      {
+        "threshold": 70,
+        "trades": 244,
+        "tradesPerDay": 1.748320644872369,
+        "netPercent": 0.8482220887834957
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "NAS100",
+    "tf": "1h",
+    "spanDays": 476.5,
+    "gateTrades": 29,
+    "gateTradesPerDay": 0.060860440713536204,
+    "gateNetPercent": -0.23296820841092028,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 282,
+        "tradesPerDay": 0.5918153200419727,
+        "netPercent": -5.279909360642359
+      },
+      {
+        "threshold": 50,
+        "trades": 271,
+        "tradesPerDay": 0.5687303252885625,
+        "netPercent": -5.611493068818875
+      },
+      {
+        "threshold": 60,
+        "trades": 87,
+        "tradesPerDay": 0.1825813221406086,
+        "netPercent": -5.3102306898870255
+      },
+      {
+        "threshold": 70,
+        "trades": 74,
+        "tradesPerDay": 0.155299055613851,
+        "netPercent": -3.6163520137271683
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "SPX500",
+    "tf": "15m",
+    "spanDays": 127.40625,
+    "gateTrades": 98,
+    "gateTradesPerDay": 0.7691930340936963,
+    "gateNetPercent": -10.712839855140977,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 693,
+        "tradesPerDay": 5.439293598233996,
+        "netPercent": -77.60037085704603
+      },
+      {
+        "threshold": 50,
+        "trades": 675,
+        "tradesPerDay": 5.298013245033113,
+        "netPercent": -75.56873545650295
+      },
+      {
+        "threshold": 60,
+        "trades": 277,
+        "tradesPerDay": 2.1741476575913663,
+        "netPercent": -33.18986534521088
+      },
+      {
+        "threshold": 70,
+        "trades": 238,
+        "tradesPerDay": 1.8680402256561197,
+        "netPercent": -27.72816790848933
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "SPX500",
+    "tf": "1h",
+    "spanDays": 397.5,
+    "gateTrades": 39,
+    "gateTradesPerDay": 0.09811320754716982,
+    "gateNetPercent": -5.293376514880641,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 290,
+        "tradesPerDay": 0.7295597484276729,
+        "netPercent": -30.59528974506588
+      },
+      {
+        "threshold": 50,
+        "trades": 281,
+        "tradesPerDay": 0.7069182389937106,
+        "netPercent": -30.627034027022336
+      },
+      {
+        "threshold": 60,
+        "trades": 110,
+        "tradesPerDay": 0.27672955974842767,
+        "netPercent": -12.382620028734905
+      },
+      {
+        "threshold": 70,
+        "trades": 91,
+        "tradesPerDay": 0.2289308176100629,
+        "netPercent": -11.351730759872478
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "GER40",
+    "tf": "15m",
+    "spanDays": 125,
+    "gateTrades": 62,
+    "gateTradesPerDay": 0.496,
+    "gateNetPercent": -3.0022255651828744,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 602,
+        "tradesPerDay": 4.816,
+        "netPercent": -18.9609018705111
+      },
+      {
+        "threshold": 50,
+        "trades": 588,
+        "tradesPerDay": 4.704,
+        "netPercent": -17.392807192790926
+      },
+      {
+        "threshold": 60,
+        "trades": 217,
+        "tradesPerDay": 1.736,
+        "netPercent": -8.627209603129996
+      },
+      {
+        "threshold": 70,
+        "trades": 181,
+        "tradesPerDay": 1.448,
+        "netPercent": -6.352873534931309
+      }
+    ]
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "symbol": "GER40",
+    "tf": "1h",
+    "spanDays": 468.4583333333333,
+    "gateTrades": 28,
+    "gateTradesPerDay": 0.05977052388152629,
+    "gateNetPercent": 0.5812715424432016,
+    "scoreRows": [
+      {
+        "threshold": 40,
+        "trades": 291,
+        "tradesPerDay": 0.6211865160544339,
+        "netPercent": -5.2901541390782345
+      },
+      {
+        "threshold": 50,
+        "trades": 284,
+        "tradesPerDay": 0.6062438850840524,
+        "netPercent": -4.744550922788867
+      },
+      {
+        "threshold": 60,
+        "trades": 89,
+        "tradesPerDay": 0.1899848794805657,
+        "netPercent": 4.3143727459831585
+      },
+      {
+        "threshold": 70,
+        "trades": 74,
+        "tradesPerDay": 0.15796495597260518,
+        "netPercent": 0.5535948970238248
+      }
+    ]
+  }
+]
