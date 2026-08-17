@@ -1,9 +1,9 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-16** (fim do dia, 5ª parte). **Regra: este arquivo é
+> Reescrito em **2026-08-16** (fim do dia, 6ª parte). **Regra: este arquivo é
 > handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
-## ▶ COMECE AQUI — Cleber escolheu aprofundar arbitragem estatística (a); resultado agora é NEGATIVO E CONCLUSIVO, frente fechada
+## ▶ COMECE AQUI — (a) e (b) ambas fechadas com resultado negativo nesta sessão; só resta (c) ou escopo grande não testado
 
 Plano completo (5 frentes) em
 **[SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md](SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md)**.
@@ -11,38 +11,48 @@ Execução e medição dos itens 1, 2 e 4 (incluindo pesquisa sobre como
 Renaissance/Two Sigma/market makers operam, e o que disso é aplicável aqui)
 em **[SESSAO_2026-08-16_EXECUCAO_SCORE_TIMEFRAME_ARBITRAGEM.md](SESSAO_2026-08-16_EXECUCAO_SCORE_TIMEFRAME_ARBITRAGEM.md)**.
 
-**Novidade desta parte**: rodada de sensibilidade de parâmetros com DSR
-(item (a) escolhido pelo Cleber, respondendo a pergunta que ficou em aberto
-no item 4). 18 configurações (janela de OLS, z de entrada, z de saída) ×
-6 pares × 2 timeframes = 216 backtests, DSR aplicado por par sobre a melhor
-config usando as 18 tentativas como correção de seleção. **Nenhum par passa
-perto do piso de DSR 95%** — melhor caso é 54,6% (US30/NAS100 1h). Resultado
-mais forte que o anterior: não é mais "inconclusivo por falta de sensibilidade
-de parâmetro", é negativo mesmo dando 18 chances de calibração por par.
-Detalhe: addendum no fim de
-`research/experiments/2026-08-16-statistical-arbitrage/results/README.md`,
-script `pairsSensitivity.ts`, tabela `pairs_sensitivity_summary.md`.
+**(a) Arbitragem estatística — FECHADA, negativa.** Sensibilidade de
+parâmetros com DSR (18 configs × 6 pares × 2 tf = 216 backtests): nenhum par
+passa perto do piso de DSR 95%, melhor caso 54,6%. Não é mais "inconclusivo
+por calibração" — é negativo mesmo com 18 chances de calibração por par.
+Detalhe: addendum em
+`research/experiments/2026-08-16-statistical-arbitrage/results/README.md`.
 
-**Decisão**: não prosseguir com arbitragem estatística nestes
-pares/timeframes/método sem dado genuinamente novo (instrumentos do mesmo
-mercado — hoje indisponível via MetaAPI). Frente (a) está fechada.
+**(b) Score contínuo com pesos não-uniformes — FECHADA, negativa.** Grade de
+pesos (90/10 a 10/90) escolhida só em treino (60% inicial de cada série),
+validada congelada em teste (40% final, dado nunca visto na escolha) — mesma
+disciplina de walk-forward do resto do projeto. Em nenhum dos 4 presets com
+2 blocos de entrada o peso escolhido bate o gate binário na maioria dos
+combos de teste (vitórias vs. gate: 3/16 a 7/16, sempre minoria). O problema
+não é o peso relativo entre blocos — é a ideia de piso médio permitir passar
+setup que o gate binário rejeitaria. Detalhe: addendum em
+`research/experiments/2026-08-16-score-vs-gate/results/README.md`.
 
-### Próximo passo real: voltar pro Cleber com (b) e (c)
+### Próximo passo real: só restam opções de escopo grande — decisão do Cleber
 
-Com (a) agora também fechado, restam as outras duas opções levantadas no
-fim da parte anterior — abrir a próxima sessão perguntando qual seguir, não
-assumindo:
+Das 3 alternativas do item 2 (score), só sobra a alternativa 3 (score como
+DESEMPATE entre setups concorrendo pelo mesmo capital) — e essa mecânica de
+"múltiplos setups concorrendo" **não existe ainda no motor**, então testar
+exigiria construir essa peça primeiro (escopo grande, não é mais uma medição
+rápida em dado já em cache). Arbitragem estatística (a) só reabriria com dado
+genuinamente novo (instrumentos do mesmo mercado, hoje fora do MetaAPI).
 
-- **(b) Retestar score contínuo (item 1) com abordagem diferente** — pesos
-  não-uniformes por bloco, ou score só como critério de DESEMPATE
-  multi-setup (mantendo o gate binário como piso de qualidade, não
-  substituindo-o).
-- **(c) Reconsiderar a meta de ~10 trades/dia** — com TA clássico (julho),
-  score contínuo (item 1) E arbitragem estatística (item 4, agora com
-  sensibilidade testada) todos sem edge promovível, vale nomear
-  explicitamente que a meta de frequência pode ser incompatível com a
+Com TA clássico (julho), score contínuo (pesos iguais E não-uniformes) e
+arbitragem estatística (config única E sensibilidade) todos negativos, a
+pergunta de fundo que ficou adiada duas sessões seguidas volta à mesa —
+próxima sessão deve abrir com ela, não assumir mais nenhum código:
+
+- **(c) Reconsiderar a meta de ~10 trades/dia.** Toda frente de "achar mais
+  edge pra sustentar mais frequência" testada até agora deu negativo. Vale
+  nomear explicitamente se a meta de frequência é incompatível com a
   disciplina anti-fabricação de edge do projeto (ver `CLAUDE.md`,
-  "Convenções do projeto").
+  "Convenções do projeto") — e se sim, qual é a meta de frequência realista
+  dado o cérebro é de execução/disciplina, não de alfa (decisão já registrada
+  em `CLAUDE.md`, seção "Cérebro de decisão da IA").
+- **Construir a mecânica de multi-setup concorrente** (pré-requisito da
+  alternativa 3 do item 2) — só vale se o Cleber achar que score-como-
+  desempate ainda tem chance real de ajudar, dado que o resto do redesenho
+  não rendeu.
 
 ### Estado dos 5 itens
 

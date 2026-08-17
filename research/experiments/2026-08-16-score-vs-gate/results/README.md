@@ -62,3 +62,35 @@ Item 2 (esta medição) mostra que a abordagem simples de piso de score não
 funciona — **não ligar em `runTradingCycle.ts`**. Item 3 do plano original
 (reabrir com pesos ajustados ou score-como-desempate) fica como próximo passo
 real, não o item 3 antigo do plano de 5 frentes.
+
+## Addendum — pesos não-uniformes por bloco, com validação treino/teste (sessão seguinte, alternativa (b))
+
+Testada a alternativa 1 da lista acima ("pesos não-uniformes por bloco"),
+com disciplina explícita contra p-hacking: peso escolhido só olhando 60%
+inicial (treino) de cada série candle, aplicado CONGELADO nos 40% finais
+(teste, dado nunca visto na escolha) — mesma lógica de walk-forward que o
+projeto já exige. Só os 4 presets com exatamente 2 blocos de entrada
+qualificam (Donchian tem 1 bloco só, pesar é moot). Grade de peso testada:
+90/10, 70/30, 50/50, 30/70, 10/90 entre os 2 blocos. Piso de score fixo em
+60 (meio-termo da tabela original). Script: `scripts/weightedScoreSensitivity.ts`.
+Tabela completa: `weighted_score_sensitivity.md`.
+
+**Resultado: também negativo.** Em nenhum dos 4 presets o peso escolhido em
+treino bate o gate binário na MAIORIA dos combos símbolo×tf de teste
+(vitórias vs. gate: 3/16, 6/12, 7/16, 7/16 — sempre minoria). Contra o
+próprio score de pesos iguais o resultado é misto (2/12 a 11/16) mas isso é
+irrelevante se nenhum dos dois bate o gate. Conclusão: a causa raiz
+identificada na medição original (bloco fraco "carregado" até o piso por
+blocos fortes) não se resolve simplesmente reponderando os blocos existentes
+— o problema não está no PESO relativo dos blocos, está na ideia de piso
+médio permitir passar setup que o gate binário rejeitaria.
+
+**Decisão**: alternativa (b) também fechada. Das 3 alternativas listadas
+acima pro item 2, resta só a alternativa 3 (score contínuo como DESEMPATE
+entre setups que já passam no gate binário, não como substituto do piso de
+entrada) — que por natureza não muda o resultado de nenhum backtest
+single-strategy como os medidos aqui (só importa quando há múltiplos setups
+concorrendo pelo mesmo capital em produção, cenário ainda não implementado
+no motor). Não testável com a infraestrutura de backtest atual sem construir
+essa mecânica primeiro — maior escopo, requer alinhamento com o Cleber antes
+de codar.

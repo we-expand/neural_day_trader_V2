@@ -1,0 +1,58 @@
+[
+  {
+    "preset": "Cruzamento de Médias com Filtro de Regime",
+    "chosenWeight": [
+      0.7,
+      0.3
+    ],
+    "trainAvgNetPercent": 0.17393849322427568,
+    "nCombos": 16,
+    "testAvgNetPercentChosen": -1.4826792566344222,
+    "testAvgNetPercentUniform": -1.304752766231716,
+    "testAvgNetPercentGate": -0.646821834222237,
+    "testWinsVsUniform": 4,
+    "testWinsVsGate": 3
+  },
+  {
+    "preset": "Reversão à Média (RSI + Bollinger)",
+    "chosenWeight": [
+      0.3,
+      0.7
+    ],
+    "trainAvgNetPercent": -1.2331051958202737,
+    "nCombos": 12,
+    "testAvgNetPercentChosen": -0.7109503078830346,
+    "testAvgNetPercentUniform": -0.6444108664375473,
+    "testAvgNetPercentGate": -0.2483570244043948,
+    "testWinsVsUniform": 2,
+    "testWinsVsGate": 6
+  },
+  {
+    "preset": "Rompimento Confirmado (Volume)",
+    "chosenWeight": [
+      0.9,
+      0.1
+    ],
+    "trainAvgNetPercent": -5.498426153144917,
+    "nCombos": 16,
+    "testAvgNetPercentChosen": -8.424620736404604,
+    "testAvgNetPercentUniform": -9.898930856315769,
+    "testAvgNetPercentGate": -7.181665317176333,
+    "testWinsVsUniform": 11,
+    "testWinsVsGate": 7
+  },
+  {
+    "preset": "Momentum de Curto Prazo (Scalp)",
+    "chosenWeight": [
+      0.7,
+      0.3
+    ],
+    "trainAvgNetPercent": -11.596163187128665,
+    "nCombos": 16,
+    "testAvgNetPercentChosen": -8.993137780952562,
+    "testAvgNetPercentUniform": -9.160110778044206,
+    "testAvgNetPercentGate": -2.235053817664686,
+    "testWinsVsUniform": 10,
+    "testWinsVsGate": 7
+  }
+]
