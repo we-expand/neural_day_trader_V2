@@ -1047,18 +1047,29 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
                                     <Gauge className="w-4 h-4" /> Perfil de Risco
                                 </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                     {RISK_PROFILES.map(profile => (
                                         <button
                                             key={profile.id}
                                             onClick={() => applyRiskProfile(profile.id)}
                                             className={`text-left p-4 rounded-lg border transition-all ${
                                                 selectedRiskProfileId === profile.id
-                                                    ? 'bg-purple-500/10 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                                                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                                                    ? profile.experimental
+                                                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                                                        : 'bg-purple-500/10 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                                                    : profile.experimental
+                                                        ? 'bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50'
+                                                        : 'bg-white/5 border-white/10 hover:border-white/20'
                                             }`}
                                         >
-                                            <div className="text-sm font-bold text-white mb-1">{profile.label}</div>
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <div className="text-sm font-bold text-white">{profile.label}</div>
+                                                {profile.experimental && (
+                                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                                        Não validado
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="text-[10px] text-slate-400 mb-3 leading-relaxed">{profile.description}</div>
                                             <div className="space-y-1 pt-2 border-t border-white/10">
                                                 <div className="flex justify-between text-[10px]">
@@ -1095,6 +1106,18 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         timeframe entram.
                                     </span>
                                 </div>
+                                {selectedRiskProfileId === 'EXPERIMENTAL' && (
+                                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded text-[9px] text-amber-300">
+                                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                        <span>
+                                            <strong>Perfil experimental — não validado estatisticamente.</strong> O resultado positivo
+                                            vem de um único backtest histórico, sem correção por múltiplos testes (DSR) nem
+                                            walk-forward — a mesma barra que reprovou os outros presets como "edge comprovado" não foi
+                                            aplicada aqui ainda. Pode reverter no próximo dado. Use com capital que você aceita perder
+                                            testando.
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         ) : (
 

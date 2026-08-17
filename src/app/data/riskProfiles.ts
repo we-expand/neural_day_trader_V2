@@ -50,9 +50,24 @@
  * Os ranges de `expectedNetPercentPerTradeRange` ainda incluem o efeito do
  * XAGUSD nesta revisão (não foram remedidos sem ele) — remedir é trabalho
  * futuro, não incluído nesta mudança.
+ *
+ * **2026-08-16 (perfil EXPERIMENTAL)**: o Cleber perguntou por que a cesta
+ * não inclui mais ativos, já que a tabela original (`taxa_base.md`) testou 9
+ * ativos × 5 presets × 3 timeframes — os 3 perfis de produção só usam 2
+ * desses presets (Donchian, Volume). Reler a tabela completa achou
+ * combinações líquido-positivas nos outros 3 presets pra ativos hoje de
+ * fora — ver `activeAssets` do perfil EXPERIMENTAL abaixo. **Ressalva
+ * importante, não escondida**: esses números vêm de UM único backtest
+ * histórico (`taxa_base.json`, medição de viabilidade operacional, não de
+ * edge) — não passaram pela correção estatística (DSR, walk-forward,
+ * múltiplos testes) que a busca por edge original (`AI_BRAIN_SPEC.md`
+ * §11-14) usou pra REPROVAR os mesmos 5 presets como fonte de alfa
+ * comprovado. Nenhuma garantia de que esse resultado se sustenta fora da
+ * amostra. Por isso existe como perfil separado, com aviso explícito, e não
+ * misturado aos 3 perfis medidos com mais rigor.
  */
 
-export type RiskProfileId = 'CONSERVADOR' | 'MODERADO' | 'AGRESSIVO';
+export type RiskProfileId = 'CONSERVADOR' | 'MODERADO' | 'AGRESSIVO' | 'EXPERIMENTAL';
 
 export interface RiskProfileDefinition {
   id: RiskProfileId;
@@ -68,6 +83,8 @@ export interface RiskProfileDefinition {
   expectedTradesPerDayRange: [number, number];
   /** Faixa medida de retorno líquido por trade, % do capital alocado nesse trade — não % da conta inteira. */
   expectedNetPercentPerTradeRange: [number, number];
+  /** true = resultado de UM backtest sem correção estatística (DSR/walk-forward) — não é "edge comprovado", é candidato. UI deve avisar. */
+  experimental?: boolean;
 }
 
 export const RISK_PROFILES: RiskProfileDefinition[] = [
@@ -109,6 +126,20 @@ export const RISK_PROFILES: RiskProfileDefinition[] = [
     maxTradesPerDay: 8,
     expectedTradesPerDayRange: [0.4, 0.6],
     expectedNetPercentPerTradeRange: [-0.47, 0.2],
+  },
+  {
+    id: 'EXPERIMENTAL',
+    label: 'Experimental',
+    description: 'Cruzamento de Médias com Filtro de Regime (EMA+ADX) em 1h — inclui BTCUSD, hoje fora dos outros 3 perfis. Resultado de um único backtest, SEM correção estatística (DSR/walk-forward). Não é edge comprovado, é candidato.',
+    activeStrategyId: '2', // Cruzamento de Médias com Filtro de Regime
+    timeframe: '1H',
+    activeAssets: ['BTCUSD', 'XAUUSD', 'US30', 'NAS100'],
+    riskPerTrade: 0.5,
+    cooldownMinutes: 30,
+    maxTradesPerDay: 3,
+    expectedTradesPerDayRange: [0.15, 0.30],
+    expectedNetPercentPerTradeRange: [0.11, 0.37],
+    experimental: true,
   },
 ];
 
