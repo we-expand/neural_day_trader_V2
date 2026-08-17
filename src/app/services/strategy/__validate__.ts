@@ -101,7 +101,26 @@ function makeStrategy(overrides: Partial<Strategy>): Strategy {
   assertTrue('sizing: stop 2x mais largo produz nocional 2x menor (mesmo risco em $ nos dois casos)', Math.abs(tight / wide - 2) < 0.001);
 
   const fallback = calculatePositionSize({ ...base }); // sem stopDistancePercent — comportamento antigo preservado
-  assertTrue('sizing: fallback sem stopDistancePercent preserva o comportamento antigo (capital × risco% × multiplicador)', Math.abs(fallback - 100) < 0.001);
+  assertTrue('sizing: fallback sem stopDistancePercent preserva o comportamento antigo (capital × risco% × multiplicador)', fallback !== null && Math.abs(fallback - 100) < 0.001);
+}
+
+// ─── CASO 3b: nocional abaixo do mínimo executável PULA o trade, nunca infla risco ──
+// Regressão de bug real (2026-08-16): antes, `calculatePositionSize` empurrava
+// qualquer nocional abaixo de $10 PRA CIMA (`Math.max(tradeCapital, 10)`) — isso
+// inflava silenciosamente o risco efetivo muito além do `riskPerTradePercent`
+// configurado em contas pequenas com stop largo (medido: 24% dos sinais numa
+// conta de $50 com risco 0,5%/trade acionavam o piso). Corrigido: retorna
+// `null` — quem chama deve pular o trade, nunca forçar tamanho maior.
+{
+  const smallAccount = { currentBalance: 50, allocatedCapital: 50, riskPerTradePercent: 0.5, riskProfile: 'MODERATE' as const };
+  const wideStop = calculatePositionSize({ ...smallAccount, stopDistancePercent: 0.03 }); // stop a 3% — nocional teórico = 0.25/0.03 = $8.33, abaixo do piso de $10
+  assertTrue('sizing: nocional abaixo do mínimo executável retorna null (pula o trade), não infla pra $10', wideStop === null);
+
+  const narrowStop = calculatePositionSize({ ...smallAccount, stopDistancePercent: 0.005 }); // stop a 0,5% — nocional teórico = 0.25/0.005 = $50, acima do piso
+  assertTrue('sizing: nocional acima do mínimo executável passa sem alteração', narrowStop !== null && Math.abs(narrowStop - 50) < 0.001);
+
+  const smallFallback = calculatePositionSize({ currentBalance: 50, allocatedCapital: 50, riskPerTradePercent: 0.1, riskProfile: 'MODERATE' as const }); // sem stopDistancePercent: riskCapital = 50*0.001 = $0.05, abaixo do piso
+  assertTrue('sizing: fallback também retorna null quando riskCapital fica abaixo do piso', smallFallback === null);
 }
 
 // ─── CASO 4: MFE/MAE medem a excursão real de preço, não o preço de saída ──

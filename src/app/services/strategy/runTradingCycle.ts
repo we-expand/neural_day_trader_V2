@@ -926,17 +926,32 @@ async function analyzeAsset(
       }
     }
 
+    // 2026-08-16: FIX DE BUG — antes, nocional abaixo de $10 era empurrado pra
+    // cima (`Math.max(tradeCapital, minTradeCapital)`), inflando o risco real
+    // muito além de `aiConfig.riskPerTrade` em contas pequenas (medido em
+    // research/experiments/2026-08-16-portfolio-amplitude/results/floor_check_by_profile.md:
+    // 24% dos sinais numa conta de $50 com risco 0,5%/trade acionavam o piso).
+    // Mesmo fix aplicado em TradeSizing.calculatePositionSize (usado pelo
+    // Backtest) — aqui é a cópia usada pelo motor ao vivo. Corrigido: pula o
+    // trade em vez de forçar tamanho maior que o risco configurado.
     const minTradeCapital = 10;
-    const finalTradeCapital = Math.max(tradeCapital, minTradeCapital);
+    if (tradeCapital < minTradeCapital) {
+      const reason = `Nocional calculado ($${tradeCapital.toFixed(2)}) abaixo do mínimo executável ($${minTradeCapital}) — pulando trade em vez de inflar risco além de ${aiConfig.riskPerTrade}% configurado.`;
+      console.log(`[POSITION SIZING] ⏭️ ${selectedSymbol}: ${reason}`);
+      await deps.persistence.saveDecision({
+        symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+        reasoning: reason, actionTaken: false, vetoStage: 'MIN_TRADE_SIZE',
+      });
+      return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+    }
+    const finalTradeCapital = tradeCapital;
 
     console.log(`[POSITION SIZING] 💰 ${selectedSymbol}:`, {
       currentBalance: `$${currentBalance.toFixed(2)}`,
       allocatedCapital: `$${allocatedCapital.toFixed(2)}`,
       riskPerTrade: `${aiConfig.riskPerTrade}%`,
       riskProfile: `${aiConfig.riskProfile} (x${riskAdjustment.sizeMultiplier})`,
-      calculatedTradeCapital: `$${tradeCapital.toFixed(2)}`,
       finalTradeCapital: `$${finalTradeCapital.toFixed(2)}`,
-      reason: tradeCapital < minTradeCapital ? `⬆️ Aumentado para mínimo de $${minTradeCapital}` : '✅ Valor adequado',
     });
 
     const newTrade: TradeVisual = {

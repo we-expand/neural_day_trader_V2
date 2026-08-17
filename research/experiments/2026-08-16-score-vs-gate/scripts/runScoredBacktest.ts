@@ -103,6 +103,7 @@ export function runScoredBacktest(
       riskProfile: strategy.riskProfile,
       stopDistancePercent,
     });
+    if (tradeCapital === null) continue; // nocional abaixo do mínimo executável — pula o trade
 
     openPosition = {
       side, entryPrice, entryIndex: i, tp, sl, originalSl: sl,

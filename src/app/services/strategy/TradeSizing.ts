@@ -188,6 +188,21 @@ export interface PositionSizeInput {
  * Com `stopDistancePercent` fornecido: nocional = risco em $ / distância do
  * stop em %. Sem ele: comportamento antigo preservado (fallback), para não
  * quebrar nenhum chamador que ainda não tenha essa informação disponível.
+ *
+ * 2026-08-16: FIX DE BUG — `minTradeCapital` antes era um PISO que empurrava
+ * o nocional pra cima (`Math.max(tradeCapital, minTradeCapital)`) sempre que
+ * o cálculo fixed-fractional dava um nocional menor que $10. Isso silenciosamente
+ * INFLAVA o risco real muito além do `riskPerTradePercent` configurado —
+ * medido em `research/experiments/2026-08-16-portfolio-amplitude/results/floor_check_by_profile.md`:
+ * numa conta de $50 com risco de 0,5%/trade e stop largo (comum em timeframes
+ * maiores), 24% dos sinais tinham nocional calculado abaixo do piso, e o piso
+ * fixo forçava risco efetivo várias vezes maior que o configurado — o oposto
+ * do que um perfil "Conservador" deveria fazer. Corrigido: quando o nocional
+ * fixed-fractional fica abaixo de `minTradeCapital` (limite prático de
+ * execução, não meta de risco), a função retorna `null` — quem chama deve
+ * PULAR o trade, nunca forçar o tamanho pra cima. Um trade pequeno demais pra
+ * executar de forma economicamente significativa deve ser descartado, não
+ * transformado num trade que arrisca mais do que o usuário configurou.
  */
 export function calculatePositionSize({
   currentBalance,
@@ -195,7 +210,7 @@ export function calculatePositionSize({
   riskPerTradePercent,
   riskProfile,
   stopDistancePercent,
-}: PositionSizeInput): number {
+}: PositionSizeInput): number | null {
   const capital = Math.min(allocatedCapital, currentBalance);
   const riskPercentage = riskPerTradePercent / 100;
   const { sizeMultiplier } = getRiskAdjustment(riskProfile);
@@ -204,12 +219,12 @@ export function calculatePositionSize({
 
   if (stopDistancePercent !== undefined && stopDistancePercent > 0) {
     const tradeCapital = riskCapital / stopDistancePercent;
-    return Math.max(tradeCapital, minTradeCapital);
+    return tradeCapital >= minTradeCapital ? tradeCapital : null;
   }
 
   // Fallback: comportamento antigo (nocional = risco% de capital, sem
   // considerar distância do stop) — preservado por retrocompatibilidade.
-  return Math.max(riskCapital, minTradeCapital);
+  return riskCapital >= minTradeCapital ? riskCapital : null;
 }
 
 export interface AtrTpSlResult {

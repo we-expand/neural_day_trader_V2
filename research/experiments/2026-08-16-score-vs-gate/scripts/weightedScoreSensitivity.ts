@@ -128,6 +128,7 @@ function runWeightedBacktest(candles: Candle[], strategy: Strategy, symbol: stri
       currentBalance: equity, allocatedCapital: equity, riskPerTradePercent: strategy.positionSizePercent,
       riskProfile: strategy.riskProfile, stopDistancePercent,
     });
+    if (tradeCapital === null) continue; // nocional abaixo do mínimo executável — pula o trade
     openPosition = { side, entryPrice, tp, sl, originalSl: sl, tradeCapital };
   }
 
