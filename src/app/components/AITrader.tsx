@@ -30,6 +30,7 @@ import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecuti
 import { FullSizeExecutionPanel } from '@/app/modules/fullSizeExecutionStage/FullSizeExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
 import { RISK_PROFILES, getRiskProfile, type RiskProfileId } from '@/app/data/riskProfiles';
+import { previewPositionSizing } from '@/app/services/strategy/positionSizingPreview';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
@@ -135,6 +136,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
       cooldownEnabled: true,
       cooldownMinutes: profile.cooldownMinutes,
       maxTradesPerDay: profile.maxTradesPerDay,
+      // 🔒 2026-08-17: escolher um perfil no modo Simples precisa GARANTIR
+      // uma config segura, não só sobrescrever os campos "óbvios". Achado
+      // real: `atrMultiplier`/`positionSizingMode` não eram tocados aqui —
+      // se o usuário tivesse passado pelo Avançado antes e deixado o
+      // multiplicador ATR alto (ex: 4.0x), o Simples herdava esse valor por
+      // baixo e ficava com o MESMO bug (nocional sempre abaixo do mínimo
+      // executável, silenciosamente) mesmo escolhendo um perfil "seguro".
+      // 1.5x = STOP_ATR_MULTIPLIER do motor (runTradingCycle.ts) — razão 1.0,
+      // sem encolher nem inflar o tamanho calculado por risco%.
+      positionSizingMode: 'ATR',
+      atrMultiplier: 1.5,
     }));
   };
 
@@ -1042,6 +1054,18 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                             </button>
                         </div>
 
+                        {configMode === 'AVANCADO' && (
+                            <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                                <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                                    <span className="font-bold">Modo manual:</span> os campos abaixo interagem entre si — uma
+                                    combinação errada (ex: risco baixo + Multiplicador ATR alto) pode fazer a IA rejeitar
+                                    TODO trade silenciosamente, mesmo com sinal bom. Fique de olho nos avisos que aparecem
+                                    junto dos campos. No modo "Simples" isso não acontece — os perfis prontos já vêm calibrados.
+                                </p>
+                            </div>
+                        )}
+
                         {configMode === 'SIMPLES' ? (
                             <div className="mb-8 space-y-4">
                                 <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
@@ -1530,6 +1554,29 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                             />
                                         </div>
                                     )}
+
+                                    {(() => {
+                                        const preview = previewPositionSizing({
+                                            allocatedCapital: config.allocatedCapital,
+                                            riskPerTrade: config.riskPerTrade,
+                                            riskProfile: config.riskProfile,
+                                            positionSizingMode: config.positionSizingMode,
+                                            atrMultiplier: config.atrMultiplier,
+                                        });
+                                        const styles = {
+                                            ok: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300',
+                                            warning: 'border-amber-500/30 bg-amber-500/5 text-amber-300',
+                                            error: 'border-red-500/40 bg-red-500/10 text-red-300',
+                                        }[preview.severity];
+                                        return (
+                                            <div className={`rounded-lg border p-3 text-[10px] leading-relaxed ${styles}`}>
+                                                {preview.severity === 'error' && (
+                                                    <span className="font-bold uppercase block mb-1">⚠️ Essa configuração nunca vai operar</span>
+                                                )}
+                                                {preview.message}
+                                            </div>
+                                        );
+                                    })()}
 
                                     <div className="space-y-2">
                                         <div className="flex justify-between">

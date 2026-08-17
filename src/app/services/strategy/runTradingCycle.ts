@@ -162,8 +162,14 @@ const NEWS_WINDOW_MS = 15 * 60 * 1000;
 
 // Stop = 1,5×ATR(14) do timeframe operado; alvo = 2,5× o stop (R:R fixo).
 // Ver bloco "STOP/ALVO DINÂMICO POR ATR" no histórico de 2026-08-17.
-const STOP_ATR_MULTIPLIER = 1.5;
-const RISK_REWARD_MULTIPLE = 2.5;
+// Exportadas (não só `const` interna) porque a UI de configuração precisa da
+// MESMA aritmética pra mostrar uma prévia de "esse tamanho de posição vai dar
+// certo?" antes do usuário salvar — replicar esses números por fora já foi a
+// causa de um bug real neste projeto (pointValue divergente, 2026-08-05).
+export const STOP_ATR_MULTIPLIER = 1.5;
+export const RISK_REWARD_MULTIPLE = 2.5;
+/** Nocional mínimo executável — abaixo disso o motor pula o trade (ver `MIN_TRADE_SIZE` mais abaixo). */
+export const MIN_EXECUTABLE_NOTIONAL_USD = 10;
 
 /**
  * Distâncias de stop e alvo, em PONTOS, a partir do ATR.
@@ -1117,7 +1123,7 @@ async function analyzeAsset(
     // Mesmo fix aplicado em TradeSizing.calculatePositionSize (usado pelo
     // Backtest) — aqui é a cópia usada pelo motor ao vivo. Corrigido: pula o
     // trade em vez de forçar tamanho maior que o risco configurado.
-    const minTradeCapital = 10;
+    const minTradeCapital = MIN_EXECUTABLE_NOTIONAL_USD;
     if (tradeCapital < minTradeCapital) {
       const reason = `Nocional calculado ($${tradeCapital.toFixed(2)}) abaixo do mínimo executável ($${minTradeCapital}) — pulando trade em vez de inflar risco além de ${aiConfig.riskPerTrade}% configurado.`;
       console.log(`[POSITION SIZING] ⏭️ ${selectedSymbol}: ${reason}`);
