@@ -1321,6 +1321,30 @@ export function useApexLogic(
   // === UNREALIZED PNL LOOP (Price Updates & P&L Calculation) ===
   useEffect(() => {
     const pnlInterval = setInterval(() => {
+        // Curva de equity real (Dashboard, "Curva de Equity"): amostra o
+        // equity real do portfolio a cada 10s — nunca dado mockado/aleatório.
+        // Independente do executionMode (funciona em DEMO e LIVE) e, crucial,
+        // independente de haver posição aberta — antes esse bloco ficava
+        // DEPOIS do early-return abaixo, então sem nenhuma posição ativa o
+        // loop inteiro nunca rodava e o card do Dashboard ficava travado em
+        // "coletando dados..." pra sempre, mesmo com a conta ligada.
+        {
+          const now = Date.now();
+          if (now - lastEquitySampleAtRef.current >= EQUITY_SAMPLE_INTERVAL_MS) {
+            lastEquitySampleAtRef.current = now;
+            const realEquity = portfolioRef.current.equity;
+            setEquityHistory(prev => {
+              const last = prev[prev.length - 1];
+              // Evita ponto duplicado se o equity não mudou nada
+              if (last && last.equity === realEquity && now - last.t < EQUITY_SAMPLE_INTERVAL_MS * 2) {
+                return prev;
+              }
+              const next = [...prev, { t: now, equity: realEquity }];
+              return next.length > MAX_EQUITY_POINTS ? next.slice(-MAX_EQUITY_POINTS) : next;
+            });
+          }
+        }
+
         if (activeOrdersRef.current.length === 0) return;
 
         (async () => {
@@ -1562,26 +1586,6 @@ export function useApexLogic(
               equity: p.equity,
               openPositionsValue: p.openPositionsValue,
               currentDrawdown: p.currentDrawdown,
-            });
-          }
-        }
-
-        // Curva de equity real (Dashboard, "Curva de Equity"): amostra o
-        // equity real do portfolio a cada 10s — nunca dado mockado/aleatório.
-        // Independente do executionMode (funciona em DEMO e LIVE).
-        {
-          const now = Date.now();
-          if (now - lastEquitySampleAtRef.current >= EQUITY_SAMPLE_INTERVAL_MS) {
-            lastEquitySampleAtRef.current = now;
-            const realEquity = portfolioRef.current.equity;
-            setEquityHistory(prev => {
-              const last = prev[prev.length - 1];
-              // Evita ponto duplicado se o equity não mudou nada
-              if (last && last.equity === realEquity && now - last.t < EQUITY_SAMPLE_INTERVAL_MS * 2) {
-                return prev;
-              }
-              const next = [...prev, { t: now, equity: realEquity }];
-              return next.length > MAX_EQUITY_POINTS ? next.slice(-MAX_EQUITY_POINTS) : next;
             });
           }
         }
