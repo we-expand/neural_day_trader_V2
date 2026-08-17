@@ -4610,13 +4610,65 @@ app.post('/mt5-candles', async (c) => {
 // de nunca disfarçar dado sintético como se fosse real.
 app.post('/mt5-candles-history', async (c) => {
     try {
-        const { symbol, timeframe, startTime, endTime, token, accountId } = await c.req.json();
+        const { symbol, timeframe, startTime, endTime, token, accountId, cacheOnly } = await c.req.json();
 
         if (!symbol || !timeframe || !startTime || !endTime) {
             return c.json({
                 success: false,
                 error: 'Parâmetros obrigatórios ausentes (symbol, timeframe, startTime, endTime)'
             }, 400);
+        }
+
+        const timeframeMapEarly: Record<string, string> = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1H': '1h', '1h': '1h', '4H': '4h', '4h': '4h', '1D': '1d', '1d': '1d', '1W': '1w'
+        };
+        const mt5TimeframeEarly = timeframeMapEarly[timeframe] || '1h';
+        const requestedStartEarly = new Date(startTime).getTime();
+        const requestedEndEarly = new Date(endTime).getTime();
+
+        // 🚀 PERF: modo cacheOnly=true nunca toca a MetaAPI (nem token, nem
+        // conta, nem candle) — só lê o cache (ohlcv_data) e responde na hora.
+        // Usado pro primeiro paint "stale-while-revalidate" do gráfico: mostra
+        // o que já existe em cache (pode faltar a barra mais recente) enquanto
+        // a busca ao vivo completa roda em paralelo, sem bloquear a tela.
+        if (cacheOnly) {
+            try {
+                const supabaseUrl = Deno.env.get('SUPABASE_URL');
+                const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+                if (!supabaseUrl || !supabaseServiceKey) {
+                    return c.json({ success: true, source: 'cache', symbol, timeframe: mt5TimeframeEarly, count: 0, candles: [], timestamp: new Date().toISOString() });
+                }
+                const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+                const { data, error } = await supabaseAdmin
+                    .from('ohlcv_data')
+                    .select('timestamp, open, high, low, close, volume')
+                    .eq('asset_symbol', symbol)
+                    .eq('timeframe', mt5TimeframeEarly)
+                    .gte('timestamp', new Date(requestedStartEarly).toISOString())
+                    .lte('timestamp', new Date(requestedEndEarly).toISOString())
+                    .order('timestamp', { ascending: true });
+                const formattedCandles = (!error && Array.isArray(data) ? data : []).map((cd: any) => ({
+                    timestamp: new Date(cd.timestamp).getTime(),
+                    open: cd.open || 0,
+                    high: cd.high || 0,
+                    low: cd.low || 0,
+                    close: cd.close || 0,
+                    volume: cd.volume || 0,
+                }));
+                return c.json({
+                    success: true,
+                    source: 'cache',
+                    symbol,
+                    timeframe: mt5TimeframeEarly,
+                    count: formattedCandles.length,
+                    candles: formattedCandles,
+                    timestamp: new Date().toISOString()
+                });
+            } catch (cacheOnlyErr: any) {
+                // Fail-open: sem cache disponível, retorna vazio (frontend segue esperando a busca ao vivo).
+                return c.json({ success: true, source: 'cache', symbol, timeframe: mt5TimeframeEarly, count: 0, candles: [], timestamp: new Date().toISOString() });
+            }
         }
 
         const metaapiToken = await getMetaApiToken(token);

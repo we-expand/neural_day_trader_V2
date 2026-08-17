@@ -109,6 +109,26 @@ export async function fetchCandlesQuick(symbol: string, timeframe: string, limit
 }
 
 /**
+ * 🚀 PERF: lê só o que já está em cache (ohlcv_data), nunca toca a MetaAPI —
+ * nem token, nem conta, nem candle ao vivo. Pro primeiro paint
+ * "stale-while-revalidate": mostra na hora o que já existe (pode faltar a
+ * barra mais recente), enquanto fetchCandlesQuick busca a versão completa em
+ * paralelo e substitui assim que chegar. Só forex/index/commodity passam por
+ * cache hoje (crypto vem direto da Binance, já rápido o suficiente sem isso).
+ * Cache vazio (símbolo/timeframe nunca visitado) retorna [] sem erro — nesse
+ * caso não há nada pra mostrar antes da busca ao vivo completar mesmo.
+ */
+export async function fetchCandlesCacheOnly(symbol: string, timeframe: string, limit: number = 200): Promise<CandleData[]> {
+  const mapping = symbolMappingService.findMapping(symbol);
+  const assetType = mapping?.type || detectAssetType(symbol);
+
+  if (assetType === 'forex' || assetType === 'index' || assetType === 'commodity') {
+    return fetchCandlesFromMetaAPI(symbol, timeframe, limit, true, true);
+  }
+  return [];
+}
+
+/**
  * 🔍 Detectar tipo de ativo pelo símbolo (fallback quando mapping não existe)
  */
 function detectAssetType(symbol: string): 'crypto' | 'forex' | 'index' | 'commodity' | 'stock' {
@@ -236,7 +256,7 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
  * explícito e aqui tratamos como "sem candles" (fallback local assume por
  * cima, mas pelo menos não finge ser real).
  */
-async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, quick: boolean = false): Promise<CandleData[]> {
+async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, quick: boolean = false, cacheOnly: boolean = false): Promise<CandleData[]> {
   try {
     // Mapear timeframe pro formato aceito por /mt5-candles-history
     const mt5TimeframeMap: Record<string, string> = {
@@ -286,6 +306,7 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
         timeframe: mt5Timeframe,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
+        cacheOnly,
       }),
     });
 

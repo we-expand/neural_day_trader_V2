@@ -467,7 +467,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
-import { fetchCandles, fetchCandlesQuick } from '@/app/services/market-service';
+import { fetchCandles, fetchCandlesQuick, fetchCandlesCacheOnly } from '@/app/services/market-service';
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
@@ -4975,13 +4975,18 @@ export function ChartView({
       let didCleanMysteryOverlay = false;
 
       // Fetch real data
-      // 🚀 PERF: mode 'quick' busca uma janela pequena de candles (cabe numa única
-      // página da MetaAPI) pro primeiro paint quase instantâneo; 'deep' busca os 5
-      // anos completos (usado no auto-refresh de 30s e, uma vez, em background logo
-      // após o 'quick' inicial, pra preencher o histórico profundo sem bloquear a
-      // tela). Mesmo pipeline dos dois modos — já era chamado repetidamente a cada
-      // 30s sem problema, então repetir mais cedo com 'deep' é seguro.
-      const fetchData = async (mode: 'quick' | 'deep' = 'deep') => {
+      // 🚀 PERF: 3 modos, do mais rápido pro mais completo. 'cache' nunca toca a
+      // MetaAPI (só lê ohlcv_data via Supabase) — instantâneo quando o símbolo já
+      // foi visitado antes, mas pode faltar a barra mais recente ou vir vazio (0
+      // chamadas úteis) na primeira vez que alguém abre aquele símbolo/timeframe.
+      // 'quick' busca uma janela pequena ao vivo (cabe numa única página da
+      // MetaAPI) — sempre completa e atualizada, mas depende da latência normal
+      // de 1 chamada (3-8s documentado). 'deep' busca os 5 anos completos (usado
+      // no auto-refresh de 30s e, uma vez, em background após o 'quick' inicial,
+      // pra preencher o histórico profundo sem bloquear a tela). Mesmo pipeline
+      // pros 3 modos — já era chamado repetidamente a cada 30s sem problema,
+      // então repetir mais cedo com modos diferentes é seguro.
+      const fetchData = async (mode: 'cache' | 'quick' | 'deep' = 'deep') => {
         console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe, 'mode:', mode);
 
         try {
@@ -4990,13 +4995,20 @@ export function ChartView({
           // roteamento + Edge Function) — disparar em paralelo em vez de sequencial
           // corta o tempo de carregamento do gráfico quase pela metade (cada um
           // podia levar segundos sozinho, principalmente cold start de Edge Function).
-          const marketDataPromise = getRealMarketData(selectedSymbol).catch(error => {
-            console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
-            return null;
-          });
-          const candles = mode === 'quick'
-            ? await fetchCandlesQuick(selectedSymbol, timeframe)
-            : await fetchCandles(selectedSymbol, timeframe);
+          // No modo 'cache' pulamos essa busca (ela sempre vai ao vivo) — não faz
+          // sentido pagar o custo dela só pra um render que pode ser descartado
+          // segundos depois pelo 'quick'.
+          const marketDataPromise = mode === 'cache'
+            ? Promise.resolve(null)
+            : getRealMarketData(selectedSymbol).catch(error => {
+                console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
+                return null;
+              });
+          const candles = mode === 'cache'
+            ? await fetchCandlesCacheOnly(selectedSymbol, timeframe)
+            : mode === 'quick'
+              ? await fetchCandlesQuick(selectedSymbol, timeframe)
+              : await fetchCandles(selectedSymbol, timeframe);
 
           console.log('[ChartView] 📦 Received data:', {
             candles: candles?.length || 0,
@@ -5399,10 +5411,12 @@ export function ChartView({
         }
       };
 
-      // 🚀 PERF: primeiro paint com janela pequena de candles ('quick'), depois
-      // busca o histórico profundo de 5 anos em background ('deep') sem travar
-      // a tela — ver comentário na declaração de fetchData acima.
-      fetchData('quick').then(() => {
+      // 🚀 PERF: 'cache' primeiro (pode pintar a tela quase na hora se o símbolo
+      // já foi visitado antes), depois 'quick' (sempre ao vivo e completo, corrige
+      // qualquer defasagem do cache), depois 'deep' em background pra preencher o
+      // histórico de 5 anos sem travar a tela — ver comentário na declaração de
+      // fetchData acima.
+      fetchData('cache').then(() => fetchData('quick')).then(() => {
         fetchData('deep');
       });
 
