@@ -879,15 +879,23 @@ async function analyzeAsset(
     const currentBalance = portfolio.balance || 100;
     const allocatedCapital = Math.min(aiConfig.allocatedCapital, currentBalance);
     const riskPercentage = aiConfig.riskPerTrade / 100;
-    let tradeCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+    const fixedRiskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+    // 2026-08-16: FIX DE BUG — modo FIXED usava riskCapital diretamente como
+    // nocional, ignorando a distância do stop (mesma classe de bug já
+    // corrigida em TradeSizing.calculatePositionSize, usada pelo Backtest,
+    // em 2026-07-30 — nunca replicada aqui no motor ao vivo). Dois trades com
+    // o mesmo riskPerTrade% mas stops de tamanhos diferentes arriscavam
+    // quantias em dinheiro muito diferentes. Corrigido: nocional = risco em $
+    // / distância do stop em % (fixed-fractional de verdade — Van Tharp).
+    const stopDistancePercent = currentPrice > 0 ? slDistance / currentPrice : 0;
+    let tradeCapital = stopDistancePercent > 0 ? fixedRiskCapital / stopDistancePercent : fixedRiskCapital;
 
     if (aiConfig.positionSizingMode === 'ATR') {
       const atrSeries = calculateATR(candles, 14);
       const atrValue = atrSeries[atrSeries.length - 1];
       if (atrValue && atrValue > 0) {
         const atrDistance = atrValue * aiConfig.atrMultiplier;
-        const riskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
-        tradeCapital = slDistance > 0 ? riskCapital * (slDistance / atrDistance) : riskCapital;
+        tradeCapital = slDistance > 0 ? fixedRiskCapital * (slDistance / atrDistance) : fixedRiskCapital;
         console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} | capital ajustado: $${tradeCapital.toFixed(2)}`);
       }
     }
