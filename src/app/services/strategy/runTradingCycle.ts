@@ -1152,6 +1152,30 @@ async function analyzeAsset(
       }
     }
 
+    // 2026-08-17: FIX DE BUG — `aiConfig.maxContracts` ("Lotes Máximos por
+    // Trade" na tela) nunca era lido aqui. O cálculo de sizing acima (risco%
+    // ou ATR) não tem noção de "lote" nenhuma — devolve só um nocional em
+    // dólar — então nada impedia esse nocional de corresponder a uma
+    // contagem de lotes muito maior que o teto configurado pelo usuário.
+    // Achado ao vivo: Solana entrou com ~20 lotes calculados com o config em
+    // 0,8 lote máximo — o motor simplesmente não sabia desse limite. Pra
+    // ativos caros (índices) o nocional natural já cai num range pequeno de
+    // lotes, mascarando o problema; pra ativos baratos e voláteis (cripto
+    // alt-coin) o mesmo nocional em dólar vira muito mais "lotes". Fix:
+    // reconverte nocional → lotes (mesma fórmula da UI, `MarketScoreBoard.tsx`:
+    // nocional / (lotSize do catálogo × preço)) e reduz o nocional se exceder
+    // o teto — nunca aumenta (só clipa pra baixo).
+    if (aiConfig.maxContracts > 0) {
+      const assetForLotCap = getAssetBySymbol(selectedSymbol);
+      const lotSize = assetForLotCap?.lotSize || 1;
+      const estimatedLots = currentPrice > 0 ? tradeCapital / (lotSize * currentPrice) : 0;
+      if (estimatedLots > aiConfig.maxContracts) {
+        const cappedCapital = aiConfig.maxContracts * lotSize * currentPrice;
+        console.log(`[POSITION SIZING] ✂️ ${selectedSymbol}: ${estimatedLots.toFixed(4)} lotes calculados > teto de ${aiConfig.maxContracts} — nocional reduzido de $${tradeCapital.toFixed(2)} para $${cappedCapital.toFixed(2)}`);
+        tradeCapital = cappedCapital;
+      }
+    }
+
     // 2026-08-16: FIX DE BUG — antes, nocional abaixo de $10 era empurrado pra
     // cima (`Math.max(tradeCapital, minTradeCapital)`), inflando o risco real
     // muito além de `aiConfig.riskPerTrade` em contas pequenas (medido em

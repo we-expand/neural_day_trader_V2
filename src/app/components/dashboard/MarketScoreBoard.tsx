@@ -1104,7 +1104,15 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         <div>
                             <h3 className="text-sm font-bold text-white">POSIÇÕES ABERTAS</h3>
                             <p className="text-[10px] text-neutral-400">
-                                {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => sum + (order.amount || 0), 0).toFixed(2)} lotes total
+                                {/* 2026-08-17: FIX DE BUG — somava `order.amount` (exposição em USD)
+                                    e rotulava o resultado como "lotes total". Mesma classe de erro do
+                                    comentário logo abaixo (linha ~1128): dólar não é lote. Corrigido pra
+                                    somar a MESMA conversão usada por posição (nocional / (lotSize × preço)). */}
+                                {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => {
+                                    const asset = getAssetBySymbol(order.symbol);
+                                    const lots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
+                                    return sum + lots;
+                                }, 0).toFixed(2)} lotes total
                             </p>
                         </div>
                     </div>
