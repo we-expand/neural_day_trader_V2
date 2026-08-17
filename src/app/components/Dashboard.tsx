@@ -6,6 +6,7 @@ import { VIXWidgetEnhanced } from './tools/VIXWidgetEnhanced';
 import { RiskThermometer } from './dashboard/RiskThermometer';
 import { CorrelationMatrix } from './dashboard/CorrelationMatrix';
 import { LiquidityDetectorCard } from './dashboard/LiquidityDetectorCard';
+import { AIStuckBanner } from './dashboard/AIStuckBanner';
 
 // ✅ 2026-07-23: CorrelationMatrix (candles de ~16 ativos) e LiquidityDetectorCard
 // (candles 1H + até 5 anos de 1D) são os consumidores mais pesados de candle da
@@ -75,6 +76,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: string) => void 
           </p>
         </div>
       </div>
+
+      <AIStuckBanner />
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 pb-20">
         <div className="col-span-1 xl:col-span-12 h-auto">
