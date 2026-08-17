@@ -398,8 +398,8 @@ export function useApexLogic(
   const [maxCandlesBeforeForceEntry, setMaxCandlesBeforeForceEntry] = useState(INITIAL_STATE.maxCandlesBeforeForceEntry);
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>(INITIAL_STATE.equityHistory);
   const lastEquitySampleAtRef = useRef<number>(0);
-  const EQUITY_SAMPLE_INTERVAL_MS = 10000; // amostra real a cada 10s
-  const MAX_EQUITY_POINTS = 180; // ~30min de janela
+  const EQUITY_SAMPLE_INTERVAL_MS = 3000; // amostra real a cada 3s (mais granularidade pra curva do Dashboard)
+  const MAX_EQUITY_POINTS = 600; // ~30min de janela (mantida, só com mais pontos por minuto)
 
   // === VIX CACHE CONFIG ===
   // 🔥 CORREÇÃO CRÍTICA: useRef DEPOIS de useState (Rules of Hooks)
