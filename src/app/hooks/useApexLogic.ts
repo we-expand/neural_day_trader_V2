@@ -1149,7 +1149,7 @@ export function useApexLogic(
       runTradingCycle(
         {
           activeOrders,
-          aiConfig,
+          aiConfig: configRef.current,
           portfolio: portfolioRef.current,
           orderHistory: orderHistoryRef.current,
           lastTradeTimestamp: lastTradeTimestampRef.current,
