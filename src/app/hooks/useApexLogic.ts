@@ -488,6 +488,12 @@ export function useApexLogic(
   // Ref sempre atualizado p/ ser lido dentro de intervals/callbacks sem precisar
   // adicionar `persistence` (objeto novo a cada render) nas dependências dos efeitos.
   const persistenceRef = useRef(persistence);
+  // `addLog` só é declarado bem mais abaixo (precisa de `setRecentLogs`) —
+  // esta ref existe pra que o efeito de reconciliação (logo depois da
+  // hidratação, ainda mais acima de `addLog` no corpo da função) consiga
+  // chamá-lo sem sofrer erro de "usado antes de declarado". Sincronizada
+  // pelo próprio `addLog` assim que ele existe (ver comentário lá).
+  const addLogRef = useRef<(message: string) => void>(() => {});
   useEffect(() => {
     persistenceRef.current = persistence;
   });
@@ -792,6 +798,18 @@ export function useApexLogic(
   // e substitui `activeOrders` — seguro porque em DEMO o navegador nunca mais
   // escreve posição própria, então não há risco de pisar em estado local que
   // o servidor não conhece.
+  //
+  // 2026-08-17 (mesmo dia, achado logo depois do fix acima): o painel "Logs
+  // do Sistema" da tela (`AITrader.tsx`, lê `recentLogs`) só recebe linha via
+  // `addLog()`, chamado de dentro do efeito `LOG` do `runTradingCycle` — que
+  // só roda quando o ciclo executa NO NAVEGADOR. Com o motor duplo desligado,
+  // esse painel fica preso em "Nenhuma atividade ainda..." pra sempre em
+  // DEMO, mesmo com a IA operando de verdade no servidor (achado ao vivo: 2
+  // posições reais abertas, painel vazio). O painel "Terminal"
+  // (`LiveLogTerminal.tsx`) não tem esse problema porque deriva log de
+  // `activeOrders` mudando — mesma fonte que este polling já atualiza.
+  // Reaproveitado aqui: loga quando este polling detecta um `id` de posição
+  // que não existia no estado anterior.
   useEffect(() => {
     if (!isActive || executionMode !== 'DEMO') return;
 
@@ -810,6 +828,11 @@ export function useApexLogic(
           // pro tick de PnL (linha ~1235) — só sincroniza QUAIS posições
           // existem e seus dados de abertura, não sobrescreve o preço ao vivo.
           const prevById = new Map(prev.map(o => [o.id, o]));
+          for (const t of open) {
+            if (!prevById.has(t.id!)) {
+              addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${t.entry_price.toFixed(2)} (aberta pelo servidor)`);
+            }
+          }
           return open.map((t): TradeVisual => {
             const existing = prevById.get(t.id!);
             return {
@@ -972,6 +995,7 @@ export function useApexLogic(
   const addLog = useCallback((message: string) => {
     setRecentLogs((prev) => [message, ...prev].slice(0, 50));
   }, []);
+  useEffect(() => { addLogRef.current = addLog; }, [addLog]);
 
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {

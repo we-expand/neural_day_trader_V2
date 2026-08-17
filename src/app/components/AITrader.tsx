@@ -762,13 +762,21 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                       </span>
                     </div>
 
-                    {/* Capital em Aberto (Margem) */}
+                    {/* Exposição total (nocional das posições abertas) */}
+                    {/* 2026-08-17: FIX DE BUG — `order.amount` é exposição/nocional em
+                        dólar (ver TradeVisual, `finalTradeCapital` em runTradingCycle.ts),
+                        NUNCA margem. Rotular a soma como "Margem investida" produz um
+                        número que parece dizer que a conta está alavancada dezenas de
+                        vezes o patrimônio (achado ao vivo: $4.893 "de margem" numa conta
+                        de $92) quando na verdade é só a exposição nocional das posições —
+                        mesma classe de erro já corrigida no Dashboard (MarketScoreBoard.tsx,
+                        mesma sessão). Renomeado pra refletir o que o número é de fato. */}
                     <div className="flex flex-col">
-                      <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Capital em Aberto</span>
+                      <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Exposição Total</span>
                       <span className="text-2xl font-bold text-white font-mono">
                         ${activeOrders.reduce((total, order) => total + (order.amount || 0), 0).toFixed(2)}
                       </span>
-                      <span className="text-xs text-slate-400/60 font-mono mt-1">Margem investida</span>
+                      <span className="text-xs text-slate-400/60 font-mono mt-1">Nocional das posições abertas</span>
                     </div>
 
                     {/* Operações Abertas */}
