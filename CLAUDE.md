@@ -149,6 +149,28 @@ O que ainda está genuinamente em aberto:
    pra lucro no Ano 1). Detalhe completo, perguntas respondidas e pendências
    reais (CAC/conversão/rebate ainda são meta, não medição) em
    `SESSAO_2026-08-10_MODELO_FINANCEIRO.md`.
+6. **[NOVO 2026-08-17] Ideia registrada, não iniciada: probabilidade de
+   acerto calibrada por entrada.** Pergunta do Cleber depois de ver a IA
+   operar de verdade pela primeira vez: existe cálculo estatístico de
+   probabilidade de acerto por trade? Resposta hoje: não — o `confidence`/
+   score exibido (ex: "69%") é heurística (média de blocos técnicos
+   concordando), documentada no próprio código como não-calibrada, nunca
+   medida contra resultado real. Consistente com a conclusão da seção
+   "Cérebro de decisão da IA" acima (sem edge comprovado, EV ≈ −custo) —
+   calcular "probabilidade de acerto" em cima de sinal sem edge provado seria
+   inventar confiança. Se retomado: seria projeto de pesquisa novo (dado,
+   validação out-of-sample, calibration curve/Brier score), não um fix — seu
+   escopo natural é o mesmo do Trilho 2 (edge com dado estruturalmente
+   diferente), hoje pausado sem justificativa nova. Sem próximo passo
+   definido — Cleber quer voltar nisso depois.
+
+Item resolvido recentemente: **[2026-08-17] Redesenho visual da curva de
+equity** (`src/app/components/tools/EquityChart.tsx`, usado em
+`AITrader.tsx`) — linha mais fina com glow sutil, gradiente suave, grid
+quase invisível, linha de referência no saldo inicial, badge de máx/mín e
+tooltip com blur. Commit ainda pendente do Cleber rodar. Nota: o gráfico só
+aparece se `showEquityChart` estiver ligado (default `false`, não há toggle
+visível na UI hoje — só carrega `true` via workspace salvo).
 
 ## Convenções do projeto
 
