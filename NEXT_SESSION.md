@@ -1,16 +1,48 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-16** (fim do dia, 4ª parte). **Regra: este arquivo é
+> Reescrito em **2026-08-16** (fim do dia, 5ª parte). **Regra: este arquivo é
 > handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
-## ▶ COMECE AQUI — 3 de 5 frentes do redesenho medidas, nenhuma promovível ainda, decisão de direção pendente
+## ▶ COMECE AQUI — Cleber escolheu aprofundar arbitragem estatística (a); resultado agora é NEGATIVO E CONCLUSIVO, frente fechada
 
 Plano completo (5 frentes) em
 **[SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md](SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md)**.
 Execução e medição dos itens 1, 2 e 4 (incluindo pesquisa sobre como
 Renaissance/Two Sigma/market makers operam, e o que disso é aplicável aqui)
-em **[SESSAO_2026-08-16_EXECUCAO_SCORE_TIMEFRAME_ARBITRAGEM.md](SESSAO_2026-08-16_EXECUCAO_SCORE_TIMEFRAME_ARBITRAGEM.md)**
-— leia os dois antes de continuar esta frente.
+em **[SESSAO_2026-08-16_EXECUCAO_SCORE_TIMEFRAME_ARBITRAGEM.md](SESSAO_2026-08-16_EXECUCAO_SCORE_TIMEFRAME_ARBITRAGEM.md)**.
+
+**Novidade desta parte**: rodada de sensibilidade de parâmetros com DSR
+(item (a) escolhido pelo Cleber, respondendo a pergunta que ficou em aberto
+no item 4). 18 configurações (janela de OLS, z de entrada, z de saída) ×
+6 pares × 2 timeframes = 216 backtests, DSR aplicado por par sobre a melhor
+config usando as 18 tentativas como correção de seleção. **Nenhum par passa
+perto do piso de DSR 95%** — melhor caso é 54,6% (US30/NAS100 1h). Resultado
+mais forte que o anterior: não é mais "inconclusivo por falta de sensibilidade
+de parâmetro", é negativo mesmo dando 18 chances de calibração por par.
+Detalhe: addendum no fim de
+`research/experiments/2026-08-16-statistical-arbitrage/results/README.md`,
+script `pairsSensitivity.ts`, tabela `pairs_sensitivity_summary.md`.
+
+**Decisão**: não prosseguir com arbitragem estatística nestes
+pares/timeframes/método sem dado genuinamente novo (instrumentos do mesmo
+mercado — hoje indisponível via MetaAPI). Frente (a) está fechada.
+
+### Próximo passo real: voltar pro Cleber com (b) e (c)
+
+Com (a) agora também fechado, restam as outras duas opções levantadas no
+fim da parte anterior — abrir a próxima sessão perguntando qual seguir, não
+assumindo:
+
+- **(b) Retestar score contínuo (item 1) com abordagem diferente** — pesos
+  não-uniformes por bloco, ou score só como critério de DESEMPATE
+  multi-setup (mantendo o gate binário como piso de qualidade, não
+  substituindo-o).
+- **(c) Reconsiderar a meta de ~10 trades/dia** — com TA clássico (julho),
+  score contínuo (item 1) E arbitragem estatística (item 4, agora com
+  sensibilidade testada) todos sem edge promovível, vale nomear
+  explicitamente que a meta de frequência pode ser incompatível com a
+  disciplina anti-fabricação de edge do projeto (ver `CLAUDE.md`,
+  "Convenções do projeto").
 
 ### Estado dos 5 itens
 
@@ -39,22 +71,20 @@ Com 3 de 5 frentes medidas e nenhuma com resultado positivo promovível,
 próxima sessão deve abrir perguntando ao Cleber qual caminho seguir, não
 assumindo:
 
-- **(a) Aprofundar arbitragem estatística** (item 4) — é a mais promissora,
-  por não ter fechado a porta como as outras. Precisaria de: sensibilidade
-  de parâmetros com correção estatística (DSR), pares de instrumento mais
-  próximos (mesmo mercado — hoje MetaAPI não oferece isso), e avaliar se o
-  custo de CFD de varejo permite esse tipo de estratégia independente da
-  calibração.
+- ~~(a) Aprofundar arbitragem estatística~~ — **feito nesta sessão, resultado
+  NEGATIVO e agora conclusivo** (sensibilidade de parâmetros com DSR, ver
+  seção "COMECE AQUI" acima). Frente fechada.
 - **(b) Retestar item 1 com abordagem diferente** — pesos não-uniformes por
   bloco, ou score contínuo só como critério de DESEMPATE multi-setup
   (mantendo o gate binário como piso de qualidade, não substituindo-o).
 - **(c) Reconsiderar a meta de ~10 trades/dia** — pode ser incompatível com
   a disciplina anti-fabricação de edge que o projeto sempre seguiu (ver
-  `CLAUDE.md`, "Convenções do projeto"). Vale nomear isso explicitamente se
-  as frentes (a)/(b) também não renderem.
+  `CLAUDE.md`, "Convenções do projeto"). Cada frente testada até agora (TA
+  clássico em julho, score contínuo, arbitragem estatística) deu negativo —
+  vale nomear isso explicitamente na próxima conversa com o Cleber.
 
-Não iniciar nenhuma das 3 sem essa conversa — cada uma é escopo grande o
-bastante pra merecer alinhamento antes de codar.
+Não iniciar (b) sem essa conversa — é escopo grande o bastante pra merecer
+alinhamento antes de codar.
 
 ## Sessão de calibração do runner ainda ativa
 
