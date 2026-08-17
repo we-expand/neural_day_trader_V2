@@ -35,7 +35,22 @@ export interface MarketQuote {
 const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 const MAX_CANDLES = 10_000;
 
-function resolveLookbackMs(msPerCandle: number, previousBarCount: number): number {
+// 🚀 PERF: buscar os 5 anos completos de cara custava até ~10 chamadas
+// sequenciais à MetaAPI dentro de /mt5-candles-history (cada página ~3-8s +
+// 150ms de espera), deixando o gráfico ~20-80s sem mostrar nada em qualquer
+// símbolo/timeframe fora do cache (ohlcv_data). QUICK_CANDLES fica sob o
+// limite de 1000 candles/página da MetaAPI de propósito, então o primeiro
+// paint normalmente resolve em UMA chamada. O histórico profundo (5 anos,
+// necessário pro zoom-out) continua sendo buscado, só que em background
+// depois do primeiro paint — ver fetchCandlesQuick/fetchData em ChartView.
+const QUICK_CANDLES = 900;
+
+function resolveLookbackMs(msPerCandle: number, previousBarCount: number, quick: boolean = false): number {
+  if (quick) {
+    const desired = Math.max(previousBarCount, 200) * msPerCandle;
+    const cap = QUICK_CANDLES * msPerCandle;
+    return Math.min(desired, cap);
+  }
   const desired = Math.max(FIVE_YEARS_MS, previousBarCount * msPerCandle);
   const cap = MAX_CANDLES * msPerCandle;
   return Math.min(desired, cap);
@@ -67,6 +82,28 @@ export async function fetchCandles(symbol: string, timeframe: string, limit: num
   } else {
     // Stock ou desconhecido: sem fonte real de candles
     console.warn(`[MarketService] ⚠️ ${symbol} asset type ${assetType} sem fonte de candles real`);
+    return [];
+  }
+}
+
+/**
+ * 🚀 PERF: variante "rápida" de fetchCandles, pro primeiro paint do gráfico.
+ * Mesmo roteamento por tipo de ativo, mas pede uma janela pequena (QUICK_CANDLES)
+ * em vez de 5 anos — isso normalmente cabe numa única página da MetaAPI, contra
+ * até ~10 páginas sequenciais da busca completa. Usar em conjunto com
+ * fetchCandles (chamado depois, em background) pra preencher o histórico
+ * profundo sem bloquear a primeira renderização. Crypto (Binance) já é rápido
+ * o suficiente e usa o mesmo `limit` pequeno, sem necessidade de dois estágios.
+ */
+export async function fetchCandlesQuick(symbol: string, timeframe: string, limit: number = 200): Promise<CandleData[]> {
+  const mapping = symbolMappingService.findMapping(symbol);
+  const assetType = mapping?.type || detectAssetType(symbol);
+
+  if (assetType === 'crypto') {
+    return fetchCandlesFromBinance(symbol, timeframe, limit);
+  } else if (assetType === 'forex' || assetType === 'index' || assetType === 'commodity') {
+    return fetchCandlesFromMetaAPI(symbol, timeframe, limit, true);
+  } else {
     return [];
   }
 }
@@ -199,7 +236,7 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
  * explícito e aqui tratamos como "sem candles" (fallback local assume por
  * cima, mas pelo menos não finge ser real).
  */
-async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
+async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, quick: boolean = false): Promise<CandleData[]> {
   try {
     // Mapear timeframe pro formato aceito por /mt5-candles-history
     const mt5TimeframeMap: Record<string, string> = {
@@ -229,7 +266,7 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     // timeframes finos) -- o backend (/mt5-candles-history) já pagina sozinho
     // em blocos de 1000 candles até cobrir o intervalo pedido, então só
     // precisamos alargar startTime/endTime, sem chunking aqui no cliente.
-    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit);
+    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit, quick);
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - lookbackMs);
 
