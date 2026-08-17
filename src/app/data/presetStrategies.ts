@@ -60,8 +60,9 @@ export const PRESET_STRATEGIES: Strategy[] = [
     id: '1',
     name: 'Rompimento de Canal (Donchian)',
     description:
-      'Trend-following clássico: compra no rompimento da máxima de 20 períodos. Somente lado comprado (LONG-ONLY) — ' +
-      'ver nota de escopo abaixo. Sai por trailing stop (rompimento da mínima de 10 períodos) ou stop em 2×ATR — ' +
+      'Trend-following clássico: compra no rompimento da máxima de 20 períodos e vende no rompimento da mínima ' +
+      '(simétrico no motor ao vivo desde 2026-08-17; o backtest segue long-only — ver nota de escopo abaixo). ' +
+      'Sai por trailing stop (rompimento da mínima de 10 períodos) ou stop em 2×ATR — ' +
       'nunca por alvo fixo. Desenho canônico de trend-following sistemático (Turtle Traders, que originalmente é ' +
       'simétrico long/short); só opera com ADX>22 confirmando tendência real.',
     regime: 'TREND',
@@ -72,9 +73,18 @@ export const PRESET_STRATEGIES: Strategy[] = [
     // posição comprada), nunca uma entrada de venda. Auditoria de 2026-07-30
     // confirmou que os 4 arquétipos de tendência (presets 1,2,4,5) são
     // long-only por implementação — `entrySignal: 'BUY'` só, nenhum bloco
-    // de entrada short existe.
+    // de entrada short existia.
     //
-    // DECISÃO DE ESCOPO (2026-07-30): não implementar a perna short agora.
+    // ✅ REVISTO EM 2026-08-17 (só pro motor ao vivo): `shortEntryBlocks`
+    // agora existe em todos os 5 presets, e `evaluateStrategyScoreBothSides`
+    // escolhe a perna de maior score. O motivo declarado abaixo pra não
+    // implementar short — `exitBlocks` não sabem o lado da posição — vale só
+    // pro BACKTEST, que é o único caminho que chama `evaluateExitAt`
+    // (BacktestEngine.ts:140). O motor ao vivo nunca usa `exitBlocks`: sai por
+    // TP/SL em ATR + trailing/breakeven. Por isso o backtest continua
+    // long-only de propósito e a medição histórica dele segue comparável.
+    //
+    // DECISÃO DE ESCOPO (2026-07-30, ainda válida pro BACKTEST):
     // Motivo: fazer isso corretamente exige que exitBlocks também se tornem
     // conscientes do lado da posição (hoje o exitBlock de saída é sempre o
     // mesmo, orientado pra fechar um LONG — usar essa mesma regra pra
@@ -105,6 +115,12 @@ export const PRESET_STRATEGIES: Strategy[] = [
     entryBlocks: [
       block({ type: 'ENTRY', category: 'trend', indicator: 'PRICE', operator: 'CROSS_ABOVE', compareIndicator: 'DONCHIAN_UPPER', comparePeriod: 20, label: 'Preço rompe a máxima dos últimos 20 candles (canal de Donchian)' }),
     ],
+    // 2026-08-17: perna vendida — espelho exato do rompimento de canal (o
+    // desenho Turtle original é simétrico; era a implementação daqui que não
+    // era). Só o motor ao vivo usa; ver `shortEntryBlocks` em types/strategy.ts.
+    shortEntryBlocks: [
+      block({ type: 'ENTRY', category: 'trend', indicator: 'PRICE', operator: 'CROSS_BELOW', compareIndicator: 'DONCHIAN_LOWER', comparePeriod: 20, label: 'Preço rompe a mínima dos últimos 20 candles (canal de Donchian, lado vendido)' }),
+    ],
     exitBlocks: [
       block({ type: 'EXIT', category: 'trend', indicator: 'PRICE', operator: 'CROSS_BELOW', compareIndicator: 'DONCHIAN_LOWER', comparePeriod: 10, label: 'Preço rompe a mínima dos últimos 10 candles (reversão do canal curto)' }),
     ],
@@ -118,12 +134,14 @@ export const PRESET_STRATEGIES: Strategy[] = [
     name: 'Cruzamento de Médias com Filtro de Regime',
     description:
       'EMA20 cruza acima da EMA50 (mudança de tendência) com ADX confirmando regime de tendência e EMA50 inclinada a favor — ' +
-      'sem o filtro de ADX, cruzamento de médias sofre com whipsaw em mercado lateral. Somente lado comprado (LONG-ONLY, ' +
-      'ver nota de escopo no preset 1). Stop em 2,5×ATR, trailing ativo.',
+      'sem o filtro de ADX, cruzamento de médias sofre com whipsaw em mercado lateral. Opera os dois lados no motor ' +
+      'ao vivo (cruzamento inverso + EMA50 caindo); backtest segue long-only, ver nota de escopo no preset 1. ' +
+      'Stop em 2,5×ATR, trailing ativo.',
     regime: 'TREND',
-    // 2026-07-30: long-only por desenho atual (só EMA20 cruza ACIMA da EMA50
-    // como entrada) — sem perna short simétrica, mesma decisão de escopo do
-    // preset 1 (ver comentário completo lá + research/MASTER_PLAN.md §3.3).
+    // `entrySignal` descreve a perna COMPRADA (`entryBlocks`). A perna vendida
+    // vive em `shortEntryBlocks` e é resolvida por
+    // `evaluateStrategyScoreBothSides` — a decisão de escopo de 2026-07-30 foi
+    // revista em 2026-08-17 para o motor ao vivo (ver preset 1).
     entrySignal: 'BUY',
     stopLoss: 150,
     takeProfit: 450,
@@ -139,6 +157,10 @@ export const PRESET_STRATEGIES: Strategy[] = [
     entryBlocks: [
       block({ type: 'ENTRY', category: 'trend', indicator: 'EMA', period: 20, operator: 'CROSS_ABOVE', compareIndicator: 'EMA', comparePeriod: 50, label: 'EMA20 cruza acima da EMA50' }),
       block({ type: 'ENTRY', category: 'trend', indicator: 'EMA', period: 50, operator: 'RISING', label: 'EMA50 inclinada para cima (tendência de fundo a favor, não só cruzamento pontual)' }),
+    ],
+    shortEntryBlocks: [
+      block({ type: 'ENTRY', category: 'trend', indicator: 'EMA', period: 20, operator: 'CROSS_BELOW', compareIndicator: 'EMA', comparePeriod: 50, label: 'EMA20 cruza abaixo da EMA50' }),
+      block({ type: 'ENTRY', category: 'trend', indicator: 'EMA', period: 50, operator: 'FALLING', label: 'EMA50 inclinada para baixo (tendência de fundo a favor do lado vendido)' }),
     ],
     exitBlocks: [
       block({ type: 'EXIT', category: 'trend', indicator: 'EMA', period: 20, operator: 'CROSS_BELOW', compareIndicator: 'EMA', comparePeriod: 50, label: 'EMA20 cruza abaixo da EMA50' }),
@@ -177,6 +199,12 @@ export const PRESET_STRATEGIES: Strategy[] = [
       block({ type: 'ENTRY', category: 'volatility', indicator: 'PRICE', operator: 'CROSS_BELOW', compareIndicator: 'BB_LOWER', comparePeriod: 20, label: 'Preço toca/rompe a banda inferior de Bollinger' }),
       block({ type: 'ENTRY', category: 'momentum', indicator: 'RSI', period: 14, operator: 'BELOW', value: 30, label: 'RSI < 30 (sobrevenda)' }),
     ],
+    // Espelho da reversão à média: vende o extremo oposto (banda superior +
+    // sobrecompra), esperando o retorno à média pra baixo.
+    shortEntryBlocks: [
+      block({ type: 'ENTRY', category: 'volatility', indicator: 'PRICE', operator: 'CROSS_ABOVE', compareIndicator: 'BB_UPPER', comparePeriod: 20, label: 'Preço toca/rompe a banda superior de Bollinger' }),
+      block({ type: 'ENTRY', category: 'momentum', indicator: 'RSI', period: 14, operator: 'ABOVE', value: 70, label: 'RSI > 70 (sobrecompra)' }),
+    ],
     exitBlocks: [
       block({ type: 'EXIT', category: 'volatility', indicator: 'PRICE', operator: 'CROSS_ABOVE', compareIndicator: 'BB', comparePeriod: 20, label: 'Preço retorna à média móvel central (SMA20) — alvo natural de mean-reversion' }),
     ],
@@ -191,12 +219,11 @@ export const PRESET_STRATEGIES: Strategy[] = [
     description:
       'Breakout com confirmação: preço fecha além da máxima de 20 períodos (Donchian) COM volume (OBV subindo) ' +
       'confirmando a força do movimento — reduz falso rompimento, que é o modo de falha mais comum de breakouts ingênuos ' +
-      '(que operam só no toque do nível, sem confirmação). Somente lado comprado (LONG-ONLY, ver nota de escopo no ' +
-      'preset 1). Stop em 1,5×ATR abaixo do nível rompido.',
+      '(que operam só no toque do nível, sem confirmação). Opera os dois lados no motor ao vivo (rompimento de mínima ' +
+      'com OBV caindo); backtest segue long-only, ver nota de escopo no preset 1. Stop em 1,5×ATR do nível rompido.',
     regime: 'BREAKOUT',
-    // 2026-07-30: long-only por desenho atual (só rompimento de máxima +
-    // OBV subindo como entrada) — sem perna short simétrica, mesma decisão
-    // de escopo do preset 1 (ver comentário completo lá).
+    // `entrySignal` descreve a perna COMPRADA; a vendida está em
+    // `shortEntryBlocks` (ver preset 1, decisão revista em 2026-08-17).
     entrySignal: 'BUY',
     stopLoss: 100,
     takeProfit: 300,
@@ -208,6 +235,10 @@ export const PRESET_STRATEGIES: Strategy[] = [
     entryBlocks: [
       block({ type: 'ENTRY', category: 'trend', indicator: 'PRICE', operator: 'CROSS_ABOVE', compareIndicator: 'DONCHIAN_UPPER', comparePeriod: 20, label: 'Fechamento além da máxima dos últimos 20 candles (rompimento real, não só pavio)' }),
       block({ type: 'ENTRY', category: 'volume', indicator: 'OBV', operator: 'RISING', label: 'OBV em alta (confirma volume comprador no rompimento — sem isso é um falso rompimento comum)' }),
+    ],
+    shortEntryBlocks: [
+      block({ type: 'ENTRY', category: 'trend', indicator: 'PRICE', operator: 'CROSS_BELOW', compareIndicator: 'DONCHIAN_LOWER', comparePeriod: 20, label: 'Fechamento abaixo da mínima dos últimos 20 candles (rompimento real pra baixo, não só pavio)' }),
+      block({ type: 'ENTRY', category: 'volume', indicator: 'OBV', operator: 'FALLING', label: 'OBV em queda (confirma volume vendedor no rompimento)' }),
     ],
     // 2026-07-30: FIX DE BUG — o exitBlock `ATR FALLING` (removido) dispara
     // sempre que ATR(i) < ATR(i-1), condição satisfeita em ~44% das barras
@@ -246,8 +277,8 @@ PRESET_STRATEGIES.push({
     '(3) confirmar latência de execução real via /broker/execute (só existe depois da Fase B/ponte de execução). ' +
     'Enquanto isso não acontecer, esta estratégia é um candidato, não uma recomendação.',
   regime: 'SCALP',
-  // 2026-07-30: long-only por desenho atual (só MACD cruza ACIMA de zero
-  // como entrada) — sem perna short simétrica, ver preset 1.
+  // `entrySignal` descreve a perna COMPRADA; a vendida está em
+  // `shortEntryBlocks` (ver preset 1, decisão revista em 2026-08-17).
   entrySignal: 'BUY',
   stopLoss: 20,
   takeProfit: 30,
@@ -260,6 +291,10 @@ PRESET_STRATEGIES.push({
   entryBlocks: [
     block({ type: 'ENTRY', category: 'momentum', indicator: 'MACD', operator: 'CROSS_ABOVE', value: 0, label: 'MACD (histograma) cruza acima de zero (rajada de momentum começando)' }),
     block({ type: 'ENTRY', category: 'momentum', indicator: 'RSI', period: 14, operator: 'BETWEEN', value: 50, value2: 70, label: 'RSI entre 50-70 (momentum a favor, ainda não sobrecomprado)' }),
+  ],
+  shortEntryBlocks: [
+    block({ type: 'ENTRY', category: 'momentum', indicator: 'MACD', operator: 'CROSS_BELOW', value: 0, label: 'MACD (histograma) cruza abaixo de zero (rajada de momentum vendedor começando)' }),
+    block({ type: 'ENTRY', category: 'momentum', indicator: 'RSI', period: 14, operator: 'BETWEEN', value: 30, value2: 50, label: 'RSI entre 30-50 (momentum vendedor a favor, ainda não sobrevendido)' }),
   ],
   exitBlocks: [
     block({ type: 'EXIT', category: 'momentum', indicator: 'MACD', operator: 'CROSS_BELOW', value: 0, label: 'MACD cruza abaixo de zero (rajada perdeu força)' }),

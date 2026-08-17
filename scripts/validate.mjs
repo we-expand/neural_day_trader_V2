@@ -40,8 +40,16 @@ const SUITES = [
     entry: 'src/app/services/strategy/__validate__score__.ts',
   },
   {
+    name: 'Duas pernas por estratégia — long e short simétricos (fim do long-only, 2026-08-17)',
+    entry: 'src/app/services/strategy/__validate__bothsides__.ts',
+  },
+  {
     name: 'Gate de viabilidade por custo (Componente 1 do cérebro de execução)',
     entry: 'src/app/services/risk/__validate__.ts',
+  },
+  {
+    name: 'Classe de custo por catálogo + alvo como denominador do gate (2026-08-17)',
+    entry: 'src/app/services/risk/__validate__costclass__.ts',
   },
   {
     name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',

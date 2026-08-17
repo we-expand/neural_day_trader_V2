@@ -9,6 +9,7 @@ import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { DEFAULT_ANALYSIS_BASKET } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
 
@@ -271,13 +272,20 @@ const INITIAL_STATE: ApexLogicState = {
     riskProfile: 'EQUILIBRADO',
     
     // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
-    activeAssets: ['EURUSD', 'XBNUSD'], // ✅ Lista de ativos selecionados (Infinox válidos)
-    maxAssets: 6, // 🆕 AUMENTADO DE 3 PARA 6 - Máximo de ativos simultâneos diferentes
+    // 2026-08-17: cesta ampla (39 ativos, critério objetivo em
+    // config/defaultBasket.ts) substitui os 2 ativos que eram padrão desde o
+    // início. O motor agora varre a cesta inteira e ranqueia — não sorteia.
+    activeAssets: DEFAULT_ANALYSIS_BASKET,
+    maxAssets: 6, // Máximo de ativos com posição ABERTA ao mesmo tempo (não limita a análise)
     timeframe: '15m', // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
     newsFilter: true, // Filtro de notícias econômicas
     dailyLossLimit: 5, // Limite de perda diária (%)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
     activeStrategyId: '2', // Padrão: "Cruzamento de Médias com Filtro de Regime" (tendência, ADX-gated), mesma estratégia disponível no Backtest
+    // 60 = um bloco de entrada perfeito somado a um cruzamento de até ~8
+    // candles atrás ainda passa. 100 reproduz o comportamento binário antigo
+    // (só o candle exato do cruzamento). Ver doc do campo em tradingState.ts.
+    signalScoreFloor: 60,
 
     // Gerenciamento de Risco — defaults conservadores (modelo FTMO/Topstep)
     drawdownAnchor: 'DAILY_CLOSE',
@@ -1274,6 +1282,28 @@ export function useApexLogic(
                 // pular o trailing inteiro quando não há SL real definido (0 = sem
                 // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
+
+                // 🆕 BREAKEVEN AUTOMÁTICO EM +1R (2026-08-17). Independente de
+                // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
+                // mover ainda mais a favor): quando o trade anda a favor a mesma
+                // distância do risco original (1R), o stop sobe pro preço de
+                // entrada. É o mecanismo que corta a perda média pra ~0 a partir
+                // desse ponto sem precisar prever direção melhor — puro
+                // gerenciamento de saída, não previsão. Ancorado em `originalSl`
+                // (imutável, gravado uma vez na abertura) pelo mesmo motivo do
+                // trailing abaixo: `order.sl` é reescrito a cada tick.
+                if (order.originalSl > 0) {
+                  const originalRisk = Math.abs(order.price - order.originalSl);
+                  if (originalRisk > 0) {
+                    const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
+                    if (favorableMove >= originalRisk) {
+                      effectiveSl = order.side === 'LONG'
+                        ? Math.max(effectiveSl, order.price)
+                        : Math.min(effectiveSl, order.price);
+                    }
+                  }
+                }
+
                 let trailMoved = false;
                 if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
                   // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
@@ -1296,8 +1326,8 @@ export function useApexLogic(
                     : nextPrice + trailDistance;
 
                   effectiveSl = order.side === 'LONG'
-                    ? Math.max(order.sl, trailedSl)
-                    : Math.min(order.sl, trailedSl);
+                    ? Math.max(effectiveSl, trailedSl)
+                    : Math.min(effectiveSl, trailedSl);
                   trailMoved = effectiveSl !== order.sl;
                 }
 
@@ -1537,7 +1567,25 @@ export function useApexLogic(
     } else {
       addLog('🛑 Sistema APEX Parado');
     }
-    
+
+    // 🆕 FIX 2026-08-17 (achado ao investigar "IA religada mas config antiga
+    // continua rodando"): "Desligar AI" nunca encerrava a sessão no Supabase
+    // — só zerava estado local (`setIsActive(false)`). A sessão ficava
+    // RUNNING no banco pra sempre, e o runner server-side (`ai-runner` via
+    // pg_cron) continuava operando com a config antiga indefinidamente,
+    // mesmo com a tela mostrando "desligado". Pior: como `sessionIdRef`
+    // também não era limpo, o próximo "Iniciar AI" via `startLogic` (guard
+    // `!persistenceRef.current.currentSessionId`) nunca criava sessão nova —
+    // só um reload de página resolvia (achado ao vivo nesta sessão,
+    // precisou de intervenção manual direto no banco). `endSession` já
+    // limpa `sessionIdRef.current` sozinho (useAIPersistence.ts:166), então
+    // chamar aqui resolve os dois problemas de uma vez: sessão morre de
+    // verdade no banco, e o próximo start cria uma sessão nova sem precisar
+    // recarregar a página.
+    if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
+      persistenceRef.current.endSession(portfolioRef.current.balance, portfolioRef.current.equity);
+    }
+
     setIsActive(false);
     setIsPaused(false);
   }, [activeOrders, addLog]);

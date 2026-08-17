@@ -291,11 +291,7 @@ export function evaluateStrategyScoreAt(
     return { score: 0, signal: null, blockScores: [], reasons: ['Nenhum bloco de entrada configurado'] };
   }
 
-  const blockScores = activeEntry.map(block => ({
-    label: block.label,
-    score: scoreBlock(block, indicatorCache, i),
-  }));
-  const score = blockScores.reduce((sum, b) => sum + b.score, 0) / blockScores.length;
+  const { blockScores, score } = scoreEntryBlocks(activeEntry, indicatorCache, i);
 
   let signal: 'BUY' | 'SELL';
   if (strategy.entrySignal) {
@@ -316,6 +312,102 @@ export function evaluateStrategyScoreAt(
   blockScores.forEach(b => reasons.push(`${b.label}: score ${b.score.toFixed(0)}`));
 
   return { score, signal, blockScores, reasons };
+}
+
+/** Média simples dos scores dos blocos de entrada — pesos iguais (mesma decisão de 2026-08-16). */
+function scoreEntryBlocks(
+  blocks: StrategyBlock[],
+  cache: IndicatorCache,
+  i: number
+): { blockScores: { label: string; score: number }[]; score: number } {
+  const blockScores = blocks.map(block => ({
+    label: block.label,
+    score: scoreBlock(block, cache, i),
+  }));
+  const score = blockScores.reduce((sum, b) => sum + b.score, 0) / blockScores.length;
+  return { blockScores, score };
+}
+
+export interface StrategySideScoreResult extends StrategyScoreResult {
+  /** Lado já resolvido, pronto pro motor — null quando nenhum lado é elegível. */
+  side: 'LONG' | 'SHORT' | null;
+}
+
+/**
+ * Avalia AMBAS as pernas (comprada e vendida) da estratégia no índice `i` e
+ * devolve a de maior score. Caminho usado pelo motor ao vivo desde 2026-08-17.
+ *
+ * POR QUE existe, além de `evaluateStrategyScoreAt`: aquela função resolve o
+ * lado por `entrySignal`, um campo único por estratégia — o que torna todo
+ * preset estruturalmente long-only (ver comentário de `shortEntryBlocks` em
+ * types/strategy.ts). Aqui, `entryBlocks` produz o candidato LONG e
+ * `shortEntryBlocks` o candidato SHORT; `filterBlocks` valem para os dois
+ * (ADX>18 é "existe micro-tendência", afirmação sem direção), e por isso são
+ * avaliados uma única vez, como gate binário — não misturar a semântica de
+ * filtro com a de score é a mesma regra já registrada em `scoreBlock`.
+ *
+ * Empate entre os dois lados é decidido a favor de NENHUM: dois lados opostos
+ * com o mesmo score é ausência de informação direcional, não escolha livre.
+ */
+export function evaluateStrategyScoreBothSides(
+  strategy: Strategy,
+  candles: Candle[],
+  i: number,
+  cache?: IndicatorCache
+): StrategySideScoreResult {
+  const indicatorCache = cache ?? new IndicatorCache(candles);
+  const reasons: string[] = [];
+
+  const activeFilters = strategy.filterBlocks.filter(b => b.enabled);
+  for (const block of activeFilters) {
+    if (!evaluateBlock(block, indicatorCache, i, candles.length)) {
+      return { score: 0, signal: null, side: null, blockScores: [], reasons: [`Filtro "${block.label}" não satisfeito`] };
+    }
+    reasons.push(`Filtro OK: ${block.label}`);
+  }
+
+  const longBlocks = strategy.entryBlocks.filter(b => b.enabled);
+  const shortBlocks = (strategy.shortEntryBlocks ?? []).filter(b => b.enabled);
+
+  // `direction` é a trava da própria estratégia (a trava do usuário é separada,
+  // aplicada por `aiConfig.direction` em runTradingCycle).
+  const longAllowed = longBlocks.length > 0 && strategy.direction !== 'SHORT' && strategy.entrySignal !== 'SELL';
+  const shortAllowed = shortBlocks.length > 0 && strategy.direction !== 'LONG';
+
+  if (!longAllowed && !shortAllowed) {
+    return { score: 0, signal: null, side: null, blockScores: [], reasons: [...reasons, 'Nenhuma perna elegível (sem blocos de entrada ou travada por direction)'] };
+  }
+
+  const longResult = longAllowed ? scoreEntryBlocks(longBlocks, indicatorCache, i) : null;
+  const shortResult = shortAllowed ? scoreEntryBlocks(shortBlocks, indicatorCache, i) : null;
+
+  const longScore = longResult?.score ?? -1;
+  const shortScore = shortResult?.score ?? -1;
+
+  if (longScore === shortScore) {
+    return {
+      score: Math.max(longScore, 0),
+      signal: null,
+      side: null,
+      blockScores: [...(longResult?.blockScores ?? []), ...(shortResult?.blockScores ?? [])],
+      reasons: [...reasons, `Empate entre as pernas (LONG ${longScore.toFixed(0)} = SHORT ${shortScore.toFixed(0)}) — sem informação direcional`],
+    };
+  }
+
+  const longWins = longScore > shortScore;
+  const winner = longWins ? longResult! : shortResult!;
+  const side: 'LONG' | 'SHORT' = longWins ? 'LONG' : 'SHORT';
+
+  winner.blockScores.forEach(b => reasons.push(`${b.label}: score ${b.score.toFixed(0)}`));
+  reasons.push(`Perna escolhida: ${side} (LONG ${Math.max(longScore, 0).toFixed(0)} vs SHORT ${Math.max(shortScore, 0).toFixed(0)})`);
+
+  return {
+    score: winner.score,
+    signal: longWins ? 'BUY' : 'SELL',
+    side,
+    blockScores: winner.blockScores,
+    reasons,
+  };
 }
 
 /**

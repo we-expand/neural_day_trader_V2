@@ -142,6 +142,27 @@ export interface AIConfig {
   // usada pelo Backtest. null = nenhuma selecionada (ciclo é pulado).
   activeStrategyId: string | null;
 
+  /**
+   * Piso do score contínuo de sinal (0-100) pra uma entrada ser considerada.
+   *
+   * 2026-08-17: substitui o AND binário de `evaluateStrategyAt`, que exigia
+   * que TODOS os blocos batessem no MESMO candle. Como `CROSS_ABOVE`/
+   * `CROSS_BELOW` são eventos de um candle só, isso tornava o motor cego pra
+   * tendência já estabelecida (quanto mais firme o movimento, mais tempo
+   * desde o cruzamento, menos sinal) — medido em produção: `NO_SIGNAL` em
+   * 100% das avaliações da sessão de 2026-08-17, e 3 entradas em 11 dias na
+   * sessão anterior. Com score graduado por recência (`scoreBlock`), um
+   * cruzamento de N candles atrás ainda pontua, decaindo 10 pontos por
+   * candle numa janela de 10.
+   *
+   * 100 reproduz exatamente o comportamento binário antigo (só o candle
+   * exato do cruzamento pontua 100). Quanto menor, mais entradas — e mais
+   * distante do gatilho original. NÃO é probabilidade calibrada de acerto:
+   * é a média dos scores dos blocos de entrada, uma heurística de
+   * proximidade do setup, igual à confiança que já existia antes.
+   */
+  signalScoreFloor: number;
+
   // Módulo de Gerenciamento de Risco (research/RISK_MODULE_SPEC.md).
   drawdownAnchor: 'INTRADAY_PEAK' | 'DAILY_CLOSE'; // FTMO/Topstep ancoram no fechamento diário
   cooldownEnabled: boolean;

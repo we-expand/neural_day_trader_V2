@@ -1,10 +1,14 @@
 /**
  * Validação determinística do score contínuo por bloco (item 1 do redesenho
  * do cérebro, 2026-08-16 — ver NEXT_SESSION.md e
- * SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md). `scoreBlock`/
- * `evaluateStrategyScoreAt` ainda não estão ligados em nenhum caminho de
- * execução — este arquivo cobre só a mecânica do score em si, com séries
- * sintéticas de resultado conhecido de antemão.
+ * SESSAO_2026-08-16_REDESENHO_CEREBRO_E_SETUP.md). Este arquivo cobre a
+ * mecânica do score em si, com séries sintéticas de resultado conhecido de
+ * antemão.
+ *
+ * ✅ 2026-08-17: `scoreBlock` deixou de ser código não-ligado — é o gerador de
+ * sinal do motor ao vivo, via `evaluateStrategyScoreBothSides`
+ * (`runTradingCycle.ts`). As asserções de duas pernas ficam em
+ * `__validate__bothsides__.ts`.
  *
  * Roda com: npx esbuild src/app/services/strategy/__validate__score__.ts --bundle --platform=node --outfile=/tmp/validate-score.js && node /tmp/validate-score.js
  */
