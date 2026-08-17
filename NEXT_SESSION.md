@@ -1,191 +1,216 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-17** (14ª parte — reescrita completa, não empilhada).
+> Reescrito em **2026-08-17** (15ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 
-1. **Commitar e subir a Onda 1** (comandos no fim deste arquivo). Nada foi
-   commitado — regra fixa do projeto.
-2. **Medir o funil DEPOIS do deploy.** Esta é a única prova que interessa, e
-   ela ainda não existe: todas as mudanças desta sessão foram verificadas por
-   type-check e por 265 asserções determinísticas, mas **nenhuma rodou contra
-   mercado real ainda**. O que medir, com a IA ligada por algumas horas:
+1. **Commitar os 3 lotes de mudança pendentes** (comandos no fim). Nada foi
+   commitado por mim — regra fixa do projeto.
+2. **Fazer os 2 deploys de função** (`ai-runner`), na ordem em que os fixes
+   foram descobertos (ver seção "Deploys pendentes" abaixo) — sem Docker
+   instalado nesta máquina, então é `npx supabase functions deploy` puro.
+3. **Confirmar que o motor duplo (navegador + servidor) parou.** Depois do
+   deploy do fix em `useApexLogic.ts` (item 3 do "O que foi feito"), reabrir a
+   aba com a IA ligada e checar `ai_decisions` — não deve mais aparecer o
+   mesmo símbolo reavaliado 3-5x em poucos segundos (era o sintoma do
+   navegador rodando loop próprio em paralelo com o `pg_cron`).
+4. **Medir o funil de novo, depois de TODOS os fixes de hoje no ar** — a
+   medição feita durante a sessão ficou obsoleta a cada novo bug achado
+   (import dinâmico faltando → rate-limit → motor duplo → sizing matemático).
+   Query:
    ```sql
-   select created_at, ticks, evaluations, stage_counts
-   from ai_funnel_snapshots
-   where session_id = '<nova sessão>'
-   order by created_at desc limit 20;
+   select coalesce(veto_stage,'(EXECUTADO)') as stage, count(*) n
+   from ai_decisions
+   where session_id = '<sessão ativa>'
+   group by 1 order by n desc;
    ```
-   O resultado esperado, e o que invalida cada hipótese:
-   - `NO_SIGNAL` deixa de ser 100% das avaliações → o gatilho de estado
-     funcionou. Se continuar em 100%, **o piso de 60 está alto demais pra este
-     mercado** — o detalhe do estágio agora traz "melhor score X < piso Y",
-     que diz exatamente quanto baixar.
-   - `COST_GATE` deixa de dominar → a correção de denominador funcionou. Se
-     continuar dominando, olhar `risk_assessment->>'costClassSource'`: se vier
-     `FALLBACK`, tem símbolo fora do catálogo.
-   - `ENTRY_EXECUTED` aparecendo é o objetivo. **Quantas vezes por dia é
-     medição, não meta** — não ajustar piso pra "atingir" um número.
-3. **⚠️ A cesta de 39 NÃO se aplica sozinha a quem já usa o app.** O merge de
-   config é `{...INITIAL_STATE.aiConfig, ...localStorage}`
-   (`useApexLogic.ts:609`), então `activeAssets` já salvo **vence o novo
-   default** — de propósito: sobrescrever a seleção que o usuário fez na tela
-   seria decidir por ele. Chaves NOVAS (`signalScoreFloor`) pegam o default
-   normalmente. Para a cesta ampla valer na conta do Cleber:
-   **(a)** selecionar os ativos em "Universo de Ativos" na tela, e
-   **(b)** desligar e religar a IA — `ai_sessions.config` só é gravado na
-   CRIAÇÃO da sessão (`useAIPersistence.ts:113`), então uma sessão já
-   `RUNNING` continua rodando a config velha. Foi exatamente isso que
-   produziu a sessão zumbi de 10 dias.
-4. **Testar o fix do botão "Desligar AI"** (`useApexLogic.ts`, `stopLogic`) —
-   herdado da sessão anterior, ainda sem teste ao vivo. Desligar pela tela e
-   confirmar via SQL que a sessão vira `STOPPED` (não só o estado local), e que
-   ligar de novo sem reload cria sessão nova.
-5. **Decidir sobre o feed de dados** — números levantados na seção própria
-   abaixo, decisão do Cleber pendente.
+   Com o fix de sizing (item 4 abaixo) resolvido, `MIN_TRADE_SIZE` deve sumir
+   do topo. Se `ENTRY_EXECUTED` continuar em zero mesmo assim, o próximo
+   suspeito é `MARKET_MODE_MISMATCH` (regime `INDEFINIDO` vs modo "Trend"
+   travado) — decisão de produto do Cleber, não bug.
 
-## O que foi feito nesta sessão
+## O que foi feito nesta sessão (ordem cronológica real)
 
-**Contexto**: Cleber reportou a IA ligada em dia de mercado forte (BTC, cacau
-+3%, ZEC +4%) sem nenhuma entrada, com o painel mostrando "TENDÊNCIA DE ALTA /
-COMPRA 61 / ADX 34" ao mesmo tempo. Pediu redesenho do conceito: mais
-liberdade pra entrar, cesta maior, e opções de API que não estourem
-rate-limit.
+**Contexto inicial**: Cleber reportou a IA ligada em dia de mercado forte
+(BTC, cacau +3%, ZEC +4%) sem nenhuma entrada, com o painel mostrando
+"TENDÊNCIA DE ALTA / COMPRA 61 / ADX 34" ao mesmo tempo. Pediu redesenho:
+mais liberdade pra entrar, cesta maior, opções de API sem rate-limit.
 
-### Diagnóstico medido (dado real, antes de mexer em qualquer linha)
+### 1. Onda 1 — motor de decisão (commitada e no ar, `7f8f3717a`/`a60680833`)
 
-Funil da sessão que estava rodando (`cf74baed`, 5m): **`NO_SIGNAL` em 100% das
-avaliações** — nenhuma decisão chegava sequer aos gates de risco.
-Sessão anterior (`41378b46`, 11 dias, 1m): 628 decisões — 562 `COST_GATE`
-(89%), 63 `CONTEXT_CONFIDENCE` (10%), **3 executadas (0,5%)**.
+Causa raiz original: **o painel mede ESTADO, o motor exigia EVENTO** — AND
+binário de cruzamento no candle exato, nunca dispara em tendência já
+estabelecida. Corrigido:
+- Score contínuo (`evaluateStrategyScoreBothSides`) substitui o AND binário —
+  piso configurável `aiConfig.signalScoreFloor` (100 = comportamento antigo).
+- Perna short nos 5 presets (motor ao vivo só — backtest segue long-only de
+  propósito, ver comentário em `types/strategy.ts`).
+- Ranking substitui sorteio (`Math.random()` por tier saiu).
+- Cesta padrão 2 → 39 ativos (`config/defaultBasket.ts`).
+- Dois bugs de custo: classe vinha de mapeamento de 81 símbolos sobre
+  catálogo de 480 (XBNUSD 7,8x inflado, sozinho 312/562 vetos de
+  `COST_GATE`); denominador do gate usava ATR de 1 barra em vez do alvo real
+  de 3,75×ATR.
+- Gate: 227 → 265 asserções.
 
-Causa raiz: **o painel mede ESTADO, o motor exigia EVENTO.** Os presets só
-entravam se o cruzamento (MACD/EMA/Donchian) acontecesse no candle exato, com
-todos os blocos em AND. Tendência já estabelecida — justamente o cenário que o
-painel mostra como bom — nunca produz cruzamento novo. Quanto melhor a
-tendência, menos sinal.
+**Resultado medido em produção depois do deploy**: `NO_SIGNAL` caiu de 100%
+das avaliações pra ~0% — a causa raiz original está confirmadamente corrigida.
+Mas isso só revelou a fila de bugs abaixo, um atrás do outro.
 
-### Mudanças (Onda 1, aprovada pelo Cleber inteira)
+### 2. Import dinâmico faltando no import map do runner (commitado, `aa23dd035`)
 
-1. **Score contínuo ligado em produção.** `evaluateStrategyScoreBothSides`
-   substitui o AND binário no motor ao vivo. Cruzamento decai 10 pts/candle
-   numa janela de 10 (`scoreBlock`, escrito em 2026-08-16 e nunca ligado até
-   hoje). Piso configurável: `aiConfig.signalScoreFloor`, default 60 — **100
-   reproduz exatamente o comportamento antigo**, o que torna a mudança
-   reversível por config.
-2. **Fim do long-only no motor ao vivo.** Todos os 5 presets ganharam
-   `shortEntryBlocks` espelhados. A decisão de escopo de 2026-07-30 (não fazer
-   short porque `exitBlocks` não sabem o lado) foi revista com base numa
-   verificação: `evaluateExitAt` só é chamado pelo `BacktestEngine.ts:140` — o
-   motor ao vivo sai por TP/SL em ATR + trailing/breakeven, nunca por
-   `exitBlocks`. **O backtest segue long-only de propósito**, pra que a
-   medição histórica dele continue comparável.
-3. **Ranking substitui sorteio.** `Math.random()` por tier saiu. Agora:
-   refresh round-robin de 6 ativos/tick → ranking por score de TODA a cesta em
-   cache → tenta executar em ordem de score (até 5 candidatos) até abrir uma
-   posição. Separar "atualizar dado" de "decidir" é o que torna cesta grande
-   compatível com o orçamento de chamadas.
-4. **Cesta padrão: 2 → 39 ativos** (`config/defaultBasket.ts`), com critério
-   objetivo declarado (liquidez de primeira linha, cobertura de classe e fuso,
-   ATR que comporta o custo). Exóticos de FX ficaram fora de propósito.
-   XAGUSD segue fora — foi removido por medição em 2026-08-16, e reverter isso
-   exigiria remedir, não supor.
-5. **TTL do buffer de candles = 1 barra do timeframe** (era 60s fixo). Em 15m
-   isso eliminava 14 de cada 15 chamadas que retornavam candles fechados
-   idênticos.
+Ao trocar o alias curinga `"@/": "../../../src/"` do `deno.json` por entradas
+exatas (fix anterior, do erro 413 de deploy), a extração da lista usou uma
+regex que só pegava `import ... from '@/...'` — perdeu
+`@/app/services/RealMarketDataService.ts`, importado via `await import(...)`
+(dinâmico, sem `from`). `deno check` passou mesmo assim (checagem de tipo não
+resolve import dinâmico com o mesmo rigor). Resultado em produção: busca de
+preço via REST falhava pra quase todo ativo (só WebSocket de cripto
+escapava) — 141 `ANALYSIS_ERROR` em 12 minutos de sessão real. Corrigido:
+regex nova cobre `from` E `import(`, mais uma verificação cruzada que compara
+todo import `@/` do grafo contra o `deno.json` (roda em ~1s, deveria virar
+hábito antes de qualquer deploy do runner).
 
-### Dois bugs de custo achados no processo, ambos corrigidos
+### 3. Motor duplo — navegador + servidor rodando a mesma sessão (commitado)
 
-Medidos em `ai_decisions.risk_assessment` (dado real de produção):
+Achado com evidência direta: mesmo símbolo (XAUUSD, GER40, SPX500)
+reavaliado 3-5x em 18 segundos — não é o `pg_cron` (roda 1x/min). O
+navegador (`useApexLogic.ts`) tinha seu próprio `setInterval` de decisão,
+sem NENHUMA trava contra o runner de servidor — sobra de antes do runner
+existir, não desenho proposital (confirmado no código, sem flag de exclusão
+mútua em lugar nenhum). Consequência: dobrava a carga na MetaAPI
+compartilhada, e risco real de entrada duplicada (cada processo só via o
+`activeOrders` da própria memória). Corrigido: em modo DEMO, o navegador não
+abre mais posição por conta própria — só o runner decide. LIVE não foi
+tocado (ponte de execução real tem estágios opt-in próprios, fora de
+escopo).
 
-- **Classe de custo vinha de `symbolMappingService` (81 símbolos) sobre um
-  catálogo de 480.** Todo símbolo de fora caía em `FOREX_MAJOR`. `XBNUSD`
-  (BNB) recebia custo **0,2258% em vez de 0,0291% — 7,8x inflado**, e sozinho
-  respondia por **312 dos 562 vetos de `COST_GATE`**. `COCUSD` (cacau) errava
-  para o lado perigoso (custo subestimado, aprovaria o que devia reprovar).
-  Corrigido em `services/risk/CostAssetClass.ts`: catálogo é fonte primária,
-  fallback explicitamente sinalizado (`costClassSource`).
-- **Denominador errado no gate de custo.** O gate comparava o custo contra o
-  ATR de UMA barra, mas o trade tem alvo de 3,75×ATR (stop 1,5×ATR × R:R 2,5).
-  Isso inflava a razão custo/movimento por 3,75x. Exemplo real: XAUUSD, custo
-  0,0077% e ATR de barra 0,0422% → reprovado (18,2%); contra o alvo real →
-  4,9%, viável. **Os limiares 7%/12% não foram tocados** — só o denominador,
-  que agora responde à pergunta que o gate se propõe a fazer.
+Bug lateral achado no processo: `MIN_TRADE_SIZE` também não estava mapeado
+em nenhuma das DUAS tabelas de tradução veto→funil (navegador e runner), e o
+navegador não tinha a proteção contra entrada faltando que o runner já
+tinha — gerava uma chave literal `"undefined"` em `stage_counts`,
+mascarando o motivo real. Corrigido nos dois lados + migration pra
+`ai_decisions_veto_stage_check` (rodada pelo Cleber com sucesso).
 
-### Pendência de calibração encontrada, NÃO corrigida (precisa de medição)
+### 4. Bug de sizing — causa real dos "10 dias sem entrada" (commitado)
 
-`COST_TABLE.INDEX` usa `spreadPoints: 3.0`, calibrado com US30 (≈44.000
-pontos). Aplicado ao SPX500 (≈6.100), dá custo de 0,1475% contra 0,0205% do
-US30 — **7x**, só por diferença de escala do índice, não de spread real. O
-spread real do SPX500 é bem menor que 3 pontos. Corrigir exige spread medido
-por índice; inventar número seria fabricar dado. Fica registrado como
-pendência real.
+Log do BTCUSD (sinal BUY, 80% de confiança, mercado subindo 1,6% no dia):
+`Nocional calculado ($0.56) abaixo do mínimo executável ($10)`. Matemática
+exata: capital $100 × risco 1,5% = $1,50 de risco em dinheiro; modo "Ajustado
+por ATR" com multiplicador 4,0x reescala isso por `1,5÷4,0 = 0,375`
+(1,5 = `STOP_ATR_MULTIPLIER` fixo no motor) → **$0,56, sempre abaixo de $10,
+pra qualquer ativo** — não depende de sinal, mercado, ou nada que essa sessão
+mexeu. Essa razão é asset-independent (o ATR se cancela na conta), o que
+tornou possível construir uma prévia client-side exata sem dado de mercado.
 
-### Verificação
+**Correção do Cleber, na tela**: baixou o Multiplicador ATR de 4,0x pra
+1,5x. **Correção de produto (código, esta sessão)**:
+- `previewPositionSizing()` (`services/strategy/positionSizingPreview.ts`) —
+  card no modo Avançado mostrando o tamanho estimado em tempo real, com
+  aviso vermelho quando a config nunca vai operar.
+- Modo "Simples" tinha o MESMO bug latente: `applyRiskProfile()` não
+  resetava `positionSizingMode`/`atrMultiplier` ao trocar de perfil — se o
+  usuário tivesse passado pelo Avançado antes, a config perigosa
+  sobrevivia por baixo mesmo num perfil "seguro". Corrigido: todo perfil
+  Simples agora força `atrMultiplier: 1.5` (razão neutra).
+- Banner de aviso fixo no topo do modo Avançado.
+- `STOP_ATR_MULTIPLIER`/`RISK_REWARD_MULTIPLE`/`MIN_EXECUTABLE_NOTIONAL_USD`
+  exportados do motor (`runTradingCycle.ts`) em vez de duplicados na UI —
+  mesma disciplina que já existe pro `pointValue` (bug de 2026-08-05).
 
-- `npm run validate`: **265 asserções em 16 suítes, todas verdes** (eram 227
-  em 14). Duas suítes novas: `__validate__bothsides__.ts` (19) e
-  `__validate__costclass__.ts` (19).
-  A suíte de duas pernas trava a regressão que mais importa — alguém remover
-  `shortEntryBlocks` e devolver a IA ao estado long-only sem perceber.
-- `tsc --noEmit`: **578 erros antes, 578 depois, diff vazio** — zero erro novo
-  (comparação feita com `git stash`).
-- `deno check` do `ai-runner`: limpo — o runner server-side continua
-  importando o motor.
-- **Nada rodou contra mercado real ainda.** Ver item 2 do "COMECE AQUI".
+### 5. Mitigação de rate-limit (commitada)
 
-## Feed de dados — números levantados (decisão do Cleber pendente)
+Medido: `mt5-candles-history` (motor) fez 5.942 chamadas em 35min contra
+3.838 de `mt5-prices` (rodapé) no mesmo período — buckets de rate-limit
+diferentes na MetaAPI, o motor bate no teto pesado. Corrigido:
+`ASSETS_REFRESHED_PER_TICK` 6→3, e falha de fetch agora entra em backoff
+real (respeita `retryAfterMs` da MetaAPI quando disponível, 30s de piso
+senão) — antes, uma falha era retentada no tick seguinte sem espera nenhuma.
+**Mitigação, não solução**: a conta continua compartilhada com outros
+usuários da plataforma.
 
-O problema nunca foi "MetaAPI é ruim": é usar uma **API de execução, em conta
-compartilhada entre todos os usuários**, como **feed de dados de mercado**.
+### 6. Banner "IA travada" — item 1 do plano de proteção de produto (commitado)
 
-Orçamento de chamadas com a arquitetura nova (tick de 60s):
-- 6 chamadas de candles/min (refresh escalonado) + ~2 de preço/min (só dos
-  candidatos que chegam à execução) ≈ **8/min, ~11.500/dia**.
-- Com a cesta de 39 no desenho ANTIGO seria ~78/min (~112.000/dia). O ganho
-  veio do TTL por barra + preço só do candidato, não de cortar cobertura.
+Motivação: qualquer combinação futura de configs pode travar 100% das
+entradas silenciosamente (como o item 4 acima) — sem alerta, um usuário raiz
+não-técnico pode ficar dias "ligado" sem saber, e simplesmente sumir da
+plataforma sem reclamar. `useAIStuckDetector.ts` lê `ai_funnel_snapshots` da
+sessão `RUNNING` do usuário (busca no banco, não em estado do React — evita
+repetir a confusão do item 3) e detecta quando um único `vetoStage` domina
+≥70% das avaliações (piso de 30 avaliações, janela de 20min, sem
+`ENTRY_EXECUTED`). `AIStuckBanner.tsx` mostra o motivo em português + uma
+sugestão de ação (8 motivos mapeados). Renderizado no topo do Dashboard.
 
-Opções, com o que cada uma custa:
-- **Twelve Data Grow — US$29/mês**: 55-377 chamadas/min. Cobre ~8/min com
-  folga de 7x. Cobre forex, índices, commodities, cripto e ETFs num só
-  endpoint, REST + WebSocket. O plano free (8/min mas **800/dia**) NÃO serve —
-  o teto diário mata.
-- **MetaAPI**: mantém-se só para execução (volume baixo). O que precisa mudar
-  é a **conta compartilhada → conta dedicada por usuário**; o preço é por
-  conta MT4/MT5 conectada.
-- **Alternativas MT5 pay-as-you-go**: Indexnano (sem assinatura, paga por
-  hora ativa), API2Trade, MetaTraderAPI.dev. Só valem a avaliação se a decisão
-  for trocar a camada de execução também.
+Itens 2/3 do plano original de 3 pontos (validação instantânea no slider,
+modo Simples pré-validado) **já foram feitos como parte do item 4** acima —
+o plano de 3 itens colapsou pra 2 entregas reais.
 
-Ressalva: os números de plano vêm de páginas de fornecedor/comparativos, não
-de contrato lido. Confirmar no site antes de contratar.
+## Deploys pendentes (Cleber precisa rodar, nesta ordem)
 
-## Commits pendentes (Cleber precisa rodar)
+Sem Docker nesta máquina — `supabase functions deploy` usa o bundler
+sem-Docker, que precisa do `deno.json` com entradas exatas (não curinga) ou
+sobe a pasta `src/` inteira (já mordeu 2x: erro 413 de tamanho, depois
+import dinâmico faltando na lista). Antes de qualquer deploy do runner,
+rodar a verificação cruzada:
+```bash
+cd supabase/functions/ai-runner && deno info --json index.ts > /tmp/di.json
+# comparar contra deno.json — ver runTradingCycle.ts/deno.json pro script exato usado hoje
+```
 
 ```bash
-git add -A && git commit -m "feat: cerebro de decisao passa a ler estado, opera os dois lados e ranqueia a cesta
+# 1. Fixes do motor duplo + telemetria (item 3)
+git add src/app/hooks/useAIPersistence.ts src/app/hooks/useApexLogic.ts src/app/services/AITradingPersistenceService.ts src/app/services/telemetry/FunnelTelemetry.ts supabase/functions/ai-runner/lib/persistence.ts
+git commit -m "fix: desliga loop de decisao do navegador em DEMO (so o runner de servidor decide) + completa mapeamento MIN_TRADE_SIZE na telemetria"
 
-- score continuo (evaluateStrategyScoreBothSides) substitui o AND binario no
-  motor ao vivo; piso configuravel em aiConfig.signalScoreFloor (100 = antigo)
-- perna short simetrica nos 5 presets (backtest segue long-only de proposito)
-- ranking da cesta substitui o sorteio por tier com Math.random()
-- cesta padrao de 2 para 39 ativos com criterio objetivo declarado
-- TTL do buffer de candles passa a ser 1 barra do timeframe (era 60s fixo)
-- fix: classe de custo vinha de 81 mapeamentos sobre catalogo de 480 (XBNUSD
-  com custo 7,8x inflado respondia por 312 dos 562 vetos de COST_GATE)
-- fix: gate de custo media contra ATR de 1 barra, nao contra o alvo de 3,75xATR
-- gate: 227 -> 265 asercoes (duas pernas + classe de custo)"
+# 2. Prévia de sizing + fix do modo Simples (item 4)
+git add src/app/services/strategy/runTradingCycle.ts src/app/services/strategy/positionSizingPreview.ts src/app/components/AITrader.tsx
+git commit -m "feat: previa de tamanho de posicao no modo avancado + modo Simples reseta atrMultiplier ao trocar perfil"
+
+# 3. Banner de IA travada (item 6)
+git add src/app/hooks/useAIStuckDetector.ts src/app/components/dashboard/AIStuckBanner.tsx src/app/components/Dashboard.tsx
+git commit -m "feat: banner de alerta quando a IA esta ligada mas travada por um motivo dominante de veto"
+
+git push
+
+# Deploy da função (só o commit 1 toca o runner; 2 e 3 são frontend puro,
+# não precisam de supabase functions deploy — só do push + merge pra main)
+npx supabase functions deploy ai-runner --project-ref wyvdsxtcmizettljxtbg --no-verify-jwt
 ```
+
+Depois: **merge `dev` → `main`** pra tudo isso valer no site de produção
+(Vercel só builda a partir de `main`) — ainda não feito, decisão do Cleber
+sobre quando.
+
+## Verificação desta sessão
+
+- `npm run validate`: verde em cada mudança (265 asserções, suítes
+  inalteradas desde a Onda 1 — os fixes de hoje depois da Onda 1 foram todos
+  em camada de driver/UI/telemetria, não no núcleo do motor coberto pelo
+  gate).
+- `tsc --noEmit` full: comparado passo a passo a cada mudança via diff
+  contra a baseline anterior — **zero erro novo em nenhum dos 4 commits**
+  pendentes (578 erros pré-existentes, constantes).
+- `deno check` do runner: limpo depois de cada mudança que tocou o motor
+  compartilhado.
+- **Verificação visual no navegador NÃO feita** (porta 5173 ocupada por
+  outra sessão o dia inteiro) — os 3 componentes novos (`AIStuckBanner`,
+  o card de prévia em `AITrader.tsx`, o aviso do modo Avançado) merecem uma
+  conferência visual rápida do Cleber depois do deploy.
 
 ## Estado herdado, sem mudança nesta sessão
 
-- Módulo de assimetria de risco (stop/alvo por ATR + breakeven em +1R) e o fix
-  do "Desligar AI" vieram da sessão anterior e **entram no mesmo commit** —
-  não haviam sido commitados. Realização parcial em +2R segue descopada.
-- Painel "Setup Validado" do Dashboard: copy corrigida na sessão anterior
-  (mostrava entrada recomendada fabricada, desconectada do motor real).
-- Perfil Experimental (`riskProfiles.ts`) sem plano de promoção a validado.
-- Marketplace.tsx com rating/reviews/vendas fabricados (exceto `strat-001`).
+- `COST_TABLE.INDEX` usa spread calibrado no US30, gerando custo ~7x maior
+  que o real pra SPX500 só por diferença de escala do índice — precisa de
+  spread medido por índice pra corrigir, não é assunção segura de fazer sem
+  dado. Registrado, não corrigido.
+- Feed de dados dedicado (Twelve Data, ~US$29/mês, cobre o orçamento de
+  chamadas com folga) — números já levantados em handoff anterior, decisão
+  do Cleber ainda pendente. A mitigação do item 5 reduz a urgência mas não
+  substitui a decisão.
+- `MARKET_MODE_MISMATCH` (regime `INDEFINIDO` vs modo "Trend" travado) pode
+  virar o próximo gargalo dominante depois que `MIN_TRADE_SIZE` sair do
+  caminho — decisão de produto (manter travado vs Automático), não bug.
 - Roteamento de cripto (Binance direto vs MetaAPI) — decisão do Cleber ainda
   pendente, ver CLAUDE.md item 3.
+- Marketplace.tsx com rating/reviews/vendas fabricados (exceto `strat-001`).
