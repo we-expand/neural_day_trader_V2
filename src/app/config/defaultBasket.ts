@@ -71,9 +71,19 @@ export const DEFAULT_ANALYSIS_BASKET: string[] = [
  * os usuários da plataforma (risco crônico documentado no CLAUDE.md, com
  * HTTP 429 confirmado em produção em 2026-08-17).
  *
- * Com 39 ativos e 6 por tick, o ciclo completo de refresh leva ~7 ticks. É por
- * isso que o TTL do cache passou a ser alinhado à barra do timeframe operado
- * (um candle fechado só muda quando a barra vira — reler antes disso é gasto
- * de chamada sem informação nova).
+ * ⚠️ REDUZIDO de 6 para 3 em 2026-08-17 (mitigação, não solução): medido em
+ * produção que `mt5-candles-history` (o motor) fez 5.942 chamadas em 35min,
+ * boa parte reprovada por HTTP 429/504 — a cotação do rodapé (`mt5-prices`,
+ * endpoint leve, bucket de rate-limit separado) nunca esbarra no mesmo teto,
+ * o que confirma que o gargalo é este endpoint pesado especificamente. Reduzir
+ * pela metade não elimina o rate-limit (a conta é compartilhada com outros
+ * usuários da plataforma, fora do nosso controle) — só reduz a frequência com
+ * que ele aparece. A correção real é separar dado de execução (ver
+ * NEXT_SESSION.md, seção "Feed de dados").
+ *
+ * Com 39 ativos e 3 por tick, o ciclo completo de refresh leva ~13 ticks. É
+ * por isso que o TTL do cache passou a ser alinhado à barra do timeframe
+ * operado (um candle fechado só muda quando a barra vira — reler antes disso
+ * é gasto de chamada sem informação nova).
  */
-export const ASSETS_REFRESHED_PER_TICK = 6;
+export const ASSETS_REFRESHED_PER_TICK = 3;

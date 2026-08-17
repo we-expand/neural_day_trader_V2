@@ -384,9 +384,38 @@ function candleTtlMs(tf: ScoreTimeframe): number {
 }
 
 /**
+ * Backoff por símbolo após falha de fetch (rate-limit ou instabilidade da
+ * MetaAPI) — chave `${symbol}_${timeframe}`, valor = timestamp até quando
+ * pular esse símbolo no refresh.
+ *
+ * 2026-08-17: antes, uma falha (HTTP 429/500/504) não gravava nada no
+ * `candleBuffer` — o símbolo continuava com `fetchedAt=0` e voltava a ser o
+ * primeiro candidato do próximo `refreshCandleBuffers`, todo tick. Medido em
+ * produção: 5.942 chamadas de histórico em 35 minutos, boa parte reprovada
+ * por 429 e retentada segundos depois, sem nenhuma espera — o padrão exato
+ * que mantém um rate-limit sempre estourado. A MetaAPI já devolve
+ * `retryAfterMs` quando é limite dela (não sempre — HTTP 429/500/504 "cru" da
+ * corretora não vem com esse campo); quando disponível, respeita-se o valor
+ * real; senão usa um piso fixo. Módulo-level (não por-invocação) de propósito:
+ * se a instância do Edge Function ficar "quente" entre ticks do pg_cron, o
+ * backoff sobrevive; se não ficar, o pior caso é voltar ao comportamento
+ * anterior (sem persistência entre invocações) — nunca piora.
+ */
+const symbolBackoffUntil = new Map<string, number>();
+const FAILURE_BACKOFF_DEFAULT_MS = 30_000;
+const FAILURE_BACKOFF_MAX_MS = 5 * 60_000;
+
+function parseRetryAfterMs(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/Retry after (\d+)ms/i);
+  return match ? Number(match[1]) : null;
+}
+
+/**
  * Atualiza o buffer de candles de até `ASSETS_REFRESHED_PER_TICK` ativos por
- * tick, priorizando os de cache mais antigo. Falha de rede em um ativo não
- * derruba o ciclo — só deixa aquele ativo de fora do ranking deste tick.
+ * tick, priorizando os de cache mais antigo (e pulando os em backoff por
+ * falha recente). Falha de rede em um ativo não derruba o ciclo — só deixa
+ * aquele ativo de fora do ranking deste tick.
  */
 async function refreshCandleBuffers(
   universe: string[],
@@ -399,16 +428,18 @@ async function refreshCandleBuffers(
 
   const stale = universe
     .map(symbol => {
-      const entry = deps.candleBuffer.get(`${symbol}_${opTimeframe}`);
-      return { symbol, fetchedAt: entry?.fetchedAt ?? 0 };
+      const bufferKey = `${symbol}_${opTimeframe}`;
+      const entry = deps.candleBuffer.get(bufferKey);
+      return { symbol, bufferKey, fetchedAt: entry?.fetchedAt ?? 0 };
     })
     .filter(x => now - x.fetchedAt > ttl)
+    .filter(x => (symbolBackoffUntil.get(x.bufferKey) ?? 0) <= now)
     .sort((a, b) => a.fetchedAt - b.fetchedAt)
     .slice(0, ASSETS_REFRESHED_PER_TICK);
 
   if (stale.length === 0) return;
 
-  for (const { symbol } of stale) {
+  for (const { symbol, bufferKey } of stale) {
     try {
       const REQUIRED_BARS = 100;
       // Janela de calendário larga (4x as barras necessárias, com piso de 48h)
@@ -420,12 +451,16 @@ async function refreshCandleBuffers(
       const windowMs = Math.max(REQUIRED_BARS * 4 * BAR_MS[opTimeframe], MIN_WINDOW_MS);
       const start = new Date(end.getTime() - windowMs);
       const history = await backtestDataService.fetchHistoricalData(symbol, start, end, opTimeframe);
-      deps.candleBuffer.set(`${symbol}_${opTimeframe}`, {
+      deps.candleBuffer.set(bufferKey, {
         candles: history.candles.slice(-REQUIRED_BARS),
         fetchedAt: Date.now(),
       });
+      symbolBackoffUntil.delete(bufferKey);
     } catch (error) {
-      console.warn(`[CANDLES] ⚠️ Sem candles reais pra ${symbol} (${opTimeframe}) agora — fica fora do ranking neste tick`, error);
+      const retryAfterMs = parseRetryAfterMs(error);
+      const backoffMs = Math.min(retryAfterMs ?? FAILURE_BACKOFF_DEFAULT_MS, FAILURE_BACKOFF_MAX_MS);
+      symbolBackoffUntil.set(bufferKey, Date.now() + backoffMs);
+      console.warn(`[CANDLES] ⚠️ Sem candles reais pra ${symbol} (${opTimeframe}) agora — fica fora do ranking neste tick e em backoff por ${(backoffMs / 1000).toFixed(0)}s`, error);
       funnelTelemetry.recordStage('CANDLES_FETCH_FAILED', symbol, `${opTimeframe}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
