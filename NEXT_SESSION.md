@@ -1,9 +1,33 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-16** (fim do dia, 7ª parte). **Regra: este arquivo é
+> Reescrito em **2026-08-16** (fim do dia, 8ª parte). **Regra: este arquivo é
 > handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
-## ▶ COMECE AQUI — meta de ~10 trades/dia NÃO é sustentada pelo dado; decisão final de número pendente do Cleber
+## ▶ COMECE AQUI — item 5 (redesenho do painel) implementado em v1; achado importante pendente de investigação separada
+
+**Painel redesenhado** (`AITrader.tsx`, modo ENGINEER): toggle
+Simples/Avançado. Modo Simples (novo padrão) mostra 3 cards de "Perfil de
+Risco" (Conservador/Moderado/Agressivo, `src/app/data/riskProfiles.ts`) que
+mapeiam pra preset+cesta+timeframe+risco JÁ VALIDADOS como positivos em 1h
+(dado real, `taxa_base.json`), com "atividade esperada" em trades/dia e %
+líquido/trade — faixas medidas, não promessa. Modo Avançado preserva 100%
+do controle manual anterior (preset/timeframe/cesta livres). Verificado no
+browser (preview local): os 2 modos renderizam, seleção de perfil propaga
+config corretamente pro modo avançado, sem erros de console além de
+CORS/403 pré-existentes do ambiente de preview sem sessão Supabase.
+`npm run validate` e `tsc` (mesmos 3 erros pré-existentes, não relacionados)
+passaram. Screenshot não anexado ao repo — conferir ao vivo se necessário.
+
+**Deliberadamente SEM valor em $ no painel** — só %. Motivo: achado durante
+esta sessão, `TradeSizing.ts:203` tem `minTradeCapital = 10` (piso de US$10
+por trade), que numa conta de US$50 (aporte mínimo do produto) pode forçar
+posição bem maior que o risco% configurado pretendia. **Task espelhada
+pendente** (`task_adca57ed`, "Investigar piso de US$10/trade em contas de
+US$50") — mede com dado real se o desvio é sistemático antes de decidir
+correção. Resolver isso é pré-requisito pra o painel poder mostrar $ com
+confiança (hoje mostraria precisão falsa).
+
+## Contexto anterior (resumo — meta de 10/dia fechada, teto real é 2-6/dia)
 
 **(c) medida nesta parte, resultado claro**: mesmo somando toda a cesta de 9
 ativos × todos os 5 presets (multi-setup hipotético, não implementado hoje),

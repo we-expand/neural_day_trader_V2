@@ -29,6 +29,7 @@ import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/Tra
 import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecutionPanel';
 import { FullSizeExecutionPanel } from '@/app/modules/fullSizeExecutionStage/FullSizeExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
+import { RISK_PROFILES, getRiskProfile, type RiskProfileId } from '@/app/data/riskProfiles';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
@@ -49,6 +50,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const [challengeInitialBalance, setChallengeInitialBalance] = useState(0);
   
   // 🆕 MT5 Connection States
+  // 🆕 Modo Simples (perfil de risco) vs Avançado (preset/timeframe manual) — item 5 do redesenho do cérebro (2026-08-16)
+  const [configMode, setConfigMode] = useState<'SIMPLES' | 'AVANCADO'>('SIMPLES');
+  const [selectedRiskProfileId, setSelectedRiskProfileId] = useState<RiskProfileId | null>(null);
+
   const [showMT5ConfigModal, setShowMT5ConfigModal] = useState(false);
   const [mt5Login, setMt5Login] = useState('');
   const [mt5Password, setMt5Password] = useState('');
@@ -116,6 +121,21 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
   const handleSaveWorkspace = (name: string) => {
       saveWorkspace(name, config, { showEquityChart });
+  };
+
+  const applyRiskProfile = (profileId: RiskProfileId) => {
+    const profile = getRiskProfile(profileId);
+    setSelectedRiskProfileId(profileId);
+    setConfig(prev => ({
+      ...prev,
+      activeStrategyId: profile.activeStrategyId,
+      timeframe: profile.timeframe,
+      activeAssets: profile.activeAssets,
+      riskPerTrade: profile.riskPerTrade,
+      cooldownEnabled: true,
+      cooldownMinutes: profile.cooldownMinutes,
+      maxTradesPerDay: profile.maxTradesPerDay,
+    }));
   };
 
   const toggleAsset = (asset: string) => {
@@ -1002,6 +1022,78 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         
                         {/* OLD PROFILE UI REPLACED BY WORKSPACE SELECTOR IN HEADER */}
 
+                        {/* 🆕 Toggle Simples/Avançado — item 5 do redesenho do cérebro (2026-08-16) */}
+                        <div className="flex items-center gap-2 p-1 bg-black rounded-lg border border-white/10 mb-6 w-fit">
+                            <button
+                                onClick={() => setConfigMode('SIMPLES')}
+                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
+                                    configMode === 'SIMPLES' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                Simples (perfil de risco)
+                            </button>
+                            <button
+                                onClick={() => setConfigMode('AVANCADO')}
+                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
+                                    configMode === 'AVANCADO' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                Avançado (manual)
+                            </button>
+                        </div>
+
+                        {configMode === 'SIMPLES' ? (
+                            <div className="mb-8 space-y-4">
+                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
+                                    <Gauge className="w-4 h-4" /> Perfil de Risco
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    {RISK_PROFILES.map(profile => (
+                                        <button
+                                            key={profile.id}
+                                            onClick={() => applyRiskProfile(profile.id)}
+                                            className={`text-left p-4 rounded-lg border transition-all ${
+                                                selectedRiskProfileId === profile.id
+                                                    ? 'bg-purple-500/10 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                                                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                                            }`}
+                                        >
+                                            <div className="text-sm font-bold text-white mb-1">{profile.label}</div>
+                                            <div className="text-[10px] text-slate-400 mb-3 leading-relaxed">{profile.description}</div>
+                                            <div className="space-y-1 pt-2 border-t border-white/10">
+                                                <div className="flex justify-between text-[10px]">
+                                                    <span className="text-slate-500">Atividade esperada</span>
+                                                    <span className="font-mono text-cyan-400">
+                                                        {profile.expectedTradesPerDayRange[0].toFixed(1)}–{profile.expectedTradesPerDayRange[1].toFixed(1)}/dia
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-[10px]">
+                                                    <span className="text-slate-500">Líq. medido/trade</span>
+                                                    <span className="font-mono text-emerald-400">
+                                                        {profile.expectedNetPercentPerTradeRange[0].toFixed(2)}–{profile.expectedNetPercentPerTradeRange[1].toFixed(2)}%
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
+                                    <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                        Faixas medidas em dado histórico real (`taxa_base.json`, 2026-08-05), não promessa de retorno.
+                                        Passado não garante resultado futuro. Valor em dólar por trade depende do seu capital e do
+                                        tamanho de posição calculado — não exibido aqui de propósito até essa conta fechar.
+                                    </span>
+                                </div>
+                                {selectedRiskProfileId && (
+                                    <div className="text-[10px] text-slate-500">
+                                        Cesta ativa: {getRiskProfile(selectedRiskProfileId).activeAssets.join(', ')} · Timeframe: {getRiskProfile(selectedRiskProfileId).timeframe} · Risco/trade: {getRiskProfile(selectedRiskProfileId).riskPerTrade}%
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+
+                        <>
                         {/* ASSET UNIVERSE SELECTOR */}
                         <div className="mb-8">
                             <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
@@ -1539,6 +1631,8 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </div>
                             </div>
                         </div>
+                        </>
+                        )}
 
                         {/* ASSET SELECTION REMOVED - REPLACED BY ASSET UNIVERSE COMPONENT */}
 
