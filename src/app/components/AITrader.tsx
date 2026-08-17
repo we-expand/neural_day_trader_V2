@@ -1566,13 +1566,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         const styles = {
                                             ok: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300',
                                             warning: 'border-amber-500/30 bg-amber-500/5 text-amber-300',
-                                            error: 'border-red-500/40 bg-red-500/10 text-red-300',
                                         }[preview.severity];
                                         return (
                                             <div className={`rounded-lg border p-3 text-[10px] leading-relaxed ${styles}`}>
-                                                {preview.severity === 'error' && (
-                                                    <span className="font-bold uppercase block mb-1">⚠️ Essa configuração nunca vai operar</span>
-                                                )}
                                                 {preview.message}
                                             </div>
                                         );

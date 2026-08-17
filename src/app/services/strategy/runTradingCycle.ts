@@ -704,20 +704,39 @@ async function analyzeAsset(
     // ranking — um candidato do lado errado nunca chega até aqui.
 
     // 🔒 RESPEITAR CONFIG DO USUÁRIO: marketMode (TREND/RANGE/COUNTER/SCALP)
+    //
+    // 2026-08-17: era bloqueio duro (AND binário) sempre que o regime medido
+    // não batia exatamente com o modo travado — inclusive quando o Market
+    // Score não tem opinião forte (`INDEFINIDO`, o caso mais comum). Com
+    // `marketMode: 'TREND'` sendo o padrão de toda sessão nova, isso vetava
+    // quase toda avaliação sempre que o mercado não estava em tendência
+    // limpa (medido em produção: 2.526 vetos em 2 sessões de hoje, maior
+    // bloqueio do dia). Convertido pro MESMO padrão que a checagem de
+    // Market Score LATERAL alguns blocos acima já usa: regime que CONTRADIZ
+    // exige confiança extra em vez de vetar sempre; regime `INDEFINIDO` (o
+    // Score não sabe dizer) não é motivo pra descartar um sinal que a
+    // estratégia já validou — deixa passar com a confiança que já tem.
+    const REGIME_MISMATCH_CONFIDENCE_PENALTY = 15;
     if ((aiConfig.marketMode === 'TREND' || aiConfig.marketMode === 'RANGE') && computedRegime !== null) {
       const wantsTrend = aiConfig.marketMode === 'TREND';
-      const regimeMatches = wantsTrend
-        ? computedRegime === 'TENDENCIA'
-        : computedRegime === 'LATERAL';
-      if (!regimeMatches) {
-        const reason = `Setup ${side} descartado: modo "${aiConfig.marketMode}" exige regime ${wantsTrend ? 'TENDENCIA' : 'LATERAL'}, mas o Market Score (${opTimeframe}) mede ${computedRegime} agora`;
-        console.log(`[MARKET MODE] 🚫 ${reason}`);
-        await deps.persistence.saveDecision({
-          symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-          reasoning: reason, technicalSignals: { regime: computedRegime, marketMode: aiConfig.marketMode },
-          actionTaken: false, vetoStage: 'MARKET_MODE_REGIME_MISMATCH',
-        });
-        return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+      const desiredRegime = wantsTrend ? 'TENDENCIA' : 'LATERAL';
+      const regimeMatches = computedRegime === desiredRegime;
+      const regimeInconclusive = computedRegime === 'INDEFINIDO';
+      if (!regimeMatches && !regimeInconclusive) {
+        const requiredConfidence = MIN_CONFIDENCE + REGIME_MISMATCH_CONFIDENCE_PENALTY;
+        if (confidenceScore < requiredConfidence) {
+          const reason = `Setup ${side} descartado: modo "${aiConfig.marketMode}" prefere regime ${desiredRegime}, mas o Market Score (${opTimeframe}) mede ${computedRegime} agora, e a estratégia só tem ${confidenceScore}% de confiança (exige ${requiredConfidence}% contra o regime)`;
+          console.log(`[MARKET MODE] 🚫 ${reason}`);
+          await deps.persistence.saveDecision({
+            symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+            reasoning: reason, technicalSignals: { regime: computedRegime, marketMode: aiConfig.marketMode, requiredConfidence },
+            actionTaken: false, vetoStage: 'MARKET_MODE_REGIME_MISMATCH',
+          });
+          return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+        }
+        console.log(`[MARKET MODE] 🟡 Regime (${computedRegime}) contradiz modo "${aiConfig.marketMode}" — estratégia com confiança suficiente (${confidenceScore}% ≥ ${requiredConfidence}%) pra operar mesmo assim`);
+      } else if (regimeInconclusive) {
+        console.log(`[MARKET MODE] 🟡 Regime INDEFINIDO (${opTimeframe}) — Market Score sem opinião forte, não bloqueia o sinal da estratégia`);
       }
     } else if (aiConfig.marketMode === 'COUNTER') {
       const COUNTER_RSI_OVERSOLD = 35;
@@ -1071,13 +1090,31 @@ async function analyzeAsset(
     const stopDistancePercent = currentPrice > 0 ? slDistance / currentPrice : 0;
     let tradeCapital = stopDistancePercent > 0 ? fixedRiskCapital / stopDistancePercent : fixedRiskCapital;
 
+    // 2026-08-17: FIX DE BUG ESTRUTURAL — a fórmula anterior
+    // (`fixedRiskCapital * (slDistance / atrDistance)`) reescalava o risco em
+    // dólar por uma RAZÃO ADIMENSIONAL entre duas distâncias em ATR — nunca
+    // dividia pelo preço do ativo. Resultado: o nocional calculado ficava
+    // sempre na mesma ordem de grandeza do próprio `fixedRiskCapital` (poucos
+    // dólares numa conta de $100), pra QUALQUER ativo, QUALQUER
+    // `atrMultiplier` razoável — sempre abaixo do piso de $10
+    // (`MIN_EXECUTABLE_NOTIONAL_USD`). Era a causa raiz confirmada de sessões
+    // inteiras (horas, dias) sem nenhuma entrada, porque "Ajustado por ATR" é
+    // o modo padrão de toda sessão nova (`useApexLogic.ts`). Baixar o
+    // multiplicador de 4,0x pra 1,5x (2026-08-16) só trocou "sempre $0,56"
+    // por "sempre ~$1,50" — mitigou a magnitude sem corrigir a fórmula.
+    // Corrigido pra usar o MESMO fixed-fractional (Van Tharp) do modo FIXED
+    // acima: nocional = risco em $ / distância do stop em % do preço — só que
+    // aqui a "distância do stop" pro tamanho da posição é a escolhida pelo
+    // usuário (`atrMultiplier × ATR`), não o stop fixo de 1,5×ATR realmente
+    // colocado na corretora (`STOP_ATR_MULTIPLIER`, ver `resolveAtrTargets`).
     if (aiConfig.positionSizingMode === 'ATR') {
       const atrSeries = calculateATR(candles, 14);
       const atrValue = atrSeries[atrSeries.length - 1];
       if (atrValue && atrValue > 0) {
         const atrDistance = atrValue * aiConfig.atrMultiplier;
-        tradeCapital = slDistance > 0 ? fixedRiskCapital * (slDistance / atrDistance) : fixedRiskCapital;
-        console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} | capital ajustado: $${tradeCapital.toFixed(2)}`);
+        const atrDistancePercent = currentPrice > 0 ? atrDistance / currentPrice : 0;
+        tradeCapital = atrDistancePercent > 0 ? fixedRiskCapital / atrDistancePercent : fixedRiskCapital;
+        console.log(`[POSITION SIZING] 📐 ATR mode: ATR=${atrValue.toFixed(5)} x${aiConfig.atrMultiplier} = ${atrDistance.toFixed(5)} (${(atrDistancePercent * 100).toFixed(3)}% do preço) | capital ajustado: $${tradeCapital.toFixed(2)}`);
       }
     }
 
