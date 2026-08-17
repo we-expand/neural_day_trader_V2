@@ -1,0 +1,112 @@
+[
+  {
+    "profileId": "CONSERVADOR",
+    "symbol": "XAUUSD",
+    "timeframe": "1H",
+    "riskPerTrade": 0.5,
+    "trades": 29,
+    "skippedByFloor": 1,
+    "spanDays": 417.8333333333333,
+    "tradesPerDay": 0.06940566414040686,
+    "avgNetPercent": 0.7328163491075826
+  },
+  {
+    "profileId": "CONSERVADOR",
+    "symbol": "XAGUSD",
+    "timeframe": "1H",
+    "riskPerTrade": 0.5,
+    "trades": 11,
+    "skippedByFloor": 23,
+    "spanDays": 365.9583333333333,
+    "tradesPerDay": 0.030058066719799614,
+    "avgNetPercent": -0.0265032161793022
+  },
+  {
+    "profileId": "CONSERVADOR",
+    "symbol": "NAS100",
+    "timeframe": "1H",
+    "riskPerTrade": 0.5,
+    "trades": 30,
+    "skippedByFloor": 3,
+    "spanDays": 476.5,
+    "tradesPerDay": 0.06295907660020986,
+    "avgNetPercent": 0.6699953608759035
+  },
+  {
+    "profileId": "CONSERVADOR",
+    "symbol": "US30",
+    "timeframe": "1H",
+    "riskPerTrade": 0.5,
+    "trades": 40,
+    "skippedByFloor": 1,
+    "spanDays": 478.0833333333333,
+    "tradesPerDay": 0.08366742199755971,
+    "avgNetPercent": 0.250248877433486
+  },
+  {
+    "profileId": "MODERADO",
+    "symbol": "XAUUSD",
+    "timeframe": "1H",
+    "riskPerTrade": 1,
+    "trades": 73,
+    "skippedByFloor": 0,
+    "spanDays": 417.8333333333333,
+    "tradesPerDay": 0.1747108097327483,
+    "avgNetPercent": 0.19306084332943352
+  },
+  {
+    "profileId": "MODERADO",
+    "symbol": "XAGUSD",
+    "timeframe": "1H",
+    "riskPerTrade": 1,
+    "trades": 82,
+    "skippedByFloor": 0,
+    "spanDays": 365.9583333333333,
+    "tradesPerDay": 0.2240692246385062,
+    "avgNetPercent": -0.46455072543633247
+  },
+  {
+    "profileId": "MODERADO",
+    "symbol": "US30",
+    "timeframe": "1H",
+    "riskPerTrade": 1,
+    "trades": 75,
+    "skippedByFloor": 0,
+    "spanDays": 478.0833333333333,
+    "tradesPerDay": 0.15687641624542445,
+    "avgNetPercent": 0.0870960180023443
+  },
+  {
+    "profileId": "AGRESSIVO",
+    "symbol": "XAUUSD",
+    "timeframe": "1H",
+    "riskPerTrade": 1.5,
+    "trades": 73,
+    "skippedByFloor": 0,
+    "spanDays": 417.8333333333333,
+    "tradesPerDay": 0.1747108097327483,
+    "avgNetPercent": 0.19306084332943352
+  },
+  {
+    "profileId": "AGRESSIVO",
+    "symbol": "XAGUSD",
+    "timeframe": "1H",
+    "riskPerTrade": 1.5,
+    "trades": 82,
+    "skippedByFloor": 0,
+    "spanDays": 365.9583333333333,
+    "tradesPerDay": 0.2240692246385062,
+    "avgNetPercent": -0.46455072543633247
+  },
+  {
+    "profileId": "AGRESSIVO",
+    "symbol": "US30",
+    "timeframe": "1H",
+    "riskPerTrade": 1.5,
+    "trades": 75,
+    "skippedByFloor": 0,
+    "spanDays": 478.0833333333333,
+    "tradesPerDay": 0.15687641624542445,
+    "avgNetPercent": 0.0870960180023443
+  }
+]

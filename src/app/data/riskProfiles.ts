@@ -22,13 +22,30 @@
  * o mesmo mecanismo, variando preset/cesta/risco por trade, não "mais
  * estratégias ao mesmo tempo".
  *
- * `expectedTradesPerDay` e `expectedNetPercentPerTrade` são MEDIDOS (mesma
- * fonte acima), não estimativas de marketing — e são reportados como FAIXA
- * histórica, nunca como promessa. Deliberadamente NÃO expõe valor em dólar:
- * o piso de capital mínimo por trade (`TradeSizing.ts` `minTradeCapital`)
- * pode distorcer o risco efetivo em contas próximas do aporte mínimo de
- * US$50 — reportar $ aqui seria precisão falsa até essa questão ser resolvida
- * (ver task espelhada em 2026-08-16, "Investigar piso de US$10/trade").
+ * `expectedTradesPerDay` e `expectedNetPercentPerTrade` são MEDIDOS, não
+ * estimativas de marketing — reportados como FAIXA histórica, nunca como
+ * promessa. Deliberadamente NÃO expõe valor em dólar: o piso de capital
+ * mínimo por trade (`TradeSizing.ts` `minTradeCapital`) pode distorcer o
+ * risco efetivo em contas próximas do aporte mínimo de US$50.
+ *
+ * 2026-08-16 (recálculo, mesmo dia da correção do piso — commit `d0d28406a`
+ * + fix do sizing FIXED no motor ao vivo): os ranges abaixo foram
+ * RECALCULADOS em `research/experiments/2026-08-16-recalculo-perfis/`, com o
+ * MESMO motor/preset/timeframe/cesta da fonte original
+ * (`2026-08-05-taxa-base/results/taxa_base.json`), mas com capital real de
+ * $50 e o `riskPerTrade%` de cada perfil — a medição de 08-05 usava $10.000
+ * e 1% fixo, condição em que o piso de $10 nunca era acionado, então não
+ * capturava o efeito real numa conta no aporte mínimo.
+ *
+ * **Achado do recálculo, não escondido**: com capital real, o piso corrigido
+ * (pula em vez de inflar) filtra desproporcionalmente os trades de stop mais
+ * largo — e em XAGUSD 1h isso muda o sinal do resultado líquido médio de
+ * positivo (medição original) para NEGATIVO (Conservador: -0,03%; Moderado/
+ * Agressivo: -0,47%). Os ranges abaixo já refletem isso (mínimo negativo).
+ * Mantido no catálogo porque XAUUSD/NAS100/US30 continuam positivos na
+ * mesma cesta — decisão de remover XAGUSD da cesta é decisão de produto do
+ * Cleber, não tomada aqui. Ver `results/recalculo_perfis.md` pro detalhe
+ * por ativo.
  */
 
 export type RiskProfileId = 'CONSERVADOR' | 'MODERADO' | 'AGRESSIVO';
@@ -53,28 +70,28 @@ export const RISK_PROFILES: RiskProfileDefinition[] = [
   {
     id: 'CONSERVADOR',
     label: 'Conservador',
-    description: 'Menor frequência, maior margem de segurança por trade. Rompimento de Canal (Donchian) em 1h — o preset com melhor resultado líquido medido.',
+    description: 'Menor frequência, maior margem de segurança por trade. Rompimento de Canal (Donchian) em 1h — o preset com melhor resultado líquido medido (XAGUSD da cesta mede negativo em capital real, ver comentário do arquivo).',
     activeStrategyId: '1', // Rompimento de Canal (Donchian)
     timeframe: '1H',
     activeAssets: ['XAUUSD', 'XAGUSD', 'NAS100', 'US30'],
     riskPerTrade: 0.5,
     cooldownMinutes: 30,
     maxTradesPerDay: 3,
-    expectedTradesPerDayRange: [0.2, 0.4],
-    expectedNetPercentPerTradeRange: [0.3, 1.0],
+    expectedTradesPerDayRange: [0.15, 0.35],
+    expectedNetPercentPerTradeRange: [-0.03, 0.75],
   },
   {
     id: 'MODERADO',
     label: 'Moderado',
-    description: 'Frequência intermediária. Rompimento Confirmado (Volume) em 1h, cesta de metais + índice com resultado líquido positivo medido.',
+    description: 'Frequência intermediária. Rompimento Confirmado (Volume) em 1h, cesta de metais + índice (XAGUSD da cesta mede negativo em capital real, ver comentário do arquivo).',
     activeStrategyId: '4', // Rompimento Confirmado (Volume)
     timeframe: '1H',
     activeAssets: ['XAUUSD', 'XAGUSD', 'US30'],
     riskPerTrade: 1.0,
     cooldownMinutes: 15,
     maxTradesPerDay: 5,
-    expectedTradesPerDayRange: [0.4, 0.7],
-    expectedNetPercentPerTradeRange: [0.05, 0.3],
+    expectedTradesPerDayRange: [0.4, 0.6],
+    expectedNetPercentPerTradeRange: [-0.47, 0.2],
   },
   {
     id: 'AGRESSIVO',
@@ -86,8 +103,8 @@ export const RISK_PROFILES: RiskProfileDefinition[] = [
     riskPerTrade: 1.5,
     cooldownMinutes: 10,
     maxTradesPerDay: 8,
-    expectedTradesPerDayRange: [0.4, 0.7],
-    expectedNetPercentPerTradeRange: [0.05, 0.3],
+    expectedTradesPerDayRange: [0.4, 0.6],
+    expectedNetPercentPerTradeRange: [-0.47, 0.2],
   },
 ];
 
