@@ -380,9 +380,24 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     // Legacy function - no-op for now
   }, []);
   
+  // 2026-08-18: reset iniciado pelo USUÁRIO — só DEMO. `resetLogic` zera o saldo pra
+  // $100, apaga o histórico e sai do Safe Mode: semântica de conta de treino, sem
+  // sentido sobre dinheiro real (em LIVE o saldo vem da corretora via MetaAPI, não de
+  // um default local). O botão já fica escondido em LIVE (AITrader.tsx) e Funds.tsx já
+  // tinha guarda equivalente — esta é a barreira de verdade, no caminho único que a UI
+  // usa, pra que esconder o botão não seja a única proteção.
+  // NOTA: `switchToDemoMode` chama `logic.resetLogic()` direto de propósito, sem passar
+  // por aqui — lá o reset é justamente o efeito desejado, e o estado de executionMode
+  // ainda não propagou no instante da chamada.
   const resetPortfolio = useCallback((balance: number) => {
+    if (logic.executionMode !== 'DEMO') {
+      toast.error('Reinicialização Total é exclusiva do modo DEMO', {
+        description: 'Em conta real o saldo vem da corretora. Para sair do Safe Mode sem mexer no saldo, use o botão "Sair" no card de risco.'
+      });
+      return;
+    }
     logic.resetLogic();
-  }, [logic.resetLogic]);
+  }, [logic.resetLogic, logic.executionMode]);
   
   const closeHedgedPositions = useCallback(() => {
     // Legacy function - no-op for now

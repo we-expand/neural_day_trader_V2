@@ -592,13 +592,21 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             </button>
 
             {/* Reset Button - Icon Only */}
-            <button
-              onClick={() => setShowResetModal(true)}
-              className="p-3 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-all"
-              title="Zerar Plataforma"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </button>
+            {/* 2026-08-18: só existe em DEMO. `resetLogic` zera o saldo pra $100, apaga o
+                histórico e sai do Safe Mode — semântica de conta de treino, que não faz
+                sentido nenhum sobre dinheiro real (o saldo real vem da corretora via
+                MetaAPI, não de um default local). Em LIVE, sair do Safe Mode continua
+                possível pelo botão "Sair" do próprio card de risco (disableSafeMode),
+                que não mexe em saldo. */}
+            {executionMode === 'DEMO' && (
+              <button
+                onClick={() => setShowResetModal(true)}
+                className="p-3 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-all"
+                title="Zerar Plataforma (só DEMO)"
+              >
+                <RotateCcw className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
