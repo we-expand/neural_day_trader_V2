@@ -1370,7 +1370,18 @@ export function useApexLogic(
           const batchResult = await getBatchedMT5Data(uniqueSymbols);
           for (const symbol of uniqueSymbols) {
             const data = batchResult[symbol];
-            if (data) priceMap.set(symbol, data.price);
+            // 🔴 FIX 2026-08-18 (INCIDENTE EM PRODUÇÃO): preço 0/NaN da API era aceito
+            // como cotação válida. Um `0` aqui é sempre falha de feed, nunca preço real —
+            // e propagado adiante disparava o SL (`0 <= stopLoss` é sempre verdadeiro),
+            // fechando a posição a preço ZERO. Aconteceu ao vivo: JP225 entrada 69026.31
+            // fechada com exit_price=0 e PnL fabricado de -$2.464,72 numa conta de $82,
+            // levando o Patrimônio exibido pra -$2.381,77. Preço inválido tem que ser
+            // descartado na origem — sem cotação nova, mantém-se a anterior.
+            if (data && Number.isFinite(data.price) && data.price > 0) {
+              priceMap.set(symbol, data.price);
+            } else if (data) {
+              console.warn(`[PNL LOOP] ⚠️ Preço inválido descartado para ${symbol}:`, data.price);
+            }
           }
         } catch (error) {
           console.warn(`[PNL LOOP] ⚠️ Falha ao buscar preços em lote, mantendo preços anteriores`, error);
@@ -1391,8 +1402,13 @@ export function useApexLogic(
 
             prevOrders.forEach(order => {
                 const currentPrice = order.currentPrice || order.price;
-                // Se o fetch falhou pra esse símbolo, mantém o preço anterior (não simula movimento)
-                const nextPrice = priceMap.get(order.symbol) ?? currentPrice;
+                // Se o fetch falhou pra esse símbolo, mantém o preço anterior (não simula movimento).
+                // 2ª barreira do fix de 2026-08-18 (ver descarte na origem, acima): mesmo que um
+                // preço inválido escape pro mapa, ele nunca pode virar preço de avaliação/fechamento.
+                const fetchedPrice = priceMap.get(order.symbol);
+                const nextPrice = (Number.isFinite(fetchedPrice) && (fetchedPrice as number) > 0)
+                  ? (fetchedPrice as number)
+                  : currentPrice;
 
                 // 🔒 RESPEITAR CONFIG DO USUÁRIO: stopLossMode ('DINAMICO' | 'FIXO').
                 // Antes, o SL era calculado uma vez na entrada e nunca se mexia -

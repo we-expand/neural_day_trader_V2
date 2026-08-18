@@ -712,53 +712,28 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
              {activeOrders.length > 0 ? (
                <>
                 {/* 💎 CAPITAL LÍQUIDO EM ABERTO - HUD */}
+                {/* 2026-08-18: FIX DE BUG — este bloco reimplementava o cálculo de PnL do zero
+                    com uma fórmula genérica de leverage% (ignorando o pointValue real por ativo),
+                    divergindo do valor oficial (`order.currentProfit`, calculado por
+                    calculateRealisticPnL/contractSpecs.ts dentro do loop de useApexLogic e já usado
+                    pelo Dashboard/MarketScoreBoard.tsx). Resultado ao vivo: JP225 mostrava -$1.75 no
+                    Dashboard e -$0.54 aqui pro MESMO trade no mesmo instante. Nunca recalcular PnL em
+                    componente de apresentação — ler sempre `order.currentProfit`, fonte única de verdade. */}
+                {(() => {
+                  const totalUnrealizedPnL = activeOrders.reduce((total, order) => total + (order.currentProfit || 0), 0);
+                  const totalExposure = activeOrders.reduce((total, order) => total + (order.amount || 0), 0);
+                  const totalUnrealizedPnLPercent = totalExposure > 0 ? (totalUnrealizedPnL / totalExposure) * 100 : 0;
+                  return (
                 <div className="p-4 rounded-xl border border-cyan-500/30 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 backdrop-blur-sm shadow-lg shadow-cyan-500/10">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                     {/* Total P&L não realizado */}
                     <div className="flex flex-col">
                       <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">P&L Não Realizado</span>
-                      <span className={`text-2xl font-bold font-mono ${
-                        activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          const pnlValue = (order.amount || 0) * rawPnL;
-                          return total + pnlValue;
-                        }, 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                      }`}>
-                        {activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          const pnlValue = (order.amount || 0) * rawPnL;
-                          return total + pnlValue;
-                        }, 0) >= 0 ? '+' : ''}${activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          const pnlValue = (order.amount || 0) * rawPnL;
-                          return total + pnlValue;
-                        }, 0).toFixed(2)}
+                      <span className={`text-2xl font-bold font-mono ${totalUnrealizedPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {totalUnrealizedPnL >= 0 ? '+' : ''}${totalUnrealizedPnL.toFixed(2)}
                       </span>
-                      <span className={`text-xs font-mono mt-1 ${
-                        activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          return total + rawPnL;
-                        }, 0) >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'
-                      }`}>
-                        {activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          return total + rawPnL;
-                        }, 0) >= 0 ? '+' : ''}{(activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          return total + rawPnL;
-                        }, 0) * 100).toFixed(2)}%
+                      <span className={`text-xs font-mono mt-1 ${totalUnrealizedPnLPercent >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                        {totalUnrealizedPnLPercent >= 0 ? '+' : ''}{totalUnrealizedPnLPercent.toFixed(2)}%
                       </span>
                     </div>
 
@@ -789,53 +764,35 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                     </div>
 
                     {/* Equity Projetado */}
+                    {/* 2026-08-18: FIX DE BUG — somava o PnL não-realizado de novo em cima de
+                        portfolio.equity, que já é balance + unrealizedPnL (ver useApexLogic.ts,
+                        `newEquity = newBalance + totalUnrealizedPnL`) — dupla contagem. "Se fechar
+                        agora" já É o próprio portfolio.equity, sem soma adicional. */}
                     <div className="flex flex-col">
                       <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Equity Projetado</span>
-                      <span className={`text-2xl font-bold font-mono ${
-                        (portfolio?.equity || 0) + activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          const pnlValue = (order.amount || 0) * rawPnL;
-                          return total + pnlValue;
-                        }, 0) >= (portfolio?.equity || 0) ? 'text-emerald-400' : 'text-red-400'
-                      }`}>
-                        ${((portfolio?.equity || 0) + activeOrders.reduce((total, order) => {
-                          const currentPrice = order.currentPrice || order.price;
-                          const priceDiffPct = (currentPrice - order.price) / order.price;
-                          const rawPnL = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage;
-                          const pnlValue = (order.amount || 0) * rawPnL;
-                          return total + pnlValue;
-                        }, 0)).toFixed(2)}
+                      <span className={`text-2xl font-bold font-mono ${(portfolio?.equity || 0) >= (portfolio?.balance || 0) ? 'text-emerald-400' : 'text-red-400'}`}>
+                        ${(portfolio?.equity || 0).toFixed(2)}
                       </span>
                       <span className="text-xs text-slate-400/60 font-mono mt-1">Se fechar agora</span>
                     </div>
                   </div>
                 </div>
+                  );
+                })()}
 
                 {/* Grid de Operações */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
                     {activeOrders.map(order => {
                         const currentPrice = order.currentPrice || order.price;
-                        const priceDiffPct = (currentPrice - order.price) / order.price;
-                        // Calculate Real PnL based on leverage
-                        const rawPnLPercent = (order.side === 'LONG' ? priceDiffPct : -priceDiffPct) * order.leverage * 100;
-                        const pnlPercent = (rawPnLPercent || 0).toFixed(2);
-                        const isPositive = (rawPnLPercent || 0) >= 0;
-                        // P&L em USD = margem investida * (percentual / 100)
-                        const pnlValue = ((order.amount || 0) * ((rawPnLPercent || 0) / 100)).toFixed(2);
-                        
-                        // 🔍 DEBUG: Log para verificar valores
-                        console.log(`[P&L DEBUG] ${order.symbol}:`, {
-                            entryPrice: order.price,
-                            currentPrice,
-                            side: order.side,
-                            marginInvested: order.amount,
-                            leverage: order.leverage,
-                            priceDiff: ((currentPrice - order.price) / order.price * 100).toFixed(2) + '%',
-                            pnlPercent: pnlPercent + '%',
-                            pnlUSD: pnlValue
-                        });
+                        // 2026-08-18: FIX DE BUG — usa order.currentProfit (fonte única de verdade,
+                        // calculada por calculateRealisticPnL/contractSpecs.ts dentro do loop de
+                        // useApexLogic), em vez de recalcular com fórmula genérica de leverage% que
+                        // ignora o pointValue real por ativo. Ver mesmo fix acima no HUD agregado.
+                        const pnlValueNum = order.currentProfit || 0;
+                        const pnlPercentNum = (order.amount || 0) > 0 ? (pnlValueNum / order.amount) * 100 : 0;
+                        const pnlPercent = pnlPercentNum.toFixed(2);
+                        const isPositive = pnlValueNum >= 0;
+                        const pnlValue = pnlValueNum.toFixed(2);
 
                         return (
                         <div key={order.id} className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex items-center justify-between group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden">
