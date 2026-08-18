@@ -253,8 +253,12 @@ export function ProgramRules() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Rule
-          title="Você ganha enquanto ele operar"
-          body="A comissão de execução é recorrente e não tem prazo: enquanto o indicado operar, você recebe sobre cada lote. Não é bônus único de cadastro."
+          title="Comissão vitalícia, sem prazo"
+          body="Enquanto o indicado operar — mês 1 ou ano 5 — você recebe sobre cada lote. Não é um bônus único de cadastro nem tem data pra acabar."
+        />
+        <Rule
+          title="Só pelo seu link"
+          body="A única forma de entrar na sua rede é se cadastrar através do link que você compartilha. Sem anúncio, sem QR code, sem rastreamento por terceiro."
         />
         <Rule
           title={`Liberação em ${PROGRAM_RULES.maturityDays} dias`}

@@ -194,15 +194,25 @@ O que ainda está genuinamente em aberto:
    definido — Cleber quer voltar nisso depois.
 7. **[NOVO 2026-08-18] Programa de Parceiros IB reconstruído — falta o motor
    de apuração.** A seção "Parceiros" (agora **"Parceiros IB"** no menu) era
-   100% maquete e virou modelo real: comissão = alíquota do nível (15/20/25/30%)
-   × **margem de contribuição** do indicado, base que torna impossível por
-   construção pagar mais do que se recebe (retenção ≥70% em qualquer cenário;
-   teto de 30% contra ponto de indiferença de 48,3% vs mídia paga). Travado por
-   33 asserções no `npm run validate`. **Falta**: aplicar a migration
-   (`20260818_partner_ib_program.sql`), o job de apuração mensal — que depende
-   de volume por usuário, hoje inexistente porque a conta MetaAPI é
-   compartilhada — e a captura do `?ref=` no cadastro. Detalhe completo, com os
-   5 bugs achados na própria migration:
+   100% maquete e virou modelo real: comissão = alíquota do nível (15/20/25/30%,
+   **vitalícia**, atribuição só por link enviado) × **margem de contribuição**
+   do indicado, base que torna impossível por construção pagar mais do que se
+   recebe (retenção ≥70% em qualquer cenário, mês 1 ou mês 120; teto de 30%
+   contra ponto de indiferença de 48,3% vs mídia paga). Travado por 37
+   asserções no `npm run validate`. Achado no processo e **corrigido**: não
+   existia nenhum registro durável de lote real executado em lugar nenhum do
+   sistema (`ai_trades.quantity` é capital em dólar, não lote; a execução
+   automática real e a boleta manual real não persistiam nada) — criado o
+   ledger `broker_order_executions`, gravado só pelo servidor no handler único
+   `/broker/execute`, fechando o vetor de fraude de indicado autodeclarando
+   volume. **Estado do deploy** (confirmado direto no banco): a migration do
+   programa (`20260818_partner_ib_program.sql`) já foi aplicada; a do ledger
+   (`20260818_broker_order_executions.sql`) e o deploy da Edge Function
+   `server` ainda faltam — sem os dois, nenhum volume real é gravado. **Falta
+   depois disso**: o job de apuração mensal (agora tem de onde ler volume, só
+   falta o job em si), a captura do `?ref=` no cadastro e os marcos do funil.
+   Detalhe completo, com os 5 bugs achados na migration original, a
+   investigação do ledger e o ponteiro "COMECE AQUI" pra próxima sessão:
    [SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md](SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md).
 8. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
    paralelo.** A aba do navegador E o `ai-runner` monitoram e fecham posições,
@@ -213,6 +223,20 @@ O que ainda está genuinamente em aberto:
    servidor continua abrindo posição — aconteceu ao vivo. Decidir se o cliente
    deve perder autoridade de fechar trade. Detalhe:
    `SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md`.
+   **[RESOLVIDO parcialmente 2026-08-18]** Confirmado com dado ao vivo do
+   Supabase: `cron.job` `ai-runner-tick` ativo (1×/min), sessão DEMO do
+   usuário `RUNNING`, e uma posição nova (`XAUAUD LONG`) foi aberta pelo
+   servidor às 12:22:20 UTC — 1 minuto depois do Safe Mode já estar ativo no
+   client, banner incluído ("Taxa de acerto abaixo do mínimo: 15.4%"). Ou
+   seja: em DEMO, o Safe Mode do navegador não protegia nada de verdade, só
+   assustava o usuário testando o produto (decisão de negócio: usuário precisa
+   ver a IA operando pra querer depositar). Decisão do Cleber: matar Safe Mode
+   em DEMO, manter em LIVE (lá a execução real ainda depende do navegador).
+   Fix aplicado em `useApexLogic.ts` (Health Check, ~linha 1039): sai cedo sem
+   avaliar issues/disparar toast quando `executionMode === 'DEMO'`. Não
+   resolve o risco estrutural mais amplo (dupla decisão cliente/servidor em
+   LIVE) — só a parte específica do Safe Mode em DEMO. `npm run validate`
+   passou limpo (37/37). Commit pendente do Cleber rodar.
 
 **Sessão 2026-08-17/18 — primeira execução real 24/7**: três bugs críticos
 achados com dado de produção e corrigidos (`RISK_GATE` comparando equity

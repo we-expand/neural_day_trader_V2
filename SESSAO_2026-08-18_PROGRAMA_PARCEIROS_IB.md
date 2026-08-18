@@ -5,6 +5,36 @@
 > arquivo antes de mexer em comissionamento, níveis de parceiro ou nas tabelas
 > `partner_*`.
 
+## ▶ COMECE AQUI (próxima sessão)
+
+**Estado verificado direto no banco em 2026-08-18** (não confiar em "rodei
+tudo" sem checar de novo se muito tempo passar):
+
+| Item | Estado |
+|---|---|
+| `20260818_partner_ib_program.sql` | ✅ Aplicada por completo — tabelas, triggers (`partner_commission_block_update`, `partner_accounts_assign_code`, `partner_accounts_protect_privileged_fields`), constraints (`commission_never_exceeds_margin`, `negative_amount_only_on_reversal`) e `generate_referral_code()` todos confirmados existindo no Postgres. |
+| `20260818_broker_order_executions.sql` | ❌ **NÃO aplicada** — `to_regclass('public.broker_order_executions')` retorna `NULL`. O ledger de lote real não existe no banco ainda. |
+| Deploy da Edge Function `server` | ⚠️ **Não verificável por aqui.** A função está ACTIVE (versão 68 no Supabase), mas isso não prova que o handler novo (`brokerExecutionLedger.ts`, gravação em `/broker/execute`) foi publicado — exige `supabase functions deploy server` via CLI, que não foi rodado nesta conversa. |
+| Commit / push | ❌ Nada commitado ainda — `git status` mostra tudo como mudança local. |
+
+**Próximo passo, nesta ordem exata** (a 2ª e a 3ª linha travam o programa
+inteiro — sem elas as tabelas ficam vazias para sempre, mesmo com tudo o resto
+funcionando):
+
+1. Rodar `20260818_broker_order_executions.sql` no SQL Editor (comando pronto
+   na seção "Comandos prontos" abaixo).
+2. `supabase functions deploy server` — sem isso, `/broker/execute` continua
+   sem gravar o ledger mesmo com a tabela existindo.
+3. Commit + push (comando pronto, mesma seção).
+4. Depois disso, o próximo trabalho de verdade é **B4 — o job de apuração
+   mensal** (Edge Function nova + `pg_cron`, no padrão do `ai-runner`): lê
+   `broker_order_executions` por período, cruza com `partner_referrals`,
+   calcula com `computeCommission()` (`src/app/services/partners/CommissionModel.ts`)
+   e insere em `partner_commission_entries`. Sem isso, o programa está todo
+   construído mas o saldo de qualquer parceiro fica R$0 para sempre — é o
+   maior buraco que resta. Ver seção "Pendências reais em aberto" para o resto
+   (captura do `?ref=`, marcos do funil, termos do programa).
+
 ## ▶ O que foi feito
 
 A seção "Parceiros" era uma **maquete inteira**: código de indicação gerado no
@@ -190,18 +220,27 @@ Sintaxe do arquivo inteiro validada com `pglast` (o parser real do Postgres):
 
 ## Pendências reais em aberto
 
-1. **A migration não foi aplicada** — comando na seção abaixo. Enquanto não
-   for, a seção mostra o estado "não provisionado".
-2. **O job de apuração mensal não existe.** É o que transforma volume operado em
-   lançamento de comissão (Edge Function + `pg_cron`). Depende de uma fonte de
-   volume real POR USUÁRIO — hoje o volume só existe agregado na conta de
-   plataforma da MetaAPI, que é compartilhada entre todos os usuários (risco
-   crônico já registrado no CLAUDE.md). **Este é o próximo passo obrigatório
-   antes do programa funcionar de verdade**, e não é pequeno.
-3. **A captura do `?ref=` no cadastro não foi implementada.** O link já é
-   gerado e copiável, mas nada ainda lê o parâmetro no fluxo de registro para
-   criar a linha em `partner_referrals`. Sem isso, ninguém entra na rede de
-   ninguém.
+0. **Estado de deploy — ver "COMECE AQUI" no topo deste arquivo.**
+   `20260818_partner_ib_program.sql` já foi aplicada e confirmada no banco.
+   `20260818_broker_order_executions.sql` e o deploy da Edge Function `server`
+   ainda faltam — sem os dois, o restante do programa fica construído mas
+   sem gravar volume nenhum.
+1. **B4 — o job de apuração mensal não existe.** É o que lê
+   `broker_order_executions` (o ledger criado nesta sessão) por período, cruza
+   com `partner_referrals` pra saber de quem é cada indicado, calcula com
+   `computeCommission()` e insere em `partner_commission_entries`. Antes desta
+   sessão essa pendência também dependia de resolver "de onde vem o volume" —
+   isso já está resolvido; falta o job em si (Edge Function + `pg_cron`, no
+   padrão do `ai-runner`). **Próximo passo obrigatório antes do programa
+   funcionar de verdade.**
+2. **B2 — a captura do `?ref=` no cadastro não foi implementada.** O link já é
+   gerado e copiável, mas nada ainda lê o parâmetro no fluxo de registro
+   (`AuthOverlay.tsx` → `POST /signup` em `server/index.ts`) para criar a linha
+   em `partner_referrals`. Sem isso, ninguém entra na rede de ninguém.
+3. **B3 — marcos do funil não são gravados.** `broker_linked_at`,
+   `first_trade_at`, `subscribed_at` em `partner_referrals` continuam NULL
+   sempre — precisam ser setados nos pontos onde cada evento acontece de
+   verdade (conexão de conta, primeira ordem no ledger novo, assinatura paga).
 4. **Termos do programa não existem como documento.** Um programa de comissão
    recorrente precisa de termos escritos (regras de estorno, suspensão por
    fraude, prazo de pagamento). Não redigidos.
@@ -212,16 +251,128 @@ Sintaxe do arquivo inteiro validada com `pglast` (o parser real do Postgres):
 6. **Marketplace ainda tem produtos com rating/vendas fabricados** (pendência
    antiga #4 do CLAUDE.md) — não tocada nesta sessão, mas é o mesmo tipo de
    problema que a seção de Parceiros tinha.
+7. **Reconciliação do ledger contra o extrato oficial da corretora não
+   existe.** `broker_order_executions` confia na resposta da MetaAPI no
+   momento da ordem — não há verificação posterior cruzando com o relatório
+   oficial da conta antes de pagar comissão sobre esse volume.
+8. **Multi-corretora (pergunta 4 do Cleber) não implementado**, caminho
+   sugerido na seção acima — `broker_credentials` e `CommissionModel` ainda
+   assumem uma corretora só.
+
+## Continuação — decisões do Cleber e implementação de B1 (mesma sessão)
+
+Quatro perguntas do Cleber, respondidas com a conta por trás:
+
+**1) O programa gera lucro ou só se paga?** Lucro, não empate. `margem` já é
+receita líquida de imposto e custo de servir — é lucro *antes* de repartir com
+o parceiro. Pagando o teto de 30%, sobra ≥70% de lucro incremental por
+indicado/mês: no Realista/assinante, R$378,95 de lucro depois de pagar
+R$162,41 de comissão sobre uma margem de R$541,35.
+
+**2) Ilimitado/vitalício importa?** Não degrada nada, porque a divisão é
+percentual FIXO por mês — não é um total acumulado com teto que poderia
+"estourar" com o tempo. Cada mês em que o indicado gera margem, a plataforma
+retém ≥70% *daquele mês*, independente de quantos meses já passaram. **Decisão:
+comissão vitalícia**, igual ao modelo da Infinox. Implementado como
+`PROGRAM_RULES.commissionDurationMonths: null`, com `CASO 8` do
+`__validate__.ts` provando por simulação (mês 1 vs mês 120) que a retenção da
+plataforma não muda com o tempo.
+
+**3) Só link enviado.** Confirmado como único canal de atribuição — sem
+anúncio, QR code ou cookie de terceiro. `PROGRAM_RULES.attributionChannel:
+'REFERRAL_LINK_ONLY'`, travado no `CASO 9`. Textos da UI (`ProgramExplainer.tsx`)
+atualizados para dizer isso explicitamente.
+
+**4) Multi-corretora no futuro (a Infinox é concorrente, não parceira
+estratégica).** A camada de conexão já é broker-agnostic na prática —
+`InfinoxAdapter` chama o MetaAPI genérico, que funciona com qualquer servidor
+MT5; existe até um `MT5Adapter` genérico ao lado. O que é hardcoded hoje:
+`broker_credentials.user_id` é chave primária (1 corretora por usuário, não por
+corretora), o catálogo de custo (`CostModel.ts`) é calibrado só pro catálogo da
+Infinox, e `CommissionModel` tem uma única taxa de comissão/rebate, não uma por
+corretora. Caminho sugerido, não implementado: tabela `brokers` (id, nome,
+servidor MT5, taxas), `broker_credentials` ganha `broker_id` e vira 1 linha por
+usuário×corretora, e `partner_commission_entries.assumptions` (já existe, jsonb)
+passa a incluir `broker_id` na apuração — histórico não quebra quando a próxima
+corretora entrar. O trabalho pesado por corretora nova é sempre o mesmo:
+calibrar o catálogo de custo/`pointValue`, que levou uma sessão inteira só pra
+Infinox.
+
+### B1 implementado — e um achado que mudou o escopo original
+
+Ao investigar de onde viria o volume real para a apuração, a resposta foi mais
+séria do que "falta uma coluna": **hoje não existe nenhum registro durável de
+lote executado de verdade em nenhum lugar do sistema.**
+
+- `ai_trades.quantity` não é lote — é **capital em dólar** alocado no trade
+  (`finalTradeCapital`, `runTradingCycle.ts:1215`). Sempre DEMO, execução
+  virtual. Se algo tivesse usado esse campo como base de comissão, o parceiro
+  teria recebido ~100.000× o correto (um trade real de XAUAUD conferido no
+  banco tem `quantity = 1173.70`, que é US$1.173,70 de capital, não 1.173
+  lotes).
+- A execução automática real (Estágio 3, `useAutoExecutionStage.ts`) chama a
+  corretora de verdade com `createMarketBuyOrder`/`createMarketSellOrder` e
+  grava o resultado só em `useState` (`pushHistory`) — some ao fechar a aba.
+- A boleta manual real (`OrderTicket.tsx`, branch fora de DEMO) chama a
+  corretora e mostra um toast. Não persiste em lugar nenhum.
+
+**Solução**: os dois pontos acima, e qualquer execução futura, passam por UM
+único handler no servidor — `POST /broker/execute` em
+`supabase/functions/server/index.ts`. É lá, com `service_role`, que a linha
+agora é gravada, não no cliente. Isso fecha por construção o vetor de fraude
+óbvio do programa (um indicado mal-intencionado se autodeclarando volume que
+nunca operou): a linha só existe se a MetaAPI confirmou a ordem de verdade.
+
+**Arquivos**:
+
+| Arquivo | O que é |
+|---|---|
+| `supabase/migrations/20260818_broker_order_executions.sql` | Tabela append-only `broker_order_executions`. RLS: usuário só lê a própria linha; sem policy de escrita para `authenticated`/`anon` — só `service_role` grava. **Não aplicada.** |
+| `supabase/functions/server/brokerExecutionLedger.ts` | `buildExecutionLedgerRow()` — função pura que decide se e como montar a linha (rejeita volume ≤0 e símbolo vazio antes de gastar uma viagem de rede). |
+| `supabase/functions/server/index.ts` | Handler `/broker/execute` grava no ledger com `await` (não fire-and-forget — uma Edge Function pode encerrar o isolate assim que a resposta é enviada, e uma promise pendente se perderia sem log de erro) logo após confirmar a ordem com a MetaAPI, antes de responder ao cliente. |
+
+**Escopo do que foi rastreado**: só as duas ações que abrem volume novo de
+mercado (`createMarketBuyOrder`, `createMarketSellOrder`). Deliberadamente
+fora de escopo, documentado na própria migration:
+- Ordens pendentes (Limit/Stop) só entram quando disparam de verdade — isso
+  exigiria webhook ou polling da MetaAPI, não implementado.
+- Fechamento de posição não é registrado — o ledger é só o volume de ENTRADA,
+  que já é o que a comissão de execução precisa (incide sobre volume
+  negociado, não sobre P&L).
+- Nenhuma reconciliação contra o extrato oficial da corretora ainda existe.
+
+**Verificação**: 12 asserções puras no helper (`deno run` local, sem depender
+de infra), `deno check` limpo no arquivo novo, sintaxe da migration validada
+com `pglast` (o parser real do Postgres — 6 statements, zero erro), `npm run
+validate` passa com as **37 asserções** do programa de parceiros (33 + 4 novas
+dos casos 8 e 9 desta rodada).
+
+### Isso muda a pendência B4 (job de apuração mensal)
+
+`broker_order_executions` é o insumo de volume que faltava — B4 agora tem uma
+fonte real pra ler em vez de precisar inventar uma. Ainda não implementado:
+o job continua sendo trabalho novo (Edge Function + `pg_cron`, no padrão do
+`ai-runner`), que lê este ledger por período, cruza com `partner_referrals`
+pra saber de quem é cada indicado, calcula com `computeCommission()` e insere
+em `partner_commission_entries`.
 
 ## Comandos prontos
 
-Aplicar a migration (SQL Editor do Supabase, projeto `wyvdsxtcmizettljxtbg`) —
-copiar o conteúdo de `supabase/migrations/20260818_partner_ib_program.sql`.
+Aplicar as duas migrations (SQL Editor do Supabase, projeto
+`wyvdsxtcmizettljxtbg`, nesta ordem):
+1. `supabase/migrations/20260818_partner_ib_program.sql`
+2. `supabase/migrations/20260818_broker_order_executions.sql`
+
+Deploy da Edge Function `server` (o handler `/broker/execute` mudou):
+
+```bash
+supabase functions deploy server
+```
 
 Commit:
 
 ```bash
-git add src/app/services/partners src/app/components/partners src/app/components/Partners.tsx src/app/components/Sidebar.tsx supabase/migrations/20260818_partner_ib_program.sql scripts/validate.mjs tsconfig.engine.json SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md
+git add src/app/services/partners src/app/components/partners src/app/components/Partners.tsx src/app/components/Sidebar.tsx supabase/migrations/20260818_partner_ib_program.sql supabase/migrations/20260818_broker_order_executions.sql supabase/functions/server/index.ts supabase/functions/server/brokerExecutionLedger.ts scripts/validate.mjs tsconfig.engine.json SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md CLAUDE.md
 git commit -m "feat: reconstrói seção de Parceiros como programa IB com modelo econômico real
 
 A seção era 100% maquete: indicados fictícios, US\$1.250 de comissão
@@ -229,20 +380,34 @@ fabricada, gráfico com dados fixos no código e níveis (Officer/Commander)
 sem nenhum modelo por trás. Nenhuma tabela existia no banco.
 
 Modelo novo: comissão = alíquota do nível x margem de contribuição do
-indicado (receita - imposto - custo de servir), escada de 15/20/25/30%.
-Base em margem, não receita bruta, torna impossível por construção pagar
-mais do que se recebe - a plataforma retém >=70% em qualquer cenário.
-Calibrado contra os 3 cenários da planilha de 5 anos: o teto de 30% fica
-bem abaixo do ponto de indiferença de 48,3% em que indicar sairia mais
-caro que a mídia paga que substitui.
+indicado (receita - imposto - custo de servir), escada de 15/20/25/30%,
+vitalícia. Base em margem, não receita bruta, torna impossível por
+construção pagar mais do que se recebe - a plataforma retém >=70% em
+qualquer cenário, mês 1 ou mês 120. Calibrado contra os 3 cenários da
+planilha de 5 anos: o teto de 30% fica bem abaixo do ponto de indiferença
+de 48,3% em que indicar sairia mais caro que a mídia paga que substitui.
+Atribuição só por link enviado pelo parceiro.
 
 Inclui schema append-only (correção é estorno, nunca UPDATE - mesma regra
 do incidente de ai_trades), RLS, painel de rede sem dado pessoal de
 terceiro, extrato auditável linha a linha e simulador declarado como
-projeção. 33 asserções novas no gate de commit travam a invariante.
+projeção.
+
+Ledger novo (broker_order_executions): ao investigar de onde viria o
+volume real pra apurar comissão, achamos que não existia NENHUM registro
+durável de lote executado de verdade em lugar nenhum do sistema - a
+execução automática real (Estágio 3) e a boleta manual real chamavam a
+corretora e não persistiam nada. Gravação movida pro servidor
+(/broker/execute, service_role), não pro cliente, fechando o vetor óbvio
+de fraude do programa (indicado se autodeclarando volume que nunca
+operou).
+
+37 asserções no gate de commit travam a invariante do programa + o helper
+do ledger.
 
 Nome do menu: Parceiros -> Parceiros IB.
 
-Migration NÃO aplicada - roda no SQL Editor."
+Migrations NÃO aplicadas - rodam no SQL Editor. Edge Function precisa de
+deploy manual (supabase functions deploy server)."
 git push origin dev
 ```

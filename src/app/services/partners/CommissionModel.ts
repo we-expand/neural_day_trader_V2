@@ -305,6 +305,26 @@ export const PROGRAM_RULES = {
   networkDepth: 1,
   /** Autoindicação é bloqueada por CPF/documento, não por e-mail. */
   selfReferralBlocked: true,
+  /**
+   * Duração da comissão sobre um indicado. `null` = vitalícia, igual ao
+   * modelo da Infinox — decisão do Cleber em 2026-08-18, confirmada como
+   * segura porque a divisão é um PERCENTUAL FIXO aplicado mês a mês, não um
+   * total acumulado: cada mês em que o indicado gera margem, a plataforma
+   * retém ≥`MIN_PLATFORM_RETENTION` DAQUELE mês, sem relação com quantos
+   * meses já se passaram. Não há compounding contra a plataforma — a única
+   * forma de o programa deixar de dar lucro seria a alíquota ultrapassar o
+   * ponto de indiferença (~48,3% da margem, ver CASO 5 de __validate__.ts),
+   * e o teto trava bem abaixo disso, em `MAX_MARGIN_SHARE`.
+   */
+  commissionDurationMonths: null as number | null,
+  /**
+   * Único canal de atribuição hoje: link enviado pelo parceiro. Decisão do
+   * Cleber em 2026-08-18 — sem anúncio pago, sem QR code, sem cookie de
+   * terceiro. `PartnerReferral.source_channel` no banco é só metadado livre
+   * de UTM pra o parceiro entender de onde veio o clique, não define um
+   * canal alternativo de atribuição.
+   */
+  attributionChannel: 'REFERRAL_LINK_ONLY',
 } as const;
 
 /**

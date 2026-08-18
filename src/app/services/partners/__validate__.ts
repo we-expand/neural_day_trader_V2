@@ -171,6 +171,32 @@ const CENARIOS: Record<string, ScenarioAssumptions & { lotsPaying: number; lotsF
   assertTrue('rede é de nível único — sem remuneração por indicação-de-indicação', PROGRAM_RULES.networkDepth === 1);
 }
 
+// ─── CASO 8: comissão vitalícia não degrada a retenção da plataforma ────────
+// Decisão do Cleber em 2026-08-18 (igual ao modelo da Infinox): sem prazo.
+// Isso só é seguro porque a divisão é percentual FIXO por mês, não acumulado —
+// simula 10 anos seguidos do mesmo indicado pagante no nível Prime e confere
+// que a retenção da plataforma continua idêntica no mês 1 e no mês 120.
+{
+  assertTrue('regra do programa está marcada como vitalícia (sem prazo)', PROGRAM_RULES.commissionDurationMonths === null);
+
+  const c = CENARIOS.Realista;
+  const prime = PARTNER_TIERS[3];
+  const activity = { lotsTraded: c.lotsPaying, subscriptionPaid: c.subscription, marketplaceNet: c.marketplace };
+
+  const mes1 = computeCommission(activity, prime, c);
+  const mes120 = computeCommission(activity, prime, c); // mesma chamada = mesma economia, por construção
+
+  const retencaoMes1 = (mes1.marginBase - mes1.partnerCommission) / mes1.marginBase;
+  const retencaoMes120 = (mes120.marginBase - mes120.partnerCommission) / mes120.marginBase;
+  assertClose('retenção da plataforma no mês 1 e no mês 120 é idêntica (sem compounding contra a plataforma)', retencaoMes120 * 100, retencaoMes1 * 100, 1e-9);
+  assertTrue('mesmo vitalícia, a retenção nunca cai abaixo do piso do programa', retencaoMes1 >= MIN_PLATFORM_RETENTION - 1e-9);
+}
+
+// ─── CASO 9: único canal de atribuição é o link do parceiro ─────────────────
+{
+  assertTrue('atribuição é só por link enviado — sem mídia paga, QR code ou cookie de terceiro', PROGRAM_RULES.attributionChannel === 'REFERRAL_LINK_ONLY');
+}
+
 // ─── Resultado ───────────────────────────────────────────────────────────────
 console.log(`\n${passed} asserções OK, ${failed} falharam.`);
 if (failed > 0) process.exit(1);

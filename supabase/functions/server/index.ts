@@ -10,6 +10,7 @@ import * as kv from './kv_store_resilient.tsx'; // 🔄 RESILIENT: auto-retry pa
 import { synthesizeSpeech, validateGoogleTTSKey } from './tts-google.ts';
 import { transcribeAudio, validateGoogleSTTKey } from './stt-google.ts';
 import { processUserQuestion, generateAlertResponse } from './neural-assistant.ts';
+import { isLedgerTrackedAction, buildExecutionLedgerRow } from './brokerExecutionLedger.ts';
 
 const app = new Hono().basePath('/server');
 
@@ -1470,6 +1471,44 @@ app.post('/broker/execute', async (c) => {
                 success: false,
                 error: tradeResult.message || `MetaApi HTTP ${tradeRes.status}`,
             }, 502);
+        }
+
+        // Ledger de execução real (2026-08-18) — grava só aqui, no servidor, com
+        // service_role. É o único ponto por onde toda ordem de mercado real
+        // passa (auto-execução do Estágio 3 e a boleta manual chamam ambas
+        // este mesmo handler), e é o insumo de volume do Programa de
+        // Parceiros IB. Ver supabase/migrations/20260818_broker_order_executions.sql.
+        // Falha ao gravar o ledger NUNCA derruba a resposta pro usuário — a
+        // ordem já foi executada de verdade na corretora quando chegamos
+        // aqui; um erro de log não pode virar um erro de trade.
+        if (isLedgerTrackedAction(action)) {
+            const row = buildExecutionLedgerRow({
+                userId: authenticatedUserId,
+                brokerAccountId: accountId,
+                action,
+                symbol: body.symbol,
+                volume: body.volume,
+                orderId: tradeResult.orderId,
+                positionId: tradeResult.positionId,
+                comment: body.comment,
+            });
+            if (row) {
+                const supabaseUrl = Deno.env.get('SUPABASE_URL');
+                const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+                if (supabaseUrl && supabaseServiceKey) {
+                    // AWAIT de propósito, não fire-and-forget: uma Edge Function pode
+                    // encerrar o isolate assim que a resposta é enviada, derrubando
+                    // qualquer promise pendente sem log de erro nenhum. É uma query
+                    // única, latência desprezível perto da chamada já feita à
+                    // corretora — vale a garantia de que o volume não se perde.
+                    const { error: ledgerError } = await createClient(supabaseUrl, supabaseServiceKey)
+                        .from('broker_order_executions')
+                        .insert(row);
+                    if (ledgerError) console.error('[BROKER] ⚠️ Falha ao gravar ledger de execução:', ledgerError.message);
+                } else {
+                    console.error('[BROKER] ⚠️ Ledger de execução não gravado: variáveis de ambiente do Supabase ausentes');
+                }
+            }
         }
 
         return c.json({
