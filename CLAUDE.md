@@ -192,7 +192,19 @@ O que ainda está genuinamente em aberto:
    escopo natural é o mesmo do Trilho 2 (edge com dado estruturalmente
    diferente), hoje pausado sem justificativa nova. Sem próximo passo
    definido — Cleber quer voltar nisso depois.
-7. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
+7. **[NOVO 2026-08-18] Programa de Parceiros IB reconstruído — falta o motor
+   de apuração.** A seção "Parceiros" (agora **"Parceiros IB"** no menu) era
+   100% maquete e virou modelo real: comissão = alíquota do nível (15/20/25/30%)
+   × **margem de contribuição** do indicado, base que torna impossível por
+   construção pagar mais do que se recebe (retenção ≥70% em qualquer cenário;
+   teto de 30% contra ponto de indiferença de 48,3% vs mídia paga). Travado por
+   33 asserções no `npm run validate`. **Falta**: aplicar a migration
+   (`20260818_partner_ib_program.sql`), o job de apuração mensal — que depende
+   de volume por usuário, hoje inexistente porque a conta MetaAPI é
+   compartilhada — e a captura do `?ref=` no cadastro. Detalhe completo, com os
+   5 bugs achados na própria migration:
+   [SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md](SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md).
+8. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
    paralelo.** A aba do navegador E o `ai-runner` monitoram e fecham posições,
    com lógicas independentes — foi exatamente por isso que o bug de "preço 0
    fecha a preço zero" existiu no cliente e não no servidor (que já rejeitava

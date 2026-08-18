@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText } from 'lucide-react';
+import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Network, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
 type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'pyramiding' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs';
@@ -20,7 +20,7 @@ const menuItems = [
   { id: 'innovation' as View, label: 'IA Preditiva', icon: Sparkles },
   { id: 'performance' as View, label: 'Performance', icon: TrendingUp },
   { id: 'store' as View, label: 'Marketplace', icon: ShoppingBag },
-  { id: 'partners' as View, label: 'Parceiros', icon: Users },
+  { id: 'partners' as View, label: 'Parceiros IB', icon: Network },
   { id: 'settings' as View, label: 'Configurações', icon: Settings },
 ];
 
