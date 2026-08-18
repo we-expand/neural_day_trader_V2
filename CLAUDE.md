@@ -266,6 +266,28 @@ comandos prontos, nunca executar `git add`/`commit`/`push` via Bash.
 - Nunca fabricar dado (preço, indicador, resultado de backtest) — sempre erro
   explícito quando não há fonte real. Disciplina histórica do projeto, várias
   sessões passadas encontraram e removeram mock disfarçado de real.
+- **Corrigir registro financeiro corrompido nunca é um `UPDATE` silencioso.**
+  Motivo (2026-08-18): um trade fechado a preço 0 por bug de feed foi
+  corrigido via `UPDATE` direto em `ai_trades` sem nenhum rastro no banco —
+  `ai_trades` não tinha coluna de auditoria nem trigger. O registro corrigido
+  ficou indistinguível de um trade normal pra quem audita a tabela sem o
+  contexto desta conversa. Isso é grave especificamente porque os trades vão
+  ser mostrados a investidor: um `UPDATE` sem rastro em dado financeiro é, por
+  definição, indistinguível de manipulação pra esconder prejuízo, mesmo feito
+  com boa intenção. Fix estrutural: `ai_trades_audit_log` (trigger
+  `AFTER UPDATE`, grava a linha inteira antes/depois de qualquer edição) +
+  colunas `corrected_at`/`correction_reason`/`original_values` em `ai_trades`
+  — ver `supabase/migrations/20260818_add_ai_trades_audit_trail.sql`. Regra
+  daqui pra frente: sempre que possível, corrigir um bug de motor que
+  corrompeu dado fechando/anulando com um **registro novo** (ex: trade de
+  ajuste explícito), não reescrevendo o original — mesmo com auditoria,
+  editar o original ainda apaga o valor errado da visão principal da tabela.
+  Quando editar o original for mesmo necessário, sempre preencher
+  `correction_reason`/`original_values` na mesma operação, nunca depois.
+  Limite conhecido: o log de auditoria vive no mesmo Postgres de produção,
+  então não é imutável contra quem tem acesso de `service_role` — pra
+  "à prova de investidor" de verdade falta exportar snapshots periódicos pra
+  um destino write-once fora do Supabase (não implementado).
 - Nunca prometer edge sem validação estatística (amostra mínima, walk-forward
   sem look-ahead, custo real descontado, correção por múltiplos testes). Ver
   `AI_BRAIN_SPEC.md` seção 8.
