@@ -28,11 +28,40 @@ SaaS de trading quantitativo (React 18 + TS + Vite + Supabase + MetaAPI/MT5).
 Produção: `https://www.neuraldaytrader.com` (Vercel) + Supabase próprio
 (projeto "Neural DayTrader", id `wyvdsxtcmizettljxtbg`, org "We Expand").
 
+> ⚠️ **PRODUÇÃO ESTÁ FORA DO AR DE PROPÓSITO.** `www.neuraldaytrader.com`
+> serve uma página estática "Em construção" (o `index.html` da branch `main`
+> é a página de manutenção, commit `d053074a3`), **não o app**. Todo
+> desenvolvimento e teste acontece na branch `dev` — ver "Ambientes e
+> branches" abaixo. Não tirar da manutenção sem decisão explícita do Cleber.
+
 **Modelo de negócio**: Fase Demo (dados reais, execução virtual persistida,
 sem corretora própria do usuário) → Fase Real (usuário conecta corretora via
 MetaAPI, comissão por lote). Aporte mínimo travado em **US$50**. Corretora de
 referência: Infinox (custo calibrado "igual ou um pouco abaixo" da
 concorrência — ver `research/CostModel.ts`).
+
+## Ambientes e branches — LER ANTES DE TESTAR OU FALAR DE DEPLOY
+
+**Trabalhamos na branch `dev`. Produção (`main`) está em manutenção.**
+
+| Ambiente | Branch | URL | Serve o app? |
+|---|---|---|---|
+| **Trabalho/teste** | `dev` | `neural-day-trader-v2-git-dev-cleber-coutos-projects.vercel.app` | ✅ Sim |
+| Produção | `main` | `www.neuraldaytrader.com` | ❌ Não — página "Em construção" |
+
+- **Nunca testar em URL de deployment com hash** (`...-bwip109bq-...`). Essas
+  URLs são **imutáveis**: ficam congeladas no código daquele build e nunca
+  atualizam, por mais pushes que se faça. Já custou uma investigação inteira
+  ("o push não foi pra Vercel", quando tinha ido). Usar o alias de branch.
+- **Mergear `dev`→`main` não tira o produto da manutenção** — o `index.html`
+  de manutenção é do `main` e sobrevive ao merge.
+- **Edge Functions não sobem com `git push`** — precisam de
+  `supabase functions deploy <nome>`. O `ai-runner` exige **`--no-verify-jwt`**
+  (tem auth própria via `x-runner-secret`); sem a flag, todo tick do cron toma
+  `401 UNAUTHORIZED_NO_AUTH_HEADER` e a IA para por completo.
+- **O motor que opera de verdade é o `ai-runner` no servidor** (`pg_cron`,
+  1×/min), não a aba do navegador. Fechar a aba não para a IA; fix só no
+  cliente não muda o comportamento real de trading, e vice-versa.
 
 ## Regra fixa de workflow
 
@@ -163,6 +192,25 @@ O que ainda está genuinamente em aberto:
    escopo natural é o mesmo do Trilho 2 (edge com dado estruturalmente
    diferente), hoje pausado sem justificativa nova. Sem próximo passo
    definido — Cleber quer voltar nisso depois.
+7. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
+   paralelo.** A aba do navegador E o `ai-runner` monitoram e fecham posições,
+   com lógicas independentes — foi exatamente por isso que o bug de "preço 0
+   fecha a preço zero" existiu no cliente e não no servidor (que já rejeitava
+   `!(tick.price > 0)`). Somado a isso, **Safe Mode é estado só do cliente**
+   (`localStorage`, inexistente no runner): se disparar, para a aba enquanto o
+   servidor continua abrindo posição — aconteceu ao vivo. Decidir se o cliente
+   deve perder autoridade de fechar trade. Detalhe:
+   `SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md`.
+
+**Sessão 2026-08-17/18 — primeira execução real 24/7**: três bugs críticos
+achados com dado de produção e corrigidos (`RISK_GATE` comparando equity
+contra balance; preço 0 do feed fechando posição a preço zero e fabricando
+−$2.464 numa conta de $82, que envenenou o health check e disparou Safe Mode
+com "−2464,72%"; PnL divergente entre Dashboard e AI Trader por fórmula
+duplicada ignorando `pointValue`). Reset passou a ser exclusivo de DEMO.
+Experimento em produção: preset 5 com R:R 1:1,5 → **1:3**, não validado por
+backtest — reverter se a taxa de acerto cair. **Relato completo, com evidência
+e SQL de correção do dado: [SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md](SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md).**
 
 Itens resolvidos recentemente (2026-08-17), redesenho visual da curva de
 equity:
