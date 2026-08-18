@@ -39,7 +39,8 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
   const [password, setPassword] = useState('');
   const [userName, setUserName] = useState('');
   const [userLastName, setUserLastName] = useState('');
-  
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+
   // Latência real do servidor de auth (medida, não decorativa — ver measurePing abaixo)
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
 
@@ -141,15 +142,22 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
     setErrorMessage("");
 
     try {
+        const body: any = {
+            email,
+            password,
+            firstName: userName || 'Trader',
+            lastName: userLastName || ''
+        };
+
+        // B2: Programa de Parceiros IB — passar o referralCode se existir
+        if (referralCode) {
+            body.referralCode = referralCode;
+        }
+
         const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-            body: JSON.stringify({
-                email,
-                password,
-                firstName: userName || 'Trader',
-                lastName: userLastName || ''
-            })
+            body: JSON.stringify(body)
         });
         const data = await response.json();
         if (!response.ok) {
@@ -258,6 +266,16 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
         });
     }
   };
+
+  // Capturar ?ref= da URL (Programa de Parceiros IB — B2)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref) {
+      setReferralCode(ref);
+      console.log('[AuthOverlay] Referral code capturado:', ref);
+    }
+  }, []);
 
   // Latência real medida contra o servidor de auth (Supabase) — antes era um
   // "Latency: 12ms" fixo no rodapé, nunca medido de verdade (auditoria

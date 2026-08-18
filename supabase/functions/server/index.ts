@@ -462,7 +462,7 @@ app.use(
 // Auto-Confirm Sign Up Route
 app.post("/signup", async (c) => {
     try {
-        const { email, password, name, firstName, lastName } = await c.req.json();
+        const { email, password, name, firstName, lastName, referralCode } = await c.req.json();
         
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -517,6 +517,30 @@ app.post("/signup", async (c) => {
                             }
                         );
                         if (updateError) return c.json({ error: "Falha ao ativar conta existente." }, 500);
+
+                        // B2: Partner referral pra usuário reativado (mesmo que signup novo)
+                        if (referralCode && updatedUser.user?.id) {
+                            try {
+                                const { data: partnerAccount } = await supabaseAdmin
+                                    .from('partner_accounts')
+                                    .select('id')
+                                    .eq('referral_code', referralCode)
+                                    .single();
+
+                                if (partnerAccount?.id) {
+                                    await supabaseAdmin
+                                        .from('partner_referrals')
+                                        .insert({
+                                            partner_id: partnerAccount.id,
+                                            referred_user_id: updatedUser.user.id
+                                        })
+                                        .then(() => console.log('[signup] Partner referral criado para usuário reativado'));
+                                }
+                            } catch (e) {
+                                console.warn('[signup] Erro ao criar referral para reactivation:', e);
+                            }
+                        }
+
                         return c.json({ user: updatedUser.user, message: "Sua conta antiga foi localizada e ativada com sucesso!" });
                     } else {
                         return c.json({ error: "Este e-mail já está registrado e ativo. Por favor, faça login." }, 409);
@@ -524,6 +548,47 @@ app.post("/signup", async (c) => {
                 }
             }
             return c.json({ error: error.message }, 400);
+        }
+
+        // B2: Programa de Parceiros IB — criar partner_referral se referralCode foi passado
+        if (referralCode && data.user?.id) {
+            try {
+                // Validar se o código existe em partner_accounts
+                const { data: partnerAccount, error: partnerError } = await supabaseAdmin
+                    .from('partner_accounts')
+                    .select('id, user_id')
+                    .eq('referral_code', referralCode)
+                    .single();
+
+                if (partnerError && partnerError.code !== 'PGRST116') {
+                    // PGRST116 = "no rows" (código não existe) — isso é esperado se for inválido
+                    console.warn('[signup] Erro ao buscar partner_account:', partnerError);
+                } else if (partnerAccount && partnerAccount.id) {
+                    // Referral code é válido — criar a linha em partner_referrals
+                    const { error: refError } = await supabaseAdmin
+                        .from('partner_referrals')
+                        .insert({
+                            partner_id: partnerAccount.id,
+                            referred_user_id: data.user.id,
+                            // Outros campos preenchidos com NULL ou defaults do schema:
+                            // broker_linked_at, first_trade_at, subscribed_at (B3 — ainda não implementado)
+                            // status = 'PENDING' (default)
+                        });
+
+                    if (refError) {
+                        console.warn('[signup] Erro ao criar partner_referral:', refError);
+                        // Não falhar o signup todo por causa disso — usuário foi criado com sucesso,
+                        // só a atribuição de parceiro falhou. Log pra investigar depois.
+                    } else {
+                        console.log('[signup] Partner referral criado:', { partner_id: partnerAccount.id, referred_user_id: data.user.id });
+                    }
+                } else {
+                    console.log('[signup] Referral code inválido ou não encontrado:', referralCode);
+                }
+            } catch (err: any) {
+                console.warn('[signup] Erro inesperado ao processar referral:', err.message);
+                // Continuar mesmo se isso falhar — signup em si foi bem-sucedido
+            }
         }
 
         return c.json({ user: data.user, message: "Conta criada com sucesso." });
