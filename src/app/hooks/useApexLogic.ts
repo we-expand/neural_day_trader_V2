@@ -104,13 +104,14 @@ export type { TradeVisual, PortfolioState } from '@/app/types/tradingState';
  */
 function reanchorDrawdown(equity: number): Pick<
   PortfolioState,
-  'currentDrawdown' | 'maxDrawdownReached' | 'peakEquity' | 'dayAnchorEquity' | 'dayAnchorUtcDay'
+  'currentDrawdown' | 'maxDrawdownReached' | 'peakEquity' | 'dayAnchorEquity' | 'dayAnchorBalance' | 'dayAnchorUtcDay'
 > {
   return {
     currentDrawdown: 0,
     maxDrawdownReached: 0,
     peakEquity: equity,
     dayAnchorEquity: equity,
+    dayAnchorBalance: equity,
     dayAnchorUtcDay: 0, // força re-ancoragem do dia no próximo tick
   };
 }
@@ -230,6 +231,7 @@ const INITIAL_STATE: ApexLogicState = {
     initialBalance: 100,
     peakEquity: 100,
     dayAnchorEquity: 100,
+    dayAnchorBalance: 100,
     dayAnchorUtcDay: 0,
   },
   houseStats: {
@@ -744,6 +746,7 @@ export function useApexLogic(
             // valor default (100) e o drawdown sairia absurdo no primeiro tick.
             peakEquity: Math.max(prev.peakEquity ?? lastSnapshot.equity, lastSnapshot.equity),
             dayAnchorEquity: lastSnapshot.equity,
+            dayAnchorBalance: lastSnapshot.balance,
             dayAnchorUtcDay: 0, // força re-ancoragem no próximo tick do dia corrente
           }));
         }
@@ -1543,6 +1546,7 @@ export function useApexLogic(
            const utcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
            const isNewUtcDay = prev.dayAnchorUtcDay !== utcDay;
            const dayAnchorEquity = isNewUtcDay ? newEquity : (prev.dayAnchorEquity ?? newEquity);
+           const dayAnchorBalance = isNewUtcDay ? newBalance : (prev.dayAnchorBalance ?? newBalance);
 
            // INTRADAY_PEAK mede a queda desde o maior equity já atingido (mais rígido).
            // DAILY_CLOSE mede a queda desde o equity de abertura do dia (padrão FTMO/
@@ -1562,6 +1566,7 @@ export function useApexLogic(
               maxDrawdownReached: Math.max(prev.maxDrawdownReached ?? 0, drawdown),
               peakEquity,
               dayAnchorEquity,
+              dayAnchorBalance,
               dayAnchorUtcDay: utcDay,
               openPositionsValue: totalExposure,
            };
@@ -2276,6 +2281,7 @@ export function useApexLogic(
         // existem (primeiro sync), semeia com o equity real em vez do default.
         peakEquity: Math.max(prev.peakEquity ?? data.equity, data.equity),
         dayAnchorEquity: prev.dayAnchorEquity ?? data.equity,
+        dayAnchorBalance: prev.dayAnchorBalance ?? data.balance,
       };
       console.log('[updatePortfolioFromMT5] ✅ Portfolio ATUALIZADO:', updated);
       return updated;

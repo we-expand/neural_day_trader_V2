@@ -126,6 +126,13 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     currentDrawdown: snap?.drawdown ?? 0,
     peakEquity: snap?.max_equity ?? snap?.equity ?? row.initial_balance ?? 100,
     dayAnchorEquity: snap?.equity ?? row.initial_equity ?? row.initial_balance ?? 100,
+    // dayAnchorBalance precisa vir do BALANCE do último snapshot, nunca de equity —
+    // RiskManager compara isso contra account.balance (realizado); misturar com
+    // equity (que inclui P&L não-realizado) gera "perda diária" falsa sempre que
+    // há posição aberta lucrativa. Bug confirmado em produção 2026-08-17/18: sessão
+    // com equity 107.77 > balance 82.96 (posição aberta lucrativa) foi lida como
+    // -23% de perda diária e bloqueou toda nova entrada via RISK_GATE.
+    dayAnchorBalance: snap?.balance ?? row.initial_balance ?? 100,
   } as PortfolioState;
 
   return {
