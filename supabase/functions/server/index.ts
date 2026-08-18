@@ -1151,6 +1151,25 @@ app.post('/broker/credentials', async (c) => {
             return c.json({ error: 'Erro ao salvar credenciais' }, 500);
         }
 
+        // B3: Programa de Parceiros IB — registrar broker_linked_at
+        // Atualizar partner_referrals onde este usuário foi indicado
+        try {
+            const { error: updateError } = await supabaseAdmin
+                .from('partner_referrals')
+                .update({ broker_linked_at: new Date().toISOString() })
+                .eq('referred_user_id', authenticatedUserId)
+                .is('broker_linked_at', null); // Só atualiza se ainda não foi setado
+
+            if (updateError) {
+                console.warn('[BROKER] Erro ao registrar broker_linked_at:', updateError);
+                // Não falhar o endpoint por causa disso — credenciais foram salvas ok
+            } else {
+                console.log('[BROKER] broker_linked_at registrado para user:', authenticatedUserId);
+            }
+        } catch (err: any) {
+            console.warn('[BROKER] Erro inesperado ao registrar broker_linked_at:', err.message);
+        }
+
         return c.json({ success: true, message: 'Credenciais salvas com segurança' });
     } catch (e: any) {
         console.error('[BROKER] Erro em /broker/credentials POST:', e);
@@ -1569,7 +1588,28 @@ app.post('/broker/execute', async (c) => {
                     const { error: ledgerError } = await createClient(supabaseUrl, supabaseServiceKey)
                         .from('broker_order_executions')
                         .insert(row);
-                    if (ledgerError) console.error('[BROKER] ⚠️ Falha ao gravar ledger de execução:', ledgerError.message);
+                    if (ledgerError) {
+                        console.error('[BROKER] ⚠️ Falha ao gravar ledger de execução:', ledgerError.message);
+                    } else {
+                        // B3: Programa de Parceiros IB — registrar first_trade_at
+                        // Atualizar partner_referrals onde este usuário foi indicado
+                        try {
+                            const sb = createClient(supabaseUrl, supabaseServiceKey);
+                            const { error: firstTradeError } = await sb
+                                .from('partner_referrals')
+                                .update({ first_trade_at: new Date().toISOString() })
+                                .eq('referred_user_id', authenticatedUserId)
+                                .is('first_trade_at', null); // Só atualiza se ainda não foi setado
+
+                            if (firstTradeError) {
+                                console.warn('[BROKER] Erro ao registrar first_trade_at:', firstTradeError);
+                            } else {
+                                console.log('[BROKER] first_trade_at registrado para user:', authenticatedUserId);
+                            }
+                        } catch (err: any) {
+                            console.warn('[BROKER] Erro inesperado ao registrar first_trade_at:', err.message);
+                        }
+                    }
                 } else {
                     console.error('[BROKER] ⚠️ Ledger de execução não gravado: variáveis de ambiente do Supabase ausentes');
                 }
