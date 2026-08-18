@@ -62,6 +62,14 @@ export function ResetAccountModal({ isOpen, onClose, onConfirm, activeOrdersCoun
                       <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
                       <span>Eliminação do histórico de operações</span>
                     </div>
+                    {/* 2026-08-18: o reset SEMPRE limpou o Safe Mode e reiniciou o relógio
+                        do limite de perda diária (useApexLogic.ts, resetLogic — setIsSafeMode(false)
+                        + sessionStartedAtRef), mas isso nunca apareceu na lista. Quem ficava preso
+                        em Safe Mode não tinha como descobrir que este botão era a saída. */}
+                    <div className="flex items-center gap-3 text-sm text-neutral-300">
+                      <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                      <span>Saída do <strong className="text-white">Safe Mode</strong> e reinício do limite de perda diária</span>
+                    </div>
                   </div>
                 </div>
 
