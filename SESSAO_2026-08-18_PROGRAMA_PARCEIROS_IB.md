@@ -356,6 +356,46 @@ o job continua sendo trabalho novo (Edge Function + `pg_cron`, no padrão do
 pra saber de quem é cada indicado, calcula com `computeCommission()` e insere
 em `partner_commission_entries`.
 
+## Continuação — B1/deploy fechados e B4 implementado (mesma sessão, 2026-08-18)
+
+**Estado de deploy, confirmado direto no banco/Supabase**:
+
+| Item | Estado |
+|---|---|
+| `20260818_partner_ib_program.sql` | ✅ Aplicada |
+| `20260818_broker_order_executions.sql` | ✅ Aplicada (confirmado: `to_regclass` resolve, RLS ligado, 1 policy, 2 índices) |
+| Deploy da Edge Function `server` (handler `/broker/execute` novo) | ✅ Confirmado — v69, importa `buildExecutionLedgerRow` |
+| Commit/push do trabalho de B1 | ✅ (`adbc0eadb`) |
+
+**B4 — job de apuração mensal — escrito e deployado, NÃO agendado.**
+`supabase/functions/partner-commission-accrual/index.ts`: lê
+`broker_order_executions` do período (mês anterior por padrão, ou
+`?period_start=YYYY-MM-01` pra reprocessar), cruza com `partner_referrals`,
+calcula com `computeCommission()` importado direto de `CommissionModel.ts`
+(mesmo princípio do `ai-runner` — motor puro, sem cópia), insere em
+`partner_commission_entries` (idempotente: pula `referral_id` já apurado no
+período em vez de usar upsert contra o índice parcial) e atualiza
+`partner_accounts.tier` pelo nível calculado. Auth via `x-runner-secret` +
+`PARTNER_ACCRUAL_SHARED_SECRET` (mesmo padrão do `ai-runner`), secret já
+configurado via `supabase secrets set`. Deployado com `--no-verify-jwt`,
+confirmado ACTIVE no Supabase (v1). **Verificado**: `deno check` limpo,
+`npm run validate` limpo (37 asserções, sem regressão).
+
+**Decisão desta sessão — por que o `pg_cron` NÃO foi agendado (SQL de exemplo
+comentado no fim do arquivo, igual ao `ai-runner`)**: `execution_revenue` já é
+real (vem do ledger), mas `subscription_revenue`/`marketplace_revenue` são
+gravados como `0` de propósito — não existe hoje nenhuma tabela de
+pagamento/assinatura persistida no projeto. Rodar a apuração agora geraria
+comissão sistematicamente subavaliada; como `partner_commission_entries` é
+append-only (correção é estorno, nunca `UPDATE`), isso significaria estornar
+e reprocessar depois em vez de já nascer certo. **Decisão**: aguardar uma
+fonte real de receita de assinatura antes de ligar o cron, ou decisão
+explícita do Cleber de que "comissão só sobre execução" é aceitável pra v1.
+
+**Pendência B4 revisada**: código pronto, só falta (1) fonte real de
+`subscription_revenue`/`marketplace_revenue` — ou decisão de aceitar sem ela
+— e (2) aplicar o `cron.schedule` comentado no fim do arquivo.
+
 ## Comandos prontos
 
 Aplicar as duas migrations (SQL Editor do Supabase, projeto

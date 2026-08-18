@@ -209,9 +209,16 @@ O que ainda está genuinamente em aberto:
    programa (`20260818_partner_ib_program.sql`) já foi aplicada; a do ledger
    (`20260818_broker_order_executions.sql`) e o deploy da Edge Function
    `server` ainda faltam — sem os dois, nenhum volume real é gravado. **Falta
-   depois disso**: o job de apuração mensal (agora tem de onde ler volume, só
-   falta o job em si), a captura do `?ref=` no cadastro e os marcos do funil.
-   Detalhe completo, com os 5 bugs achados na migration original, a
+   depois disso**: a captura do `?ref=` no cadastro e os marcos do funil.
+   **Atualização mesma sessão**: as duas migrations aplicadas e a Edge
+   Function `server` deployada (confirmado no banco). O job de apuração
+   mensal (B4) foi **escrito e deployado**
+   (`supabase/functions/partner-commission-accrual/`), mas o `pg_cron` foi
+   deliberadamente **não agendado** — `subscription_revenue`/
+   `marketplace_revenue` ainda são gravados como 0 (sem fonte real de
+   pagamento/assinatura no projeto), e como o ledger de comissão é
+   append-only, rodar cedo demais significa estornar depois em vez de nascer
+   certo. Detalhe completo, com os 5 bugs achados na migration original, a
    investigação do ledger e o ponteiro "COMECE AQUI" pra próxima sessão:
    [SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md](SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md).
 8. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
