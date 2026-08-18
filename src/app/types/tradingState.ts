@@ -111,7 +111,9 @@ export interface PortfolioState {
   // Âncoras reais de drawdown (padrão FTMO/Topstep, seleção via aiConfig.drawdownAnchor).
   peakEquity?: number;        // high-water mark do equity (âncora INTRADAY_PEAK)
   dayAnchorEquity?: number;   // equity no início do dia UTC (âncora DAILY_CLOSE)
-  dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity se refere
+  dayAnchorBalance?: number;  // balance (realizado) no início do dia UTC — âncora do Daily Loss Limit/Kill-Switch,
+                               // NUNCA comparar dayAnchorEquity contra balance (mistura equity com realizado)
+  dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity/dayAnchorBalance se referem
   maxDrawdownReached?: number; // pior drawdown já atingido (só métrica/histórico,
                                // NUNCA usado como gate — o gate usa currentDrawdown)
 }

@@ -894,7 +894,11 @@ async function analyzeAsset(
     const accountState = {
       balance: portfolio.balance,
       initialBalance: portfolio.initialBalance || 100,
-      dailyStartBalance: portfolio.dayAnchorEquity || portfolio.initialBalance || 100,
+      // Precisa ser âncora de BALANCE (realizado), nunca dayAnchorEquity — dayAnchorEquity
+      // inclui P&L não-realizado de posições abertas e comparado contra account.balance
+      // (realizado puro) no RiskManager, produz "perda diária" falsa sempre que há
+      // posição aberta lucrativa (bug confirmado em produção 2026-08-17/18).
+      dailyStartBalance: portfolio.dayAnchorBalance || portfolio.initialBalance || 100,
       currentDrawdown: portfolio.currentDrawdown,
       openPositionsCount: activeOrders.length,
     };

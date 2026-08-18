@@ -104,13 +104,14 @@ export type { TradeVisual, PortfolioState } from '@/app/types/tradingState';
  */
 function reanchorDrawdown(equity: number): Pick<
   PortfolioState,
-  'currentDrawdown' | 'maxDrawdownReached' | 'peakEquity' | 'dayAnchorEquity' | 'dayAnchorUtcDay'
+  'currentDrawdown' | 'maxDrawdownReached' | 'peakEquity' | 'dayAnchorEquity' | 'dayAnchorBalance' | 'dayAnchorUtcDay'
 > {
   return {
     currentDrawdown: 0,
     maxDrawdownReached: 0,
     peakEquity: equity,
     dayAnchorEquity: equity,
+    dayAnchorBalance: equity,
     dayAnchorUtcDay: 0, // força re-ancoragem do dia no próximo tick
   };
 }
@@ -230,6 +231,7 @@ const INITIAL_STATE: ApexLogicState = {
     initialBalance: 100,
     peakEquity: 100,
     dayAnchorEquity: 100,
+    dayAnchorBalance: 100,
     dayAnchorUtcDay: 0,
   },
   houseStats: {
@@ -398,8 +400,8 @@ export function useApexLogic(
   const [maxCandlesBeforeForceEntry, setMaxCandlesBeforeForceEntry] = useState(INITIAL_STATE.maxCandlesBeforeForceEntry);
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>(INITIAL_STATE.equityHistory);
   const lastEquitySampleAtRef = useRef<number>(0);
-  const EQUITY_SAMPLE_INTERVAL_MS = 10000; // amostra real a cada 10s
-  const MAX_EQUITY_POINTS = 180; // ~30min de janela
+  const EQUITY_SAMPLE_INTERVAL_MS = 3000; // amostra real a cada 3s (mais granularidade pra curva do Dashboard)
+  const MAX_EQUITY_POINTS = 600; // ~30min de janela (mantida, só com mais pontos por minuto)
 
   // === VIX CACHE CONFIG ===
   // 🔥 CORREÇÃO CRÍTICA: useRef DEPOIS de useState (Rules of Hooks)
@@ -744,6 +746,7 @@ export function useApexLogic(
             // valor default (100) e o drawdown sairia absurdo no primeiro tick.
             peakEquity: Math.max(prev.peakEquity ?? lastSnapshot.equity, lastSnapshot.equity),
             dayAnchorEquity: lastSnapshot.equity,
+            dayAnchorBalance: lastSnapshot.balance,
             dayAnchorUtcDay: 0, // força re-ancoragem no próximo tick do dia corrente
           }));
         }
@@ -1321,6 +1324,30 @@ export function useApexLogic(
   // === UNREALIZED PNL LOOP (Price Updates & P&L Calculation) ===
   useEffect(() => {
     const pnlInterval = setInterval(() => {
+        // Curva de equity real (Dashboard, "Curva de Equity"): amostra o
+        // equity real do portfolio a cada 10s — nunca dado mockado/aleatório.
+        // Independente do executionMode (funciona em DEMO e LIVE) e, crucial,
+        // independente de haver posição aberta — antes esse bloco ficava
+        // DEPOIS do early-return abaixo, então sem nenhuma posição ativa o
+        // loop inteiro nunca rodava e o card do Dashboard ficava travado em
+        // "coletando dados..." pra sempre, mesmo com a conta ligada.
+        {
+          const now = Date.now();
+          if (now - lastEquitySampleAtRef.current >= EQUITY_SAMPLE_INTERVAL_MS) {
+            lastEquitySampleAtRef.current = now;
+            const realEquity = portfolioRef.current.equity;
+            setEquityHistory(prev => {
+              const last = prev[prev.length - 1];
+              // Evita ponto duplicado se o equity não mudou nada
+              if (last && last.equity === realEquity && now - last.t < EQUITY_SAMPLE_INTERVAL_MS * 2) {
+                return prev;
+              }
+              const next = [...prev, { t: now, equity: realEquity }];
+              return next.length > MAX_EQUITY_POINTS ? next.slice(-MAX_EQUITY_POINTS) : next;
+            });
+          }
+        }
+
         if (activeOrdersRef.current.length === 0) return;
 
         (async () => {
@@ -1343,7 +1370,18 @@ export function useApexLogic(
           const batchResult = await getBatchedMT5Data(uniqueSymbols);
           for (const symbol of uniqueSymbols) {
             const data = batchResult[symbol];
-            if (data) priceMap.set(symbol, data.price);
+            // 🔴 FIX 2026-08-18 (INCIDENTE EM PRODUÇÃO): preço 0/NaN da API era aceito
+            // como cotação válida. Um `0` aqui é sempre falha de feed, nunca preço real —
+            // e propagado adiante disparava o SL (`0 <= stopLoss` é sempre verdadeiro),
+            // fechando a posição a preço ZERO. Aconteceu ao vivo: JP225 entrada 69026.31
+            // fechada com exit_price=0 e PnL fabricado de -$2.464,72 numa conta de $82,
+            // levando o Patrimônio exibido pra -$2.381,77. Preço inválido tem que ser
+            // descartado na origem — sem cotação nova, mantém-se a anterior.
+            if (data && Number.isFinite(data.price) && data.price > 0) {
+              priceMap.set(symbol, data.price);
+            } else if (data) {
+              console.warn(`[PNL LOOP] ⚠️ Preço inválido descartado para ${symbol}:`, data.price);
+            }
           }
         } catch (error) {
           console.warn(`[PNL LOOP] ⚠️ Falha ao buscar preços em lote, mantendo preços anteriores`, error);
@@ -1364,8 +1402,13 @@ export function useApexLogic(
 
             prevOrders.forEach(order => {
                 const currentPrice = order.currentPrice || order.price;
-                // Se o fetch falhou pra esse símbolo, mantém o preço anterior (não simula movimento)
-                const nextPrice = priceMap.get(order.symbol) ?? currentPrice;
+                // Se o fetch falhou pra esse símbolo, mantém o preço anterior (não simula movimento).
+                // 2ª barreira do fix de 2026-08-18 (ver descarte na origem, acima): mesmo que um
+                // preço inválido escape pro mapa, ele nunca pode virar preço de avaliação/fechamento.
+                const fetchedPrice = priceMap.get(order.symbol);
+                const nextPrice = (Number.isFinite(fetchedPrice) && (fetchedPrice as number) > 0)
+                  ? (fetchedPrice as number)
+                  : currentPrice;
 
                 // 🔒 RESPEITAR CONFIG DO USUÁRIO: stopLossMode ('DINAMICO' | 'FIXO').
                 // Antes, o SL era calculado uma vez na entrada e nunca se mexia -
@@ -1519,6 +1562,7 @@ export function useApexLogic(
            const utcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
            const isNewUtcDay = prev.dayAnchorUtcDay !== utcDay;
            const dayAnchorEquity = isNewUtcDay ? newEquity : (prev.dayAnchorEquity ?? newEquity);
+           const dayAnchorBalance = isNewUtcDay ? newBalance : (prev.dayAnchorBalance ?? newBalance);
 
            // INTRADAY_PEAK mede a queda desde o maior equity já atingido (mais rígido).
            // DAILY_CLOSE mede a queda desde o equity de abertura do dia (padrão FTMO/
@@ -1538,6 +1582,7 @@ export function useApexLogic(
               maxDrawdownReached: Math.max(prev.maxDrawdownReached ?? 0, drawdown),
               peakEquity,
               dayAnchorEquity,
+              dayAnchorBalance,
               dayAnchorUtcDay: utcDay,
               openPositionsValue: totalExposure,
            };
@@ -1562,26 +1607,6 @@ export function useApexLogic(
               equity: p.equity,
               openPositionsValue: p.openPositionsValue,
               currentDrawdown: p.currentDrawdown,
-            });
-          }
-        }
-
-        // Curva de equity real (Dashboard, "Curva de Equity"): amostra o
-        // equity real do portfolio a cada 10s — nunca dado mockado/aleatório.
-        // Independente do executionMode (funciona em DEMO e LIVE).
-        {
-          const now = Date.now();
-          if (now - lastEquitySampleAtRef.current >= EQUITY_SAMPLE_INTERVAL_MS) {
-            lastEquitySampleAtRef.current = now;
-            const realEquity = portfolioRef.current.equity;
-            setEquityHistory(prev => {
-              const last = prev[prev.length - 1];
-              // Evita ponto duplicado se o equity não mudou nada
-              if (last && last.equity === realEquity && now - last.t < EQUITY_SAMPLE_INTERVAL_MS * 2) {
-                return prev;
-              }
-              const next = [...prev, { t: now, equity: realEquity }];
-              return next.length > MAX_EQUITY_POINTS ? next.slice(-MAX_EQUITY_POINTS) : next;
             });
           }
         }
@@ -2272,6 +2297,7 @@ export function useApexLogic(
         // existem (primeiro sync), semeia com o equity real em vez do default.
         peakEquity: Math.max(prev.peakEquity ?? data.equity, data.equity),
         dayAnchorEquity: prev.dayAnchorEquity ?? data.equity,
+        dayAnchorBalance: prev.dayAnchorBalance ?? data.balance,
       };
       console.log('[updatePortfolioFromMT5] ✅ Portfolio ATUALIZADO:', updated);
       return updated;
