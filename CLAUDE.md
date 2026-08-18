@@ -192,34 +192,21 @@ O que ainda está genuinamente em aberto:
    escopo natural é o mesmo do Trilho 2 (edge com dado estruturalmente
    diferente), hoje pausado sem justificativa nova. Sem próximo passo
    definido — Cleber quer voltar nisso depois.
-7. **[NOVO 2026-08-18] Programa de Parceiros IB reconstruído — falta o motor
-   de apuração.** A seção "Parceiros" (agora **"Parceiros IB"** no menu) era
-   100% maquete e virou modelo real: comissão = alíquota do nível (15/20/25/30%,
-   **vitalícia**, atribuição só por link enviado) × **margem de contribuição**
-   do indicado, base que torna impossível por construção pagar mais do que se
-   recebe (retenção ≥70% em qualquer cenário, mês 1 ou mês 120; teto de 30%
-   contra ponto de indiferença de 48,3% vs mídia paga). Travado por 37
-   asserções no `npm run validate`. Achado no processo e **corrigido**: não
-   existia nenhum registro durável de lote real executado em lugar nenhum do
-   sistema (`ai_trades.quantity` é capital em dólar, não lote; a execução
-   automática real e a boleta manual real não persistiam nada) — criado o
-   ledger `broker_order_executions`, gravado só pelo servidor no handler único
-   `/broker/execute`, fechando o vetor de fraude de indicado autodeclarando
-   volume. **Estado do deploy** (confirmado direto no banco): a migration do
-   programa (`20260818_partner_ib_program.sql`) já foi aplicada; a do ledger
-   (`20260818_broker_order_executions.sql`) e o deploy da Edge Function
-   `server` ainda faltam — sem os dois, nenhum volume real é gravado. **Falta
-   depois disso**: a captura do `?ref=` no cadastro e os marcos do funil.
-   **Atualização mesma sessão**: as duas migrations aplicadas e a Edge
-   Function `server` deployada (confirmado no banco). O job de apuração
-   mensal (B4) foi **escrito e deployado**
-   (`supabase/functions/partner-commission-accrual/`), mas o `pg_cron` foi
-   deliberadamente **não agendado** — `subscription_revenue`/
-   `marketplace_revenue` ainda são gravados como 0 (sem fonte real de
-   pagamento/assinatura no projeto), e como o ledger de comissão é
-   append-only, rodar cedo demais significa estornar depois em vez de nascer
-   certo. Detalhe completo, com os 5 bugs achados na migration original, a
-   investigação do ledger e o ponteiro "COMECE AQUI" pra próxima sessão:
+7. **[2026-08-18] Programa de Parceiros IB — B4 agendado, B2/B3 ainda faltam.**
+   Programa completo com modelo real: comissão = alíquota (15/20/25/30%,
+   **vitalícia**) × **margem de contribuição** do indicado (receita - imposto -
+   custo), base que torna impossível pagar mais do que se recebe (≥70%
+   retenção garantida por construção). Ledger `broker_order_executions`
+   implementado (gravado só pelo servidor em `/broker/execute`, fecha fraude
+   de autodeclaração de volume). **Decisão v1 (Cleber, 2026-08-18)**:
+   "comissão só sobre execução" aceito como escopo — `subscription_revenue`/
+   `marketplace_revenue` como 0 enquanto não existir fonte real de
+   pagamento/assinatura (indicado que assina mas não executa = R$0 pro
+   parceiro). Job de apuração (B4) escrito, deployado e **cron agendado**
+   em `20260818_schedule_partner_commission_accrual.sql` (1×/mês, dia 1 às
+   04:00 UTC, não aplicado — falta o Cleber trocar o secret real no SQL
+   Editor). **Próximas**: B2 (captura `?ref=` no cadastro), B3 (marcos do
+   funil). Detalhe:
    [SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md](SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md).
 8. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
    paralelo.** A aba do navegador E o `ai-runner` monitoram e fecham posições,

@@ -23,6 +23,12 @@
  *     é erro/zero explícito em vez de dado inventado. Quando essas fontes
  *     existirem, plugar aqui; `CommissionModel.ts` já aceita os campos.
  *
+ * DECISÃO v1 (Cleber, 2026-08-18): "comissão só sobre execução" aceito
+ * explicitamente como escopo do lançamento — não é lacuna, é escolha. Um
+ * indicado que assina o plano mas nunca executa ordem gera R$0 de comissão
+ * pro parceiro enquanto essas fontes não existirem. Cron agendado em
+ * `supabase/migrations/20260818_schedule_partner_commission_accrual.sql`.
+ *
  * IDEMPOTÊNCIA: não usa upsert. Antes de inserir, lê quais `referral_id`
  * já têm apuração normal (`reversal_of IS NULL`) no período e pula essas —
  * mesmo efeito do índice único parcial do banco, sem depender de conflito de
@@ -204,22 +210,7 @@ Deno.serve(async (req) => {
 });
 
 /**
- * SQL de exemplo pra agendar (NÃO aplicado — Cleber decide se/quando rodar).
- * Roda 1x por mês, dia 1 às 04:00 UTC — margem de sobra pra todo dado do mês
- * anterior já ter sido gravado em `broker_order_executions`.
- *
- *   select cron.schedule(
- *     'partner-commission-accrual-monthly',
- *     '0 4 1 * *',
- *     $$
- *     select net.http_post(
- *       url := 'https://wyvdsxtcmizettljxtbg.supabase.co/functions/v1/partner-commission-accrual',
- *       headers := jsonb_build_object(
- *         'Content-Type', 'application/json',
- *         'x-runner-secret', '<PARTNER_ACCRUAL_SHARED_SECRET>'
- *       ),
- *       body := '{}'::jsonb
- *     );
- *     $$
- *   );
+ * O SQL do `cron.schedule` mensal mora em
+ * `supabase/migrations/20260818_schedule_partner_commission_accrual.sql`
+ * (não aplicado ainda — Cleber roda no SQL Editor com o secret real).
  */

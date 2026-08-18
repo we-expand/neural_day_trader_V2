@@ -7,33 +7,35 @@
 
 ## ▶ COMECE AQUI (próxima sessão)
 
-**Estado verificado direto no banco em 2026-08-18** (não confiar em "rodei
-tudo" sem checar de novo se muito tempo passar):
+**Estado verificado direto no banco/Supabase em 2026-08-18, fim da sessão**
+(não confiar em "rodei tudo" sem checar de novo se muito tempo passar):
 
 | Item | Estado |
 |---|---|
 | `20260818_partner_ib_program.sql` | ✅ Aplicada por completo — tabelas, triggers (`partner_commission_block_update`, `partner_accounts_assign_code`, `partner_accounts_protect_privileged_fields`), constraints (`commission_never_exceeds_margin`, `negative_amount_only_on_reversal`) e `generate_referral_code()` todos confirmados existindo no Postgres. |
-| `20260818_broker_order_executions.sql` | ❌ **NÃO aplicada** — `to_regclass('public.broker_order_executions')` retorna `NULL`. O ledger de lote real não existe no banco ainda. |
-| Deploy da Edge Function `server` | ⚠️ **Não verificável por aqui.** A função está ACTIVE (versão 68 no Supabase), mas isso não prova que o handler novo (`brokerExecutionLedger.ts`, gravação em `/broker/execute`) foi publicado — exige `supabase functions deploy server` via CLI, que não foi rodado nesta conversa. |
-| Commit / push | ❌ Nada commitado ainda — `git status` mostra tudo como mudança local. |
+| `20260818_broker_order_executions.sql` | ✅ **Aplicada** — confirmado via `to_regclass`, RLS ligado, 1 policy (`select_own`), 2 índices (PK + `user_id, executed_at`). Primeira tentativa tinha dado "sucesso" mas a tabela não existia (suspeita: SQL Editor apontando pro projeto errado); segunda tentativa confirmada. |
+| Deploy da Edge Function `server` | ✅ Confirmado — versão 69 no Supabase, importa `buildExecutionLedgerRow` de `brokerExecutionLedger.ts` (o handler novo está publicado, não só o código antigo). |
+| **B4 — job de apuração mensal** | ✅ Escrito e deployado. **Decisão "comissão só sobre execução" tomada em 2026-08-18** — cron real preparado em `20260818_schedule_partner_commission_accrual.sql`, **ainda não aplicado** (falta o Cleber trocar o secret real no SQL e rodar). |
+| Commit / push | ✅ Feito em duas rodadas: `adbc0eadb` (B1 + reconstrução do programa) e o commit do job B4. **Pendente**: commit desta rodada (decisão v1 + migration do cron) — ver "Comandos prontos". |
 
-**Próximo passo, nesta ordem exata** (a 2ª e a 3ª linha travam o programa
-inteiro — sem elas as tabelas ficam vazias para sempre, mesmo com tudo o resto
-funcionando):
+**O que ainda falta, nesta ordem de importância**:
 
-1. Rodar `20260818_broker_order_executions.sql` no SQL Editor (comando pronto
-   na seção "Comandos prontos" abaixo).
-2. `supabase functions deploy server` — sem isso, `/broker/execute` continua
-   sem gravar o ledger mesmo com a tabela existindo.
-3. Commit + push (comando pronto, mesma seção).
-4. Depois disso, o próximo trabalho de verdade é **B4 — o job de apuração
-   mensal** (Edge Function nova + `pg_cron`, no padrão do `ai-runner`): lê
-   `broker_order_executions` por período, cruza com `partner_referrals`,
-   calcula com `computeCommission()` (`src/app/services/partners/CommissionModel.ts`)
-   e insere em `partner_commission_entries`. Sem isso, o programa está todo
-   construído mas o saldo de qualquer parceiro fica R$0 para sempre — é o
-   maior buraco que resta. Ver seção "Pendências reais em aberto" para o resto
-   (captura do `?ref=`, marcos do funil, termos do programa).
+0. ✅ **[RESOLVIDO 2026-08-18]** Decisão do Cleber: **"comissão só sobre
+   execução" aceito explicitamente como v1.** `subscription_revenue`/
+   `marketplace_revenue` continuam gravados como 0 — um indicado que assina
+   o plano mas nunca executa ordem gera R$0 de comissão pro parceiro
+   enquanto essas fontes não existirem (não é lacuna, é escopo assumido).
+   Migration `20260818_schedule_partner_commission_accrual.sql` criada com
+   o `cron.schedule` real (mensal, dia 1 às 04:00 UTC) — **não aplicada**,
+   precisa que o Cleber troque `<PARTNER_ACCRUAL_SHARED_SECRET>` pelo valor
+   real antes de rodar no SQL Editor.
+1. **B2 — captura do `?ref=` no cadastro** — ainda não implementada. Sem
+   isso ninguém entra na rede de ninguém, mesmo com B1+B4 prontos e o cron
+   agendado.
+2. **B3 — marcos do funil** (`broker_linked_at`, `first_trade_at`,
+   `subscribed_at`) — ainda não são gravados em lugar nenhum.
+   Ver seção "Pendências reais em aberto" para o resto (termos do programa,
+   retenção de imposto, reconciliação do ledger, multi-corretora).
 
 ## ▶ O que foi feito
 
