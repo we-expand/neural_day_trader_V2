@@ -1041,6 +1041,22 @@ export function useApexLogic(
         return;
       }
 
+      // 🔒 2026-08-18: em modo DEMO quem decide abrir/fechar posição é o
+      // `ai-runner` no servidor (via pg_cron), não este loop do navegador —
+      // ver o comentário do "SAFE MODE GUARDIAN" mais abaixo. Um Safe Mode
+      // disparado aqui só pausa o `isActive` local e mostra o banner: não
+      // pausa o motor real, que segue tickando e abrindo posição normalmente
+      // (confirmado ao vivo em 2026-08-18: trade novo aberto pelo servidor
+      // enquanto o banner "SAFE MODE ATIVADO" já estava na tela). Resultado
+      // líquido era só assustar o usuário em fase de teste/demonstração, sem
+      // nenhuma proteção de verdade por trás — decisão do Cleber: não avaliar
+      // Safe Mode em DEMO. Em LIVE isso permanece ativo (dinheiro real,
+      // execução real fica sob controle deste mesmo navegador).
+      if (configRef.current.executionMode === 'DEMO') {
+        setHealthStatus({ isHealthy: true, lastCheckTimestamp: Date.now(), issues: [] });
+        return;
+      }
+
       const issues: string[] = [];
 
       // Check Balance
