@@ -1,259 +1,171 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-17** (16ª parte — reescrita completa, não empilhada).
+> Reescrito em **2026-08-18** (17ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 
-**Contexto**: Cleber ligou a IA por 3 sessões seguidas hoje (14h-20h31 UTC,
-incluindo 2 sessões inteiras DEPOIS do deploy dos fixes de sizing/motor duplo)
-e teve **zero entradas nas três**, mesmo com os fixes da rodada anterior no
-ar. Investigação desta sessão (com dado real de produção, não teoria) achou
-2 bugs estruturais novos, mais graves que tudo corrigido antes — ambos no
-**valor padrão de sessão nova**, o que explica por que "refazer do zero" 3x
-nunca resolveu: todo usuário novo nasce configurado pra nunca operar.
+**Contexto desta sessão**: Cleber dormiu com a IA rodando 24/7 e pediu
+monitoramento noturno (checagens de 20 em 20min até 12h UTC). Essa sessão de
+monitoramento rodou numa janela/sessão separada (`neural-day-trader-f8`) que
+**já não existe mais** ao reabrir pela manhã — não foi possível recuperar o
+transcript completo dela (tentativa via `SendMessage` entre sessões não
+retornou resposta útil antes da sessão fechar). O que se sabe do que ela fez
+é só o resumo que o Cleber colou manualmente, reproduzido abaixo.
 
-1. **Bug 1 (achado e corrigido nesta sessão): fórmula do modo "Ajustado por
-   ATR" (padrão de toda sessão nova) era matematicamente inválida** —
-   reescalava o risco em $ por uma razão adimensional entre duas distâncias
-   ATR, nunca dividia pelo preço do ativo. Resultado: nocional sempre ~igual
-   ao risco em $ bruto (poucos dólares numa conta de $100), sempre abaixo do
-   piso de $10, **para qualquer multiplicador ATR, qualquer ativo**. O fix de
-   ontem (baixar multiplicador 4,0x→1,5x) só reduziu a magnitude do erro, não
-   corrigiu a fórmula — por isso `MIN_TRADE_SIZE` continuou dominante hoje
-   (577 vetos numa sessão só, depois do fix de ontem no ar). Corrigido em
-   `runTradingCycle.ts` pra usar o mesmo fixed-fractional (Van Tharp) que o
-   modo FIXED já usava certo. `positionSizingPreview.ts` reescrito em
-   consequência (não dá mais número exato sem preço/ATR real — vira
-   qualitativa nos dois modos, como o FIXED já era).
-2. **Bug 2 (achado e corrigido nesta sessão): `MARKET_MODE_REGIME_MISMATCH`
-   era veto duro**, inclusive quando o Market Score mede regime `INDEFINIDO`
-   (o caso mais comum — o Score não tem opinião forte). Com `marketMode:
-   'TREND'` sendo o padrão de sessão nova, isso bloqueava quase toda avaliação
-   fora de tendência limpa — maior bloqueio do dia nas 2 sessões pós-deploy
-   (2.526 vetos combinados). Convertido pro mesmo padrão que a checagem de
-   LATERAL já usava: regime `INDEFINIDO` não bloqueia mais (Score sem opinião
-   não é motivo pra descartar sinal validado); regime que CONTRADIZ agora
-   exige confiança extra (+15 pontos) em vez de vetar sempre.
-3. ~~Commitar os 2 fixes acima e fazer o deploy do `ai-runner`~~ — **feito**
-   pelo Cleber ainda na mesma sessão (commits `e370b0b3b` e `400c40557`,
-   deploy versão 24). Ao ligar a IA de verdade (modo scalp) depois do deploy,
-   apareceram **2 execuções reais** (JP225 SHORT, SOLUSD LONG) — primeira vez
-   do dia com `ENTRY_EXECUTED` > 0. Confirma que os bugs 1 e 2 eram mesmo a
-   causa raiz.
-3b. **Bugs NOVOS achados observando essas 2 execuções ao vivo** (mesma
-   sessão, corrigidos e já deployados — versão 25 do `ai-runner`):
-   - **Bug 3 — `aiConfig.maxContracts` ("Lotes Máximos por Trade") nunca era
-     lido no motor ao vivo.** Confirmado com número exato: SOLUSD abriu com
-     20,27 lotes calculados, config travada em 0,8 — 25x acima, sem gate
-     nenhum barrando. JP225 saiu pequeno (0,05 lotes) só por coincidência de
-     preço alto, mascarando o bug até aparecer num ativo barato/volátil.
-     Corrigido: teto duro aplicado depois do cálculo de sizing (risco% ou
-     ATR), mesmo padrão do piso de $10 já existente — reduz o nocional, nunca
-     aumenta. **As 2 posições já abertas antes do fix NÃO foram corrigidas
-     retroativamente** (SOLUSD continua com 20,27 lotes até fechar/expirar).
-   - **Bug 4 (cosmético, mas na tela principal do Dashboard) —
-     `MarketScoreBoard.tsx` somava `order.amount` (exposição em dólar) e
-     rotulava como "lotes total"** no card "Posições Abertas" — mostrava
-     "4.893,00 lotes total" quando o real era ~20,3. Corrigido pra somar a
-     mesma conversão usada por posição individual.
-   - **Tela congelada / gráfico "só mostra 1 ativo" — investigado e não é
-     bug (na maior parte)**: o congelamento era o polling que já tinha sido
-     corrigido antes destes 2 bugs (commit `400c40557`) — confirmado
-     resolvido por print do Cleber (P&L se movendo nas 2 posições). O
-     gráfico mostrando só o ativo selecionado é comportamento esperado (há
-     um banner "posição aberta em X — ver" pra trocar).
-   Commits: `git add src/app/services/strategy/runTradingCycle.ts
-   src/app/components/dashboard/MarketScoreBoard.tsx && git commit -m "fix:
-   teto de lotes maximos nao era aplicado no motor + cabecalho somava dolar
-   como se fosse lote"` — **já commitado e deployado pelo Cleber (versão 25)**.
-4. **Continuar observando o funil com o dado fresco pós-versão-25** — löop de
-   10 em 10 minutos rodando nesta sessão (CronCreate `c997a820`, expira em 7
-   dias). Foco: confirmar que a PRÓXIMA entrada em ativo barato/volátil já
-   sai com lote correto (≤ 0,8 configurado). Query:
-   ```sql
-   select coalesce(veto_stage,'(EXECUTADO)') as stage, count(*) n
-   from ai_decisions
-   where session_id = '<sessão ativa>'
-   group by 1 order by n desc;
-   ```
-   Expectativa: `MIN_TRADE_SIZE` e `MARKET_MODE_REGIME_MISMATCH` devem cair
-   muito do topo. Se `ENTRY_EXECUTED` continuar em zero, o próximo suspeito
-   pelo volume de hoje é `COST_GATE` (887+750+1235 vetos nas 3 sessões de
-   hoje — pode ter componente real do miscalibre de índice já registrado
-   abaixo, mas ainda não isolado desta vez).
+### 1. Achado da noite — **CONFIRMADO** nesta sessão (leitura de código + query real)
 
-## Verificação desta sessão (bugs 1 e 2 acima)
+A sessão noturna reportou um **desvio entre saldo e trades reais**. Verificado
+nesta sessão por leitura de código e query direta no Supabase — **é fato, não
+suspeita**:
 
-- `npm run validate`: verde (265 asserções, mesma suíte).
-- `tsc --noEmit` full: 578 erros — igual à baseline pré-existente, zero novo.
-- `deno check` do runner: limpo.
-- **Verificação visual/funcional em produção NÃO feita** — sem servidor de
-  preview disponível nesta sessão. Ligar a IA de verdade e observar
-  `ai_decisions` (passo 4 acima) é a única verificação real que falta, e é
-  obrigatória antes de considerar isso resolvido — os dois bugs foram
-  corrigidos por leitura de código + matemática, não por teste ao vivo ainda.
+**Confirmação por código**:
+- `supabase/functions/ai-runner/lib/positionManager.ts:135-148`
+  (`persistPositionClose`) só faz `UPDATE` em `ai_trades` (exit_price, pnl,
+  status) — nunca toca `ai_portfolio_snapshots`.
+- `supabase/functions/ai-runner/index.ts:75` só faz `SELECT` em
+  `ai_portfolio_snapshots` (pra reconstruir estado ao carregar a sessão);
+  não há nenhum `INSERT`/`UPDATE` nessa tabela em todo o `ai-runner`.
+- Quem grava `ai_portfolio_snapshots` é só o cliente
+  (`AITradingPersistenceService.ts:434`, `.insert()`), disparado a partir de
+  `useApexLogic.ts:1553` (`newBalance = prev.balance + realizedPnL`) — e esse
+  código só roda quando o **próprio cliente** processa o fechamento da
+  posição em memória. Se o `ai-runner` fecha a posição no servidor sem o
+  cliente saber, o cliente nunca soma esse PnL ao balance, e o próximo
+  snapshot que ele grava carrega o balance antigo.
 
-## O que foi feito nesta sessão (ordem cronológica real)
+**Confirmação por dado real** (`ai_trades` + `ai_portfolio_snapshots`, sessão
+`66faee09-fe87-4bc6-a9a6-1ee8d7edb504`):
+- Trade XAUAUD (`17a49e67-06af-431b-91c7-c183c599408f`) fechou no servidor às
+  2026-08-18 02:34:40 UTC com `net_pnl = +2.9546`, gravado certo em
+  `ai_trades`.
+- Snapshots de `ai_portfolio_snapshots` entre 02:20 e 02:49 UTC (24 pontos,
+  1/min): `balance` fica travado em exatamente `100` em **todos** eles, antes
+  e depois do fechamento — só `equity` varia (reflete PnL não-realizado de
+  outra posição aberta, não este fechamento).
+- Deriva acumulada é maior do que só esse trade: soma de `net_pnl` de todos
+  os trades `CLOSED` da sessão até agora é **-0.12** (ou seja, balance
+  esperado ≈ 99.88 partindo de 100 inicial), mas o snapshot mais recente
+  (10:08:09 UTC) tem `balance = 93.58` — **~6.3 de deriva não explicada só
+  pelo mecanismo confirmado acima**, sinal de que pode haver mais de uma
+  causa contribuindo (ex: outras sessões/trades não capturados nesta
+  amostra, ou outro caminho de escrita). Não investigado a fundo — próxima
+  sessão que pegar isso deveria reconciliar trade a trade, não só o
+  agregado.
 
-**Contexto inicial**: Cleber reportou a IA ligada em dia de mercado forte
-(BTC, cacau +3%, ZEC +4%) sem nenhuma entrada, com o painel mostrando
-"TENDÊNCIA DE ALTA / COMPRA 61 / ADX 34" ao mesmo tempo. Pediu redesenho:
-mais liberdade pra entrar, cesta maior, opções de API sem rate-limit.
+**Risco confirmado**: o `RISK_GATE`/Daily Loss Limit (ver comentário em
+`ai-runner/index.ts:129-134`) lê exatamente esse `balance` como
+`dayAnchorBalance`. Fechamentos reais feitos pelo servidor não atualizam esse
+valor — o gate de proteção fica cego tanto pra ganho quanto pra perda real
+originada no servidor, na direção oposta ao bug já documentado no item 7
+(que era o inverso: equity > balance disparando Safe Mode falso).
 
-### 1. Onda 1 — motor de decisão (commitada e no ar, `7f8f3717a`/`a60680833`)
+**Isto é a mesma causa raiz do item 7** (cliente e servidor operam em
+paralelo, sem uma única fonte de verdade pra portfolio). Não é bug novo e
+distinto — é outra manifestação do mesmo risco estrutural, agora com dado
+que prova o mecanismo exato.
 
-Causa raiz original: **o painel mede ESTADO, o motor exigia EVENTO** — AND
-binário de cruzamento no candle exato, nunca dispara em tendência já
-estabelecida. Corrigido:
-- Score contínuo (`evaluateStrategyScoreBothSides`) substitui o AND binário —
-  piso configurável `aiConfig.signalScoreFloor` (100 = comportamento antigo).
-- Perna short nos 5 presets (motor ao vivo só — backtest segue long-only de
-  propósito, ver comentário em `types/strategy.ts`).
-- Ranking substitui sorteio (`Math.random()` por tier saiu).
-- Cesta padrão 2 → 39 ativos (`config/defaultBasket.ts`).
-- Dois bugs de custo: classe vinha de mapeamento de 81 símbolos sobre
-  catálogo de 480 (XBNUSD 7,8x inflado, sozinho 312/562 vetos de
-  `COST_GATE`); denominador do gate usava ATR de 1 barra em vez do alvo real
-  de 3,75×ATR.
-- Gate: 227 → 265 asserções.
+**Reconciliação trade a trade da deriva de -6.3 — feita nesta sessão**:
+decompõe exatamente em 3 eventos (soma dos erros = -6.2959, bate com a
+deriva observada). Comparando `ai_trades.net_pnl` (autoritativo, servidor)
+contra o delta real aplicado em `ai_portfolio_snapshots.balance` (cliente),
+sessão `66faee09-fe87-4bc6-a9a6-1ee8d7edb504`:
 
-**Resultado medido em produção depois do deploy**: `NO_SIGNAL` caiu de 100%
-das avaliações pra ~0% — a causa raiz original está confirmadamente corrigida.
-Mas isso só revelou a fila de bugs abaixo, um atrás do outro.
+1. **17a49e67** (XAUAUD +2.95, fechou 02:34 no servidor): ganho nunca
+   aplicado ao balance — mesmo mecanismo já descrito acima (cliente não
+   estava observando quando o servidor fechou).
+2. **30dd3ab1** (XAUAUD, `ai_trades.stop_loss`=6186.19, `net_pnl`=-1.25):
+   cliente aplicou só -0.01 (quase zero) — bate com o recurso de
+   **breakeven automático em +1R** (`useApexLogic.ts:1448-1458`): o
+   cliente moveu seu próprio SL em memória pro preço de entrada e fechou
+   ali, enquanto o servidor manteve o SL original (mais largo) do banco e
+   só fechou depois, com perda real maior.
+3. **844dff4d** (JP225, `ai_trades.stop_loss`=67230.98, `exit_price`=67239.07
+   — batida de stop normal e plausível, `net_pnl`=-1.16): cliente aplicou
+   -5.74 (~5x maior). Indício de tick de preço ruim/desatualizado no feed do
+   cliente pra JP225 naquele instante — não confirmável sem log de preço
+   tick a tick, que não está disponível.
 
-### 2. Import dinâmico faltando no import map do runner (commitado, `aa23dd035`)
+**Achado importante**: o fix já escrito (`persistPortfolioSnapshot` em
+`index.ts`/`positionManager.ts`, ver diff não commitado) resolve só o caso
+1 (fechamento no servidor sem o cliente saber). **Não resolve os casos 2 e
+3** — esses vêm do cliente fechando posições ativamente com **SL/preço
+calculados de forma independente do servidor** (trailing/breakeven em
+memória, feed de preço próprio) e gravando snapshot com o pnl dele, não o
+real. Enquanto o cliente mantiver autoridade de fechamento em paralelo com
+lógica própria, esse tipo de erro pode se repetir mesmo com o fix do
+servidor no ar. Evidência concreta a favor de resolver o item 7 (tirar
+autoridade de fechamento do cliente, deixá-lo só leitor) — não é mais só
+risco teórico, tem 2 casos reais de balance corrompido por essa causa
+específica.
 
-Ao trocar o alias curinga `"@/": "../../../src/"` do `deno.json` por entradas
-exatas (fix anterior, do erro 413 de deploy), a extração da lista usou uma
-regex que só pegava `import ... from '@/...'` — perdeu
-`@/app/services/RealMarketDataService.ts`, importado via `await import(...)`
-(dinâmico, sem `from`). `deno check` passou mesmo assim (checagem de tipo não
-resolve import dinâmico com o mesmo rigor). Resultado em produção: busca de
-preço via REST falhava pra quase todo ativo (só WebSocket de cripto
-escapava) — 141 `ANALYSIS_ERROR` em 12 minutos de sessão real. Corrigido:
-regex nova cobre `from` E `import(`, mais uma verificação cruzada que compara
-todo import `@/` do grafo contra o `deno.json` (roda em ~1s, deveria virar
-hábito antes de qualquer deploy do runner).
+**Decisão do item 7 tomada e implementada nesta sessão (2026-08-18, ainda não
+testada contra o Supabase real nem commitada)**: cliente perde autoridade de
+fechar trade em modo DEMO. Mudanças:
 
-### 3. Motor duplo — navegador + servidor rodando a mesma sessão (commitado)
+1. **Portado pro servidor o que faltava**: breakeven automático em +1R
+   (`supabase/functions/ai-runner/lib/positionManager.ts`, função
+   `tickPositionManager`) — só existia no cliente até agora; era a causa raiz
+   confirmada do caso 2 da reconciliação acima. Ordem de aplicação replicada
+   fielmente do cliente: breakeven primeiro (roda mesmo em modo FIXO), depois
+   trailing DINÂMICO ratcheta a partir do SL já ajustado pelo breakeven.
+2. **Cliente para de fechar posição em DEMO**
+   (`src/app/hooks/useApexLogic.ts`, PNL LOOP): `hitTP`/`hitSL` agora exigem
+   `clientHasCloseAuthority = executionMode !== 'DEMO'`. Em DEMO a posição
+   nunca fecha no cliente — só quando o `ai-runner` fecha no banco e o
+   polling de reconciliação (linha ~816) remove do `activeOrders`.
+3. **Cliente para de escrever snapshot de portfólio em DEMO** — removido o
+   `savePortfolioSnapshot` periódico (60s) do PNL LOOP, que usava
+   `realizedPnL` local (sempre 0 agora, já que o cliente não fecha mais nada
+   — escrever por cima do balance do servidor recriaria o bug original).
+   `lastSnapshotAtRef` (agora sem uso) removido.
+4. **Balance/equity/drawdown passam a ser sincronizados do servidor** no
+   mesmo polling de 15s que já sincronizava `activeOrders`
+   (`getEquityCurve(sessionId)`, pega o snapshot mais recente) — sem isso o
+   Dashboard ficaria travado no balance de quando a IA foi ligada.
 
-Achado com evidência direta: mesmo símbolo (XAUUSD, GER40, SPX500)
-reavaliado 3-5x em 18 segundos — não é o `pg_cron` (roda 1x/min). O
-navegador (`useApexLogic.ts`) tinha seu próprio `setInterval` de decisão,
-sem NENHUMA trava contra o runner de servidor — sobra de antes do runner
-existir, não desenho proposital (confirmado no código, sem flag de exclusão
-mútua em lugar nenhum). Consequência: dobrava a carga na MetaAPI
-compartilhada, e risco real de entrada duplicada (cada processo só via o
-`activeOrders` da própria memória). Corrigido: em modo DEMO, o navegador não
-abre mais posição por conta própria — só o runner decide. LIVE não foi
-tocado (ponte de execução real tem estágios opt-in próprios, fora de
-escopo).
+**Escopo deliberadamente deixado de fora**: modo LIVE (broker real) não foi
+tocado — `clientHasCloseAuthority` é `true` fora de DEMO, comportamento
+inalterado. Não auditei a integração `/broker/execute` nesta sessão; mudar
+autoridade de fechamento em LIVE sem entender como o broker real trata
+SL/TP seria arriscado demais pra fazer de passagem.
 
-Bug lateral achado no processo: `MIN_TRADE_SIZE` também não estava mapeado
-em nenhuma das DUAS tabelas de tradução veto→funil (navegador e runner), e o
-navegador não tinha a proteção contra entrada faltando que o runner já
-tinha — gerava uma chave literal `"undefined"` em `stage_counts`,
-mascarando o motivo real. Corrigido nos dois lados + migration pra
-`ai_decisions_veto_stage_check` (rodada pelo Cleber com sucesso).
+`npm run validate` e `deno check` (só erros pré-existentes, não relacionados,
+em `BacktestDataService.ts`/`FunnelTelemetry.ts`) passaram limpos. **Não
+testado contra o Supabase real ainda** — próximo passo obrigatório antes de
+considerar pronto:
+- Deploy de teste do `ai-runner` (`supabase functions deploy ai-runner
+  --no-verify-jwt`) e observar pelo menos um ciclo completo de
+  abertura→breakeven/trailing→fechamento, conferindo que `stop_loss` sobe
+  pro preço de entrada no banco quando o trade anda +1R a favor.
+- Confirmar visualmente no cliente (aba ligada, DEMO) que balance/posições
+  seguem atualizando via polling mesmo sem o cliente fechar nada.
+- Ainda pendente, separado desta mudança: reverter/corrigir o balance
+  histórico da sessão `66faee09-...` (ver opções na resposta da
+  investigação — snapshot corretivo por `INSERT`, nunca `UPDATE`
+  retroativo, com coluna de auditoria a criar em `ai_portfolio_snapshots`
+  antes).
 
-### 4. Bug de sizing — causa real dos "10 dias sem entrada" (commitado)
+### 2. Monitoramento noturno — encerrado
 
-Log do BTCUSD (sinal BUY, 80% de confiança, mercado subindo 1,6% no dia):
-`Nocional calculado ($0.56) abaixo do mínimo executável ($10)`. Matemática
-exata: capital $100 × risco 1,5% = $1,50 de risco em dinheiro; modo "Ajustado
-por ATR" com multiplicador 4,0x reescala isso por `1,5÷4,0 = 0,375`
-(1,5 = `STOP_ATR_MULTIPLIER` fixo no motor) → **$0,56, sempre abaixo de $10,
-pra qualquer ativo** — não depende de sinal, mercado, ou nada que essa sessão
-mexeu. Essa razão é asset-independent (o ATR se cancela na conta), o que
-tornou possível construir uma prévia client-side exata sem dado de mercado.
+A sessão `neural-day-trader-f8` que fazia o monitoramento não está mais
+acessível (janela fechada/reiniciada). Confirmado via `CronList` que **não
+há nenhum cron agendado** pendente — o monitoramento parou junto com a
+sessão, nada rodando em background agora.
 
-**Correção do Cleber, na tela**: baixou o Multiplicador ATR de 4,0x pra
-1,5x. **Correção de produto (código, esta sessão)**:
-- `previewPositionSizing()` (`services/strategy/positionSizingPreview.ts`) —
-  card no modo Avançado mostrando o tamanho estimado em tempo real, com
-  aviso vermelho quando a config nunca vai operar.
-- Modo "Simples" tinha o MESMO bug latente: `applyRiskProfile()` não
-  resetava `positionSizingMode`/`atrMultiplier` ao trocar de perfil — se o
-  usuário tivesse passado pelo Avançado antes, a config perigosa
-  sobrevivia por baixo mesmo num perfil "seguro". Corrigido: todo perfil
-  Simples agora força `atrMultiplier: 1.5` (razão neutra).
-- Banner de aviso fixo no topo do modo Avançado.
-- `STOP_ATR_MULTIPLIER`/`RISK_REWARD_MULTIPLE`/`MIN_EXECUTABLE_NOTIONAL_USD`
-  exportados do motor (`runTradingCycle.ts`) em vez de duplicados na UI —
-  mesma disciplina que já existe pro `pointValue` (bug de 2026-08-05).
+## Estado herdado de sessões anteriores, sem mudança nesta sessão
 
-### 5. Mitigação de rate-limit (commitada)
+Ver seção "Pendências reais em aberto" no [CLAUDE.md](CLAUDE.md) — lista
+completa e atualizada, incluindo:
+- Item 0 (ativo): redesenho do cérebro de decisão, meta de trades/dia
+  revisada pendente de decisão do Cleber.
+- Item 7: risco estrutural de cliente e servidor operando em paralelo (Safe
+  Mode só existe no cliente) — **o achado da seção 1 acima, se confirmado,
+  provavelmente é uma manifestação desse mesmo risco**, não uma causa nova.
+- Item 3: decisão de roteamento de cripto (Binance direto vs MetaAPI)
+  pendente.
+- Item 5: modelo financeiro reconstruído, commit pendente.
+- Item 6: ideia registrada (probabilidade de acerto calibrada), não
+  iniciada.
 
-Medido: `mt5-candles-history` (motor) fez 5.942 chamadas em 35min contra
-3.838 de `mt5-prices` (rodapé) no mesmo período — buckets de rate-limit
-diferentes na MetaAPI, o motor bate no teto pesado. Corrigido:
-`ASSETS_REFRESHED_PER_TICK` 6→3, e falha de fetch agora entra em backoff
-real (respeita `retryAfterMs` da MetaAPI quando disponível, 30s de piso
-senão) — antes, uma falha era retentada no tick seguinte sem espera nenhuma.
-**Mitigação, não solução**: a conta continua compartilhada com outros
-usuários da plataforma.
-
-### 6. Banner "IA travada" — item 1 do plano de proteção de produto (commitado)
-
-Motivação: qualquer combinação futura de configs pode travar 100% das
-entradas silenciosamente (como o item 4 acima) — sem alerta, um usuário raiz
-não-técnico pode ficar dias "ligado" sem saber, e simplesmente sumir da
-plataforma sem reclamar. `useAIStuckDetector.ts` lê `ai_funnel_snapshots` da
-sessão `RUNNING` do usuário (busca no banco, não em estado do React — evita
-repetir a confusão do item 3) e detecta quando um único `vetoStage` domina
-≥70% das avaliações (piso de 30 avaliações, janela de 20min, sem
-`ENTRY_EXECUTED`). `AIStuckBanner.tsx` mostra o motivo em português + uma
-sugestão de ação (8 motivos mapeados). Renderizado no topo do Dashboard.
-
-Itens 2/3 do plano original de 3 pontos (validação instantânea no slider,
-modo Simples pré-validado) **já foram feitos como parte do item 4** acima —
-o plano de 3 itens colapsou pra 2 entregas reais.
-
-## Deploys pendentes (Cleber precisa rodar, nesta ordem)
-
-Os 3 commits da rodada anterior (motor duplo, prévia de sizing v1, banner de
-IA travada) **já foram commitados pelo Cleber** antes desta sessão começar —
-nada pendente deles. O que falta agora é só o commit dos 2 bugs novos (acima)
-e o deploy.
-
-Sem Docker nesta máquina — `supabase functions deploy` usa o bundler
-sem-Docker, que precisa do `deno.json` com entradas exatas (não curinga) ou
-sobe a pasta `src/` inteira (já mordeu 2x: erro 413 de tamanho, depois
-import dinâmico faltando na lista). Antes de qualquer deploy do runner,
-rodar a verificação cruzada:
-```bash
-cd supabase/functions/ai-runner && deno info --json index.ts > /tmp/di.json
-# comparar contra deno.json — ver runTradingCycle.ts/deno.json pro script exato usado hoje
-```
-
-```bash
-# Fix da fórmula de sizing ATR + suavização do gate de regime (bugs 1 e 2 acima)
-git add src/app/services/strategy/runTradingCycle.ts src/app/services/strategy/positionSizingPreview.ts src/app/components/AITrader.tsx
-git commit -m "fix: formula de sizing ATR era invalida (independia do preco) + regime INDEFINIDO nao veta mais entrada"
-
-git push
-
-npx supabase functions deploy ai-runner --project-ref wyvdsxtcmizettljxtbg --no-verify-jwt
-```
-
-Depois: **merge `dev` → `main`** pra tudo isso valer no site de produção
-(Vercel só builda a partir de `main`) — ainda não feito, decisão do Cleber
-sobre quando.
-
-## Estado herdado, sem mudança nesta sessão
-
-- `COST_TABLE.INDEX` usa spread calibrado no US30, gerando custo ~7x maior
-  que o real pra SPX500 só por diferença de escala do índice — precisa de
-  spread medido por índice pra corrigir, não é assunção segura de fazer sem
-  dado. Registrado, não corrigido.
-- Feed de dados dedicado (Twelve Data, ~US$29/mês, cobre o orçamento de
-  chamadas com folga) — números já levantados em handoff anterior, decisão
-  do Cleber ainda pendente. A mitigação do item 5 reduz a urgência mas não
-  substitui a decisão.
-- `MARKET_MODE_MISMATCH` (regime `INDEFINIDO` vs modo "Trend" travado) pode
-  virar o próximo gargalo dominante depois que `MIN_TRADE_SIZE` sair do
-  caminho — decisão de produto (manter travado vs Automático), não bug.
-- Roteamento de cripto (Binance direto vs MetaAPI) — decisão do Cleber ainda
-  pendente, ver CLAUDE.md item 3.
-- Marketplace.tsx com rating/reviews/vendas fabricados (exceto `strat-001`).
+Nada dessas pendências foi tocado nesta sessão.

@@ -36,7 +36,7 @@ import type { Candle } from '../../../src/app/services/indicators/TechnicalIndic
 import { PRESET_STRATEGIES } from '../../../src/app/data/presetStrategies.ts';
 import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
-import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, type OpenPosition } from './lib/positionManager.ts';
+import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, type OpenPosition } from './lib/positionManager.ts';
 
 const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
@@ -185,6 +185,34 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
       console.log(`[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} (pnl=${c.pnl.toFixed(2)})`);
       await persistPositionClose(s.sessionId, c);
     }
+
+    // Atualiza balance/equity em memória (pro RISK_GATE desta mesma invocação
+    // enxergar o fechamento) e grava snapshot — sem isto o balance gravado no
+    // banco fica travado no valor do último snapshot do CLIENTE indefinidamente
+    // sempre que o servidor fecha uma posição sem o cliente saber (achado
+    // 2026-08-18, ver comentário em persistPortfolioSnapshot).
+    const realizedPnL = closed.reduce((sum, c) => sum + c.pnl, 0);
+    const newBalance = s.portfolio.balance + realizedPnL;
+    const totalUnrealizedPnL = s.activeOrders.reduce((sum, o) => {
+      const price = o.currentPrice && o.currentPrice > 0 ? o.currentPrice : o.price;
+      const pnl = o.side === 'LONG'
+        ? (price - o.price) * (o.amount / o.price)
+        : (o.price - price) * (o.amount / o.price);
+      return sum + pnl;
+    }, 0);
+    const newEquity = newBalance + totalUnrealizedPnL;
+    const peakEquity = Math.max(s.portfolio.peakEquity ?? newEquity, newEquity);
+    const anchor = s.portfolio.dayAnchorEquity ?? newEquity;
+    const currentDrawdown = anchor > 0 && newEquity < anchor ? ((anchor - newEquity) / anchor) * 100 : 0;
+    s.portfolio = { ...s.portfolio, balance: newBalance, equity: newEquity, peakEquity, currentDrawdown };
+
+    await persistPortfolioSnapshot({
+      sessionId: s.sessionId,
+      userId: s.userId,
+      balance: newBalance,
+      equity: newEquity,
+      currentDrawdown,
+    });
   }
 }
 

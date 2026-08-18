@@ -456,7 +456,6 @@ export function useApexLogic(
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
-  const lastSnapshotAtRef = useRef(0);
   const hasHydratedFromSupabaseRef = useRef(false);
 
   // Preço sem dado real (`isRealData: false` — a conta MetaAPI de plataforma
@@ -859,6 +858,33 @@ export function useApexLogic(
         });
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
+      }
+
+      // 🆕 2026-08-18: junto com a perda de autoridade de fechamento do
+      // cliente (ver PNL LOOP acima), o balance também precisa vir do
+      // servidor agora — sem isto o Dashboard ficaria travado no valor de
+      // quando a IA foi ligada, já que o cliente parou de recalcular balance
+      // a partir de fechamento próprio. `getEquityCurve` reaproveita o mesmo
+      // endpoint já usado pra reconstruir a curva de equity no mount
+      // (`getSessionSnapshots`); pega só o snapshot mais recente.
+      try {
+        const snapshots = await persistenceRef.current.getEquityCurve(sessionId);
+        if (cancelled || snapshots.length === 0) return;
+        const latest = snapshots[snapshots.length - 1];
+        setPortfolio(prev => {
+          if (prev.balance === latest.balance && prev.equity === latest.equity) return prev;
+          return {
+            ...prev,
+            balance: latest.balance,
+            // Equity fica só de referência aqui — o PNL LOOP recalcula equity
+            // real (balance + não-realizado ao vivo) no próximo tick usando o
+            // balance recém-sincronizado.
+            equity: latest.equity,
+            currentDrawdown: latest.drawdown || 0,
+          };
+        });
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao reconciliar balance do Supabase:', e);
       }
     };
 
@@ -1508,8 +1534,23 @@ export function useApexLogic(
                 // sem alvo/stop), nunca um preço de gatilho real. Sem esse guard, uma
                 // ordem LONG sem TP fechava sozinha no primeiro tick (nextPrice >= 0 é
                 // sempre verdadeiro), e o mesmo pro SL de uma SHORT sem stop.
-                const hitTP = order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
-                const hitSL = effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
+                //
+                // 🔒 CLIENTE PERDE AUTORIDADE DE FECHAR TRADE EM DEMO (2026-08-18).
+                // Achado: cliente e servidor (`ai-runner`) rodavam essa MESMA decisão
+                // em paralelo, cada um com seu próprio feed de preço e seu próprio
+                // `effectiveSl` (trailing/breakeven calculados independentemente,
+                // nunca sincronizados) — e cada um gravava fechamento e balance por
+                // conta própria. Reconciliação trade a trade confirmou 2 casos reais
+                // de balance corrompido causados exatamente por essa duplicidade (ver
+                // NEXT_SESSION.md). Em DEMO, `ai-runner` (`positionManager.ts`) é
+                // agora a ÚNICA entidade que fecha posição e grava balance — reflete
+                // pra cá via o polling de reconciliação (linha ~816 abaixo), que já
+                // sincroniza `activeOrders` e agora também `portfolio`. Em LIVE isso
+                // não muda nesta sessão (fora de escopo: a integração com
+                // `/broker/execute` não foi auditada aqui).
+                const clientHasCloseAuthority = configRef.current.executionMode !== 'DEMO';
+                const hitTP = clientHasCloseAuthority && order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
+                const hitSL = clientHasCloseAuthority && effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
 
                 if (hitTP) {
                     realizedPnL += pnl;
@@ -1596,20 +1637,17 @@ export function useApexLogic(
           closedForPersistenceRef.current = [];
         }
 
-        // Fase 2: snapshot periódico do portfólio (throttle de 60s)
-        if (configRef.current.executionMode === 'DEMO') {
-          const now = Date.now();
-          if (now - lastSnapshotAtRef.current > 60000) {
-            lastSnapshotAtRef.current = now;
-            const p = portfolioRef.current;
-            persistenceRef.current.savePortfolioSnapshot({
-              balance: p.balance,
-              equity: p.equity,
-              openPositionsValue: p.openPositionsValue,
-              currentDrawdown: p.currentDrawdown,
-            });
-          }
-        }
+        // ❌ REMOVIDO 2026-08-18 (junto com a perda de autoridade de fechamento
+        // acima): o cliente escrevia snapshot de portfólio aqui a cada 60s em
+        // DEMO, usando `balance` calculado a partir do SEU PRÓPRIO
+        // `realizedPnL` local. Com o fechamento de posição agora exclusivo do
+        // `ai-runner`, esse `realizedPnL` fica sempre 0 no cliente — escrever
+        // esse balance "congelado" por cima do que o servidor acabou de gravar
+        // recriaria exatamente o bug que motivou a mudança (balance travado/
+        // sobrescrito por um escritor que não sabe do fechamento real). O
+        // `ai-runner` (`persistPortfolioSnapshot`) é agora o único escritor de
+        // `ai_portfolio_snapshots` em DEMO; o cliente só lê (polling de
+        // reconciliação, linha ~816 abaixo).
         })();
     }, 1000); // Update every 1 second
 

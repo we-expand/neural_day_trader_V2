@@ -105,17 +105,39 @@ export async function tickPositionManager(params: {
     prices.set(pos.symbol, nextPrice);
 
     let effectiveSl = pos.sl;
+
+    // Breakeven automático em +1R — espelha useApexLogic.ts:1439-1458. Roda
+    // independente de stopLossMode (também em FIXO). Faltava aqui até
+    // 2026-08-18: era a única peça da lógica de fechamento que só existia no
+    // cliente, e foi a causa raiz confirmada de um balance divergente em
+    // produção (posição fechada perto de zero no cliente via breakeven,
+    // enquanto o servidor — sem essa lógica — manteve o SL original e só
+    // fechou depois, com perda real maior). Ancorado em `originalSl`
+    // (imutável), nunca em `pos.sl` (que já pode ter sido movido por esta
+    // mesma função em um tick anterior).
+    if (pos.originalSl > 0) {
+      const originalRisk = Math.abs(pos.entryPrice - pos.originalSl);
+      if (originalRisk > 0) {
+        const favorableMove = pos.side === 'LONG' ? nextPrice - pos.entryPrice : pos.entryPrice - nextPrice;
+        if (favorableMove >= originalRisk) {
+          effectiveSl = pos.side === 'LONG' ? Math.max(effectiveSl, pos.entryPrice) : Math.min(effectiveSl, pos.entryPrice);
+        }
+      }
+    }
+
     if (stopLossMode === 'DINAMICO' && pos.originalSl > 0) {
       const freshAtr = await getFreshAtr(pos.symbol, timeframe, atrTrailingPeriod);
       const originalSlDistance = Math.abs(pos.entryPrice - pos.originalSl);
       const trailDistance = freshAtr && freshAtr > 0 ? freshAtr * atrTrailingMultiplier : originalSlDistance;
       if (trailDistance > 0) {
         const trailedSl = pos.side === 'LONG' ? nextPrice - trailDistance : nextPrice + trailDistance;
-        // Só ratcheta a favor, ancorado no sl ATUAL (nunca solta o stop de volta).
-        effectiveSl = pos.side === 'LONG' ? Math.max(pos.sl, trailedSl) : Math.min(pos.sl, trailedSl);
-        if (effectiveSl !== pos.sl) slUpdates.set(pos.id, effectiveSl);
+        // Ratcheta a favor a partir do effectiveSl (já com breakeven aplicado
+        // acima, se for o caso) — nunca solta o stop de volta.
+        effectiveSl = pos.side === 'LONG' ? Math.max(effectiveSl, trailedSl) : Math.min(effectiveSl, trailedSl);
       }
     }
+
+    if (effectiveSl !== pos.sl) slUpdates.set(pos.id, effectiveSl);
 
     const hitTP = pos.tp > 0 && (pos.side === 'LONG' ? nextPrice >= pos.tp : nextPrice <= pos.tp);
     const hitSL = effectiveSl > 0 && (pos.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
@@ -153,4 +175,39 @@ export async function persistTrailingStopUpdate(tradeId: string, newSl: number):
   const sb = getServiceClient();
   const { error } = await sb.from('ai_trades').update({ stop_loss: newSl }).eq('id', tradeId);
   if (error) console.error('[ai-runner/positionManager] persistTrailingStopUpdate falhou:', error, tradeId);
+}
+
+/**
+ * Grava snapshot de portfolio no banco após o servidor fechar posição —
+ * sem isto, `ai_portfolio_snapshots.balance` só é atualizado pelo cliente
+ * (`useAIPersistence.ts:savePortfolioSnapshot`), e fica travado no valor
+ * antigo indefinidamente sempre que o `ai-runner` fecha um trade sem o
+ * cliente saber. Confirmado em produção 2026-08-18: trade XAUAUD fechado no
+ * servidor com +$2,95, balance ficou em $100,00 antes e depois do
+ * fechamento nos 24 snapshots seguintes gravados pelo cliente. Espelha o
+ * shape gravado por `savePortfolioSnapshot` (useAIPersistence.ts:306-320) —
+ * `margin`/`open_positions` não são rastreados por nenhum dos dois drivers
+ * hoje, mantido em 0 pra não fabricar dado que não existe.
+ */
+export async function persistPortfolioSnapshot(params: {
+  sessionId: string;
+  userId: string;
+  balance: number;
+  equity: number;
+  currentDrawdown: number;
+}): Promise<void> {
+  const sb = getServiceClient();
+  const { sessionId, userId, balance, equity, currentDrawdown } = params;
+  const { error } = await sb.from('ai_portfolio_snapshots').insert([{
+    session_id: sessionId,
+    user_id: userId,
+    balance,
+    equity,
+    margin: 0,
+    open_positions: 0,
+    total_pnl: equity - balance,
+    drawdown: currentDrawdown,
+    timestamp: new Date().toISOString(),
+  }]);
+  if (error) console.error('[ai-runner/positionManager] persistPortfolioSnapshot falhou:', error, sessionId);
 }
