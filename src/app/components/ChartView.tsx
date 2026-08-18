@@ -4325,6 +4325,19 @@ export function ChartView({
     symbolOrders.forEach((order) => {
       const isLong = order.side === 'LONG';
       const entryId = `position_entry_${order.id}`;
+
+      // Unidades da posição (mesma conta usada no PNL LOOP de useApexLogic.ts
+      // pra P&L ao vivo): amount é o valor em dólar da posição, amount/preço
+      // dá as "unidades" que convertem distância de preço em dólar.
+      const units = order.amount / order.price;
+      const hasSl = order.sl > 0;
+      const hasTp = order.tp > 0;
+      const riskPts = hasSl ? Math.abs(order.price - order.sl) : 0;
+      const rewardPts = hasTp ? Math.abs(order.tp - order.price) : 0;
+      const riskUsd = riskPts * units;
+      const rewardUsd = rewardPts * units;
+      const rr = hasSl && hasTp && riskPts > 0 ? rewardPts / riskPts : null;
+
       try {
         // P&L ao vivo na própria linha da posição — reflete o preço atual do
         // tick (order.currentPrice, atualizado a cada ciclo do PNL LOOP em
@@ -4337,6 +4350,7 @@ export function ChartView({
         const pnlSign = pnl >= 0 ? '+' : '';
         const pointsSign = pointsFavorable >= 0 ? '+' : '';
         const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(2)} pts)`;
+        const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
 
         chart.createOverlay({
           name: 'horizontalStraightLine',
@@ -4346,18 +4360,26 @@ export function ChartView({
             line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
             text: {
               color: '#ffffff',
-              backgroundColor: isLong ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
+              backgroundColor: isLong ? 'rgba(34,197,94,0.92)' : 'rgba(239,68,68,0.92)',
+              borderColor: isLong ? '#16a34a' : '#dc2626',
+              borderSize: 1,
+              borderRadius: 3,
+              paddingLeft: 6,
+              paddingRight: 6,
+              paddingTop: 3,
+              paddingBottom: 3,
               size: 11,
+              weight: 'bold',
             },
           },
-          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
+          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
         });
         positionOverlayIdsRef.current.push(entryId);
       } catch (e) {
         console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de entrada da posição:', e);
       }
 
-      if (order.sl > 0) {
+      if (hasSl) {
         const slId = `position_sl_${order.id}`;
         try {
           chart.createOverlay({
@@ -4366,9 +4388,23 @@ export function ChartView({
             points: [{ value: order.sl }],
             styles: {
               line: { color: '#ef4444', style: 'dashed', size: 1 },
-              text: { color: '#ffffff', backgroundColor: 'rgba(239,68,68,0.7)', size: 10 },
+              text: {
+                color: '#ffffff',
+                backgroundColor: 'rgba(239,68,68,0.85)',
+                borderColor: '#dc2626',
+                borderSize: 1,
+                borderRadius: 3,
+                paddingLeft: 5,
+                paddingRight: 5,
+                paddingTop: 2,
+                paddingBottom: 2,
+                size: 10,
+              },
             },
-            text: `SL ${order.sl.toFixed(2)}`,
+            // Custo em dólar sempre negativo (é o que se perde se o stop for
+            // atingido) + distância em pontos, pra visualizar risco real sem
+            // precisar calcular de cabeça.
+            text: `⛔ SL ${order.sl.toFixed(2)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(2)} pts`,
           });
           positionOverlayIdsRef.current.push(slId);
         } catch (e) {
@@ -4376,7 +4412,7 @@ export function ChartView({
         }
       }
 
-      if (order.tp > 0) {
+      if (hasTp) {
         const tpId = `position_tp_${order.id}`;
         try {
           chart.createOverlay({
@@ -4385,9 +4421,21 @@ export function ChartView({
             points: [{ value: order.tp }],
             styles: {
               line: { color: '#22c55e', style: 'dashed', size: 1 },
-              text: { color: '#ffffff', backgroundColor: 'rgba(34,197,94,0.7)', size: 10 },
+              text: {
+                color: '#ffffff',
+                backgroundColor: 'rgba(34,197,94,0.85)',
+                borderColor: '#16a34a',
+                borderSize: 1,
+                borderRadius: 3,
+                paddingLeft: 5,
+                paddingRight: 5,
+                paddingTop: 2,
+                paddingBottom: 2,
+                size: 10,
+              },
             },
-            text: `TP ${order.tp.toFixed(2)}`,
+            // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
+            text: `🎯 TP ${order.tp.toFixed(2)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(2)} pts`,
           });
           positionOverlayIdsRef.current.push(tpId);
         } catch (e) {
