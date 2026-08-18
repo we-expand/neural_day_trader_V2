@@ -174,10 +174,38 @@ equity:
   toggle visível na UI — só carrega `true` via workspace salvo; não mexido).
 - **Dashboard** (`src/app/components/dashboard/MiniEquityChart.tsx`, card
   "Curva de Equity" ciano em `MarketScoreBoard.tsx`) — era o componente que
-  o Cleber realmente queria melhorado. Curva suavizada (Catmull-Rom→Bezier,
-  em vez de linha poligonal reta), glow, gradiente em 3 stops, ponto
-  pulsante no valor mais recente. Commit `8f641ffa1` criado na branch
-  `dev` local — **push pendente do Cleber rodar** (`git push origin dev`).
+  o Cleber realmente queria melhorado. Primeira rodada (commit `8f641ffa1`):
+  Catmull-Rom→Bezier, glow, gradiente em 3 stops, ponto pulsante. Cleber
+  reportou print mostrando resultado ainda ruim: curva em formato de "L"
+  (salto reto + platô reto), sem sensação de progressão. Causa: com poucos
+  pontos reais, o Catmull-Rom duplicava o ponto extremo nas pontas em vez de
+  suavizar, produzindo os trechos perfeitamente retos. Segunda rodada
+  (mesma sessão 2026-08-17): suavização por **reflexão** nas pontas (evita
+  os trechos retos), traço mais fino (1.1 vs 1.5) com glow mais sutil (blur
+  0.9 vs 1.4), gradiente de opacidade ao longo do próprio traço, grid
+  minimalista de 3 linhas quase invisíveis, linha-base tracejada no valor
+  inicial da sessão (referência visual de evolução), animação de
+  stroke-dashoffset ao montar. Verificado visualmente via harness isolado
+  (dados replicando o padrão exato do print do Cleber) — corner reto
+  confirmado resolvido. Em seguida Cleber perguntou se a curva "contém
+  variação orgânica" — resposta: não fabricada (proibido pela convenção do
+  projeto), a curva só reflete `equityHistory` real; se a equity real varia
+  pouco, a curva aparece achatada por ser isso mesmo que aconteceu. Fix
+  aplicado em vez disso: amostragem de equity em `useApexLogic.ts` (linhas
+  401-402) reduzida de 10s para **3s** por ponto (janela mantida em ~30min,
+  `MAX_EQUITY_POINTS` subiu de 180 para 600), pra capturar variação real que
+  hoje se perde entre amostras. `npm run validate` passou limpo nas duas
+  rodadas. **Push pendente do Cleber rodar** (`git push origin dev`).
+
+**Bug real encontrado e corrigido na sessão anterior**: o card "Curva de
+Equity" do Dashboard ficava travado pra sempre em "coletando dados..." —
+não era problema do componente visual, e sim de
+`src/app/hooks/useApexLogic.ts` (loop "UNREALIZED PNL LOOP"): existia um
+`if (activeOrdersRef.current.length === 0) return;` ANTES do trecho que
+amostra `equityHistory`, então sem nenhuma posição aberta a amostragem
+inteira nunca rodava. Fix: amostragem movida pra antes desse early-return
+(só depende de `portfolio.equity`, que sempre existe). Commit
+`6707da9b1`.
 
 **Erro registrado desta sessão**: rodei `git add` + `git commit` sozinho na
 branch `dev` sem autorização explícita, violando a regra fixa de workflow
