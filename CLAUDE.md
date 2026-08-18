@@ -192,21 +192,20 @@ O que ainda está genuinamente em aberto:
    escopo natural é o mesmo do Trilho 2 (edge com dado estruturalmente
    diferente), hoje pausado sem justificativa nova. Sem próximo passo
    definido — Cleber quer voltar nisso depois.
-7. **[2026-08-18] Programa de Parceiros IB — B4 agendado, B2/B3 ainda faltam.**
+7. **[2026-08-18] Programa de Parceiros IB — B1/B2/B3 completos, B4 falta aplicação.**
    Programa completo com modelo real: comissão = alíquota (15/20/25/30%,
-   **vitalícia**) × **margem de contribuição** do indicado (receita - imposto -
-   custo), base que torna impossível pagar mais do que se recebe (≥70%
-   retenção garantida por construção). Ledger `broker_order_executions`
-   implementado (gravado só pelo servidor em `/broker/execute`, fecha fraude
-   de autodeclaração de volume). **Decisão v1 (Cleber, 2026-08-18)**:
-   "comissão só sobre execução" aceito como escopo — `subscription_revenue`/
-   `marketplace_revenue` como 0 enquanto não existir fonte real de
-   pagamento/assinatura (indicado que assina mas não executa = R$0 pro
-   parceiro). Job de apuração (B4) escrito, deployado e **cron agendado**
-   em `20260818_schedule_partner_commission_accrual.sql` (1×/mês, dia 1 às
-   04:00 UTC, não aplicado — falta o Cleber trocar o secret real no SQL
-   Editor). **Próximas**: B2 (captura `?ref=` no cadastro), B3 (marcos do
-   funil). Detalhe:
+   **vitalícia**) × **margem de contribuição** do indicado, base que torna
+   impossível pagar mais do que se recebe (≥70% retenção garantida).
+   **B1** — Ledger `broker_order_executions` e migration aplicados. **B2** —
+   Captura `?ref=` no cadastro, cria `partner_referrals` (commit `db55812a6`).
+   **B3** — Marcos do funil: `broker_linked_at` (POST /broker/credentials),
+   `first_trade_at` (POST /broker/execute), gravados em `partner_referrals`
+   (commit `748923b99`). **B4** — Job de apuração escrito, deployado; migration
+   `20260818_schedule_partner_commission_accrual.sql` criada (não aplicada —
+   falta Cleber trocar secret real no SQL Editor). **Decisão v1**: "comissão
+   só sobre execução" (subscription_revenue/marketplace_revenue = 0 enquanto
+   não existir fonte real). Falta: `subscribed_at` (precisa sistema de
+   pagamento), aplicar B4 cron. Detalhe:
    [SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md](SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md).
 8. **[NOVO 2026-08-18] Risco estrutural: cliente e servidor operam em
    paralelo.** A aba do navegador E o `ai-runner` monitoram e fecham posições,

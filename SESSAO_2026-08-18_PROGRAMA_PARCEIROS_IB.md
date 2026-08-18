@@ -18,24 +18,22 @@
 | **B4 — job de apuração mensal** | ✅ Escrito e deployado. **Decisão "comissão só sobre execução" tomada em 2026-08-18** — cron real preparado em `20260818_schedule_partner_commission_accrual.sql`, **ainda não aplicado** (falta o Cleber trocar o secret real no SQL e rodar). |
 | Commit / push | ✅ Feito em duas rodadas: `adbc0eadb` (B1 + reconstrução do programa) e o commit do job B4. **Pendente**: commit desta rodada (decisão v1 + migration do cron) — ver "Comandos prontos". |
 
-**O que ainda falta, nesta ordem de importância**:
+**O que ainda falta**:
 
 0. ✅ **[RESOLVIDO 2026-08-18]** Decisão do Cleber: **"comissão só sobre
-   execução" aceito explicitamente como v1.** `subscription_revenue`/
-   `marketplace_revenue` continuam gravados como 0 — um indicado que assina
-   o plano mas nunca executa ordem gera R$0 de comissão pro parceiro
-   enquanto essas fontes não existirem (não é lacuna, é escopo assumido).
-   Migration `20260818_schedule_partner_commission_accrual.sql` criada com
-   o `cron.schedule` real (mensal, dia 1 às 04:00 UTC) — **não aplicada**,
-   precisa que o Cleber troque `<PARTNER_ACCRUAL_SHARED_SECRET>` pelo valor
-   real antes de rodar no SQL Editor.
-1. **B2 — captura do `?ref=` no cadastro** — ainda não implementada. Sem
-   isso ninguém entra na rede de ninguém, mesmo com B1+B4 prontos e o cron
-   agendado.
-2. **B3 — marcos do funil** (`broker_linked_at`, `first_trade_at`,
-   `subscribed_at`) — ainda não são gravados em lugar nenhum.
-   Ver seção "Pendências reais em aberto" para o resto (termos do programa,
-   retenção de imposto, reconciliação do ledger, multi-corretora).
+   execução" aceito explicitamente como v1.** Migration B4
+   (`20260818_schedule_partner_commission_accrual.sql`) criada — **não
+   aplicada**, precisa que o Cleber troque `<PARTNER_ACCRUAL_SHARED_SECRET>`
+   pelo valor real no SQL Editor.
+1. ✅ **[RESOLVIDO 2026-08-18, commit `db55812a6`]** B2 — captura do `?ref=`
+   no cadastro e cria linha em `partner_referrals`.
+2. ✅ **[RESOLVIDO 2026-08-18, commit `748923b99`]** B3 — grava marcos do
+   funil: `broker_linked_at` (POST /broker/credentials), `first_trade_at`
+   (POST /broker/execute). `subscribed_at` ainda não implementado (precisa
+   sistema de pagamento).
+
+Ver seção "Pendências reais em aberto" para o resto (termos do programa,
+retenção de imposto, reconciliação do ledger, multi-corretora, subscribed_at).
 
 ## ▶ O que foi feito
 
