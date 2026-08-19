@@ -26,10 +26,14 @@ function smoothPath(pts: { x: number; y: number }[]): string {
     const p2 = pts[i + 1];
     const p3 = pts[i + 2] || reflect(pts[i + 1], pts[i]);
 
+    const segMin = Math.min(p1.y, p2.y);
+    const segMax = Math.max(p1.y, p2.y);
+    const clampY = (y: number) => Math.min(segMax, Math.max(segMin, y));
+
     const c1x = p1.x + (p2.x - p0.x) / 6;
-    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c1y = clampY(p1.y + (p2.y - p0.y) / 6);
     const c2x = p2.x - (p3.x - p1.x) / 6;
-    const c2y = p2.y - (p3.y - p1.y) / 6;
+    const c2y = clampY(p2.y - (p3.y - p1.y) / 6);
 
     d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`;
   }
