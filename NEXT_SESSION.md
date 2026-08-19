@@ -1,19 +1,107 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-18** (17ª parte — reescrita completa, não empilhada).
+> Reescrito em **2026-08-19** (19ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 
-**Contexto desta sessão**: Cleber dormiu com a IA rodando 24/7 e pediu
-monitoramento noturno (checagens de 20 em 20min até 12h UTC). Essa sessão de
-monitoramento rodou numa janela/sessão separada (`neural-day-trader-f8`) que
-**já não existe mais** ao reabrir pela manhã — não foi possível recuperar o
-transcript completo dela (tentativa via `SendMessage` entre sessões não
-retornou resposta útil antes da sessão fechar). O que se sabe do que ela fez
-é só o resumo que o Cleber colou manualmente, reproduzido abaixo.
+**Detalhe completo da sessão de 2026-08-19 (2 partes)**:
+[SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md](SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md)
+(parte 1 — zumbis, cron, diagnóstico de performance) e
+[SESSAO_2026-08-19_GATE_DE_MARGEM.md](SESSAO_2026-08-19_GATE_DE_MARGEM.md)
+(parte 2 — dimensionamento de posição, gate de margem por leverage). Resumo
+do que importa pra continuar abaixo.
 
-### 1. Achado da noite — **CONFIRMADO** nesta sessão (leitura de código + query real)
+### 0. **[RESOLVIDO 2026-08-19, verificado por fora do relato do Cleber] "Push não aparece na Vercel" — era falso alarme**
+
+Verificado via `git fetch`/`vercel ls`/`vercel inspect`: `dev` local e
+`origin/dev` estão idênticos (commit `fb696f8d4` chegou no GitHub sem
+defasagem). O deployment mais recente da branch `dev`
+(`dpl_Hjnv7dJxJTcu6k6Bfm8zbhEfmLYh`, criado 2026-08-19 04:58:02 -03, **11s**
+depois do commit `fb696f8d4` às 04:57:51) está com status **Ready** e
+carrega o alias correto
+`neural-day-trader-v2-git-dev-cleber-coutos-projects.vercel.app`. Ou seja: o
+push chegou, o build passou, o alias aponta pro código novo — nada estava
+quebrado do lado do deploy. Hipótese mais provável pro que o Cleber viu:
+estava numa URL de deployment com hash antiga (imutável, já causou confusão
+idêntica antes — ver seção "Ambientes e branches" do
+[CLAUDE.md](CLAUDE.md)) ou cache de navegador. Se o Cleber confirmar que
+ainda não vê o gate de margem funcionando no ambiente de teste, o problema
+não é de deploy — é outra coisa (runtime, cache do browser, ou o próprio
+comportamento do gate).
+
+### 1. Gate de margem por leverage — implementado, não testado contra Supabase real
+
+Motor de sizing agora usa `leverage` do catálogo (`assetDatabase.ts`) pra
+limitar o nocional calculado a no máximo 30% do balance em margem por trade
+(`clampToMarginAffordability`, `TradeSizing.ts`/`runTradingCycle.ts`).
+`npm run validate` limpo. Commit `fb696f8d4` já pushado pelo Cleber (mas ver
+item 0 acima). Detalhe completo, pesquisa de mercado e exemplo numérico:
+`SESSAO_2026-08-19_GATE_DE_MARGEM.md`.
+
+### 2. Zumbis — fix (a) implementado nesta sessão (2026-08-19), NÃO testado contra Supabase real ainda
+
+Mecanismo raiz confirmado: `Deno.serve` em `ai-runner/index.ts` só buscava
+sessões `status='RUNNING'`, então uma posição `OPEN` cuja sessão saísse desse
+status (pausada, cron desabilitado no meio do caminho — exatamente o que
+aconteceu com os 4 zumbis limpos nesta sessão) nunca mais tinha TP/SL
+monitorado por ninguém, nem client nem servidor.
+
+**Implementado**: watchdog no handler principal
+(`supabase/functions/ai-runner/index.ts`) — busca toda sessão DEMO com pelo
+menos 1 posição `OPEN` em `ai_trades`, **independente do status da sessão**,
+e roda só `positionManagerTick` pra ela (`loadWatchdogSession` força
+`isActive = false`, nunca abre entrada nova). Rodam depois das sessões
+`RUNNING` na mesma invocação (série, nunca paralelo — mesma regra de sempre,
+conta MetaAPI compartilhada). Também adicionado tracking de falha
+consecutiva de fetch de preço (`positionTickFailureStreak` em
+`positionManager.ts`/`index.ts`) — antes era `continue` silencioso
+indefinido; agora loga um marcador escalado (grepável) a cada 10 ticks
+consecutivos sem preço real, pra tornar visível quando uma posição fica
+tempo demais sem monitoramento por falta de dado, mesmo com o watchdog ativo.
+
+`npm run validate` (37/37) e `deno test seam_smoke_test.ts` (4/4) limpos.
+`deno check` mostra só os 3 erros pré-existentes de
+`BacktestDataService.ts`/`FunnelTelemetry.ts` (não relacionados, já
+documentados). **Não testado contra o Supabase real ainda** — próximo passo
+obrigatório antes de considerar pronto: deploy de teste
+(`supabase functions deploy ai-runner --no-verify-jwt`), forçar uma sessão
+pra `PAUSED`/`STOPPED` com posição `OPEN` de propósito, e confirmar no log
+que o watchdog pega essa posição e fecha no TP/SL real.
+
+Item (b) da causa raiz — **zero reconciliação contra corretora real** — não
+foi tocado (fora de escopo desta sessão, watchdog só olha `ai_trades`, não
+consulta MetaAPI pra confirmar se a posição realmente ainda existe do lado
+da corretora). Item 4 do fix original proposto (client usar Supabase
+Realtime em vez de polling condicional) também não implementado — o
+watchdog resolve o lado servidor (TP/SL sempre monitorado), mas o client
+ainda pode ficar visualmente desatualizado até o próximo poll.
+
+### 3. Piso de $10 pode estar inflando risco (achado novo, não investigado a fundo)
+
+Query real mostrou UKOUSD/XAUUSD batendo exatamente `$10.00` — indício de
+que o piso `MIN_EXECUTABLE_NOTIONAL_USD` empurra risco pra cima em vez de
+pular o trade, contradizendo a convenção documentada. Reler
+`runTradingCycle.ts` linha ~1191 antes de decidir se é bug.
+
+### 4. Status das 3 posições vivas da sessão anterior — aguardando encerramento natural
+
+XBNUSD SHORT (entrada 09:20), XAUUSD LONG (14:01), XAUAUD LONG (14:04). Cron
+desabilitado (sem novas entradas). Verificar PnL final, reconciliar balance
+real vs dashboard.
+
+### 5. Redução de custo por trade — direção escolhida pelo Cleber, não avançada
+
+Discussão interrompida pelo assunto de dimensionamento. Opções já
+levantadas: restringir universo de ativos às classes mais baratas
+(`CostModel.ts`), revisar experimento R:R 1:1,5→1:3 do preset 5 (rodando
+desde 08-17, ninguém revisou ainda), auditar `CostViabilityGate.ts`.
+
+---
+
+## Detalhe herdado de 2026-08-18 — item 7 (cliente/servidor em paralelo), ainda sem teste real
+
+### Achado da noite anterior — **CONFIRMADO** em 2026-08-18 (leitura de código + query real)
 
 A sessão noturna reportou um **desvio entre saldo e trades reais**. Verificado
 nesta sessão por leitura de código e query direta no Supabase — **é fato, não
@@ -145,13 +233,6 @@ considerar pronto:
   investigação — snapshot corretivo por `INSERT`, nunca `UPDATE`
   retroativo, com coluna de auditoria a criar em `ai_portfolio_snapshots`
   antes).
-
-### 2. Monitoramento noturno — encerrado
-
-A sessão `neural-day-trader-f8` que fazia o monitoramento não está mais
-acessível (janela fechada/reiniciada). Confirmado via `CronList` que **não
-há nenhum cron agendado** pendente — o monitoramento parou junto com a
-sessão, nada rodando em background agora.
 
 ## Estado herdado de sessões anteriores, sem mudança nesta sessão
 

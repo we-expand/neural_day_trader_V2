@@ -58,6 +58,27 @@ interface RunnerSessionState {
   cachedVIX: number;
   isActive: boolean;
   persistence: ReturnType<typeof createRunnerPersistence>;
+  positionTickFailureStreak: number;
+}
+
+const POSITION_TICK_FAILURE_ALERT_THRESHOLD = 10; // ~10s de falha consecutiva de preço dentro da mesma invocação
+
+/**
+ * Carrega uma sessão pro watchdog: mesmo carregamento de estado de
+ * `loadSession`, mas força `isActive = false` (nunca roda `tradingCycleTick`
+ * — só existe pra dar tick no `positionManagerTick` de posições `OPEN` cuja
+ * sessão não está `RUNNING`). Existe pra fechar a lacuna que causou posições
+ * zumbis em produção (2026-08-19): o handler principal só busca sessões
+ * `status='RUNNING'`, então uma posição `OPEN` cuja sessão saiu desse status
+ * (pausada, parada, cron desabilitado no meio do caminho) nunca mais tinha
+ * TP/SL monitorado — nem client (que já para de fechar em DEMO desde
+ * 2026-08-18) nem servidor. Ver NEXT_SESSION.md item 2.
+ */
+async function loadWatchdogSession(row: Record<string, any>): Promise<RunnerSessionState | null> {
+  const s = await loadSession(row);
+  if (!s) return null;
+  s.isActive = false;
+  return s;
 }
 
 async function loadSession(row: Record<string, any>): Promise<RunnerSessionState | null> {
@@ -151,6 +172,7 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     cachedVIX: 0,
     isActive: true,
     persistence: createRunnerPersistence(sessionId, userId),
+    positionTickFailureStreak: 0,
   };
 }
 
@@ -161,13 +183,24 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
     entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
   }));
 
-  const { closed, slUpdates, prices } = await tickPositionManager({
+  const { closed, slUpdates, prices, priceFetchFailed } = await tickPositionManager({
     positions,
     timeframe: normalizeTf(s.config.timeframe),
     stopLossMode: s.config.stopLossMode,
     atrTrailingPeriod: s.config.atrTrailingPeriod || 14,
     atrTrailingMultiplier: s.config.atrTrailingMultiplier || 2.0,
   });
+
+  // Falha de fetch de preço hoje só logava uma vez por tick e seguia
+  // (`continue` silencioso indefinido, achado 2026-08-19). Sem streak visível,
+  // uma posição pode ficar dezenas de ticks sem preço real sem nada de
+  // diferente aparecer no log além do mesmo erro repetido. Escala pra um
+  // marcador distinto (grepável) quando a falha persiste — não é alerta de
+  // verdade (não existe canal pra isso ainda), só torna o problema visível.
+  s.positionTickFailureStreak = priceFetchFailed ? s.positionTickFailureStreak + 1 : 0;
+  if (s.positionTickFailureStreak > 0 && s.positionTickFailureStreak % POSITION_TICK_FAILURE_ALERT_THRESHOLD === 0) {
+    console.error(`[ai-runner] ALERTA: sessão ${s.sessionId} sem preço real por ${s.positionTickFailureStreak} ticks consecutivos (~${s.positionTickFailureStreak}s) — ${s.activeOrders.length} posição(ões) aberta(s) sem TP/SL monitorado neste intervalo.`);
+  }
 
   for (const [id, newSl] of slUpdates) {
     const order = s.activeOrders.find(o => o.id === id);
@@ -356,12 +389,51 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
   }
 
-  if (!sessions || sessions.length === 0) {
-    return new Response(JSON.stringify({ sessions: 0 }), { status: 200 });
+  const runningIds = new Set((sessions ?? []).map((s: any) => s.id));
+
+  // WATCHDOG (item 2 de NEXT_SESSION.md, 2026-08-19): posição zumbi = posição
+  // `OPEN` cuja sessão não está mais `RUNNING` (pausada, parada, cron
+  // desabilitado no meio de uma sessão ativa) e por isso nunca mais recebe
+  // tick de TP/SL — nem do client (que já não fecha em DEMO desde 2026-08-18)
+  // nem do handler principal (que só olha `status='RUNNING'`). Busca toda
+  // sessão DEMO com pelo menos uma posição `OPEN`, independente do status, e
+  // roda pra ela SÓ o `positionManagerTick` (nunca `tradingCycleTick` —
+  // `loadWatchdogSession` força `isActive = false`, então nenhuma entrada
+  // nova é aberta por uma sessão não-RUNNING).
+  const { data: openTradeSessions, error: openTradeErr } = await sb
+    .from('ai_trades')
+    .select('session_id')
+    .eq('status', 'OPEN');
+  if (openTradeErr) {
+    console.error('[ai-runner] Falha ao listar posições OPEN pro watchdog (seguindo só com sessões RUNNING):', openTradeErr);
+  }
+  const orphanSessionIds = [...new Set((openTradeSessions ?? []).map((t: any) => t.session_id))]
+    .filter(id => !runningIds.has(id));
+
+  let orphanSessions: Record<string, any>[] = [];
+  if (orphanSessionIds.length > 0) {
+    const { data, error: orphanErr } = await sb
+      .from('ai_sessions')
+      .select('*')
+      .in('id', orphanSessionIds)
+      .eq('mode', 'DEMO');
+    if (orphanErr) {
+      console.error('[ai-runner] Falha ao carregar sessões órfãs pro watchdog:', orphanErr);
+    } else {
+      orphanSessions = data ?? [];
+    }
+  }
+
+  if ((!sessions || sessions.length === 0) && orphanSessions.length === 0) {
+    return new Response(JSON.stringify({ sessions: 0, watchdog: 0 }), { status: 200 });
   }
 
   const deadline = Date.now() + MAX_RUNTIME_MS;
-  const loaded = (await Promise.all(sessions.map(loadSession))).filter((s): s is RunnerSessionState => s !== null);
+  const loaded = (await Promise.all((sessions ?? []).map(loadSession))).filter((s): s is RunnerSessionState => s !== null);
+  const watchdogLoaded = (await Promise.all(orphanSessions.map(loadWatchdogSession))).filter((s): s is RunnerSessionState => s !== null);
+  if (watchdogLoaded.length > 0) {
+    console.log(`[ai-runner] Watchdog: ${watchdogLoaded.length} sessão(ões) não-RUNNING com posição OPEN — monitorando só TP/SL.`);
+  }
 
   // Sessões rodam em SÉRIE, nunca em paralelo — a conta MetaAPI da plataforma é
   // compartilhada entre todos os usuários (ver CLAUDE.md, "Risco crônico
@@ -371,14 +443,21 @@ Deno.serve(async (req) => {
   // Promise.all aqui, 3 sessões RUNNING disparavam candle fetch simultâneo e
   // toda tentativa de 15m falhava. O driver do browser nunca teve esse
   // problema porque só roda uma sessão por vez (a do usuário logado na aba).
+  // Watchdog roda DEPOIS das sessões RUNNING — TP/SL de zumbis pode esperar
+  // alguns segundos a mais, prioridade é a sessão ativa do usuário.
   for (const s of loaded) {
+    if (Date.now() >= deadline) break;
+    await runSession(s, deadline);
+  }
+  for (const s of watchdogLoaded) {
     if (Date.now() >= deadline) break;
     await runSession(s, deadline);
   }
 
   return new Response(JSON.stringify({
     sessions: loaded.length,
-    summary: loaded.map(s => ({ sessionId: s.sessionId, activeOrders: s.activeOrders.length, isActive: s.isActive })),
+    watchdog: watchdogLoaded.length,
+    summary: [...loaded, ...watchdogLoaded].map(s => ({ sessionId: s.sessionId, activeOrders: s.activeOrders.length, isActive: s.isActive })),
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 });
 

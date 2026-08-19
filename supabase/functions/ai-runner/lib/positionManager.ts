@@ -76,12 +76,12 @@ export async function tickPositionManager(params: {
   stopLossMode: 'FIXO' | 'DINAMICO';
   atrTrailingPeriod: number;
   atrTrailingMultiplier: number;
-}): Promise<{ closed: PositionCloseResult[]; slUpdates: Map<string, number>; prices: Map<string, number> }> {
+}): Promise<{ closed: PositionCloseResult[]; slUpdates: Map<string, number>; prices: Map<string, number>; priceFetchFailed: boolean }> {
   const { positions, timeframe, stopLossMode, atrTrailingPeriod, atrTrailingMultiplier } = params;
   const closed: PositionCloseResult[] = [];
   const slUpdates = new Map<string, number>();
   const prices = new Map<string, number>();
-  if (positions.length === 0) return { closed, slUpdates, prices };
+  if (positions.length === 0) return { closed, slUpdates, prices, priceFetchFailed: false };
 
   const uniqueSymbols = [...new Set(positions.map(p => p.symbol))];
   let priceMap: Record<string, RealMarketData>;
@@ -89,7 +89,7 @@ export async function tickPositionManager(params: {
     priceMap = await getBatchedMT5Data(uniqueSymbols);
   } catch (error) {
     console.error('[ai-runner/positionManager] getBatchedMT5Data falhou, pulando tick:', error);
-    return { closed, slUpdates, prices };
+    return { closed, slUpdates, prices, priceFetchFailed: true };
   }
 
   for (const pos of positions) {
@@ -150,7 +150,7 @@ export async function tickPositionManager(params: {
     closed.push({ id: pos.id, symbol: pos.symbol, exitPrice: nextPrice, pnl, reason: hitTP ? 'TP' : 'SL' });
   }
 
-  return { closed, slUpdates, prices };
+  return { closed, slUpdates, prices, priceFetchFailed: false };
 }
 
 /** Espelha `onTradeClose` (useAIPersistence.ts:256-296) — grava direto via service-role. */
