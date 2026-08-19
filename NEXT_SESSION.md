@@ -90,12 +90,42 @@ XBNUSD SHORT (entrada 09:20), XAUUSD LONG (14:01), XAUAUD LONG (14:04). Cron
 desabilitado (sem novas entradas). Verificar PnL final, reconciliar balance
 real vs dashboard.
 
-### 5. Redução de custo por trade — direção escolhida pelo Cleber, não avançada
+### 5. Redução de custo por trade — investigado, NÃO é a causa dominante da baixa performance
 
-Discussão interrompida pelo assunto de dimensionamento. Opções já
-levantadas: restringir universo de ativos às classes mais baratas
-(`CostModel.ts`), revisar experimento R:R 1:1,5→1:3 do preset 5 (rodando
-desde 08-17, ninguém revisou ainda), auditar `CostViabilityGate.ts`.
+Cleber perguntou "como seguir com a baixa performance" — investigação com
+dado real (Supabase, `wyvdsxtcmizettljxtbg`) achou 2 causas, uma corrigida
+nesta sessão, outra permanece estrutural:
+
+1. **[CORRIGIDO 2026-08-19] Experimento R:R 1:1,5→1:3 do preset 5 reprovado
+   e revertido.** 25 trades fechados entre 08-17 e 08-19, win rate **16%**
+   (4/25), PnL líquido −$11,78. Com R:R real observado ~2,5-3:1, breakeven
+   exige ~25-28% de acerto — 16% está bem abaixo, perda garantida por
+   construção, não sinal ruim genérico. O próprio código já tinha o gatilho
+   de reversão documentado ("reverter se a taxa de acerto cair demais") —
+   condição atendida, revertido sem precisar de novo pedido. Fix:
+   `atrTakeProfitMultiplier` volta de 3 pra 1.5 em
+   [presetStrategies.ts:290](src/app/data/presetStrategies.ts:290).
+   `npm run validate` limpo (37/37).
+2. **[INVESTIGADO, conclusão: não é prioridade agora] "Reduzir custo por
+   trade"** — hipótese original de Cleber. Query de 30 dias mostrou SPX500
+   (-$571 em 4 trades) e BTCUSD (-$110 em 13) dominando 97% da perda — mas
+   são trades de **2026-08-03/04**, de antes de todos os fixes de sizing
+   (pointValue, leverage, margem): `stop_loss=0`, `take_profit=0`,
+   `exit_reason='MANUAL'`, não representativos do motor atual. Refeita a
+   query restrita a `entry_time >= 2026-08-17` (era atual, pós-fixes):
+   perdas pequenas e uniformes por símbolo (-$1 a -$4), notional $400-$2000
+   — nessa escala o custo de spread/slippage (frações de centavo, ver
+   `research/CostModel.ts`) não é o que domina a perda. **Conclusão**: a
+   causa da baixa performance observada nesta janela era o item 1
+   (R:R mal calibrado), não custo de execução. Redução de custo continua
+   válida como alavanca de longo prazo (universo de ativos mais barato,
+   auditar `CostViabilityGate.ts`), mas os números atuais não a colocam como
+   prioridade imediata.
+
+**Próximo passo real**: deixar o preset 5 rodar de novo com R:R 1:1,5
+(revertido) por uma amostra nova, e só então reavaliar performance — a
+conclusão estrutural de fundo (EV ≈ −custo, sem edge comprovado, ver
+CLAUDE.md item 0) continua de pé e não muda com este fix.
 
 ---
 
