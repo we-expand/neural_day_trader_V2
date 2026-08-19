@@ -26,6 +26,10 @@ export interface OpenPosition {
   tp: number;
   sl: number;
   originalSl: number;
+  // Grupo de Pyramiding (migration 20260819_add_pyramid_group_columns.sql) —
+  // pyramidGroupId ausente = esta é a raiz do grupo (ou não é pyramiding).
+  pyramidGroupId?: string | null;
+  pyramidLayer?: number | null;
 }
 
 export interface PositionCloseResult {
@@ -175,6 +179,193 @@ export async function persistTrailingStopUpdate(tradeId: string, newSl: number):
   const sb = getServiceClient();
   const { error } = await sb.from('ai_trades').update({ stop_loss: newSl }).eq('id', tradeId);
   if (error) console.error('[ai-runner/positionManager] persistTrailingStopUpdate falhou:', error, tradeId);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PYRAMIDING — Take Profit Parcial e Fechar em Reversão (2026-08-19)
+// ════════════════════════════════════════════════════════════════════════
+// Por que aqui e não no client (useApexLogic.ts): ambas as features exigem
+// FECHAR (mesmo que parte de) uma posição — e desde 2026-08-18 o client não
+// tem mais autoridade de fechamento em DEMO (era exatamente essa autoridade
+// dupla client/servidor que corrompia balance em produção, ver
+// SESSAO_2026-08-18). Layer-adding/break-even/trailing continuam no client
+// porque só MOVEM SL (o servidor fecha depois pelo caminho normal de
+// TP/SL); Partial TP e reversão precisam fechar na hora, sem esperar SL/TP
+// cruzar — só o servidor pode fazer isso hoje.
+//
+// Convenção de fechamento parcial: NUNCA um UPDATE que reduz quantity sem
+// deixar rastro do que foi fechado — mesma regra de "nunca UPDATE silencioso
+// em dado financeiro" do CLAUDE.md. Fechamento parcial = INSERT de uma nova
+// linha CLOSED com a fração fechada (auditável, join por pyramid_group_id/
+// entry_time) + UPDATE reduzindo `quantity` da linha original (que continua
+// OPEN com o restante).
+
+export interface PyramidGroupPosition extends OpenPosition {
+  currentPrice?: number;
+}
+
+/**
+ * Fecha uma FRAÇÃO de uma posição aberta: insere uma nova linha CLOSED com
+ * a quantidade fechada (rastreável — nunca destrói a linha original) e
+ * reduz `quantity` da linha original, que continua OPEN.
+ */
+export async function partialClosePosition(params: {
+  sessionId: string;
+  userId: string;
+  position: OpenPosition;
+  closePercent: number; // 0-100
+  exitPrice: number;
+  reason: 'PARTIAL_TP' | 'REVERSAL';
+}): Promise<{ closedAmount: number; remainingAmount: number; pnl: number } | null> {
+  const { sessionId, userId, position, closePercent, exitPrice, reason } = params;
+  if (!(closePercent > 0) || !(exitPrice > 0)) return null;
+
+  const closedAmount = position.amount * Math.min(closePercent, 100) / 100;
+  const remainingAmount = position.amount - closedAmount;
+  if (!(closedAmount > 0)) return null;
+
+  const pnl = position.side === 'LONG'
+    ? (exitPrice - position.entryPrice) * (closedAmount / position.entryPrice)
+    : (position.entryPrice - exitPrice) * (closedAmount / position.entryPrice);
+
+  const sb = getServiceClient();
+  const { data: original, error: readErr } = await sb.from('ai_trades').select('*').eq('id', position.id).single();
+  if (readErr || !original) {
+    console.error('[ai-runner/positionManager] partialClosePosition: falha ao ler trade original', readErr, position.id);
+    return null;
+  }
+
+  const pnlPercentage = exitPrice > 0 ? (pnl / (exitPrice * 100)) * 100 : 0;
+  const { error: insertErr } = await sb.from('ai_trades').insert([{
+    session_id: sessionId,
+    user_id: userId,
+    symbol: original.symbol,
+    type: original.type,
+    side: original.side,
+    entry_price: original.entry_price,
+    exit_price: exitPrice,
+    quantity: closedAmount,
+    stop_loss: original.stop_loss,
+    take_profit: original.take_profit,
+    pnl,
+    pnl_percentage: pnlPercentage,
+    commission: 0,
+    net_pnl: pnl,
+    ai_confidence: original.ai_confidence,
+    ai_reasoning: `${original.ai_reasoning ?? ''} [fechamento parcial ${closePercent}% — ${reason}]`.trim(),
+    indicators_snapshot: original.indicators_snapshot,
+    entry_time: original.entry_time,
+    exit_time: new Date().toISOString(),
+    status: 'CLOSED',
+    exit_reason: 'AI_SIGNAL',
+    pyramid_group_id: original.pyramid_group_id,
+    pyramid_layer: original.pyramid_layer,
+  }]);
+  if (insertErr) {
+    console.error('[ai-runner/positionManager] partialClosePosition: falha ao inserir fração fechada', insertErr, position.id);
+    return null;
+  }
+
+  if (remainingAmount > 0) {
+    const { error: updateErr } = await sb.from('ai_trades').update({ quantity: remainingAmount }).eq('id', position.id);
+    if (updateErr) console.error('[ai-runner/positionManager] partialClosePosition: falha ao reduzir quantity restante (fração fechada já persistida)', updateErr, position.id);
+  } else {
+    // Fechou 100% — a linha original também precisa virar CLOSED (não pode
+    // ficar OPEN com quantity=0). Espelha persistPositionClose.
+    const { error: closeErr } = await sb.from('ai_trades').update({
+      exit_price: exitPrice, exit_time: new Date().toISOString(), pnl, pnl_percentage: pnlPercentage,
+      commission: 0, net_pnl: pnl, status: 'CLOSED', exit_reason: 'AI_SIGNAL',
+    }).eq('id', position.id);
+    if (closeErr) console.error('[ai-runner/positionManager] partialClosePosition: falha ao fechar linha original em 100%', closeErr, position.id);
+  }
+
+  return { closedAmount, remainingAmount, pnl };
+}
+
+export interface PyramidingConfigForServer {
+  partialTakeProfitEnabled: boolean;
+  partialTakeProfitPercent: number;
+  partialTakeProfitLayers: number[];
+  closeAllOnReversal: boolean;
+}
+
+/**
+ * Avalia Take Profit Parcial e Fechar-em-Reversão pra todos os grupos de
+ * pyramiding com posição OPEN. Chamado a cada tick do position manager,
+ * depois do TP/SL normal (`tickPositionManager`) já ter rodado.
+ *
+ * `reversalSignal`: direção do sinal de entrada MAIS RECENTE do motor pro
+ * símbolo do grupo, se disponível nesta invocação — vem do próprio ciclo de
+ * trading (`runTradingCycle`), nunca fabricado aqui. Sem sinal disponível
+ * (símbolo não avaliado neste tick), `closeAllOnReversal` não dispara —
+ * melhor não fechar do que fechar com base em um "sinal" inventado.
+ */
+export interface PyramidGroupUpdate {
+  orderId: string;
+  closedAmount: number;
+  remainingAmount: number;
+  pnl: number;
+  fullyClosed: boolean;
+}
+
+export async function evaluatePyramidGroups(params: {
+  sessionId: string;
+  userId: string;
+  positions: PyramidGroupPosition[]; // já com currentPrice preenchido pelo tick de TP/SL
+  cfg: PyramidingConfigForServer;
+  reversalSignalBySymbol: Map<string, 'LONG' | 'SHORT'>;
+  triggeredPartialLayersByGroup: Map<string, Set<number>>; // estado em memória da invocação — evita disparar 2x o mesmo layer
+}): Promise<PyramidGroupUpdate[]> {
+  const { sessionId, userId, positions, cfg, reversalSignalBySymbol, triggeredPartialLayersByGroup } = params;
+  const updates: PyramidGroupUpdate[] = [];
+  if (positions.length === 0) return updates;
+
+  const groups = new Map<string, PyramidGroupPosition[]>();
+  for (const pos of positions) {
+    const key = pos.pyramidGroupId ?? pos.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(pos);
+  }
+
+  for (const [groupKey, group] of groups) {
+    if (group.length < 2) continue; // sem layer adicionado, não é pyramid de fato
+
+    // Fechar em reversão — checa PRIMEIRO: se o grupo inteiro vai fechar,
+    // não faz sentido ainda avaliar TP parcial nele.
+    if (cfg.closeAllOnReversal) {
+      const symbol = group[0].symbol;
+      const groupSide = group[0].side;
+      const signal = reversalSignalBySymbol.get(symbol);
+      if (signal && signal !== groupSide) {
+        for (const pos of group) {
+          const exitPrice = pos.currentPrice && pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+          const result = await partialClosePosition({ sessionId, userId, position: pos, closePercent: 100, exitPrice, reason: 'REVERSAL' });
+          if (result) updates.push({ orderId: pos.id, closedAmount: result.closedAmount, remainingAmount: result.remainingAmount, pnl: result.pnl, fullyClosed: true });
+        }
+        continue; // grupo fechado (ou tentativa feita) — não avalia TP parcial
+      }
+    }
+
+    if (cfg.partialTakeProfitEnabled && cfg.partialTakeProfitLayers.length > 0) {
+      const maxLayerInGroup = Math.max(...group.map(p => p.pyramidLayer ?? 1));
+      let triggered = triggeredPartialLayersByGroup.get(groupKey);
+      if (!triggered) {
+        triggered = new Set();
+        triggeredPartialLayersByGroup.set(groupKey, triggered);
+      }
+      for (const targetLayer of cfg.partialTakeProfitLayers) {
+        if (maxLayerInGroup < targetLayer || triggered.has(targetLayer)) continue;
+        triggered.add(targetLayer);
+        for (const pos of group) {
+          const exitPrice = pos.currentPrice && pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+          const result = await partialClosePosition({ sessionId, userId, position: pos, closePercent: cfg.partialTakeProfitPercent, exitPrice, reason: 'PARTIAL_TP' });
+          if (result) updates.push({ orderId: pos.id, closedAmount: result.closedAmount, remainingAmount: result.remainingAmount, pnl: result.pnl, fullyClosed: result.remainingAmount <= 0 });
+        }
+      }
+    }
+  }
+
+  return updates;
 }
 
 /**

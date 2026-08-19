@@ -17,6 +17,7 @@ import { CurrencyConverter } from './tools/CurrencyConverter';
 import { useWorkspaces, WorkspaceSelector, Workspace } from './tools/WorkspaceManager';
 import { ResetAccountModal } from './tools/ResetAccountModal';
 import { AIToolsControl } from './dashboard/AIToolsControl';
+import { PyramidingConfigPanel, DEFAULT_PYRAMIDING_CONFIG } from './trading/PyramidingConfigPanel';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { brokerManager } from '@/app/services/brokers/BrokerAdapter';
 import { MT5Adapter } from '@/app/services/brokers/MT5Adapter';
@@ -1672,6 +1673,24 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                             />
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Pyramiding System — movido pra cá em 2026-08-19 (antes vivia
+                                    solto na página principal do AI Trader, dentro de AIToolsControl).
+                                    Botão único: liga o sistema todo (layers, break-even, trailing,
+                                    partial-TP, fechar-em-reversão) já com a proteção de risco
+                                    embutida, sem opt-in separado — ver PyramidingConfigPanel.tsx. */}
+                                <div className="lg:col-span-3">
+                                    <PyramidingConfigPanel
+                                        config={config.pyramiding ?? DEFAULT_PYRAMIDING_CONFIG}
+                                        onChange={(newConfig) => {
+                                            setConfig({ ...config, pyramiding: newConfig });
+                                            toast.success('Configuração do Pyramiding atualizada!', {
+                                                description: `${newConfig.maxLayers} camadas • ${newConfig.scalingStrategy}`,
+                                                duration: 2000
+                                            });
+                                        }}
+                                    />
                                 </div>
                             </div>
                         </div>

@@ -36,7 +36,7 @@ import type { Candle } from '../../../src/app/services/indicators/TechnicalIndic
 import { PRESET_STRATEGIES } from '../../../src/app/data/presetStrategies.ts';
 import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
-import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, type OpenPosition } from './lib/positionManager.ts';
+import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
 
 const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
@@ -59,6 +59,20 @@ interface RunnerSessionState {
   isActive: boolean;
   persistence: ReturnType<typeof createRunnerPersistence>;
   positionTickFailureStreak: number;
+  // Pyramiding (2026-08-19) — layers já dispara no client (openManualPosition
+  // grava pyramid_group_id/pyramid_layer, migration 20260819), mas Partial
+  // TP e fechar-em-reversão exigem fechar posição, autoridade só do
+  // servidor. `triggeredPartialLayers` evita disparar o mesmo layer 2x
+  // dentro da mesma invocação (efêmero de propósito — cross-invocação, se o
+  // layer já foi parcialmente fechado, o próximo maxLayerInGroup não muda,
+  // então não re-dispara mesmo sem este cache; ele só existe pra não
+  // fechar 2x no mesmo segundo). `reversalSignalCache` guarda a última
+  // leitura de `ai_decisions` por símbolo — sinal REAL já persistido pelo
+  // próprio motor, nunca fabricado aqui — refrescada a cada tradingCycleTick
+  // (5s) pra não bater no banco a cada tick de 1s do position manager.
+  triggeredPartialLayers: Map<string, Set<number>>;
+  reversalSignalCache: Map<string, 'LONG' | 'SHORT'>;
+  reversalSignalCacheAt: number;
 }
 
 const POSITION_TICK_FAILURE_ALERT_THRESHOLD = 10; // ~10s de falha consecutiva de preço dentro da mesma invocação
@@ -118,6 +132,8 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     reasoning: t.ai_reasoning ?? '',
     indicators: t.indicators_snapshot ?? {},
     currentProfit: 0,
+    pyramidGroupId: t.pyramid_group_id ?? undefined,
+    pyramidLayer: t.pyramid_layer ?? undefined,
   }));
 
   const orderHistory: TradeVisual[] = (closedToday ?? []).map((t: any) => ({
@@ -173,7 +189,74 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     isActive: true,
     persistence: createRunnerPersistence(sessionId, userId),
     positionTickFailureStreak: 0,
+    triggeredPartialLayers: new Map(),
+    reversalSignalCache: new Map(),
+    reversalSignalCacheAt: 0,
   };
+}
+
+/**
+ * Aplica PnL realizado (fechamento total, parcial, ou reversão) ao
+ * balance/equity em memória (pro RISK_GATE desta mesma invocação enxergar)
+ * e grava snapshot no banco — mesma lógica que já existia inline pro
+ * fechamento normal de TP/SL, extraída aqui pra ser reaproveitada pelo
+ * Pyramiding (Partial TP/reversão também realizam PnL, 2026-08-19).
+ */
+async function applyRealizedPnLAndSnapshot(s: RunnerSessionState, realizedPnL: number): Promise<void> {
+  const newBalance = s.portfolio.balance + realizedPnL;
+  const totalUnrealizedPnL = s.activeOrders.reduce((sum, o) => {
+    const price = o.currentPrice && o.currentPrice > 0 ? o.currentPrice : o.price;
+    const pnl = o.side === 'LONG'
+      ? (price - o.price) * (o.amount / o.price)
+      : (o.price - price) * (o.amount / o.price);
+    return sum + pnl;
+  }, 0);
+  const newEquity = newBalance + totalUnrealizedPnL;
+  const peakEquity = Math.max(s.portfolio.peakEquity ?? newEquity, newEquity);
+  const anchor = s.portfolio.dayAnchorEquity ?? newEquity;
+  const currentDrawdown = anchor > 0 && newEquity < anchor ? ((anchor - newEquity) / anchor) * 100 : 0;
+  s.portfolio = { ...s.portfolio, balance: newBalance, equity: newEquity, peakEquity, currentDrawdown };
+
+  await persistPortfolioSnapshot({
+    sessionId: s.sessionId,
+    userId: s.userId,
+    balance: newBalance,
+    equity: newEquity,
+    currentDrawdown,
+  });
+}
+
+/**
+ * Lê a decisão mais recente do próprio motor (`ai_decisions`, gravada por
+ * `runTradingCycle` a cada símbolo avaliado no ciclo de trading) por
+ * símbolo — fonte REAL de sinal de reversão, nunca fabricada aqui. Cache
+ * de ~`TRADING_CYCLE_TICK_MS` pra não bater no banco a cada tick de 1s do
+ * position manager. Símbolo não avaliado recentemente = sem entrada no
+ * mapa = `closeAllOnReversal` não dispara pra ele (melhor não fechar do
+ * que fechar com base em ausência de dado).
+ */
+async function refreshReversalSignalCache(s: RunnerSessionState, symbols: string[]): Promise<void> {
+  if (symbols.length === 0) return;
+  if (Date.now() - s.reversalSignalCacheAt < TRADING_CYCLE_TICK_MS) return;
+  s.reversalSignalCacheAt = Date.now();
+  const sb = getServiceClient();
+  const since = new Date(Date.now() - 15 * 60_000).toISOString(); // janela de frescor: 15min
+  const { data, error } = await sb
+    .from('ai_decisions')
+    .select('symbol, decision, timestamp')
+    .eq('session_id', s.sessionId)
+    .in('symbol', symbols)
+    .in('decision', ['BUY', 'SELL'])
+    .gte('timestamp', since)
+    .order('timestamp', { ascending: false });
+  if (error) {
+    console.error('[ai-runner] refreshReversalSignalCache falhou:', error);
+    return;
+  }
+  for (const row of data ?? []) {
+    if (s.reversalSignalCache.has(row.symbol)) continue; // já tem a mais recente (ordenado desc)
+    s.reversalSignalCache.set(row.symbol, row.decision === 'BUY' ? 'LONG' : 'SHORT');
+  }
 }
 
 async function positionManagerTick(s: RunnerSessionState): Promise<void> {
@@ -218,34 +301,63 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
       console.log(`[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} (pnl=${c.pnl.toFixed(2)})`);
       await persistPositionClose(s.sessionId, c);
     }
-
     // Atualiza balance/equity em memória (pro RISK_GATE desta mesma invocação
     // enxergar o fechamento) e grava snapshot — sem isto o balance gravado no
     // banco fica travado no valor do último snapshot do CLIENTE indefinidamente
     // sempre que o servidor fecha uma posição sem o cliente saber (achado
     // 2026-08-18, ver comentário em persistPortfolioSnapshot).
     const realizedPnL = closed.reduce((sum, c) => sum + c.pnl, 0);
-    const newBalance = s.portfolio.balance + realizedPnL;
-    const totalUnrealizedPnL = s.activeOrders.reduce((sum, o) => {
-      const price = o.currentPrice && o.currentPrice > 0 ? o.currentPrice : o.price;
-      const pnl = o.side === 'LONG'
-        ? (price - o.price) * (o.amount / o.price)
-        : (o.price - price) * (o.amount / o.price);
-      return sum + pnl;
-    }, 0);
-    const newEquity = newBalance + totalUnrealizedPnL;
-    const peakEquity = Math.max(s.portfolio.peakEquity ?? newEquity, newEquity);
-    const anchor = s.portfolio.dayAnchorEquity ?? newEquity;
-    const currentDrawdown = anchor > 0 && newEquity < anchor ? ((anchor - newEquity) / anchor) * 100 : 0;
-    s.portfolio = { ...s.portfolio, balance: newBalance, equity: newEquity, peakEquity, currentDrawdown };
+    await applyRealizedPnLAndSnapshot(s, realizedPnL);
+  }
 
-    await persistPortfolioSnapshot({
+  // Pyramiding — Take Profit Parcial e Fechar em Reversão (2026-08-19). Só
+  // avalia se sobrou pelo menos 1 grupo com 2+ camadas (`length < 2` já
+  // filtra dentro de evaluatePyramidGroups, mas o find abaixo evita o custo
+  // de refresh do cache de sinal quando não há nenhum grupo pra avaliar).
+  const pyramidCfg = s.config.pyramiding;
+  const pyramidGroupCounts = new Map<string, number>();
+  for (const o of s.activeOrders) {
+    const key = o.pyramidGroupId ?? o.id;
+    pyramidGroupCounts.set(key, (pyramidGroupCounts.get(key) ?? 0) + 1);
+  }
+  const hasRealPyramidGroup = [...pyramidGroupCounts.values()].some(count => count >= 2);
+  if (pyramidCfg?.enabled && hasRealPyramidGroup) {
+    if (pyramidCfg.closeAllOnReversal) {
+      const groupSymbols = [...new Set(
+        s.activeOrders
+          .filter(o => (pyramidGroupCounts.get(o.pyramidGroupId ?? o.id) ?? 0) >= 2)
+          .map(o => o.symbol)
+      )];
+      await refreshReversalSignalCache(s, groupSymbols);
+    }
+    const positionsForPyramid: PyramidGroupPosition[] = s.activeOrders.map(o => ({
+      id: o.id, symbol: o.symbol, side: o.side, amount: o.amount,
+      entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
+      pyramidGroupId: o.pyramidGroupId ?? null, pyramidLayer: o.pyramidLayer ?? null,
+      currentPrice: o.currentPrice,
+    }));
+    const updates = await evaluatePyramidGroups({
       sessionId: s.sessionId,
       userId: s.userId,
-      balance: newBalance,
-      equity: newEquity,
-      currentDrawdown,
+      positions: positionsForPyramid,
+      cfg: pyramidCfg,
+      reversalSignalBySymbol: s.reversalSignalCache,
+      triggeredPartialLayersByGroup: s.triggeredPartialLayers,
     });
+    if (updates.length > 0) {
+      let realizedPnL = 0;
+      for (const u of updates) {
+        realizedPnL += u.pnl;
+        if (u.fullyClosed) {
+          s.activeOrders = s.activeOrders.filter(o => o.id !== u.orderId);
+        } else {
+          const order = s.activeOrders.find(o => o.id === u.orderId);
+          if (order) order.amount = u.remainingAmount;
+        }
+        console.log(`[ai-runner] PYRAMIDING: ${u.fullyClosed ? 'fechado 100%' : `fechado ${u.closedAmount.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`} — trade ${u.orderId} (pnl=${u.pnl.toFixed(2)})`);
+      }
+      await applyRealizedPnLAndSnapshot(s, realizedPnL);
+    }
   }
 }
 

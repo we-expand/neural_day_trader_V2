@@ -11,6 +11,10 @@ import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { DEFAULT_ANALYSIS_BASKET } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
+import { evaluateContextGate } from '@/app/services/risk/ContextGate';
+import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
+import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass';
+import { estimateCostPercent } from '../../../research/CostModel';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
@@ -365,6 +369,52 @@ export function useApexLogic(
       }
     }
     return null;
+  };
+
+  // Busca candles frescos (< 5min) do MESMO cache usado por getFreshAtr —
+  // sem chamada de rede extra, sem candle fresco retorna null.
+  const getFreshCandles = (symbol: string) => {
+    for (const [bufKey, bufEntry] of candleBufferRef.current) {
+      if (bufKey.startsWith(`${symbol}_`) && Date.now() - bufEntry.fetchedAt < 5 * 60_000) return bufEntry.candles;
+    }
+    return null;
+  };
+
+  // 🆕 2026-08-19: gate de risco real do Pyramiding — substitui o antigo
+  // "AI Risk Analysis" (opt-in, nunca implementado, inventaria critério de
+  // "momentum"/"divergência" que não existia em lugar nenhum do projeto).
+  // Em vez de inventar um critério novo, roda os MESMOS 3 gates reais que
+  // toda entrada normal do motor já passa (`runTradingCycle.ts`) — sem
+  // opt-in, sempre que o Pyramiding estiver ligado: um único botão, "liga o
+  // sistema" já inclui a proteção.
+  const evaluatePyramidLayerRiskGate = (symbol: string, side: 'LONG' | 'SHORT', currentPrice: number, targetPrice: number | undefined): { approved: boolean; reason: string } => {
+    // 1. Mesmo limite de drawdown que o RiskManager usa pra qualquer entrada nova.
+    if (portfolioRef.current.currentDrawdown >= configRef.current.maxDrawdown) {
+      return { approved: false, reason: `drawdown atual (${portfolioRef.current.currentDrawdown.toFixed(1)}%) já no limite configurado (${configRef.current.maxDrawdown}%)` };
+    }
+
+    // 2. ContextGate — mesmo gate de regime de mercado usado em toda entrada nova.
+    const candles = getFreshCandles(symbol);
+    if (candles) {
+      const ctx = evaluateContextGate(candles, side);
+      if (!ctx.podeOperar) return { approved: false, reason: `ContextGate: ${ctx.motivo}` };
+    }
+    // Sem candle fresco: não bloqueia por isso (mesmo comportamento de
+    // "sem dado suficiente, não fabrica veto" já usado pro resto do gate) —
+    // mas os outros 2 checks continuam valendo.
+
+    // 3. CostViabilityGate — mesma fórmula exata de runTradingCycle.ts
+    // (custo round-trip vs. distância até o alvo).
+    if (targetPrice && targetPrice > 0 && currentPrice > 0) {
+      const pointValue = getPointValue(symbol);
+      const { assetClass } = resolveCostAssetClass(symbol);
+      const costPercent = estimateCostPercent(assetClass, currentPrice, pointValue) * 2 * 100;
+      const movementPercent = (Math.abs(targetPrice - currentPrice) / currentPrice) * 100;
+      const viability = evaluateCostViability(costPercent, movementPercent);
+      if (!viability.approved) return { approved: false, reason: `CostViabilityGate: ${viability.reason}` };
+    }
+
+    return { approved: true, reason: 'ok' };
   };
 
   // Gerenciamento de Risco: timestamp (ms) até quando novas entradas ficam bloqueadas por cooldown
@@ -2030,6 +2080,17 @@ export function useApexLogic(
         const tpDistance = order.tp > 0 ? Math.abs(order.tp - order.price) : 0;
         const newSl = slDistance > 0 ? (order.side === 'LONG' ? currentPrice - slDistance : currentPrice + slDistance) : undefined;
         const newTp = tpDistance > 0 ? (order.side === 'LONG' ? currentPrice + tpDistance : currentPrice - tpDistance) : undefined;
+
+        // Gate de risco real — sempre ativo (Pyramiding ligado já inclui a
+        // proteção, sem opt-in separado, ver comentário em
+        // evaluatePyramidLayerRiskGate). Recusa o layer sem contar como
+        // "tentativa consumida" — pode disparar de novo no próximo tick se
+        // o cenário melhorar.
+        const riskGate = evaluatePyramidLayerRiskGate(order.symbol, order.side, currentPrice, newTp);
+        if (!riskGate.approved) {
+          addLog(`🛑 PYRAMIDING: layer recusado em ${order.symbol} — ${riskGate.reason}`);
+          continue;
+        }
 
         const isFirstLayer = state.layers === 1;
         // pyramid_group_id precisa ser o id de BANCO da raiz, não o id local

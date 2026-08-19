@@ -31,8 +31,7 @@ import {
   ShieldCheck,
   Brain,
   X,
-  Check,
-  Layers
+  Check
 } from 'lucide-react';
 import {
   Dialog,
@@ -42,7 +41,6 @@ import {
   DialogTitle,
 } from '@/app/components/ui/dialog';
 import { ATRTrailingStopManager } from '@/app/components/tools/ATRTrailingStopManager';
-import { PyramidingConfigPanel, DEFAULT_PYRAMIDING_CONFIG, type PyramidingConfig } from '@/app/components/trading/PyramidingConfigPanel';
 import { useTradingContext } from '@/app/contexts/TradingContext';
 
 interface AITool {
@@ -74,7 +72,6 @@ export function AIToolsControl() {
   const { aiConfig, updateAIConfig, activeOrders } = useTradingContext();
 
   const atrEnabled = aiConfig.stopLossMode === 'DINAMICO';
-  const pyramidingEnabled = aiConfig.pyramiding?.enabled ?? false;
 
   // Métricas REAIS do ATR Trailing Stop: só conta posições elegíveis pro
   // trailing (originalSl > 0) enquanto o modo DINAMICO está ligado. Lucro
@@ -91,17 +88,6 @@ export function AIToolsControl() {
     return { posicoesAtivas: eligible.length, lucroProtegido, movimentos };
   }, [atrEnabled, activeOrders]);
 
-  // Métricas REAIS do Pyramiding: grupos com pelo menos 1 layer adicionado.
-  const pyramidMetrics = useMemo(() => {
-    if (!pyramidingEnabled) return { posicoesEmpilhadas: 0, lucroAdicional: 0, winRate: null as number | null };
-    // Camadas adicionadas = ordens com pyramidGroupId setado (layer 2+)
-    const addedLayers = activeOrders.filter(o => o.pyramidGroupId);
-    const lucroAdicional = addedLayers.reduce((sum, o) => sum + (o.currentProfit || 0), 0);
-    const winningLayers = addedLayers.filter(o => (o.currentProfit || 0) > 0).length;
-    const winRate = addedLayers.length > 0 ? (winningLayers / addedLayers.length) * 100 : null;
-    return { posicoesEmpilhadas: addedLayers.length, lucroAdicional, winRate };
-  }, [pyramidingEnabled, activeOrders]);
-
   const tools: AITool[] = [
     // ✅ REMOVIDO: Detector de Liquidez (agora está na sidebar do ChartView)
     {
@@ -115,19 +101,6 @@ export function AIToolsControl() {
         { label: 'Posições Ativas', value: atrMetrics.posicoesAtivas },
         { label: 'Lucro Protegido', value: `$${atrMetrics.lucroProtegido.toFixed(0)}` },
         { label: 'Movimentos', value: atrMetrics.movimentos }
-      ]
-    },
-    {
-      id: 'pyramiding',
-      name: 'Pyramiding System',
-      description: 'Adiciona posições automaticamente em tendências favoráveis',
-      icon: Layers,
-      enabled: pyramidingEnabled,
-      status: pyramidingEnabled ? 'active' : 'idle',
-      metrics: [
-        { label: 'Posições Empilhadas', value: pyramidMetrics.posicoesEmpilhadas },
-        { label: 'Lucro Adicional', value: `${pyramidMetrics.lucroAdicional >= 0 ? '+' : ''}$${pyramidMetrics.lucroAdicional.toFixed(0)}` },
-        { label: 'Win Rate', value: pyramidMetrics.winRate !== null ? `${pyramidMetrics.winRate.toFixed(0)}%` : '—' }
       ]
     }
   ];
@@ -176,8 +149,6 @@ export function AIToolsControl() {
   const toggleTool = (toolId: string) => {
     if (toolId === 'atr-trailing-stop') {
       updateAIConfig({ stopLossMode: atrEnabled ? 'FIXO' : 'DINAMICO' });
-    } else if (toolId === 'pyramiding') {
-      updateAIConfig({ pyramiding: { ...(aiConfig.pyramiding ?? DEFAULT_PYRAMIDING_CONFIG), enabled: !pyramidingEnabled } });
     }
   };
 
@@ -508,21 +479,12 @@ export function AIToolsControl() {
             </div>
           )}
 
-          {/* ✅ PYRAMIDING SYSTEM CONFIGURATION */}
-          {selectedTool?.id === 'pyramiding' && (
-            <div className="mt-6">
-              <PyramidingConfigPanel
-                config={aiConfig.pyramiding ?? DEFAULT_PYRAMIDING_CONFIG}
-                onChange={(newConfig) => {
-                  updateAIConfig({ pyramiding: newConfig }); // grava direto no config real lido pelo motor
-                  toast.success('Configuração do Pyramiding atualizada!', {
-                    description: `${newConfig.maxLayers} camadas • ${newConfig.scalingStrategy}`,
-                    duration: 2000
-                  });
-                }}
-              />
-            </div>
-          )}
+          {/* Pyramiding System saiu daqui em 2026-08-19 — configuração agora
+              vive em Configurações do AI Trader, logo abaixo de "Alerta de
+              Correlação entre Posições" (AITrader.tsx). Pedido do Cleber:
+              não fazia sentido ter o Pyramiding como "ferramenta" solta na
+              página principal quando o resto da configuração do motor já
+              vive nas Configurações. */}
         </DialogContent>
       </Dialog>
     </Card>
