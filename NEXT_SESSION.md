@@ -1,16 +1,38 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-19** (19ª parte — reescrita completa, não empilhada).
+> Reescrito em **2026-08-19** (20ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 
-**Detalhe completo da sessão de 2026-08-19 (2 partes)**:
+**Detalhe completo da sessão de 2026-08-19 (3 partes)**:
 [SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md](SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md)
-(parte 1 — zumbis, cron, diagnóstico de performance) e
+(parte 1 — zumbis, cron, diagnóstico de performance),
 [SESSAO_2026-08-19_GATE_DE_MARGEM.md](SESSAO_2026-08-19_GATE_DE_MARGEM.md)
-(parte 2 — dimensionamento de posição, gate de margem por leverage). Resumo
-do que importa pra continuar abaixo.
+(parte 2 — dimensionamento de posição, gate de margem por leverage) e
+[SESSAO_2026-08-19_PYRAMIDING_COMPLETO.md](SESSAO_2026-08-19_PYRAMIDING_COMPLETO.md)
+(parte 3 — Pyramiding System levado de decorativo a 100% real, unificado
+num botão só, movido pra Configurações). Resumo do que importa pra
+continuar abaixo.
+
+### -1. **[NOVO, ATIVO] Pyramiding System — implementado 100%, sem teste real ainda**
+
+Break-even/emergency-stop (estavam quebrados desde 08-18), Trailing Stop
+(era decorativo), Take Profit Parcial e Fechar-em-Reversão (não existiam)
+— todos implementados nesta sessão. Fechamento parcial/reversão só o
+servidor pode executar (`ai-runner`), por isso precisou de migration nova
+(`pyramid_group_id`/`pyramid_layer` em `ai_trades`, **já aplicada pelo
+Cleber**). "AI Risk Analysis" (opt-in separado, nunca implementado) foi
+removido — a pedido do Cleber, virou proteção sempre ativa embutida no
+próprio botão "Pyramiding" (3 gates reais do motor: drawdown, ContextGate,
+CostViabilityGate). Painel saiu da página principal do AI Trader e agora
+vive em Configurações, abaixo de "Alerta de Correlação entre Posições".
+Detalhe completo: `SESSAO_2026-08-19_PYRAMIDING_COMPLETO.md`.
+
+**Próximo passo obrigatório**: deploy de teste
+(`supabase functions deploy ai-runner --no-verify-jwt`) e observar um ciclo
+completo real (layer → break-even/trailing → Partial TP/reversão →
+fechamento no servidor) — nunca rodou contra o Supabase de verdade.
 
 ### 0. **[RESOLVIDO 2026-08-19, verificado por fora do relato do Cleber] "Push não aparece na Vercel" — era falso alarme**
 
