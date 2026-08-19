@@ -27,9 +27,10 @@ export function amountToLotSize(symbol: string, amountUsd: number, price: number
   }
 
   // Valor nocional em unidades do ativo, depois convertido para lotes.
-  // `amount` já é o capital alocado à posição (não a margem) — leverage do
-  // asset é informativo de UI, não entra nesta conta (decisão de projeto,
-  // ver plano do Estágio 2).
+  // `amount` já é o capital alocado à posição (não a margem) — leverage não
+  // entra NESTA conversão porque já foi usado rio acima, em
+  // clampToMarginAffordability() (runTradingCycle.ts, 2026-08-19), pra
+  // limitar `amount` à margem que a conta suporta antes de chegar aqui.
   const units = amountUsd / price;
   const rawLots = units / asset.lotSize;
 

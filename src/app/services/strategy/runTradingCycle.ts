@@ -18,7 +18,7 @@ import type { Candle } from '@/app/services/indicators/TechnicalIndicators.ts';
 import { backtestDataService } from '@/app/services/BacktestDataService.ts';
 import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine.ts';
 import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataService.ts';
-import { getPointValue } from '@/app/services/strategy/TradeSizing.ts';
+import { getPointValue, clampToMarginAffordability, MAX_MARGIN_UTILIZATION_PERCENT } from '@/app/services/strategy/TradeSizing.ts';
 import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass.ts';
 import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate.ts';
@@ -1177,6 +1177,24 @@ async function analyzeAsset(
         const cappedCapital = aiConfig.maxContracts * lotSize * currentPrice;
         console.log(`[POSITION SIZING] ✂️ ${selectedSymbol}: ${estimatedLots.toFixed(4)} lotes calculados > teto de ${aiConfig.maxContracts} — nocional reduzido de $${tradeCapital.toFixed(2)} para $${cappedCapital.toFixed(2)}`);
         tradeCapital = cappedCapital;
+      }
+    }
+
+    // 2026-08-19: GATE DE MARGEM — `leverage` do catálogo nunca entrava no
+    // cálculo de tamanho (lotSizeConversion.ts dizia explicitamente "leverage
+    // é informativo de UI"). Dois ativos com o MESMO nocional podem exigir
+    // margens muito diferentes (catálogo: FOREX_MAJOR 500-1000x vs CRYPTO
+    // 5x) — sem isso, o motor podia calcular um nocional que a conta não tem
+    // margem livre pra sustentar. Fórmula padrão de mercado (margem =
+    // nocional / leverage), pesquisa 2026-08-19 (Alpari/Pepperstone/
+    // BlackBull/XTB) — ver SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md.
+    // Nunca aumenta o nocional, só reduz (mesma filosofia do teto acima).
+    const assetForMargin = getAssetBySymbol(selectedSymbol);
+    if (assetForMargin) {
+      const marginCheck = clampToMarginAffordability(tradeCapital, assetForMargin.leverage, currentBalance);
+      if (marginCheck.clamped) {
+        console.log(`[POSITION SIZING] 🏦 ${selectedSymbol}: margem exigida excederia ${(MAX_MARGIN_UTILIZATION_PERCENT * 100).toFixed(0)}% do balance ($${(currentBalance * MAX_MARGIN_UTILIZATION_PERCENT).toFixed(2)}) — nocional reduzido de $${tradeCapital.toFixed(2)} para $${marginCheck.notionalUsd.toFixed(2)} (margem exigida: $${marginCheck.requiredMargin.toFixed(2)}, leverage ${assetForMargin.leverage}x)`);
+        tradeCapital = marginCheck.notionalUsd;
       }
     }
 
