@@ -63,6 +63,10 @@ interface TradeData {
   timestamp: number;
   reasoning: string;
   indicators?: any;
+  // Grupo de Pyramiding — pyramidGroupId deve ser o id de BANCO (resolvido
+  // via resolveDbTradeId) do trade raiz, nunca o id local do React.
+  pyramidGroupId?: string | null;
+  pyramidLayer?: number | null;
 }
 
 interface PortfolioData {
@@ -234,6 +238,8 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         entry_time: new Date(trade.timestamp).toISOString(),
         status: 'OPEN',
         commission: 0, // Será calculado ao fechar
+        pyramid_group_id: trade.pyramidGroupId ?? null,
+        pyramid_layer: trade.pyramidLayer ?? null,
       };
 
       const tradeId = await aiPersistence.saveTrade(tradeData);
@@ -293,6 +299,33 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao fechar trade:`, error);
       options.onPersistenceError?.('trade_close', error);
+    }
+  }, [options.enabled, options.onPersistenceError]);
+
+  /**
+   * Resolve id local (React) -> id de banco. Mesmo fallback usado por
+   * onTradeClose/updateTradeStopLoss (posição restaurada do Supabase após
+   * reload já tem o id local = id de banco). Necessário pra gravar
+   * `pyramid_group_id` corretamente — a FK precisa do id real da linha.
+   */
+  const resolveDbTradeId = useCallback((tradeId: string): string => {
+    return tradeDbIdsRef.current.get(tradeId) || tradeId;
+  }, []);
+
+  /**
+   * Marca a raiz de um grupo de Pyramiding (`pyramid_layer = 1`) — chamado
+   * na hora em que o PRIMEIRO layer é adicionado (até ali, o trade raiz não
+   * tinha nenhuma marca de grupo, porque foi aberto antes de virar raiz).
+   */
+  const markPyramidRoot = useCallback(async (tradeId: string): Promise<boolean> => {
+    if (!options.enabled) return false;
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
+    try {
+      return await aiPersistence.updateTrade(dbTradeId, { pyramid_layer: 1 });
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao marcar raiz do grupo de Pyramiding:`, error);
+      options.onPersistenceError?.('stop_loss_update', error);
+      return false;
     }
   }, [options.enabled, options.onPersistenceError]);
 
@@ -516,6 +549,8 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     onTradeOpen,
     onTradeClose,
     updateTradeStopLoss,
+    resolveDbTradeId,
+    markPyramidRoot,
 
     // Portfolio
     savePortfolioSnapshot,

@@ -73,6 +73,13 @@ export interface AITrade {
   exit_reason?: 'TP' | 'SL' | 'MANUAL' | 'TIMEOUT' | 'AI_SIGNAL';
   created_at?: string;
   updated_at?: string;
+  // Grupo de Pyramiding (migration 20260819_add_pyramid_group_columns.sql) —
+  // pyramid_group_id aponta pro id (DB) do trade RAIZ do grupo; ausente na
+  // própria raiz. Sem isto o ai-runner não tinha como saber quais trades
+  // formam um grupo de pyramiding, bloqueando qualquer fechamento (mesmo
+  // parcial) desse grupo no servidor.
+  pyramid_group_id?: string | null;
+  pyramid_layer?: number | null;
 }
 
 export interface PortfolioSnapshot {

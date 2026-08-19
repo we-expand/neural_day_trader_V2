@@ -1872,6 +1872,11 @@ export function useApexLogic(
     entryPrice: number;
     stopLoss?: number;
     takeProfit?: number;
+    // Preenchidos só pelo Pyramiding ao adicionar um layer — pyramidGroupId
+    // precisa ser o id de BANCO do trade raiz (resolvido via
+    // resolveDbTradeId), nunca o id local do React.
+    pyramidGroupId?: string;
+    pyramidLayer?: number;
   }): { success: boolean; error?: string; tradeId?: string } => {
     console.error('🟢[useApexLogic] openManualPosition chamado', params);
     const asset = getAssetBySymbol(params.symbol);
@@ -1912,6 +1917,8 @@ export function useApexLogic(
       timestamp: Date.now(),
       reasoning: 'Ordem manual do usuário',
       indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+      pyramidGroupId: params.pyramidGroupId,
+      pyramidLayer: params.pyramidLayer,
     };
 
     setActiveOrders(prev => {
@@ -1935,6 +1942,8 @@ export function useApexLogic(
         timestamp: newTrade.timestamp,
         reasoning: newTrade.reasoning,
         indicators: newTrade.indicators,
+        pyramidGroupId: newTrade.pyramidGroupId ?? null,
+        pyramidLayer: newTrade.pyramidLayer ?? null,
       });
     }
 
@@ -1955,6 +1964,11 @@ export function useApexLogic(
   // fabrica um número, e a UI (PyramidingConfigPanel.tsx) desabilita essas
   // opções pra não sugerir que funcionam.
   const pyramidStateRef = useRef<Map<string, { layers: number; lastLayerPrice: number; breakEvenApplied: boolean }>>(new Map());
+  // Trailing stop do Pyramiding (2026-08-19) — chave é o id do order se
+  // `trailingStopPerLayer`, senão a chave do grupo (`pyramidGroupId ?? id`
+  // da raiz). Guarda o melhor preço já visto a favor do trade (high-water
+  // mark), nunca o SL em si — o SL ratcheta a partir daqui + distância.
+  const pyramidTrailingHwmRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!isActive || isPaused || isSafeMode) return;
@@ -2017,6 +2031,13 @@ export function useApexLogic(
         const newSl = slDistance > 0 ? (order.side === 'LONG' ? currentPrice - slDistance : currentPrice + slDistance) : undefined;
         const newTp = tpDistance > 0 ? (order.side === 'LONG' ? currentPrice + tpDistance : currentPrice - tpDistance) : undefined;
 
+        const isFirstLayer = state.layers === 1;
+        // pyramid_group_id precisa ser o id de BANCO da raiz, não o id local
+        // do React — sem isto o FK gravado no banco fica errado (achado
+        // 2026-08-19, ver migration 20260819_add_pyramid_group_columns.sql).
+        const groupDbId = persistenceRef.current.resolveDbTradeId(order.id);
+        const newLayerNumber = state.layers + 1;
+
         const result = openManualPosition({
           symbol: order.symbol,
           side: order.side,
@@ -2024,9 +2045,12 @@ export function useApexLogic(
           entryPrice: currentPrice,
           stopLoss: newSl,
           takeProfit: newTp,
+          pyramidGroupId: groupDbId,
+          pyramidLayer: newLayerNumber,
         });
 
         if (result.success && result.tradeId) {
+          if (isFirstLayer) persistenceRef.current.markPyramidRoot(order.id);
           state.layers += 1;
           state.lastLayerPrice = currentPrice;
           const layerNumber = state.layers;
@@ -2048,6 +2072,80 @@ export function useApexLogic(
             // Achado e corrigido 2026-08-19.
             persistenceRef.current.updateTradeStopLoss(groupId, order.price);
             addLog(`🛡️ PYRAMIDING: break-even aplicado em ${order.symbol} (${state.layers} layers)`);
+          }
+        }
+      }
+
+      // Trailing Stop do Pyramiding (núcleo real, 2026-08-19 — antes era
+      // decorativo: config existia, motor nunca lia). Ratcheta o SL a favor
+      // do trade conforme o preço avança, nunca solta de volta — mesma regra
+      // do trailing normal (positionManager.ts/useApexLogic PNL loop), só que
+      // com a distância/tipo PRÓPRIOS do Pyramiding (`trailingStopType`/
+      // `trailingStopDistance`), não os do trailing de posição única.
+      // `trailingStopPerLayer=true`: cada camada tem seu próprio high-water
+      // mark e SL, ratchetados independentemente. `false`: uma única "melhor
+      // marca" por grupo, e o mesmo SL calculado é aplicado a TODAS as
+      // camadas do grupo (elas se protegem juntas).
+      if (cfg.trailingStopEnabled) {
+        const distanceFor = (symbol: string, refPrice: number): number | null => {
+          if (cfg.trailingStopType === 'percent') return refPrice * (cfg.trailingStopDistance / 100);
+          if (cfg.trailingStopType === 'pips') return cfg.trailingStopDistance * getPointValue(symbol);
+          if (cfg.trailingStopType === 'atr') {
+            const atr = getFreshAtr(symbol, configRef.current.atrTrailingPeriod);
+            return atr !== null ? atr * cfg.trailingStopDistance : null;
+          }
+          return null;
+        };
+
+        const groupsForTrailing = new Map<string, TradeVisual[]>();
+        for (const order of activeOrdersRef.current) {
+          const key = order.pyramidGroupId ?? order.id;
+          if (!groupsForTrailing.has(key)) groupsForTrailing.set(key, []);
+          groupsForTrailing.get(key)!.push(order);
+        }
+
+        for (const [groupKey, group] of groupsForTrailing) {
+          if (group.length < 2) continue; // sem layer adicionado, não é pyramid de fato — trailing normal já cobre isso
+
+          if (cfg.trailingStopPerLayer) {
+            for (const o of group) {
+              const currentPrice = o.currentPrice || o.price;
+              const distance = distanceFor(o.symbol, currentPrice);
+              if (distance === null || distance <= 0) continue;
+              const prevHwm = pyramidTrailingHwmRef.current.get(o.id) ?? o.price;
+              const newHwm = o.side === 'LONG' ? Math.max(prevHwm, currentPrice) : Math.min(prevHwm, currentPrice);
+              pyramidTrailingHwmRef.current.set(o.id, newHwm);
+              const candidateSl = o.side === 'LONG' ? newHwm - distance : newHwm + distance;
+              const ratchetedSl = o.sl > 0
+                ? (o.side === 'LONG' ? Math.max(o.sl, candidateSl) : Math.min(o.sl, candidateSl))
+                : candidateSl;
+              if (ratchetedSl > 0 && ratchetedSl !== o.sl) {
+                setActiveOrders(prev => prev.map(x => x.id === o.id ? { ...x, sl: ratchetedSl } : x));
+                persistenceRef.current.updateTradeStopLoss(o.id, ratchetedSl);
+              }
+            }
+          } else {
+            const side = group[0].side;
+            const symbol = group[0].symbol;
+            const groupExtremePrice = group.reduce((best, o) => {
+              const cp = o.currentPrice || o.price;
+              return side === 'LONG' ? Math.max(best, cp) : Math.min(best, cp);
+            }, group[0].currentPrice || group[0].price);
+            const distance = distanceFor(symbol, groupExtremePrice);
+            if (distance === null || distance <= 0) continue;
+            const prevHwm = pyramidTrailingHwmRef.current.get(groupKey) ?? groupExtremePrice;
+            const newHwm = side === 'LONG' ? Math.max(prevHwm, groupExtremePrice) : Math.min(prevHwm, groupExtremePrice);
+            pyramidTrailingHwmRef.current.set(groupKey, newHwm);
+            const candidateSl = side === 'LONG' ? newHwm - distance : newHwm + distance;
+            for (const o of group) {
+              const ratchetedSl = o.sl > 0
+                ? (side === 'LONG' ? Math.max(o.sl, candidateSl) : Math.min(o.sl, candidateSl))
+                : candidateSl;
+              if (ratchetedSl > 0 && ratchetedSl !== o.sl) {
+                setActiveOrders(prev => prev.map(x => x.id === o.id ? { ...x, sl: ratchetedSl } : x));
+                persistenceRef.current.updateTradeStopLoss(o.id, ratchetedSl);
+              }
+            }
           }
         }
       }
@@ -2081,6 +2179,8 @@ export function useApexLogic(
             }
             addLog(`🚨 PYRAMIDING EMERGENCY STOP: grupo em ${group[0].symbol} a ${pnlPercent.toFixed(1)}% — fechando todas as camadas`);
             pyramidStateRef.current.delete(key);
+            pyramidTrailingHwmRef.current.delete(key);
+            for (const o of group) pyramidTrailingHwmRef.current.delete(o.id);
           }
         }
       }
