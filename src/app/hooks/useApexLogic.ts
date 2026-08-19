@@ -2042,6 +2042,11 @@ export function useApexLogic(
             setActiveOrders(prev => prev.map(o => o.id === groupId
               ? { ...o, sl: o.price, originalSl: o.price }
               : o));
+            // Persiste no banco — sem isto o ajuste só existia em memória e o
+            // ai-runner (autoridade real de fechamento em DEMO desde 2026-08-18)
+            // nunca via o novo SL, tornando este break-even um no-op silencioso.
+            // Achado e corrigido 2026-08-19.
+            persistenceRef.current.updateTradeStopLoss(groupId, order.price);
             addLog(`🛡️ PYRAMIDING: break-even aplicado em ${order.symbol} (${state.layers} layers)`);
           }
         }
@@ -2068,6 +2073,12 @@ export function useApexLogic(
             setActiveOrders(prev => prev.map(o => (o.pyramidGroupId === key || o.id === key)
               ? { ...o, sl: o.currentPrice || o.price }
               : o));
+            // Persiste no banco pra cada camada do grupo — mesma correção do
+            // break-even acima: sem isto o ai-runner nunca via o SL movido pro
+            // preço atual e o "emergency stop" não fechava nada de verdade.
+            for (const o of group) {
+              persistenceRef.current.updateTradeStopLoss(o.id, o.currentPrice || o.price);
+            }
             addLog(`🚨 PYRAMIDING EMERGENCY STOP: grupo em ${group[0].symbol} a ${pnlPercent.toFixed(1)}% — fechando todas as camadas`);
             pyramidStateRef.current.delete(key);
           }

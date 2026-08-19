@@ -47,7 +47,7 @@ interface UseAIPersistenceOptions {
   snapshotInterval?: number; // Intervalo de snapshot em ms (padrão: 60000 = 1 min)
   // Chamado quando uma escrita de persistência falha silenciosamente (rede caiu,
   // RLS rejeitou o insert etc.) — sem isso, o erro só aparecia no console.
-  onPersistenceError?: (context: 'session' | 'trade_open' | 'trade_close' | 'snapshot', error: unknown) => void;
+  onPersistenceError?: (context: 'session' | 'trade_open' | 'trade_close' | 'snapshot' | 'stop_loss_update', error: unknown) => void;
 }
 
 interface TradeData {
@@ -296,6 +296,29 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     }
   }, [options.enabled, options.onPersistenceError]);
 
+  /**
+   * Persiste um novo stop_loss pra um trade já aberto — usado pelo Pyramiding
+   * System (break-even e emergency-stop, useApexLogic.ts) pra gravar o SL
+   * ajustado no banco. Sem isto, o ajuste só existia em memória
+   * (`setActiveOrders`) e nunca era visto pelo `ai-runner`, que desde
+   * 2026-08-18 é quem tem autoridade de fechar trade em DEMO — achado
+   * 2026-08-19: break-even/emergency-stop do Pyramiding logavam sucesso mas
+   * não protegiam nada de verdade, porque o SL novo nunca chegava ao banco.
+   */
+  const updateTradeStopLoss = useCallback(async (tradeId: string, newSl: number): Promise<boolean> => {
+    if (!options.enabled) return false;
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
+    try {
+      const ok = await aiPersistence.updateTrade(dbTradeId, { stop_loss: newSl });
+      if (!ok) options.onPersistenceError?.('stop_loss_update', new Error(`updateTrade (stop_loss) retornou falso para ${dbTradeId}`));
+      return ok;
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao atualizar stop_loss:`, error);
+      options.onPersistenceError?.('stop_loss_update', error);
+      return false;
+    }
+  }, [options.enabled, options.onPersistenceError]);
+
   // ==========================================================================
   // PORTFOLIO SNAPSHOTS
   // ==========================================================================
@@ -492,7 +515,8 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Trades
     onTradeOpen,
     onTradeClose,
-    
+    updateTradeStopLoss,
+
     // Portfolio
     savePortfolioSnapshot,
     
