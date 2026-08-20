@@ -3064,10 +3064,16 @@ export function ChartView({
       if (templateConfig.barSpace !== null && templateConfig.barSpace !== undefined) {
         let barSpaceToApply = templateConfig.barSpace;
         if (containerWidth > 0 && candleCount > 0) {
-          // Nunca deixa menos de ~60 candles cabendo na largura atual (ou todos os
-          // candles carregados, se houver menos que isso) -- evita o "zoom" salvo
-          // de outra sessão encolher demais o conteúdo visível.
-          const minVisibleCandles = Math.min(candleCount, 60);
+          // 🐛 FIX (2026-08-20): o piso original era 60 candles visíveis -- mas o
+          // barSpace máximo que a própria klinecharts permite já resulta em bem
+          // menos que 60 candles cabendo na tela em qualquer largura razoável de
+          // container. Ou seja, esse piso brigava com zoom legítimo: todo template
+          // salvo com o usuário zoomado além de ~60 candles era desfeito ao
+          // carregar, obrigando reajustar o zoom manualmente toda vez (bug
+          // relatado pelo Cleber). Piso reduzido pra só proteger o caso
+          // degenerado (poucos candles visíveis a ponto de não dar pra ler nada),
+          // não pra limitar zoom de verdade.
+          const minVisibleCandles = Math.min(candleCount, 5);
           const maxBarSpaceToFill = containerWidth / minVisibleCandles;
           barSpaceToApply = Math.min(barSpaceToApply, maxBarSpaceToFill);
         }
