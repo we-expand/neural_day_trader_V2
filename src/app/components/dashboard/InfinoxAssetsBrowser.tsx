@@ -294,7 +294,7 @@ export function InfinoxAssetsBrowser({
                           handlePick(result);
                         }}
                         title={resultUnaffordable
-                          ? `Capital insuficiente: ${result} exige ~$${resultMinLotNotional!.toFixed(2)} pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
+                          ? `Capital insuficiente: ${result} exige ~$${resultMinLotNotional!.toFixed(2)} de margem pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
                           : undefined}
                         className={`w-full px-4 py-3 text-left text-sm font-bold transition-colors ${
                           index === selectedAutocompleteIndex
@@ -412,7 +412,7 @@ export function InfinoxAssetsBrowser({
                                   handlePick(symbol);
                                 }}
                                 title={isUnaffordable
-                                  ? `Capital insuficiente: ${symbol} exige ~$${minLotNotional!.toFixed(2)} pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
+                                  ? `Capital insuficiente: ${symbol} exige ~$${minLotNotional!.toFixed(2)} de margem pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
                                   : undefined}
                                 className={`group relative p-3 rounded-xl border transition-all text-left ${
                                   isUnaffordable

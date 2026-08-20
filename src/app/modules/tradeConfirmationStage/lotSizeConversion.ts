@@ -7,6 +7,7 @@
  * conversão — nenhuma outra parte do repo tinha isso pronto.
  */
 import { getAssetBySymbol } from '../../config/assetDatabase';
+import { calculateRequiredMargin } from '../../services/strategy/TradeSizing';
 
 export interface LotSizeConversionResult {
   /** Lotes prontos para OrderParams.volume, já arredondados/clampados. */
@@ -57,19 +58,24 @@ export function floorToLotStep(symbol: string, rawLots: number): LotSizeConversi
 }
 
 /**
- * Nocional mínimo (em USD) pra fechar 1 lote mínimo do ativo, ao preço
- * atual. Fato objetivo, sem estimativa: `asset.minLot * asset.lotSize *
- * price`. Usado pra avisar o usuário ANTES de o gate de lote mínimo do
- * motor (runTradingCycle.ts, 2026-08-20) vetar o trade silenciosamente —
- * "lote mínimo é lote mínimo" é regra da corretora, não sugestão, e vale
- * pra qualquer ativo do catálogo, não só BTC (2026-08-20, pedido do
- * Cleber). Retorna `null` só se o ativo não existir no catálogo ou o preço
- * não for válido (nunca fabrica um número sem dado real).
+ * Margem mínima (em USD) pra abrir 1 lote mínimo do ativo, ao preço atual.
+ * `asset.minLot * asset.lotSize * price` dá o NOCIONAL da posição (valor de
+ * mercado do que está sendo negociado), não o capital que o usuário precisa
+ * ter — quem cobre a diferença é a alavancagem do ativo, exatamente como em
+ * qualquer corretora de varejo (fórmula margem = nocional / leverage, já
+ * usada pelo motor real em `calculateRequiredMargin`/`clampToMarginAffordability`,
+ * TradeSizing.ts, 2026-08-19). Antes desta correção (2026-08-20), esta
+ * função retornava o nocional puro e ele era comparado direto contra
+ * `allocatedCapital` (dinheiro em caixa) — pra EURUSD isso mostrava "precisa
+ * de ~$1.116" quando a margem real, com leverage 500x do catálogo, é ~$2,23.
+ * Retorna `null` só se o ativo não existir no catálogo ou o preço não for
+ * válido (nunca fabrica um número sem dado real).
  */
 export function getMinLotNotionalUsd(symbol: string, price: number): number | null {
   const asset = getAssetBySymbol(symbol);
   if (!asset || !(price > 0)) return null;
-  return asset.minLot * asset.lotSize * price;
+  const notionalUsd = asset.minLot * asset.lotSize * price;
+  return calculateRequiredMargin(notionalUsd, asset.leverage);
 }
 
 export function amountToLotSize(symbol: string, amountUsd: number, price: number): LotSizeConversionResult {

@@ -272,7 +272,7 @@ export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: As
                     : `${theme.bgLight} ${theme.border} text-slate-200`
                 }`}
                 title={unaffordableNotional != null
-                  ? `Capital insuficiente: ${symbol} exige ~$${unaffordableNotional.toFixed(2)} pro lote mínimo, você tem $${(allocatedCapital ?? 0).toFixed(2)} alocado. A IA não vai conseguir abrir posição neste ativo.`
+                  ? `Capital insuficiente: ${symbol} exige ~$${unaffordableNotional.toFixed(2)} de margem pro lote mínimo, você tem $${(allocatedCapital ?? 0).toFixed(2)} alocado. A IA não vai conseguir abrir posição neste ativo.`
                   : asset?.name}
               >
                 {unaffordableNotional != null ? (
