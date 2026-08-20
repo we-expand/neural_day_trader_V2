@@ -1,9 +1,28 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-19** (20ª parte — reescrita completa, não empilhada).
+> Reescrito em **2026-08-20** (21ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
+
+### 0. **[NOVO 2026-08-20, CRÍTICO] Cron do `ai-runner` estava inexistente — agora ativo**
+
+Detalhe completo: [SESSAO_2026-08-20_CRON_ATIVADO.md](SESSAO_2026-08-20_CRON_ATIVADO.md).
+Resumo: `pg_cron`/`pg_net` não estavam nem instalados no projeto Supabase —
+o motor servidor nunca tinha rodado contra dado real desde que foi escrito
+(2026-08-07). Cron `ai-runner-tick` (1×/min) criado e ativo agora. No
+caminho, achado e corrigido bug feio: a UI de Secrets do painel Supabase não
+persistia edições (confirmado com log de diagnóstico) — resolvido setando o
+secret via `supabase secrets set` (CLI), não pelo painel. Confirmado com
+trade real aberto pelo servidor (ETHUSD SHORT, `12:27:46 UTC`).
+**Isso destrava os testes reais que os itens abaixo (Pyramiding, watchdog de
+zumbis, gate de margem) estavam esperando** — a infra existe agora, mas
+nenhum desses cenários específicos foi observado ainda, só a ativação do
+cron em si. Achado secundário sem correção (baixa prioridade, não afeta
+trading): timeout do `pg_net` (mesmo em 55s) não cobre o tempo real de
+execução do runner (~45s+), então `net._http_response` nunca confirma `200`
+— só dá pra confiar em `ai_sessions.updated_at`/`ai_funnel_snapshots`
+avançando pra saber que está vivo. Decisão do Cleber: não perseguir por ora.
 
 **Detalhe completo da sessão de 2026-08-19 (3 partes)**:
 [SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md](SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md)
