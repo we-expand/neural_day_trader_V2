@@ -12,11 +12,14 @@ import {
   X,
   ChevronDown,
   ListChecks,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { getInfinoxAssetsByCategory } from '@/config/infinoxAssets';
 import { ALL_ASSETS, type Asset } from '@/app/config/assetDatabase';
 import { InfinoxAssetsBrowser } from '@/app/components/dashboard/InfinoxAssetsBrowser';
+import { getMinLotNotionalUsd } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
+import { useMarketData } from '@/app/contexts/MarketDataContext';
 
 // ✅ 2026-07-28: catálogo real (ver histórico de comentário anterior neste
 // arquivo — a lista hardcoded/não auditada foi removida, deriva de
@@ -126,10 +129,16 @@ function isMarketOpen(asset: Asset): boolean {
 interface AssetUniverseProps {
   selectedAssets: string[];
   onToggle: (asset: string) => void;
+  /** 🆕 2026-08-20: capital alocado à IA — usado só pra avisar quando o lote
+   * mínimo real do ativo (regra da corretora, não sugestão) exige mais do
+   * que esse capital cobre. Opcional: sem valor, nenhum aviso é mostrado
+   * (nunca fabrica o número). Ver mesmo comentário em InfinoxAssetsBrowser.tsx. */
+  allocatedCapital?: number;
 }
 
-export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) {
+export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: AssetUniverseProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { getPrice } = useMarketData();
 
   const bySymbol = useMemo(() => {
     const map = new Map<string, Asset>();
@@ -168,6 +177,26 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
 
   const selectedSorted = [...selectedAssets].sort((a, b) => a.localeCompare(b));
 
+  // 🆕 2026-08-20 (pedido do Cleber: "lote mínimo é lote mínimo, ponto
+  // final" — regra vale pra todo ativo, não só BTC): entre os ativos JÁ
+  // selecionados, quais o capital atual não consegue nem fechar 1 lote
+  // mínimo, ao preço real agora. Genérico — deriva de asset.minLot/lotSize
+  // do catálogo + preço ao vivo, não de uma lista fixa por símbolo. Sem
+  // preço disponível ainda, não afirma nada (nunca fabrica o número).
+  const unaffordableSelected = useMemo(() => {
+    if (allocatedCapital == null) return new Map<string, number>();
+    const result = new Map<string, number>();
+    for (const symbol of selectedAssets) {
+      const price = getPrice(symbol)?.price;
+      if (!price) continue;
+      const minLotNotional = getMinLotNotionalUsd(symbol, price);
+      if (minLotNotional != null && minLotNotional > allocatedCapital) {
+        result.set(symbol, minLotNotional);
+      }
+    }
+    return result;
+  }, [selectedAssets, allocatedCapital, getPrice]);
+
   return (
     <div className="w-full bg-[#0a0a0a] border border-white/5 rounded-2xl p-4 shadow-xl">
       {/* Header + Trigger */}
@@ -201,6 +230,7 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
           mode="multi"
           selectedAssets={selectedAssets}
           onToggleAsset={onToggle}
+          allocatedCapital={allocatedCapital}
         />
       </div>
 
@@ -232,13 +262,24 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
             const catId = asset ? (Object.entries(realCatalog).find(([, syms]) => syms.includes(symbol))?.[0] as DisplayCategory | undefined) : undefined;
             const theme = catId ? THEME_COLORS[CATEGORY_META[catId].color] : THEME_COLORS.purple;
             const isOpenNow = asset ? isMarketOpen(asset) : true;
+            const unaffordableNotional = unaffordableSelected.get(symbol);
             return (
               <span
                 key={symbol}
-                className={`group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-[10px] font-bold font-mono border ${theme.bgLight} ${theme.border} text-slate-200`}
-                title={asset?.name}
+                className={`group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-[10px] font-bold font-mono border ${
+                  unaffordableNotional != null
+                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                    : `${theme.bgLight} ${theme.border} text-slate-200`
+                }`}
+                title={unaffordableNotional != null
+                  ? `Capital insuficiente: ${symbol} exige ~$${unaffordableNotional.toFixed(2)} pro lote mínimo, você tem $${(allocatedCapital ?? 0).toFixed(2)} alocado. A IA não vai conseguir abrir posição neste ativo.`
+                  : asset?.name}
               >
-                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOpenNow ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                {unaffordableNotional != null ? (
+                  <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />
+                ) : (
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOpenNow ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                )}
                 {symbol}
                 <button
                   onClick={() => onToggle(symbol)}
@@ -256,6 +297,22 @@ export function AssetUniverse({ selectedAssets, onToggle }: AssetUniverseProps) 
           >
             <Trash2 className="w-3 h-3" /> Limpar
           </button>
+        </div>
+      )}
+
+      {/* 🆕 2026-08-20: banner de resumo — mesma regra que já bloqueia a
+          entrada no motor (gate MIN_TRADE_SIZE, runTradingCycle.ts), só que
+          avisada aqui ANTES, pra não parecer que a IA "está travada" num
+          ativo sem explicação nenhuma na tela. */}
+      {unaffordableSelected.size > 0 && (
+        <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-[10px] text-amber-300 leading-relaxed">
+            <strong>{unaffordableSelected.size === 1 ? 'Capital insuficiente para 1 ativo selecionado' : `Capital insuficiente para ${unaffordableSelected.size} ativos selecionados`}:</strong>{' '}
+            {[...unaffordableSelected.entries()].map(([symbol, notional]) => `${symbol} (mín. ~$${notional.toFixed(0)})`).join(', ')}.{' '}
+            Lote mínimo é regra da corretora — a IA nunca vai abrir posição nesses ativos com o capital atual.
+            Aumente o capital alocado ou remova-os.
+          </p>
         </div>
       )}
     </div>

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getInfinoxAssetsByCategory, INFINOX_CATEGORY_NAMES } from '@/config/infinoxAssets';
 import { getBrokerSymbol } from '@/app/config/brokerRegistry';
 import { fetchRealPricesBatch } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
 import { getMarketStatus } from '@/app/utils/marketStatus';
 import { comparePricesBatch } from '@/app/utils/priceDebugger';
+import { getMinLotNotionalUsd } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
 
 interface InfinoxAssetsBrowserProps {
   isOpen: boolean;
@@ -17,6 +18,15 @@ interface InfinoxAssetsBrowserProps {
   onSelectAsset?: (symbol: string) => void;
   selectedAssets?: string[];
   onToggleAsset?: (symbol: string) => void;
+  /** 🆕 2026-08-20: capital alocado à IA (config.allocatedCapital) — usado só
+   * pra avisar ANTES da seleção que o lote mínimo do ativo (regra real da
+   * corretora, não sugestão) exige mais do que esse capital consegue cobrir,
+   * qualquer que seja o preço/ATR real no momento do trade. Sem isso, o
+   * motor ainda impede a ordem (gate MIN_TRADE_SIZE em runTradingCycle.ts),
+   * mas o usuário só descobre isso vendo o ativo nunca operar, sem
+   * explicação nenhuma na tela. Opcional: sem o valor, o browser simplesmente
+   * não mostra o aviso (nunca fabrica o número sem capital real informado). */
+  allocatedCapital?: number;
 }
 
 interface AssetData {
@@ -33,6 +43,7 @@ export function InfinoxAssetsBrowser({
   onSelectAsset,
   selectedAssets,
   onToggleAsset,
+  allocatedCapital,
 }: InfinoxAssetsBrowserProps) {
   const isMulti = mode === 'multi';
 
@@ -266,7 +277,13 @@ export function InfinoxAssetsBrowser({
                     animate={{ opacity: 1, y: 0 }}
                     className="absolute top-full left-0 right-0 mt-2 bg-[#0A0A0A] border border-emerald-500/30 rounded-xl overflow-hidden shadow-2xl z-50"
                   >
-                    {autocompleteResults.map((result, index) => (
+                    {autocompleteResults.map((result, index) => {
+                      const resultPrice = assetPrices[result];
+                      const resultMinLotNotional = resultPrice ? getMinLotNotionalUsd(result, resultPrice.price) : null;
+                      const resultUnaffordable = !!(
+                        allocatedCapital != null && resultMinLotNotional != null && resultMinLotNotional > allocatedCapital
+                      );
+                      return (
                       <button
                         key={result}
                         onClick={() => {
@@ -276,16 +293,27 @@ export function InfinoxAssetsBrowser({
                           }
                           handlePick(result);
                         }}
+                        title={resultUnaffordable
+                          ? `Capital insuficiente: ${result} exige ~$${resultMinLotNotional!.toFixed(2)} pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
+                          : undefined}
                         className={`w-full px-4 py-3 text-left text-sm font-bold transition-colors ${
-                          index === selectedAutocompleteIndex 
-                            ? 'bg-emerald-500/20 text-emerald-400' 
+                          index === selectedAutocompleteIndex
+                            ? 'bg-emerald-500/20 text-emerald-400'
                             : 'text-white hover:bg-white/5'
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <Search className="w-3 h-3 text-emerald-500" />
+                          {resultUnaffordable ? (
+                            <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                          ) : (
+                            <Search className="w-3 h-3 text-emerald-500 shrink-0" />
+                          )}
                           <span>{result}</span>
-                          {assetPrices[result] && (
+                          {resultUnaffordable ? (
+                            <span className="ml-auto text-[10px] font-bold text-amber-400">
+                              capital insuf.
+                            </span>
+                          ) : assetPrices[result] && (
                             <span className={`ml-auto text-xs ${
                               assetPrices[result].change >= 0 ? 'text-emerald-400' : 'text-rose-400'
                             }`}>
@@ -294,7 +322,8 @@ export function InfinoxAssetsBrowser({
                           )}
                         </div>
                       </button>
-                    ))}
+                      );
+                    })}
                     
                     <div className="px-4 py-2 bg-white/5 border-t border-white/5">
                       <p className="text-[10px] text-slate-500 font-medium">
@@ -365,6 +394,16 @@ export function InfinoxAssetsBrowser({
                             const hasPrice = !!priceData;
                             const isPositive = priceData ? priceData.change >= 0 : null;
 
+                            // 🆕 2026-08-20: lote mínimo é regra da corretora, não sugestão —
+                            // se o capital alocado não fecha nem 1 lote mínimo deste ativo a
+                            // preço real, o ativo é literalmente impossível de operar, qualquer
+                            // que seja o risco%/ATR configurado. Só calcula com preço real (nunca
+                            // fabrica) e só quando allocatedCapital foi informado.
+                            const minLotNotional = hasPrice ? getMinLotNotionalUsd(symbol, priceData.price) : null;
+                            const isUnaffordable = !!(
+                              allocatedCapital != null && minLotNotional != null && minLotNotional > allocatedCapital
+                            );
+
                             return (
                               <button
                                 key={symbol}
@@ -372,8 +411,13 @@ export function InfinoxAssetsBrowser({
                                   console.log('[InfinoxAssetsBrowser] Selecionando ativo:', symbol);
                                   handlePick(symbol);
                                 }}
+                                title={isUnaffordable
+                                  ? `Capital insuficiente: ${symbol} exige ~$${minLotNotional!.toFixed(2)} pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
+                                  : undefined}
                                 className={`group relative p-3 rounded-xl border transition-all text-left ${
-                                  isSelected
+                                  isUnaffordable
+                                    ? 'bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50'
+                                    : isSelected
                                     ? 'bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
                                     : 'bg-[#080808] border-white/5 hover:bg-[#0A0A0A] hover:border-white/10'
                                 }`}
@@ -383,23 +427,25 @@ export function InfinoxAssetsBrowser({
                                   <div className="flex items-center gap-2">
                                     {/* 🆕 Bolinha de Status do Mercado (Verde = Aberto / Vermelho = Fechado) */}
                                     <div className={`w-1.5 h-1.5 rounded-full ${
-                                      marketStatus.isOpen 
-                                        ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)] animate-pulse' 
+                                      marketStatus.isOpen
+                                        ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)] animate-pulse'
                                         : 'bg-rose-500 shadow-[0_0_4px_rgba(244,63,94,0.6)]'
                                     }`} />
-                                    
+
                                     <span className={`text-sm font-bold tracking-tight ${
                                       isSelected ? 'text-emerald-400' : 'text-white'
                                     }`}>
                                       {symbol}
                                     </span>
                                   </div>
-                                  
-                                  {isSelected && (
+
+                                  {isUnaffordable ? (
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  ) : isSelected && (
                                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                                   )}
                                 </div>
-                                
+
                                 {/* Price & Change */}
                                 {hasPrice ? (
                                   <div className="space-y-1">
@@ -409,12 +455,18 @@ export function InfinoxAssetsBrowser({
                                         maximumFractionDigits: priceData.price >= 100 ? 2 : 6
                                       })}
                                     </div>
-                                    <div className={`flex items-center gap-1 text-xs font-bold ${
-                                      isPositive ? 'text-emerald-400' : 'text-rose-400'
-                                    }`}>
-                                      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                      {isPositive ? '+' : ''}{priceData.change.toFixed(2)}%
-                                    </div>
+                                    {isUnaffordable ? (
+                                      <div className="text-[10px] font-bold text-amber-400 leading-tight">
+                                        Mín. ~${minLotNotional!.toFixed(0)} • capital insuficiente
+                                      </div>
+                                    ) : (
+                                      <div className={`flex items-center gap-1 text-xs font-bold ${
+                                        isPositive ? 'text-emerald-400' : 'text-rose-400'
+                                      }`}>
+                                        {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                        {isPositive ? '+' : ''}{priceData.change.toFixed(2)}%
+                                      </div>
+                                    )}
                                   </div>
                                 ) : (
                                   <div className="text-xs text-slate-600">

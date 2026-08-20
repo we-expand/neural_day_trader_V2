@@ -56,6 +56,22 @@ export function floorToLotStep(symbol: string, rawLots: number): LotSizeConversi
   return { volume: rounded, capped: false };
 }
 
+/**
+ * Nocional mínimo (em USD) pra fechar 1 lote mínimo do ativo, ao preço
+ * atual. Fato objetivo, sem estimativa: `asset.minLot * asset.lotSize *
+ * price`. Usado pra avisar o usuário ANTES de o gate de lote mínimo do
+ * motor (runTradingCycle.ts, 2026-08-20) vetar o trade silenciosamente —
+ * "lote mínimo é lote mínimo" é regra da corretora, não sugestão, e vale
+ * pra qualquer ativo do catálogo, não só BTC (2026-08-20, pedido do
+ * Cleber). Retorna `null` só se o ativo não existir no catálogo ou o preço
+ * não for válido (nunca fabrica um número sem dado real).
+ */
+export function getMinLotNotionalUsd(symbol: string, price: number): number | null {
+  const asset = getAssetBySymbol(symbol);
+  if (!asset || !(price > 0)) return null;
+  return asset.minLot * asset.lotSize * price;
+}
+
 export function amountToLotSize(symbol: string, amountUsd: number, price: number): LotSizeConversionResult {
   const asset = getAssetBySymbol(symbol);
   if (!asset) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Bot, Brain, Play, Pause, Power, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
@@ -53,8 +53,30 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   
   // 🆕 MT5 Connection States
   // 🆕 Modo Simples (perfil de risco) vs Avançado (preset/timeframe manual) — item 5 do redesenho do cérebro (2026-08-16)
-  const [configMode, setConfigMode] = useState<'SIMPLES' | 'AVANCADO'>('SIMPLES');
-  const [selectedRiskProfileId, setSelectedRiskProfileId] = useState<RiskProfileId | null>(null);
+  // 🔴 FIX 2026-08-20 (achado do Cleber: "a configuração não persiste no
+  // painel"): configMode nascia sempre 'SIMPLES' — quem configurava no
+  // Avançado e saía da tela (mudar de aba, fechar/reabrir o painel, F5)
+  // voltava pro modo Simples, com nenhum card de perfil selecionado. A
+  // config real (aiConfig, em useApexLogic.ts) sempre esteve persistida
+  // certinho no localStorage/Supabase — o que "sumia" era só o ESTADO DA UI
+  // do painel, dando a impressão de que a configuração tinha se perdido.
+  // Aba lida do localStorage na primeira renderização.
+  const [configMode, setConfigMode] = useState<'SIMPLES' | 'AVANCADO'>(() => {
+    try {
+      const saved = localStorage.getItem('neural_ai_trader_config_mode');
+      return saved === 'AVANCADO' ? 'AVANCADO' : 'SIMPLES';
+    } catch {
+      return 'SIMPLES';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('neural_ai_trader_config_mode', configMode);
+    } catch {
+      // localStorage indisponível (modo privado/quota) — só perde a lembrança da aba, sem quebrar nada.
+    }
+  }, [configMode]);
 
   const [showMT5ConfigModal, setShowMT5ConfigModal] = useState(false);
   const [mt5Login, setMt5Login] = useState('');
@@ -86,6 +108,25 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   // Use the Global Context for Logic
   const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory } = useTradingContext();
   const { strategies } = useStrategies();
+
+  // 🔴 FIX 2026-08-20 (mesmo achado do configMode acima): selectedRiskProfileId
+  // era estado local isolado, só setado dentro de applyRiskProfile — nunca
+  // reconstruído a partir da config real. Resultado: escolher "Moderado",
+  // sair da tela e voltar mostrava os 4 cards SEM NENHUM selecionado, mesmo
+  // com riskPerTrade/activeStrategyId/timeframe do Moderado intactos no
+  // aiConfig persistido. Agora é derivado da config atual a cada render —
+  // sempre reflete o que está realmente ativo, nunca "esquece". Match exige
+  // os campos que applyRiskProfile realmente escreve (preset, timeframe,
+  // risco/trade) — cesta de ativos fica de fora do match porque o usuário
+  // pode tocar em Ativos Simultâneos sem deixar de estar "no" perfil.
+  const selectedRiskProfileId = useMemo<RiskProfileId | null>(() => {
+    const match = RISK_PROFILES.find(p =>
+      p.activeStrategyId === config.activeStrategyId &&
+      p.timeframe === config.timeframe &&
+      p.riskPerTrade === config.riskPerTrade
+    );
+    return match?.id ?? null;
+  }, [config.activeStrategyId, config.timeframe, config.riskPerTrade]);
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
   useEffect(() => {
@@ -127,7 +168,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
   const applyRiskProfile = (profileId: RiskProfileId) => {
     const profile = getRiskProfile(profileId);
-    setSelectedRiskProfileId(profileId);
     setConfig(prev => ({
       ...prev,
       activeStrategyId: profile.activeStrategyId,
@@ -1122,7 +1162,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         <>
                         {/* ASSET UNIVERSE SELECTOR */}
                         <div className="mb-8">
-                            <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
+                            <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} allocatedCapital={config.allocatedCapital} />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
