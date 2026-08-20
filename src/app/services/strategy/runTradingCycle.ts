@@ -13,7 +13,7 @@
 import type { Strategy as StrategyDef } from '@/app/types/strategy.ts';
 import { evaluateStrategyScoreBothSides } from '@/app/services/strategy/StrategyEvaluator.ts';
 import { ASSETS_REFRESHED_PER_TICK } from '@/app/config/defaultBasket.ts';
-import { calculateRSI, calculateATR } from '@/app/services/indicators/TechnicalIndicators.ts';
+import { calculateRSI, calculateATR, calculateMACD } from '@/app/services/indicators/TechnicalIndicators.ts';
 import type { Candle } from '@/app/services/indicators/TechnicalIndicators.ts';
 import { backtestDataService } from '@/app/services/BacktestDataService.ts';
 import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine.ts';
@@ -1275,7 +1275,19 @@ async function analyzeAsset(
       reasoning: `${strategyName} | ranking: score ${candidate.score.toFixed(0)} (piso ${aiConfig.signalScoreFloor}) - ${targetPointsValue.toFixed(0)}p - R/R 1:${riskRewardRatio.toFixed(1)} - ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%`,
       indicators: {
         rsi: Math.round(rsiValue),
-        macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
+        // 2026-08-20: era `side === 'LONG' ? 'BULLISH' : 'BEARISH'` — rótulo
+        // cosmético que só espelhava o lado da entrada já decidida, não uma
+        // leitura real do indicador (achado numa investigação de dois stops
+        // "infantis" em BTC/SOL: o snapshot dizia "MACD: BULLISH" na entrada
+        // mesmo com o histograma real já minguando rumo à reversão). Agora
+        // deriva de linha MACD vs linha de sinal do candle mais recente.
+        macd: (() => {
+          const m = calculateMACD(candles);
+          const lastMacd = m.macd[m.macd.length - 1];
+          const lastSignal = m.signal[m.signal.length - 1];
+          if (lastMacd === null || lastSignal === null) return 'NEUTRAL';
+          return lastMacd > lastSignal ? 'BULLISH' : 'BEARISH';
+        })(),
         trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
       },
     };
