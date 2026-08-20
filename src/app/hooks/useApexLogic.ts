@@ -10,7 +10,7 @@ import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/componen
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
-import { DEFAULT_ANALYSIS_BASKET } from '@/app/config/defaultBasket';
+import { DEFAULT_ACTIVE_ASSETS } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import { evaluateContextGate } from '@/app/services/risk/ContextGate';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
@@ -280,10 +280,13 @@ const INITIAL_STATE: ApexLogicState = {
     riskProfile: 'EQUILIBRADO',
     
     // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
-    // 2026-08-17: cesta ampla (39 ativos, critério objetivo em
-    // config/defaultBasket.ts) substitui os 2 ativos que eram padrão desde o
-    // início. O motor agora varre a cesta inteira e ranqueia — não sorteia.
-    activeAssets: DEFAULT_ANALYSIS_BASKET,
+    // 2026-08-20: default de `activeAssets` volta a ser uma cesta enxuta (9,
+    // ver DEFAULT_ACTIVE_ASSETS em config/defaultBasket.ts) — o painel de
+    // configuração estava abrindo com os 39 ativos da cesta de RANKING
+    // inteira pré-marcados como ativos, sem o usuário ter escolhido isso.
+    // O universo de ranking amplo (DEFAULT_ANALYSIS_BASKET) continua
+    // disponível no seletor pra quem quiser ampliar manualmente.
+    activeAssets: DEFAULT_ACTIVE_ASSETS,
     maxAssets: 6, // Máximo de ativos com posição ABERTA ao mesmo tempo (não limita a análise)
     timeframe: '15m', // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
     newsFilter: true, // Filtro de notícias econômicas
