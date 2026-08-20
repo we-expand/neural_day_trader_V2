@@ -9,6 +9,7 @@ import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
 import { DEFAULT_ANALYSIS_BASKET } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import { evaluateContextGate } from '@/app/services/risk/ContextGate';
@@ -59,6 +60,7 @@ import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase 0 do redesenho do cérebro: instrumentação do funil de decisão
 import { runTradingCycle, type TradingCycleEffect } from '../services/strategy/runTradingCycle'; // Passo 2 do plano do runner (2026-08-07): módulo puro do ciclo, "um motor, dois drivers"
+import { supabase } from '@/lib/supabaseClient'; // Realtime de ai_trades (reconciliação de posições, 2026-08-20)
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -449,6 +451,10 @@ export function useApexLogic(
   const [candlesSinceLastTrade, setCandlesSinceLastTrade] = useState(INITIAL_STATE.candlesSinceLastTrade);
   const [maxCandlesBeforeForceEntry, setMaxCandlesBeforeForceEntry] = useState(INITIAL_STATE.maxCandlesBeforeForceEntry);
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>(INITIAL_STATE.equityHistory);
+  // Timestamp da última reconciliação bem-sucedida com o Supabase (Realtime
+  // ou fallback de polling) — exposto pra UI sinalizar dado potencialmente
+  // desatualizado, em vez de deixar a tela congelada sem aviso.
+  const [lastPositionSyncAt, setLastPositionSyncAt] = useState<number | null>(null);
   const lastEquitySampleAtRef = useRef<number>(0);
   const EQUITY_SAMPLE_INTERVAL_MS = 3000; // amostra real a cada 3s (mais granularidade pra curva do Dashboard)
   const MAX_EQUITY_POINTS = 600; // ~30min de janela (mantida, só com mais pontos por minuto)
@@ -862,10 +868,20 @@ export function useApexLogic(
   // `activeOrders` mudando — mesma fonte que este polling já atualiza.
   // Reaproveitado aqui: loga quando este polling detecta um `id` de posição
   // que não existia no estado anterior.
+  // 2026-08-20: o polling fixo de 15s (ver histórico do bloco de comentário
+  // acima) tinha uma falha real observada — quando `isActive` estava false
+  // no momento em que o servidor fechou uma posição, a reconciliação nem
+  // rodava, e a tela ficou mostrando uma posição já fechada por bem mais que
+  // 15s. Trocado por Supabase Realtime (`postgres_changes` em `ai_trades`,
+  // filtrado por `session_id` via RLS) — reconcilia assim que o servidor
+  // grava a mudança, não em ciclos fixos. Polling mantido como fallback
+  // (agora 30s, só rede de segurança) caso a subscription caia e não
+  // reconecte. Requer `ai_trades` na publication `supabase_realtime` —
+  // ver supabase/migrations/20260820_add_ai_trades_to_realtime.sql.
   useEffect(() => {
     if (!isActive || executionMode !== 'DEMO') return;
 
-    const POLL_MS = 15_000;
+    const POLL_MS = 30_000;
     let cancelled = false;
 
     const reconcile = async () => {
@@ -936,11 +952,36 @@ export function useApexLogic(
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar balance do Supabase:', e);
       }
+
+      if (!cancelled) setLastPositionSyncAt(Date.now());
     };
 
     reconcile();
     const interval = setInterval(reconcile, POLL_MS);
-    return () => { cancelled = true; clearInterval(interval); };
+
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    (async () => {
+      const sessionId = persistenceRef.current.getSessionId();
+      if (!sessionId || cancelled) return;
+      channel = supabase
+        .channel(`ai-trades-sync-${sessionId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'ai_trades', filter: `session_id=eq.${sessionId}` },
+          () => { if (!cancelled) reconcile(); }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[useApexLogic] Realtime de ai_trades falhou, seguindo só com polling de fallback:', status);
+          }
+        });
+    })();
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [isActive, executionMode]);
 
   // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
@@ -1938,7 +1979,19 @@ export function useApexLogic(
       return { success: false, error: 'Volume ou preço inválido' };
     }
 
-    const amountUsd = params.volume * asset.lotSize * params.entryPrice;
+    // Choke point único: toda ordem (manual, Pyramiding, Estágios 3/4) passa
+    // por aqui — sem isto um layer de Pyramiding ou uma conversão $→lote a
+    // montante podia abrir posição com fração de lote abaixo do mínimo real
+    // do ativo (ex: 0.0021 lote de BTC com mínimo 0.01). Ver CLAUDE.md,
+    // pendência "mínimo de contratos por ativo".
+    const lotCheck = floorToLotStep(params.symbol, params.volume);
+    if (lotCheck.error) {
+      console.warn('[useApexLogic] openManualPosition: lote abaixo do mínimo', params.symbol, params.volume, lotCheck.error);
+      return { success: false, error: lotCheck.error };
+    }
+    const volume = lotCheck.volume;
+
+    const amountUsd = volume * asset.lotSize * params.entryPrice;
 
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
       sessionStartedAtRef.current = Date.now();
@@ -1976,7 +2029,7 @@ export function useApexLogic(
       console.error('🟢[useApexLogic] openManualPosition: setActiveOrders', { antes: prev.length, depois: next.length, newTrade });
       return next;
     });
-    addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s)`);
+    addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${volume} lote(s)`);
 
     if (configRef.current.executionMode === 'DEMO') {
       persistenceRef.current.onTradeOpen({
@@ -2599,6 +2652,7 @@ export function useApexLogic(
     candlesSinceLastTrade,
     maxCandlesBeforeForceEntry,
     equityHistory,
+    lastPositionSyncAt,
 
     // Actions
     startLogic,

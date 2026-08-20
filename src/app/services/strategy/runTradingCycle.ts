@@ -21,6 +21,7 @@ import type { Timeframe as ScoreTimeframe } from '@/app/services/BacktestDataSer
 import { getPointValue, clampToMarginAffordability, MAX_MARGIN_UTILIZATION_PERCENT } from '@/app/services/strategy/TradeSizing.ts';
 import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass.ts';
 import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
+import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion.ts';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate.ts';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose.ts';
 import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector.ts';
@@ -1195,6 +1196,38 @@ async function analyzeAsset(
       if (marginCheck.clamped) {
         console.log(`[POSITION SIZING] 🏦 ${selectedSymbol}: margem exigida excederia ${(MAX_MARGIN_UTILIZATION_PERCENT * 100).toFixed(0)}% do balance ($${(currentBalance * MAX_MARGIN_UTILIZATION_PERCENT).toFixed(2)}) — nocional reduzido de $${tradeCapital.toFixed(2)} para $${marginCheck.notionalUsd.toFixed(2)} (margem exigida: $${marginCheck.requiredMargin.toFixed(2)}, leverage ${assetForMargin.leverage}x)`);
         tradeCapital = marginCheck.notionalUsd;
+      }
+    }
+
+    // 2026-08-20: GATE DE LOTE MÍNIMO — nenhum dos gates acima (teto de
+    // "Lotes Máximos", margem) impedia o nocional de corresponder a uma
+    // FRAÇÃO de lote abaixo do mínimo do ativo (ex: BTC com mínimo real de
+    // 0,01 lote virando 0,0021 lote — posição que nenhuma corretora aceitaria
+    // de verdade). `openManualPosition` (useApexLogic.ts) já floora/rejeita
+    // pra ordens manuais/Pyramiding, mas o motor autônomo cria `TradeVisual`
+    // direto, sem passar por lá — mesma classe de gap que o gate de margem
+    // (2026-08-19) e o teto de lotes (2026-08-17) já corrigiram para outras
+    // dimensões de sizing. Arredonda pra BAIXO (mesma filosofia dos gates
+    // acima: nunca aumenta o nocional) e pula o trade se o nocional não
+    // alcançar nem 1 lote mínimo.
+    if (currentPrice > 0) {
+      const assetForMinLot = getAssetBySymbol(selectedSymbol);
+      const lotSizeForMinLot = assetForMinLot?.lotSize || 1;
+      const rawLots = tradeCapital / (lotSizeForMinLot * currentPrice);
+      const lotCheck = floorToLotStep(selectedSymbol, rawLots);
+      if (lotCheck.error) {
+        const reason = `Nocional calculado ($${tradeCapital.toFixed(2)}) equivale a menos que o lote mínimo de ${selectedSymbol} — pulando trade em vez de abrir posição abaixo do mínimo real do ativo.`;
+        console.log(`[POSITION SIZING] ⏭️ ${selectedSymbol}: ${reason}`);
+        await deps.persistence.saveDecision({
+          symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+          reasoning: reason, actionTaken: false, vetoStage: 'MIN_TRADE_SIZE',
+        });
+        return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+      }
+      const flooredCapital = lotCheck.volume * lotSizeForMinLot * currentPrice;
+      if (flooredCapital < tradeCapital) {
+        console.log(`[POSITION SIZING] 📏 ${selectedSymbol}: nocional ajustado de $${tradeCapital.toFixed(2)} para $${flooredCapital.toFixed(2)} (arredondado pro múltiplo de lote mínimo ${assetForMinLot?.minLot ?? '?'})`);
+        tradeCapital = flooredCapital;
       }
     }
 

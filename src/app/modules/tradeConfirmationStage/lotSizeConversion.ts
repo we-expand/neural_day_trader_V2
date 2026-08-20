@@ -17,26 +17,26 @@ export interface LotSizeConversionResult {
   error?: string;
 }
 
-export function amountToLotSize(symbol: string, amountUsd: number, price: number): LotSizeConversionResult {
+/**
+ * Arredonda um número de lotes bruto pro step/mínimo/máximo do ativo.
+ * Ponto único de verdade — usado tanto por `amountToLotSize` (conversão
+ * $→lote) quanto por qualquer código que já chega com um número de lotes em
+ * mãos (ex: `openManualPosition` em useApexLogic.ts, que é o choke point de
+ * toda ordem — manual, Pyramiding, Estágio 3/4) e precisa só validar/arredondar.
+ *
+ * Sem campo de "step" dedicado no Asset — assume-se minLot como step, padrão
+ * comum quando o dado não distingue os dois. Arredonda pra BAIXO: nunca
+ * aumenta o risco além do que foi pedido.
+ */
+export function floorToLotStep(symbol: string, rawLots: number): LotSizeConversionResult {
   const asset = getAssetBySymbol(symbol);
   if (!asset) {
     return { volume: 0, capped: false, error: `Ativo desconhecido: ${symbol}` };
   }
-  if (!(amountUsd > 0) || !(price > 0)) {
-    return { volume: 0, capped: false, error: 'Valor ou preço inválido para conversão de lote' };
+  if (!(rawLots > 0)) {
+    return { volume: 0, capped: false, error: 'Volume inválido' };
   }
 
-  // Valor nocional em unidades do ativo, depois convertido para lotes.
-  // `amount` já é o capital alocado à posição (não a margem) — leverage não
-  // entra NESTA conversão porque já foi usado rio acima, em
-  // clampToMarginAffordability() (runTradingCycle.ts, 2026-08-19), pra
-  // limitar `amount` à margem que a conta suporta antes de chegar aqui.
-  const units = amountUsd / price;
-  const rawLots = units / asset.lotSize;
-
-  // Sem campo de "step" dedicado no Asset — assume-se minLot como step,
-  // padrão comum quando o dado não distingue os dois. Arredonda pra BAIXO:
-  // nunca aumenta o risco além do que o motor decidiu.
   const step = asset.minLot;
   const flooredLots = Math.floor(rawLots / step) * step;
   const rounded = Number(flooredLots.toFixed(8));
@@ -54,4 +54,24 @@ export function amountToLotSize(symbol: string, amountUsd: number, price: number
   }
 
   return { volume: rounded, capped: false };
+}
+
+export function amountToLotSize(symbol: string, amountUsd: number, price: number): LotSizeConversionResult {
+  const asset = getAssetBySymbol(symbol);
+  if (!asset) {
+    return { volume: 0, capped: false, error: `Ativo desconhecido: ${symbol}` };
+  }
+  if (!(amountUsd > 0) || !(price > 0)) {
+    return { volume: 0, capped: false, error: 'Valor ou preço inválido para conversão de lote' };
+  }
+
+  // Valor nocional em unidades do ativo, depois convertido para lotes.
+  // `amount` já é o capital alocado à posição (não a margem) — leverage não
+  // entra NESTA conversão porque já foi usado rio acima, em
+  // clampToMarginAffordability() (runTradingCycle.ts, 2026-08-19), pra
+  // limitar `amount` à margem que a conta suporta antes de chegar aqui.
+  const units = amountUsd / price;
+  const rawLots = units / asset.lotSize;
+
+  return floorToLotStep(symbol, rawLots);
 }

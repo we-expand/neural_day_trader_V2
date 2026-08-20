@@ -39,6 +39,7 @@ import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
 import { getRealMarketData, getLastKnownRealPrice, subscribeToRealtimePrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard). subscribeToRealtimePrice: streaming-relay (2026-07-14)
 import { useAnimatedNumber } from '@/app/hooks/useAnimatedNumber';
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
@@ -1110,8 +1111,14 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                     somar a MESMA conversão usada por posição (nocional / (lotSize × preço)). */}
                                 {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => {
                                     const asset = getAssetBySymbol(order.symbol);
-                                    const lots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
-                                    return sum + lots;
+                                    const rawLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
+                                    // Arredonda pro lote real mínimo do ativo antes de somar — ver
+                                    // comentário em lotSizeConversion.ts (2026-08-20): nocional/preço puro
+                                    // pode cair abaixo do que qualquer corretora aceitaria (ex: 0.0021 de
+                                    // BTC com mínimo real 0.01), então não deve ser exibido como se fosse
+                                    // o lote de verdade.
+                                    const floored = rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
+                                    return sum + (floored && !floored.error ? floored.volume : 0);
                                 }, 0).toFixed(2)} lotes total
                             </p>
                         </div>
@@ -1137,7 +1144,11 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         // valor em dólar como se fosse "lotes" e ainda multiplicava por
                         // preço de novo pro "Volume", inflando o número em milhões.
                         const asset = getAssetBySymbol(order.symbol);
-                        const estimatedLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
+                        const rawLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
+                        // Arredonda pro lote real mínimo do ativo (ver lotSizeConversion.ts,
+                        // 2026-08-20) — nunca exibe fração abaixo do que a corretora aceitaria.
+                        const flooredLotCheck = rawLots !== null && rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
+                        const estimatedLots = flooredLotCheck && !flooredLotCheck.error ? flooredLotCheck.volume : null;
 
                         return (
                             <div
