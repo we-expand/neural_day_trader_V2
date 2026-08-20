@@ -462,6 +462,7 @@ import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
 import { useChartPreferences } from '@/app/hooks/useChartPreferences';
 import { useFavoriteChartSetup, readCachedFavoriteChartSetup } from '@/app/hooks/useFavoriteChartSetup';
+import { useChartSessionState, readCachedChartSessionState } from '@/app/hooks/useChartSessionState';
 import { useChartTemplates, type ChartTemplateConfig } from '@/app/hooks/useChartTemplates';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
@@ -1366,11 +1367,14 @@ export function ChartView({
 
   const VALID_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'];
   const [timeframe, setTimeframe] = useState<Timeframe>(() => {
-    // 🆕 Lido de forma SÍNCRONA (cache local) pra já nascer com o timeframe do
-    // setup favorito do usuário, sem precisar de um 2º dispose()+init() do
-    // chart via setState assíncrono depois do mount (ver useFavoriteChartSetup.ts).
-    const cached = readCachedFavoriteChartSetup(user?.id);
-    const tf = cached?.timeframe as Timeframe | undefined;
+    // 🆕 Lido de forma SÍNCRONA (cache local) pra já nascer com o timeframe certo,
+    // sem precisar de um 2º dispose()+init() do chart via setState assíncrono
+    // depois do mount. Estado de sessão (sobrevive a trocar de seção do app,
+    // ver useChartSessionState.ts) tem prioridade sobre o setup favorito --
+    // é o que o usuário estava vendo há segundos, mais recente que o favorito.
+    const sessionCached = readCachedChartSessionState(user?.id);
+    const favoriteCached = readCachedFavoriteChartSetup(user?.id);
+    const tf = (sessionCached?.timeframe ?? favoriteCached?.timeframe) as Timeframe | undefined;
     return tf && VALID_TIMEFRAMES.includes(tf) ? tf : '1H';
   });
   const [currentPrice, setCurrentPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
@@ -1482,6 +1486,12 @@ export function ChartView({
   // aplicado automaticamente na 1ª carga do gráfico (ver useEffect de init mais abaixo).
   const { favoriteSetup, saveFavoriteSetup } = useFavoriteChartSetup();
   const favoriteSetupAppliedRef = useRef(false);
+  // 🆕 Estado "ao vivo" do gráfico (sessionStorage) — ver useChartSessionState.ts.
+  // `sessionStateAppliedRef` segue o mesmo padrão do favorito: aplica só na 1ª
+  // carga da montagem, nunca de novo a cada refresh de 30s.
+  const { readSessionState, saveSessionState } = useChartSessionState();
+  const sessionStateAppliedRef = useRef(false);
+  const initialRestoreDoneRef = useRef(false);
   // 🆕 Templates nomeados (CRUD completo — salvar/carregar/remover, menu "Templates"
   // do botão direito). `pendingTemplateApplyRef` existe porque "Carregar" pode exigir
   // trocar o timeframe primeiro (dispose()+init() do chart) -- nesse caso os
@@ -2948,6 +2958,21 @@ export function ChartView({
       offsetRightDistance
     };
   };
+
+  // 🆕 Autosave do estado de sessão (sessionStorage) a cada mudança de indicador/
+  // timeframe/grade/S/R — é o que faz o gráfico sobreviver a trocar de seção do
+  // app sem exigir nenhuma ação manual do usuário (ver useChartSessionState.ts).
+  // Roda depois da 1ª restauração da sessão/favorito (refs acima), senão o efeito
+  // reescreveria a sessão com o estado em branco ANTES do useEffect de init aplicar
+  // o que tinha sido salvo.
+  useEffect(() => {
+    if (!initialRestoreDoneRef.current) return;
+    const timeoutId = setTimeout(() => {
+      saveSessionState(user?.id, captureCurrentChartConfig());
+    }, 300);
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndicators, indicatorParamsById, indicatorPlacement, indicatorMASettings, timeframe, showGridOverlay, showSrOverlay, user?.id]);
 
   // 🆕 Remove todos os indicadores ativos do chart (mas não mexe no state React --
   // quem chama é responsável por atualizar activeIndicators/etc depois). Usado antes
@@ -5266,12 +5291,32 @@ export function ChartView({
             console.log('[ChartView] ⏭️ Skipping auto-scroll - não é primeira carga (mantendo posição do usuário)');
           }
 
-          // 🆕 Aplica o setup favorito do usuário (indicadores + parâmetros, grade, S/R)
-          // uma única vez por montagem do componente — não repete a cada refresh de 30s
-          // nem a cada troca de símbolo/timeframe (favoriteSetupAppliedRef nunca reseta).
-          // Construído direto do objeto salvo (nunca via getIndicatorParams/getMASettings,
-          // que leem o state React — assíncrono demais pra estar pronto aqui).
-          if (favoriteSetup && !favoriteSetupAppliedRef.current) {
+          // Marca que a restauração inicial (sessão ou favorito, com ou sem dado salvo)
+          // já rodou -- é o gate que libera o autosave de sessão logo abaixo, pra não
+          // sobrescrever um estado salvo com o gráfico ainda em branco ANTES deste
+          // bloco aplicar o que tinha sido restaurado.
+          initialRestoreDoneRef.current = true;
+
+          // 🆕 Restaura o estado "ao vivo" da sessão (indicadores/timeframe de segundos
+          // atrás, antes do usuário trocar de seção do app) — tem prioridade sobre o
+          // setup favorito, por ser mais recente. Uma única vez por montagem, mesma
+          // regra do setup favorito logo abaixo (nunca repete a cada refresh de 30s).
+          const sessionState = readSessionState(user?.id);
+          if (sessionState && !sessionStateAppliedRef.current) {
+            sessionStateAppliedRef.current = true;
+            favoriteSetupAppliedRef.current = true; // não aplica os dois — sessão vence
+            try {
+              applyChartTemplateConfig(chart, { ...sessionState, barSpace: null, offsetRightDistance: null });
+              console.log('[ChartView] 🔄 Estado de sessão restaurado:', sessionState.indicatorIds);
+            } catch (error) {
+              console.error('[ChartView] ❌ Erro restaurando estado de sessão:', error);
+            }
+          } else if (favoriteSetup && !favoriteSetupAppliedRef.current) {
+            // 🆕 Aplica o setup favorito do usuário (indicadores + parâmetros, grade, S/R)
+            // uma única vez por montagem do componente — não repete a cada refresh de 30s
+            // nem a cada troca de símbolo/timeframe (favoriteSetupAppliedRef nunca reseta).
+            // Construído direto do objeto salvo (nunca via getIndicatorParams/getMASettings,
+            // que leem o state React — assíncrono demais pra estar pronto aqui).
             favoriteSetupAppliedRef.current = true;
             try {
               // Setup favorito não guarda barSpace/offsetRightDistance (é "como eu gosto
