@@ -747,7 +747,35 @@ export function useApexLogic(
 
       try {
         const restored = await persistenceRef.current.restoreActiveSession();
-        if (!restored?.session) return;
+        if (!restored?.session) {
+          // 🆕 FIX 2026-08-20 (achado do Cleber: "desliguei a IA e ela voltou
+          // pro zero, preciso ver evolução real de capital ao longo do
+          // tempo"): sem sessão RUNNING pra restaurar, o portfolio ficava no
+          // INITIAL_STATE ($100 fixo) até o próximo "Iniciar AI" — que por
+          // sua vez usa `portfolioRef.current.balance` como saldo inicial da
+          // sessão nova (useApexLogic.ts, startLogic), descartando o
+          // resultado real da sessão anterior. Continuidade de capital entre
+          // sessões DEMO é decisão de produto explícita: cada sessão deve
+          // herdar o saldo final da última encerrada, não recomeçar do zero.
+          try {
+            const lastCompleted = await persistenceRef.current.getLastCompletedSession('DEMO');
+            if (lastCompleted?.final_balance != null) {
+              setPortfolio(prev => ({
+                ...prev,
+                balance: lastCompleted.final_balance!,
+                equity: lastCompleted.final_equity ?? lastCompleted.final_balance!,
+                peakEquity: Math.max(prev.peakEquity ?? 0, lastCompleted.final_equity ?? lastCompleted.final_balance!),
+                dayAnchorEquity: lastCompleted.final_equity ?? lastCompleted.final_balance!,
+                dayAnchorBalance: lastCompleted.final_balance!,
+                dayAnchorUtcDay: 0,
+              }));
+              console.log(`[useApexLogic] ☁️ Capital herdado da última sessão encerrada: $${lastCompleted.final_balance}`);
+            }
+          } catch (e) {
+            console.warn('[useApexLogic] Falha ao herdar capital da última sessão encerrada:', e);
+          }
+          return;
+        }
 
         const { session, openTrades, lastSnapshot } = restored;
 

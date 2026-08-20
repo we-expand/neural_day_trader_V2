@@ -293,6 +293,33 @@ class AITradingPersistenceService {
   }
 
   /**
+   * Buscar a última sessão encerrada (COMPLETED) de um modo específico.
+   * Usado pra dar continuidade de capital: sem isso, toda sessão nova (depois
+   * de "Desligar AI" ou fechar a aba) recomeçava do saldo inicial padrão,
+   * descartando o resultado real acumulado — pedido explícito do Cleber em
+   * 2026-08-20 pra poder validar a evolução real da IA ao longo do tempo.
+   */
+  async getLastCompletedSession(userId: string, mode: 'DEMO' | 'LIVE' = 'DEMO'): Promise<AISession | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('mode', mode)
+        .eq('status', 'COMPLETED')
+        .order('ended_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      return data as AISession | null;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar última sessão encerrada:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Buscar sessão por ID
    */
   async getSession(sessionId: string): Promise<AISession | null> {

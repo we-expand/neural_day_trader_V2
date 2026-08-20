@@ -210,6 +210,20 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     }
   }, [user, options.enabled]);
 
+  /**
+   * Buscar o saldo final da última sessão DEMO encerrada, pra dar
+   * continuidade de capital quando não há sessão RUNNING pra restaurar.
+   */
+  const getLastCompletedSession = useCallback(async (mode: 'DEMO' | 'LIVE' = 'DEMO') => {
+    if (!user?.id || !options.enabled) return null;
+    try {
+      return await aiPersistence.getLastCompletedSession(user.id, mode);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao buscar última sessão encerrada:`, error);
+      return null;
+    }
+  }, [user, options.enabled]);
+
   // ==========================================================================
   // TRADE TRACKING
   // ==========================================================================
@@ -535,6 +549,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     startSession,
     endSession,
     restoreActiveSession,
+    getLastCompletedSession,
     currentSessionId: sessionIdRef.current,
     /**
      * Leitura AO VIVO do id da sessão (lê o ref, não o snapshot de render).
