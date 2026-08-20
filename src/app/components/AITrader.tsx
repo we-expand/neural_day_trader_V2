@@ -1377,12 +1377,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         </div>
 
                         {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md.
-                            🆕 "Proteção e Risco" (Limite de Perda Diária + Filtro de Notícias) e "Limites
-                            de Capital" (Risco por Trade + Max Drawdown) eram duas seções separadas na tela
-                            (uma coluna acima, outra aqui embaixo) sem nenhum campo redundante entre elas —
-                            mas o nome parecido e a separação visual passavam a impressão de duplicidade.
-                            Unificado num único bloco "Gerenciamento de Risco" com 4 cards lado a lado —
-                            nenhum campo foi removido, todos continuam lidos no motor (useApexLogic.ts). */}
+                            🆕 2026-08-20: redesenho visual — grid de 3 colunas (2 linhas fechadas, sem
+                            sobra) em vez de 4 colunas com spans irregulares que deixavam uma coluna vazia
+                            na última linha. `items-start` no grid impede que cards curtos (ex: Modo Stop
+                            Loss) sejam esticados pra altura do card mais alto da linha — cada card mantém
+                            sua altura natural, sem espaço morto interno. Cabeçalho de cada card ganhou
+                            ícone colorido pra casar com o padrão visual do resto da página (Perfil de
+                            Risco acima, PyramidingConfigPanel abaixo). Nenhum campo foi removido ou
+                            reordenado em função lógica — só o layout, todos continuam lidos no motor
+                            (useApexLogic.ts). */}
                         <div className="mt-8 pt-6 border-t border-white/5">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
@@ -1391,31 +1394,35 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <span className="text-[9px] text-slate-500">Você controla exatamente quando a IA para de operar</span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
 
                                 {/* Modo Stop Loss */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Modo Stop Loss</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <Sliders className="w-3.5 h-3.5 text-slate-500" /> Modo Stop Loss
+                                    </span>
                                     <div className="flex gap-2">
                                         <button
                                         onClick={() => setConfig({ ...config, stopLossMode: 'FIXO' })}
-                                        className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'FIXO' ? 'bg-white/10 border-white text-white' : 'border-white/10 text-slate-500'}`}
+                                        className={`flex-1 py-2 rounded border text-[10px] font-bold transition-colors ${config.stopLossMode === 'FIXO' ? 'bg-white/10 border-white text-white' : 'border-white/10 text-slate-500 hover:border-white/20'}`}
                                         >
                                         Fixo (%)
                                         </button>
                                         <button
                                         onClick={() => setConfig({ ...config, stopLossMode: 'DINAMICO' })}
-                                        className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'DINAMICO' ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-white/10 text-slate-500'}`}
+                                        className={`flex-1 py-2 rounded border text-[10px] font-bold transition-colors ${config.stopLossMode === 'DINAMICO' ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-white/10 text-slate-500 hover:border-white/20'}`}
                                         >
                                         Dinâmico (AI/SMC)
                                         </button>
                                     </div>
-                                    <p className="text-[9px] text-slate-500">"Dinâmico" ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade.</p>
+                                    <p className="text-[9px] text-slate-500 leading-relaxed">"Dinâmico" ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade.</p>
                                 </div>
 
                                 {/* Perda diária + Filtro de notícias */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Proteção e Risco</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <ShieldAlert className="w-3.5 h-3.5 text-red-500/70" /> Proteção e Risco
+                                    </span>
 
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
@@ -1451,7 +1458,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
                                 {/* Risco por trade + Max Drawdown */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Limites de Capital</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <Lock className="w-3.5 h-3.5 text-red-500/70" /> Limites de Capital
+                                    </span>
 
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
@@ -1497,7 +1506,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
                                 {/* Position Sizing */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Tamanho de Posição</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <Target className="w-3.5 h-3.5 text-blue-500/70" /> Tamanho de Posição
+                                    </span>
 
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-bold text-slate-400 uppercase">Modo de Cálculo</label>
@@ -1565,7 +1576,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
                                 {/* Cooldown + Limite diário de trades */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Pausa &amp; Frequência</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <Clock className="w-3.5 h-3.5 text-cyan-500/70" /> Pausa &amp; Frequência
+                                    </span>
 
                                     <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
                                         <Zap className={`w-4 h-4 ${config.cooldownEnabled ? 'text-cyan-400' : 'text-slate-600'}`} />
@@ -1645,12 +1658,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </div>
 
                                 {/* Correlação entre posições */}
-                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4 lg:col-span-3">
+                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <Crosshair className="w-3.5 h-3.5 text-purple-500/70" /> Correlação entre Posições
+                                    </span>
                                     <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
                                         <Lock className={`w-4 h-4 ${config.correlationGuardEnabled ? 'text-purple-400' : 'text-slate-600'}`} />
                                         <div className="flex-1">
-                                            <span className="text-xs font-bold text-white block">Alerta de Correlação entre Posições</span>
-                                            <span className="text-[9px] text-slate-500">Evita "diversificação disfarçada" — vários ativos que se movem juntos</span>
+                                            <span className="text-xs font-bold text-white block">Alerta de Correlação</span>
+                                            <span className="text-[9px] text-slate-500 leading-relaxed">Evita "diversificação disfarçada" — vários ativos que se movem juntos</span>
                                         </div>
                                         <button
                                             onClick={() => setConfig({ ...config, correlationGuardEnabled: !config.correlationGuardEnabled })}
@@ -1660,7 +1676,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         </button>
                                     </div>
                                     {config.correlationGuardEnabled && (
-                                        <div className="space-y-2 max-w-md">
+                                        <div className="space-y-2">
                                             <div className="flex justify-between">
                                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Limiar de Correlação</label>
                                                 <span className="text-xs font-mono text-purple-400">{(config.correlationThreshold || 0).toFixed(2)}</span>
@@ -1674,13 +1690,18 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         </div>
                                     )}
                                 </div>
+                            </div>
 
-                                {/* Pyramiding System — movido pra cá em 2026-08-19 (antes vivia
-                                    solto na página principal do AI Trader, dentro de AIToolsControl).
-                                    Botão único: liga o sistema todo (layers, break-even, trailing,
-                                    partial-TP, fechar-em-reversão) já com a proteção de risco
-                                    embutida, sem opt-in separado — ver PyramidingConfigPanel.tsx. */}
-                                <div className="lg:col-span-3">
+                            {/* Pyramiding System — movido pra cá em 2026-08-19 (antes vivia
+                                solto na página principal do AI Trader, dentro de AIToolsControl).
+                                Botão único: liga o sistema todo (layers, break-even, trailing,
+                                partial-TP, fechar-em-reversão) já com a proteção de risco
+                                embutida, sem opt-in separado — ver PyramidingConfigPanel.tsx.
+                                Fica fora do grid de 3 colunas (largura total, mt-4) porque o painel
+                                já é auto-suficiente visualmente (tem seu próprio header/tabs) — encaixar
+                                numa célula de grid só recriava a mesma sobra de espaço que motivou o
+                                redesenho de 2026-08-20. */}
+                            <div className="mt-4">
                                     <PyramidingConfigPanel
                                         config={config.pyramiding ?? DEFAULT_PYRAMIDING_CONFIG}
                                         onChange={(newConfig) => {
@@ -1692,7 +1713,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         }}
                                     />
                                 </div>
-                            </div>
                         </div>
                         </>
                         )}
