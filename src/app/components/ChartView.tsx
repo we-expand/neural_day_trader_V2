@@ -5123,9 +5123,25 @@ export function ChartView({
               resetTime = resetTime - 86400000;
             }
             
+            // 🔥 FIX 2026-08-20: em timeframes onde o carimbo de tempo das velas
+            // não alinha com resetTime (ex: 1D/1W da Binance começam à 00:00 UTC,
+            // não 06:00 UTC), `find(c => c.timestamp >= resetTime)` nunca casava
+            // e caía em `candles[0].open` — a vela MAIS ANTIGA de todo o
+            // histórico carregado (até ~5 anos), fazendo a variação "de hoje"
+            // exibir na verdade a variação desde uma data muito mais antiga
+            // (achado real: ETH mostrando ~18% "hoje" que era variação de dias/
+            // semanas). Fix: se não houver vela após o reset, usar o close da
+            // última vela ANTES do reset (a mais próxima do instante real),
+            // nunca a mais antiga do array inteiro.
             const firstCandleAfterReset = candles.find(c => c.timestamp >= resetTime);
-            const openPriceFromCandles = firstCandleAfterReset ? firstCandleAfterReset.open : candles[0].open;
-            
+            let openPriceFromCandles: number;
+            if (firstCandleAfterReset) {
+              openPriceFromCandles = firstCandleAfterReset.open;
+            } else {
+              const lastCandleBeforeReset = [...candles].reverse().find(c => c.timestamp <= resetTime);
+              openPriceFromCandles = lastCandleBeforeReset ? lastCandleBeforeReset.close : lastCandle.open;
+            }
+
             const changeFromCandles = safeCurrentPrice - openPriceFromCandles;
             const changePercentFromCandles = (changeFromCandles / openPriceFromCandles) * 100;
             

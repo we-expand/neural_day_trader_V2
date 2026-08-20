@@ -217,7 +217,12 @@ const CRYPTO_CFD_AVAILABLE: Record<BrokerId, Set<string>> = {
   // override de nome (ver SYMBOL_OVERRIDES). ETCUSD/GRTUSD/TRXUSD/FILUSD/
   // ZECUSD/XTZUSD/CRVUSD/NEOUSD/ONEUSD/INCUSD usam o próprio nome unificado
   // como nome real na corretora (sem override).
-  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD', 'ATOMUSD', 'NEARUSD', 'SANDUSD', 'ALGOUSD', 'SHIBUSD', 'AVAXUSD', 'ETCUSD', 'GRTUSD', 'TRXUSD', 'FILUSD', 'ZECUSD', 'XTZUSD', 'CRVUSD', 'NEOUSD', 'SUSHIUSD', 'IOTAUSD', 'ONEUSD', 'INCUSD']),
+  // ✅ 2026-08-20: BTCUSDCRP tinha override pra 'BTCUSD.crp' definido acima
+  // mas faltava neste Set — nunca era roteado pro broker de fato, caía
+  // direto na Binance (morta em produção). Confirmado real via
+  // /mt5-prices nesta sessão (audit-broker-symbols.mjs testando
+  // 'BTCUSD.crp' diretamente).
+  infinox: new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD', 'ATOMUSD', 'NEARUSD', 'SANDUSD', 'ALGOUSD', 'SHIBUSD', 'AVAXUSD', 'ETCUSD', 'GRTUSD', 'TRXUSD', 'FILUSD', 'ZECUSD', 'XTZUSD', 'CRVUSD', 'NEOUSD', 'SUSHIUSD', 'IOTAUSD', 'ONEUSD', 'INCUSD']),
 };
 
 /**
