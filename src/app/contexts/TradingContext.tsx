@@ -35,6 +35,7 @@ interface TradingContextType {
   candlesSinceLastTrade: number;
   maxCandlesBeforeForceEntry: number;
   equityHistory: EquityPoint[];
+  lastPositionSyncAt: number | null;
 
   // Actions from useApexLogic
   startLogic: () => void;
@@ -424,6 +425,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     candlesSinceLastTrade: logic.candlesSinceLastTrade,
     maxCandlesBeforeForceEntry: logic.maxCandlesBeforeForceEntry,
     equityHistory: logic.equityHistory,
+    lastPositionSyncAt: logic.lastPositionSyncAt,
 
     // Actions from useApexLogic
     startLogic: logic.startLogic,
@@ -506,6 +508,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.candlesSinceLastTrade,
     logic.maxCandlesBeforeForceEntry,
     logic.equityHistory,
+    logic.lastPositionSyncAt,
     logic.startLogic,
     logic.stopLogic,
     logic.pauseLogic,
