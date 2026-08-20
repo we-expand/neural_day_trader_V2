@@ -4556,6 +4556,18 @@ export function ChartView({
     // reset movido pra ANTES do `return` -- roda sempre, de verdade, a cada
     // troca de símbolo/timeframe, antes até de `fetchData()` ser chamado.
     isInitialLoadRef.current = true;
+    // 🐛 BUG REAL irmão do acima (mesma causa, achado em 2026-08-20): troca de
+    // símbolo/timeframe recria o chart do zero (dispose()+init()), então ele
+    // nasce sem nenhum indicador. `sessionStateAppliedRef`/`favoriteSetupAppliedRef`
+    // são guardas "aplica só 1x" que nunca resetavam depois da 1ª carga —
+    // então na 1ª troca de ativo dentro da mesma sessão, o bloco de restauração
+    // (mais abaixo) via a guarda já `true` e pulava a reaplicação: indicadores
+    // (ex: MACD) somem ao trocar de ativo e nunca mais voltam sozinhos, nem
+    // trocando de novo. Reset aqui, no mesmo ponto que já reseta
+    // `isInitialLoadRef` por este exato motivo — roda a cada troca de
+    // símbolo/timeframe, antes de `fetchData()`.
+    sessionStateAppliedRef.current = false;
+    favoriteSetupAppliedRef.current = false;
     // 🛡️ Limpa o buffer de candles da carga anterior — sem isso, o tick de streaming
     // que chega ANTES do histórico novo carregar via um candle velho (de outro
     // símbolo/timeframe) no ref, passava na checagem length > 0 e aplicava
