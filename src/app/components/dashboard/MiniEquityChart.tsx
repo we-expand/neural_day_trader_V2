@@ -40,19 +40,38 @@ function smoothPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
+// Média móvel centrada com janela adaptativa (maior janela em séries mais
+// longas) — só suaviza o traço visual, não altera o dado real: continua
+// passando pela variação real, apenas reduz o jitter amostra-a-amostra que
+// deixa a curva com aparência "serrilhada" quando há muitos pontos.
+function movingAverage(values: number[]): number[] {
+  const n = values.length;
+  if (n < 5) return values;
+  const window = Math.min(9, Math.max(3, Math.round(n / 24)) | 1);
+  const half = Math.floor(window / 2);
+  return values.map((_, i) => {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(n - 1, i + half);
+    let sum = 0;
+    for (let j = lo; j <= hi; j++) sum += values[j];
+    return sum / (hi - lo + 1);
+  });
+}
+
 export function MiniEquityChart({ data }: MiniEquityChartProps) {
   const uid = useId().replace(/:/g, '');
   const equityData = data.length >= 2 ? data : data.length === 1 ? [data[0], data[0]] : [0, 0];
+  const smoothedData = movingAverage(equityData);
 
   const width = 100;
   const height = 40;
   const padding = 5;
 
-  const min = Math.min(...equityData);
-  const max = Math.max(...equityData);
+  const min = Math.min(...smoothedData);
+  const max = Math.max(...smoothedData);
   const range = max - min || 1;
 
-  const pts = equityData.map((value, index) => ({
+  const pts = smoothedData.map((value, index) => ({
     x: (index / (equityData.length - 1)) * width,
     y: height - ((value - min) / range) * (height - padding * 2) - padding,
   }));
@@ -84,7 +103,7 @@ export function MiniEquityChart({ data }: MiniEquityChartProps) {
             <stop offset="100%" stopColor={strokeColor} stopOpacity="1" />
           </linearGradient>
           <filter id={`equityGlow-${uid}`} x="-30%" y="-80%" width="160%" height="260%">
-            <feGaussianBlur stdDeviation="0.9" result="blur" />
+            <feGaussianBlur stdDeviation="0.6" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -126,7 +145,7 @@ export function MiniEquityChart({ data }: MiniEquityChartProps) {
           d={linePath}
           fill="none"
           stroke={`url(#equityStroke-${uid})`}
-          strokeWidth="1.1"
+          strokeWidth="0.85"
           strokeLinecap="round"
           strokeLinejoin="round"
           filter={`url(#equityGlow-${uid})`}
