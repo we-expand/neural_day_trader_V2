@@ -1149,6 +1149,11 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         // 2026-08-20) — nunca exibe fração abaixo do que a corretora aceitaria.
                         const flooredLotCheck = rawLots !== null && rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
                         const estimatedLots = flooredLotCheck && !flooredLotCheck.error ? flooredLotCheck.volume : null;
+                        // 🆕 2026-08-20: antes, exposição abaixo do lote mínimo do ativo (ex:
+                        // $150 em BTCUSD, que exige ~$727 pra fechar 0,01 lote) caía num "—" mudo,
+                        // indistinguível de erro/dado ausente. Mostra o motivo real em vez de
+                        // esconder — nunca fabrica um número de lote que a corretora não aceitaria.
+                        const lotsBelowMinimum = !!(flooredLotCheck?.error && asset);
 
                         return (
                             <div
@@ -1163,7 +1168,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <span className="font-bold text-white text-sm">
-                                            {order.symbol.replace('USDT', '').replace('USD', '')}
+                                            {order.symbol}
                                         </span>
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
                                             order.side === 'LONG'
@@ -1217,7 +1222,18 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                     </div>
                                     <div className="flex justify-between text-[10px]">
                                         <span className="text-neutral-500">Contratos:</span>
-                                        <span className="text-white font-mono font-bold">{estimatedLots !== null ? `${estimatedLots.toFixed(4)} lotes` : '—'}</span>
+                                        {estimatedLots !== null ? (
+                                            <span className="text-white font-mono font-bold">{estimatedLots.toFixed(4)} lotes</span>
+                                        ) : lotsBelowMinimum ? (
+                                            <span
+                                                className="text-amber-400 font-mono font-bold text-right"
+                                                title={`Exposição de $${order.amount.toFixed(2)} não fecha o lote mínimo de ${order.symbol} (${asset!.minLot} lote = ~$${(asset!.minLot * asset!.lotSize * order.price).toFixed(2)})`}
+                                            >
+                                                Abaixo do mín.
+                                            </span>
+                                        ) : (
+                                            <span className="text-neutral-600 font-mono">—</span>
+                                        )}
                                     </div>
                                     <div className="flex justify-between text-[10px]">
                                         <span className="text-neutral-500">Exposição:</span>
