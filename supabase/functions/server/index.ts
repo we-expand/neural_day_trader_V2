@@ -4025,10 +4025,14 @@ app.delete('/clear-metaapi-token', async (c) => {
 // ========================================
 // 📊 ROTA: MT5 REAL-TIME PRICES (METAAPI)
 // ========================================
-// 🔍 2026-07-15: mesma lista de `CRYPTO_CFD_AVAILABLE.infinox` em
-// src/app/config/brokerRegistry.ts (não importável aqui, Edge Function é
-// isolada do bundle do frontend) — usada só pro log de debug temporário abaixo.
-const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD']);
+// ✅ 2026-08-20: mantida em sincronia manual com `CRYPTO_CFD_AVAILABLE.infinox`
+// em src/app/config/brokerRegistry.ts (não importável aqui, Edge Function é
+// isolada do bundle do frontend). Até 2026-08-20 só era usada pro log de
+// debug abaixo (por isso ficou incompleta/desatualizada sem quebrar nada);
+// agora também decide a metodologia de variação (ver bloco "24h rolante"
+// abaixo) — se um símbolo novo for adicionado no broker registry do
+// frontend, replicar aqui também.
+const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD', 'ATOMUSD', 'NEARUSD', 'SANDUSD', 'ALGOUSD', 'SHIBUSD', 'AVAXUSD', 'ETCUSD', 'GRTUSD', 'TRXUSD', 'FILUSD', 'ZECUSD', 'XTZUSD', 'CRVUSD', 'NEOUSD', 'SUSHIUSD', 'IOTAUSD', 'ONEUSD', 'INCUSD']);
 
 // 🔍 2026-07-15: AUDJPY reportado com % levemente errada (-0.05% no app vs
 // -0.08% no MT5 real, preço batendo) — mesma família de sintoma do SOL/ADA,
@@ -4261,7 +4265,19 @@ app.post('/mt5-prices', async (c) => {
                     // carrega PRA TRÁS a partir de `startTime`. Ver getMetaApiMarketDataApiBase.
                     const now = new Date();
                     const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
-                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1d/candles`;
+
+                    // ✅ 2026-08-20: cripto usa janela ROLANTE de 24h (candles de 1h),
+                    // não o fechamento D1 do broker (21:00 UTC) usado por todo o resto.
+                    // Achado real (Cleber, mesmo dia): BTCUSD mostrava +4.11% (D1) vs
+                    // +10.89% na Binance (rolagem 24h) NO MESMO MINUTO — divergência
+                    // grande o bastante pra parecer bug pra qualquer usuário comparando
+                    // com Binance/CoinGecko, mesmo o D1 sendo tecnicamente "correto" pela
+                    // convenção do broker. Decisão de produto: cripto sempre 24/7 (sem a
+                    // pausa diária que justificava D1 pros CFD tradicionais), então
+                    // rolagem 24h real é a metodologia que bate com a expectativa do
+                    // usuário. CFD tradicionais continuam em D1 (ver bloco `else` abaixo).
+                    const isCrypto24h = CRYPTO_CFD_SYMBOLS.has(symbol);
+                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '1h' : '1d'}/candles`;
                     // ✅ 2026-07-15 (4ª parte): `limit=2` funcionou pra praticamente todo
                     // ativo por meses (posição fixa `length-2` = candle de ontem fechado).
                     // Só o BTCUSD (mercado 24/7, sem a pausa diária que CFD tradicional tem)
@@ -4292,6 +4308,61 @@ app.post('/mt5-prices', async (c) => {
                     let changePercent = 0;
                     let candlesUsedForDebug: any[] | null = null;
                     let previousCandleForDebug: any = null;
+
+                    if (isCrypto24h) {
+                        // 25 velas de 1h ≈ últimas 25h — folga de 1h sobre a janela exata
+                        // de 24h pra garantir que sobre pelo menos uma vela perto o
+                        // suficiente do alvo mesmo com pequenas lacunas de dado.
+                        const rolling = await fetchCandles(25);
+
+                        if (rolling.ok && rolling.candles && rolling.candles.length >= 1) {
+                            const candles = rolling.candles;
+                            const target24hAgo = now.getTime() - 24 * 60 * 60 * 1000;
+
+                            let closest: any = null;
+                            let closestDiffMs = Infinity;
+                            for (const cd of candles) {
+                                const t = cd?.time ? new Date(cd.time).getTime() : null;
+                                if (t === null) continue;
+                                const diff = Math.abs(t - target24hAgo);
+                                if (diff < closestDiffMs) {
+                                    closestDiffMs = diff;
+                                    closest = cd;
+                                }
+                            }
+
+                            candlesUsedForDebug = candles;
+                            previousCandleForDebug = closest;
+
+                            // Vela mais próxima de "agora - 24h" precisa estar a no máximo
+                            // 4h de distância do alvo (folga pra gap de rate-limit da conta
+                            // compartilhada) — senão a referência não representa de verdade
+                            // a janela de 24h e é melhor não mostrar variação do que mostrar
+                            // uma calculada contra hora errada.
+                            const CLOSEST_TOLERANCE_MS = 4 * 60 * 60 * 1000;
+                            if (closest && closestDiffMs <= CLOSEST_TOLERANCE_MS) {
+                                const referencePrice = closest.open || closest.close || 0;
+                                if (referencePrice > 0 && currentPrice > 0) {
+                                    const computedChange = currentPrice - referencePrice;
+                                    const computedChangePercent = (computedChange / referencePrice) * 100;
+
+                                    // Cripto é mais volátil que CFD tradicional — clamp mais
+                                    // largo (±50%) só como rede de segurança contra bug de
+                                    // referência, não como limite de movimento real esperado.
+                                    if (Math.abs(computedChangePercent) <= 50) {
+                                        change = computedChange;
+                                        changePercent = computedChangePercent;
+                                    } else {
+                                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: variação 24h implausível (${computedChangePercent.toFixed(2)}%) — referência provavelmente errada, mantendo change 0.`);
+                                    }
+                                }
+                            } else {
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: sem vela de 1h perto o bastante de -24h (mais próxima a ${(closestDiffMs / 3_600_000).toFixed(1)}h), change ficará 0.`);
+                            }
+                        } else {
+                            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles 1h HTTP falhou, change ficará 0`);
+                        }
+                    } else {
 
                     const firstTry = await fetchCandles(2);
 
@@ -4413,7 +4484,9 @@ app.post('/mt5-prices', async (c) => {
                     } else {
                         console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles HTTP falhou, change ficará 0`);
                     }
-                    
+
+                    } // fim do else (CFD tradicional, D1) — ver `if (isCrypto24h)` acima
+
                     console.log(`[MT5 PRICES] ✅ ${symbol}: $${currentPrice.toFixed(5)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
 
                     // 🔍 2026-07-16: console.log não é acessível pelas ferramentas de
@@ -5626,6 +5699,75 @@ app.get('/health', (c) => {
   });
 });
 
+// ========================================
+// 📊 ROTA: BINANCE SERVER-SIDE PROXY (sem CORS, sem fabricar dado)
+// ========================================
+// ✅ 2026-08-20: as 3 fontes de Binance direta do CLIENT (api.binance.com +
+// 2 proxies CORS, ver DirectBinanceService.ts) estão mortas em produção
+// desde 2026-07-10 (CORS/403 bloqueado no domínio do navegador) — afeta
+// TODA cripto sem CFD confirmado na Infinox (ETHUSD, MATICUSD, LTCUSD,
+// BCHUSD e qualquer futura). O bloqueio é de NAVEGADOR (CORS), não existe
+// pro servidor — rota chama a Binance direto, sem proxy nenhum, sem
+// intermediário que possa devolver corpo de erro disfarçado de sucesso.
+// Diferente da rota legada `/real/binance/:symbol` abaixo (usada só pelo
+// ApiTester, não pelo pipeline real), esta NUNCA fabrica preço/variação —
+// convenção do projeto (CLAUDE.md: "nunca fabricar dado"). Em qualquer
+// falha, responde erro explícito; quem chama decide o fallback (cache
+// local via getFallbackOrLastKnown, nunca dado sintético aqui).
+app.get('/binance-ticker/:symbol', async (c) => {
+  const symbol = c.req.param('symbol').toUpperCase().trim();
+
+  try {
+    const binanceResponse = await fetch(
+      `https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`,
+      { method: 'GET', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) }
+    );
+
+    if (!binanceResponse.ok) {
+      const errorText = await binanceResponse.text();
+      console.warn(`[BINANCE-PROXY] ⚠️ ${symbol}: Binance respondeu ${binanceResponse.status}: ${errorText.slice(0, 200)}`);
+      return c.json({ error: true, symbol, status: binanceResponse.status, message: 'Binance API error' }, 502);
+    }
+
+    const data = await binanceResponse.json();
+    const price = parseFloat(data.lastPrice);
+    const change = parseFloat(data.priceChange);
+    const changePercent = parseFloat(data.priceChangePercent);
+
+    if (!isFinite(price) || !isFinite(change) || !isFinite(changePercent)) {
+      console.warn(`[BINANCE-PROXY] ⚠️ ${symbol}: resposta sem campos numéricos válidos: ${JSON.stringify(data).slice(0, 200)}`);
+      return c.json({ error: true, symbol, message: 'Resposta da Binance sem dado numérico válido' }, 502);
+    }
+
+    console.log(`[BINANCE-PROXY] ✅ ${symbol}: $${price.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
+
+    return c.json({
+      symbol,
+      source: 'binance',
+      price,
+      open: parseFloat(data.openPrice),
+      bid: parseFloat(data.bidPrice),
+      ask: parseFloat(data.askPrice),
+      high: parseFloat(data.highPrice),
+      low: parseFloat(data.lowPrice),
+      volume: parseFloat(data.volume),
+      change,
+      changePercent,
+      timestamp: data.closeTime,
+      isRealData: true,
+    });
+  } catch (error: any) {
+    console.error(`[BINANCE-PROXY] ❌ ${symbol}: erro inesperado:`, error?.message || error);
+    return c.json({ error: true, symbol, message: error?.message || 'Erro desconhecido' }, 500);
+  }
+});
+
+// ⚠️ LEGADO — usada só por ApiTester.tsx (debug manual), NÃO pelo pipeline
+// real de preço. Mantida como está pra não quebrar a ferramenta de debug,
+// mas o fallback "Dados simulados realistas baseados em preços reais
+// conhecidos" abaixo FABRICA preço (ex: BTCUSDT hardcoded em $104.400,
+// desatualizado) — nunca usar como fonte pro app real. Ver `/binance-ticker`
+// acima pro pipeline real, que nunca fabrica dado.
 // Binance Crypto Data - REAL API Integration (v3.0 - LIVE DATA)
 app.get('/real/binance/:symbol', async (c) => {
   try {
