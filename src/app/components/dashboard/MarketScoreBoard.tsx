@@ -541,7 +541,17 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
             // velho" — nesse caso o calendário é sempre a fonte de verdade,
             // nunca declara fechado só por falta momentânea de dado.
             const neverHadRealDataYet = !isRealData && marketData.source === 'generated';
-            const STALE_TICK_MS = 10 * 60 * 1000;
+            // ✅ 2026-08-21: precisa ser <= LAST_KNOWN_STALE_AFTER_MS (5min) de
+            // RealMarketDataService.ts — dali pra cá, `getFallbackOrLastKnown`
+            // já marca `isRealData: false` num tick com 5min+ de idade (guarda
+            // de TTL adicionada na mesma sessão), mas preserva o `timestamp`
+            // antigo. Com STALE_TICK_MS maior que esse TTL, um tick de 5-10min
+            // caía no ramo `!isRealData` sem nunca checar o calendário —
+            // declarando "MERCADO FECHADO" com o mercado genuinamente aberto,
+            // só porque o feed atrasou. Mantendo os dois limiares alinhados
+            // (5min), qualquer tick que o serviço já marcou como não-real
+            // também é tratado aqui como "tick velho" e cai no calendário.
+            const STALE_TICK_MS = 5 * 60 * 1000;
             const tickAgeMs = marketData.timestamp ? Date.now() - marketData.timestamp : Infinity;
             const isTickStale = tickAgeMs > STALE_TICK_MS;
             const calendarSaysOpen = isMarketOpen(activeSymbol).isOpen;
