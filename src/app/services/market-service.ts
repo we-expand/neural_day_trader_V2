@@ -247,6 +247,10 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
+    // ⏱️ Timeout de 15s: sem isso, se o backend travar (ex: rate-limit 429/504
+    // da conta MetaAPI compartilhada da plataforma -- risco conhecido, ver
+    // CLAUDE.md), o fetch fica preso sem limite e o gráfico nunca sai de
+    // "carregando". Falha explícita e rápida é melhor que travar a UI.
     const response = await fetch(MT5_CANDLES_HISTORY_URL, {
       method: 'POST',
       headers: {
@@ -259,6 +263,7 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     const result = await response.json();
