@@ -1952,7 +1952,7 @@ export function useApexLogic(
     const closingOrders = activeOrders;
     let totalRealizedPnL = 0;
 
-    closingOrders.forEach(order => {
+    const closedWithPnL = closingOrders.map(order => {
       const currentPrice = order.currentPrice || order.price;
       const tradePnL = calculatePnLWithLeverage(
         order.symbol,
@@ -1967,6 +1967,8 @@ export function useApexLogic(
       if (configRef.current.executionMode === 'DEMO') {
         persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
       }
+
+      return { ...order, currentPrice, currentProfit: tradePnL, closedAt: Date.now() };
     });
 
     setPortfolio(prev => ({
@@ -1976,7 +1978,7 @@ export function useApexLogic(
       openPositionsValue: 0,
     }));
 
-    setOrderHistory(prev => [...prev, ...closingOrders.map(o => ({ ...o, closedAt: Date.now() }))]);
+    setOrderHistory(prev => [...prev, ...closedWithPnL]);
     setActiveOrders([]);
     addLog(`🚨 Todas as posições foram fechadas. P&L Total: $${totalRealizedPnL.toFixed(2)}`);
   }, [activeOrders, addLog]);
@@ -2444,7 +2446,7 @@ export function useApexLogic(
       balance: prev.balance + tradePnL,
       equity: prev.balance + tradePnL,
     }));
-    setOrderHistory(prev => [...prev, { ...order, closedAt: Date.now() }]);
+    setOrderHistory(prev => [...prev, { ...order, currentPrice, currentProfit: tradePnL, closedAt: Date.now() }]);
     setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
     addLog(`✅ Posição manual fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
   }, [addLog]);
