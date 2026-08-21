@@ -1917,6 +1917,14 @@ export function useApexLogic(
     if (persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
     }
+    // Reset explícito = "começar do zero" pra Performance também — sem isto,
+    // trades fechados de semanas atrás (inclusive registros comprovadamente
+    // contaminados por bugs já corrigidos no motor) reapareciam na tela
+    // depois de qualquer reload, porque a hidratação busca TODO o histórico
+    // do usuário, sem filtro de sessão. Não apaga nada no banco.
+    if (configRef.current.executionMode === 'DEMO') {
+      persistenceRef.current.recordHistoryReset();
+    }
     // Reset explícito = "começar do zero" — reinicia o relógio do gate de
     // perda diária junto, senão perdas da tentativa descartada continuam
     // pesando contra a conta que acabou de voltar pra $100.

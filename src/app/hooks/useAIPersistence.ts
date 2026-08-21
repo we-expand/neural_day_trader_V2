@@ -519,7 +519,24 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
    */
   const getUserTradeHistory = useCallback(async (limit = 200) => {
     if (!user?.id) return [];
-    return await aiPersistence.getUserTrades(user.id, { limit });
+    const [trades, lastResetAt] = await Promise.all([
+      aiPersistence.getUserTrades(user.id, { limit }),
+      aiPersistence.getLastHistoryResetAt(user.id),
+    ]);
+    if (!lastResetAt) return trades;
+    // Performance exibida respeita o último Reset — trades reais continuam
+    // intactos em `ai_trades` (auditoria), só somem da tela.
+    return trades.filter(t => !t.exit_time || t.exit_time > lastResetAt);
+  }, [user]);
+
+  /**
+   * Marca "a partir de agora" pro histórico exibido em Performance — chamado
+   * pelo Reset do motor (`resetLogic` em useApexLogic.ts). Não apaga trade
+   * nenhum, só some da tela via filtro em `getUserTradeHistory`.
+   */
+  const recordHistoryReset = useCallback(async () => {
+    if (!user?.id) return;
+    await aiPersistence.recordHistoryReset(user.id);
   }, [user]);
 
   /**
@@ -577,6 +594,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     getSessionHistory,
     getSessionTrades,
     getUserTradeHistory,
+    recordHistoryReset,
     getEquityCurve,
     
     // Utils

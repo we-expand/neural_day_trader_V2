@@ -284,7 +284,14 @@ export function Performance() {
         bestKey = k;
       }
     });
-    return { value: bestVal, label: new Date(bestKey).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) };
+    // `bestKey` é uma data UTC ("YYYY-MM-DD"). `new Date(bestKey)` a
+    // interpreta como meia-noite UTC; formatar isso no fuso local (Brasil,
+    // UTC-3) empurra pro dia anterior (achado 2026-08-21: valor batia com
+    // 04/08 no banco, mas o rótulo mostrava "03 de agosto"). Formata em UTC
+    // pra manter o mesmo dia usado no agrupamento acima.
+    const [y, m, d] = bestKey.split('-').map(Number);
+    const label = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', timeZone: 'UTC' });
+    return { value: bestVal, label };
   }, [tradeHistory]);
 
   // Melhor/Pior trade e tempo médio de operação — calculados aqui (não vêm

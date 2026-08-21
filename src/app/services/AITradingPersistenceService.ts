@@ -436,6 +436,52 @@ class AITradingPersistenceService {
   }
 
   /**
+   * Grava um marcador de "reset de histórico" (achado 2026-08-21: o botão
+   * Resetar zerava saldo/orderHistory local mas nunca este marcador, então o
+   * card de Performance (que hidrata TODO o histórico do usuário via
+   * `getUserTrades`, sem filtro de sessão) continuava mostrando trades de
+   * semanas atrás mesmo depois de "começar do zero" — inclusive dois trades
+   * comprovadamente contaminados por bugs antigos já corrigidos no motor,
+   * nunca corrigidos no banco). Não apaga nada em `ai_trades` (auditoria
+   * append-only se mantém intacta) — só marca "a partir daqui é o que conta
+   * pra performance exibida".
+   */
+  async recordHistoryReset(userId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('ai_history_resets')
+        .insert({ user_id: userId });
+      if (error) throw error;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao gravar marcador de reset de histórico:`, error);
+    }
+  }
+
+  /**
+   * Timestamp do reset de histórico mais recente do usuário, ou null se
+   * nunca resetou. Usado só por quem hidrata "performance desde o começo
+   * atual" (`getUserTradeHistory` em useAIPersistence.ts) — o log de
+   * auditoria (`OperationLogs.tsx`, via `getUserTrades` direto) continua
+   * mostrando o histórico vitalício de propósito, resets não o afetam.
+   */
+  async getLastHistoryResetAt(userId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_history_resets')
+        .select('reset_at')
+        .eq('user_id', userId)
+        .order('reset_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.reset_at ?? null;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar marcador de reset de histórico:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Buscar trades abertos da sessão
    */
   async getOpenTrades(sessionId: string): Promise<AITrade[]> {
