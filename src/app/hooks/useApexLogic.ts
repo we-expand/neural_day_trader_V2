@@ -132,6 +132,17 @@ export interface EquityPoint {
 }
 
 const STORAGE_KEY = 'apex_logic_state_v15_FIXED';
+// 🔴 FIX 2026-08-21 (Cleber: depois de "Reset", Curva de Equity do Dashboard
+// ainda mostrava o mergulho/plateau da sessão anterior): `endSession` no
+// Supabase é assíncrono e não é aguardado por `resetLogic` — se o usuário
+// recarregar a página no meio dessa janela (comum logo após confirmar o
+// Reset), a hidratação (linha ~711) ainda encontra a sessão antiga como
+// RUNNING e restaura a curva de equity real dela inteira, sépia do reset.
+// Este marcador (com timestamp e o id da sessão que estava sendo encerrada)
+// deixa a hidratação detectar esse caso e ignorar a sessão "RUNNING" fantasma
+// em vez de restaurar dado obsoleto.
+const LAST_RESET_MARKER_KEY = 'apex_last_reset_marker_v1';
+const RESET_MARKER_STALE_MS = 30_000;
 
 export interface MetaApiCredentials {
   login: string;
@@ -749,7 +760,29 @@ export function useApexLogic(
       }
 
       try {
-        const restored = await persistenceRef.current.restoreActiveSession();
+        let restored = await persistenceRef.current.restoreActiveSession();
+
+        // 🔴 Ver nota em LAST_RESET_MARKER_KEY: se um Reset acabou de rodar
+        // (marcador recente, mesma sessão ou sem id registrado) e o Supabase
+        // ainda devolve essa sessão como RUNNING, é a janela de corrida do
+        // `endSession` assíncrono ainda não confirmado — não é uma sessão
+        // legítima. Ignora o dado (equity/posições antigos) e reforça o
+        // encerramento em vez de restaurar.
+        try {
+          const rawMarker = localStorage.getItem(LAST_RESET_MARKER_KEY);
+          if (rawMarker && restored?.session) {
+            const marker = JSON.parse(rawMarker) as { t: number; sessionId: string | null };
+            const isFresh = Date.now() - marker.t < RESET_MARKER_STALE_MS;
+            const sameSession = !marker.sessionId || marker.sessionId === restored.session.id;
+            if (isFresh && sameSession) {
+              console.warn('[useApexLogic] ⚠️ Sessão RUNNING encontrada logo após Reset — descartando como resíduo de corrida e reforçando endSession.');
+              persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
+              restored = null;
+            }
+          }
+          if (!restored?.session) localStorage.removeItem(LAST_RESET_MARKER_KEY);
+        } catch { /* ignore */ }
+
         if (!restored?.session) {
           // 🔴 FIX 2026-08-21 (achado do Cleber: "as posições ainda estão no
           // Dash mesmo após Hard Refresh" depois de um Reset feito em OUTRO
@@ -1931,6 +1964,16 @@ export function useApexLogic(
 
   // === RESET ===
   const resetLogic = useCallback(() => {
+    // 🔴 Marca ANTES de disparar o endSession assíncrono — ver nota em
+    // LAST_RESET_MARKER_KEY acima. Cobre o caso de reload no meio da janela
+    // de rede em que a sessão ainda aparece RUNNING no Supabase.
+    try {
+      localStorage.setItem(LAST_RESET_MARKER_KEY, JSON.stringify({
+        t: Date.now(),
+        sessionId: persistenceRef.current.currentSessionId || null,
+      }));
+    } catch { /* ignore */ }
+
     // Fase 2: encerra a sessão DEMO no Supabase (próximo start cria uma nova, zerada)
     if (persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
