@@ -299,7 +299,7 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
     const closedIds = new Set(closed.map(c => c.id));
     s.activeOrders = s.activeOrders.filter(o => !closedIds.has(o.id));
     for (const c of closed) {
-      console.log(`[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} (pnl=${c.pnl.toFixed(2)})`);
+      console.log(`[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} — ${c.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${c.pnl >= 0 ? '+' : '-'}$${Math.abs(c.pnl).toFixed(2)}`);
       await persistPositionClose(s.sessionId, c);
     }
     // Atualiza balance/equity em memória (pro RISK_GATE desta mesma invocação
@@ -355,7 +355,7 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
           const order = s.activeOrders.find(o => o.id === u.orderId);
           if (order) order.amount = u.remainingAmount;
         }
-        console.log(`[ai-runner] PYRAMIDING: ${u.fullyClosed ? 'fechado 100%' : `fechado ${u.closedAmount.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`} — trade ${u.orderId} (pnl=${u.pnl.toFixed(2)})`);
+        console.log(`[ai-runner] PYRAMIDING: ${u.fullyClosed ? 'fechado 100%' : `fechado ${u.closedAmount.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`} — trade ${u.orderId} — ${u.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${u.pnl >= 0 ? '+' : '-'}$${Math.abs(u.pnl).toFixed(2)}`);
       }
       await applyRealizedPnLAndSnapshot(s, realizedPnL);
     }
