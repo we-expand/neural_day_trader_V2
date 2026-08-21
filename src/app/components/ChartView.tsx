@@ -452,6 +452,7 @@ import {
 import { DrawingToolbar } from '@/app/components/chart/DrawingToolbar';
 import { DrawingContextToolbar } from '@/app/components/chart/DrawingContextToolbar';
 import { BacktestReplayBar } from '@/app/components/backtest/BacktestReplayBar';
+import { SessionTimer } from '@/app/components/tools/SessionTimer';
 import { BacktestConfigModal } from '@/app/components/backtest/BacktestConfigModal';
 import { StrategyBuilderPro } from '@/app/components/backtest/StrategyBuilderPro';
 import { BacktestLiveProgress } from '@/app/components/backtest/BacktestLiveProgress';
@@ -6555,12 +6556,16 @@ export function ChartView({
             <span>Backtest</span>
           </button>
 
+          <div className="ml-auto">
+            <SessionTimer />
+          </div>
+
           {/* 🆕 Maximizar/Restaurar — canto direito do topo do gráfico (era um botão
               flutuante na borda da janela; movido pra dentro da barra de timeframes
               a pedido do Cleber, pra ficar sempre visível junto dos outros controles). */}
           <button
             onClick={toggleMaximize}
-            className="ml-auto flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700"
             title={isMaximized ? 'Sair da tela cheia (Esc)' : 'Maximizar em tela cheia'}
           >
             {isMaximized ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
