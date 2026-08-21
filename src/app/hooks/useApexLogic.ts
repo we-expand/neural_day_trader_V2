@@ -541,6 +541,24 @@ export function useApexLogic(
   // sem o usuário nunca saber que a sessão/trade não foi salvo. Avisa 1x por
   // sessão (evita flood do loop de 1s) e reseta ao iniciar uma sessão nova.
   const persistenceErrorNotifiedRef = useRef(false);
+  // 🆕 2026-08-21 (pedido do Cleber): "Parar IA" não fecha mais posições
+  // abertas à força — só impede ABRIR posição nova (a sessão sai de RUNNING,
+  // e em DEMO o servidor só abre entrada pra sessão RUNNING, ver guarda em
+  // ~linha 1372). As posições que já estavam abertas continuam sendo
+  // monitoradas por TP/SL pelo watchdog do `ai-runner`
+  // (supabase/functions/ai-runner/index.ts, "posição OPEN cuja sessão não
+  // está mais RUNNING") até fecharem naturalmente. Esse ref guarda o
+  // intervalo que fica de olho nessas posições remanescentes depois do
+  // Stop, já que a sessão é encerrada (endSession) e o polling normal de
+  // reconciliação (linha ~964) só roda com `isActive=true`.
+  const drainWatcherRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopDrainWatcher = useCallback(() => {
+    if (drainWatcherRef.current) {
+      clearInterval(drainWatcherRef.current);
+      drainWatcherRef.current = null;
+    }
+  }, []);
+  useEffect(() => stopDrainWatcher, [stopDrainWatcher]);
   const handlePersistenceError = useCallback((context: string, error: unknown) => {
     console.error(`[FASE 2] ❌ Falha de persistência (${context}):`, error);
     if (!persistenceErrorNotifiedRef.current) {
@@ -1847,7 +1865,8 @@ export function useApexLogic(
   const startLogic = useCallback(() => {
     console.log('[START LOGIC] 🚀 Tentando iniciar AI...');
     console.log('[START LOGIC] Safe Mode:', isSafeModeRef.current);
-    
+    stopDrainWatcher(); // nova sessão vai assumir a reconciliação normal (linha ~964)
+
     if (isSafeModeRef.current) {
       toast.warning('Sistema em Safe Mode. Resolva os problemas antes de continuar.');
       return;
@@ -1872,60 +1891,24 @@ export function useApexLogic(
         config: configRef.current,
       });
     }
-  }, [addLog]);
+  }, [addLog, stopDrainWatcher]);
 
   const stopLogic = useCallback(() => {
-    // 🚨 PROTEÇÃO CRÍTICA: Fechar TODAS as posições abertas antes de desligar
-    if (activeOrders.length > 0) {
-      console.warn('[STOP LOGIC] ⚠️ DESLIGANDO COM POSIÇÕES ABERTAS - FECHANDO TUDO!');
-      
-      const closingOrders = activeOrders;
-      let totalRealizedPnL = 0;
-
-      closingOrders.forEach(order => {
-        const currentPrice = order.currentPrice || order.price;
-        const tradePnL = calculatePnLWithLeverage(
-          order.symbol,
-          order.price,
-          currentPrice,
-          order.side,
-          order.amount,
-          order.leverage
-        );
-        totalRealizedPnL += tradePnL;
-
-        console.log(`[FORCE CLOSE] 🚨 Fechando ${order.symbol} ${order.side}: P&L = $${tradePnL.toFixed(2)}`);
-
-        if (configRef.current.executionMode === 'DEMO') {
-          persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
-        }
-      });
-
-      setPortfolio(prev => ({
-        ...prev,
-        balance: prev.balance + totalRealizedPnL,
-        equity: prev.balance + totalRealizedPnL,
-        openPositionsValue: 0,
-      }));
-
-      setOrderHistory(prev => [...prev, ...closingOrders.map(o => ({ 
-        ...o, 
-        currentPrice: o.currentPrice || o.price,
-        currentProfit: calculatePnLWithLeverage(
-          o.symbol,
-          o.price,
-          o.currentPrice || o.price,
-          o.side,
-          o.amount,
-          o.leverage
-        ),
-        closedAt: Date.now() 
-      }))]);
-      
-      setActiveOrders([]);
-      
-      addLog(`🚨 Sistema APEX Parado - ${closingOrders.length} posições fechadas automaticamente. P&L Total: $${totalRealizedPnL.toFixed(2)}`);
-      // ❌ REMOVIDO TOAST AMARELO - toast.warning(`${closingOrders.length} posições fechadas ao desligar AI!`);
+    // 🆕 2026-08-21 (pedido do Cleber): não fecha mais posições abertas à
+    // força ao parar a IA — isso cortava trades com R:R alto (ex: take-profit
+    // 1:3) no preço de mercado do instante do Stop, antes de atingirem o
+    // alvo, transformando o que seria "perde pouco, ganha muito" em "empata
+    // sempre". Comportamento antigo (removido): fechava tudo local com
+    // `exit_reason: 'MANUAL'` e recalculava PnL client-side. Agora: só para
+    // de abrir posição NOVA (sessão sai de RUNNING; em DEMO o `ai-runner`
+    // só abre entrada pra sessão RUNNING). As posições já abertas continuam
+    // sendo monitoradas de verdade pelo watchdog do runner até bater
+    // TP/SL/gate de risco — nada fica sem monitoramento, então a proteção
+    // original ("não deixar posição órfã") continua valendo, só que via
+    // servidor em vez de fechamento forçado no cliente.
+    const pendingCount = activeOrders.length;
+    if (pendingCount > 0) {
+      addLog(`🛑 Sistema APEX Parado - ${pendingCount} posição(ões) aberta(s) seguem monitoradas pelo servidor até fechar por TP/SL. Nenhuma posição nova será aberta.`);
     } else {
       addLog('🛑 Sistema APEX Parado');
     }
@@ -1943,14 +1926,45 @@ export function useApexLogic(
     // limpa `sessionIdRef.current` sozinho (useAIPersistence.ts:166), então
     // chamar aqui resolve os dois problemas de uma vez: sessão morre de
     // verdade no banco, e o próximo start cria uma sessão nova sem precisar
-    // recarregar a página.
+    // recarregar a página. Encerrar a sessão aqui é seguro mesmo com
+    // posições OPEN: o watchdog do `ai-runner` busca posição `OPEN` por
+    // `session_id` direto em `ai_trades`, independente do `status` da
+    // sessão — só o handler principal (abre posição nova) olha `RUNNING`.
+    const endedSessionId = configRef.current.executionMode === 'DEMO'
+      ? persistenceRef.current.getSessionId()
+      : null;
     if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(portfolioRef.current.balance, portfolioRef.current.equity);
     }
 
+    // Continua de olho nas posições que ficaram pro watchdog fechar, já que
+    // o polling normal de reconciliação (linha ~964) só roda com
+    // `isActive=true` e a sessão que ele consultava acabou de ser encerrada.
+    // Some da tela (activeOrders) só quando o servidor de fato marcar a
+    // posição como fechada — nunca fabrica o fechamento aqui no cliente.
+    stopDrainWatcher();
+    if (pendingCount > 0 && endedSessionId) {
+      drainWatcherRef.current = setInterval(async () => {
+        try {
+          const trades = await persistenceRef.current.getSessionTrades(endedSessionId);
+          const stillOpen = new Set(trades.filter(t => t.status === 'OPEN').map(t => t.id));
+          setActiveOrders(prev => {
+            const remaining = prev.filter(o => stillOpen.has(o.id));
+            if (remaining.length !== prev.length) {
+              addLog(`✅ ${prev.length - remaining.length} posição(ões) fechada(s) pelo servidor após o Stop.`);
+            }
+            return remaining;
+          });
+          if (stillOpen.size === 0) stopDrainWatcher();
+        } catch (e) {
+          console.warn('[STOP LOGIC] Falha ao verificar posições remanescentes pós-Stop:', e);
+        }
+      }, 15_000);
+    }
+
     setIsActive(false);
     setIsPaused(false);
-  }, [activeOrders, addLog]);
+  }, [activeOrders, addLog, stopDrainWatcher]);
 
   const pauseLogic = useCallback(() => {
     setIsPaused(true);
