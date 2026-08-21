@@ -33,7 +33,16 @@ export interface MarketQuote {
 // o fator limitante, não os 5 anos, e ainda assim sempre busca pelo menos o
 // equivalente ao limite antigo (200 barras).
 const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
-const MAX_CANDLES = 10_000;
+// 🐢 Teto baixado de 10.000 para 2.000 em 2026-08-21: pra timeframes
+// intraday (1m/5m/15m/30m/1H/4H) o teto de 10k forçava até 10 páginas
+// sequenciais na Binance (150ms de sleep entre cada + latência real) e uma
+// paginação equivalente escondida no backend do MetaAPI, deixando a troca de
+// ativo/timeframe visivelmente travada para TODOS os ativos. Com 2.000,
+// timeframes intraday caem pra no máximo ~2 páginas (rápido), e diário/
+// semanal continuam recebendo os 5 anos inteiros normalmente (5 anos de
+// candle diário são só ~1825 barras, bem abaixo do teto) -- não regride o
+// fix de zoom-out em 1D/1W, só corta o excesso em timeframes finos.
+const MAX_CANDLES = 2_000;
 
 function resolveLookbackMs(msPerCandle: number, previousBarCount: number): number {
   const desired = Math.max(FIVE_YEARS_MS, previousBarCount * msPerCandle);
