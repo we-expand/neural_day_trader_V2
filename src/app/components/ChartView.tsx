@@ -452,7 +452,6 @@ import {
 import { DrawingToolbar } from '@/app/components/chart/DrawingToolbar';
 import { DrawingContextToolbar } from '@/app/components/chart/DrawingContextToolbar';
 import { BacktestReplayBar } from '@/app/components/backtest/BacktestReplayBar';
-import { SessionTimer } from '@/app/components/tools/SessionTimer';
 import { BacktestConfigModal } from '@/app/components/backtest/BacktestConfigModal';
 import { StrategyBuilderPro } from '@/app/components/backtest/StrategyBuilderPro';
 import { BacktestLiveProgress } from '@/app/components/backtest/BacktestLiveProgress';
@@ -2774,7 +2773,20 @@ export function ChartView({
     if (isMovingAverageIndicator(indicator)) {
       // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo (e todas
       // as linhas/períodos já configurados) já na criação — ver registerMovingAverageIndicator.
-      Object.assign(config, buildMAChartConfig(indicator.klinechartsName, getMASettings(indicator)));
+      // 🐛 FIX (bug real relatado pelo Cleber, achado com dado do Supabase: template salvo
+      // com "EMA + 2 simples" voltava só com 1 simples): `getMASettings` SÓ COMPUTA um
+      // default na hora, nunca escreve em `indicatorMASettings`/`indicatorMASettingsRef` --
+      // isso só acontecia em `addMALineDirect` (2ª instância em diante, via "Adicionar
+      // outra média"). A 1ª instância de uma MA, criada por este caminho (toggle normal do
+      // indicador, `toggleIndicator`/`changeIndicatorPlacement`), nunca ganhava uma chave
+      // no estado -- `captureCurrentChartConfig` serializava `indicatorMASettings` sem essa
+      // chave, e template/favorito salvo perdia essa instância inteira ao recarregar
+      // (confirmado direto no banco: template salvo tinha só "ema"/"ma__2", sem "ma").
+      // Fix: grava a settings computada no estado igual `addMALineDirect` já faz.
+      const initialSettings = getMASettings(indicator);
+      indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [indicator.id]: initialSettings };
+      setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: initialSettings }));
+      Object.assign(config, buildMAChartConfig(indicator.klinechartsName, initialSettings));
     } else {
       const params = getIndicatorParams(indicator);
       if (params.length > 0) {
@@ -4028,16 +4040,16 @@ export function ChartView({
   };
 
   // Candle countdown
-  useEffect(() => {
-    const intervals: Record<Timeframe, number> = {
-      '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000,
-      '1H': 3600000, '2H': 7200000, '4H': 14400000,
-      '1D': 86400000, '1W': 604800000, '1M': 2592000000,
-    };
+  const TIMEFRAME_INTERVALS_MS: Record<Timeframe, number> = {
+    '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000,
+    '1H': 3600000, '2H': 7200000, '4H': 14400000,
+    '1D': 86400000, '1W': 604800000, '1M': 2592000000,
+  };
 
+  useEffect(() => {
     const updateCountdown = () => {
       const now = Date.now();
-      const interval = intervals[timeframe];
+      const interval = TIMEFRAME_INTERVALS_MS[timeframe];
       const elapsed = now % interval;
       setCandleCountdown(interval - elapsed);
     };
@@ -6805,23 +6817,6 @@ export function ChartView({
             )}
             </div>
 
-            {/* 🔥 CANDLE COUNTDOWN -- fica FORA da div do chartContainerRef de propósito:
-                aquela div leva innerHTML='' toda vez que o gráfico reinicializa (troca de
-                timeframe/símbolo, ver efeito de init do klinecharts), o que arranca do DOM
-                qualquer filho renderizado pelo React ali dentro sem o React saber -- o nó
-                fica "órfão" (nunca aparece na tela). Posição FIXA logo abaixo da boleta
-                (OrderTicket, top-[17px] right-[99px] alguns px abaixo) -- pedido do Cleber:
-                a 1ª versão acompanhava a linha pontilhada de preço via convertToPixel, mas
-                ficava instável/pulando a cada variação de preço. */}
-            <div
-              className="absolute top-[142px] right-[99px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
-            >
-              <Clock className="w-2.5 h-2.5 text-blue-400" />
-              <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
-                {formatCountdown(candleCountdown)}
-              </span>
-            </div>
-
             {/* ❌ Removido o box flutuante em HTML que replicava editar/remover por
                 indicador no canto direito do gráfico — duplicava os ícones "⚙"/"✕" que a
                 própria klinecharts já desenha na legenda de cada indicador (canvas nativo,
@@ -7032,9 +7027,38 @@ export function ChartView({
                 suspeita forte de alguma camada do gráfico (canvas de crosshair/
                 desenho, gerenciada fora do React pela klinecharts) capturando o
                 clique por cima. Isto elimina essa hipótese de vez. */}
-            <div className="absolute top-[17px] right-[99px] z-[220] pointer-events-auto flex flex-col items-end gap-2">
-              <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
-              <SessionTimer />
+            <div className="absolute top-[17px] right-[99px] z-[220] flex flex-col items-end gap-2">
+              <div className="pointer-events-auto">
+                <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
+              </div>
+
+              {/* 🔥 CANDLE COUNTDOWN -- contador regressivo de quanto falta pro candle
+                  atual do timeframe selecionado fechar e o próximo começar. Vive no
+                  mesmo wrapper flex da boleta (não mais em offset fixo tipo top-[142px])
+                  de propósito: com posições abertas em outros ativos a boleta cresce
+                  (banners de aviso empilhados no topo), e um offset fixo fazia esse
+                  contador ficar escondido atrás da boleta mais alta -- some visualmente
+                  mesmo estando no DOM. Com flex-col ele sempre fica colado embaixo da
+                  altura real da boleta, recolhida ou expandida. */}
+              <div className="pointer-events-none inline-flex flex-col bg-black/90 backdrop-blur-sm border border-white/10 rounded-lg shadow-2xl overflow-hidden">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+                  <Clock className="w-3 h-3 text-blue-400 shrink-0" />
+                  <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">
+                    {timeframe}
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-white tabular-nums tracking-tight">
+                    {formatCountdown(candleCountdown)}
+                  </span>
+                </div>
+                <div className="h-0.5 bg-white/5">
+                  <div
+                    className="h-full bg-blue-500 transition-[width] duration-1000 ease-linear"
+                    style={{
+                      width: `${100 - (candleCountdown / TIMEFRAME_INTERVALS_MS[timeframe]) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
