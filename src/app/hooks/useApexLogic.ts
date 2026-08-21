@@ -751,6 +751,18 @@ export function useApexLogic(
       try {
         const restored = await persistenceRef.current.restoreActiveSession();
         if (!restored?.session) {
+          // 🔴 FIX 2026-08-21 (achado do Cleber: "as posições ainda estão no
+          // Dash mesmo após Hard Refresh" depois de um Reset feito em OUTRO
+          // navegador/aba): sem sessão RUNNING no Supabase, este bloco nunca
+          // tocava `activeOrders` — deixando o navegador confiar pra sempre
+          // no cache de `localStorage` (hidratado sem checar nada, logo
+          // acima), mesmo quando o Supabase (fonte de verdade em DEMO, ver
+          // nota "CLIENTE PERDE AUTORIDADE" mais abaixo) diz que não há
+          // posição legítima aberta. Em DEMO, sem sessão RUNNING não pode
+          // haver posição real — qualquer coisa em `activeOrders` nesse
+          // ponto é resíduo de cache de uma sessão já encerrada/pausada
+          // alhures.
+          setActiveOrders([]);
           // 🆕 FIX 2026-08-20 (achado do Cleber: "desliguei a IA e ela voltou
           // pro zero, preciso ver evolução real de capital ao longo do
           // tempo"): sem sessão RUNNING pra restaurar, o portfolio ficava no

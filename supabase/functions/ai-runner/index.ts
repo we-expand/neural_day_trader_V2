@@ -479,7 +479,19 @@ async function runSession(s: RunnerSessionState, deadline: number): Promise<void
   // Persiste estado final da sessão (status + snapshot de portfolio) antes de sair.
   const sb = getServiceClient();
   if (!s.isActive) {
-    await sb.from('ai_sessions').update({ status: 'PAUSED' }).eq('id', s.sessionId);
+    // 🔴 FIX 2026-08-21 (achado do Cleber: sessão ficou "PAUSED" no banco
+    // mesmo depois de um Reset explícito do cliente, que grava
+    // status='COMPLETED' + ended_at via `endSession`): esta invocação do
+    // runner não sabe que o cliente já encerrou a sessão nesse meio tempo —
+    // sem o `.eq('status', 'RUNNING')` abaixo, este UPDATE sobrescrevia
+    // COMPLETED de volta pra PAUSED sempre que a corrida caía desse lado
+    // (client termina primeiro, runner grava por cima depois). Efeito
+    // colateral real: `getLastCompletedSession` (herança de capital entre
+    // sessões) parava de achar essa sessão — ficava presa em PAUSED, não
+    // COMPLETED — e a próxima sessão herdava saldo de uma sessão MAIS
+    // ANTIGA, errado. Com o guard, este UPDATE só aplica se a sessão ainda
+    // estiver RUNNING no banco (ninguém a encerrou explicitamente antes).
+    await sb.from('ai_sessions').update({ status: 'PAUSED' }).eq('id', s.sessionId).eq('status', 'RUNNING');
   }
 }
 
