@@ -53,7 +53,6 @@ import { supabase } from '@/lib/supabaseClient';
 export type FunnelStage =
   // ── Saídas do tick, antes de escolher qualquer ativo ──────────────────────
   | 'TICK_MAX_POSITIONS'          // já está no teto de posições abertas
-  | 'TICK_NEWS_BLACKOUT'          // evento macro de alto impacto na janela de ±15min
   | 'TICK_COOLDOWN'               // cooldown entre trades ainda correndo
   | 'TICK_NO_ASSETS_CONFIGURED'   // "Universo de Ativos" vazio na config
   | 'TICK_NO_ASSET_IN_CATALOG'    // nenhum ativo configurado existe no assetDatabase
@@ -62,6 +61,11 @@ export type FunnelStage =
   | 'ASSET_ANTI_REPEAT'           // é o mesmo ativo do último trade
   | 'ASSET_ALREADY_OPEN'          // já existe posição neste ativo (anti-hedging)
   | 'ASSET_MAX_DISTINCT'          // teto de ativos diferentes simultâneos
+  // 🆕 2026-08-21: era `TICK_NEWS_BLACKOUT` (blackout cego pro ciclo inteiro,
+  // qualquer moeda). Motor agora veta só o candidato cuja moeda bate com a
+  // do evento (`getRelevantCurrencies`) — por isso migrou pra saída POR
+  // ATIVO, não mais de tick.
+  | 'ASSET_NEWS_BLACKOUT'         // evento macro de alto impacto (moeda do ativo) na janela de ±15min
   | 'DATA_NOT_REAL'               // sem preço real da corretora neste ciclo
   | 'NO_ACTIVE_STRATEGY'          // nenhuma estratégia selecionada na config
   | 'CANDLES_FETCH_FAILED'        // falha ao buscar histórico do ativo/timeframe
@@ -96,13 +100,13 @@ export type FunnelStage =
 /** Rótulos em PT-BR pra leitura direta do funil sem consultar este arquivo. */
 export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   TICK_MAX_POSITIONS: 'Teto de posições abertas atingido',
-  TICK_NEWS_BLACKOUT: 'Notícia macro de alto impacto na janela',
   TICK_COOLDOWN: 'Cooldown entre trades ativo',
   TICK_NO_ASSETS_CONFIGURED: 'Nenhum ativo no Universo de Ativos',
   TICK_NO_ASSET_IN_CATALOG: 'Ativos configurados não existem no catálogo',
   ASSET_ANTI_REPEAT: 'Mesmo ativo do último trade (anti-repetição)',
   ASSET_ALREADY_OPEN: 'Já existe posição neste ativo (anti-hedging)',
   ASSET_MAX_DISTINCT: 'Teto de ativos diferentes simultâneos',
+  ASSET_NEWS_BLACKOUT: 'Notícia macro de alto impacto na moeda do ativo',
   DATA_NOT_REAL: 'Sem preço real da corretora neste ciclo',
   NO_ACTIVE_STRATEGY: 'Nenhuma estratégia ativa selecionada',
   CANDLES_FETCH_FAILED: 'Falha ao buscar candles do ativo',

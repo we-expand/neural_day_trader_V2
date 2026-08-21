@@ -27,6 +27,7 @@ import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClo
 import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector.ts';
 import { evaluateContextGate } from '@/app/services/risk/ContextGate.ts';
 import { evaluateTailRisk } from '@/app/services/risk/TailRiskGuard.ts';
+import { getRelevantCurrencies } from '@/app/services/risk/NewsCurrencyRelevance.ts';
 import { estimateCostPercent } from '../../../../research/CostModel.ts';
 import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../../lib/modules/RiskManager.ts';
 import { computeLiveCorrelationGuard } from '@/app/services/risk/LiveCorrelationGuard.ts';
@@ -233,16 +234,11 @@ export async function runTradingCycle(
     return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
   }
 
-  // 🔒 Gate de notícias: pula o ciclo se houver evento de alto impacto na janela de ±15min.
+  // 🔄 Mantém o cache de notícias aquecido (fire-and-forget) — a checagem de
+  // fato (por MOEDA do ativo, não mais um blackout cego pro ciclo inteiro)
+  // roda dentro de `analyzeAsset`, por candidato. Ver comentário lá.
   if (aiConfig.newsFilter) {
-    deps.fetchNewsCached(); // fire-and-forget: mantém o cache do chamador atualizado pros próximos ciclos
-    const nowTs = Date.now();
-    const highImpactNearby = state.cachedNewsEvents.some(e => e.impact === 'high' && Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS);
-    if (highImpactNearby) {
-      console.log('[NEWS FILTER] 🚫 Evento de alto impacto próximo - pulando ciclo');
-      funnelTelemetry.recordStage('TICK_NEWS_BLACKOUT');
-      return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
-    }
+    deps.fetchNewsCached();
   }
 
   // 🔄 Mantém o cache de VIX aquecido (fire-and-forget, respeita o próprio
@@ -600,6 +596,38 @@ async function analyzeAsset(
 
   try {
     console.log(`[TRADING] 🔍 Avaliando candidato #1 ${selectedSymbol} ${side} (score ${candidate.score.toFixed(0)})...`);
+
+    // 🔒 GATE DE NOTÍCIAS — por MOEDA do ativo, não mais um blackout cego pro
+    // ciclo inteiro. Achado 2026-08-21: antes, um evento de alto impacto de
+    // QUALQUER moeda pausava a IA pra TODOS os ativos (ex: evento de JPY
+    // travava XAUUSD, que não tem exposição real a JPY) — mais conservador
+    // que necessário, mas gerava blackout sem motivo real na maioria dos
+    // casos. Agora só veta o candidato cuja(s) moeda(s) relevante(s)
+    // (`getRelevantCurrencies`, mesma função que já protege `RiskThermometer.tsx`
+    // na UI) coincide(m) com a do evento — outro candidato do ranking, de
+    // moeda não afetada, segue elegível no mesmo ciclo.
+    if (aiConfig.newsFilter) {
+      const relevantCurrencies = getRelevantCurrencies(selectedSymbol);
+      if (relevantCurrencies.length > 0) {
+        const nowTs = Date.now();
+        const nearbyEvent = state.cachedNewsEvents.find(e =>
+          e.impact === 'high' &&
+          relevantCurrencies.includes(e.currency) &&
+          Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS,
+        );
+        if (nearbyEvent) {
+          const reason = `Setup ${side} descartado em ${selectedSymbol}: evento econômico de alto impacto em ${nearbyEvent.currency} a ${Math.round(Math.abs(nearbyEvent.time - nowTs) / 60000)}min (janela ±${NEWS_WINDOW_MS / 60000}min)`;
+          console.log(`[NEWS FILTER] 🚫 ${reason}`);
+          funnelTelemetry.recordStage('ASSET_NEWS_BLACKOUT', selectedSymbol);
+          await deps.persistence.saveDecision({
+            symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: Math.round(candidate.score),
+            reasoning: reason, actionTaken: false, vetoStage: 'NEWS_GATE',
+            technicalSignals: { eventCurrency: nearbyEvent.currency, eventTime: nearbyEvent.time, relevantCurrencies },
+          });
+          return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+        }
+      }
+    }
 
     let priceData: { price: number; changePercent24h: number; change24h: number; volume: number; source: any; timestamp: number } | null = null;
 
