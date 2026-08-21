@@ -2985,6 +2985,11 @@ export function ChartView({
         try { removeIndicatorInstance(chart, indicator); } catch (_) {}
       }
     });
+    // 🐛 FIX: `removeIndicatorInstance` já limpa `maInstancesRef.current[id]` pra cada
+    // indicador conhecido, mas se sobrar qualquer resíduo (ex: indicador removido do
+    // catálogo desde então) as próximas instâncias de MA recriadas por
+    // `applyChartTemplateConfig` herdariam instâncias fantasma. Zera tudo aqui.
+    maInstancesRef.current = {};
   };
 
   // 🆕 Aplica um ChartTemplateConfig salvo diretamente no chart (via API do klinecharts,
@@ -3000,41 +3005,73 @@ export function ChartView({
       const indicatorConfig = INDICATORS.find(ind => ind.id === id);
       if (!indicatorConfig) return; // indicador removido/renomeado desde o save
       const placement = templateConfig.indicatorPlacement[id] ?? (indicatorConfig.isPaneIndicator ? 'pane' : 'overlay');
-      const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
       if (isMovingAverageIndicator(indicatorConfig)) {
-        const raw = (templateConfig.indicatorMASettings[id] as any) ?? getMASettings(indicatorConfig);
-        // Templates salvos antes do suporte a múltiplas linhas guardavam {period, color,
-        // lineStyle, lineWidth} direto no objeto -- migra pro formato novo {lines: [...]}
-        // na hora de carregar, sem quebrar template antigo.
-        const settings: MAUISettings = Array.isArray(raw?.lines)
-          ? raw
-          : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
-        Object.assign(config, buildMAChartConfig(indicatorConfig.klinechartsName, settings));
-        // 🐛 FIX (achado real, relatado pelo Cleber): mais embaixo, `setIndicatorMASettings`
-        // usava `templateConfig.indicatorMASettings` DIRETO (o `raw` de cima, não migrado) --
-        // pra um setup favorito salvo em formato antigo, o GRÁFICO desenhava com o `settings`
-        // migrado (período correto, ex. 20) mas o estado React que alimenta o editor ficava
-        // com o objeto bruto sem `.lines`. Consequência: abrir o editor de uma média já
-        // carregada de um setup salvo mostrava parâmetro errado/default, e clicar Salvar
-        // sobrescrevia a média correta do gráfico pela errada do editor (ex. 20 -> 200).
-        // Guarda aqui o MESMO `settings` migrado que foi de fato desenhado, pra estado e
-        // gráfico nunca mais divergirem.
-        migratedMASettings[id] = settings;
+        // 🐛 FIX (bug real relatado pelo Cleber: 2 médias móveis iguais salvas em
+        // template, só 1 sobrevivia): `templateConfig.indicatorIds` só tem UMA entrada
+        // por TIPO de indicador ("ma"), nunca uma por instância ("ma__2") -- só
+        // `indicatorMASettings` guarda todas as instâncias (ver `addMALineDirect`, que
+        // grava cada instância extra sob a chave `${id}__${n}`). Antes este loop lia
+        // só `templateConfig.indicatorMASettings[id]` (a 1ª instância) e recriava um
+        // único indicador -- as extras ficavam salvas no banco mas nunca eram lidas.
+        // Fix: descobre TODAS as chaves de `indicatorMASettings` que pertencem a este
+        // indicador (a própria `id`, ou `${id}__N`) e recria uma instância por chave,
+        // igual ao fluxo de "Adicionar outra média" (`addMALineDirect`).
+        const instanceIds = Object.keys(templateConfig.indicatorMASettings)
+          .filter(key => key === id || key.startsWith(`${id}__`));
+        if (instanceIds.length === 0) instanceIds.push(id);
+
+        let created = false;
+        instanceIds.forEach((instanceId, variantIndex) => {
+          const raw = (templateConfig.indicatorMASettings[instanceId] as any) ?? getMASettings(indicatorConfig);
+          // Templates salvos antes do suporte a múltiplas linhas guardavam {period, color,
+          // lineStyle, lineWidth} direto no objeto -- migra pro formato novo {lines: [...]}
+          // na hora de carregar, sem quebrar template antigo.
+          const settings: MAUISettings = Array.isArray(raw?.lines)
+            ? raw
+            : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
+          // 🐛 FIX (achado real, relatado pelo Cleber): `setIndicatorMASettings` usava
+          // `templateConfig.indicatorMASettings` DIRETO (o `raw` de cima, não migrado) --
+          // pra um setup favorito salvo em formato antigo, o GRÁFICO desenhava com o
+          // `settings` migrado (período correto, ex. 20) mas o estado React que alimenta
+          // o editor ficava com o objeto bruto sem `.lines`. Guarda aqui o MESMO `settings`
+          // migrado que foi de fato desenhado, pra estado e gráfico nunca mais divergirem.
+          migratedMASettings[instanceId] = settings;
+
+          const variantKlinechartsName = MA_VARIANT_KLINECHARTS_NAME(indicatorConfig.klinechartsName, variantIndex);
+          const config: any = { name: variantKlinechartsName, id: instanceId, ...buildMAChartConfig(variantKlinechartsName, settings) };
+          try {
+            let paneId: string;
+            if (placement === 'pane') {
+              paneId = variantIndex === 0 ? `pane_${id}` : `pane_${id}_extra_${variantIndex + 1}`;
+              chart.createIndicator(config, false, { id: paneId });
+            } else {
+              paneId = 'candle_pane';
+              chart.createIndicator(config, true, { id: paneId });
+            }
+            if (variantIndex === 0) indicatorPaneIdRef.current[id] = paneId;
+            maInstancesRef.current[id] = [...(maInstancesRef.current[id] ?? []), { instanceId, klinechartsName: variantKlinechartsName, paneId }];
+            created = true;
+          } catch (error) {
+            console.error('[ChartView] ❌ Erro aplicando instância de média móvel do template:', instanceId, error);
+          }
+        });
+        if (created) appliedIds.push(id);
       } else {
+        const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
         const params = templateConfig.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
         if (params.length > 0) config.calcParams = params;
-      }
-      try {
-        if (placement === 'pane') {
-          chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
-          indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
-        } else {
-          chart.createIndicator(config, true, { id: 'candle_pane' });
-          indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+        try {
+          if (placement === 'pane') {
+            chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
+            indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
+          } else {
+            chart.createIndicator(config, true, { id: 'candle_pane' });
+            indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+          }
+          appliedIds.push(id);
+        } catch (error) {
+          console.error('[ChartView] ❌ Erro aplicando indicador do template:', indicatorConfig.id, error);
         }
-        appliedIds.push(id);
-      } catch (error) {
-        console.error('[ChartView] ❌ Erro aplicando indicador do template:', indicatorConfig.id, error);
       }
     });
 
