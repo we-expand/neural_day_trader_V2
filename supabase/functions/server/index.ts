@@ -291,6 +291,7 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
     try {
         const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
             headers: { 'auth-token': token, 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(8000),
         });
         if (res.ok) {
             const account = await res.json();
@@ -324,6 +325,7 @@ async function getMetaApiMarketDataApiBase(token: string, accountId: string): Pr
     try {
         const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
             headers: { 'auth-token': token, 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(8000),
         });
         if (res.ok) {
             const account = await res.json();
@@ -4854,7 +4856,8 @@ app.post('/mt5-candles-history', async (c) => {
         if (!metaapiAccountId || metaapiAccountId.length < 10) {
             try {
                 const accountsRes = await fetch('https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts', {
-                    headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }
+                    headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' },
+                    signal: AbortSignal.timeout(8000)
                 });
                 if (accountsRes.ok) {
                     const accounts = await accountsRes.json();
@@ -4974,12 +4977,35 @@ app.post('/mt5-candles-history', async (c) => {
         while (cursor > effectiveStart && iterations < MAX_ITERATIONS) {
             iterations++;
 
-            const response = await fetch(
-                `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
-                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } }
-            );
+            // ✅ 2026-08-22: timeout explícito — sem isso, sob a conta MetaAPI
+            // compartilhada saturada (429/504, risco crônico documentado no
+            // CLAUDE.md) um `fetch` sem `AbortSignal` fica pendurado até o
+            // timeout de rede padrão (pode passar de 1min), e isso dentro de
+            // um loop sequencial de paginação empilha — mesmo problema já
+            // corrigido no caminho de tick ao vivo (RealMarketDataService.ts,
+            // fetchMT5Data) em 2026-07-23, nunca aplicado aqui. Em timeout/erro
+            // no meio da paginação, devolve o que já foi acumulado (+ cache)
+            // em vez de falhar a request inteira — gráfico aparece parcial em
+            // vez de não aparecer.
+            let response: Response;
+            try {
+                response = await fetch(
+                    `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
+                    {
+                        headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' },
+                        signal: AbortSignal.timeout(8000)
+                    }
+                );
+            } catch (fetchErr: any) {
+                console.warn(`[MT5 CANDLES HISTORY] ⚠️ Timeout/erro de rede na página ${iterations} (${symbol}/${mt5Timeframe}), devolvendo parcial:`, fetchErr?.message);
+                break;
+            }
 
             if (!response.ok) {
+                if (allCandles.length > 0 || cachedCandles.length > 0) {
+                    console.warn(`[MT5 CANDLES HISTORY] ⚠️ MetaAPI HTTP ${response.status} na página ${iterations} (${symbol}/${mt5Timeframe}), devolvendo parcial.`);
+                    break;
+                }
                 const errorText = await response.text();
                 return c.json({
                     success: false,
