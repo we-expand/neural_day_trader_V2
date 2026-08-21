@@ -149,6 +149,16 @@ export interface TradingCycleDeps {
   applyEffect: (effect: TradingCycleEffect) => void;
   /** Preço via WebSocket já conectado (browser), quando disponível — driver servidor simplesmente não fornece isso e cai direto pro REST. */
   getWsPrice?: (symbol: string) => { price: number; changePercent24h: number; change24h: number; volume: number; timestamp: number } | null;
+  /**
+   * Scorecard de performance por ativo (symbol → multiplicador), calculado
+   * pelo job periódico `asset-performance-scorecard` e lido de
+   * `asset_performance_scorecard`. Opcional de propósito — quando ausente,
+   * `rankCandidates` trata todo símbolo como neutro (1,0×). Mesmo com o mapa
+   * presente, só é APLICADO de verdade se `ASSET_SCORECARD_ACTIVE` (abaixo)
+   * estiver `true` — ver comentário lá e em `AssetScorecard.ts` pro porquê
+   * de estar desligado hoje (dado insuficiente pra validar).
+   */
+  assetScorecard?: Map<string, number>;
 }
 
 export interface TradingCycleResult {
@@ -486,6 +496,18 @@ export interface RankedCandidate {
  * piso, do maior score pro menor. Puro: nenhuma chamada de rede aqui — só lê
  * o buffer que a Fase 1 já atualizou.
  */
+// 🆕 2026-08-21 (pedido do Cleber): scorecard de performance por ativo
+// existe (motor puro em `AssetScorecard.ts`, job periódico gravando
+// `asset_performance_scorecard`), mas o proxy-backtest sobre 112 trades
+// reais deu Δ ≈ -$0,02 (indistinguível de ruído) e só 2 de 12 ativos hoje
+// atingem a amostra mínima — ver
+// SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md, seção final.
+// REGRA FIXA DO PROJETO (CLAUDE.md): nunca prometer melhora sem validação
+// estatística. Por isso este switch fica `false` até repetir o
+// proxy-backtest com mais dado acumulado (1-2 semanas) mostrar efeito real,
+// não ruído. Não vire `true` sem repetir essa validação.
+const ASSET_SCORECARD_ACTIVE = false;
+
 function rankCandidates(
   universe: string[],
   strategy: StrategyDef,
@@ -524,7 +546,20 @@ function rankCandidates(
       continue;
     }
 
-    candidates.push({ symbol, side: scored.side, score: scored.score, candles, reasons: scored.reasons });
+    // Multiplicador do scorecard só é APLICADO se ASSET_SCORECARD_ACTIVE
+    // estiver ligado — caso contrário todo símbolo é 1,0× (nenhuma mudança
+    // de comportamento em produção hoje, ver comentário no switch acima).
+    const scorecardMultiplier = ASSET_SCORECARD_ACTIVE
+      ? (deps.assetScorecard?.get(symbol) ?? 1.0)
+      : 1.0;
+
+    candidates.push({
+      symbol,
+      side: scored.side,
+      score: scored.score * scorecardMultiplier,
+      candles,
+      reasons: scored.reasons,
+    });
   }
 
   return candidates.sort((a, b) => b.score - a.score);
