@@ -2987,6 +2987,33 @@ export function ChartView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndicators, indicatorParamsById, indicatorPlacement, indicatorMASettings, timeframe, showGridOverlay, showSrOverlay, user?.id]);
 
+  // 🐛 FIX (bug real relatado pelo Cleber: média móvel recém-adicionada "sumia" ao
+  // trocar de seção do app -- ex: Gráfico -> Dashboard -> Gráfico -- e voltar): o
+  // autosave acima é DEBOUNCED (300ms) de propósito, pra não gravar no sessionStorage
+  // a cada tecla/clique. Mas `ChartView` é DESMONTADO a cada troca de seção (SPA, ver
+  // comentário em useChartSessionState.ts) -- o cleanup do efeito de autosave só fazia
+  // `clearTimeout`, cancelando o save pendente sem nunca escrevê-lo. Se o usuário
+  // trocasse de seção em menos de 300ms depois de adicionar/editar um indicador
+  // (comum -- é só um clique), o sessionStorage ficava com o estado de ANTES dessa
+  // última mudança, e ela "sumia" ao voltar. Fix: efeito separado, com cleanup que só
+  // roda no DESMONTE de verdade (deps `[]`), gravando de forma síncrona e imediata
+  // (sem debounce) o estado mais recente via ref -- garante que a última mudança
+  // sempre sobrevive à troca de seção, mesmo que tenha acontecido um instante antes.
+  const captureCurrentChartConfigRef = useRef(captureCurrentChartConfig);
+  const userIdRef = useRef(user?.id);
+  useEffect(() => {
+    captureCurrentChartConfigRef.current = captureCurrentChartConfig;
+    userIdRef.current = user?.id;
+  });
+  useEffect(() => {
+    return () => {
+      if (initialRestoreDoneRef.current) {
+        saveSessionState(userIdRef.current, captureCurrentChartConfigRef.current());
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 🆕 Remove todos os indicadores ativos do chart (mas não mexe no state React --
   // quem chama é responsável por atualizar activeIndicators/etc depois). Usado antes
   // de aplicar um template pra não deixar instância órfã de um indicador que o
@@ -7512,7 +7539,23 @@ export function ChartView({
                     {(indicator.defaultParams?.length ?? 0) > 0 && (
                       <button
                         onClick={() => {
-                          isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
+                          if (isMovingAverageIndicator(indicator)) {
+                            // 🐛 FIX (bug real relatado pelo Cleber: cor escolhida numa MA
+                            // recém-inserida não aplicava): este botão fica na lista
+                            // "Indicadores ativos", que mostra só 1 linha por TIPO de
+                            // indicador -- sem `instanceId`, `openMAEditor` sempre editava
+                            // a 1ª instância (default do parâmetro = `indicator.id`), nunca
+                            // a que o usuário acabou de adicionar via "Adicionar outra
+                            // média". A engrenagem direto na legenda do gráfico já resolve a
+                            // instância certa (`onTooltipIconClick`); aqui, sem essa
+                            // informação, o melhor default é a ÚLTIMA instância criada --
+                            // é a que o usuário psicologicamente "acabou de mexer".
+                            const instances = maInstancesRef.current[indicator.id];
+                            const lastInstanceId = instances?.[instances.length - 1]?.instanceId;
+                            openMAEditor(indicator, false, lastInstanceId);
+                          } else {
+                            openIndicatorEditor(indicator);
+                          }
                           setContextMenu(null);
                         }}
                         title="Editar parâmetros"
