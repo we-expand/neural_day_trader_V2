@@ -6,8 +6,8 @@
  * OrderParams.volume (BrokerClient/MT5) é lote. Esta função pura faz a
  * conversão — nenhuma outra parte do repo tinha isso pronto.
  */
-import { getAssetBySymbol } from '../../config/assetDatabase';
-import { calculateRequiredMargin } from '../../services/strategy/TradeSizing';
+import { getAssetBySymbol } from '../../config/assetDatabase.ts';
+import { calculateRequiredMargin } from '../../services/strategy/TradeSizing.ts';
 
 export interface LotSizeConversionResult {
   /** Lotes prontos para OrderParams.volume, já arredondados/clampados. */

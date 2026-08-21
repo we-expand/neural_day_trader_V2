@@ -67,6 +67,7 @@
     "@/app/services/strategy/StrategyEvaluator.ts": "../../../src/app/services/strategy/StrategyEvaluator.ts",
     "@/app/services/strategy/TradeSizing.ts": "../../../src/app/services/strategy/TradeSizing.ts",
     "@/app/services/telemetry/FunnelTelemetry.ts": "../../../src/app/services/telemetry/FunnelTelemetry.ts",
+    "@/app/modules/tradeConfirmationStage/lotSizeConversion.ts": "../../../src/app/modules/tradeConfirmationStage/lotSizeConversion.ts",
     "@/app/types/strategy.ts": "../../../src/app/types/strategy.ts",
     "@/app/types/tradingState.ts": "../../../src/app/types/tradingState.ts"
   },
