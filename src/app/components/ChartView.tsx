@@ -6556,16 +6556,12 @@ export function ChartView({
             <span>Backtest</span>
           </button>
 
-          <div className="ml-auto">
-            <SessionTimer />
-          </div>
-
           {/* 🆕 Maximizar/Restaurar — canto direito do topo do gráfico (era um botão
               flutuante na borda da janela; movido pra dentro da barra de timeframes
               a pedido do Cleber, pra ficar sempre visível junto dos outros controles). */}
           <button
             onClick={toggleMaximize}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700"
+            className="ml-auto flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-all bg-black text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700"
             title={isMaximized ? 'Sair da tela cheia (Esc)' : 'Maximizar em tela cheia'}
           >
             {isMaximized ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
@@ -7036,8 +7032,9 @@ export function ChartView({
                 suspeita forte de alguma camada do gráfico (canvas de crosshair/
                 desenho, gerenciada fora do React pela klinecharts) capturando o
                 clique por cima. Isto elimina essa hipótese de vez. */}
-            <div className="absolute top-[17px] right-[99px] z-[220] pointer-events-auto">
+            <div className="absolute top-[17px] right-[99px] z-[220] pointer-events-auto flex flex-col items-end gap-2">
               <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
+              <SessionTimer />
             </div>
           </div>
 
