@@ -69,6 +69,87 @@ const CACHE_TTL = 2000; // 2 segundos
 const lastRealPriceCache = new Map<string, RealMarketData>();
 
 /**
+ * 🛡️ GUARDA DE DESVIO MÁXIMO — 2026-08-21.
+ *
+ * Achado em auditoria de dado histórico: um trade fechado de SPX500 teve
+ * entry_price=6010,13 / exit_price=7536,86 (+25,4%, PnL -$3.810) sem
+ * nenhuma rejeição em nenhum ponto do pipeline. Investigação confirmou:
+ * nem client nem servidor (`ai-runner/positionManager.ts`, que importa
+ * este mesmo módulo) tinham qualquer checagem de variação percentual antes
+ * de aceitar um preço como "real" e fechar posição em cima dele — só
+ * preço `<= 0`/`NaN` era rejeitado. O clamp "±50%" documentado no CLAUDE.md
+ * pra cripto nunca protegeu este caminho (vivia só em `DataQualityMonitor.ts`,
+ * código morto usado só por um badge de UI). Prática padrão do setor
+ * (requote, "maximum deviation" nativo do MT4/MT5, rejeição de stale price)
+ * existe exatamente pra este risco — implementado aqui de forma central,
+ * protegendo qualquer chamador (client E servidor, mesmo import).
+ *
+ * Limiar por classe: cripto genuinamente move mais que forex/índice/
+ * commodity/ação num intervalo de poucos segundos a minutos entre polls —
+ * limiar mais folgado pra não gerar falso-positivo em dia de notícia real.
+ */
+const MAX_DEVIATION_BY_CATEGORY: Record<string, number> = {
+  CRYPTO: 0.20,
+};
+const DEFAULT_MAX_DEVIATION = 0.08; // forex/índice/commodity/ação/bond
+
+function maxDeviationFor(symbol: string): number {
+  const asset = getAssetBySymbol(symbol.toUpperCase());
+  if (asset) return MAX_DEVIATION_BY_CATEGORY[asset.category] ?? DEFAULT_MAX_DEVIATION;
+  return DEFAULT_MAX_DEVIATION;
+}
+
+/**
+ * Só compara contra a referência anterior se ela ainda for "fresca" — um
+ * preço parado há horas (feed travado) não é uma referência válida pra
+ * detectar salto suspeito: o mercado pode legitimamente ter se movido muito
+ * nesse intervalo (retomada depois de gap real). O caso que motivou este
+ * guard tinha a referência anterior da MESMA sessão de poll contínuo, não
+ * um preço velho de dias.
+ */
+const RECENT_REFERENCE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutos
+
+/**
+ * Detecta um preço que desviou demais da última referência real e recente
+ * pro mesmo símbolo — sinal de tick de má qualidade (feed engasgado,
+ * corretora saturada sob rate-limit) mais do que movimento real de mercado.
+ * Não decide sozinho o que fazer com o resultado — quem chama decide se
+ * rejeita ou aceita mesmo assim.
+ */
+/**
+ * 🛡️ 2026-08-21: os limiares acima (8%/20% de desvio, 10min de referência,
+ * 5min de TTL) são estimativa informada pela prática de mercado pesquisada,
+ * não calibração contra dado histórico do produto — só havia 1 caso no
+ * histórico pra calibrar (ver SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md,
+ * seção "Pendências"). Grava cada rejeição/degradação em
+ * `price_guard_events` pra acumular amostra real de produção e permitir essa
+ * calibração mais tarde. Fire-and-forget de propósito: telemetria nunca pode
+ * atrasar ou quebrar o caminho de preço real.
+ */
+function logPriceGuardEvent(row: Record<string, unknown>): void {
+  try {
+    supabase
+      .from('price_guard_events')
+      .insert(row)
+      .then(({ error }: { error: unknown }) => {
+        if (error) console.warn('[RealMarketData] Falha ao gravar price_guard_events:', error);
+      });
+  } catch (err) {
+    console.warn('[RealMarketData] Falha ao gravar price_guard_events:', err);
+  }
+}
+
+function isSuspiciousDeviation(symbol: string, candidatePrice: number): { suspicious: boolean; reference?: RealMarketData; deviation?: number } {
+  const reference = lastRealPriceCache.get(symbol);
+  if (!reference || !reference.isRealData || !(reference.price > 0)) return { suspicious: false };
+  if (Date.now() - reference.timestamp > RECENT_REFERENCE_MAX_AGE_MS) return { suspicious: false };
+
+  const deviation = Math.abs(candidatePrice - reference.price) / reference.price;
+  const threshold = maxDeviationFor(symbol);
+  return { suspicious: deviation > threshold, reference, deviation };
+}
+
+/**
  * ✅ 2026-07-11 (2ª parte): Cleber reportou NZDUSD/GBPNZD (e confirmou que
  * deveria acontecer com outros) oscilando a variação diária entre 0% e o
  * valor correto a cada polling — causa raiz diferente da anterior: aqui o
@@ -88,6 +169,33 @@ const lastRealPriceCache = new Map<string, RealMarketData>();
  */
 function rememberIfReal(data: RealMarketData): RealMarketData {
   if (!data.isRealData) return data;
+
+  // 🛡️ Guarda de desvio máximo (ver comentário acima de MAX_DEVIATION_BY_CATEGORY):
+  // preço que salta demais em relação à última referência real e recente é
+  // tratado como tick suspeito, não como movimento real — descarta o tick
+  // (mantém o último preço real bom, nunca fecha/exibe posição em cima do
+  // valor suspeito) em vez de aceitar com a mesma confiança de um preço
+  // validado. Isolado por símbolo: não pode contaminar `lastRealPriceCache`
+  // com o valor suspeito, senão o PRÓXIMO tick bom (voltando ao normal)
+  // dispararia o guard de novo, ao contrário.
+  const { suspicious, reference, deviation } = isSuspiciousDeviation(data.symbol, data.price);
+  if (suspicious && reference) {
+    console.warn(
+      `[RealMarketData] 🚨 Preço suspeito descartado para ${data.symbol}: desviou ${((deviation ?? 0) * 100).toFixed(1)}% da última referência real (${reference.price}) em menos de ${RECENT_REFERENCE_MAX_AGE_MS / 60000}min — mantendo última referência.`,
+      { recebido: data.price, referencia: reference.price, fonte: data.source },
+    );
+    logPriceGuardEvent({
+      event_type: 'suspicious_deviation',
+      symbol: data.symbol,
+      category: getAssetBySymbol(data.symbol.toUpperCase())?.category ?? null,
+      candidate_price: data.price,
+      reference_price: reference.price,
+      deviation_pct: deviation != null ? deviation * 100 : null,
+      threshold_pct: maxDeviationFor(data.symbol) * 100,
+      source: data.source,
+    });
+    return reference;
+  }
 
   const suspiciousZeroChange = data.change === 0 && data.changePercent === 0;
   if (suspiciousZeroChange) {
@@ -121,9 +229,51 @@ function rememberIfReal(data: RealMarketData): RealMarketData {
  * (price: 0, isRealData: false) — a tela deve tratar isso como "carregando",
  * nunca como um preço válido.
  */
+/**
+ * 🛡️ 2026-08-21: `lastRealPriceCache` não expira por design (comentário
+ * acima) — correto pra manter "parado no último real conhecido" em vez de
+ * sintético em falhas curtas, mas sem TTL nenhum um feed travado por HORAS
+ * (rate-limit 429/504 prolongado da conta MetaAPI compartilhada, risco
+ * crônico já documentado no CLAUDE.md) faz esse preço velho continuar
+ * sendo servido como `isRealData: true` indefinidamente — incluindo pro
+ * `positionManager.ts` do servidor, que fecha posição (TP/SL) direto em
+ * cima de `tick.isRealData`. Acima deste limite, o fallback ainda é
+ * retornado (pra UI continuar mostrando algo em vez de zerar), mas marcado
+ * `isRealData: false` — position manager já trata isso como "sem preço
+ * válido, tenta de novo no próximo tick" (nunca fecha posição em cima de
+ * preço não confiável).
+ */
+const LAST_KNOWN_STALE_AFTER_MS = 5 * 60 * 1000; // 5 minutos
+
+// Throttle do log de `stale_fallback`: sem isso, um feed travado por horas
+// geraria uma linha por símbolo a CADA poll (1/min × N símbolos), inundando
+// a tabela sem agregar amostra nova. Uma linha a cada 5min por símbolo já
+// basta pra medir duração/frequência do problema em produção.
+const lastStaleLogAt = new Map<string, number>();
+const STALE_LOG_THROTTLE_MS = 5 * 60 * 1000;
+
 function getFallbackOrLastKnown(symbol: string): RealMarketData {
   const lastKnown = lastRealPriceCache.get(symbol);
-  if (lastKnown) return lastKnown;
+  if (lastKnown) {
+    const staleMs = Date.now() - lastKnown.timestamp;
+    const isStale = staleMs > LAST_KNOWN_STALE_AFTER_MS;
+    if (isStale) {
+      const lastLogged = lastStaleLogAt.get(symbol) ?? 0;
+      if (Date.now() - lastLogged > STALE_LOG_THROTTLE_MS) {
+        lastStaleLogAt.set(symbol, Date.now());
+        logPriceGuardEvent({
+          event_type: 'stale_fallback',
+          symbol,
+          category: getAssetBySymbol(symbol.toUpperCase())?.category ?? null,
+          reference_price: lastKnown.price,
+          source: lastKnown.source,
+          stale_ms: staleMs,
+        });
+      }
+      return { ...lastKnown, isRealData: false };
+    }
+    return lastKnown;
+  }
   return {
     symbol,
     price: 0,
