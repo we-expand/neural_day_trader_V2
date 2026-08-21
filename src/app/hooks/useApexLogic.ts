@@ -763,6 +763,12 @@ export function useApexLogic(
           // ponto é resíduo de cache de uma sessão já encerrada/pausada
           // alhures.
           setActiveOrders([]);
+          // Mesmo raciocínio pra Curva de Equity (achado 2026-08-21, mesma
+          // sessão): sem sessão RUNNING, qualquer `equityHistory` em memória
+          // é resíduo de cache local de uma sessão já encerrada — inclusive
+          // de um Reset feito em outro navegador/aba, que nunca teve como
+          // limpar o `localStorage` daqui.
+          setEquityHistory([]);
           // 🆕 FIX 2026-08-20 (achado do Cleber: "desliguei a IA e ela voltou
           // pro zero, preciso ver evolução real de capital ao longo do
           // tempo"): sem sessão RUNNING pra restaurar, o portfolio ficava no
@@ -1946,6 +1952,11 @@ export function useApexLogic(
     setIsPaused(false);
     setActiveOrders([]);
     setOrderHistory([]); // ✅ Limpa histórico de trades
+    // 🔴 FIX 2026-08-21 (achado do Cleber: "Curva de Equity" do Dashboard
+    // continuava mostrando o mergulho da sessão anterior depois do Reset):
+    // faltava aqui — `equityHistory` é state próprio, não faz parte de
+    // `orderHistory`/`portfolio`, então sobrevivia ao reset intocado.
+    setEquityHistory([]);
     setPortfolio(INITIAL_STATE.portfolio);
     setHouseStats(INITIAL_STATE.houseStats);
     setPerformanceMetrics(INITIAL_STATE.performanceMetrics);
