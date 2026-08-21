@@ -1425,14 +1425,28 @@ export function useApexLogic(
         // ✅ USAR vixDataSources.ts ao invés de Yahoo Finance direto
         const { fetchVIXData } = await import('@/app/utils/vixDataSources');
         const vixData = await fetchVIXData();
-        
+
+        // 🔒 2026-08-21: `fetchVIXData` devolve um valor FABRICADO
+        // (`dataQuality: 'FALLBACK'`, ~18.71 ± ruído aleatório) quando as 3
+        // fontes reais falham — nunca alimentar isso no motor (TailRiskGuard
+        // reagiria, ou deixaria de reagir, a um número inventado como se
+        // fosse VIX real). Mantém o último valor REAL em cache em vez de
+        // sobrescrever com a fabricação.
+        if (vixData.dataQuality === 'FALLBACK') {
+          console.warn('[VIX] ⚠️ Todas as fontes reais falharam — descartando fallback fabricado, mantendo último VIX real em cache');
+          return cachedVIXRef.current;
+        }
+
         cachedVIXRef.current = vixData.value;
         lastVIXFetchRef.current = now;
         console.log(`[VIX] 🔄 VIX atualizado: ${cachedVIXRef.current.toFixed(2)} (Fonte: ${vixData.source})`);
         return cachedVIXRef.current;
       } catch (error) {
-        console.warn('[VIX] ⚠️ Erro ao buscar VIX, usando último valor');
-        return cachedVIXRef.current || 15; // Fallback
+        // 🔒 2026-08-21: sem fallback fabricado aqui também — `0` é o
+        // contrato que o chamador (`state.cachedVIX > 0 ? ... : null`) já
+        // trata como "sem VIX disponível", nunca um número inventado.
+        console.warn('[VIX] ⚠️ Erro ao buscar VIX, usando último valor real em cache (sem fabricar)');
+        return cachedVIXRef.current;
       }
     };
 

@@ -37,6 +37,7 @@ import { PRESET_STRATEGIES } from '../../../src/app/data/presetStrategies.ts';
 import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
 import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
+import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
 
 const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
@@ -557,6 +558,22 @@ Deno.serve(async (req) => {
   const watchdogLoaded = (await Promise.all(orphanSessions.map(loadWatchdogSession))).filter((s): s is RunnerSessionState => s !== null);
   if (watchdogLoaded.length > 0) {
     console.log(`[ai-runner] Watchdog: ${watchdogLoaded.length} sessão(ões) não-RUNNING com posição OPEN — monitorando só TP/SL.`);
+  }
+
+  // 🔒 Achado 2026-08-21: `cachedNewsEvents`/`cachedVIX` saíam de `loadSession`
+  // sempre vazios/zero (stub morto) — o gate de notícias e o VIX do
+  // TailRiskGuard nunca tinham dado real pra checar NESTE driver (browser já
+  // funcionava). Uma busca só por invocação, aplicada a todas as sessões
+  // `loaded` (watchdog não avalia `tradingCycleTick`, não precisa). Falha de
+  // rede já é tratada dentro de `fetchRealNewsEvents`/`fetchRealVIX` como
+  // "sem dado" (lista vazia / `null`), nunca fabricada.
+  if (loaded.length > 0) {
+    const [realNewsEvents, realVix] = await Promise.all([fetchRealNewsEvents(), fetchRealVIX()]);
+    console.log(`[ai-runner] Contexto de mercado real: ${realNewsEvents.length} evento(s) de agenda econômica, VIX ${realVix !== null ? realVix.toFixed(2) : 'indisponível'}.`);
+    for (const s of loaded) {
+      s.cachedNewsEvents = realNewsEvents;
+      s.cachedVIX = realVix ?? 0;
+    }
   }
 
   // Sessões rodam em SÉRIE, nunca em paralelo — a conta MetaAPI da plataforma é
