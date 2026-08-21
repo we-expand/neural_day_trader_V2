@@ -14,11 +14,22 @@
 
 ## ▶ COMECE AQUI
 
-Trabalho corrente: **redesenho do cérebro de decisão** (aberto em 2026-08-04,
-depois de 4h40 de IA ligada com zero entradas). Leia
-**[NEXT_SESSION.md](NEXT_SESSION.md)** antes de qualquer coisa — ele diz onde
-paramos, o que já foi decidido, o que está bloqueando e qual é o próximo passo.
-Detalhe completo com evidência, em ordem de leitura:
+Trabalho corrente (2026-08-21): **calibração de gates de custo/contexto →
+scorecard de performance por ativo** (realocar peso/frequência pro ativo que
+está indo bem agora, sem excluir nenhum permanentemente — mercado é
+essencialmente aleatório, ruim numa janela não é ruim pra sempre). Passo 1
+(medição) já feito com dado real; plano de scorecard desenhado, **nada
+implementado ainda**. Leia **[NEXT_SESSION.md](NEXT_SESSION.md)** antes de
+qualquer coisa (seção "▶ TAMBÉM COMECE AQUI") — ele diz onde paramos e qual é
+o próximo passo exato. Detalhe completo:
+[SESSAO_2026-08-21_PLANO_CALIBRACAO_GATES.md](SESSAO_2026-08-21_PLANO_CALIBRACAO_GATES.md)
+(Passo 1, medições) e
+[SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md](SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md)
+(desenho técnico do scorecard).
+
+Trabalho anterior (aberto em 2026-08-04, ainda sem fechamento formal):
+**redesenho do cérebro de decisão**, depois de 4h40 de IA ligada com zero
+entradas. Detalhe completo com evidência, em ordem de leitura:
 `SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (mais recente) e
 `SESSAO_2026-08-05_RUNNER_24_7_E_TAXA_BASE.md`.
 
@@ -230,6 +241,72 @@ O que ainda está genuinamente em aberto:
    resolve o risco estrutural mais amplo (dupla decisão cliente/servidor em
    LIVE) — só a parte específica do Safe Mode em DEMO. `npm run validate`
    passou limpo (37/37). Commit pendente do Cleber rodar.
+
+9. **[RESOLVIDO 2026-08-20, em observação] Preço/variação de cripto errados
+   (BTC, ETH e provavelmente outras).** Cleber reportou ETH mostrando ~18%
+   "hoje" (parecia implausível) e depois confirmou BTC também com
+   preço/variação estranhos. Investigação achou **3 causas independentes**,
+   todas corrigidas e verificadas ao vivo (comparado com Binance no mesmo
+   minuto pós-deploy):
+   (1) `ETHUSD`/`MATICUSD`/`LTCUSD`/`BCHUSD`/`BTCUSDCRP` presos na Binance
+   direta client-side, morta em produção desde 2026-07-10 (CORS) — caem em
+   cache sem TTL, preço/variação podendo ser de dias atrás. `BTCUSDCRP` tinha
+   produto real confirmado (`BTCUSD.crp`) e foi movido pro broker
+   (`CRYPTO_CFD_AVAILABLE.infinox`); os outros 4 **não têm produto real na
+   Infinox sob nenhum nome testado** — fix foi rota nova server-side
+   `/binance-ticker/:symbol` em `supabase/functions/server/index.ts` (sem
+   CORS, sem fabricar dado em falha, diferente da rota legada
+   `/real/binance/:symbol` que tem fallback fabricado hardcoded — não
+   removida, só documentada como "não usar", já que só o `ApiTester.tsx` de
+   debug a chama). `DirectBinanceService.ts` atualizado pra tentar esse proxy
+   em paralelo com as tentativas antigas.
+   (2) `ChartView.tsx` (fallback de cálculo de variação quando a API não
+   responde `change`/`changePercent` válidos): em timeframes 1D/1W a busca do
+   candle de abertura do dia nunca casava (velas D1 da Binance começam à
+   00:00 UTC, filtro comparava com 06:00 UTC) e caía em `candles[0]` — a vela
+   **mais antiga de todo o histórico carregado** (até ~5 anos), rotulando
+   variação de dias/semanas/anos como "hoje". Fix: usa a vela mais próxima do
+   horário de reset, nunca a mais antiga do array.
+   (3) Metodologia de variação de cripto no backend (`/mt5-prices`) era D1
+   (fechamento do broker às 21:00 UTC), divergindo **muito** da rolagem 24h
+   que Binance/CoinGecko mostram — medido ao vivo: BTC +4,11% (D1) vs +10,89%
+   (Binance rolagem 24h) no mesmo minuto. Decisão do Cleber: mudar cripto pra
+   rolagem 24h real (velas de 1h, candle mais próximo de "agora−24h", clamp
+   de sanidade ±50%) — CFD tradicional (forex/índice/ação/commodity)
+   continua em D1, sem mudança. `CRYPTO_CFD_SYMBOLS` no backend (só usado pra
+   debug até então) estava desatualizado (7 de 41 símbolos) e foi
+   sincronizado com `brokerRegistry.ts`, já que agora também decide a
+   metodologia — **manter os dois sincronizados manualmente daqui pra
+   frente** se um símbolo novo for adicionado num dos dois lados.
+   Verificação pós-deploy: XETUSD (Ethereum real) $2.291,72/+18,43% vs.
+   Binance $2.294,43/+18,58% no mesmo minuto — a divergência gigante que
+   pareceu bug era coincidência: o ETH realmente subiu ~18% no dia, só
+   estava sendo calculado errado. `npm run validate` (37/37) e `tsc` sem erro
+   novo nas 3 correções; `deno check` não roda neste ambiente local (falta
+   dependência), validado por transpile via `esbuild` + revisão manual.
+   **[RESOLVIDO 2026-08-21]** Confirmado que sim: achado ao investigar dado
+   contaminado de SPX500 (trade real com entry 6010,13/exit 7536,86, +25,4%,
+   PnL -$3.810, jul/2026) — nem client nem servidor tinham qualquer checagem
+   de variação percentual antes de fechar posição em cima de um preço, pra
+   nenhuma classe de ativo; o clamp "±50%" documentado acima pra cripto
+   nunca protegeu esse caminho (vivia só em código morto de UI). Fix:
+   `RealMarketDataService.ts` (módulo compartilhado client+servidor) ganhou
+   guarda de desvio máximo (8% forex/índice/commodity/ação, 20% cripto,
+   comparado só contra referência real recente <10min) + TTL de 5min no
+   `lastRealPriceCache` (acima disso, marca `isRealData: false` em vez de
+   servir preço velho como se fosse atual). Detalhe completo, incluindo
+   pesquisa de prática de mercado (requote/maximum deviation são padrão do
+   setor pra este risco) e achado incidental (`ai_trades.quantity` guarda $
+   alocado, não lote — rótulo enganoso, inofensivo pro cálculo, não
+   corrigido): [SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md](SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md).
+   **[CONFIRMADO EM PRODUÇÃO 2026-08-21]** Commit `619eedadd`, push e migration
+   (`price_guard_events`) aplicados; `ai-runner` redeployado (v38, `ACTIVE`,
+   `verify_jwt: false`) com o guard rodando de fato no motor de servidor.
+   Telemetria de calibração adicionada na mesma sessão (tabela
+   `price_guard_events`, grava toda rejeição por desvio suspeito e toda
+   degradação por TTL) — os limiares (8%/20%/10min/5min) continuam sendo
+   estimativa de mercado, não calibração; revisar contra amostra real depois
+   de um tempo em produção.
 
 **Sessão 2026-08-17/18 — primeira execução real 24/7**: três bugs críticos
 achados com dado de produção e corrigidos (`RISK_GATE` comparando equity

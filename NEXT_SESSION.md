@@ -2,6 +2,44 @@
 
 > Reescrito em **2026-08-20** (21ª parte — reescrita completa, não empilhada).
 > **Regra: este arquivo é handoff da sessão CORRENTE. Reescreva, não empilhe.**
+> Nota 2026-08-21: os itens abaixo (cron, Pyramiding, zumbis etc.) não foram
+> tocados na sessão de 08-21 — segue valendo o que está escrito. **Linha de
+> trabalho nova aberta em 08-21, ainda sem status de conclusão dos itens de
+> baixo**: ver bloco "▶ TAMBÉM COMECE AQUI" logo abaixo, antes de entrar nos
+> itens numerados desta seção.
+
+## ▶ TAMBÉM COMECE AQUI — linha nova aberta em 2026-08-21 (calibração de gates → scorecard de performance por ativo)
+
+Cleber perguntou se dava pra mirar 70% de acerto — resposta: não (sem edge
+comprovado, violaria regra do projeto). Decisão: trabalho real é reduzir
+variância/calibrar gates, não subir win rate. Plano original e Passo 1 já
+**medido** (dado real, Supabase): ver
+[SESSAO_2026-08-21_PLANO_CALIBRACAO_GATES.md](SESSAO_2026-08-21_PLANO_CALIBRACAO_GATES.md).
+
+Achados do Passo 1: (1.3) sessão overnight só é lucrativa por causa de
+XAUUSD LONG (+34,11); UKOUSD teve 0% de acerto nas 3 vezes que operou
+(-12,20); (1.2) ÍNDICE fica majoritariamente em FRONTEIRA (51%, custo médio
+6,78%, colado no limiar de 7%), não em INVIAVEL como se suspeitava
+qualitativamente; (1.1) contrafactual do CONTEXT_GATE inconclusivo — amostra
+pequena (20 de 74 vetos com candle disponível) e enviesada por um rali de
+ouro, não sustenta conclusão.
+
+**Cleber corrigiu a direção depois do Passo 1**: não excluir ativo ruim da
+cesta (mercado é essencialmente aleatório, ruim numa janela não é ruim pra
+sempre) — em vez disso, **medir performance realizada recente por ativo e
+realocar frequência/peso pra quem está indo bem agora**, sem nunca fechar a
+porta de nenhum ativo. Desenho técnico completo (onde entra no código,
+métrica, gate de amostra mínima, multiplicador contínuo, job periódico,
+validação exigida): **[SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md](SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md)**.
+**Nada disso foi implementado ainda** — é plano/desenho, aprovado em
+conversa mas não em código.
+
+**Próximo passo concreto, na ordem do plano**: medir com dado real de
+`ai_trades` quantos trades fechados por símbolo existem hoje e há quanto
+tempo — decide se um `MIN_AMOSTRA` de 20-50 trades (proposto no plano) é
+realista já ou se falta acumular mais dado primeiro. Só depois disso
+prototipar o cálculo do multiplicador como função pura e rodar contra o
+histórico (backtest simples) antes de tocar em `runTradingCycle.ts`.
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 
