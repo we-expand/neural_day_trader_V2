@@ -14,18 +14,28 @@
 
 ## ▶ COMECE AQUI
 
-Trabalho corrente (2026-08-21): **calibração de gates de custo/contexto →
-scorecard de performance por ativo** (realocar peso/frequência pro ativo que
-está indo bem agora, sem excluir nenhum permanentemente — mercado é
-essencialmente aleatório, ruim numa janela não é ruim pra sempre). Passo 1
-(medição) já feito com dado real; plano de scorecard desenhado, **nada
-implementado ainda**. Leia **[NEXT_SESSION.md](NEXT_SESSION.md)** antes de
-qualquer coisa (seção "▶ TAMBÉM COMECE AQUI") — ele diz onde paramos e qual é
-o próximo passo exato. Detalhe completo:
-[SESSAO_2026-08-21_PLANO_CALIBRACAO_GATES.md](SESSAO_2026-08-21_PLANO_CALIBRACAO_GATES.md)
-(Passo 1, medições) e
-[SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md](SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md)
-(desenho técnico do scorecard).
+Trabalho corrente (2026-08-21): **scorecard de performance por ativo**
+(realocar peso/frequência pro ativo que está indo bem agora, sem excluir
+nenhum permanentemente — mercado é essencialmente aleatório, ruim numa
+janela não é ruim pra sempre). Protótipo/backtest concluíram que **não há
+dado suficiente ainda pra saber se ajuda** (proxy-backtest deu Δ≈-$0,02,
+ruído). Mesmo assim, a pedido do Cleber, a **infraestrutura foi construída e
+já está rodando em produção** (tabela `asset_performance_scorecard`, job
+periódico `asset-performance-scorecard` a cada 30min, ponto de aplicação em
+`rankCandidates()`) — mas o **efeito continua desligado**
+(`ASSET_SCORECARD_ACTIVE = false` em `runTradingCycle.ts`): o job só
+acumula histórico real, nenhum trade é afetado. Próximo passo real: esperar
+1-2 semanas de dado acumular e repetir o proxy-backtest antes de cogitar
+ligar o switch. Detalhe completo, incluindo verificação ao vivo do
+deploy: [SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md](SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md).
+
+Também em 2026-08-21: **"Parar IA" não fecha mais posições abertas à
+força** — só impede abrir posição nova (sessão sai de `RUNNING`); posições
+já abertas seguem monitoradas até TP/SL pelo watchdog do `ai-runner` (que já
+existia desde 2026-08-19). Corrige o efeito colateral onde parar a IA cortava
+trades com R:R alto no preço do instante, antes de atingir o alvo — o motivo
+raiz do "empatou tudo" que o Cleber reportou depois de uma sessão longa. Ver
+`useApexLogic.ts` (`stopLogic`, ~linha 1877) e commit `584e6a3ff`.
 
 Trabalho anterior (aberto em 2026-08-04, ainda sem fechamento formal):
 **redesenho do cérebro de decisão**, depois de 4h40 de IA ligada com zero

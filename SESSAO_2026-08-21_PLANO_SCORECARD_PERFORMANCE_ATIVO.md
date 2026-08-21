@@ -202,3 +202,58 @@ de ruído. Decisão: não integrar no motor agora. Repetir o proxy-backtest em
 1-2 semanas quando mais símbolos atingirem n≥20 (ou o `MIN_AMOSTRA`
 revisado que decidir usar) — só aí o teste tem chance de mostrar sinal de
 verdade. Nenhuma mudança no motor de produção feita nesta sessão.
+
+## Infraestrutura implementada em 2026-08-21 (efeito continua desligado)
+
+Depois da conclusão acima, o Cleber pediu pra construir a infraestrutura
+mesmo sem validação completa — decisão explícita dele, registrada como tal
+(não como resultado medido). Implementado e **confirmado rodando em
+produção** no mesmo dia:
+
+- **Motor puro**: [`src/app/services/strategy/AssetScorecard.ts`](src/app/services/strategy/AssetScorecard.ts)
+  — mesma fórmula do protótipo (`computeSymbolScorecard`/
+  `computeScorecardSnapshot`), portada 1:1.
+- **Tabela** `asset_performance_scorecard` (migration
+  [`20260821_add_asset_performance_scorecard.sql`](supabase/migrations/20260821_add_asset_performance_scorecard.sql)):
+  `user_id, symbol, n_trades, avg_pnl, std_dev, lower_bound, multiplier,
+  window_size, updated_at`, RLS (usuário só lê o próprio, só `service_role`
+  escreve). **Aplicada no Supabase.**
+- **Job periódico**: Edge Function
+  [`supabase/functions/asset-performance-scorecard/`](supabase/functions/asset-performance-scorecard/index.ts)
+  — lê `ai_trades` (status CLOSED), agrupa por `user_id`×`symbol`, calcula
+  scorecard sobre os últimos 12 trades fechados (`WINDOW_SIZE`), faz upsert.
+  **Deployada** (`--no-verify-jwt`, auth própria via `x-runner-secret` /
+  `ASSET_SCORECARD_SHARED_SECRET`, mesmo padrão do `ai-runner` e do
+  `partner-commission-accrual`).
+- **Cron**: migration
+  [`20260821_schedule_asset_performance_scorecard.sql`](supabase/migrations/20260821_schedule_asset_performance_scorecard.sql)
+  — `asset-performance-scorecard-recalc`, `*/30 * * * *`. **Agendado e
+  ativo** (`cron.job.active = true`).
+- **Ponto de aplicação no motor**: `TradingCycleDeps.assetScorecard`
+  (opcional) + switch `ASSET_SCORECARD_ACTIVE = false` em
+  [`runTradingCycle.ts`](src/app/services/strategy/runTradingCycle.ts)
+  (`rankCandidates`). Multiplicador é calculado mas só é **aplicado** se o
+  switch virar `true` — hoje todo símbolo vale 1,0× de verdade em produção,
+  nenhuma mudança de comportamento de trading. **Não mude esse switch sem
+  repetir a validação** (regra fixa do projeto: nunca prometer melhora sem
+  prova estatística).
+- **Pendência deliberadamente não fechada**: `ai-runner` ainda não busca
+  `asset_performance_scorecard` pra popular `deps.assetScorecard` — sem
+  efeito com o switch desligado, então foi adiado pro dia de ligar de
+  verdade (evita trabalho sem uso e risco de bug em produção antes da hora).
+
+**Verificação ao vivo (2026-08-21, disparo manual via `net.http_post` direto
+no Supabase, fora do cron)**: `200 OK`, `{"upserted":20}` — 20 combinações
+usuário×símbolo gravadas com dado real. Amostra: `XAUUSD` (n=12, avg_pnl
++2,11, multiplicador 1,013×), `UKOUSD` (n=12, avg_pnl -1,26, multiplicador
+0,849×), todos os símbolos com n<12 travados em 1,000× exatamente como
+desenhado. Achado incidental (não bug desta implementação): `SPX500` tem 1
+trade com PnL -$3.810 no scorecard — o mesmo dado contaminado por bug de
+escala já documentado em
+[SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md](SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md);
+não afeta nada hoje porque esse símbolo não atinge amostra mínima, mas vale
+lembrar se algum dia for limpar `ai_trades`.
+
+**Próximo passo real**: esperar 1-2 semanas de acúmulo (job já rodando
+sozinho a cada 30min), repetir o proxy-backtest com mais símbolos em
+n≥12/n≥20, e só então decidir se `ASSET_SCORECARD_ACTIVE` vira `true`.
