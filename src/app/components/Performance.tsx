@@ -3,9 +3,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { TrendingUp, Calendar, DollarSign, Target, Zap, ArrowLeftRight, Settings, AlertTriangle, Activity } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { SlippageSimulator } from './admin/SlippageSimulator';
-import { LatencyBenchmark } from './performance/LatencyBenchmark'; // Added import
 import { TradeEfficiencyPanel } from './performance/TradeEfficiencyPanel';
-import { ErrorBoundary } from './ErrorBoundary';
 
 type Period = '7d' | '30d' | '90d' | '1y' | 'all';
 
@@ -17,13 +15,54 @@ const periods: { value: Period; label: string }[] = [
   { value: 'all', label: 'MAX' },
 ];
 
+const PERIOD_MS: Record<Period, number | null> = {
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+  '90d': 90 * 24 * 60 * 60 * 1000,
+  '1y': 365 * 24 * 60 * 60 * 1000,
+  all: null,
+};
+
 export function Performance() {
-  const { portfolio, houseStats, activeOrders, tradeHistory } = useTradingContext();
+  const { portfolio, tradeHistory: fullTradeHistory } = useTradingContext();
   const [period, setPeriod] = useState<Period>('30d');
   const [mounted, setMounted] = useState(false);
-  
+
   // Simulation State
   const [showSimulator, setShowSimulator] = useState(false);
+
+  // Filtro real de período — antes o seletor 7D/30D/90D/1A/MAX não afetava
+  // nenhum dado exibido na tela (UI morta). Agora filtra o histórico de
+  // trades por timestamp antes de qualquer cálculo derivado.
+  const tradeHistory = React.useMemo(() => {
+    const validHistory = Array.isArray(fullTradeHistory) ? fullTradeHistory : [];
+    const windowMs = PERIOD_MS[period];
+    if (windowMs === null) return validHistory;
+    const cutoff = Date.now() - windowMs;
+    return validHistory.filter((t: any) => t && Number(t.timestamp) >= cutoff);
+  }, [fullTradeHistory, period]);
+
+  // Win Rate / Profit Factor calculados direto do histórico real de trades
+  // fechados (mesma fonte que a Curva de Capital e a tabela abaixo), em vez
+  // de `houseStats`, que só é escrito na hidratação/reset e nunca é
+  // recalculado quando um trade fecha durante a sessão.
+  const safeStats = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const closed = validHistory.filter((t: any) => t && t.closedAt);
+    let totalWins = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    closed.forEach((t: any) => {
+      const profit = Number(t.currentProfit) || 0;
+      if (profit > 0) {
+        totalWins += 1;
+        grossProfit += profit;
+      } else if (profit < 0) {
+        grossLoss += Math.abs(profit);
+      }
+    });
+    return { totalTrades: closed.length, totalWins, grossProfit, grossLoss };
+  }, [tradeHistory]);
 
   // SAFE GUARDS (Moved to top level)
   const safePortfolio = React.useMemo(() => ({
@@ -31,13 +70,6 @@ export function Performance() {
     initialBalance: Number(portfolio?.initialBalance) || 100,
     balance: Number(portfolio?.balance) || 0
   }), [portfolio]);
-
-  const safeStats = React.useMemo(() => ({
-    totalTrades: Number(houseStats?.totalTrades) || 0,
-    totalWins: Number(houseStats?.totalWins) || 0,
-    grossProfit: Number(houseStats?.grossProfit) || 0,
-    grossLoss: Number(houseStats?.grossLoss) || 0
-  }), [houseStats]);
 
   React.useEffect(() => {
     // Delay rendering of charts to ensure container has dimensions
@@ -105,8 +137,6 @@ export function Performance() {
             equity.push({
                 date: 'Inicio',
                 balance: runningBalance,
-                ai: runningBalance,
-                manual: runningBalance
             });
 
             // Add points for each trade (simplified)
@@ -132,8 +162,6 @@ export function Performance() {
                  equity.push({
                      date: dateStr,
                      balance: runningBalance,
-                     ai: runningBalance, // Assuming all AI
-                     manual: runningBalance // Placeholder
                  });
             });
             
@@ -147,20 +175,20 @@ export function Performance() {
         } else {
              // ✅ SEM TRADES: Retornar dados vazios ao invés de mockados
              const equity = [
-                 { date: 'Inicio', balance: safePortfolio.initialBalance || 100, ai: 100, manual: 100 }
+                 { date: 'Inicio', balance: safePortfolio.initialBalance || 100 }
              ];
-             
+
              // Preencher 10 pontos para o gráfico não ficar vazio
              for (let i = 1; i < 10; i++) {
                  equity.push({ ...equity[0], date: '.' });
              }
-             
+
              return { equity, trades: [] }; // ✅ Array vazio de trades
         }
     } catch (err) {
         // ✅ FALLBACK: Dados vazios ao invés de mockados
         const equity = [
-            { date: 'Inicio', balance: safePortfolio.initialBalance || 100, ai: 100, manual: 100 }
+            { date: 'Inicio', balance: safePortfolio.initialBalance || 100 }
         ];
         
         // Preencher 10 pontos para o gráfico não ficar vazio
@@ -208,25 +236,25 @@ export function Performance() {
       });
   }, [tradeHistory, safePortfolio.initialBalance]);
 
+  // Distribuição por número de trades por ativo (unidade consistente — antes
+  // misturava volume real (amount×leverage) com peso fixo=1 quando faltava
+  // dado de posição, distorcendo a fatia de quem tinha volume desconhecido).
   const assetDistribution = React.useMemo(() => {
     const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
     const palette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
     const byAsset = new Map<string, number>();
-    let total = 0;
     validHistory.forEach((t: any) => {
       if (!t) return;
       const symbol = t.symbol || 'Desconhecido';
-      const volume = Math.abs(Number(t.amount) || 0) * (Number(t.leverage) || 1);
-      const weight = volume > 0 ? volume : 1; // sem valor de posição real, conta como 1 trade
-      byAsset.set(symbol, (byAsset.get(symbol) || 0) + weight);
-      total += weight;
+      byAsset.set(symbol, (byAsset.get(symbol) || 0) + 1);
     });
+    const total = validHistory.length;
     if (total === 0) return [];
     return Array.from(byAsset.entries())
       .sort(([, a], [, b]) => b - a)
-      .map(([name, weight], idx) => ({
+      .map(([name, count], idx) => ({
         name,
-        value: Math.round((weight / total) * 1000) / 10,
+        value: Math.round((count / total) * 1000) / 10,
         color: palette[idx % palette.length],
       }));
   }, [tradeHistory]);
@@ -267,9 +295,9 @@ export function Performance() {
     ? ((safeStats.totalWins / safeStats.totalTrades) * 100) 
     : 0;
     
-  const profitFactor = safeStats.grossLoss > 0 
-    ? (safeStats.grossProfit / safeStats.grossLoss) 
-    : safeStats.grossProfit > 0 ? 100 : 0; // Cap at 100 instead of infinite/99.9 for cleaner UI
+  const profitFactor = safeStats.grossLoss > 0
+    ? (safeStats.grossProfit / safeStats.grossLoss)
+    : safeStats.grossProfit > 0 ? Infinity : 0; // sem perdas: fator é literalmente infinito, não um valor arbitrário
 
   if (!portfolio) {
       return <div className="p-8 text-center text-slate-500">Carregando dados de performance...</div>;
@@ -327,13 +355,6 @@ export function Performance() {
         </div>
       )}
 
-      {/* Latency Benchmark Section (New) */}
-      <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden">
-           <ErrorBoundary>
-               <LatencyBenchmark />
-           </ErrorBoundary>
-      </div>
-
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden group">
@@ -371,7 +392,7 @@ export function Performance() {
             </div>
             <span className="text-xs font-bold uppercase tracking-widest">Profit Factor</span>
           </div>
-          <p className="text-3xl font-bold text-white tracking-tight">{profitFactor.toFixed(2)}</p>
+          <p className="text-3xl font-bold text-white tracking-tight">{Number.isFinite(profitFactor) ? profitFactor.toFixed(2) : '∞'}</p>
           <p className="text-[10px] text-purple-400 mt-2 uppercase tracking-wider font-bold">
             Bruto: ${safeStats.grossProfit.toFixed(0)} / Perda: ${safeStats.grossLoss.toFixed(0)}
           </p>
@@ -405,14 +426,6 @@ export function Performance() {
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient id="colorAI" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorManual" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
                 <XAxis dataKey="date" stroke="#525252" tick={{fontSize: 10}} />
@@ -433,22 +446,6 @@ export function Performance() {
                   strokeWidth={2}
                   fill="url(#colorBalance)"
                   name="Total"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="ai"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  fill="url(#colorAI)"
-                  name="AI Trader"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="manual"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fill="url(#colorManual)"
-                  name="Manual"
                 />
               </AreaChart>
             </ResponsiveContainer>
