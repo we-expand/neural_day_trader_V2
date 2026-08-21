@@ -2978,12 +2978,23 @@ export function ChartView({
   // Roda depois da 1ª restauração da sessão/favorito (refs acima), senão o efeito
   // reescreveria a sessão com o estado em branco ANTES do useEffect de init aplicar
   // o que tinha sido salvo.
+  // 🐛 FIX (bug real relatado pelo Cleber: trocar de TIMEFRAME "perdia" o setup,
+  // não obedecendo ao que tinha acabado de ser salvo/adicionado): este save era
+  // DEBOUNCED (300ms via setTimeout), pensado só pra não gravar a cada tecla. Só
+  // que trocar de timeframe RECRIA o chart (dispose+init, ver efeito de init logo
+  // abaixo) e relê este MESMO sessionStorage pra restaurar os indicadores -- se a
+  // troca de timeframe acontecesse a menos de 300ms de ter adicionado/editado um
+  // indicador (comum, é só um clique), a leitura pegava o snapshot ANTIGO (sem a
+  // mudança) e reconstruía o gráfico em cima dele, descartando a mudança recente
+  // de vez -- mesma causa raiz do bug já corrigido de "some ao trocar de seção"
+  // (aquele cobria só o desmonte real do componente; troca de timeframe não
+  // desmonta, só reinicializa o chart dentro do mesmo componente montado, então
+  // aquele fix não alcançava este caso). `sessionStorage.setItem` é síncrono e
+  // barato (poucos KB) -- não há motivo real pra debounce aqui. Fix: grava na
+  // hora, sem timer, eliminando a janela de corrida por completo.
   useEffect(() => {
     if (!initialRestoreDoneRef.current) return;
-    const timeoutId = setTimeout(() => {
-      saveSessionState(user?.id, captureCurrentChartConfig());
-    }, 300);
-    return () => clearTimeout(timeoutId);
+    saveSessionState(user?.id, captureCurrentChartConfig());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndicators, indicatorParamsById, indicatorPlacement, indicatorMASettings, timeframe, showGridOverlay, showSrOverlay, user?.id]);
 
