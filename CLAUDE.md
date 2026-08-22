@@ -14,6 +14,24 @@
 
 ## ▶ COMECE AQUI
 
+Também em 2026-08-21 (mais recente): **log de PnL em $ mais explícito no
+fechamento de posição do `ai-runner`** (`GANHO de +$X.XX` / `PERDA de
+-$X.XX`, em vez do `pnl=X.XX` cru) + **bug de deploy corrigido**: o import
+map do runner (`supabase/functions/ai-runner/deno.json`) estava desde a
+sessão anterior sem uma entrada nova (`NewsCurrencyRelevance.ts`),
+quebrando qualquer deploy da function — corrigido e confirmado em
+produção. Detalhe: [SESSAO_2026-08-21_LOG_PNL_E_FIX_IMPORT_MAP.md](SESSAO_2026-08-21_LOG_PNL_E_FIX_IMPORT_MAP.md).
+
+Também em 2026-08-21: **gate de notícias/VIX do `ai-runner`
+era stub morto — corrigido** (nunca bloqueava nada no motor de produção real,
+só no browser). Junto: fallback de VIX fabricado removido do caminho de
+decisão, gate de notícias virou por-moeda-do-ativo (não mais blackout cego),
+e o card "IA Preditiva" do Dashboard (era placeholder, num arquivo nem
+roteado) virou "Viabilidade de Execução" com dado real. **Pendente**:
+aplicar migration `20260821_add_news_gate_veto_stage.sql` e redeploy do
+`ai-runner --no-verify-jwt` — sem isso o fix não está em produção. Detalhe
+completo: [SESSAO_2026-08-21_GATE_DE_NOTICIAS_MOTOR_REAL.md](SESSAO_2026-08-21_GATE_DE_NOTICIAS_MOTOR_REAL.md).
+
 Trabalho corrente (2026-08-21): **scorecard de performance por ativo**
 (realocar peso/frequência pro ativo que está indo bem agora, sem excluir
 nenhum permanentemente — mercado é essencialmente aleatório, ruim numa
