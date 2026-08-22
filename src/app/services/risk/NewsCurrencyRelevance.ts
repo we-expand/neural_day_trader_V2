@@ -9,7 +9,7 @@
  * confiável ligada a cripto no projeto (mesmo padrão já usado pro order
  * book: só real quando existe, nunca aproximado).
  */
-import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
 
 const INDEX_CURRENCY: Record<string, string> = {
   US30: 'USD', SPX500: 'USD', NAS100: 'USD', US2000: 'USD',

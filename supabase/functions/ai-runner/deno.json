@@ -60,6 +60,7 @@
     "@/app/services/risk/CostViabilityGate.ts": "../../../src/app/services/risk/CostViabilityGate.ts",
     "@/app/services/risk/LiveCorrelationGuard.ts": "../../../src/app/services/risk/LiveCorrelationGuard.ts",
     "@/app/services/risk/LiveEmergencyClose.ts": "../../../src/app/services/risk/LiveEmergencyClose.ts",
+    "@/app/services/risk/NewsCurrencyRelevance.ts": "../../../src/app/services/risk/NewsCurrencyRelevance.ts",
     "@/app/services/risk/RevengeTradingDetector.ts": "../../../src/app/services/risk/RevengeTradingDetector.ts",
     "@/app/services/risk/TailRiskGuard.ts": "../../../src/app/services/risk/TailRiskGuard.ts",
     "@/app/services/smc/marketStructure.ts": "../../../src/app/services/smc/marketStructure.ts",
