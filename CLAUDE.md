@@ -395,6 +395,18 @@ deste projeto (seção acima). Cleber optou por manter o commit e dar o push
 ele mesmo, em vez de eu desfazer. Não deve se repetir — sempre só exibir os
 comandos prontos, nunca executar `git add`/`commit`/`push` via Bash.
 
+**Erro registrado em 2026-08-21 (sessão de log de PnL/query histórica)**:
+apaguei por engano o conteúdo de um arquivo já existente e não versionado
+(`SESSAO_2026-08-21_VERIFICACAO_LOTE_MINIMO.sql`) ao criar um arquivo novo
+com `Write` sem checar antes se aquele nome já existia. Como o arquivo
+nunca tinha sido commitado, não havia histórico de git nem snapshot local
+do Time Machine pra recuperar — Cleber confirmou que não lembrava o
+conteúdo, então **está perdido de forma permanente**. Detalhe:
+[SESSAO_2026-08-21_LOG_PNL_E_FIX_IMPORT_MAP.md](SESSAO_2026-08-21_LOG_PNL_E_FIX_IMPORT_MAP.md).
+Não deve se repetir — regra nova: antes de criar qualquer arquivo novo com
+`Write`, sempre checar primeiro (`ls`/`git status`) se já existe algo com
+aquele nome exato, mesmo quando a intenção é "criar do zero".
+
 ## Convenções do projeto
 
 - Nunca fabricar dado (preço, indicador, resultado de backtest) — sempre erro

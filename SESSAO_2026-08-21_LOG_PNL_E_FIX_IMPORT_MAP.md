@@ -88,3 +88,44 @@ mesma sessão — senão o próximo deploy do `ai-runner` quebra silenciosamente
 até alguém tentar rodar `supabase functions deploy` e notar o erro 400.
 `npm run validate` e `tsc` NÃO pegam esse tipo de erro (é problema do
 bundler do deploy sem Docker, não de tipo) — só o deploy real revela.
+
+## Pedido de acompanhamento: PnL retroativo
+
+Depois do fix acima, Cleber perguntou se dava pra ver ganho/perda em $
+retroativamente — resposta: **não pelo log** (é só uma linha de texto
+impressa no momento do fechamento, via `console.log`; não dá pra reescrever
+histórico de log já impresso), **mas sim pelo banco**: todo trade fechado
+já grava o resultado em $ na tabela `ai_trades` (coluna `net_pnl`, com
+fallback pra `pnl` bruto em trades mais antigos onde `net_pnl` ainda não
+era preenchido).
+
+Criado [SESSAO_2026-08-21_QUERY_HISTORICO_PNL.sql](SESSAO_2026-08-21_QUERY_HISTORICO_PNL.sql)
+com 4 consultas prontas pro SQL Editor do Supabase: lista dos últimos 200
+trades fechados com resultado e rótulo GANHO/PERDA, resumo por dia
+(ganho/perda/líquido/nº de trades), resumo por sessão de IA, e um template
+comentado pra filtrar por `user_id` específico.
+
+## Incidente: arquivo apagado por engano
+
+Ao criar o arquivo da query acima, usei por engano o nome de um arquivo
+**já existente e não versionado** (`SESSAO_2026-08-21_VERIFICACAO_LOTE_MINIMO.sql`,
+visível como `??` no `git status` desde o início da conversa) e sobrescrevi
+seu conteúdo com um arquivo vazio antes de perceber o erro. Como o arquivo
+nunca tinha sido commitado, não existe histórico de git pra recuperar, e
+não há snapshot local do Time Machine acessível nesta máquina
+(`tmutil listlocalsnapshots /` voltou vazio). Cleber confirmou que não
+lembra o conteúdo nem tem backup — **o conteúdo original está perdido**.
+Criado então um arquivo novo com nome diferente
+(`SESSAO_2026-08-21_QUERY_HISTORICO_PNL.sql`) pra não repetir o problema.
+
+**Causa**: não conferi se o nome do arquivo já existia antes de escrever
+nele — o `Write` sobrescreve sem aviso quando o arquivo já existe (mesmo
+não tendo sido lido antes nesta sessão, o que deveria ter me travado; a
+checagem prévia falhou porque o arquivo tinha conteúdo mas eu não tentei
+lê-lo primeiro).
+
+**Regra daqui pra frente**: antes de criar QUALQUER arquivo novo com `Write`,
+checar primeiro se já existe algo com aquele nome exato (`ls`/`git status`),
+mesmo quando a intenção é "criar", nunca "editar" — sobrescrever um arquivo
+não versionado é permanente e sem trilha de auditoria, ao contrário de um
+arquivo sob git.
