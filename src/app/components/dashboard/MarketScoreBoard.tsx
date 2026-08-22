@@ -688,27 +688,20 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
     // Para Forex/Indices, manter animação suave
     const animate = () => {
         const lerpFactor = 0.05;
-        
-        // Add micro-jitter for "aliveness" (Organic Tick Noise)
-        const jitter = (Math.random() - 0.5) * 0.2; 
-        
+
         simTrendRef.current = simTrendRef.current + (targetTrendRef.current - simTrendRef.current) * lerpFactor;
-        
-        // Apply jitter only to the visual score, not the trend reference itself to avoid drift
-        const visualTrend = simTrendRef.current + jitter;
-        
+
+        const visualTrend = simTrendRef.current;
+
         const priceDiff = Math.abs(targetPriceRef.current - currentPrice);
         let nextPrice = currentPrice;
-        
+
         if (priceDiff > (currentPrice * 0.1)) {
-            nextPrice = targetPriceRef.current; 
+            nextPrice = targetPriceRef.current;
         } else {
             nextPrice = currentPrice + (targetPriceRef.current - currentPrice) * lerpFactor;
         }
 
-        // Add micro price noise
-        nextPrice = nextPrice * (1 + ((Math.random() - 0.5) * 0.00005));
-        
         // ✅ Animar variação absoluta também
         const nextChange = currentChange + (targetChangeRef.current - currentChange) * lerpFactor;
 
