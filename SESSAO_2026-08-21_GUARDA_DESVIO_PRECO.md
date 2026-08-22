@@ -117,23 +117,48 @@ compartilhada, risco crônico já documentado no `CLAUDE.md`).
 `npm run validate` (37/37) e `tsc --noEmit` sem erro novo. **Não testado
 contra feed real** — mesma ressalva do fix original.
 
-## Pendências
+## Status final — tudo em produção (2026-08-21, verificado)
 
-- Limiares em si ainda não calibrados — agora há telemetria (acima) pra
-  fazer isso com dado real depois de rodar em produção por um tempo.
-- Rótulo enganoso de `ai_trades.quantity` (ver acima) não corrigido.
-- Migration `20260821_price_guard_events.sql` precisa ser aplicada pelo
-  Cleber no SQL Editor do Supabase antes do deploy (senão os inserts falham
-  silenciosamente — `logPriceGuardEvent` só loga warning, não quebra nada,
-  mas a tabela não existirá até a migration rodar).
-- Push pendente do Cleber rodar.
+Fechado nesta sessão, verificado ponta a ponta:
 
-```bash
-git add src/app/services/RealMarketDataService.ts supabase/functions/ai-runner/shims/supabaseClient.ts supabase/migrations/20260821_price_guard_events.sql SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md research/experiments/2026-08-21-asset-scorecard SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md
-git commit -m "fix: guarda de desvio máximo + TTL no cache de último preço real, com telemetria pra calibrar limiares depois"
-git push origin dev
-```
+- **Commit `619eedadd`** (feito pelo Cleber, não por Claude — regra fixa do
+  projeto de nunca commitar sozinho respeitada) já contém o fix completo +
+  telemetria + migration.
+- **Push**: `HEAD` local idêntico a `origin/dev` (confirmado via
+  `git status -sb` / `git log origin/dev -1` — mesmo commit dos dois lados,
+  com `909dda732` de outra feature em cima). Deploy automático da Vercel
+  (client) disparado normalmente.
+- **Migration aplicada**: `price_guard_events` confirmada existente no banco
+  (`select tablename from pg_tables where tablename = 'price_guard_events'`
+  — projeto `wyvdsxtcmizettljxtbg`, retornou a linha).
+- **`ai-runner` redeployado com o fix**: `supabase functions deploy ai-runner
+  --no-verify-jwt` rodado pelo Cleber. Confirmado direto na função ativa via
+  `get_edge_function`: **versão 38, `status: ACTIVE`, `verify_jwt: false`**
+  (flag certa — sem ela, todo tick do cron toma 401 e a IA para). Bundle
+  deployado contém `isSuspiciousDeviation`, `MAX_DEVIATION_BY_CATEGORY` e
+  `price_guard_events` — o guard está rodando de fato no motor de servidor,
+  não só no client.
 
-Depois do push, aplicar a migration no SQL Editor do Supabase (projeto
-"Neural DayTrader", `wyvdsxtcmizettljxtbg`) rodando o conteúdo de
-`supabase/migrations/20260821_price_guard_events.sql`.
+## Rotina de checagem semanal (criada 2026-08-21)
+
+Como calibrar exige dado que ainda não existe (`price_guard_events` vazia),
+criada rotina na nuvem em vez de deixar isso só "esperando alguém lembrar":
+**"Neural Day Trader — checagem semanal price_guard_events"**
+(`trig_01Bo827BEaPrVtG249K7LNd8`,
+[claude.ai/code/routines/trig_01Bo827BEaPrVtG249K7LNd8](https://claude.ai/code/routines/trig_01Bo827BEaPrVtG249K7LNd8)),
+toda segunda 9h BRT, via conector Supabase MCP (`claude.ai/customize/connectors`,
+não confundir com o conector do app desktop — são dois sistemas separados).
+Só leitura (`allowed_tools: Read/Grep/Glob`, sem Bash/Write/Edit) — nunca
+commita nem altera nada, respeitando a regra fixa do projeto. Consulta
+`price_guard_events`, reporta contagem por `event_type`, destaca
+`suspicious_deviation` com `deviation_pct` perto do limiar (candidato a
+falso-positivo) e só propõe recalibração quando a amostra for
+estatisticamente razoável — instruído explicitamente a não inventar número
+com poucos eventos.
+
+## Pendências (só isso resta)
+
+- **Limiares ainda não calibrados** — sem ação manual necessária agora, a
+  rotina semanal acima cuida de reportar quando houver amostra suficiente.
+- Rótulo enganoso de `ai_trades.quantity` (guarda `$` alocado, não lote —
+  ver seção "O que motivou" acima) não corrigido, baixa prioridade.
