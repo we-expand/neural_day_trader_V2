@@ -1501,6 +1501,14 @@ export function ChartView({
   const [templatesExpanded, setTemplatesExpanded] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
   const pendingTemplateApplyRef = useRef<ChartTemplateConfig | null>(null);
+  // 🐛 FIX (relatado pelo Cleber): trocar de timeframe depois de carregar um template
+  // nomeado fazia o template "desaparecer" -- o chart é dispose()+init() na troca de
+  // timeframe (mesmo caminho de "Carregar" que já precisa de pendingTemplateApplyRef),
+  // mas nada guardava QUAL template estava ativo pra reaplicar os indicadores depois.
+  // `activeTemplateConfigRef` guarda o último template carregado via "Carregar"; o
+  // clique manual no seletor de timeframe usa ele pra popular pendingTemplateApplyRef
+  // de novo (com o timeframe novo), reaproveitando o mesmo mecanismo de reaplicação.
+  const activeTemplateConfigRef = useRef<ChartTemplateConfig | null>(null);
   // 🆕 Toggle de grade de fundo (guias horizontais/verticais) — persistido localmente
   // (preferência de exibição, não precisa ser por usuário+ativo no Supabase como o S/R).
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(() => {
@@ -6548,7 +6556,15 @@ export function ChartView({
               {(timeframeExpanded ? timeframes : visibleTimeframes).map(tf => (
                 <button
                   key={tf}
-                  onClick={() => setTimeframe(tf)}
+                  onClick={() => {
+                    // Se há um template nomeado ativo, reaplica ele (com o timeframe novo)
+                    // depois da troca -- sem isso o template "sumia" ao trocar de timeframe
+                    // manualmente, porque a troca faz dispose()+init() do chart.
+                    if (activeTemplateConfigRef.current) {
+                      pendingTemplateApplyRef.current = { ...activeTemplateConfigRef.current, timeframe: tf };
+                    }
+                    setTimeframe(tf);
+                  }}
                   className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${
                     timeframe === tf 
                       ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
@@ -7480,6 +7496,7 @@ export function ChartView({
                         onClick={() => {
                           const chart = chartInstanceRef.current;
                           if (!chart) return;
+                          activeTemplateConfigRef.current = template.config;
                           if (template.config.timeframe !== timeframe && VALID_TIMEFRAMES.includes(template.config.timeframe as Timeframe)) {
                             pendingTemplateApplyRef.current = template.config;
                             setTimeframe(template.config.timeframe as Timeframe);
