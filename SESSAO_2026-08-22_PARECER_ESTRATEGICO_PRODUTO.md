@@ -14,15 +14,22 @@
 
 ## 1. O pedido
 
-Três perguntas encadeadas do Cleber, todas exigindo resposta honesta sem
-inflar nada:
+Perguntas encadeadas do Cleber, todas exigindo resposta honesta sem inflar
+nada:
 
 1. Parecer profundo sobre o produto — ele vai ser um sucesso? Vai dar
    lucro? Como ele se compara aos concorrentes e ao que existe no mercado?
+   → §2, §3
 2. Se o projeto fosse meu, com 100% de autonomia, que produto eu lançaria
-   pra resolver uma dor latente e um gap real de mercado?
-3. Duas perguntas de refinamento sobre o desenho proposto (canais de venda,
-   e o papel do dimensionamento de posição).
+   pra resolver uma dor latente e um gap real de mercado? → §4 a §8
+3. Continuamos operando mercado? Vende-se para corretora **e** para usuário
+   final? → §8, §9
+4. O cliente não se destrói só por stop mal posto — se alavanca demais e não
+   faz a conta de contratos versus caixa. Como administrar isso? → §10
+5. O público que não sabe nem a direção do mercado é maior que o de "defesa
+   pura" — não seria esse o alvo? → §11
+6. Colocar um sócio/funcionário com registro na CVM legaliza a operação? →
+   §12
 
 ---
 
@@ -282,7 +289,7 @@ proteger.
    ferramenta de gestão de risco — muito mais distante dessa fronteira.
    **Precisa de parecer jurídico de verdade antes de qualquer lançamento**,
    mas a diferença de exposição é grande o bastante pra ser critério de
-   decisão de produto.
+   decisão de produto. **Detalhamento completo da estrutura exigida na §12.**
 3. **Coerência**: "eu te protejo de você mesmo" + "minha IA opera pra você"
    na mesma landing page não sobrevive à primeira pergunta difícil.
 
@@ -427,7 +434,211 @@ e, isolados, provavelmente respondem pela maior parte das mortes de conta.
 
 ---
 
-## 11. O que eu mataria (com 100% de autonomia)
+## 11. A objeção do Cleber sobre público-alvo — e o que ela muda
+
+> *"Existe muita gente perdedora no mercado que não sabe nem para que lado o
+> mercado está indo direito, mas quer operar. Seria para este target que
+> estamos caminhando. Um produto financeiro que consegue maximizar o dinheiro
+> do usuário sem quebrar a banca. Isso ninguém faz hoje. Acho que o público é
+> maior do que vender defesa pura."*
+
+### 11.1 Onde o Cleber está certo
+
+O firewall (§6) assume que o usuário **tem** estratégia e só falha em
+executá-la. Isso é minoria autosselecionada — gente que já sabe que tem um
+problema. A massa é quem ele descreveu: quer operar, não faz ideia de
+direção, e não compra um produto cujo pitch é "eu te impeço". **TAM menor e
+mais difícil de vender. A objeção procede.**
+
+### 11.2 Mas "maximizar" precisa de um motor
+
+Existem exatamente **três** fontes de retorno em finanças:
+
+| Fonte | O que é | Disponível? |
+|---|---|---|
+| **Alfa** | habilidade/edge — prever melhor que o mercado | **Não.** Medido ≈ 0 |
+| **Beta** | prêmio por carregar risco | **Sim**, pra qualquer um |
+| **Carry/estrutural** | spread, financiamento, market making | É o lado da **corretora** |
+
+Sem alfa, o único motor honesto de "maximizar o dinheiro" é **beta bem
+embalado**. Sizing **não cria retorno** — controla probabilidade de ruína e
+variância, não expectativa. Portanto: "sem quebrar a banca" se entrega com
+matemática; "maximizar o dinheiro" exige beta.
+
+### 11.3 O achado incômodo: o wrapper atual não tem beta
+
+**CFD de forex é soma zero — menos custo, soma negativa.** Ninguém recebe
+prêmio de risco por carregar EURUSD: não há lucro, dividendo ou fluxo de
+caixa. É preço relativo puro. Nenhuma embalagem, sizing ou IA transforma
+soma-zero-menos-spread em retorno esperado positivo.
+
+CFD de índice **tem** beta, mas o swap overnight (taxa base + 2-3%) foi
+desenhado para giro curto e **come o prêmio de ações inteiro** em posição
+carregada. CFD é estruturalmente instrumento de giro, não de acumulação.
+
+**Consequência**: o produto que o Cleber descreveu não pode ser construído
+sobre CFD da Infinox. Não é limitação de engenharia — é do instrumento. Para
+entregar beta é preciso instrumento à vista (ETF, ação ou cripto spot). Essa
+é a decisão mais cara escondida na ideia.
+
+### 11.4 O produto que a intuição está descrevendo
+
+Tecnicamente: **exposição longa diversificada, com alvo de volatilidade,
+rebalanceamento sistemático e governador rígido de drawdown.**
+
+Nenhum dos quatro componentes prevê direção, e os quatro têm literatura
+sólida. E o governador de drawdown — a peça que faz "sem quebrar a banca"
+ser promessa e não slogan — **é exatamente o motor já construído** (gates,
+sizing, daemon 24/7).
+
+### 11.5 "Isso ninguém faz hoje" — precisão
+
+**Faz, sim, parcialmente**: é a categoria de robo-advisor (Betterment,
+Wealthfront; no Brasil Warren, Magnetis, mesas dos bancões).
+
+O que **ninguém** faz, e onde o gap é real:
+
+1. Com **governador rígido de drawdown** (robo-advisor deixa cair 30% e diz
+   "fique calmo, é normal")
+2. Para **ticket pequeno** de verdade
+3. Com **experiência de trading**, não de poupança
+4. Em português, para esse perfil psicográfico
+
+### 11.6 A inovação real está no item 3
+
+> Essa pessoa quer **operar**, não quer **investir**. Quer ação, posição
+> aberta, PnL do dia, senso de agência. Carteira de índice entediante não a
+> satisfaz — ela cancela em duas semanas e volta pro scalp.
+
+O desafio de produto é: **entregar a matemática de investir com a
+experiência de operar.** Dashboard vivo, posições, resultado do dia — com o
+motor por baixo sendo beta com alvo de risco e freio de drawdown, não aposta
+direcional. É honesto (há posição real no mercado) e é um problema de
+produto genuinamente não resolvido. **Se há inovação nessa ideia, está aí —
+na embalagem, não no motor.**
+
+### 11.7 Síntese: dois níveis, o de baixo financia o de cima
+
+Não são ideias concorrentes.
+
+| | Nível 1 | Nível 2 |
+|---|---|---|
+| **Público** | quem já opera | quem não sabe operar |
+| **Produto** | motor de sizing + firewall (§6, §10) | beta gerenciado com governador de drawdown |
+| **TAM** | menor | **maior** |
+| **Instrumento** | o atual (CFD) serve | exige instrumento à vista |
+| **Regulatório** | usuário decide → fora da gestão de carteira | **CVM cheia** (§12) |
+| **Prazo** | agora | 6-12 meses |
+
+O Nível 1 paga a conta, prova o motor de risco com dado real, e constrói o
+histórico auditado a apresentar — ao regulador, ao parceiro gestor e ao
+cliente — quando o Nível 2 for lançado.
+
+**Variante a investigar**: cripto spot tem drift histórico positivo e regime
+regulatório mais leve no Brasil que valores mobiliários (§12). Pode ser o
+caminho mais rápido para versão legal do Nível 2 — com a ressalva honesta de
+que o drift do cripto **não é prêmio de risco comprovado** como o de ações;
+é histórico curto e especulativo, e não deve ser vendido como equivalente.
+
+---
+
+## 12. Estrutura regulatória — o que a CVM exige de fato
+
+> Pergunta do Cleber: *"colocar um sócio com registro na CVM na operação, ou
+> contratar um funcionário que tenha esse registro, legaliza a operação?"*
+
+**Resposta: parcialmente errado.** A pessoa registrada é **necessária e não
+suficiente**.
+
+### 12.1 A empresa também precisa de registro próprio
+
+Resolução CVM 21: administração de carteira só pode ser exercida por pessoa
+natural **ou** jurídica autorizada pela CVM. Quando quem opera é uma empresa,
+a **PJ precisa ela mesma ser autorizada**, e para isso precisa:
+
+- ter **sede no Brasil**
+- ter **no objeto social** o exercício de administração de carteiras
+- atribuir a atividade a um **diretor estatutário** registrado na CVM como
+  administrador de carteiras
+- atribuir a um diretor estatutário **compliance e controles internos**
+- atribuir a um diretor estatutário **gestão de risco** (obrigatório na
+  categoria "gestor de recursos")
+
+### 12.2 Os três detalhes que inviabilizam "contratar um funcionário"
+
+1. **Tem que ser diretor estatutário, não empregado.** A responsabilidade é
+   atribuída a diretor estatutário, com responsabilidade pessoal perante o
+   regulador. CLT ou PJ prestadora não cumpre.
+2. **Exclusividade.** O diretor responsável pela administração de carteira
+   **não pode exercer qualquer outro cargo no mercado de capitais**, dentro
+   ou fora da instituição. Elimina o "sócio de fachada" que já é gestor em
+   outra casa.
+3. **Segregação.** O diretor de gestão não pode acumular risco/compliance
+   (risco e compliance podem ser a mesma pessoa entre si). Há exigência de
+   segregação física, funcional e tecnológica.
+
+### 12.3 Estrutura mínima real
+
+| Papel | Quem | Registro CVM |
+|---|---|---|
+| Diretor de gestão de carteiras | Pessoa A (dedicada, sem outro cargo no mercado) | **Sim** — administrador de carteiras |
+| Diretor de risco + compliance | Pessoa B | Não exige registro próprio, mas exige capacidade e independência |
+| A própria empresa | A PJ | **Sim** — autorização como gestor de recursos |
+
+**Mínimo real: duas pessoas em cargos estatutários + autorização da PJ.**
+
+### 12.4 Que registro o profissional precisa ter
+
+**Autorização da CVM como administrador de carteiras de valores mobiliários,
+categoria "gestor de recursos"** (Resolução CVM 21).
+
+Requisitos da pessoa natural: domicílio no país, curso superior, **reputação
+ilibada**, e qualificação técnica comprovada por uma das vias — experiência
+profissional (mínimo 3 anos em gestão de recursos de terceiros, ou 5 anos em
+mercado de capitais) ou certificação reconhecida (rota usual de mercado: a
+**CGA da ANBIMA**).
+
+### 12.5 Os caminhos, do mais rápido ao mais lento
+
+1. **Parceria com gestora já autorizada** — o produto é a tecnologia; a
+   gestora registrada detém o mandato e a responsabilidade regulatória. Paga-se
+   uma fatia da receita, mas pula-se 6-12 meses e todo o aparato de
+   compliance. **Caminho recomendado para começar** — valida o produto antes
+   de comprometer capital em estrutura.
+2. **Abrir a gestora** — autorização própria. Meses de processo, exige as
+   duas pessoas estatutárias, custo recorrente relevante (auditoria,
+   compliance, taxa de fiscalização, ANBIMA se aderir). Faz sentido **depois**
+   da tração, não antes.
+3. **Consultoria de valores mobiliários (Res. CVM 19)** — registro bem mais
+   leve, **mas não serve**: consultoria pode *recomendar*, não pode executar
+   com discricionariedade. Quando a IA decide e executa, saiu de consultoria.
+
+### 12.6 O ponto que pode mudar tudo: o instrumento define o regulador
+
+A CVM regula **valores mobiliários**. Portanto:
+
+- **CFD via corretora offshore, na conta do próprio usuário, software como
+  ferramenta que ele opera** — posição regulatória bem diferente de gestão de
+  carteira. **É onde o projeto está hoje.**
+- **Cripto spot** — o marco legal (Lei 14.478/2022) colocou prestadoras de
+  serviço de ativos virtuais sob supervisão do **Banco Central**, não da CVM
+  (exceto cripto que se qualifique como valor mobiliário). Outro regime — **não
+  é ausência de regime.**
+- **Ação, ETF, fundo** — CVM cheia.
+
+**A escolha do instrumento não é decisão técnica — é a decisão mais
+estruturante do negócio.** Define regulador, custo, prazo de lançamento e se
+existe retorno esperado positivo a capturar (§11.3).
+
+### 12.7 Ressalva
+
+Isto é leitura da norma, **não parecer jurídico** — quem escreveu não é
+advogado. Antes de qualquer decisão de estrutura societária, precisa passar
+por escritório especializado em mercado de capitais.
+
+---
+
+## 13. O que eu mataria (com 100% de autonomia)
 
 1. **O autotrader como proposta de valor.** Vender "protejo você de você
    mesmo" e "minha IA opera por você sem edge provado" na mesma página é
@@ -443,7 +654,7 @@ e, isolados, provavelmente respondem pela maior parte das mortes de conta.
 
 ---
 
-## 12. Riscos honestos
+## 14. Riscos honestos
 
 - **Enforcement tem limite técnico.** Via MetaAPI não se bloqueia de verdade
   uma ordem digitada no MT5 do usuário — detecta-se e reverte em 1-3s.
@@ -460,7 +671,7 @@ e, isolados, provavelmente respondem pela maior parte das mortes de conta.
 
 ---
 
-## 13. Parecer final em uma frase
+## 15. Parecer final em uma frase
 
 **Não mudar de mercado — mudar de lado do problema.** O projeto tentou
 vender a cura (previsão) num mercado onde a cura não existe, e provou isso
@@ -469,37 +680,69 @@ melhor do que 99% dos concorrentes provam qualquer coisa. O produto a vender
 demonstrada com dado real** — e esta equipe é, por cultura e por
 infraestrutura, das poucas com condição de demonstrar.
 
+> **Refinamento posterior (§11)**: o "cinto de segurança" isolado atende um
+> público autosselecionado e pequeno. A objeção do Cleber sobre público-alvo
+> procede, e a síntese que sobreviveu à discussão é a de **dois níveis**
+> (§11.7): o firewall/sizing sai agora e financia; o produto de beta
+> gerenciado com governador de drawdown — TAM maior — vem depois, e depende
+> de duas decisões estruturais ainda em aberto (instrumento à vista em vez de
+> CFD, e estrutura regulatória da §12).
+
 ---
 
-## 14. Estado no momento da pausa (2026-08-22)
+## 16. Estado no fim da sessão (2026-08-22)
 
-Decisão do Cleber: **adiar a continuação deste assunto.** A IA está em teste
-ao vivo, **positiva e sem ter quebrado o caixa nenhuma vez** até o momento.
-O plano é observar o comportamento ao longo da semana antes de retomar a
-discussão estratégica.
+A IA está em **teste ao vivo, positiva e sem ter quebrado o caixa nenhuma
+vez** até o momento. Decisão do Cleber: observar o comportamento ao longo da
+semana antes de decidir qualquer coisa do que está aqui.
 
-Nada neste documento foi implementado. Nenhuma decisão foi tomada. Nenhuma
-linha de código foi alterada nesta sessão.
+Nada neste documento foi implementado. Nenhuma decisão foi tomada. **Nenhuma
+linha de código foi alterada nesta sessão** — é documento de estratégia, não
+de engenharia.
 
-**Ao retomar**, os pontos que precisam de decisão do Cleber:
+### 16.1 Decisões que precisam do Cleber
 
-1. Adotar ou não o reposicionamento (firewall de risco comportamental)?
-2. Se sim: o autotrader vira modo opcional desligado, ou é aposentado?
-3. Aporte mínimo passa a ser derivado por instrumento (§10.5)?
-4. Marketplace com dados fabricados — remover antes de qualquer lançamento?
-5. Buscar parecer jurídico sobre a fronteira CVM (§9, motivo 2)?
+| # | Decisão | Seção |
+|---|---|---|
+| 1 | Adotar o reposicionamento? E em qual nível — 1, 2, ou os dois em sequência? | §11.7 |
+| 2 | O autotrader vira modo opcional desligado, ou é aposentado? | §9, §13 |
+| 3 | **Instrumento**: seguir em CFD (sem beta) ou migrar para instrumento à vista? — decisão mais estruturante do negócio | §11.3, §12.6 |
+| 4 | Aporte mínimo passa a ser derivado por instrumento? | §10.5 |
+| 5 | Marketplace com dados fabricados — remover antes de qualquer lançamento? | §13 |
+| 6 | Buscar gestora parceira já autorizada, ou abrir gestora própria? | §12.5 |
+| 7 | Contratar escritório de mercado de capitais para parecer formal | §12.7 |
 
-Independentemente da decisão estratégica, dois itens desta análise valem por
-si só e podem ser implementados sem mudar o rumo do produto:
+### 16.2 Vale independentemente da decisão estratégica
 
-- **Motor de dimensionamento (§10.2)** — é `min()` sobre peças que já
-  existem no repositório, e protege o usuário atual do produto atual.
-- **Detecção dos três padrões temporais (§10.6)** — aritmética simples sobre
-  o histórico de ordens.
+Dois itens desta análise protegem o usuário **do produto como ele é hoje**,
+sem exigir nenhuma mudança de rumo:
+
+- **Motor de dimensionamento (§10.2)** — é `min()` sobre peças que já existem
+  no repositório (`pointValue`, gate de margem, catálogo do `brokerRegistry`)
+- **Detecção dos três padrões temporais (§10.6)** — martingale disfarçado,
+  pirâmide na perda, risco crescente em dia perdedor. Aritmética simples
+  sobre o histórico de ordens.
+
+### 16.3 Sugestão para a retomada
+
+Quando a semana de observação fechar, começar puxando os números reais do
+teste ao vivo — **taxa de acerto, distribuição de tamanho de posição e
+drawdown máximo**. Isso responde empiricamente parte do que está aqui em
+tese, especialmente §10 (se o sizing atual já é o problema) e §11.3 (se o
+resultado positivo veio de beta, de sorte ou de custo baixo).
 
 ---
 
 ## Fontes
+
+### Regulatório (CVM — §12)
+
+- [Resolução CVM nº 21 (texto consolidado)](https://conteudo.cvm.gov.br/export/sites/cvm/legislacao/resolucoes/anexos/001/resol021consolid.pdf)
+- [Guia para credenciamento de administrador de carteira (pessoa jurídica) — CVM](https://conteudo.cvm.gov.br/export/sites/cvm/menu/regulados/administradores/guia-acvm-credenciamento.pdf)
+- [Gestor (administrador) de carteira de valores mobiliários — gov.br/investidor](https://www.gov.br/investidor/pt-br/investir/como-investir/profissionais-do-mercado/gestor-administrador-de-carteira-de-valores-mobiliarios)
+- [Administradores de Carteira — CVM](https://www.gov.br/cvm/pt-br/assuntos/regulados/consultas-por-participante/administradores-de-carteira/saiba-mais-sobre-os-administradores-de-carteira)
+
+### Mercado e pesquisa
 
 - [Day Trading for a Living? — Chague, De-Losso, Giovannetti (USP/FGV, SSRN)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3423101)
 - [Prop Trading Industry Size 2026: $850M Market Analysis](https://track360.io/blog/prop-trading-industry-report-2026-market-analysis)
