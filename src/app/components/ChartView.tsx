@@ -475,7 +475,7 @@ import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de 
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
 import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
-import { analyzeSmc, type SmcZone } from '@/app/services/smc';
+import { analyzeSmc, type SmcZone, type Candle } from '@/app/services/smc';
 import { OrderTicket } from '@/app/components/trading/OrderTicket';
 import type { TradeVisual, PendingOrderVisual } from '@/app/hooks/useApexLogic';
 
@@ -772,7 +772,7 @@ const RectShapeOverlay: OverlayTemplate = {
     const [a, b] = coordinates;
     const color = overlay.styles?.rect?.color || 'rgba(59,130,246,0.15)';
     const borderColor = overlay.styles?.rect?.borderColor || '#3b82f6';
-    return {
+    const rect = {
       type: 'rect',
       attrs: {
         x: Math.min(a.x, b.x),
@@ -782,6 +782,22 @@ const RectShapeOverlay: OverlayTemplate = {
       },
       styles: { style: 'stroke_fill', color, borderColor, borderSize: 1 }
     };
+    // 🆕 2026-08-24: rótulo opcional (usado pelas zonas de Order Block do
+    // S/R do gráfico, ver renderSrOverlays) — string livre em extendData,
+    // desenhada no canto superior-esquerdo da caixa. Retrocompatível: sem
+    // extendData (uso normal como ferramenta de desenho manual), comportamento
+    // idêntico ao original (só o retângulo).
+    if (typeof overlay.extendData === 'string' && overlay.extendData) {
+      return [
+        rect,
+        {
+          type: 'text',
+          attrs: { x: Math.min(a.x, b.x) + 4, y: Math.min(a.y, b.y) + 2, align: 'left', baseline: 'top', text: overlay.extendData },
+          styles: { color: '#ffffff', size: 10, backgroundColor: borderColor, paddingLeft: 4, paddingRight: 4, paddingTop: 1, paddingBottom: 1 }
+        }
+      ];
+    }
+    return rect;
   }
 };
 
@@ -1076,17 +1092,6 @@ type DrawingTool =
   | 'lock'
   | 'hide'
   | 'remove';
-
-interface LiquidityZone {
-  id: string;
-  price: number;
-  strength: number;
-  type: 'support' | 'resistance';
-  touches: number;
-  volume: number;
-  distance: number;
-  significance: 'critical' | 'strong' | 'moderate' | 'weak';
-}
 
 interface TradingSignal {
   type: 'BUY' | 'SELL' | 'NEUTRAL';
@@ -1395,7 +1400,7 @@ export function ChartView({
   const [selectedSymbol, setSelectedSymbol] = useState(selectedAsset || 'BTCUSD'); // 🔥 Inicializar com ativo global
   const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>('Todos'); // 🆕 Filtro de categoria
   const [activeTool, setActiveTool] = useState<DrawingTool>('crosshair');
-  const [liquidityZones, setLiquidityZones] = useState<LiquidityZone[]>([]);
+  const [orderBlockZones, setOrderBlockZones] = useState<SmcZone[]>([]);
   const [tradingSignal, setTradingSignal] = useState<TradingSignal>({
     type: 'NEUTRAL',
     strength: 0,
@@ -4144,60 +4149,31 @@ export function ChartView({
     return sum / period;
   };
 
-  // Detect Liquidity Zones from real price action
-  const detectLiquidityZones = (data: KLineData[], priceAtCalculation: number): LiquidityZone[] => { // 🔥 FIX: Receber price como parâmetro para evitar loop
+  // 🆕 2026-08-24: Suporte/Resistência do gráfico virou o motor de Order
+  // Block (Smart Money Concepts) — pesquisa do Cleber testou a lógica do
+  // indicador de terceiro "Order Block Finder" (MT5) como estratégia de
+  // ENTRADA e não achou edge estatístico (ver
+  // research/experiments/2026-08-24-order-block-fade/verdict.md), mas o
+  // padrão visual em si (zona onde já houve reação de preço antes) é
+  // exatamente o que o Cleber queria ver desenhado no gráfico, como
+  // referência — não como sinal de trade. Substitui o clustering de preço
+  // antigo (`detectLiquidityZones`, heurística sem base em price action
+  // real) pelo motor SMC já existente e testado (`src/app/services/smc`).
+  const detectOrderBlockZones = (data: Candle[], symbol: string, tf: string): SmcZone[] => {
     if (data.length < 20) return [];
-    
-    const zones: LiquidityZone[] = [];
-    const priceMap = new Map<string, { count: number; volume: number; prices: number[] }>();
-    
-    // Group prices by rounded levels
-    data.forEach((candle) => {
-      const roundedHigh = (Math.round(candle.high / (priceAtCalculation * 0.001)) * (priceAtCalculation * 0.001)).toFixed(5);
-      const roundedLow = (Math.round(candle.low / (priceAtCalculation * 0.001)) * (priceAtCalculation * 0.001)).toFixed(5);
-      
-      [roundedHigh, roundedLow].forEach(level => {
-        if (!priceMap.has(level)) {
-          priceMap.set(level, { count: 0, volume: 0, prices: [] });
-        }
-        const entry = priceMap.get(level)!;
-        entry.count++;
-        entry.volume += candle.volume || 0;
-        entry.prices.push(candle.high, candle.low);
-      });
-    });
-    
-    // Convert to zones and filter significant ones
-    const sortedEntries = Array.from(priceMap.entries())
-      .filter(([_, data]) => data.count >= 3)
-      .sort((a, b) => b[1].volume - a[1].volume)
-      .slice(0, 8);
-    
-    sortedEntries.forEach(([priceStr, data], index) => {
-      const price = parseFloat(priceStr);
-      const distance = ((price - priceAtCalculation) / priceAtCalculation) * 100;
-      const isSupport = price < priceAtCalculation;
-      const strength = Math.min((data.count / 10) * 100, 100);
-      
-      let significance: 'critical' | 'strong' | 'moderate' | 'weak';
-      if (strength >= 80) significance = 'critical';
-      else if (strength >= 60) significance = 'strong';
-      else if (strength >= 40) significance = 'moderate';
-      else significance = 'weak';
-      
-      zones.push({
-        id: `zone-${index}`,
-        price,
-        strength,
-        type: isSupport ? 'support' : 'resistance',
-        touches: data.count,
-        volume: data.volume,
-        distance,
-        significance
-      });
-    });
-    
-    return zones.sort((a, b) => b.price - a.price);
+    return analyzeSmc(data, symbol, tf).orderBlocks.filter((z) => !z.mitigated);
+  };
+
+  // Quanto estender a caixa do Order Block adiante do último candle
+  // carregado, em ms — 20 barras do timeframe atual, mesmo efeito visual do
+  // indicador original (a zona "flutua" à frente do preço).
+  const timeframeToMs = (tf: string): number => {
+    const match = /^(\d+)([mHDW])$/.exec(tf) || /^(\d+)([mhdw])$/i.exec(tf);
+    if (!match) return 15 * 60_000; // fallback: 15min
+    const n = parseInt(match[1], 10);
+    const unit = match[2].toLowerCase();
+    const unitMs = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : 604_800_000;
+    return n * unitMs;
   };
 
   const MACRO_SR_WINDOW_DAYS = 1825; // ~5 anos, mesma janela do Detector de Liquidez do Dashboard
@@ -4226,9 +4202,7 @@ export function ChartView({
         volume: c.volume
       }));
       const analysis = analyzeSmc(candles, symbol, '1d');
-      const zones = [...analysis.orderBlocks, ...analysis.fairValueGaps, ...analysis.liquidityPools].filter(
-        (z) => !z.mitigated
-      );
+      const zones = analysis.orderBlocks.filter((z) => !z.mitigated);
       macroSrZonesRef.current.set(symbol, { zones, fetchedAt: Date.now() });
       return zones;
     } catch (err) {
@@ -4239,51 +4213,23 @@ export function ChartView({
     }
   };
 
-  // 🆕 Combina as zonas de S/R detectadas na janela curta do gráfico com as zonas
-  // macro (SMC, longo prazo) — sempre priorizando as mais PRÓXIMAS do preço atual em
-  // cada lado (suporte abaixo / resistência acima), não as de maior força/volume, que é
-  // o que fazia as linhas aparecerem longe demais do preço.
-  const buildSrZonesWithMacro = (
-    intradayZones: LiquidityZone[],
-    macroZones: SmcZone[],
-    currentPrice: number
-  ): LiquidityZone[] => {
-    const macroAsLiquidity: LiquidityZone[] = macroZones.map((z, i) => {
-      const price = (z.priceLow + z.priceHigh) / 2;
-      const isSupport = price < currentPrice;
-      const distance = ((price - currentPrice) / currentPrice) * 100;
-      let significance: LiquidityZone['significance'];
-      if (z.strength >= 80) significance = 'critical';
-      else if (z.strength >= 60) significance = 'strong';
-      else if (z.strength >= 40) significance = 'moderate';
-      else significance = 'weak';
-      return {
-        id: `macro-${z.id}-${i}`,
-        price,
-        strength: z.strength,
-        type: isSupport ? 'support' : 'resistance',
-        touches: 1,
-        volume: 0,
-        distance,
-        significance
-      };
+  // Combina os order blocks da janela curta (candles carregados no gráfico)
+  // com os order blocks macro (SMC 1D, ~5 anos) — mantém as zonas como
+  // RETÂNGULOS (não colapsa num preço médio como a versão antiga fazia),
+  // já que é exatamente essa forma que o Cleber pediu pra replicar. Descarta
+  // duplicata (zonas de fontes diferentes cujo range se sobrepõe) e mantém a
+  // de maior força; corta pro teto de zonas visíveis pra não poluir o gráfico.
+  const MAX_ORDER_BLOCK_ZONES = 10;
+  const combineOrderBlockZones = (intradayZones: SmcZone[], macroZones: SmcZone[]): SmcZone[] => {
+    const combined = [...intradayZones, ...macroZones].sort((a, b) => b.strength - a.strength);
+    const deduped: SmcZone[] = [];
+    combined.forEach((zone) => {
+      const isDuplicate = deduped.some(
+        (existing) => zone.priceLow <= existing.priceHigh && zone.priceHigh >= existing.priceLow
+      );
+      if (!isDuplicate) deduped.push(zone);
     });
-
-    const combined = [...intradayZones, ...macroAsLiquidity];
-
-    // Descarta duplicatas (zonas de fontes diferentes representando o mesmo nível,
-    // dentro de 0.15% de preço uma da outra) — mantém a de maior força.
-    const deduped: LiquidityZone[] = [];
-    combined
-      .sort((a, b) => b.strength - a.strength)
-      .forEach((zone) => {
-        const isDuplicate = deduped.some(
-          (existing) => Math.abs(existing.price - zone.price) / currentPrice < 0.0015
-        );
-        if (!isDuplicate) deduped.push(zone);
-      });
-
-    return deduped;
+    return deduped.slice(0, MAX_ORDER_BLOCK_ZONES);
   };
 
   // Generate Trading Signal based on technical analysis
@@ -4370,12 +4316,28 @@ export function ChartView({
     return { type, strength, reasons, rsi, trend };
   };
 
-  // 🆕 Desenha (ou limpa) as linhas de Suporte/Resistência direto no gráfico.
+  // 🆕 2026-08-24: Desenha (ou limpa) as zonas de Order Block (Smart Money
+  // Concepts) direto no gráfico — substitui as linhas finas de S/R antigas
+  // por RETÂNGULOS que replicam o "Order Block Finder" (indicador MT5 de
+  // terceiro que o Cleber pediu pra trazer pro produto, ver
+  // research/experiments/2026-08-24-order-block-fade/hypothesis.md). É
+  // exibição de referência visual, não sinal de entrada — o backtest da
+  // mesma sessão não achou edge estatístico usando essa zona como gatilho
+  // de trade (verdict.md do mesmo experimento).
+  //
+  // Zona bearish (order_block_bearish, formada antes de rompimento de
+  // baixa) fica acima do preço subsequente = resistência/supply → azul,
+  // mesma leitura do indicador original. Zona bullish (order_block_bullish,
+  // formada antes de rompimento de alta) fica abaixo = suporte/demand →
+  // verde. Cada zona se estende do candle de origem até `extendMs` à frente
+  // do último candle carregado (mesmo efeito visual do indicador: a caixa
+  // "flutua" adiante no tempo).
+  //
   // Sempre limpa os overlays anteriores antes de criar os novos — evita
-  // vazamento de linhas de um ativo pro outro e permite ligar/desligar via
+  // vazamento de zona de um ativo pro outro e permite ligar/desligar via
   // recriação (klinecharts nesta versão não tem flag nativa de visibilidade).
   const MAX_SR_OVERLAYS = 6;
-  const renderSrOverlays = (zones: LiquidityZone[], visible: boolean) => {
+  const renderSrOverlays = (zones: SmcZone[], visible: boolean, lastCandleTimestamp: number, extendMs: number) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
 
@@ -4390,40 +4352,33 @@ export function ChartView({
 
     if (!visible || zones.length === 0) return;
 
-    // 🔥 FIX: prioriza as zonas mais PRÓXIMAS do preço atual (não as de maior força/volume)
-    // — é isso que garante que as linhas desenhadas sejam projeções relevantes pro próximo
-    // movimento, não níveis distantes que o preço só tocaria depois de um movimento grande.
-    const supports = zones.filter((z) => z.type === 'support').sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance)).slice(0, MAX_SR_OVERLAYS / 2);
-    const resistances = zones.filter((z) => z.type === 'resistance').sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance)).slice(0, MAX_SR_OVERLAYS / 2);
-    const selected = [...supports, ...resistances];
+    // Prioriza as zonas mais FORTES (já vem ordenado/deduplicado por
+    // combineOrderBlockZones) — corta pro teto de zonas visíveis.
+    const selected = zones.slice(0, MAX_SR_OVERLAYS);
+    const zoneEndTime = lastCandleTimestamp + extendMs;
 
     selected.forEach((zone) => {
-      const isSupport = zone.type === 'support';
-      const isCritical = zone.significance === 'critical' || zone.significance === 'strong';
-      const overlayId = `sr_${zone.type}_${zone.price.toFixed(5)}`;
+      const isResistance = zone.type === 'order_block_bearish'; // formado antes de rompimento de baixa = fica acima = resistência
+      const overlayId = `ob_${zone.id}`;
+      const color = isResistance ? 'rgba(59,130,246,0.18)' : 'rgba(34,197,94,0.18)';
+      const borderColor = isResistance ? '#3b82f6' : '#22c55e';
+      const label = `${isResistance ? 'R' : 'S'} OB ${((zone.priceHigh + zone.priceLow) / 2).toFixed(2)}`;
 
       try {
         chart.createOverlay({
-          name: 'horizontalStraightLine',
+          name: 'rectShape',
           id: overlayId,
-          points: [{ value: zone.price }],
-          styles: {
-            // Laranja pontilhado pros dois lados (suporte e resistência) — cor
-            // e verde/vermelho sólido eram fáceis de confundir com as linhas
-            // de posição/SL/TP da boleta (mesmo verde de COMPRA, mesmo
-            // vermelho de VENDA). Mantém só a espessura pra sinalizar força.
-            line: { color: '#f97316', style: 'dashed', size: isCritical ? 2 : 1 },
-            text: {
-              color: '#ffffff',
-              backgroundColor: 'rgba(249,115,22,0.85)',
-              size: 11
-            }
-          },
-          text: `${isSupport ? 'S' : 'R'} ${zone.price.toFixed(2)} · ${zone.touches}x`
+          lock: true,
+          points: [
+            { timestamp: zone.startTime, value: zone.priceHigh },
+            { timestamp: Math.max(zoneEndTime, zone.startTime + extendMs), value: zone.priceLow }
+          ],
+          styles: { rect: { color, borderColor } },
+          extendData: label
         });
         srOverlayIdsRef.current.push(overlayId);
       } catch (e) {
-        console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de S/R:', e);
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar zona de Order Block:', e);
       }
     });
   };
@@ -4614,8 +4569,11 @@ export function ChartView({
   // efeito de fetch de candles, via showSrOverlayRef pra sempre ler o valor
   // mais recente sem precisar recriar o gráfico inteiro a cada toggle).
   useEffect(() => {
-    renderSrOverlays(liquidityZones, showSrOverlay);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- liquidityZones intencionalmente fora: já é redesenhado no momento do cálculo
+    const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
+    if (!lastCandle) return;
+    const extendMs = timeframeToMs(timeframe) * 20;
+    renderSrOverlays(orderBlockZones, showSrOverlay, lastCandle.timestamp, extendMs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- orderBlockZones intencionalmente fora: já é redesenhado no momento do cálculo
   }, [showSrOverlay]);
 
   // ❌ REMOVIDO: useEffect que buscava preços de API externa
@@ -5531,12 +5489,12 @@ export function ChartView({
           setChartData(candles);
           chartDataRef.current = candles; // 🔄 Sincronizar ref para uso no useEffect de atualização de preço
           
-          // Detect liquidity zones - 🔥 FIX: Passar preço atual como parâmetro
-          const currentPriceForZones = lastCandle.close;
-          const zones = detectLiquidityZones(candles, currentPriceForZones);
-          setLiquidityZones(zones);
-          renderSrOverlays(zones, showSrOverlayRef.current);
-          console.log('[ChartView] 🎯 Detected', zones.length, 'liquidity zones');
+          // Detecta zonas de Order Block (SMC) na janela curta carregada no gráfico
+          const zones = detectOrderBlockZones(candles, selectedSymbol, timeframe);
+          const extendMs = timeframeToMs(timeframe) * 20;
+          setOrderBlockZones(zones);
+          renderSrOverlays(zones, showSrOverlayRef.current, lastCandle.timestamp, extendMs);
+          console.log('[ChartView] 🎯 Detected', zones.length, 'order block zones');
 
           // 🐛 FIX: troca de timeframe/ativo dispara dispose()+init() do chart
           // (linhas acima) — um chart novo não tem overlay nenhum, e o
@@ -5556,10 +5514,10 @@ export function ChartView({
           fetchMacroSrZones(macroSymbolAtFetch).then((macroZones) => {
             if (macroSymbolAtFetch !== selectedSymbol) return; // ativo já trocou, descarta
             if (macroZones.length === 0) return;
-            const merged = buildSrZonesWithMacro(zones, macroZones, currentPriceForZones);
-            setLiquidityZones(merged);
-            renderSrOverlays(merged, showSrOverlayRef.current);
-            console.log('[ChartView] 🎯 S/R combinado com estrutura macro (SMC):', merged.length, 'zonas');
+            const merged = combineOrderBlockZones(zones, macroZones);
+            setOrderBlockZones(merged);
+            renderSrOverlays(merged, showSrOverlayRef.current, lastCandle.timestamp, extendMs);
+            console.log('[ChartView] 🎯 Order Blocks combinados com estrutura macro (SMC):', merged.length, 'zonas');
           });
           
           // Generate trading signal

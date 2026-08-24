@@ -14,7 +14,27 @@
 
 ## ▶ COMECE AQUI
 
-**2026-08-24 (mais recente): Jarvis (segundo cérebro do motor) implementado
+**2026-08-24: Order Block Fade testado — sem edge, achado de método
+relevante.** Cleber pediu pra testar como estratégia a lógica do indicador
+de terceiro "Order Block Finder" (MT5) — fade contra a zona de order block
+(SMC), regra fechada com ele via pergunta. A detecção já existia no produto
+(`src/app/services/smc/orderBlocks.ts`, só exibição visual até então, nunca
+ligada a decisão de trade). Resultado: **1 de 21 séries testadas** (9
+ativos × {15m,1h}, custo real, split treino/holdout com embargo, DSR) fechou
+positiva líquida — taxa de acerto média 32,3%, muito abaixo do necessário
+pra qualquer R:R≥1. Sem edge comprovado, mesmo padrão da busca sistemática
+de julho fechada em `AI_BRAIN_SPEC.md`. Achado de processo relevante: a
+primeira rodada do backtest deu resultado forte positivo por um bug de
+look-ahead na própria simulação (zona podia ser marcada "mitigada" antes do
+candle que a confirma existir) — corrigido, resultado colapsou pra "sem
+edge". Também documentado, não corrigido em produção: `detectStructureEvents`
+(`marketStructure.ts`) tem viés de look-ahead de ~2 candles (usa índice bruto
+do swing, não a confirmação real do fractal) — não afeta a exibição visual
+de forma perceptível, mas afetaria qualquer uso do motor pra decisão de
+trade. Detalhe completo:
+[research/experiments/2026-08-24-order-block-fade/verdict.md](research/experiments/2026-08-24-order-block-fade/verdict.md).
+
+**2026-08-24: Jarvis (segundo cérebro do motor) implementado
 e EM PRODUÇÃO.** Os 4 passos de implementação desenhados em 2026-08-23
 (schema → Edge Function → deploy → cron) foram todos fechados e confirmados
 com dado real no mesmo dia seguinte: 6 tabelas `jarvis_*` aplicadas,
