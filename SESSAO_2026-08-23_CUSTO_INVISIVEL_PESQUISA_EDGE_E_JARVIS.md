@@ -854,3 +854,200 @@ via `runTradingCycle.ts`, que já é importado por ele.)
       conferir `jarvis_decisions.status='ROLLED_BACK'` depois de alguns
       ciclos, e agora também conferir se `calendar_event` está batendo com a
       hora real (telemetria nova desta seção).
+
+---
+
+## 11. Super Prompt — rastreamento do que foi/não foi feito
+
+> Prompt original do Cleber (2026-08-24), colado aqui na íntegra pra servir
+> de checklist permanente entre sessões — convenção nova pedida nesta data:
+> cada item marcado ✅/⚠️/❌ e atualizado sempre que algo mudar de estado.
+> Não editar o texto do prompt em si, só a tabela de status abaixo dele.
+
+<details>
+<summary>Texto original do Super Prompt (clique pra expandir)</summary>
+
+> Voce é um quantitative researcher e Director of Engineering at Renaissance
+> Technologies usando métodos data-driven para achar edges estatísticos no
+> mercado financeiro mundial e montar um plano de evolução para o motor + AI
+> de operações do Neural Day Trader.
+>
+> Preciso que você me ajude a identificar padrões escondidos e anomalias no
+> comportamento dos nossos ativos da cesta do Neural Day Trader.
+>
+> Pesquise padrões sazonais (piores e melhores meses historicamente) padrões
+> de performance por dia da semana se existirem, correlações de eventos
+> macro importantes (Reuniões do Fed, Dados de CPI), padrões de compra e
+> venda de insiders em filings recentes, tendências de institutional
+> ownership (grandes fundos comprando e vendendo, análises de short
+> interest e potencial de squeeze, sinais de atividades de options
+> incomuns dignos de observação, comportamento de preços em torno de
+> resultados (padrões pre-run, post-gap), sinais de rotação setorial que
+> afetam a nossa cesta, resumo do statistical edge (o que dá a esta cesta
+> uma vantagem quantificável).
+>
+> Registre isso e aplique em nossa cesta de ativos aplicando para todos os
+> nossos tempos gráficos e que use isso para otimizar com propriedade o
+> nosso algoritmo.
+>
+> A nossa tecnologia está ligada em teste desde sexta-feira e não evoluiu
+> ainda ganhos nos trades que fez.
+>
+> Precisamos ter uma evolução no motor e fazer um upgrade significativo no
+> algoritmo com base nesses dados e pesquisas.
+>
+> A ideia com esse prompt é evoluir o nosso algoritmo nos trades que irá
+> fazer. Aplique estes recursos em nosso algoritmo.
+>
+> Faça tudo isso com agentes especializados, engenheiros, gerentes de
+> tecnologia e heads de engenharia, físicos, astrônomos e matemáticos,
+> nível da Renaissance Technologies.
+>
+> Como Director of Engineering: atue como um Engenheiro de Machine Learning
+> Sênior e Arquiteto Quantitativo da Renaissance Technologies. Sua missão é
+> me ajudar a arquitetar e codificar a evolução do motor central do "Neural
+> Day Trader" projetando para entregar edge positivo e ganhos consistentes
+> no intraday operando nossa cesta de ativos.
+>
+> Se precisar utilize o Projeto Trading Agents publicado no GitHub, uma
+> corretora de agentes de Wall Street para ajudar no nosso projeto.
+>
+> AUTO-EVOLUÇÃO: Estruturar o loop de feedback para que o modelo sofra
+> re-treinamento contínuo (Online Learning) com base nos resultados diários,
+> minimizando o overfitting.
+>
+> Por favor, apresente a arquitetura de alto nível para a melhoria do motor
+> visando a busca de edge e evolução significativa do motor e da AI.
+>
+> Se for preciso, crie um Jarvis com second brain permanente e com
+> persistências para organizar este projeto.
+
+</details>
+
+### Tabela de status (atualizada 2026-08-24)
+
+| # | Pedido | Status | Onde |
+|---|---|---|---|
+| 1 | Padrões sazonais (meses/dia da semana) | ✅ Pesquisado — **veredito negativo**: zero efeito calendário direcional utilizável | Seção 3 |
+| 2 | Eventos macro (Fed, CPI/NFP) | ✅ Pesquisado — **veredito**: sem edge direcional, só valor defensivo (evitar spread/vol no release) | Seção 4 |
+| 3 | Insider filings / institutional ownership / short interest / squeeze / options flow / earnings pre-run-post-gap | ✅ **Endereçado como N/A** — conceitos de ações individuais; cesta real (XAUUSD, EURUSD, NAS100, UKOUSD, cripto) não tem ação individual. Análogos aplicáveis pesquisados (COT, funding rate, liquidações, OI, on-chain) — **veredito**: nenhum com edge intraday comprovado | Seção 5.1 |
+| 4 | Rotação setorial | ❌ **Nunca pesquisado** — gap real, não endereçado em nenhuma sessão | — |
+| 5 | Resumo do statistical edge da cesta | ✅ Existe — **edge de sinal técnico ≈ 0**, medido com correção estatística (DSR) em dezenas de sub-investigações desde 07-24 | `AI_BRAIN_SPEC.md` §11-14, `CLAUDE_HISTORY.md` |
+| 6 | Aplicar achados no algoritmo, todos os timeframes | ⚠️ **Parcial** — só sazonalidade horária intraday (rollover/almoço-Ásia) foi codificada (2026-08-24, seção 10). Blackout de macro (FOMC/CPI/NFP) tem pesquisa mas **não foi codificado**. Nenhum trabalho em timeframes >intraday | Seção 10 (parcial) |
+| 7 | TradingAgents (GitHub) | ✅ Avaliado — **rejeitado**: vazamento paramétrico de LLM (issue #805 do próprio repo, papers 2026), risco alto de resultado inflado | Seção 5.2 |
+| 8 | Auto-evolução / online learning contínuo, minimizando overfitting | ✅ **Implementado como correção de teste múltiplo (Šidák), não como ML** — decisão consciente: a pesquisa (seção 5.2) já tinha identificado que retreinamento por ciclo sem correção acumulada "acha" edge por acaso; a versão seletiva do pedido original (a que evita esse risco, não a literal) foi a que entrou em produção. Ver detalhe na seção 11 abaixo | Seção 11 (este item) |
+| 9 | Arquitetura de alto nível apresentada | ✅ Diagrama + peças (schema, function, blueprint) | Seção 6 |
+| 10 | Jarvis com second brain permanente | ✅ Em produção, cron ativo, loop fechado com o motor real | Seções 6-10 |
+| 11 | "Agentes especializados nível RenTech" (físicos, astrônomos, matemáticos) | ✅ **Endereçado em espírito, não literalmente** — rigor estatístico do projeto (DSR, walk-forward, correção por múltiplos testes, holdout) é o padrão que esse pedido pretendia, aplicado por todas as sessões desde 07-24 | `CLAUDE.md` "Padrão de rigor exigido" |
+
+### A tensão central, dita com todas as letras (convenção do projeto: nunca
+esconder achado negativo)
+
+O Super Prompt parte da premissa de que existe um **edge de sinal
+escondido** esperando pra ser achado e aplicado ao algoritmo ("upgrade
+significativo no algoritmo baseado nesses dados"). O trabalho real do
+projeto, com rigor estatístico (DSR, correção por múltiplos testes,
+holdout), **não confirmou essa premissa** em nenhuma das frentes
+pesquisadas — nem técnico clássico, nem calendário, nem macro, nem
+posicionamento/fluxo. A decisão de produto de 2026-07-30 (`CLAUDE.md`) foi
+explícita: **o motor é de execução e disciplina, não de alfa** — com
+edge ≈ 0, ganho real vem de operar menos e gastar menos em custo, não de
+"evoluir o algoritmo" pra prever direção melhor.
+
+### Item 8 em detalhe — o que foi implementado nesta sessão (2026-08-24)
+
+Pedido original: "re-treinamento contínuo (Online Learning) com base nos
+resultados diários, minimizando o overfitting". Antes de implementar, a
+pergunta foi feita de volta ao Cleber (isso seria ML?) — resposta: **não é
+ML** (sem peso treinado, sem gradiente). O que foi construído é a versão do
+pedido que não reintroduz o risco que a própria pesquisa do projeto já
+tinha identificado:
+
+- [`supabase/migrations/20260824_jarvis_dsr_state.sql`](supabase/migrations/20260824_jarvis_dsr_state.sql)
+  — tabela singleton `jarvis_dsr_state`, contador global `tests_since_inception`
+  que nunca reseta (acumula desde a criação do Jarvis, não por ciclo de 6h).
+  **Pendente de aplicação por Cleber no SQL Editor** (regra fixa do
+  projeto — migrations nunca aplicadas por Claude).
+- [`supabase/functions/jarvis/lib/statisticalGuard.ts`](supabase/functions/jarvis/lib/statisticalGuard.ts)
+  (novo módulo): teste binomial exato (win rate observado vs breakeven),
+  correção de Šidák (`alpha_corrigido = 1 - (1-alpha_base)^(1/K)`), Mann-
+  Whitney (AUC vs 0.5, aproximação normal). Testado manualmente contra
+  casos conhecidos antes do deploy: `binom(2,7,0.35)` (caso real medido em
+  produção, win rate 28,57% numa janela de 7 trades) devolve p=1.0 — ou
+  seja, **o motor atual (sem essa correção) estaria disparando ajuste
+  automático de tamanho de posição em cima de ruído puro**, confirmando que
+  o risco identificado na pesquisa de 2026-08-23 já estava acontecendo de
+  verdade, não só em teoria. `MW(0.529, 60, 74)` (AUC real medida) devolve
+  p=0.56, batendo com o achado já documentado de "AUC praticamente
+  aleatório".
+- [`supabase/functions/jarvis/index.ts`](supabase/functions/jarvis/index.ts)
+  — Regra 1 (win rate) agora só autoaplica `GATE_TOGGLE`/`SIZE_ADJUST` se o
+  p-value passar no alpha corrigido pelo K acumulado (fail-**fechado**: erro
+  de infra = não autoaplica, único ponto do Jarvis com essa política —
+  todo o resto do projeto é fail-open de propósito). Regra 2 (confidence
+  calibration) ganhou o mesmo p-value/K como evidência extra — não muda o
+  comportamento dela porque `confidence_score` já é `requires_approval=true`
+  em `jarvis_guardrails` (sempre `PENDING`, nunca autoaplica sozinha de
+  qualquer forma).
+- `deno check` limpo, `npm run validate` 37/37, `tsc` limpo. Funções
+  estatísticas verificadas manualmente contra casos conhecidos (ver acima)
+  antes do commit.
+
+**Efeito prático esperado**: a Regra 1 do Jarvis vai autoaplicar com bem
+menos frequência a partir de agora — amostras pequenas (n=5-10 por janela
+de 6h) quase nunca vão ser estatisticamente distinguíveis do breakeven, e
+mesmo quando forem, o limiar fica mais rígido a cada teste acumulado. Isso é
+o comportamento correto (evita ruído virando decisão automática), não um
+bug novo — mas significa que o Jarvis vai parecer "menos ativo" que antes,
+de propósito.
+
+### Comandos pendentes do Cleber rodar
+
+```bash
+git add supabase/migrations/20260824_jarvis_dsr_state.sql \
+        supabase/functions/jarvis/lib/statisticalGuard.ts \
+        supabase/functions/jarvis/index.ts \
+        SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md
+
+git commit -m "feat: correção de teste múltiplo (Šidák) no Jarvis antes de autoaplicar decisão
+
+Item 8 do gap-check contra o Super Prompt (seção 11): 'auto-evolução/online
+learning contínuo minimizando overfitting'. A pesquisa de 2026-08-23 (seção
+5.2) já tinha identificado que reanálise por ciclo sem correção acumulada
+'multiplica testes ao longo do tempo' — confirmado nesta sessão: o motor
+atual dispararia ajuste automático em cima de ruído puro (caso real medido,
+win rate 28,57% em 7 trades, p-value=1.0 contra o breakeven).
+
+Fix: contador global de testes (jarvis_dsr_state, nunca reseta) + correção
+de Šidák aplicada à Regra 1 (win rate) antes de qualquer GATE_TOGGLE/
+SIZE_ADJUST autoaplicado. Fail-fechado de propósito (único ponto do projeto
+com essa política) — erro de infra impede autoajuste, nunca trava o motor
+de trading. Não é machine learning: sem peso treinado, extensão do motor de
+regras existente com correção estatística clássica de teste repetido."
+
+git push origin dev
+```
+
+Depois do push:
+
+```bash
+# 1. Rodar no SQL Editor do Supabase (migration não aplicada por Claude):
+#    conteúdo de supabase/migrations/20260824_jarvis_dsr_state.sql
+
+# 2. Redeploy da function (Edge Function não sobe com git push):
+supabase functions deploy jarvis --no-verify-jwt
+```
+
+### Pendente para a próxima seção (atualizado)
+- [ ] Aplicar `20260824_jarvis_dsr_state.sql` no SQL Editor.
+- [ ] Redeploy `jarvis` após o commit deste item.
+- [ ] Confirmar deploy da `jarvis` function do commit anterior (item de
+      sazonalidade, seção 10) — ainda não confirmado nesta sessão.
+- [ ] **Item 4 do Super Prompt (rotação setorial)** — nunca pesquisado,
+      gap real.
+- [ ] **Item 6 (blackout de macro codificado)** — pesquisa pronta (seção 4),
+      nunca virou código.
+- [ ] Validar HAR-RV vs. naive pra previsão de volatilidade (seção 5.2,
+      não iniciado).
+- [ ] Observar `jarvis_dsr_state.tests_since_inception` crescer e conferir
+      se a Regra 1 realmente ficou mais rara de disparar como esperado.

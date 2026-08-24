@@ -24,6 +24,12 @@
  *   4. Grava snapshot em jarvis_health_snapshots.
  */
 import { getServiceClient } from './lib/serviceClient.ts';
+import {
+  binomialTestPValue,
+  incrementAndGetTestCount,
+  mannWhitneyPValue,
+  sidakCorrectedAlpha,
+} from './lib/statisticalGuard.ts';
 
 // ────────────────────────────────────────────────────────────────────────
 // Tipos
@@ -36,6 +42,8 @@ interface PeriodMetrics {
   avgPnl: number | null;
   maxDrawdown: number | null;
   confidenceAUC: number | null;
+  confidenceNPos: number;
+  confidenceNNeg: number;
 }
 
 interface DecisionCandidate {
@@ -71,7 +79,10 @@ interface ClosedTradeRow {
 function computeMetrics(trades: ClosedTradeRow[]): PeriodMetrics {
   const n = trades.length;
   if (n === 0) {
-    return { n: 0, wins: 0, winRate: null, avgPnl: null, maxDrawdown: null, confidenceAUC: null };
+    return {
+      n: 0, wins: 0, winRate: null, avgPnl: null, maxDrawdown: null,
+      confidenceAUC: null, confidenceNPos: 0, confidenceNNeg: 0,
+    };
   }
 
   const wins = trades.filter((t) => (t.net_pnl ?? 0) > 0).length;
@@ -107,7 +118,10 @@ function computeMetrics(trades: ClosedTradeRow[]): PeriodMetrics {
     confidenceAUC = (concordant + 0.5 * tied) / (winsConf.length * lossConf.length);
   }
 
-  return { n, wins, winRate, avgPnl, maxDrawdown, confidenceAUC };
+  return {
+    n, wins, winRate, avgPnl, maxDrawdown, confidenceAUC,
+    confidenceNPos: winsConf.length, confidenceNNeg: lossConf.length,
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -299,6 +313,17 @@ async function reevaluateActiveDecisions(sb: any) {
 // Regra 1: Win rate abaixo do breakeven (payoff médio da cesta, ver
 // AI_BRAIN_SPEC.md — breakeven varia por preset; 0.35 é o valor de
 // referência do preset ativo em produção há mais tempo, R:R ~1.8:1).
+//
+// CORRIGIDO 2026-08-24 (item 3 do gap-check contra o "super prompt", ver
+// SESSAO_2026-08-23..., seção 11): antes desta mudança, qualquer janela de
+// 6h com n>=5 e win rate abaixo do limiar autoaplicava GATE_TOGGLE/
+// SIZE_ADJUST sem nenhuma correção por teste repetido — exatamente o risco
+// que a pesquisa de 2026-08-23 (seção 5.2) já tinha identificado
+// ("reanálise a cada 6h multiplica testes ao longo do tempo"). Agora: teste
+// binomial exato (win rate observado vs breakeven) + correção de Šidák
+// usando o contador global de testes (jarvis_dsr_state, nunca reseta) — só
+// autoaplica se passar no limiar de significância corrigido pelo histórico
+// completo de testes já feitos, não só desta janela.
 // deno-lint-ignore no-explicit-any
 async function checkWinRateGate(sb: any, m: PeriodMetrics) {
   if (m.n < 5 || m.winRate == null) return null; // amostra insuficiente pra decidir qualquer coisa
@@ -307,36 +332,68 @@ async function checkWinRateGate(sb: any, m: PeriodMetrics) {
   const thresholdPause = breakeven * 0.80;
   const thresholdAlert = breakeven * 0.90;
 
+  if (m.winRate >= thresholdAlert) return null; // nada a testar nesta janela
+
+  const k = await incrementAndGetTestCount(sb);
+  const alphaBase = 0.05;
+  const pValue = binomialTestPValue(m.wins, m.n, breakeven);
+  const alphaCorrected = k != null ? sidakCorrectedAlpha(alphaBase, k) : null;
+  // Falha fechada: se não conseguiu ler/gravar o contador global, não
+  // autoaplica (k===null) — decisão fica só observada nos logs, não gravada
+  // em jarvis_decisions. Não trava o motor de trading, só o autoajuste.
+  const passesCorrection = alphaCorrected != null && pValue < alphaCorrected;
+
+  const evidenceStat = {
+    win_rate_6h: m.winRate,
+    n: m.n,
+    wins: m.wins,
+    breakeven,
+    p_value: pValue,
+    tests_since_inception: k,
+    alpha_base: alphaBase,
+    alpha_corrected: alphaCorrected,
+  };
+
+  if (!passesCorrection) {
+    console.log(
+      `[jarvis] Regra 1 (win rate) NÃO passou na correção de teste múltiplo: p=${pValue.toFixed(4)}, alpha_corrigido=${alphaCorrected?.toFixed(4) ?? 'n/a'}, k=${k ?? 'n/a'} — não autoaplicando.`,
+    );
+    return null;
+  }
+
   if (m.winRate < thresholdPause) {
     return evaluateGuardrails(sb, {
       decision_type: 'GATE_TOGGLE',
       target: 'CONFIDENCE_GATE',
       action: 'disable',
-      evidence: { win_rate_6h: m.winRate, n: m.n, threshold: thresholdPause },
+      evidence: { ...evidenceStat, threshold: thresholdPause },
       severity: 'CRITICAL',
     });
   }
 
-  if (m.winRate < thresholdAlert) {
-    return evaluateGuardrails(sb, {
-      decision_type: 'SIZE_ADJUST',
-      target: 'position_size',
-      action: '-50%',
-      magnitudePct: -50,
-      evidence: { win_rate_6h: m.winRate, n: m.n, threshold: thresholdAlert },
-      severity: 'WARNING',
-    });
-  }
-
-  return null;
+  return evaluateGuardrails(sb, {
+    decision_type: 'SIZE_ADJUST',
+    target: 'position_size',
+    action: '-50%',
+    magnitudePct: -50,
+    evidence: { ...evidenceStat, threshold: thresholdAlert },
+    severity: 'WARNING',
+  });
 }
 
 // Regra 2: confidence score não discrimina (AUC medido em 2026-08-23: 0.529,
-// praticamente aleatório — ver seção 1 achados incidentais).
+// praticamente aleatório — ver seção 1 achados incidentais). Alvo
+// 'confidence_score' tem requires_approval=true em jarvis_guardrails —
+// SEMPRE nasce PENDING, nunca autoaplica sozinha. Por isso não precisa do
+// mesmo bloqueio duro da Regra 1: o p-value/K abaixo entram só como
+// evidência extra pro Cleber decidir na aprovação manual (2026-08-24, mesmo
+// espírito de correção de teste múltiplo da Regra 1, ver comentário acima).
 // deno-lint-ignore no-explicit-any
 async function checkConfidenceCalibration(sb: any, m: PeriodMetrics) {
   if (m.confidenceAUC == null) return null;
   if (m.confidenceAUC < 0.55) {
+    const k = await incrementAndGetTestCount(sb);
+    const pValue = mannWhitneyPValue(m.confidenceAUC, m.confidenceNPos, m.confidenceNNeg);
     return evaluateGuardrails(sb, {
       decision_type: 'TEST_SIGNAL',
       target: 'confidence_score',
@@ -345,6 +402,10 @@ async function checkConfidenceCalibration(sb: any, m: PeriodMetrics) {
         metric: 'auc',
         value: m.confidenceAUC,
         threshold: 0.6,
+        n_pos: m.confidenceNPos,
+        n_neg: m.confidenceNNeg,
+        p_value: pValue,
+        tests_since_inception: k,
         recommendation:
           'Confidence discrimina pior/igual a acaso nesta janela. Propor experimento formal antes de qualquer recalibração.',
       },
