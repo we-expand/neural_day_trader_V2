@@ -179,6 +179,9 @@ export interface TradingCycleResult {
 }
 
 const NEWS_WINDOW_MS = 15 * 60 * 1000;
+// Cripto: 1ª hora pós-FOMC tem efeito elevado medido (Yang & Wang 2026, ver
+// SESSAO_2026-08-23... seção 4) — janela maior que o padrão de CFD.
+const CRYPTO_NEWS_WINDOW_MS = 60 * 60 * 1000;
 
 // Stop = 1,5×ATR(14) do timeframe operado; alvo = 2,5× o stop (R:R fixo).
 // Ver bloco "STOP/ALVO DINÂMICO POR ATR" no histórico de 2026-08-17.
@@ -617,14 +620,21 @@ async function analyzeAsset(
     if (aiConfig.newsFilter) {
       const relevantCurrencies = getRelevantCurrencies(selectedSymbol);
       if (relevantCurrencies.length > 0) {
+        // Janela estendida pra cripto (2026-08-24, item 6 do Super Prompt):
+        // pesquisa 2026-08-23 (seção 4) mediu efeito elevado na 1ª HORA
+        // pós-FOMC em BTC/ETH (|retorno| e volume), não só nos ~15min de
+        // CFD tradicional (Ederington & Lee 1993, spread/vol no instante do
+        // release). Outras classes de ativo continuam com a janela padrão.
+        const isCryptoSymbolForNewsGate = getAssetBySymbol(selectedSymbol)?.category === 'CRYPTO';
+        const windowMs = isCryptoSymbolForNewsGate ? CRYPTO_NEWS_WINDOW_MS : NEWS_WINDOW_MS;
         const nowTs = Date.now();
         const nearbyEvent = state.cachedNewsEvents.find(e =>
           e.impact === 'high' &&
           relevantCurrencies.includes(e.currency) &&
-          Math.abs(e.time - nowTs) <= NEWS_WINDOW_MS,
+          Math.abs(e.time - nowTs) <= windowMs,
         );
         if (nearbyEvent) {
-          const reason = `Setup ${side} descartado em ${selectedSymbol}: evento econômico de alto impacto em ${nearbyEvent.currency} a ${Math.round(Math.abs(nearbyEvent.time - nowTs) / 60000)}min (janela ±${NEWS_WINDOW_MS / 60000}min)`;
+          const reason = `Setup ${side} descartado em ${selectedSymbol}: evento econômico de alto impacto em ${nearbyEvent.currency} a ${Math.round(Math.abs(nearbyEvent.time - nowTs) / 60000)}min (janela ±${windowMs / 60000}min)`;
           console.log(`[NEWS FILTER] 🚫 ${reason}`);
           funnelTelemetry.recordStage('ASSET_NEWS_BLACKOUT', selectedSymbol);
           await deps.persistence.saveDecision({

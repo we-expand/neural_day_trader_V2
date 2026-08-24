@@ -931,9 +931,9 @@ via `runTradingCycle.ts`, que já é importado por ele.)
 | 1 | Padrões sazonais (meses/dia da semana) | ✅ Pesquisado — **veredito negativo**: zero efeito calendário direcional utilizável | Seção 3 |
 | 2 | Eventos macro (Fed, CPI/NFP) | ✅ Pesquisado — **veredito**: sem edge direcional, só valor defensivo (evitar spread/vol no release) | Seção 4 |
 | 3 | Insider filings / institutional ownership / short interest / squeeze / options flow / earnings pre-run-post-gap | ✅ **Endereçado como N/A** — conceitos de ações individuais; cesta real (XAUUSD, EURUSD, NAS100, UKOUSD, cripto) não tem ação individual. Análogos aplicáveis pesquisados (COT, funding rate, liquidações, OI, on-chain) — **veredito**: nenhum com edge intraday comprovado | Seção 5.1 |
-| 4 | Rotação setorial | ❌ **Nunca pesquisado** — gap real, não endereçado em nenhuma sessão | — |
+| 4 | Rotação setorial | ✅ Pesquisado (2026-08-24) — **veredito negativo**: mesmo em ações (domínio nativo do conceito), sobrevive mal a custo/OOS; na nossa cesta o análogo é rotação cross-asset (risk-on/off, correlação BTC-Nasdaq), que é fenômeno de semanas/meses, não intraday | Seção 12 |
 | 5 | Resumo do statistical edge da cesta | ✅ Existe — **edge de sinal técnico ≈ 0**, medido com correção estatística (DSR) em dezenas de sub-investigações desde 07-24 | `AI_BRAIN_SPEC.md` §11-14, `CLAUDE_HISTORY.md` |
-| 6 | Aplicar achados no algoritmo, todos os timeframes | ⚠️ **Parcial** — só sazonalidade horária intraday (rollover/almoço-Ásia) foi codificada (2026-08-24, seção 10). Blackout de macro (FOMC/CPI/NFP) tem pesquisa mas **não foi codificado**. Nenhum trabalho em timeframes >intraday | Seção 10 (parcial) |
+| 6 | Aplicar achados no algoritmo, todos os timeframes | ⚠️ **Parcial** — sazonalidade horária (rollover/almoço-Ásia, seção 10) e blackout de macro (FOMC/CPI/NFP, agora cobrindo cripto também, seção 13) codificados. Nenhum trabalho em timeframes >intraday | Seções 10, 13 |
 | 7 | TradingAgents (GitHub) | ✅ Avaliado — **rejeitado**: vazamento paramétrico de LLM (issue #805 do próprio repo, papers 2026), risco alto de resultado inflado | Seção 5.2 |
 | 8 | Auto-evolução / online learning contínuo, minimizando overfitting | ✅ **Implementado como correção de teste múltiplo (Šidák), não como ML** — decisão consciente: a pesquisa (seção 5.2) já tinha identificado que retreinamento por ciclo sem correção acumulada "acha" edge por acaso; a versão seletiva do pedido original (a que evita esse risco, não a literal) foi a que entrou em produção. Ver detalhe na seção 11 abaixo | Seção 11 (este item) |
 | 9 | Arquitetura de alto nível apresentada | ✅ Diagrama + peças (schema, function, blueprint) | Seção 6 |
@@ -1039,15 +1039,294 @@ supabase functions deploy jarvis --no-verify-jwt
 ```
 
 ### Pendente para a próxima seção (atualizado)
-- [ ] Aplicar `20260824_jarvis_dsr_state.sql` no SQL Editor.
-- [ ] Redeploy `jarvis` após o commit deste item.
-- [ ] Confirmar deploy da `jarvis` function do commit anterior (item de
-      sazonalidade, seção 10) — ainda não confirmado nesta sessão.
-- [ ] **Item 4 do Super Prompt (rotação setorial)** — nunca pesquisado,
-      gap real.
+- [x] Aplicar `20260824_jarvis_dsr_state.sql` no SQL Editor — confirmado
+      (`jarvis_dsr_state` com 1 linha, `tests_since_inception=0`).
+- [x] Redeploy `jarvis` após o commit deste item — confirmado, v4,
+      `updated_at` 2026-08-24 13:51:30 UTC.
+- [x] **Item 4 do Super Prompt (rotação setorial)** — pesquisado nesta
+      sessão, ver seção 12.
 - [ ] **Item 6 (blackout de macro codificado)** — pesquisa pronta (seção 4),
       nunca virou código.
 - [ ] Validar HAR-RV vs. naive pra previsão de volatilidade (seção 5.2,
       não iniciado).
 - [ ] Observar `jarvis_dsr_state.tests_since_inception` crescer e conferir
       se a Regra 1 realmente ficou mais rara de disparar como esperado.
+
+---
+
+## 12. Rotação setorial (item 4 do Super Prompt) — pesquisa 2026-08-24
+
+### Por que "setorial" não se aplica ao pé da letra
+
+Rotação setorial clássica (GICS: Tecnologia, Saúde, Energia, Financeiro
+etc.) é um conceito de **ações individuais/ETFs setoriais**. A cesta real do
+produto (XAUUSD, EURUSD, NAS100, UKOUSD, BTCUSD, ETHUSD, SOLUSD) não tem
+nenhuma ação de setor — o mesmo motivo já registrado na seção 5.1 pra
+insider filings/institutional ownership/short interest. O análogo aplicável
+é **rotação entre classes de ativo** (risk-on/risk-off entre ouro, dólar,
+índice de ações e cripto) — é essa versão que foi pesquisada.
+
+### O que a literatura diz sobre rotação setorial em si (domínio nativo)
+
+Mesmo no domínio onde o conceito nasceu, a evidência é fraca:
+
+- **Molchanov & Stangl, "The Myth of Sector Rotation"** (*International
+  Journal of Finance & Economics*, 2024,
+  [onlinelibrary.wiley.com/doi/full/10.1002/ijfe.2882](https://onlinelibrary.wiley.com/doi/full/10.1002/ijfe.2882),
+  PDF: [acfr.aut.ac.nz](https://acfr.aut.ac.nz/__data/assets/pdf_file/0005/294287/The-Myth-of-Sector-Rotation-non-blind.pdf)):
+  **mesmo com previsão perfeita do ciclo econômico e ignorando custo de
+  transação**, rotação setorial gera no máximo **2,3% de outperformance
+  anual** sobre 1948-2007 — e em condição realista (custo de transação,
+  timing imperfeito), essa vantagem "dissipa rapidamente". O próprio título
+  do paper ("mito") resume o veredito acadêmico.
+- Estudos baseados só em momentum setorial reportam 1-3% ao ano acima do
+  S&P 500, com variância alta ano a ano — não é máquina de outperformance
+  consistente, é proteção parcial em fase de contração, quando muito.
+- O desafio central citado na literatura: rotação setorial exige prever a
+  economia **melhor que o consenso de mercado** — o "edge" viria de
+  forecasting macro, não de análise da própria ação/setor.
+
+**Conclusão**: se o conceito nativo mal sobrevive a custo com rebalanceamento
+mensal/trimestral, não há razão pra esperar que a versão adaptada
+sobreviva em resolução intraday — o mesmo raciocínio já aplicado à
+sazonalidade (seção 3) e macro (seção 4).
+
+### O análogo real: rotação cross-asset (risk-on/risk-off)
+
+Pesquisado especificamente pros pares da cesta:
+
+**Ouro vs. ações (XAUUSD vs. NAS100)**
+- RORO (Risk-On/Risk-Off) index, primeira componente principal de risco de
+  crédito, volatilidade, condições de funding, câmbio e ouro — framework
+  acadêmico legítimo (Federal Reserve Bank of Kansas City,
+  [kansascityfed.org](https://www.kansascityfed.org/documents/10594/rwp24-12charistedmanlundblad.pdf)),
+  mas mede **regime**, não timing intraday.
+- **Achado relevante**: a correlação ouro-ações **mudou de sinal em
+  períodos de estresse recente** — de ~-0,25 histórico pra +0,45 em
+  janelas de 90 dias durante volatilidade recente ("fading safe-haven
+  effect", pesquisa da University of Stirling via
+  [discoveryalert.com.au](https://discoveryalert.com.au/gold-risk-asset-2026-market-dynamics/)).
+  Ou seja: mesmo a premissa "ouro sobe quando ação cai" (base de qualquer
+  regra de rotação ouro↔ações) **não é estável no tempo** — reforça que
+  não dá pra hardcodar essa relação como sinal.
+- Ouro hoje tem "volatilidade tipo ação" (alta volatilidade seguida de alta
+  volatilidade, não reversão à média típica de commodity) — é observação
+  de regime de volatilidade, não sinal direcional.
+
+**Cripto vs. ações (BTCUSD/ETHUSD vs. NAS100)**
+- Correlação BTC-Nasdaq **variou de 0,23 (2024) pra 0,52 (2025) pra 0,87
+  em picos** ligados a marcos institucionais (ETF de Bitcoin, inclusão da
+  MicroStrategy no Nasdaq 100) — depois **decoupled** de novo (relato de
+  dezembro 2025,
+  [markets.financialcontent.com](https://markets.financialcontent.com/wral/article/marketminute-2025-12-22-the-great-decoupling-how-bitcoin-etfs-rewrote-the-nasdaq-playbook),
+  [arxiv.org/pdf/2501.09911](https://arxiv.org/pdf/2501.09911)).
+- Padrão citado é **assimétrico**: Bitcoin acompanha queda do Nasdaq de
+  perto, mas às vezes ignora alta — vira "risk-off linkage" unidirecional,
+  não um par estável de rotação nos dois sentidos.
+- **Crítico pro produto**: essa correlação é medida em **janela diária**,
+  variando ao longo de **meses** (2024→2025→2026) — não é uma relação que
+  se resolve dentro de um ciclo intraday. Não há evidência de que dá pra
+  operar "cripto sobe quando Nasdaq cai" dentro do mesmo dia com timing
+  confiável.
+
+**Dólar vs. tudo (EURUSD)**
+- "Dollar Smile Theory" (Stephen Jen, 2001) — heurística de mercado bem
+  conhecida (dólar fortalece em crise **e** em crescimento forte dos EUA,
+  fraquece no meio-termo) — mas é **teoria de prática de mesa, não paper
+  revisado por pares com validação estatística**. Nenhuma fonte encontrada
+  com backtest holdout/custo-líquido validando a teoria formalmente.
+  Mesma categoria de "folclore sem correção estatística" já descartada na
+  seção 3 (Halloween effect, outono do ouro etc.).
+
+**Momentum/spillover cross-asset em geral**
+- Existe literatura séria sobre spillover de volatilidade entre
+  ouro/petróleo/ações (ex: petróleo prevê volatilidade de ações,
+  out-of-sample, "Network Momentum as Cross-Asset Factor"), mas o
+  horizonte estudado é de **dias**, não intraday, e a aplicação é
+  forecasting de volatilidade — não geração de sinal de entrada
+  direcional.
+
+### Veredito final
+
+**Nenhuma evidência de rotação cross-asset (o análogo real de "setorial"
+pra esta cesta) com edge intraday comprovado.** Os efeitos documentados são
+de regime (semanas/meses), instáveis no tempo (correlação ouro-ações
+inverteu de sinal; correlação BTC-Nasdaq varia 4x ano a ano e depois
+desacopla), e o próprio conceito nativo (rotação setorial em ações) mal
+sobrevive a custo com rebalanceamento muito mais lento que intraday.
+Consistente com o padrão de todas as pesquisas anteriores deste projeto
+(seções 3, 4, 5.1, 5.2): nada aqui justifica reabrir o Trilho 2.
+
+**Aplicação recomendada, se houver uma**: não como sinal de entrada — no
+máximo como **filtro de regime de baixa frequência** (ex: reduzir exposição
+cross-asset quando correlação ouro-ações ou BTC-Nasdaq estiver em extremo
+histórico, sinalizando fragilidade de regime), na mesma categoria dos
+achados de calendário/macro — reduz risco de cauda, não gera alfa. Não
+implementado — precisaria da mesma validação estatística própria (walk-
+forward, custo líquido, holdout) que reprovou os presets técnicos em
+2026-08-05, e hoje não há evidência suficiente nem pra justificar o esforço
+de construir esse backtest.
+
+### Pendente
+- [ ] Nenhuma implementação decorre desta pesquisa — veredito negativo,
+      igual às seções 3-5. Se quiser, o item "filtro de regime cross-asset"
+      pode entrar na mesma lista de baixa prioridade do HAR-RV (seção 5.2).
+
+---
+
+## 13. Blackout de macro codificado (item 6 do Super Prompt) — 2026-08-24
+
+### O que já existia (achado ao investigar antes de codar)
+
+Antes de escrever qualquer coisa nova, investiguei o motor real e descobri
+que o "gap" era menor do que o gap-check original supunha: já existe um
+**gate de notícias real e funcionando** (`runTradingCycle.ts`, corrigido
+2026-08-21 — CLAUDE.md) que busca calendário econômico real (cadeia de
+fontes: TradingView → MQL5 → Investing.com → Yahoo, `server/economic-
+calendar`) e veta candidato de entrada dentro de ±15min de evento de alto
+impacto **na moeda relevante do ativo** (`getRelevantCurrencies`). Isso já
+cobre boa parte da recomendação da seção 4 ("não abrir posição nova nas
+janelas de release").
+
+### O gap real que sobrava
+
+`getRelevantCurrencies` tinha `if (category === 'CRYPTO') return [];` —
+**cripto nunca era protegida por esse gate, em nenhuma hipótese**, mesmo
+durante FOMC. O comentário original justificava isso com "não existe fonte
+de calendário confiável ligada a cripto" — raciocínio que confundia dois
+problemas diferentes: (a) calendário de evento **específico** de cripto
+(halving, upgrade — de fato sem fonte confiável) vs. (b) reação de cripto a
+evento **macro USD** (FOMC/CPI/NFP) — que já tem fonte real, a mesma usada
+pra qualquer outro ativo, e tem efeito **medido e citado** na própria
+pesquisa do projeto (seção 4): |retorno| médio na 1ª hora pós-FOMC sobe de
+0,66%→1,25% (BTC) e 0,85%→1,50% (ETH), volume 2,5-2,8x (Yang & Wang 2026,
+41 comunicados, p<0,001). Esse achado nunca virava proteção real no motor.
+
+### Fix aplicado
+
+- [`NewsCurrencyRelevance.ts`](src/app/services/risk/NewsCurrencyRelevance.ts)
+  — cripto agora devolve `['USD']` em vez de `[]`. Reaproveita o mesmo
+  calendário real já buscado pra outros ativos — nenhum dado novo, nenhuma
+  fonte nova, nenhuma fabricação.
+- [`runTradingCycle.ts`](src/app/services/strategy/runTradingCycle.ts) —
+  janela do gate estendida pra **60min** em cripto (`CRYPTO_NEWS_WINDOW_MS`),
+  vs. 15min padrão pra CFD tradicional — bate com o achado específico de
+  "1ª hora pós-FOMC" (Yang & Wang 2026), diferente do achado de CFD
+  (Ederington & Lee 1993, ~15min de vol elevada no instante do release).
+- Efeito colateral positivo, não intencional mas correto: `RiskThermometer.tsx`
+  (Dashboard) também usa `getRelevantCurrencies` — cripto vai parar de
+  mostrar sempre "N/D (cripto)" e passa a mostrar risco real de proximidade
+  de evento macro, mesmo painel que já existe, sem código novo na UI.
+- `npx tsc -p tsconfig.engine.json --noEmit` limpo, `npm run validate`
+  37/37.
+
+### O que ficou de fora, de propósito
+
+- **"Reduzir exposição existente"** (recomendação da seção 4, além de "não
+  abrir nova") — não implementado. A pesquisa recomendou isso qualitativamente,
+  sem magnitude medida — implementar um número aqui seria inventar dado, o
+  que o projeto proíbe. Se quiser perseguir isso, precisa antes medir (ex:
+  quanto o spread real alarga nos ativos da cesta durante os releases, com
+  dado do próprio produto) antes de codificar uma regra.
+- **DST**: não é risco aqui — o calendário é buscado **ao vivo** (horário
+  real do evento, não uma tabela de horas fixas em UTC), então o problema
+  de "hardcodar 13:30 UTC que na verdade é 12:30 no horário de verão"
+  (citado na seção 4) simplesmente não se aplica a esta implementação.
+
+### Comando pendente do Cleber rodar
+
+```bash
+git add src/app/services/risk/NewsCurrencyRelevance.ts \
+        src/app/services/strategy/runTradingCycle.ts \
+        SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md
+
+git commit -m "fix: gate de notícias macro passa a proteger cripto (item 6 do Super Prompt)
+
+Achado: getRelevantCurrencies excluía cripto do gate de FOMC/CPI/NFP por
+completo (raciocínio antigo confundia 'sem calendário específico de cripto'
+com 'sem calendário macro USD aplicável a cripto' — o segundo já existe e é
+usado por todo o resto da cesta). A pesquisa de 2026-08-23 (seção 4) já
+tinha medido o efeito: |retorno| na 1h pós-FOMC sobe 0.66%→1.25% (BTC) e
+0.85%→1.50% (ETH), volume 2.5-2.8x (Yang & Wang 2026, p<0.001) — nunca virava
+proteção real no motor.
+
+Fix: cripto passa a usar USD (mesmo calendário já buscado, nenhum dado
+novo). Janela estendida pra 60min em cripto (vs 15min padrão CFD), batendo
+com o achado específico de '1ª hora pós-FOMC' da literatura citada."
+
+git push origin dev
+```
+
+Sem deploy de Edge Function pendente — a mudança é só em `runTradingCycle.ts`
+(módulo puro compartilhado cliente+servidor) e `NewsCurrencyRelevance.ts`,
+ambos já embarcados no bundle do `ai-runner` e do client; o próximo deploy
+regular do `ai-runner` (ou o próximo build do client) já carrega o fix, mas
+se quiser o efeito imediato no servidor:
+
+```bash
+supabase functions deploy ai-runner --no-verify-jwt
+```
+
+---
+
+## 14. HAR-RV vs. naive (seção 5.2, único item de ML pendente) — 2026-08-24
+
+### Metodologia
+
+Único item de ML "barato o suficiente pra valer" identificado na pesquisa
+de 2026-08-23 (seção 5.2): a literatura afirma HAR-RV > GARCH pra previsão
+de volatilidade, mas nunca comparado ao benchmark mais simples possível
+(naive = RV de ontem). Esse é o teste que decide se vale construir algo
+mais sofisticado — sem ele, adotar HAR-RV seria "porque a literatura disse
+que é bom" sem confirmação própria, o que o projeto não aceita (`CLAUDE.md`
+— nunca prometer edge sem validação estatística própria).
+
+- **Dado**: 180 dias de candles reais de 5min, BTCUSDT via Binance (grátis,
+  sem key — mesma fonte já usada em outros scripts de backtest do projeto,
+  nenhuma infra nova). 51.840 candles brutos → 181 dias completos de
+  realized variance (RV = soma dos retornos log² intraday) → 159
+  observações utilizáveis depois de consumir o lag mensal (22 dias).
+- **Modelo**: HAR-RV clássico (Corsi 2009) — `RV_t = β0 + β1·RV_{t-1} +
+  β2·média(RV últimos 5 dias) + β3·média(RV últimos 22 dias)`, ajustado via
+  OLS só no split de treino.
+- **Split**: 75% treino (119 dias) / 25% holdout (40 dias) — sem
+  look-ahead, o modelo nunca vê holdout durante o ajuste.
+- **Avaliação**: RMSE e QLIKE (perda padrão pra avaliação de forecast de
+  volatilidade, Patton 2011, robusta a heterocedasticidade) + teste t
+  pareado na diferença de QLIKE (HAR vs. naive) pra saber se a diferença é
+  estatisticamente real, não só direcional.
+- Script completo, reprodutível:
+  [`research/experiments/2026-08-24-har-rv-vs-naive/scripts/fetch_and_validate.mjs`](research/experiments/2026-08-24-har-rv-vs-naive/scripts/fetch_and_validate.mjs).
+
+### Resultado real (sem inflar)
+
+| Métrica | HAR-RV | Naive |
+|---|---|---|
+| RMSE | 3,1046e-4 | 3,5183e-4 |
+| QLIKE | 0,3475 | 0,5460 |
+
+Diferença de QLIKE (HAR − naive) = **-0,1984** (negativo = HAR-RV melhor) —
+**mas t-stat pareado = -1,528 (n=40), não passa no limiar convencional de
+significância (\|t\|>~2 ≈ p<0,05)**.
+
+### Veredito honesto
+
+**HAR-RV vence direcionalmente em RMSE e QLIKE nesta amostra, mas a
+diferença não é estatisticamente confirmada** — n=40 dias de holdout é
+pouco poder pra separar "HAR-RV genuinamente melhor" de "essa amostra deu
+sorte". Não é um "sim" nem um "não" limpo — é exatamente o tipo de
+resultado que a convenção do projeto pede pra reportar como está, sem
+arredondar pra cima.
+
+**Recomendação**: não implementar HAR-RV em produção com este resultado
+sozinho. Se quiser perseguir mais, os próximos passos honestos seriam (a)
+estender o holdout (mais meses de dado, mais poder), e/ou (b) repetir o
+teste nos outros ativos da cesta (aqui só BTC foi testado) e agregar via
+meta-análise, já que hoje o resultado é de **uma amostra, um ativo**. Não
+fazer isso agora — fica registrado como próximo passo se o Cleber quiser
+continuar.
+
+### Pendente
+- [ ] Nenhuma implementação em produção decorre disto — resultado
+      inconclusive, não negativo nem positivo confirmado. Se quiser
+      continuar: estender holdout e/ou repetir pra outros ativos da cesta.
