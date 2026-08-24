@@ -61,6 +61,7 @@ import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase 0 do redesenho do cérebro: instrumentação do funil de decisão
 import { runTradingCycle, type TradingCycleEffect } from '../services/strategy/runTradingCycle'; // Passo 2 do plano do runner (2026-08-07): módulo puro do ciclo, "um motor, dois drivers"
+import { fetchJarvisSizeMultiplier } from '../services/strategy/jarvisSizeMultiplier';
 import { supabase } from '@/lib/supabaseClient'; // Realtime de ai_trades (reconciliação de posições, 2026-08-20)
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
@@ -484,6 +485,13 @@ export function useApexLogic(
   const cachedNewsEventsRef = useRef<Array<{ time: number; impact: string; currency: string }>>([]);
   const lastNewsFetchRef = useRef(0);
   const NEWS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutos de cache
+
+  // === JARVIS SIZE MULTIPLIER CACHE ===
+  // Ver src/app/services/strategy/jarvisSizeMultiplier.ts — fecha o loop entre
+  // as decisões ACTIVE do Jarvis (supabase/functions/jarvis/) e o sizing real.
+  const cachedJarvisMultiplierRef = useRef(1);
+  const lastJarvisMultiplierFetchRef = useRef(0);
+  const JARVIS_MULTIPLIER_CACHE_DURATION = 60000; // 60s — mesmo horizonte do VIX, decisão muda a cada 6h
 
   // === REFS FOR REAL-TIME ACCESS ===
   const configRef = useRef<AIConfig & { executionMode: 'DEMO' | 'LIVE' }>({
@@ -1517,7 +1525,24 @@ export function useApexLogic(
       }
     };
 
+    const fetchJarvisMultiplierCached = async () => {
+      const now = Date.now();
+      if (now - lastJarvisMultiplierFetchRef.current < JARVIS_MULTIPLIER_CACHE_DURATION) {
+        return cachedJarvisMultiplierRef.current;
+      }
+      lastJarvisMultiplierFetchRef.current = now;
+      try {
+        const { supabase } = await import('@/lib/supabaseClient');
+        cachedJarvisMultiplierRef.current = await fetchJarvisSizeMultiplier(supabase);
+      } catch (error) {
+        console.warn('[JARVIS] ⚠️ Erro ao buscar multiplicador de tamanho, seguindo neutro (1x) neste ciclo:', error);
+      }
+      return cachedJarvisMultiplierRef.current;
+    };
+
     const tradingInterval = setInterval(() => {
+      (async () => {
+      const jarvisSizeMultiplier = await fetchJarvisMultiplierCached();
       runTradingCycle(
         {
           activeOrders,
@@ -1555,6 +1580,7 @@ export function useApexLogic(
             };
           },
           applyEffect: applyTradingCycleEffect,
+          jarvisSizeMultiplier,
         },
       ).then((result) => {
         lastTradeTimestampRef.current = result.nextLastTradeTimestamp;
@@ -1564,6 +1590,9 @@ export function useApexLogic(
         for (const effect of result.effects) applyTradingCycleEffect(effect);
       }).catch((error) => {
         console.error('[TRADING] ❌ Erro não tratado no ciclo de trading:', error);
+      });
+      })().catch((error) => {
+        console.error('[TRADING] ❌ Erro não tratado ao buscar multiplicador do Jarvis:', error);
       });
     }, 5000); // 🚀 OTIMIZAÇÃO #3: REDUZIDO de 15s para 5s (200% mais rápido!) ⚡
 

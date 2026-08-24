@@ -389,13 +389,23 @@ async function checkPriceGuardEvents(sb: any) {
 // rollover 21-22 UTC (spread 5-10x) e almoço da Ásia 02-06 UTC pra cripto
 // (vol baixa, liquidez Binance ~30% pior).
 // deno-lint-ignore no-explicit-any
+// Alvos dedicados (position_size_rollover / position_size_crypto_lunch), não
+// 'position_size' — esse já é o alvo da Regra 1 (win rate). Antes desta
+// mudança as duas regras competiam pelo mesmo cooldown de 4 ciclos (24h) do
+// guardrail 'position_size': se a Regra 1 disparasse primeiro, a janela de
+// rollover/almoço-Ásia simplesmente não conseguia aplicar nada até o
+// cooldown liberar — achado em produção 2026-08-24 (Regra 1 ACTIVE às
+// 11:13 UTC bloquearia qualquer ajuste de sazonalidade até o dia seguinte).
+// Com alvos separados, `fetchJarvisSizeMultiplier` (motor real) compõe os
+// multiplicadores de todas as decisões ACTIVE simultaneamente (produto, não
+// substituição) — ver src/app/services/strategy/jarvisSizeMultiplier.ts.
 async function checkSeasonalityWindow(sb: any) {
   const hourNow = new Date().getUTCHours();
 
   if (hourNow === 21) {
     return evaluateGuardrails(sb, {
       decision_type: 'SIZE_ADJUST',
-      target: 'position_size',
+      target: 'position_size_rollover',
       action: '-70%',
       magnitudePct: -70,
       evidence: {
@@ -409,7 +419,7 @@ async function checkSeasonalityWindow(sb: any) {
   if (hourNow >= 2 && hourNow < 6) {
     return evaluateGuardrails(sb, {
       decision_type: 'SIZE_ADJUST',
-      target: 'position_size',
+      target: 'position_size_crypto_lunch',
       action: '-30%',
       magnitudePct: -30,
       evidence: {

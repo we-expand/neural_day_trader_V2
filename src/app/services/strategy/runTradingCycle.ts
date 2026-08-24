@@ -160,6 +160,13 @@ export interface TradingCycleDeps {
    * de estar desligado hoje (dado insuficiente pra validar).
    */
   assetScorecard?: Map<string, number>;
+  /**
+   * Multiplicador de tamanho de posição vindo de decisões ACTIVE do Jarvis
+   * (win rate abaixo do breakeven, rollover 21-22 UTC, almoço Ásia 02-06 UTC
+   * cripto — ver `jarvisSizeMultiplier.ts`). Sempre ≤1 (Jarvis só reduz
+   * tamanho hoje). Opcional — ausente ou 1 = sem ajuste do Jarvis neste ciclo.
+   */
+  jarvisSizeMultiplier?: number;
 }
 
 export interface TradingCycleResult {
@@ -1147,7 +1154,11 @@ async function analyzeAsset(
     const currentBalance = portfolio.balance || 100;
     const allocatedCapital = Math.min(aiConfig.allocatedCapital, currentBalance);
     const riskPercentage = aiConfig.riskPerTrade / 100;
-    const fixedRiskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier;
+    const jarvisMultiplier = deps.jarvisSizeMultiplier ?? 1;
+    const fixedRiskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier * jarvisMultiplier;
+    if (jarvisMultiplier !== 1) {
+      console.log(`[POSITION SIZING] 🧠 Jarvis: multiplicador ${jarvisMultiplier.toFixed(3)}x aplicado (decisão ACTIVE em jarvis_decisions)`);
+    }
     // 2026-08-16: FIX DE BUG — modo FIXED usava riskCapital diretamente como
     // nocional, ignorando a distância do stop (mesma classe de bug já
     // corrigida em TradeSizing.calculatePositionSize, usada pelo Backtest,

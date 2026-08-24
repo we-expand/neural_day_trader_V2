@@ -38,6 +38,7 @@ import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
 import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
 import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
+import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
 
 const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
@@ -392,6 +393,8 @@ async function tradingCycleTick(s: RunnerSessionState): Promise<void> {
     cachedVIX: s.cachedVIX,
   };
 
+  const jarvisSizeMultiplier = await fetchJarvisSizeMultiplier(getServiceClient());
+
   const deps: TradingCycleDeps = {
     strategies: PRESET_STRATEGIES,
     executionMode: 'DEMO',
@@ -405,6 +408,7 @@ async function tradingCycleTick(s: RunnerSessionState): Promise<void> {
     fetchNewsCached: async () => s.cachedNewsEvents,
     fetchVIXCached: async () => s.cachedVIX,
     // getWsPrice deliberadamente omitido — sem WebSocket no servidor, cai pro REST (RealMarketDataService).
+    jarvisSizeMultiplier,
   };
 
   let result;
