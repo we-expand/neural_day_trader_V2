@@ -258,7 +258,11 @@ export function JarvisDashboard() {
         </div>
 
         <div className="lg:col-span-2 space-y-4">
-          <div className="bg-gradient-to-br from-slate-900/40 to-black border border-white/10 rounded-2xl p-5">
+          <div className="relative bg-gradient-to-br from-slate-900/40 to-black border border-white/10 rounded-2xl p-5 overflow-hidden">
+            <span className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-cyan-500/40 rounded-tl-2xl" />
+            <span className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-cyan-500/40 rounded-tr-2xl" />
+            <span className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-cyan-500/40 rounded-bl-2xl" />
+            <span className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-cyan-500/40 rounded-br-2xl" />
             <h2 className="flex items-center gap-2 text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">
               <Activity size={14} className="text-cyan-400" />
               Último snapshot de saúde (6h)
@@ -345,9 +349,12 @@ export function JarvisDashboard() {
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="bg-black/30 border border-white/5 rounded-lg p-3">
-      <p className="text-slate-500 text-[11px] uppercase tracking-wide">{label}</p>
-      <p className={`font-semibold mt-0.5 ${accent ?? 'text-white'}`}>{value}</p>
+    <div className="relative bg-black/30 border border-white/5 rounded-lg p-3 group hover:border-cyan-500/20 transition-colors">
+      {/* cantos de HUD */}
+      <span className="absolute -top-px -left-px w-2 h-2 border-t border-l border-cyan-500/40 rounded-tl" />
+      <span className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-cyan-500/40 rounded-br" />
+      <p className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</p>
+      <p className={`font-mono font-semibold mt-0.5 tabular-nums ${accent ?? 'text-white'}`}>{value}</p>
     </div>
   );
 }

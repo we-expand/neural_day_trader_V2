@@ -1,6 +1,6 @@
 import { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { MeshDistortMaterial, Sphere, Sparkles } from '@react-three/drei';
+import { MeshDistortMaterial, Sphere, Sparkles, Ring } from '@react-three/drei';
 import * as THREE from 'three';
 
 export type JarvisOrbStatus = 'idle' | 'listening' | 'speaking' | 'thinking';
@@ -11,6 +11,45 @@ const HEALTH_COLOR: Record<JarvisOrbHealth, string> = {
   warning: '#f59e0b',
   critical: '#ef4444',
 };
+
+function OrbitRings({ health }: { health: JarvisOrbHealth }) {
+  const ring1 = useRef<THREE.Mesh>(null);
+  const ring2 = useRef<THREE.Mesh>(null);
+  const color = HEALTH_COLOR[health];
+
+  useFrame((_state, delta) => {
+    if (ring1.current) ring1.current.rotation.z += delta * 0.35;
+    if (ring2.current) ring2.current.rotation.z -= delta * 0.22;
+  });
+
+  return (
+    <group rotation={[Math.PI / 2.3, 0, 0]}>
+      <Ring ref={ring1} args={[2.05, 2.08, 96]}>
+        <meshBasicMaterial color={color} transparent opacity={0.35} side={THREE.DoubleSide} />
+      </Ring>
+      <Ring ref={ring2} args={[2.3, 2.32, 96]} rotation={[0.4, 0, 0]}>
+        <meshBasicMaterial color={color} transparent opacity={0.18} side={THREE.DoubleSide} />
+      </Ring>
+    </group>
+  );
+}
+
+function ScanGrid({ health }: { health: JarvisOrbHealth }) {
+  const gridRef = useRef<THREE.GridHelper>(null);
+  useFrame((_state, delta) => {
+    if (gridRef.current) gridRef.current.position.z = (gridRef.current.position.z + delta * 0.4) % 1;
+  });
+  const color = new THREE.Color(HEALTH_COLOR[health]);
+  return (
+    <gridHelper
+      ref={gridRef}
+      args={[10, 20, color, color]}
+      position={[0, -1.9, 0]}
+      material-opacity={0.12}
+      material-transparent
+    />
+  );
+}
 
 function OrbMesh({ status, health }: { status: JarvisOrbStatus; health: JarvisOrbHealth }) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -74,7 +113,10 @@ export function JarvisOrb({ status, health, className }: JarvisOrbProps) {
         <pointLight position={[3, 3, 3]} intensity={1.2} color={HEALTH_COLOR[health]} />
         <pointLight position={[-3, -2, -2]} intensity={0.5} color="#ffffff" />
         <OrbMesh status={status} health={health} />
+        <OrbitRings health={health} />
+        <ScanGrid health={health} />
         <Sparkles count={40} scale={4} size={2} speed={0.3} color={HEALTH_COLOR[health]} opacity={0.5} />
+        <fog attach="fog" args={['#000000', 3, 8]} />
       </Canvas>
     </div>
   );
