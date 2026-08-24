@@ -723,3 +723,41 @@ acabou de fechar" em vez de hora exata do instante da chamada.
       atrapalham o PnL de verdade (o mecanismo de rollback automático,
       seção 7 Passo 0, deve reagir a isso sozinho — vale conferir
       `jarvis_decisions.status='ROLLED_BACK'` depois de alguns ciclos).
+
+Commit `75cbe1a21` (docs, esta seção) já no `dev`.
+
+---
+
+## 10. PRÓXIMA SEÇÃO — [em aberto, a partir daqui]
+
+> Nova seção reservada. Preencher aqui antes de começar, pra manter tudo
+> num único documento (convenção do projeto — nunca deixar handoff solto
+> na conversa).
+
+### Estado no momento de abrir esta seção
+
+- **Fix de custo de execução**: ✅ confirmado em produção com trade real
+  (`commission > 0` no fechamento pós-deploy).
+- **Loop do Jarvis**: ✅ fechado — decisões `ACTIVE` (`jarvisSizeMultiplier`)
+  agora afetam o cálculo real de tamanho de posição em cliente e servidor.
+  Guardrails de sazonalidade (`position_size_rollover`,
+  `position_size_crypto_lunch`) aplicados e confirmados no banco. `ai-runner`
+  v47 e `jarvis` v2 deployados.
+- **Bug conhecido, não corrigido**: Regra 4 (sazonalidade) do Jarvis nunca
+  dispara na prática — o cron roda só nas horas cheias de 6h
+  (00h/06h/12h/18h UTC) e a regra checa hora exata do instante da chamada
+  (`21h` pro rollover, `2h-6h` pro almoço Ásia), que nunca coincide com um
+  tick. Precisa de decisão de escopo antes de corrigir (cron mais frequente
+  dedicado só a essa checagem, vs. redefinir a regra pra avaliar overlap com
+  a janela de 6h que acabou de fechar em vez de hora exata).
+- **Pendente, sem prioridade definida**: validar HAR-RV vs. naive pra
+  previsão de volatilidade (seção 5.2) — não iniciado.
+- **Observação recomendada, ainda não começada**: como o loop do Jarvis só
+  ficou real nesta sessão, ainda não há nenhum ciclo de rollback automático
+  medido de verdade — vale checar `jarvis_decisions` (`status='ACTIVE'` vs.
+  `'ROLLED_BACK'` vs. `'COMPLETED'`) depois de pelo menos um ciclo de 6h ter
+  fechado a decisão de win rate que já está `ACTIVE` desde hoje 11:13 UTC.
+
+### O que entra nesta seção
+- [ ] *(a preencher — diga o que quer atacar agora e eu registro o passo a
+      passo aqui)*
