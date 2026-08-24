@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast as toastOriginal } from 'sonner';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
 import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
+import { calculateRoundTripCost } from '@/app/services/risk/ExecutionCost.ts'; // 💸 Custo de execução real (spread+slippage) — fonte única, mesma do ai-runner
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
@@ -525,7 +526,10 @@ export function useApexLogic(
   const sessionStartedAtRef = useRef<number>(Date.now());
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
-  const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
+  // `pnl` aqui é BRUTO e `costUsd` é o custo de execução round-trip; a
+  // persistência grava os dois separados (`pnl` / `commission` / `net_pnl`),
+  // seguindo a convenção do schema de `ai_sessions`. Ver ExecutionCost.ts.
+  const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; costUsd: number; reason: 'TP' | 'SL' }>>([]);
   const hasHydratedFromSupabaseRef = useRef(false);
 
   // Preço sem dado real (`isRealData: false` — a conta MetaAPI de plataforma
@@ -1773,18 +1777,27 @@ export function useApexLogic(
                 const hitTP = clientHasCloseAuthority && order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
                 const hitSL = clientHasCloseAuthority && effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
 
+                // 💸 Custo de execução (spread + slippage) — cobrado no FECHAMENTO,
+                // round-trip, mesma fonte (`ExecutionCost.ts` → `CostModel.ts`) que o
+                // `ai-runner` usa no servidor. Até 2026-08-23 este caminho gravava
+                // `commission: 0`, e o PnL saía de preço médio nas duas pontas.
+                // `pnl` (acima) segue BRUTO — é o que alimenta o não-realizado da UI;
+                // `pnlNet` é o que move balance e vai pro banco como `net_pnl`.
+                const { costUsd: closeCostUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+                const pnlNet = pnl - closeCostUsd;
+
                 if (hitTP) {
-                    realizedPnL += pnl;
-                    logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnl.toFixed(2)}`);
+                    realizedPnL += pnlNet;
+                    logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnlNet.toFixed(2)} (custo $${closeCostUsd.toFixed(4)})`);
                     // Close position
-                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
-                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'TP' });
+                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnlNet, closedAt: Date.now() }]);
+                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, costUsd: closeCostUsd, reason: 'TP' });
                 } else if (hitSL) {
-                    realizedPnL += pnl;
-                    logsToAdd.push(`🛡️ STOP ATINGIDO: ${order.symbol} ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
+                    realizedPnL += pnlNet;
+                    logsToAdd.push(`🛡️ STOP ATINGIDO: ${order.symbol} ${pnlNet >= 0 ? '+' : ''}$${pnlNet.toFixed(2)} (custo $${closeCostUsd.toFixed(4)})`);
                     // Close position
-                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
-                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'SL' });
+                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnlNet, closedAt: Date.now() }]);
+                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, costUsd: closeCostUsd, reason: 'SL' });
                 } else {
                     // Keep position open WITH UPDATED PROFIT (e SL "andado" se DINAMICO)
                     nextActiveOrders.push({
@@ -1853,7 +1866,7 @@ export function useApexLogic(
         // Fase 2: persiste fechamentos por TP/SL deste tick (fire-and-forget)
         if (configRef.current.executionMode === 'DEMO' && closedForPersistenceRef.current.length > 0) {
           closedForPersistenceRef.current.forEach(closed => {
-            persistenceRef.current.onTradeClose(closed.id, closed.exitPrice, closed.pnl, 0, closed.reason);
+            persistenceRef.current.onTradeClose(closed.id, closed.exitPrice, closed.pnl, closed.costUsd ?? 0, closed.reason);
           });
           closedForPersistenceRef.current = [];
         }
@@ -2064,13 +2077,16 @@ export function useApexLogic(
         order.amount,
         order.leverage
       );
-      totalRealizedPnL += tradePnL;
+      // 💸 Fechamento manual também paga spread — ver ExecutionCost.ts.
+      const { costUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+      const tradePnLNet = tradePnL - costUsd;
+      totalRealizedPnL += tradePnLNet;
 
       if (configRef.current.executionMode === 'DEMO') {
-        persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+        persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, costUsd, 'MANUAL');
       }
 
-      return { ...order, currentPrice, currentProfit: tradePnL, closedAt: Date.now() };
+      return { ...order, currentPrice, currentProfit: tradePnLNet, closedAt: Date.now() };
     });
 
     setPortfolio(prev => ({
@@ -2539,13 +2555,17 @@ export function useApexLogic(
       order.leverage
     );
 
+    // 💸 Fechamento manual de posição única também paga spread — ver ExecutionCost.ts.
+    const { costUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+    const tradePnLNet = tradePnL - costUsd;
+
     if (configRef.current.executionMode === 'DEMO') {
-      persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+      persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, costUsd, 'MANUAL');
     }
 
     setPortfolio(prev => ({
       ...prev,
-      balance: prev.balance + tradePnL,
+      balance: prev.balance + tradePnLNet,
       equity: prev.balance + tradePnL,
     }));
     setOrderHistory(prev => [...prev, { ...order, currentPrice, currentProfit: tradePnL, closedAt: Date.now() }]);

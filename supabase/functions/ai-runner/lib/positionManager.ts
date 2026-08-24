@@ -15,6 +15,7 @@
 import { calculateATR, type Candle } from '../../../../src/app/services/indicators/TechnicalIndicators.ts';
 import { backtestDataService, type Timeframe } from '../../../../src/app/services/BacktestDataService.ts';
 import { getBatchedMT5Data, type RealMarketData } from '../../../../src/app/services/RealMarketDataService.ts';
+import { calculateRoundTripCost } from '../../../../src/app/services/risk/ExecutionCost.ts';
 import { getServiceClient } from './serviceClient.ts';
 
 export interface OpenPosition {
@@ -36,7 +37,16 @@ export interface PositionCloseResult {
   id: string;
   symbol: string;
   exitPrice: number;
+  /**
+   * PnL LÍQUIDO (bruto − custo de execução). É este o número que move o
+   * balance/equity da sessão e o que aparece no log — a partir de 2026-08-23 o
+   * custo de execução deixou de ser ignorado (ver ExecutionCost.ts).
+   */
   pnl: number;
+  /** PnL bruto, antes do custo — gravado em `ai_trades.pnl` para auditoria. */
+  grossPnl: number;
+  /** Custo round-trip cobrado — gravado em `ai_trades.commission`. */
+  costUsd: number;
   reason: 'TP' | 'SL';
 }
 
@@ -147,11 +157,21 @@ export async function tickPositionManager(params: {
     const hitSL = effectiveSl > 0 && (pos.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
     if (!hitTP && !hitSL) continue;
 
-    const pnl = pos.side === 'LONG'
+    const grossPnl = pos.side === 'LONG'
       ? (nextPrice - pos.entryPrice) * (pos.amount / pos.entryPrice)
       : (pos.entryPrice - nextPrice) * (pos.amount / pos.entryPrice);
 
-    closed.push({ id: pos.id, symbol: pos.symbol, exitPrice: nextPrice, pnl, reason: hitTP ? 'TP' : 'SL' });
+    // Custo de execução (spread + slippage), do CostModel calibrado — o mesmo
+    // que o COST_GATE já usa pra RECUSAR trade. Até 2026-08-23 o gate cobrava
+    // o custo na decisão mas o fechamento gravava `commission: 0`, e o PnL
+    // saía de preço médio na entrada E na saída. Ver ExecutionCost.ts.
+    const { costUsd } = calculateRoundTripCost(pos.symbol, pos.amount, pos.entryPrice);
+    const pnl = grossPnl - costUsd;
+
+    closed.push({
+      id: pos.id, symbol: pos.symbol, exitPrice: nextPrice,
+      pnl, grossPnl, costUsd, reason: hitTP ? 'TP' : 'SL',
+    });
   }
 
   return { closed, slUpdates, prices, priceFetchFailed: false };
@@ -160,13 +180,16 @@ export async function tickPositionManager(params: {
 /** Espelha `onTradeClose` (useAIPersistence.ts:256-296) — grava direto via service-role. */
 export async function persistPositionClose(sessionId: string, close: PositionCloseResult): Promise<void> {
   const sb = getServiceClient();
+  // Convenção do schema (`ai_sessions` tem total_pnl / total_commission /
+  // net_pnl): `pnl` = BRUTO, `commission` = custo cobrado, `net_pnl` = líquido.
+  // Consumidores que mostram resultado ao usuário devem ler `net_pnl`.
   const pnlPercentage = close.exitPrice > 0 ? (close.pnl / (close.exitPrice * 100)) * 100 : 0;
   const { error } = await sb.from('ai_trades').update({
     exit_price: close.exitPrice,
     exit_time: new Date().toISOString(),
-    pnl: close.pnl,
+    pnl: close.grossPnl,
     pnl_percentage: pnlPercentage,
-    commission: 0,
+    commission: close.costUsd,
     net_pnl: close.pnl,
     status: 'CLOSED',
     exit_reason: close.reason,
@@ -224,9 +247,14 @@ export async function partialClosePosition(params: {
   const remainingAmount = position.amount - closedAmount;
   if (!(closedAmount > 0)) return null;
 
-  const pnl = position.side === 'LONG'
+  const grossPnl = position.side === 'LONG'
     ? (exitPrice - position.entryPrice) * (closedAmount / position.entryPrice)
     : (position.entryPrice - exitPrice) * (closedAmount / position.entryPrice);
+
+  // Custo round-trip sobre a FRAÇÃO fechada — um fechamento parcial paga
+  // spread proporcional ao que saiu, não ao notional inteiro do grupo.
+  const { costUsd } = calculateRoundTripCost(position.symbol, closedAmount, position.entryPrice);
+  const pnl = grossPnl - costUsd;
 
   const sb = getServiceClient();
   const { data: original, error: readErr } = await sb.from('ai_trades').select('*').eq('id', position.id).single();
@@ -247,9 +275,9 @@ export async function partialClosePosition(params: {
     quantity: closedAmount,
     stop_loss: original.stop_loss,
     take_profit: original.take_profit,
-    pnl,
+    pnl: grossPnl,
     pnl_percentage: pnlPercentage,
-    commission: 0,
+    commission: costUsd,
     net_pnl: pnl,
     ai_confidence: original.ai_confidence,
     ai_reasoning: `${original.ai_reasoning ?? ''} [fechamento parcial ${closePercent}% — ${reason}]`.trim(),
@@ -273,8 +301,8 @@ export async function partialClosePosition(params: {
     // Fechou 100% — a linha original também precisa virar CLOSED (não pode
     // ficar OPEN com quantity=0). Espelha persistPositionClose.
     const { error: closeErr } = await sb.from('ai_trades').update({
-      exit_price: exitPrice, exit_time: new Date().toISOString(), pnl, pnl_percentage: pnlPercentage,
-      commission: 0, net_pnl: pnl, status: 'CLOSED', exit_reason: 'AI_SIGNAL',
+      exit_price: exitPrice, exit_time: new Date().toISOString(), pnl: grossPnl, pnl_percentage: pnlPercentage,
+      commission: costUsd, net_pnl: pnl, status: 'CLOSED', exit_reason: 'AI_SIGNAL',
     }).eq('id', position.id);
     if (closeErr) console.error('[ai-runner/positionManager] partialClosePosition: falha ao fechar linha original em 100%', closeErr, position.id);
   }

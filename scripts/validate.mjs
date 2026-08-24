@@ -52,6 +52,10 @@ const SUITES = [
     entry: 'src/app/services/risk/__validate__costclass__.ts',
   },
   {
+    name: 'Custo de execução REALIZADO — fechamento paga spread (2026-08-23)',
+    entry: 'src/app/services/risk/__validate__execcost__.ts',
+  },
+  {
     name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',
     entry: 'src/app/services/analysis/__validate__.ts',
   },

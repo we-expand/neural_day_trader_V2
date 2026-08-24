@@ -299,7 +299,15 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
     const closedIds = new Set(closed.map(c => c.id));
     s.activeOrders = s.activeOrders.filter(o => !closedIds.has(o.id));
     for (const c of closed) {
-      console.log(`[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} — ${c.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${c.pnl >= 0 ? '+' : '-'}$${Math.abs(c.pnl).toFixed(2)}`);
+      // PnL do log é o LÍQUIDO (já com custo de execução descontado desde
+      // 2026-08-23). O bruto e o custo aparecem ao lado pra o operador enxergar
+      // quanto do resultado o spread está comendo — foi justamente essa parcela
+      // invisível que fez a amostra de 17→23/08 parecer −US$14 quando era −US$29.
+      console.log(
+        `[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} — ` +
+        `${c.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${c.pnl >= 0 ? '+' : '-'}$${Math.abs(c.pnl).toFixed(2)} ` +
+        `(bruto ${c.grossPnl >= 0 ? '+' : '-'}$${Math.abs(c.grossPnl).toFixed(2)} − custo $${c.costUsd.toFixed(4)})`,
+      );
       await persistPositionClose(s.sessionId, c);
     }
     // Atualiza balance/equity em memória (pro RISK_GATE desta mesma invocação
