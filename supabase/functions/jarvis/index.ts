@@ -479,6 +479,69 @@ function checkSeasonalityWindow(now: Date): { rolloverInWindow: boolean; cryptoL
   return { rolloverInWindow, cryptoLunchInWindow };
 }
 
+// Regra 5: amostra suficiente pra retomar o experimento de meta-labeling do
+// confidence_score, hoje bloqueado em jarvis_knowledge (pattern
+// 'meta_label_experiment_confidence_score_blocked_by_sample_size', ver
+// project_jarvis_meta_label_blocked). Bloqueio original (2026-08-24): n=278
+// fechados com feature completo é amostra insuficiente pra um split
+// walk-forward confiável; limiar de retomada definido em ~450-500. Esta
+// regra só avisa quando o limiar é cruzado — nunca dispara o experimento
+// sozinha (target sem guardrail configurado = nasce PENDING por padrão em
+// evaluateGuardrails, mesmo comportamento de checkConfidenceCalibration).
+const META_LABEL_SAMPLE_THRESHOLD = 450;
+
+// deno-lint-ignore no-explicit-any
+async function checkMetaLabelSampleThreshold(sb: any) {
+  // Já existe um aviso pendente/ativo pra este alvo? Não duplica a cada
+  // ciclo de 6h — só recria se o anterior foi resolvido (aprovado/rejeitado).
+  const { data: existing } = await sb
+    .from('jarvis_decisions')
+    .select('id')
+    .eq('target', 'meta_label_sample_threshold')
+    .in('status', ['PENDING', 'ACTIVE'])
+    .limit(1)
+    .maybeSingle();
+  if (existing) return null;
+
+  const { count, error } = await sb
+    .from('ai_trades')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'CLOSED')
+    .not('net_pnl', 'is', null)
+    .not('ai_confidence', 'is', null)
+    .not('indicators_snapshot', 'is', null);
+
+  if (error) {
+    console.error('[jarvis] Falha ao contar amostra pra meta-label:', error);
+    return null;
+  }
+  if (count == null || count < META_LABEL_SAMPLE_THRESHOLD) return null;
+
+  console.log(`[jarvis] Limiar de amostra pro meta-label atingido: ${count} >= ${META_LABEL_SAMPLE_THRESHOLD}`);
+
+  await sb
+    .from('jarvis_knowledge')
+    .update({ status: 'threshold_reached_pending_review' })
+    .eq('pattern', 'meta_label_experiment_confidence_score_blocked_by_sample_size')
+    .eq('status', 'blocked_insufficient_sample');
+
+  return evaluateGuardrails(sb, {
+    decision_type: 'TEST_SIGNAL',
+    target: 'meta_label_sample_threshold',
+    action: 'sample_threshold_reached',
+    evidence: {
+      sample_size: count,
+      threshold: META_LABEL_SAMPLE_THRESHOLD,
+      recommendation:
+        'Amostra suficiente pra rodar o experimento de meta-labeling do confidence_score com split ' +
+        'walk-forward e correção por múltiplos testes. Ver jarvis_knowledge (pattern ' +
+        'meta_label_experiment_confidence_score_blocked_by_sample_size) e ' +
+        'project_jarvis_meta_label_blocked. Requer desenho manual do experimento antes de rodar.',
+    },
+    severity: 'INFO',
+  });
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Ciclo principal
 // ────────────────────────────────────────────────────────────────────────
@@ -516,6 +579,7 @@ Deno.serve(async (req) => {
     await checkWinRateGate(sb, metrics);
     await checkConfidenceCalibration(sb, metrics);
     const priceGuardBreaches = (await checkPriceGuardEvents(sb)) ?? 0;
+    await checkMetaLabelSampleThreshold(sb);
     const seasonality = checkSeasonalityWindow(now);
 
     // Custo de decisões (COST_GATE), pra completar o snapshot.
