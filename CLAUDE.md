@@ -14,7 +14,41 @@
 
 ## ▶ COMECE AQUI
 
-Também em 2026-08-21 (mais recente): **log de PnL em $ mais explícito no
+**2026-08-23 (mais recente): achado crítico de custo de execução não
+cobrado + arranque do Jarvis (segundo cérebro do motor).** Medido em
+produção: 135/135 trades de 17-23/08 fecharam com `commission: 0` e PnL
+calculado sem spread/slippage — o COST_GATE recusava trade pelo custo real,
+mas a execução não cobrava esse mesmo custo. Impacto: PnL bruto reportado
+−US$14,12, custo invisível US$14,83 (105% do \|PnL bruto\|), resultado real
+~−US$28,95. Fix pronto (módulo `ExecutionCost.ts` compartilhado
+cliente+servidor, `npm run validate` limpo 37/37) — **commit e deploy do
+`ai-runner` pendentes do Cleber rodar**. Na mesma sessão: pesquisa de edge
+de calendário/macro concluída com veredito "zero efeito direcional
+utilizável, ganho real é redução de custo por horário/janela de risco", e
+desenho inicial do **Jarvis** (schema SQL + blueprint de Edge Function que
+roda a cada 6h analisando `ai_trades` real e propondo ajustes com
+auditoria — decisão de design **✅ confirmada**: Jarvis autoaplica dentro
+de guardrails, ao contrário da regra "nunca commit sozinho" que vale só
+pra código-fonte).
+
+**Fase de pesquisa fechada em 2026-08-23** (as duas frentes que tinham
+caído por limite de sessão foram retomadas e concluídas no mesmo dia):
+posicionamento/fluxo (COT, funding rate, liquidações, OI, on-chain — nenhum
+edge intraday comprovado) e TradingAgents/ML (framework multi-agente LLM
+tem risco documentado de vazamento paramétrico, não aplicável agora; único
+item que vale validar é HAR-RV vs. naive pra previsão de vol). Relatórios:
+[posicionamento-e-fluxo.md](research/experiments/2026-08-23-custo-nao-cobrado-e-poder/posicionamento-e-fluxo.md)
+e
+[tradingagents-e-ml.md](research/experiments/2026-08-23-custo-nao-cobrado-e-poder/tradingagents-e-ml.md).
+
+**Próximo passo real da próxima sessão: implementação do Jarvis, começando
+pelo Passo 2** (aplicar `research/jarvis-schema.sql` no SQL Editor do
+Supabase ou gerar migration formal) — Passo 1 (fechar pesquisa) já está
+✅. Passo a passo completo em
+[SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md](SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md)
+seção 7.
+
+Também em 2026-08-21: **log de PnL em $ mais explícito no
 fechamento de posição do `ai-runner`** (`GANHO de +$X.XX` / `PERDA de
 -$X.XX`, em vez do `pnl=X.XX` cru) + **bug de deploy corrigido**: o import
 map do runner (`supabase/functions/ai-runner/deno.json`) estava desde a
