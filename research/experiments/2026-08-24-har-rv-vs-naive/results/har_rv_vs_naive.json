@@ -1,28 +1,28 @@
 {
   "symbol": "BTCUSDT",
   "interval": "5m",
-  "daysRequested": 180,
-  "daysWithCompleteRv": 181,
-  "observationsUsable": 159,
-  "trainSize": 119,
-  "testSize": 40,
+  "daysRequested": 730,
+  "daysWithCompleteRv": 731,
+  "observationsUsable": 709,
+  "trainSize": 531,
+  "testSize": 178,
   "harBeta": [
-    0.00015895909053615845,
-    0.5529369514757622,
-    -0.026859691396530598,
-    0.12984151050926815
+    0.0002603318464780237,
+    0.24227056770687172,
+    0.32224949129264585,
+    0.01706258328262416
   ],
   "rmse": {
-    "har": 0.0003104616038584152,
-    "naive": 0.00035182659639982077
+    "har": 0.0003601815283799271,
+    "naive": 0.0003844261188405283
   },
   "qlike": {
-    "har": 0.34751654786017855,
-    "naive": 0.5459659465917845,
-    "diffMean": -0.198449398731606,
-    "tStat": -1.5275500934503148,
-    "significant": false
+    "har": 0.2506432989241354,
+    "naive": 0.342385497218287,
+    "diffMean": -0.0917421982941516,
+    "tStat": -2.094256510021649,
+    "significant": true
   },
-  "verdict": "sem diferença estatisticamente significante entre HAR-RV e naive",
-  "generatedAt": "2026-08-24T14:03:55.647Z"
+  "verdict": "HAR-RV estatisticamente melhor (QLIKE, paired t-test)",
+  "generatedAt": "2026-08-24T14:22:58.317Z"
 }

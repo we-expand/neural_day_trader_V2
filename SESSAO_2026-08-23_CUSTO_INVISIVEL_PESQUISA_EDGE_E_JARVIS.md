@@ -1281,16 +1281,15 @@ mais sofisticado — sem ele, adotar HAR-RV seria "porque a literatura disse
 que é bom" sem confirmação própria, o que o projeto não aceita (`CLAUDE.md`
 — nunca prometer edge sem validação estatística própria).
 
-- **Dado**: 180 dias de candles reais de 5min, BTCUSDT via Binance (grátis,
-  sem key — mesma fonte já usada em outros scripts de backtest do projeto,
-  nenhuma infra nova). 51.840 candles brutos → 181 dias completos de
-  realized variance (RV = soma dos retornos log² intraday) → 159
-  observações utilizáveis depois de consumir o lag mensal (22 dias).
+- **Dado**: originalmente 180 dias de candles reais de 5min, BTCUSDT via
+  Binance (grátis, sem key — mesma fonte já usada em outros scripts de
+  backtest do projeto, nenhuma infra nova). **Estendido pra 730 dias
+  (~2 anos) na rodada 2**, ver "Rodada 2" abaixo.
 - **Modelo**: HAR-RV clássico (Corsi 2009) — `RV_t = β0 + β1·RV_{t-1} +
   β2·média(RV últimos 5 dias) + β3·média(RV últimos 22 dias)`, ajustado via
   OLS só no split de treino.
-- **Split**: 75% treino (119 dias) / 25% holdout (40 dias) — sem
-  look-ahead, o modelo nunca vê holdout durante o ajuste.
+- **Split**: 75% treino / 25% holdout — sem look-ahead, o modelo nunca vê
+  holdout durante o ajuste.
 - **Avaliação**: RMSE e QLIKE (perda padrão pra avaliação de forecast de
   volatilidade, Patton 2011, robusta a heterocedasticidade) + teste t
   pareado na diferença de QLIKE (HAR vs. naive) pra saber se a diferença é
@@ -1298,35 +1297,59 @@ que é bom" sem confirmação própria, o que o projeto não aceita (`CLAUDE.md`
 - Script completo, reprodutível:
   [`research/experiments/2026-08-24-har-rv-vs-naive/scripts/fetch_and_validate.mjs`](research/experiments/2026-08-24-har-rv-vs-naive/scripts/fetch_and_validate.mjs).
 
-### Resultado real (sem inflar)
+### Rodada 1 (180 dias, holdout=40 dias) — resultado real
 
 | Métrica | HAR-RV | Naive |
 |---|---|---|
 | RMSE | 3,1046e-4 | 3,5183e-4 |
 | QLIKE | 0,3475 | 0,5460 |
 
-Diferença de QLIKE (HAR − naive) = **-0,1984** (negativo = HAR-RV melhor) —
-**mas t-stat pareado = -1,528 (n=40), não passa no limiar convencional de
-significância (\|t\|>~2 ≈ p<0,05)**.
+Diferença de QLIKE (HAR − naive) = -0,1984 (negativo = HAR-RV melhor) — mas
+**t-stat pareado = -1,528 (n=40), não passou no limiar convencional de
+significância (\|t\|>~2 ≈ p<0,05)**. Veredito da rodada 1: direcionalmente a
+favor de HAR-RV, não confirmado estatisticamente — pouco poder com holdout
+tão curto.
 
-### Veredito honesto
+### Rodada 2 (730 dias, holdout=178 dias) — pedido explícito de "estender o
+holdout"
 
-**HAR-RV vence direcionalmente em RMSE e QLIKE nesta amostra, mas a
-diferença não é estatisticamente confirmada** — n=40 dias de holdout é
-pouco poder pra separar "HAR-RV genuinamente melhor" de "essa amostra deu
-sorte". Não é um "sim" nem um "não" limpo — é exatamente o tipo de
-resultado que a convenção do projeto pede pra reportar como está, sem
-arredondar pra cima.
+- 210.240 candles brutos → 731 dias completos de RV → 709 observações
+  utilizáveis (após consumir os 22 dias de lag mensal) → **531 dias de
+  treino / 178 dias de holdout** (antes: 119/40).
 
-**Recomendação**: não implementar HAR-RV em produção com este resultado
-sozinho. Se quiser perseguir mais, os próximos passos honestos seriam (a)
-estender o holdout (mais meses de dado, mais poder), e/ou (b) repetir o
-teste nos outros ativos da cesta (aqui só BTC foi testado) e agregar via
-meta-análise, já que hoje o resultado é de **uma amostra, um ativo**. Não
-fazer isso agora — fica registrado como próximo passo se o Cleber quiser
-continuar.
+| Métrica | HAR-RV | Naive |
+|---|---|---|
+| RMSE | 3,6018e-4 | 3,8443e-4 |
+| QLIKE | 0,2506 | 0,3424 |
+
+Diferença de QLIKE (HAR − naive) = **-0,0917** — **t-stat pareado =
+-2,094 (n=178), passa o limiar convencional de significância
+(\|t\|>2 ≈ p<0,05)**, embora por pouco (não é um resultado esmagador).
+
+### Veredito honesto (atualizado)
+
+**Com holdout maior, HAR-RV bate naive de forma estatisticamente
+significante** — mudança real de conclusão em relação à rodada 1, exatamente
+como o "próximo passo honesto" da rodada 1 previu (mais poder separa sinal
+de ruído). Ainda assim, cuidado antes de comemorar: isto é **um ativo (BTC),
+um par treino/holdout, uma única especificação de modelo** — não é walk-
+forward com múltiplas janelas nem replicado nos outros ativos da cesta.
+Consistente com o padrão do projeto (nunca prometer edge com validação
+parcial), este resultado é evidência real a favor de HAR-RV, mas ainda não é
+o nível de confirmação que justificaria produção sem mais um passo.
+
+**Recomendação atualizada**: antes de considerar produção, repetir esta
+mesma validação (mesmo script, outro `SYMBOL`) nos demais ativos líquidos o
+bastante pra ter 2 anos de candle de 5min real (XAUUSD/EURUSD via MetaAPI,
+ETHUSD/SOLUSD via Binance) — se o resultado se replicar em pelo menos
+metade da cesta, aí sim justifica implementar HAR-RV como previsor de
+volatilidade real (nunca de direção, ver decisão de 2026-07-30). Não feito
+nesta sessão — verificação de generalização across-asset é o próximo passo
+real, não uma formalidade.
 
 ### Pendente
-- [ ] Nenhuma implementação em produção decorre disto — resultado
-      inconclusive, não negativo nem positivo confirmado. Se quiser
-      continuar: estender holdout e/ou repetir pra outros ativos da cesta.
+- [ ] Nenhuma implementação em produção ainda — resultado agora
+      estatisticamente significante pra BTC, mas não replicado nos outros
+      ativos da cesta. Próximo passo real: repetir a validação
+      (`fetch_and_validate.mjs`, trocar `SYMBOL`) em pelo menos 2-3 outros
+      ativos antes de cogitar produção.

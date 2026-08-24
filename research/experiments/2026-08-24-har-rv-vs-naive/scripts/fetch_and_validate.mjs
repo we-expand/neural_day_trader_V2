@@ -35,7 +35,11 @@ mkdirSync(RESULTS_DIR, { recursive: true });
 
 const SYMBOL = 'BTCUSDT';
 const INTERVAL = '5m';
-const DAYS = 180; // ~6 meses de 5m — dá margem pra treino + holdout com poder real
+// 2026-08-24: estendido de 180 pra 730 dias (~2 anos) — resultado anterior
+// (n=40 dias de holdout) favoreceu HAR-RV direcionalmente mas não passou no
+// teste t pareado (|t|=1.53). Mais dado = holdout maior = mais poder pra
+// separar "genuinamente melhor" de "essa amostra deu sorte".
+const DAYS = 730;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
