@@ -67,6 +67,7 @@
     "@/app/services/smc/types.ts": "../../../src/app/services/smc/types.ts",
     "@/app/services/strategy/StrategyEvaluator.ts": "../../../src/app/services/strategy/StrategyEvaluator.ts",
     "@/app/services/strategy/TradeSizing.ts": "../../../src/app/services/strategy/TradeSizing.ts",
+    "@/app/services/strategy/jarvisSizeMultiplier.ts": "../../../src/app/services/strategy/jarvisSizeMultiplier.ts",
     "@/app/services/telemetry/FunnelTelemetry.ts": "../../../src/app/services/telemetry/FunnelTelemetry.ts",
     "@/app/modules/tradeConfirmationStage/lotSizeConversion.ts": "../../../src/app/modules/tradeConfirmationStage/lotSizeConversion.ts",
     "@/app/types/strategy.ts": "../../../src/app/types/strategy.ts",
