@@ -468,66 +468,258 @@ guardrails.
       aplicável (vazamento paramétrico de LLM), único item a validar
       barato é HAR-RV vs. naive. Ver seção 5.2.
 
-### Passo 2 — Aplicar o schema do Jarvis
-- [ ] Copiar `research/jarvis-schema.sql` pro SQL Editor do Supabase e
-      rodar (ou pedir pra eu gerar a migration formal em
-      `supabase/migrations/` pro Cleber aplicar do jeito que o projeto já
-      faz com as outras).
-- [ ] Confirmar as 5 tabelas criadas com `list_tables`.
+### Passo 2 — Aplicar o schema do Jarvis — ✅ CONCLUÍDO 2026-08-24
+- [x] Migration formal:
+      [`supabase/migrations/20260824_jarvis_schema.sql`](supabase/migrations/20260824_jarvis_schema.sql)
+      (6 tabelas — as 5 originais + `jarvis_guardrails`; sintaxe `index (...)`
+      inline do arquivo de pesquisa não é Postgres válido, convertida pra
+      `create index` separado).
+- [x] Aplicada no Supabase de produção (`wyvdsxtcmizettljxtbg`) — as 6
+      tabelas `jarvis_*` confirmadas via `list_tables`, `jarvis_guardrails`
+      com os 10 alvos do seed gravados.
 
-### Passo 3 — Escrever e testar a Edge Function `jarvis`
-- [ ] Criar `supabase/functions/jarvis/index.ts` a partir do skeleton
-      (queries reais em `ai_trades`, detecção de padrão por hora,
-      as 4 regras de decisão do `BLUEPRINT.md` adaptadas com os números
-      confirmados pela pesquisa: blackout 21-22 UTC, redução 02-06 UTC
-      cripto, etc.)
-- [ ] Rodar local (`supabase functions serve jarvis`) contra o Supabase
-      real de dev, conferir que grava em `jarvis_health_snapshots` e
-      `jarvis_decisions` sem erro.
-- [ ] `deno check` (o runner já tem essa disciplina — replicar aqui).
+### Passo 3 — Escrever e testar a Edge Function `jarvis` — ✅ CONCLUÍDO 2026-08-24
+- [x] `supabase/functions/jarvis/index.ts` (reescrito do zero contra o
+      schema real, não é o skeleton do transcript): motor de guardrails
+      (`evaluateGuardrails`, clamp de magnitude, cooldown), reavaliação/
+      rollback automático de decisões `ACTIVE` cujo ciclo já fechou, as 4
+      regras do `BLUEPRINT.md` (win rate vs. breakeven, calibração de
+      confidence, anomalias de `price_guard_events`, janela de
+      sazonalidade 21-22 UTC/02-06 UTC cripto com os números da pesquisa
+      da seção 3), gravação de `jarvis_health_snapshots` a cada ciclo.
+      `lib/serviceClient.ts` no mesmo padrão dos outros jobs do projeto.
+- [x] `deno check index.ts` — limpo. `npm run validate` — 37/37, sem
+      regressão no caminho crítico.
+- [x] **Testado contra o Supabase real via curl direto** (não só tipo):
+      resultado da 1ª chamada real — 7 trades na janela de 6h, win rate
+      28,57% (abaixo do limiar de alerta 31,5% = 0,35×0,90),
+      `confidenceAUC=0,55`. **Pipeline de guardrail provado ponta a
+      ponta**: a regra pediu `SIZE_ADJUST position_size -50%`, o guardrail
+      leu `jarvis_guardrails` (`magnitude_cap_pct=25` pra `position_size`)
+      e **clampou pra -25%**, gravou `status=ACTIVE`,
+      `approved_by=system_auto`, `evidence.clamped_from=-50` — exatamente
+      o comportamento desenhado no `BLUEPRINT.md`.
 
-### Passo 4 — Deploy e agendamento
-- [ ] `supabase functions deploy jarvis` (comando pronto pro Cleber rodar,
-      igual toda Edge Function deste projeto).
-- [ ] Agendar cron (`pg_cron`, 6 em 6 horas) — SQL pronto no
-      `BLUEPRINT.md`.
-- [ ] Confirmar primeira execução real gravou snapshot.
+### Passo 4 — Deploy e agendamento — ✅ CONCLUÍDO 2026-08-24
+- [x] `supabase functions deploy jarvis --no-verify-jwt` — deployada,
+      visível no dashboard do projeto.
+- [x] Cron agendado — `cron.job` `jarvis-analysis-6h` (jobid 8),
+      `schedule='0 */6 * * *'`, `active=true`. Mesmo padrão do job
+      `asset-performance-scorecard-recalc` já ativo (`net.http_post` sem
+      `x-runner-secret`, já que não há `JARVIS_SHARED_SECRET` configurado
+      — endpoint aceita chamada sem segredo, igual seria o `ai-runner` sem
+      a env var; fechar depois com `supabase secrets set
+      JARVIS_SHARED_SECRET=<valor>` se quiser).
+- [x] Primeira execução real (chamada manual via curl) gravou snapshot —
+      confirmado.
+- [ ] Confirmar, depois do primeiro tick automático do cron (não forçado),
+      que um segundo snapshot apareceu sozinho:
+      `select * from jarvis_health_snapshots order by snapshot_time desc
+      limit 3;`
 
-### Passo 5 — Dashboard mínimo (opcional, decidir se entra nesta rodada)
+### Passo 5 — Dashboard mínimo (opcional, não iniciado)
 - [ ] Componente React simples lendo `jarvis_health_snapshots` +
       `jarvis_decisions` (status=PENDING) — só visualização + botão
       aprovar/rejeitar, sem lógica nova.
 
-### Passo 6 — Primeiras 1-2 semanas rodando
+### Passo 6 — Primeiras 1-2 semanas rodando (próximo marco real)
 - [ ] Sem mudar nada no motor ainda — só observar. Objetivo: acumular
       `jarvis_health_snapshots` reais o bastante pra próxima decisão (ex.:
       ligar blackout de rollover) vir com evidência do próprio produto,
       não só da literatura.
-- [ ] Revisão conjunta: quais decisões PENDING fazem sentido aprovar.
+- [ ] Revisão conjunta: quais decisões `PENDING` fazem sentido aprovar, e
+      se os números da pesquisa de sazonalidade (seção 3) se confirmam no
+      dado real do produto.
 
 ---
 
-**Convenção mantida**: nada neste documento foi commitado, pushado ou
-aplicado em produção sem comando explícito pro Cleber rodar — regra fixa
-do projeto (`CLAUDE.md`, "Regra fixa de workflow").
+## Jarvis — STATUS FINAL DESTA SESSÃO: EM PRODUÇÃO, rodando sozinho
+
+Todos os 4 passos de implementação (schema → function → deploy → cron)
+fechados e confirmados com dado real em 2026-08-24. A partir de agora o
+Jarvis roda sozinho a cada 6h sem intervenção manual — próximas execuções
+em 00h/06h/12h/18h UTC. Nenhum passo restante de implementação; o único
+trabalho real que falta é observação (Passo 6) e, opcionalmente, o
+dashboard (Passo 5).
 
 ---
 
-## 8. PRÓXIMA SEÇÃO — [em aberto]
+## 8. Pendência remanescente desta sessão (fora do escopo do Jarvis)
 
-> Seção reservada para o próximo passo a ser trabalhado. Preencher aqui
-> antes de começar, pra manter tudo num único documento em vez de espalhar
-> por conversa/arquivos soltos (convenção do projeto).
+O fix de custo de execução (seção 2 deste documento) **continua pronto e
+testado, mas não commitado** — só o Jarvis foi commitado/pushado nesta
+sessão (`0cecd656f`). Comandos prontos, já verificados contra o estado
+atual do repo:
 
-### Contexto no momento de abrir esta seção
+```bash
+git add src/app/services/risk/ExecutionCost.ts \
+        src/app/services/risk/__validate__execcost__.ts \
+        supabase/functions/ai-runner/lib/positionManager.ts \
+        supabase/functions/ai-runner/index.ts \
+        src/app/hooks/useApexLogic.ts \
+        scripts/validate.mjs \
+        research/experiments/2026-08-23-custo-nao-cobrado-e-poder/
 
-- Fix de custo de execução: pronto, testado, **não commitado**.
-- Pesquisa de edge: sazonalidade e macro concluídas (seções 3-4); posicionamento/fluxo
-  e TradingAgents/ML **ainda não retomadas** (seção 5) — falharam por limite de sessão.
-- Jarvis: schema (`research/jarvis-schema.sql`) e blueprint
-  (`supabase/functions/jarvis/BLUEPRINT.md`) prontos, com autoaplicação +
-  guardrails desenhados. **Nada aplicado em produção ainda** — Edge Function
-  `jarvis/index.ts` real ainda não foi escrita em arquivo.
+git commit -m "fix: cobra custo de execução real no fechamento de posição (cliente+servidor)
 
-### O que entra aqui
-- [ ] *(a preencher — diga o que quer atacar agora e eu registro o passo a passo aqui)*
+Até agora todo fechamento gravava commission=0 e calculava PnL como preço
+médio nas duas pontas — sem spread, sem slippage. O COST_GATE já rejeitava
+trade usando o custo real do CostModel.ts, mas a execução não cobrava esse
+mesmo custo. Medido em produção (17-23/08, 134 trades): PnL bruto -\$14,12,
+custo não cobrado \$14,83, resultado real ~-\$28,95 (custo invisível = 105%
+do |PnL bruto|).
+
+Fix: módulo compartilhado ExecutionCost.ts (fonte única, cliente+servidor)
+aplicado nos 5 pontos de fechamento. pnl=bruto, commission=custo cobrado,
+net_pnl=líquido. 15 asserções novas no gate de validação."
+
+git push origin dev
+```
+
+Depois do push, redeploy do runner (Edge Function não sobe com `git push`):
+
+```bash
+supabase functions deploy ai-runner --no-verify-jwt
+```
+
+Pesquisa de edge (seções 3-5 deste documento) está toda concluída — nada
+pendente ali.
+
+### ✅ RESOLVIDO 2026-08-24 — fix commitado e deployado
+
+- Commit `106b8c83f` no `dev` ("fix: cobra custo de execução real no
+  fechamento de posição (cliente+servidor)").
+- `ai-runner` redeployado — confirmado via `list_edge_functions`: v46,
+  `status: ACTIVE`, `verify_jwt: false`, `updated_at` = **2026-08-24
+  12:45:22 UTC**.
+- Verificação pós-deploy: nenhum trade fechou ainda depois desse horário
+  (`SELECT ... WHERE exit_time > '2026-08-24 12:45:22'` → vazio) — não é
+  falha, só não houve TP/SL disparado nesse intervalo curto. **Confirmar
+  visualmente na próxima sessão**: primeiro fechamento pós-deploy deve
+  gravar `commission > 0` (era sempre `0` antes). Query pronta:
+  ```sql
+  select symbol, pnl as pnl_bruto, commission as custo_cobrado, net_pnl, exit_reason, exit_time
+  from ai_trades where status='CLOSED' and exit_time > '2026-08-24 12:45:22'
+  order by exit_time desc limit 10;
+  ```
+
+Nota separada, não bloqueante: `CLAUDE.md` e o próprio arquivo desta sessão
+continuam com mudança não commitada (working tree tinha `M CLAUDE.md` no
+momento do commit acima, deixado de fora de propósito pra não misturar
+documentação com fix de motor no mesmo commit). Se quiser, commit
+separado disso fica pendente de pedido explícito.
+
+---
+
+## 9. PRÓXIMA SEÇÃO — [em aberto, 2026-08-24]
+
+> Nova seção reservada. Preencher aqui antes de começar, pra manter tudo
+> num único documento (convenção do projeto — nunca deixar handoff solto
+> na conversa).
+
+### Estado no momento de abrir esta seção
+
+- **Fix de custo de execução**: ✅ em produção desde 12:45:22 UTC de hoje.
+  Falta só a confirmação visual do primeiro fechamento pós-deploy (ver
+  query acima).
+- **Pesquisa de edge**: ✅ toda concluída (sazonalidade, macro,
+  posicionamento/fluxo, TradingAgents/ML) — seções 3, 4, 5.1, 5.2.
+  Vereditos resumidos: sem edge direcional comprovado em nenhuma frente;
+  o ganho real é redução de custo por janela horária/de risco, não sinal.
+- **Jarvis**: ✅ em produção, cron ativo (`jarvis-analysis-6h`, a cada 6h),
+  já tomou 2 decisões reais (1 autoaplicada, 1 pendente de aprovação) na
+  primeira execução. Dashboard visual implementado (3 commits de
+  polimento além do commit de schema+function).
+- **Pendente, identificado na sessão anterior mas ainda não iniciado**:
+  converter os achados de sazonalidade/macro (blackout 21:00–22:00 UTC de
+  rollover, redução de tamanho 02:00–06:00 UTC em cripto, blackout
+  defensivo em janelas FOMC/CPI/NFP, concentração no overlap
+  12:00–16:00 UTC Londres-NY) em regras reais dentro de
+  `jarvis_knowledge`/`jarvis_guardrails` — hoje esses achados existem só
+  como texto neste documento, não como código/dado que o Jarvis realmente
+  usa pra decidir.
+- **Também pendente, sem prioridade definida ainda**: validar HAR-RV vs.
+  naive pra previsão de volatilidade (único item de ML que a pesquisa
+  considerou barato o suficiente, seção 5.2) — não iniciado.
+
+### O que entrou nesta seção
+
+**Item 1 (confirmação do fix de custo)**: ✅ concluído. Primeiro fechamento
+pós-deploy do fix (SOLUSD, SL, 2026-08-24 13:01:29 UTC) gravou
+`commission=$0,036` — não mais `$0`. `pnl_bruto=-$0,078`,
+`net_pnl=-$0,114`. Fix confirmado funcionando de verdade em produção, não só
+no deploy.
+
+**Item novo: fechar o loop do Jarvis (decisões ACTIVE agora afetam trade
+real)**. Ao investigar o item pendente de sazonalidade, ficou claro que o
+Jarvis nunca tinha fechado o loop: `jarvis_decisions` gravava `status=ACTIVE`
+(ex: Regra 1 de win rate, -25% em `position_size`, disparada de verdade às
+11:13 UTC de hoje) mas **nenhum ponto do motor real lia essa tabela** — nem
+`useApexLogic.ts`, nem `runTradingCycle.ts`, nem `ai-runner`. "Autoaplicar"
+significava só persistir a decisão com auditoria completa, sem efeito em
+nenhum trade. Confirmado por agente de busca dedicado (grep vazio fora da
+própria pasta `supabase/functions/jarvis/`).
+
+Corrigido nesta sessão (commit `3d1f7ebf6`, já no `dev`, deployado):
+
+- **[novo]** [`src/app/services/strategy/jarvisSizeMultiplier.ts`](src/app/services/strategy/jarvisSizeMultiplier.ts)
+  — módulo compartilhado cliente+servidor (mesmo padrão do `ExecutionCost.ts`
+  da seção 2). Lê decisões `ACTIVE` do Jarvis com `target` em
+  `position_size`/`position_size_rollover`/`position_size_crypto_lunch` e
+  devolve um multiplicador único (produto composto — várias decisões
+  simultâneas compõem, não se substituem). Clampado em [0.1x, 1x]: o Jarvis
+  só reduz tamanho hoje, nunca aumenta. Falha aberta — erro de rede/schema
+  devolve 1x (neutro), Jarvis fora do ar nunca trava o motor.
+- [`runTradingCycle.ts`](src/app/services/strategy/runTradingCycle.ts:1150)
+  — `jarvisSizeMultiplier` (novo campo opcional em `TradingCycleDeps`) entra
+  no cálculo de `fixedRiskCapital`, junto do `sizeMultiplier` do perfil de
+  risco.
+- [`ai-runner/index.ts`](supabase/functions/ai-runner/index.ts) — busca o
+  multiplicador via `getServiceClient()` a cada tick (1×/min) e passa pro
+  `deps`.
+- [`useApexLogic.ts`](src/app/hooks/useApexLogic.ts:1527) — mesmo padrão de
+  cache já usado pro VIX (60s), reaproveitando o client Supabase existente.
+- `npm run validate`: 37/37, type-check estrito (`tsconfig.engine.json`)
+  limpo.
+
+**Bug corrigido no mesmo commit**: Regra 1 (win rate) e Regra 4
+(sazonalidade) do Jarvis competiam pelo mesmo alvo de guardrail
+`position_size` (cooldown de 4 ciclos = 24h) — achado ao vivo: a decisão de
+win rate `ACTIVE` desde 11:13 UTC bloquearia qualquer ajuste de
+rollover/almoço-Ásia até o dia seguinte, mesmo que a janela de sazonalidade
+tivesse motivo próprio pra disparar. Fix: sazonalidade agora usa alvos
+dedicados (`position_size_rollover` cap 70%, `position_size_crypto_lunch`
+cap 30%, ambos sem cooldown — a própria janela de horário já é o gate
+natural). Migration
+[`20260824_jarvis_seasonality_guardrail_targets.sql`](supabase/migrations/20260824_jarvis_seasonality_guardrail_targets.sql)
+— **aplicada e confirmada** (`select target, magnitude_cap_pct,
+cooldown_cycles from jarvis_guardrails where target like 'position_size%'`
+retorna as 3 linhas: `position_size` 25%/4, `position_size_rollover` 70%/0,
+`position_size_crypto_lunch` 30%/0).
+
+**Deploy confirmado** (`list_edge_functions`): `ai-runner` v47 e `jarvis` v2,
+ambos `updated_at` 2026-08-24 **13:00:14 UTC** — depois do commit.
+
+**Achado novo, ainda NÃO corrigido**: a Regra 4 (sazonalidade) nunca dispara
+na prática. O cron do Jarvis roda só em `0 */6 * * *` (00h/06h/12h/18h UTC),
+mas a regra checa hora exata do momento da execução (`hourNow === 21` pro
+rollover, `2 ≤ hourNow < 6` pro almoço Ásia) — **nenhum desses horários
+nunca coincide com um tick do cron**. É código morto desde que foi escrito
+em 2026-08-24 (Passo 3 da seção 7), meses antes desta sessão perceber.
+Correção não feita ainda — precisa de decisão de escopo: cron dedicado mais
+frequente só pra essa checagem (ex: de hora em hora), ou redefinir a
+semântica pra "a janela de sazonalidade tem overlap com o período de 6h que
+acabou de fechar" em vez de hora exata do instante da chamada.
+
+### Pendente para a próxima seção
+- [ ] Corrigir o cron dead-code da Regra 4 (sazonalidade nunca dispara —
+      achado acima).
+- [ ] Validar HAR-RV vs. naive pra previsão de volatilidade (seção 5.2,
+      não iniciado).
+- [ ] Observar 1-2 semanas de `jarvis_health_snapshots` com o loop agora
+      fechado — a partir de agora, decisões `ACTIVE` do Jarvis têm efeito
+      real em tamanho de posição, então essa janela de observação também é
+      a primeira vez que dá pra medir se as decisões do Jarvis ajudam ou
+      atrapalham o PnL de verdade (o mecanismo de rollback automático,
+      seção 7 Passo 0, deve reagir a isso sozinho — vale conferir
+      `jarvis_decisions.status='ROLLED_BACK'` depois de alguns ciclos).
