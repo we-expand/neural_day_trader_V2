@@ -897,8 +897,19 @@ async function analyzeAsset(
     }
 
     // 🔒 CONTEXT GATE + TAIL RISK GUARD
+    // Regime/ADX/estrutura capturados fora do bloco pra ficarem disponíveis
+    // na criação do trade abaixo (auditoria de entrada — antes só era
+    // gravado quando este gate VETAVA, nunca na entrada executada de fato).
+    let contextClassification: string | null = null;
+    let contextStructureBias: string | null = null;
+    let contextAdx: number | null = null;
+    let contextAtrExpansionRatio: number | null = null;
     {
       const contextResult = evaluateContextGate(candles, side);
+      contextClassification = contextResult.classification;
+      contextStructureBias = contextResult.structureBias;
+      contextAdx = contextResult.adx;
+      contextAtrExpansionRatio = contextResult.atrExpansionRatio;
       if (!contextResult.podeOperar) {
         console.log(`[CONTEXTO] 🚫 Setup ${side} descartado em ${selectedSymbol}: ${contextResult.motivo}`);
         await deps.persistence.saveDecision({
@@ -1382,6 +1393,13 @@ async function analyzeAsset(
           return lastMacd > lastSignal ? 'BULLISH' : 'BEARISH';
         })(),
         trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
+        // 🆕 2026-08-24: regime/ADX medidos na entrada — ver comentário no
+        // Context Gate acima e SESSAO_2026-08-24_REGIME_NA_ENTRADA.md.
+        regime: computedRegime,
+        contextClassification: contextClassification ?? undefined,
+        structureBias: contextStructureBias ?? undefined,
+        adx: contextAdx,
+        atrExpansionRatio: contextAtrExpansionRatio,
       },
     };
 

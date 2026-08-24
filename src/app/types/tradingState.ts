@@ -98,6 +98,15 @@ export interface TradeVisual {
     rsi: number;
     macd: string;
     trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    // 🆕 2026-08-24: regime de mercado medido na entrada (auditoria pedida
+    // pelo Cleber depois de ver SOLUSD fechar 15/15 no stop num dia
+    // lateralizado — antes esse dado só era gravado quando o gate VETAVA
+    // o trade, nunca na entrada executada). Ver SESSAO_2026-08-24_REGIME_NA_ENTRADA.md.
+    regime?: string | null;
+    contextClassification?: string;
+    structureBias?: string;
+    adx?: number | null;
+    atrExpansionRatio?: number | null;
   };
 }
 
