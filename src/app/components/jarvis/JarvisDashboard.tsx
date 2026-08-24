@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Mic, MicOff, Volume2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Cpu, Mic, MicOff, Volume2, CheckCircle2, XCircle, AlertTriangle, Activity, Radar } from 'lucide-react';
 import { supabase, isSupabaseActive } from '@/lib/supabaseClient';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { JarvisOrb, type JarvisOrbHealth } from './JarvisOrb';
@@ -30,6 +30,12 @@ interface JarvisDecision {
   status: string;
   magnitude_pct: number | null;
 }
+
+const HEALTH_THEME: Record<JarvisOrbHealth, { label: string; text: string; badge: string; glow: string; ring: string }> = {
+  normal: { label: 'Normal', text: 'text-cyan-300', badge: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30', glow: 'bg-cyan-500', ring: 'border-cyan-500/20' },
+  warning: { label: 'Atenção', text: 'text-amber-300', badge: 'bg-amber-500/15 text-amber-300 border border-amber-500/30', glow: 'bg-amber-500', ring: 'border-amber-500/20' },
+  critical: { label: 'Crítico', text: 'text-red-300', badge: 'bg-red-500/15 text-red-300 border border-red-500/30', glow: 'bg-red-500', ring: 'border-red-500/20' },
+};
 
 function classifyHealth(snapshot: JarvisHealthSnapshot | null): JarvisOrbHealth {
   if (!snapshot) return 'normal';
@@ -90,6 +96,7 @@ export function JarvisDashboard() {
   }, [loadData]);
 
   const health = useMemo(() => classifyHealth(snapshot), [snapshot]);
+  const theme = HEALTH_THEME[health];
 
   const handleReview = useCallback(async (decision: JarvisDecision, approve: boolean) => {
     if (!isSupabaseActive) return;
@@ -166,25 +173,35 @@ export function JarvisDashboard() {
   }, [decisions, handleReview, speakSummary]);
 
   const voice = useJarvisVoice({ onCommand: handleVoiceCommand });
+  const orbStatus = voice.state === 'listening' ? 'listening' : voice.state === 'speaking' ? 'speaking' : voice.state === 'thinking' ? 'thinking' : 'idle';
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-white">Jarvis — Segundo Cérebro do Motor</h1>
-          <p className="text-sm text-slate-400">
-            Visualização em tempo real de `jarvis_health_snapshots` e decisões pendentes de aprovação.
-          </p>
+    <div className="w-full h-full p-4 overflow-y-auto bg-black custom-scrollbar">
+      {/* Header — mesmo padrão do Dashboard Principal */}
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-cyan-500/10 rounded-xl border border-cyan-500/20">
+            <Cpu className="w-8 h-8 text-cyan-400" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-white uppercase">
+              Jarvis
+            </h1>
+            <p className="text-slate-400 mt-1 tracking-wide font-light">
+              Segundo Cérebro do Motor · Saúde em Tempo Real e Decisões Pendentes
+            </p>
+          </div>
         </div>
+
         {(voice.isSttSupported || voice.isTtsSupported) && (
           <div className="flex items-center gap-2">
             {voice.isSttSupported ? (
               <button
                 onClick={() => (voice.state === 'listening' ? voice.stopListening() : voice.startListening())}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                   voice.state === 'listening'
-                    ? 'bg-red-500/20 text-red-300 border border-red-500/40'
-                    : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20'
+                    ? 'bg-red-500/15 text-red-300 border border-red-500/40 shadow-[0_0_20px_-6px_rgba(239,68,68,0.6)]'
+                    : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 hover:shadow-[0_0_20px_-6px_rgba(6,182,212,0.6)]'
                 }`}
               >
                 {voice.state === 'listening' ? <MicOff size={16} /> : <Mic size={16} />}
@@ -196,7 +213,7 @@ export function JarvisDashboard() {
             {voice.isTtsSupported && (
               <button
                 onClick={() => speakSummary(voice.speak)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 border border-slate-700 hover:bg-slate-800"
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-slate-300 border border-white/10 bg-black/30 hover:border-cyan-500/40 hover:text-cyan-300 transition-all"
                 title="Narrar resumo de saúde"
               >
                 <Volume2 size={16} />
@@ -206,28 +223,46 @@ export function JarvisDashboard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden relative">
-          <JarvisOrb status={voice.state === 'listening' ? 'listening' : voice.state === 'speaking' ? 'speaking' : voice.state === 'thinking' ? 'thinking' : 'idle'} health={health} />
-          <div className="absolute bottom-3 left-0 right-0 text-center">
-            <span className={`text-xs px-2 py-1 rounded-full ${
-              health === 'critical' ? 'bg-red-500/20 text-red-300' :
-              health === 'warning' ? 'bg-amber-500/20 text-amber-300' :
-              'bg-cyan-500/20 text-cyan-300'
-            }`}>
-              {health === 'critical' ? 'Crítico' : health === 'warning' ? 'Atenção' : 'Normal'}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Orbe 3D — card com glow ambiente, mesmo truque visual do MarketScoreBoard */}
+        <div className={`lg:col-span-1 relative overflow-hidden rounded-2xl border ${theme.ring} bg-gradient-to-br from-cyan-950/20 to-black min-h-[340px] flex flex-col`}>
+          <div className={`absolute inset-0 rounded-2xl blur-[80px] opacity-20 transition-colors duration-1000 z-0 ${theme.glow}`} />
+
+          <div className="relative z-10 flex items-center justify-between px-4 pt-4">
+            <div className="flex items-center gap-2 text-xs text-slate-400 uppercase tracking-wider">
+              <Radar size={13} className={theme.text} />
+              Núcleo Jarvis
+            </div>
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${theme.badge}`}>
+              {theme.label}
             </span>
           </div>
+
+          <div className="relative z-10 flex-1">
+            <JarvisOrb status={orbStatus} health={health} />
+          </div>
+
+          <div className="relative z-10 px-4 pb-4 flex items-center justify-between text-[11px] text-slate-500 uppercase tracking-wider">
+            <span className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${theme.glow} animate-pulse`} />
+              {orbStatus === 'idle' ? 'Standby' : orbStatus === 'listening' ? 'Ouvindo' : orbStatus === 'thinking' ? 'Processando' : 'Falando'}
+            </span>
+            <span>Ciclo 6h</span>
+          </div>
+
           {voice.transcript && (
-            <div className="absolute top-3 left-3 right-3 text-xs text-slate-400 bg-black/40 rounded px-2 py-1">
+            <div className="absolute top-14 left-4 right-4 text-xs text-slate-300 bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 z-10">
               "{voice.transcript}"
             </div>
           )}
         </div>
 
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-            <h2 className="text-sm font-medium text-slate-300 mb-4">Último snapshot de saúde (6h)</h2>
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-gradient-to-br from-slate-900/40 to-black border border-white/10 rounded-2xl p-5">
+            <h2 className="flex items-center gap-2 text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">
+              <Activity size={14} className="text-cyan-400" />
+              Último snapshot de saúde (6h)
+            </h2>
             {loading ? (
               <p className="text-slate-500 text-sm">Carregando...</p>
             ) : error ? (
@@ -235,9 +270,9 @@ export function JarvisDashboard() {
             ) : !snapshot ? (
               <p className="text-slate-500 text-sm">Nenhum snapshot registrado ainda.</p>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <Stat label="Trades" value={String(snapshot.trades_6h ?? 0)} />
-                <Stat label="Win rate" value={fmtPct(snapshot.win_rate_6h)} />
+                <Stat label="Win rate" value={fmtPct(snapshot.win_rate_6h)} accent={health !== 'normal' ? theme.text : undefined} />
                 <Stat label="PnL médio" value={snapshot.avg_pnl_6h != null ? `$${snapshot.avg_pnl_6h.toFixed(2)}` : '—'} />
                 <Stat label="Drawdown máx" value={snapshot.max_drawdown_6h != null ? `$${snapshot.max_drawdown_6h.toFixed(2)}` : '—'} />
                 <Stat label="Confidence AUC" value={snapshot.confidence_auc != null ? snapshot.confidence_auc.toFixed(2) : '—'} />
@@ -254,8 +289,8 @@ export function JarvisDashboard() {
             )}
           </div>
 
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-            <h2 className="text-sm font-medium text-slate-300 mb-4">
+          <div className="bg-gradient-to-br from-slate-900/40 to-black border border-white/10 rounded-2xl p-5">
+            <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">
               Decisões pendentes de aprovação ({decisions.length})
             </h2>
             {decisions.length === 0 ? (
@@ -263,7 +298,7 @@ export function JarvisDashboard() {
             ) : (
               <div className="space-y-3">
                 {decisions.map((d) => (
-                  <div key={d.id} className="border border-slate-800 rounded-xl p-4 bg-slate-950/50">
+                  <div key={d.id} className="border border-white/10 rounded-xl p-4 bg-black/40 hover:border-cyan-500/30 transition-colors">
                     <div className="flex items-start justify-between gap-4 flex-wrap">
                       <div>
                         <p className="text-white text-sm font-medium">
@@ -308,11 +343,11 @@ export function JarvisDashboard() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div>
-      <p className="text-slate-500 text-xs">{label}</p>
-      <p className="text-white font-medium">{value}</p>
+    <div className="bg-black/30 border border-white/5 rounded-lg p-3">
+      <p className="text-slate-500 text-[11px] uppercase tracking-wide">{label}</p>
+      <p className={`font-semibold mt-0.5 ${accent ?? 'text-white'}`}>{value}</p>
     </div>
   );
 }
