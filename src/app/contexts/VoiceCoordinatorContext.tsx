@@ -13,7 +13,7 @@
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 
-export type VoiceOwner = 'ia-preditiva' | 'ai-trader-voice';
+export type VoiceOwner = 'ia-preditiva' | 'ai-trader-voice' | 'jarvis';
 
 interface VoiceCoordinatorValue {
   activeOwner: VoiceOwner | null;
