@@ -14,39 +14,46 @@
 
 ## ▶ COMECE AQUI
 
-**2026-08-23 (mais recente): achado crítico de custo de execução não
-cobrado + arranque do Jarvis (segundo cérebro do motor).** Medido em
-produção: 135/135 trades de 17-23/08 fecharam com `commission: 0` e PnL
-calculado sem spread/slippage — o COST_GATE recusava trade pelo custo real,
-mas a execução não cobrava esse mesmo custo. Impacto: PnL bruto reportado
-−US$14,12, custo invisível US$14,83 (105% do \|PnL bruto\|), resultado real
-~−US$28,95. Fix pronto (módulo `ExecutionCost.ts` compartilhado
-cliente+servidor, `npm run validate` limpo 37/37) — **commit e deploy do
-`ai-runner` pendentes do Cleber rodar**. Na mesma sessão: pesquisa de edge
-de calendário/macro concluída com veredito "zero efeito direcional
-utilizável, ganho real é redução de custo por horário/janela de risco", e
-desenho inicial do **Jarvis** (schema SQL + blueprint de Edge Function que
-roda a cada 6h analisando `ai_trades` real e propondo ajustes com
-auditoria — decisão de design **✅ confirmada**: Jarvis autoaplica dentro
-de guardrails, ao contrário da regra "nunca commit sozinho" que vale só
-pra código-fonte).
+**2026-08-24 (mais recente): Jarvis (segundo cérebro do motor) implementado
+e EM PRODUÇÃO.** Os 4 passos de implementação desenhados em 2026-08-23
+(schema → Edge Function → deploy → cron) foram todos fechados e confirmados
+com dado real no mesmo dia seguinte: 6 tabelas `jarvis_*` aplicadas,
+`supabase/functions/jarvis/index.ts` deployado (`--no-verify-jwt`) e
+**testado via curl direto contra o Supabase real** (não só `deno check`) —
+resultado: 7 trades/6h, win rate 28,57%, o motor de guardrails funcionou
+ponta a ponta (regra pediu -50% em `position_size`, guardrail clampou pra
+-25% conforme `jarvis_guardrails`, autoaplicou como `ACTIVE`/
+`system_auto`). Cron `jarvis-analysis-6h` agendado e ativo
+(`0 */6 * * *`, jobid 8) — roda sozinho a partir de agora, sem intervenção
+manual. Próximo marco real não é mais implementação: esperar 1-2 semanas de
+`jarvis_health_snapshots` acumular e revisar junto quais decisões `PENDING`
+fazem sentido aprovar. Detalhe completo:
+[SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md](SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md)
+seção 7.
 
-**Fase de pesquisa fechada em 2026-08-23** (as duas frentes que tinham
-caído por limite de sessão foram retomadas e concluídas no mesmo dia):
-posicionamento/fluxo (COT, funding rate, liquidações, OI, on-chain — nenhum
-edge intraday comprovado) e TradingAgents/ML (framework multi-agente LLM
-tem risco documentado de vazamento paramétrico, não aplicável agora; único
-item que vale validar é HAR-RV vs. naive pra previsão de vol). Relatórios:
+**[RESOLVIDO 2026-08-24] Custo de execução não cobrado — fix commitado e
+deployado.** Achado em 2026-08-23: 135/135 trades de 17-23/08 fecharam com
+`commission: 0` e PnL calculado sem spread/slippage — o COST_GATE recusava
+trade pelo custo real, mas a execução não cobrava esse mesmo custo. Impacto
+medido: PnL bruto reportado −US$14,12, custo invisível US$14,83 (105% do
+\|PnL bruto\|), resultado real ~−US$28,95. Commit `106b8c83f` (módulo
+`ExecutionCost.ts` compartilhado cliente+servidor) confirmado no histórico
+e já em `origin/dev`. **Confirmado ao vivo em produção em 2026-08-24**: o
+`ai-runner` foi redeployado (versão 48, ~12:00 UTC) e passou a gravar
+`commission > 0` de fato a partir desse horário — antes das 12h UTC, 100%
+dos trades do dia tinham `commission: 0`; depois, todos passaram a ter
+comissão real lançada. Efeito líquido no resultado ainda não avaliável
+(amostra pequena pós-fix, poucas horas de produção) — revisar depois de
+alguns dias de dado acumulado.
+
+**Fase de pesquisa fechada em 2026-08-23** (calendário/macro, seções 3-4 do
+mesmo documento: "zero efeito direcional utilizável, ganho real é redução
+de custo por horário/janela de risco"; posicionamento/fluxo e
+TradingAgents/ML, seção 5: nenhum edge intraday comprovado, TradingAgents
+não aplicável por vazamento paramétrico de LLM). Relatórios:
 [posicionamento-e-fluxo.md](research/experiments/2026-08-23-custo-nao-cobrado-e-poder/posicionamento-e-fluxo.md)
 e
 [tradingagents-e-ml.md](research/experiments/2026-08-23-custo-nao-cobrado-e-poder/tradingagents-e-ml.md).
-
-**Próximo passo real da próxima sessão: implementação do Jarvis, começando
-pelo Passo 2** (aplicar `research/jarvis-schema.sql` no SQL Editor do
-Supabase ou gerar migration formal) — Passo 1 (fechar pesquisa) já está
-✅. Passo a passo completo em
-[SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md](SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md)
-seção 7.
 
 Também em 2026-08-21: **log de PnL em $ mais explícito no
 fechamento de posição do `ai-runner`** (`GANHO de +$X.XX` / `PERDA de
