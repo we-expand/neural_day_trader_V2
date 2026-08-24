@@ -384,53 +384,38 @@ async function checkPriceGuardEvents(sb: any) {
   return data.length;
 }
 
-// Regra 4: janelas de horário de baixa liquidez/custo alto — resultado da
-// pesquisa de sazonalidade concluída em 2026-08-23 (seção 3 da sessão):
-// rollover 21-22 UTC (spread 5-10x) e almoço da Ásia 02-06 UTC pra cripto
-// (vol baixa, liquidez Binance ~30% pior).
-// deno-lint-ignore no-explicit-any
-// Alvos dedicados (position_size_rollover / position_size_crypto_lunch), não
-// 'position_size' — esse já é o alvo da Regra 1 (win rate). Antes desta
-// mudança as duas regras competiam pelo mesmo cooldown de 4 ciclos (24h) do
-// guardrail 'position_size': se a Regra 1 disparasse primeiro, a janela de
-// rollover/almoço-Ásia simplesmente não conseguia aplicar nada até o
-// cooldown liberar — achado em produção 2026-08-24 (Regra 1 ACTIVE às
-// 11:13 UTC bloquearia qualquer ajuste de sazonalidade até o dia seguinte).
-// Com alvos separados, `fetchJarvisSizeMultiplier` (motor real) compõe os
-// multiplicadores de todas as decisões ACTIVE simultaneamente (produto, não
-// substituição) — ver src/app/services/strategy/jarvisSizeMultiplier.ts.
-async function checkSeasonalityWindow(sb: any) {
-  const hourNow = new Date().getUTCHours();
-
-  if (hourNow === 21) {
-    return evaluateGuardrails(sb, {
-      decision_type: 'SIZE_ADJUST',
-      target: 'position_size_rollover',
-      action: '-70%',
-      magnitudePct: -70,
-      evidence: {
-        hour_utc: hourNow,
-        reason: 'Rollover 21-22 UTC: spread relatado 5-10x o normal em CFD (pesquisa 2026-08-23, seção 3).',
-      },
-      severity: 'INFO',
-    });
+// Regra 4 (histórico): janelas de horário de baixa liquidez/custo alto —
+// resultado da pesquisa de sazonalidade concluída em 2026-08-23 (seção 3 da
+// sessão): rollover 21-22 UTC (spread 5-10x) e almoço da Ásia 02-06 UTC pra
+// cripto (vol baixa, liquidez Binance ~30% pior).
+//
+// CORRIGIDO 2026-08-24 (seção 10 da sessão): esta regra gravava uma decisão
+// SIZE_ADJUST em jarvis_decisions só quando `hourNow` batia exatamente 21 ou
+// caía em 2-6 — mas o cron do Jarvis roda só nas horas cheias de 6h
+// (0/6/12/18 UTC), que nunca coincidem com essas janelas. A regra nunca
+// disparou na prática desde que foi escrita. Além disso, mesmo se disparasse,
+// o lado que lê a decisão (fetchJarvisSizeMultiplier) só checava
+// status='ACTIVE', sem checar hora — o efeito "vazaria" pra fora da janela
+// real até o próximo ciclo de 6h reavaliar.
+//
+// Como os horários já são achado de pesquisa fixo (não algo que o Jarvis
+// precisa aprender/auditar por ciclo), o efeito real agora é calculado
+// direto no motor de trading pela hora UTC no momento do trade — ver
+// `seasonalityMultiplier` em src/app/services/strategy/jarvisSizeMultiplier.ts,
+// aplicado em runTradingCycle.ts. Esta função aqui não grava mais decisão:
+// só registra em jarvis_health_snapshots se o ciclo de 6h que fechou
+// atravessou uma dessas janelas, pra telemetria/observação.
+function checkSeasonalityWindow(now: Date): { rolloverInWindow: boolean; cryptoLunchInWindow: boolean } {
+  // O ciclo cobre as últimas 6h (CYCLE_MS) — checa se alguma hora cheia
+  // dentro dessa janela caiu dentro do intervalo de rollover ou almoço-Ásia.
+  let rolloverInWindow = false;
+  let cryptoLunchInWindow = false;
+  for (let i = 0; i < 6; i++) {
+    const h = (now.getUTCHours() - i + 24) % 24;
+    if (h === 21) rolloverInWindow = true;
+    if (h >= 2 && h < 6) cryptoLunchInWindow = true;
   }
-
-  if (hourNow >= 2 && hourNow < 6) {
-    return evaluateGuardrails(sb, {
-      decision_type: 'SIZE_ADJUST',
-      target: 'position_size_crypto_lunch',
-      action: '-30%',
-      magnitudePct: -30,
-      evidence: {
-        hour_utc: hourNow,
-        reason: 'Almoço Ásia 02-06 UTC (cripto): vol relativa ~0.80 vs pico 1.35, liquidez Binance ~30% pior.',
-      },
-      severity: 'INFO',
-    });
-  }
-
-  return null;
+  return { rolloverInWindow, cryptoLunchInWindow };
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -470,7 +455,7 @@ Deno.serve(async (req) => {
     await checkWinRateGate(sb, metrics);
     await checkConfidenceCalibration(sb, metrics);
     const priceGuardBreaches = (await checkPriceGuardEvents(sb)) ?? 0;
-    await checkSeasonalityWindow(sb);
+    const seasonality = checkSeasonalityWindow(now);
 
     // Custo de decisões (COST_GATE), pra completar o snapshot.
     // Telemetria própria do gate não é gravada em tabela hoje — placeholder
@@ -490,7 +475,10 @@ Deno.serve(async (req) => {
       cost_gate_rejections_6h: costGateRejections6h,
       hour_of_day: now.getUTCHours(),
       day_of_week: now.getUTCDay(),
-      calendar_event: null,
+      calendar_event: [
+        seasonality.rolloverInWindow ? 'rollover_21_22_utc' : null,
+        seasonality.cryptoLunchInWindow ? 'crypto_lunch_02_06_utc' : null,
+      ].filter(Boolean).join(',') || null,
       jarvis_recommendation: metrics.winRate != null && metrics.winRate < 0.28 ? 'PAUSE' : 'NORMAL',
     };
 

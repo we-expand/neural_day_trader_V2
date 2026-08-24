@@ -32,6 +32,7 @@ import { estimateCostPercent } from '../../../../research/CostModel.ts';
 import { RiskManager, type RiskConfig, type DailyStats, evaluateCooldownGate, evaluateMaxTradesPerDayGate } from '../../../lib/modules/RiskManager.ts';
 import { computeLiveCorrelationGuard } from '@/app/services/risk/LiveCorrelationGuard.ts';
 import { funnelTelemetry } from '@/app/services/telemetry/FunnelTelemetry.ts';
+import { seasonalityMultiplier } from '@/app/services/strategy/jarvisSizeMultiplier.ts';
 // Tipos neutros de propósito (sem nenhum import) — ver comentário no topo de
 // src/app/types/tradingState.ts. Import de @/app/hooks/useApexLogic aqui
 // quebrava a costura Deno: mesmo sendo `import type`, o resolvedor de
@@ -1155,9 +1156,17 @@ async function analyzeAsset(
     const allocatedCapital = Math.min(aiConfig.allocatedCapital, currentBalance);
     const riskPercentage = aiConfig.riskPerTrade / 100;
     const jarvisMultiplier = deps.jarvisSizeMultiplier ?? 1;
-    const fixedRiskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier * jarvisMultiplier;
+    // Sazonalidade (rollover 21-22 UTC, almoço-Ásia 02-06 UTC pra cripto)
+    // calculada direto pela hora UTC atual, não via jarvis_decisions — ver
+    // jarvisSizeMultiplier.ts (corrigido 2026-08-24: o cron de 6h nunca batia
+    // com essas janelas, a Regra 4 do Jarvis nunca disparava na prática).
+    const seasonalMultiplier = seasonalityMultiplier(isCrypto);
+    const fixedRiskCapital = allocatedCapital * riskPercentage * riskAdjustment.sizeMultiplier * jarvisMultiplier * seasonalMultiplier;
     if (jarvisMultiplier !== 1) {
       console.log(`[POSITION SIZING] 🧠 Jarvis: multiplicador ${jarvisMultiplier.toFixed(3)}x aplicado (decisão ACTIVE em jarvis_decisions)`);
+    }
+    if (seasonalMultiplier !== 1) {
+      console.log(`[POSITION SIZING] 🕐 Sazonalidade: multiplicador ${seasonalMultiplier.toFixed(3)}x aplicado (${selectedSymbol}, hora UTC ${new Date().getUTCHours()})`);
     }
     // 2026-08-16: FIX DE BUG — modo FIXED usava riskCapital diretamente como
     // nocional, ignorando a distância do stop (mesma classe de bug já

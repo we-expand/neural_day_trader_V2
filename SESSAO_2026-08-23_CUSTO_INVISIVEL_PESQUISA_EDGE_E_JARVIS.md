@@ -759,5 +759,98 @@ Commit `75cbe1a21` (docs, esta seção) já no `dev`.
   fechado a decisão de win rate que já está `ACTIVE` desde hoje 11:13 UTC.
 
 ### O que entra nesta seção
-- [ ] *(a preencher — diga o que quer atacar agora e eu registro o passo a
-      passo aqui)*
+
+**Checagem de status (sem mudança de código)**: consultado `jarvis_decisions`,
+`jarvis_health_snapshots` e `cron.job`/`cron.job_run_details` no Supabase
+real às 13:15 UTC de 2026-08-24. Nada de novo desde a seção anterior — só as
+2 chamadas manuais de ontem (11:13 e 12:00 UTC) existem; o cron
+`jarvis-analysis-6h` ainda não tinha disparado sozinho nenhuma vez (próximo
+tick automático real: 18:00 UTC). Nenhum rollback ainda, esperado (nenhum
+ciclo de reavaliação de 6h tinha fechado ainda).
+
+**Bug da Regra 4 (sazonalidade nunca dispara) — corrigido.** Investigação
+achou um segundo problema além do já documentado (cron só roda nas horas
+cheias de 6h, nunca bate com `hourNow===21` nem com a janela 2-6h): mesmo se
+disparasse, o lado que lê a decisão (`fetchJarvisSizeMultiplier`) só checava
+`status='ACTIVE'` sem checar hora — o efeito "vazaria" pra fora da janela
+real até o próximo ciclo de 6h reavaliar (position_size reduzido 24h/dia em
+vez de só durante rollover/almoço-Ásia).
+
+Decisão de escopo (opção B do handoff, recomendada e confirmada): tirar a
+sazonalidade de `jarvis_decisions` inteiramente, já que os horários são
+achado de pesquisa fixo (seção 3, 2026-08-23), não algo que o Jarvis precisa
+aprender/auditar por ciclo. Implementado:
+
+- [`jarvisSizeMultiplier.ts`](src/app/services/strategy/jarvisSizeMultiplier.ts)
+  — nova função `seasonalityMultiplier(isCrypto, hourUtc?)`, cálculo direto
+  (rollover 21-22 UTC ×0.3, almoço-Ásia 02-06 UTC cripto ×0.7 — mesmos
+  números da pesquisa). `JARVIS_POSITION_SIZE_TARGETS` reduzido só a
+  `position_size` (a decisão persistida da Regra 1/win rate) — os alvos
+  `position_size_rollover`/`position_size_crypto_lunch` saem do fluxo de
+  `jarvis_decisions`.
+- [`runTradingCycle.ts`](src/app/services/strategy/runTradingCycle.ts:1157)
+  — `seasonalityMultiplier(isCrypto)` (reaproveitando o `isCrypto` já
+  calculado no mesmo escopo pra WebSocket) entra no cálculo de
+  `fixedRiskCapital`, ao lado do `jarvisMultiplier` vindo do banco. Como
+  `runTradingCycle` é o módulo puro compartilhado por cliente
+  (`useApexLogic.ts`) e servidor (`ai-runner/index.ts`), o fix cobre os dois
+  automaticamente sem tocar em nenhum dos dois arquivos.
+- [`supabase/functions/jarvis/index.ts`](supabase/functions/jarvis/index.ts)
+  — `checkSeasonalityWindow` não grava mais `jarvis_decisions`; virou função
+  pura que checa se alguma hora cheia dentro do ciclo de 6h que fechou caiu
+  em rollover ou almoço-Ásia, e isso é gravado em
+  `jarvis_health_snapshots.calendar_event` (ex.:
+  `"rollover_21_22_utc,crypto_lunch_02_06_utc"`) — só telemetria/observação,
+  sem efeito em trade nem dependência de guardrail/cooldown.
+- `deno check` limpo, `npx tsc -p tsconfig.engine.json --noEmit` limpo,
+  `npm run validate` 37/37 sem regressão.
+
+**Nota de risco**: nenhuma decisão `position_size_rollover`/
+`position_size_crypto_lunch` existia em `jarvis_decisions` no momento desta
+mudança (confirmado na checagem de status acima) — não há registro histórico
+"quebrado" pra limpar.
+
+**Commit pendente do Cleber rodar:**
+
+```bash
+git add src/app/services/strategy/jarvisSizeMultiplier.ts \
+        src/app/services/strategy/runTradingCycle.ts \
+        supabase/functions/jarvis/index.ts
+
+git commit -m "fix: sazonalidade do Jarvis (rollover/almoço-Ásia) calculada direto por hora, não mais via jarvis_decisions
+
+Achado 2026-08-24: a Regra 4 do Jarvis (janela de rollover 21-22 UTC e
+almoço-Ásia 02-06 UTC pra cripto) nunca disparava — o cron roda só nas horas
+cheias de 6h (0/6/12/18 UTC), que nunca coincidem com hourNow===21 nem com a
+janela 2-6h. Mesmo se disparasse, o lado que lê a decisão só checava
+status=ACTIVE sem checar hora — o efeito vazaria pra fora da janela real.
+
+Fix: como os horários já são achado de pesquisa fixo (seção 3,
+SESSAO_2026-08-23), não algo que o Jarvis precisa aprender por ciclo, o
+efeito agora é calculado direto pela hora UTC no momento do trade
+(seasonalityMultiplier em jarvisSizeMultiplier.ts), aplicado em
+runTradingCycle.ts — cobre cliente e servidor automaticamente, já que os
+dois compartilham o mesmo módulo. O Jarvis continua observando essas
+janelas só pra telemetria (jarvis_health_snapshots.calendar_event), sem
+gravar decisão nem depender de guardrail/cooldown."
+
+git push origin dev
+```
+
+Depois do push, redeploy da function (Edge Function não sobe com `git push`):
+
+```bash
+supabase functions deploy jarvis --no-verify-jwt
+```
+
+(`ai-runner` não precisa redeploy — não foi alterado; o fix entra em vigor
+via `runTradingCycle.ts`, que já é importado por ele.)
+
+### Pendente para a próxima seção
+- [ ] Confirmar deploy da `jarvis` function após o commit acima.
+- [ ] Validar HAR-RV vs. naive pra previsão de volatilidade (seção 5.2,
+      não iniciado).
+- [ ] Observar 1-2 semanas de `jarvis_health_snapshots` com o loop fechado —
+      conferir `jarvis_decisions.status='ROLLED_BACK'` depois de alguns
+      ciclos, e agora também conferir se `calendar_event` está batendo com a
+      hora real (telemetria nova desta seção).

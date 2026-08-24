@@ -4,15 +4,51 @@
 // tabela — "autoaplicar" só persistia a decisão, sem efeito em trade nenhum.
 // Ver SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md seção 9.
 //
-// Alvos somados aqui (produto dos multiplicadores, não soma dos percentuais):
-// Regra 1 (win rate) e Regra 4 (sazonalidade, rollover/almoço-Ásia) do Jarvis
-// gravam em targets distintos para não competir pelo mesmo cooldown de
-// guardrail — ver jarvis_guardrails e BLUEPRINT.md.
-const JARVIS_POSITION_SIZE_TARGETS = [
-  'position_size',
-  'position_size_rollover',
-  'position_size_crypto_lunch',
-] as const;
+// Alvo somado aqui via decisão persistida: Regra 1 (win rate) do Jarvis.
+//
+// Sazonalidade (rollover 21-22 UTC, almoço-Ásia 02-06 UTC pra cripto) NÃO
+// passa mais por jarvis_decisions — corrigido em 2026-08-24 (seção 10 da
+// sessão): o cron do Jarvis roda só nas horas cheias de 6h (0/6/12/18 UTC),
+// nunca coincidindo com hourNow===21 nem com a janela 2-6h, então a decisão
+// nunca disparava. Além disso, mesmo se disparasse, o lado que lê aqui só
+// checava status='ACTIVE' sem checar hora — o efeito "vazaria" pra fora da
+// janela real até o próximo ciclo de 6h reavaliar. Como esses horários são
+// achado de pesquisa fixo (não algo que o Jarvis precisa aprender/auditar
+// por ciclo), o fator agora é calculado direto aqui pela hora UTC atual —
+// ver applySeasonalityMultiplier abaixo. O Jarvis continua observando essas
+// janelas (supabase/functions/jarvis/index.ts, checkSeasonalityWindow) só
+// pra telemetria em jarvis_health_snapshots, sem gravar decisão nem
+// depender de guardrail/cooldown.
+const JARVIS_POSITION_SIZE_TARGETS = ['position_size'] as const;
+
+// Números da pesquisa de sazonalidade (2026-08-23, seção 3 da sessão):
+// rollover 21-22 UTC (spread relatado 5-10x o normal em CFD) e almoço-Ásia
+// 02-06 UTC pra cripto (vol relativa ~0.80 vs pico 1.35, liquidez Binance
+// ~30% pior). Mesmos percentuais que a Regra 4 do Jarvis usava.
+const ROLLOVER_START_HOUR_UTC = 21;
+const ROLLOVER_END_HOUR_UTC = 22; // exclusivo
+const ROLLOVER_MULTIPLIER = 0.3; // -70%
+
+const CRYPTO_LUNCH_START_HOUR_UTC = 2;
+const CRYPTO_LUNCH_END_HOUR_UTC = 6; // exclusivo
+const CRYPTO_LUNCH_MULTIPLIER = 0.7; // -30%
+
+/**
+ * Fator de sazonalidade pela hora UTC atual (`hourUtc`, injetável em teste;
+ * default = hora real). `isCrypto` decide se a janela de almoço-Ásia se
+ * aplica (rollover de CFD aplica a qualquer ativo). Ambos os fatores são
+ * multiplicativos com o resto do pipeline (compõe, não substitui).
+ */
+export function seasonalityMultiplier(isCrypto: boolean, hourUtc: number = new Date().getUTCHours()): number {
+  let multiplier = 1;
+  if (hourUtc >= ROLLOVER_START_HOUR_UTC && hourUtc < ROLLOVER_END_HOUR_UTC) {
+    multiplier *= ROLLOVER_MULTIPLIER;
+  }
+  if (isCrypto && hourUtc >= CRYPTO_LUNCH_START_HOUR_UTC && hourUtc < CRYPTO_LUNCH_END_HOUR_UTC) {
+    multiplier *= CRYPTO_LUNCH_MULTIPLIER;
+  }
+  return multiplier;
+}
 
 // Guardrails do Jarvis hoje só reduzem tamanho (nunca aumentam — ver
 // magnitude_pct sempre negativo nas 4 regras implementadas). Teto de 100%
