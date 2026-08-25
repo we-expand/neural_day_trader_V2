@@ -12,11 +12,16 @@
  * Fluxo:
  *  1. Ouve tudo. Quando uma frase final contém "nexus", tudo que vem DEPOIS
  *     da palavra vira a pergunta (ex: "nexus qual o preço" -> "qual o preço").
- *  2. Se disser só "nexus" sozinho, entra em modo "aguardando pergunta" por
- *     alguns segundos — a próxima frase falada, mesmo sem repetir "nexus",
- *     já é tratada como a pergunta.
+ *  2. Toda vez que uma pergunta é reconhecida (com ou sem "nexus"), abre/
+ *     estende uma janela de conversa — enquanto ela não expira, qualquer
+ *     fala seguinte já é tratada como pergunta ao NEXUS, sem precisar
+ *     repetir "nexus" de novo. Cada turno estende a janela; só depois de
+ *     ~1min de silêncio real a conversa "fecha" e a palavra de ativação
+ *     volta a ser exigida. Pedido do Cleber (2026-08-25): manter diálogo
+ *     fluente, não forçar "nexus" a cada frase.
  *  3. Pausa a escuta enquanto o NEXUS está falando (evita ele se ouvir e
- *     reagir à própria voz).
+ *     reagir à própria voz) — a janela de conversa continua contando mesmo
+ *     assim, então a escuta reabre já em modo "aguardando pergunta".
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -26,7 +31,11 @@ interface IWindow extends Window {
 }
 
 const WAKE_WORD = /\bnexus\b/i;
-const FOLLOWUP_WINDOW_MS = 8000;
+// Janela de conversa contínua — cada pergunta reconhecida (com ou sem
+// "nexus") estende essa janela por mais esse tanto. Enquanto ela não
+// expirar, o usuário pode encadear perguntas sem repetir a palavra de
+// ativação. 60s de silêncio real (nenhuma fala captada) fecha a conversa.
+const FOLLOWUP_WINDOW_MS = 60_000;
 
 function normalize(s: string): string {
   return s
@@ -77,25 +86,21 @@ export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean
 
       if (WAKE_WORD.test(normalized)) {
         const afterWake = transcript.replace(/.*?\bnexus\b/i, '').trim();
-        if (afterWake.length > 2) {
-          awaitingUntilRef.current = 0;
-          onQuestion(afterWake);
-        } else {
-          // Só a palavra de ativação (ou só uma saudação, ex: "bom dia
-          // Nexus") — responde na hora com um aceno falado (question=null,
-          // vira narração curta), em vez de ficar mudo esperando. Mantém a
-          // janela de acompanhamento aberta pra já poder perguntar em
-          // seguida sem repetir "Nexus".
-          awaitingUntilRef.current = Date.now() + FOLLOWUP_WINDOW_MS;
-          setMicState('awaiting-question');
-          onQuestion(null);
-        }
+        // Toda interação (com pergunta junto ou só a ativação) estende a
+        // janela de conversa — depois da 1ª vez que "nexus" é dito, o
+        // usuário encadeia perguntas sem repetir a palavra enquanto a
+        // conversa continuar fluindo.
+        awaitingUntilRef.current = Date.now() + FOLLOWUP_WINDOW_MS;
+        setMicState('awaiting-question');
+        onQuestion(afterWake.length > 2 ? afterWake : null);
       } else if (isAwaitingFollowup) {
-        awaitingUntilRef.current = 0;
+        // Dentro da janela de conversa: estende de novo (turno seguinte
+        // continua sem precisar de "nexus") e trata a fala como pergunta.
+        awaitingUntilRef.current = Date.now() + FOLLOWUP_WINDOW_MS;
         onQuestion(transcript);
       }
-      // Fala sem "nexus" e fora da janela de acompanhamento: ignora — é
-      // conversa de fundo, não dirigida ao assistente.
+      // Fala sem "nexus" e fora da janela de conversa: ignora — é conversa
+      // de fundo, não dirigida ao assistente.
     };
 
     recognition.onerror = (e: any) => {
