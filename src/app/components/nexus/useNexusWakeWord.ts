@@ -124,14 +124,20 @@ export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean
 
   useEffect(() => {
     if (enabled && !isSpeaking) {
-      shouldRunRef.current = true;
-      startRecognition();
-    } else {
-      shouldRunRef.current = false;
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
-      if (!enabled) setMicState('off');
+      // Espera um pouco antes de reabrir o microfone depois que o NEXUS
+      // termina de falar — sem essa folga, o reconhecimento pega a cauda/eco
+      // da própria voz (reverb do alto-falante) junto com o começo do que o
+      // usuário disser a seguir, prejudicando a precisão do reconhecimento.
+      const delay = setTimeout(() => {
+        shouldRunRef.current = true;
+        startRecognition();
+      }, 350);
+      return () => clearTimeout(delay);
     }
+    shouldRunRef.current = false;
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    if (!enabled) setMicState('off');
     return () => {
       shouldRunRef.current = false;
       recognitionRef.current?.stop();

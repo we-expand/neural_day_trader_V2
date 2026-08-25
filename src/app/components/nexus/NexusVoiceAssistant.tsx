@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Send, AlertTriangle, Newspaper, CalendarClock, Volume2, Ear } from 'lucide-react';
+import { Send, AlertTriangle, Newspaper, CalendarClock, Volume2, Ear, EarOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useNexusVoice } from './useNexusVoice';
@@ -358,7 +358,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
                     : 'bg-cyan-600/90 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
                 }`}
               >
-                {isActive ? <><MicOff className="w-4 h-4" />Pausar escuta</> : <><Mic className="w-4 h-4" />Retomar escuta</>}
+                {isActive ? <><EarOff className="w-4 h-4" />Pausar escuta</> : <><Ear className="w-4 h-4" />Retomar escuta</>}
               </button>
             </div>
           )}
@@ -435,19 +435,11 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
 
           {/* Input — sempre disponível, conversa não exige "ativar" antes */}
           <div className="sticky bottom-0 pb-2 pt-2">
-            <div className="flex items-center gap-2 bg-neutral-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl shadow-black/40">
-              <div
-                className={`p-2.5 rounded-xl border transition-all ${
-                  micState === 'awaiting-question'
-                    ? 'bg-amber-500/20 border-amber-500 text-amber-400 animate-pulse'
-                    : micState === 'listening'
-                    ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
-                    : 'bg-white/5 border-white/10 text-neutral-500'
-                }`}
-                title={isActive ? 'Diga "Nexus" pra falar com voz' : 'Ative o NEXUS pra usar voz'}
-              >
-                <Mic className="w-4 h-4" />
-              </div>
+            <div
+              className={`flex items-center gap-2 bg-neutral-900/70 backdrop-blur-xl border rounded-2xl p-2 shadow-2xl shadow-black/40 transition-colors ${
+                micState === 'awaiting-question' ? 'border-amber-500/60' : micState === 'listening' ? 'border-cyan-500/30' : 'border-white/10'
+              }`}
+            >
               <input
                 type="text"
                 value={textInput}
