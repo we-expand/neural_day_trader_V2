@@ -10,8 +10,89 @@ import { projectId } from '../../../../utils/supabase/info';
 
 const NEXUS_VOICE_URL = `https://${projectId}.supabase.co/functions/v1/nexus-voice`;
 
+// Dicionário de pronúncia pro TTS (neural via ElevenLabs e nativo do
+// navegador) — sem isso, siglas de indicador e tickers saem lidos como uma
+// "palavra" ilegível (ex: "MACD" virando algo tipo "máqui", "EURUSD" virando
+// "eurusd" grudado). Web Speech API não suporta SSML (`say-as`), então o
+// tratamento aqui é substituição de string simples — funciona nos dois
+// motores de voz porque passa pelo `cleanForSpeech` compartilhado.
+// Fácil de estender: só adicionar uma entrada nova em qualquer um dos mapas
+// abaixo.
+
+// Tickers/pares com forma falada própria — checados antes da regra genérica
+// de par de moeda, porque não seguem o padrão "3 letras + 3 letras" ou têm
+// pronúncia melhor por extenso do que soletrada.
+const TICKER_OVERRIDES: Record<string, string> = {
+  SPX500: 'S P 500',
+  NAS100: 'nasdaq 100',
+  US30: 'dow jones',
+  US100: 'nasdaq 100',
+  US500: 'S P 500',
+  GER40: 'dax alemão',
+  UK100: 'FTSE 100',
+  JPN225: 'nikkei 225',
+  XAUUSD: 'ouro dólar',
+  XAGUSD: 'prata dólar',
+  XAUAUD: 'ouro dólar australiano',
+  BTCUSD: 'bitcoin dólar',
+  ETHUSD: 'ethereum dólar',
+  BTCUSDCRP: 'bitcoin dólar',
+  XETUSD: 'ethereum dólar',
+  XBNUSD: 'binance coin dólar',
+  XLCUSD: 'litecoin dólar',
+};
+
+// Códigos de moeda/ativo de 3 letras — usados pra montar a leitura de um par
+// genérico de 6 letras (ex: EURUSD → "euro dólar") quando não há override
+// explícito acima.
+const ASSET_NAME_MAP: Record<string, string> = {
+  EUR: 'euro',
+  USD: 'dólar',
+  GBP: 'libra esterlina',
+  JPY: 'iene',
+  AUD: 'dólar australiano',
+  CAD: 'dólar canadense',
+  CHF: 'franco suíço',
+  NZD: 'dólar neozelandês',
+  XAU: 'ouro',
+  XAG: 'prata',
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  LTC: 'litecoin',
+  BCH: 'bitcoin cash',
+  XRP: 'ripple',
+};
+
+// Siglas de indicador técnico — soletradas letra por letra (mais natural em
+// PT-BR do que tentar "ler" a sigla como se fosse uma palavra só).
+const INDICATOR_ACRONYMS = [
+  'MACD', 'RSI', 'SMA', 'EMA', 'ATR', 'ADX', 'VWAP', 'CCI', 'OBV', 'ROC',
+  'WMA', 'VIX', 'DSR', 'ADR', 'MFI', 'DMI', 'PSAR', 'STOCH', 'BB', 'EV',
+];
+
+function expandTickersAndAcronyms(text: string): string {
+  // 1. Overrides explícitos de ticker (checa primeiro, palavra inteira).
+  const overridePattern = new RegExp(`\\b(${Object.keys(TICKER_OVERRIDES).join('|')})\\b`, 'g');
+  text = text.replace(overridePattern, (m) => TICKER_OVERRIDES[m]);
+
+  // 2. Par genérico de 6 letras (duas moedas/ativos conhecidos coladas, ex:
+  // GBPJPY, EURUSD) — expande cada metade por extenso.
+  text = text.replace(/\b([A-Z]{3})([A-Z]{3})\b/g, (match, a: string, b: string) => {
+    const nameA = ASSET_NAME_MAP[a];
+    const nameB = ASSET_NAME_MAP[b];
+    if (nameA && nameB) return `${nameA} ${nameB}`;
+    return match;
+  });
+
+  // 3. Siglas de indicador — soletra letra por letra ("MACD" → "M A C D").
+  const acronymPattern = new RegExp(`\\b(${INDICATOR_ACRONYMS.join('|')})\\b`, 'g');
+  text = text.replace(acronymPattern, (m) => m.split('').join(' '));
+
+  return text;
+}
+
 function cleanForSpeech(text: string): string {
-  return text
+  return expandTickersAndAcronyms(text)
     .replace(/[🚨🐋💎⚠️📊🏦📉⚡🤖💰⛓️🛡️🚀🎭📈🔥🟢🔴⚪⏰🌏🎯💡✅❌⭐🔵]/g, '')
     .replace(/\$([\d,.]+)/g, '$1 dólares')
     .trim();
