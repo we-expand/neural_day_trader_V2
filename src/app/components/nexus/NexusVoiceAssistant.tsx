@@ -374,7 +374,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
             <div className="flex items-center justify-between gap-4 mb-5">
               <div className="flex items-center gap-4 min-w-0">
                 {/* Orbe 3D — janela compacta e arredondada, nunca atrás do texto */}
-                <div className="relative w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-full overflow-hidden border border-white/10 bg-black shadow-lg shadow-cyan-500/10">
+                <div className="relative w-48 h-48 md:w-56 md:h-56 shrink-0 rounded-full overflow-hidden border border-white/10 bg-black shadow-lg shadow-cyan-500/10">
                   <NexusScene status={sceneStatus} health={sceneHealth} />
                 </div>
                 <div className="min-w-0">

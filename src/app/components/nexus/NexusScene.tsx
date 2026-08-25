@@ -46,7 +46,7 @@ function Core({ status, health }: { status: NexusStatus; health: NexusHealth }) 
   });
 
   return (
-    <Icosahedron ref={meshRef} args={[0.55, 1]}>
+    <Icosahedron ref={meshRef} args={[1.65, 1]}>
       <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.1} wireframe roughness={0.2} metalness={0.8} />
     </Icosahedron>
   );
@@ -61,7 +61,7 @@ function RadialEqualizer({ status, health }: { status: NexusStatus; health: Nexu
     () =>
       Array.from({ length: BAR_COUNT }, (_, i) => {
         const angle = (i / BAR_COUNT) * Math.PI * 2;
-        const radius = 1.0;
+        const radius = 3.0;
         return { angle, x: Math.cos(angle) * radius, z: Math.sin(angle) * radius, phase: (i / BAR_COUNT) * Math.PI * 2 };
       }),
     []
@@ -99,7 +99,7 @@ function RadialEqualizer({ status, health }: { status: NexusStatus; health: Nexu
           position={[bar.x, 0, bar.z]}
           rotation={[0, -bar.angle, 0]}
         >
-          <boxGeometry args={[0.035, 1, 0.035]} />
+          <boxGeometry args={[0.105, 1, 0.105]} />
           <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.9} toneMapped={false} />
         </mesh>
       ))}
@@ -123,18 +123,18 @@ function HudRings({ health, status }: { health: NexusHealth; status: NexusStatus
   return (
     <group rotation={[Math.PI / 2.15, 0, 0]}>
       <group ref={outerRef}>
-        <Ring args={[1.55, 1.58, 96]}>
+        <Ring args={[4.65, 4.74, 96]}>
           <meshBasicMaterial color={color} transparent opacity={0.35} side={THREE.DoubleSide} />
         </Ring>
         {ticks.map((a, i) => (
-          <mesh key={i} position={[Math.cos(a) * 1.62, Math.sin(a) * 1.62, 0]} rotation={[0, 0, a]}>
-            <planeGeometry args={[0.05, i % 4 === 0 ? 0.14 : 0.07]} />
+          <mesh key={i} position={[Math.cos(a) * 4.86, Math.sin(a) * 4.86, 0]} rotation={[0, 0, a]}>
+            <planeGeometry args={[0.15, i % 4 === 0 ? 0.42 : 0.21]} />
             <meshBasicMaterial color={color} transparent opacity={0.6} side={THREE.DoubleSide} />
           </mesh>
         ))}
       </group>
       <group ref={innerRef}>
-        <Ring args={[1.32, 1.34, 96]}>
+        <Ring args={[3.96, 4.02, 96]}>
           <meshBasicMaterial color="#ffffff" transparent opacity={0.15} side={THREE.DoubleSide} />
         </Ring>
       </group>
@@ -152,14 +152,14 @@ export function NexusScene({ status, health, className }: NexusSceneProps) {
   const color = HEALTH_COLOR[health];
   return (
     <div className={className} style={{ width: '100%', height: '100%' }}>
-      <Canvas camera={{ position: [0, 1.4, 3.4], fov: 38 }} dpr={[1, 1.75]}>
+      <Canvas camera={{ position: [0, 4.2, 10.2], fov: 38 }} dpr={[1, 1.75]}>
         <ambientLight intensity={0.3} />
         <pointLight position={[2, 2, 2]} intensity={1.6} color={color} />
         <pointLight position={[-2, -1, -1]} intensity={0.4} color="#ffffff" />
         <Core status={status} health={health} />
         <RadialEqualizer status={status} health={health} />
         <HudRings health={health} status={status} />
-        <fog attach="fog" args={['#000000', 2.6, 5.5]} />
+        <fog attach="fog" args={['#000000', 7.8, 16.5]} />
       </Canvas>
     </div>
   );
