@@ -15,10 +15,11 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Send, AlertTriangle, Newspaper, CalendarClock, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Send, AlertTriangle, Newspaper, CalendarClock, Volume2, Ear } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useNexusVoice } from './useNexusVoice';
+import { useNexusWakeWord } from './useNexusWakeWord';
 import { NexusScene } from './NexusScene';
 import { useVoiceCoordinator } from '@/app/contexts/VoiceCoordinatorContext';
 import { useTradingContext } from '@/app/contexts/TradingContext';
@@ -27,6 +28,47 @@ import { generateAdvancedAnalysis, TradePosition } from '@/app/utils/advancedTra
 import { supabase } from '@/lib/supabaseClient';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { getRelevantCurrencies } from '@/app/services/risk/NewsCurrencyRelevance';
+import { ALL_ASSETS } from '@/app/config/assetDatabase';
+
+// Apelido comum (PT-BR, fala natural) -> símbolo real do catálogo. Só cobre
+// os termos mais óbvios — qualquer símbolo exato (ex: "XAUUSD", "SOLUSD")
+// já é pego direto pelo match contra ALL_ASSETS, sem precisar de apelido.
+const SYMBOL_ALIASES: Record<string, string> = {
+  ouro: 'XAUUSD',
+  prata: 'XAGUSD',
+  petroleo: 'UKOUSD',
+  petróleo: 'UKOUSD',
+  bitcoin: 'BTCUSD',
+  ethereum: 'ETHUSD',
+  solana: 'SOLUSD',
+  dogecoin: 'DOGEUSD',
+  nasdaq: 'NAS100',
+  dow: 'US30',
+  'dow jones': 'US30',
+  dax: 'GER40',
+  cac: 'FRA40',
+  's&p': 'SPX500',
+  sp500: 'SPX500',
+  'ibovespa': 'BVSPX',
+};
+
+const KNOWN_SYMBOLS = new Set(ALL_ASSETS.map((a) => a.symbol));
+
+// Se o usuário mencionar outro ativo na pergunta (ex: "e o ouro, como tá?"),
+// o NEXUS responde sobre ESSE ativo, não fica travado no que está selecionado
+// no Dashboard — pedido explícito do Cleber (2026-08-25): "livre para
+// perguntar sobre qualquer ativo".
+function detectSymbolInQuestion(question: string): string | null {
+  const upper = question.toUpperCase().replace(/[^A-Z0-9\s]/g, ' ');
+  for (const token of upper.split(/\s+/)) {
+    if (token.length >= 5 && KNOWN_SYMBOLS.has(token)) return token;
+  }
+  const lower = question.toLowerCase();
+  for (const [alias, symbol] of Object.entries(SYMBOL_ALIASES)) {
+    if (lower.includes(alias)) return symbol;
+  }
+  return null;
+}
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -43,11 +85,6 @@ interface NexusAlertRow {
   read_at: string | null;
 }
 
-interface IWindow extends Window {
-  webkitSpeechRecognition: any;
-  SpeechRecognition: any;
-}
-
 const NEXUS_BRAIN_URL = `https://${projectId}.supabase.co/functions/v1/nexus-brain`;
 
 export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }) => {
@@ -56,14 +93,12 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
   const { claimVoice, releaseVoice, onPreempted } = useVoiceCoordinator();
 
   const [isActive, setIsActive] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [textInput, setTextInput] = useState('');
   const [alerts, setAlerts] = useState<NexusAlertRow[]>([]);
   const [contextError, setContextError] = useState<string | null>(null);
 
-  const recognitionRef = useRef<any>(null);
   const symbolRef = useRef(dashboardActiveSymbol);
   symbolRef.current = dashboardActiveSymbol;
 
@@ -94,8 +129,8 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
 
   // Monta o pacote de contexto 100% real — única fonte de verdade que o
   // nexus-brain pode usar pra falar sobre o ativo atual.
-  const buildContextPackage = useCallback(async () => {
-    const symbol = symbolRef.current;
+  const buildContextPackage = useCallback(async (symbolOverride?: string) => {
+    const symbol = symbolOverride || symbolRef.current;
     const end = Date.now();
     const lookbackBars = 200;
     const start = end - lookbackBars * 15 * 60_000; // janela de 15m
@@ -197,7 +232,8 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
       setIsThinking(true);
       setContextError(null);
       try {
-        const contextPackage = await buildContextPackage();
+        const mentionedSymbol = question ? detectSymbolInQuestion(question) : null;
+        const contextPackage = await buildContextPackage(mentionedSymbol || undefined);
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
         if (!token) throw new Error('Sessão inválida — faça login novamente.');
@@ -232,6 +268,12 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
     [buildContextPackage, chat, speak]
   );
 
+  // Wake-word ("Nexus") — escuta contínua enquanto isActive, sem precisar
+  // de botão de aperta-pra-falar. Pausa sozinho enquanto o NEXUS fala,
+  // pra não se ouvir e reagir à própria voz.
+  const handleWakeQuestion = useCallback((question: string) => askNexus(question), [askNexus]);
+  const { micState } = useNexusWakeWord({ enabled: isActive, isSpeaking, onQuestion: handleWakeQuestion });
+
   const handleToggleActive = () => {
     if (!isActive) {
       claimVoice('nexus');
@@ -251,82 +293,58 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
     askNexus(q);
   };
 
-  const handleToggleListening = () => {
-    const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
-    const Recognition = SpeechRecognition || webkitSpeechRecognition;
-    if (!Recognition) {
-      toast.error('Reconhecimento de voz não suportado neste navegador.');
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current?.stop();
-      return;
-    }
-
-    const recognition = new Recognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'pt-BR';
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => {
-      setIsListening(false);
-      toast.error('Não entendi — tenta de novo.');
-    };
-    recognition.onresult = (event: any) => {
-      const text = event.results[0][0].transcript;
-      askNexus(text);
-    };
-    recognitionRef.current = recognition;
-    recognition.start();
-  };
-
   const unreadCritical = alerts.filter((a) => !a.read_at && a.severity !== 'info').length;
-  const sceneStatus = isListening ? 'listening' : isSpeaking ? 'speaking' : isThinking ? 'thinking' : 'idle';
+  const sceneStatus = micState === 'listening' || micState === 'awaiting-question' ? 'listening' : isSpeaking ? 'speaking' : isThinking ? 'thinking' : 'idle';
   const sceneHealth = contextError || unreadCritical > 0 ? (unreadCritical > 0 ? 'warning' : 'critical') : 'normal';
 
   return (
     <div className={`h-full ${embedded ? 'bg-transparent' : 'bg-[#050608]'} text-white relative overflow-hidden`}>
-      {/* Backdrop 3D — ocupa a tela toda, atrás de tudo */}
-      <div className="absolute inset-0 opacity-90 pointer-events-none">
-        <NexusScene status={sceneStatus} health={sceneHealth} />
-      </div>
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: embedded
-            ? 'radial-gradient(ellipse at 50% 30%, transparent 0%, rgba(5,6,8,0.55) 70%, rgba(5,6,8,0.92) 100%)'
-            : 'radial-gradient(ellipse at 50% 20%, transparent 0%, rgba(5,6,8,0.4) 55%, #050608 92%)',
-        }}
-      />
-
       <div className={`relative h-full overflow-y-auto ${embedded ? 'p-0' : 'p-6 md:p-10'}`}>
         <div className="max-w-3xl mx-auto flex flex-col min-h-full">
           {!embedded && (
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold tracking-[0.15em] text-white uppercase flex items-center gap-3">
-                  NEXUS
-                  {unreadCritical > 0 && (
-                    <span className="text-xs font-bold px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 tracking-normal">
-                      {unreadCritical} alerta{unreadCritical > 1 ? 's' : ''}
-                    </span>
-                  )}
-                </h1>
-                <p className="text-slate-400 mt-1 text-sm tracking-wide font-light flex items-center gap-2">
-                  Parceiro de day trade — {dashboardActiveSymbol}, dado real, sem previsão de direção
-                  {voiceMode && (
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-500/70 border border-cyan-500/20 rounded px-1.5 py-0.5">
-                      <Volume2 className="w-3 h-3" />
-                      {voiceMode === 'neural' ? 'voz neural' : 'voz do navegador'}
-                    </span>
-                  )}
-                </p>
+            <div className="flex items-center justify-between gap-4 mb-5">
+              <div className="flex items-center gap-4 min-w-0">
+                {/* Orbe 3D — janela compacta e arredondada, nunca atrás do texto */}
+                <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full overflow-hidden border border-white/10 bg-black shadow-lg shadow-cyan-500/10">
+                  <NexusScene status={sceneStatus} health={sceneHealth} />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-2xl md:text-3xl font-bold tracking-[0.15em] text-white uppercase flex items-center gap-3">
+                    NEXUS
+                    {unreadCritical > 0 && (
+                      <span className="text-xs font-bold px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 tracking-normal">
+                        {unreadCritical} alerta{unreadCritical > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </h1>
+                  <p className="text-slate-400 mt-1 text-sm tracking-wide font-light flex items-center gap-2 flex-wrap">
+                    Parceiro de day trade — pergunte sobre qualquer ativo, dado real, sem previsão de direção
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {voiceMode && (
+                      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-500/70 border border-cyan-500/20 rounded px-1.5 py-0.5">
+                        <Volume2 className="w-3 h-3" />
+                        {voiceMode === 'neural' ? 'voz neural' : 'voz do navegador'}
+                      </span>
+                    )}
+                    {isActive && micState !== 'unsupported' && (
+                      <span
+                        className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider rounded px-1.5 py-0.5 border ${
+                          micState === 'awaiting-question'
+                            ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+                            : 'text-cyan-400 border-cyan-500/20'
+                        }`}
+                      >
+                        <Ear className="w-3 h-3" />
+                        {micState === 'awaiting-question' ? 'ouvindo a pergunta...' : 'diga "nexus" pra falar'}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
               <button
                 onClick={handleToggleActive}
-                className={`shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-all backdrop-blur-sm ${
+                className={`shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
                   isActive
                     ? 'bg-red-600/90 hover:bg-red-500 text-white shadow-lg shadow-red-500/30'
                     : 'bg-cyan-600/90 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
@@ -365,13 +383,13 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
             </div>
           )}
 
-          {/* Chat — cresce pra preencher o espaço, sensação de conversa contínua */}
-          <div className="flex-1 flex flex-col justify-end min-h-[240px] mb-4">
+          {/* Chat — fundo sólido próprio, nunca disputa espaço com a arte da orbe */}
+          <div className="flex-1 flex flex-col justify-end min-h-[240px] mb-4 bg-neutral-950/80 border border-white/5 rounded-2xl p-4">
             {chat.length === 0 && !isThinking && (
               <div className="text-center py-10">
                 <p className="text-neutral-400 text-sm max-w-md mx-auto leading-relaxed">
-                  Pergunte qualquer coisa sobre <span className="text-cyan-400">{dashboardActiveSymbol}</span> — preço,
-                  indicador, sua posição aberta, risco de calendário ou notícia recente. Sempre dado real, nunca invento número.
+                  Pergunte qualquer coisa sobre qualquer ativo — preço, indicador, notícia, risco de calendário ou sua
+                  posição aberta. Sempre dado real, nunca invento número.
                 </p>
               </div>
             )}
@@ -384,10 +402,10 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
                   className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed backdrop-blur-md shadow-lg ${
+                    className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-lg ${
                       m.role === 'user'
                         ? 'bg-cyan-600/25 border border-cyan-500/40 text-cyan-50 rounded-br-sm'
-                        : 'bg-neutral-900/70 border border-white/10 text-neutral-100 rounded-bl-sm'
+                        : 'bg-neutral-900 border border-white/10 text-neutral-100 rounded-bl-sm'
                     }`}
                   >
                     {m.text}
@@ -410,23 +428,24 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
           {/* Input — sempre disponível, conversa não exige "ativar" antes */}
           <div className="sticky bottom-0 pb-2 pt-2">
             <div className="flex items-center gap-2 bg-neutral-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl shadow-black/40">
-              <button
-                onClick={handleToggleListening}
+              <div
                 className={`p-2.5 rounded-xl border transition-all ${
-                  isListening
-                    ? 'bg-red-600/20 border-red-500 text-red-400 animate-pulse'
-                    : 'bg-white/5 border-white/10 text-neutral-400 hover:text-cyan-400 hover:border-cyan-500/40'
+                  micState === 'awaiting-question'
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-400 animate-pulse'
+                    : micState === 'listening'
+                    ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
+                    : 'bg-white/5 border-white/10 text-neutral-500'
                 }`}
-                title="Falar com o NEXUS"
+                title={isActive ? 'Diga "Nexus" pra falar com voz' : 'Ative o NEXUS pra usar voz'}
               >
                 <Mic className="w-4 h-4" />
-              </button>
+              </div>
               <input
                 type="text"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-                placeholder={`Converse com o NEXUS sobre ${dashboardActiveSymbol}...`}
+                placeholder={isActive ? `Diga "Nexus" ou digite sua pergunta...` : `Converse com o NEXUS sobre ${dashboardActiveSymbol}...`}
                 className="flex-1 bg-transparent px-2 py-2 text-white text-sm placeholder:text-neutral-500 focus:outline-none"
               />
               <button
