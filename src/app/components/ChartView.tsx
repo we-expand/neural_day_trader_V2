@@ -2961,45 +2961,47 @@ export function ChartView({
     }
   };
 
-  // 🆕 POSIÇÃO de scroll horizontal do gráfico, ancorada em DADO (não em pixels).
-  // Ver comentário longo em ChartTemplateConfig (useChartTemplates.ts): a
-  // klinecharts guarda o scroll em `_lastBarRightSideDiffBarCount` (quantas barras
-  // de distância existem entre o último candle e a borda direita), que não é
-  // exposto na API pública. O equivalente público é `getVisibleRange()`, onde
-  // `realTo` é o índice do fim da janela SEM clamp -- então `realTo - total` é
-  // exatamente a folga em barras, e o candle encostado na borda direita é
-  // `min(realTo, total) - 1`.
-  const readChartScrollPosition = (chart: any): { rightEdgeTimestamp: number; rightGapBars: number } | null => {
+  // 🆕 POSIÇÃO de scroll horizontal do gráfico, guardada como ÂNCORA
+  // (candle + coordenada X em pixels onde ele está na tela). Ver o comentário
+  // longo em ChartTemplateConfig (useChartTemplates.ts): a klinecharts guarda o
+  // scroll em `_lastBarRightSideDiffBarCount`, que não é público, e reconstruir
+  // esse valor a partir de `getVisibleRange()` erra meia barra por vez porque a
+  // lib arredonda (`realTo = round(diff + total + 0.5)`) — medido no browser:
+  // a posição escorregava 1 barra a CADA restauração, e como o refresh de 30s
+  // restaura, o gráfico ia andando sozinho. Ancorar em pixel é exato.
+  const readChartScrollPosition = (chart: any): { anchorTimestamp: number; anchorX: number } | null => {
     if (!chart) return null;
     try {
       const dataList = chart.getDataList();
       const range = chart.getVisibleRange();
       const total = dataList?.length ?? 0;
       if (!range || total === 0) return null;
-      const edgeIndex = Math.min(Math.round(range.realTo), total) - 1;
-      const edgeCandle = dataList[Math.max(0, edgeIndex)];
-      if (!edgeCandle?.timestamp) return null;
-      return {
-        rightEdgeTimestamp: edgeCandle.timestamp,
-        rightGapBars: Math.max(0, Math.round(range.realTo) - total)
-      };
+      // Candle encostado na borda direita da janela visível — é o que o usuário
+      // percebe como "onde eu deixei o gráfico".
+      const anchorIndex = Math.max(0, Math.min(Math.round(range.realTo), total) - 1);
+      const anchor = dataList[anchorIndex];
+      if (!anchor?.timestamp) return null;
+      const px = chart.convertToPixel({ timestamp: anchor.timestamp }, { paneId: 'candle_pane' });
+      const x = Array.isArray(px) ? px[0]?.x : px?.x;
+      if (typeof x !== 'number' || !isFinite(x)) return null;
+      return { anchorTimestamp: anchor.timestamp, anchorX: x };
     } catch (_) {
       return null;
     }
   };
 
-  // Contraparte de `readChartScrollPosition`. `scrollToTimestamp` encosta o candle
-  // daquele instante na borda direita; o segundo passo devolve a folga vazia que o
-  // usuário tinha deixado depois do último candle (distância negativa = empurra o
-  // gráfico pra frente). Duração 0 nos dois: restaurar posição não é animação.
-  const applyChartScrollPosition = (chart: any, rightEdgeTimestamp: number, rightGapBars: number) => {
+  // Contraparte de `readChartScrollPosition`: rola o quanto for preciso pra que o
+  // candle-âncora volte à MESMA coordenada X. Duração 0 — restaurar posição não
+  // é animação. Aplicar sempre DEPOIS do barSpace (o zoom muda quantos pixels
+  // vale cada barra, logo muda o X do mesmo candle).
+  const applyChartScrollPosition = (chart: any, anchorTimestamp: number, anchorX: number) => {
     if (!chart) return;
     try {
-      chart.scrollToTimestamp(rightEdgeTimestamp, 0);
-      if (rightGapBars > 0) {
-        const barSpace = chart.getBarSpace();
-        if (barSpace > 0) chart.scrollByDistance(-rightGapBars * barSpace, 0);
-      }
+      const px = chart.convertToPixel({ timestamp: anchorTimestamp }, { paneId: 'candle_pane' });
+      const x = Array.isArray(px) ? px[0]?.x : px?.x;
+      if (typeof x !== 'number' || !isFinite(x)) return;
+      const distance = anchorX - x;
+      if (Math.abs(distance) > 0.01) chart.scrollByDistance(distance, 0);
     } catch (error) {
       console.warn('[ChartView] ⚠️ Não foi possível restaurar a posição de scroll:', error);
     }
@@ -3020,8 +3022,8 @@ export function ChartView({
     }
     const viewport = readChartScrollPosition(chart);
     return {
-      rightEdgeTimestamp: viewport?.rightEdgeTimestamp ?? null,
-      rightGapBars: viewport?.rightGapBars ?? null,
+      anchorTimestamp: viewport?.anchorTimestamp ?? null,
+      anchorX: viewport?.anchorX ?? null,
       timeframe,
       indicatorIds: Array.from(activeIndicators),
       indicatorParamsById,
@@ -3098,6 +3100,13 @@ export function ChartView({
   });
   useEffect(() => {
     return () => {
+      // 🐛 Um save de viewport agendado (debounce de 250ms) que dispare DEPOIS do
+      // desmonte leria um chart já `dispose()`ado e sobrescreveria com lixo o
+      // snapshot bom gravado logo abaixo. Cancela antes de gravar o definitivo.
+      if (viewportSaveTimerRef.current) {
+        clearTimeout(viewportSaveTimerRef.current);
+        viewportSaveTimerRef.current = null;
+      }
       if (initialRestoreDoneRef.current) {
         saveSessionState(userIdRef.current, captureCurrentChartConfigRef.current());
       }
@@ -3251,7 +3260,7 @@ export function ChartView({
       // de scroll (`_lastBarRightSideDiffBarCount = offset / barSpace`), ou seja
       // devolve o gráfico pro tempo real. Por isso ele vem ANTES da restauração da
       // posição real, e só existe pra manter a folga configurada de templates
-      // antigos (salvos antes de rightEdgeTimestamp existir).
+      // antigos (salvos antes da âncora de posição existir).
       if (templateConfig.offsetRightDistance !== null && templateConfig.offsetRightDistance !== undefined) {
         // Folga à direita do último candle nunca maior que ~15% da largura do
         // container -- um offset gigante herdado de outra sessão empurra os
@@ -3262,8 +3271,8 @@ export function ChartView({
       }
 
       // 🆕 Posição real onde o usuário deixou o gráfico (ver readChartScrollPosition).
-      if (templateConfig.rightEdgeTimestamp) {
-        applyChartScrollPosition(chart, templateConfig.rightEdgeTimestamp, templateConfig.rightGapBars ?? 0);
+      if (templateConfig.anchorTimestamp && typeof templateConfig.anchorX === 'number') {
+        applyChartScrollPosition(chart, templateConfig.anchorTimestamp, templateConfig.anchorX);
       }
     } catch (error) {
       console.warn('[ChartView] ⚠️ Não foi possível restaurar zoom/posição do template:', error);
@@ -5386,7 +5395,7 @@ export function ChartView({
           // que o usuário tivesse rolado pro passado. Agora salvamos a posição real
           // (candle na borda direita + folga em barras) e o zoom, e restauramos os
           // dois depois que o dado novo entra.
-          let savedScroll: { rightEdgeTimestamp: number; rightGapBars: number } | null = null;
+          let savedScroll: { anchorTimestamp: number; anchorX: number } | null = null;
           let savedBarSpace: number | null = null;
           if (!isInitialLoadRef.current) {
             savedScroll = readChartScrollPosition(chart);
@@ -5400,7 +5409,7 @@ export function ChartView({
             try { chart.setBarSpace(savedBarSpace); } catch (_) {}
           }
           if (savedScroll) {
-            applyChartScrollPosition(chart, savedScroll.rightEdgeTimestamp, savedScroll.rightGapBars);
+            applyChartScrollPosition(chart, savedScroll.anchorTimestamp, savedScroll.anchorX);
             console.log('[ChartView] 🔧 Zoom e posição do usuário restaurados após refresh');
           }
           

@@ -23,13 +23,17 @@ export interface ChartTemplateConfig {
   // `_lastBarRightSideDiffBarCount = offset / barSpace`, ou seja EMPURRA o
   // gráfico de volta pro tempo real. Salvar/restaurar aquilo achando que era
   // "onde o usuário deixou o gráfico" era a razão de a posição nunca segurar.
-  // A posição de verdade é ancorada em dado: qual candle está encostado na
-  // borda direita (`rightEdgeTimestamp` — timestamp, não índice, pra
-  // sobreviver ao dataset crescer/mudar de tamanho) e quantas barras vazias
-  // sobram depois dele (`rightGapBars`, quando o usuário puxa o gráfico pra
-  // frente do último candle). Opcionais: templates salvos antes disso não têm.
-  rightEdgeTimestamp?: number | null;
-  rightGapBars?: number | null;
+  //
+  // A posição de verdade é guardada como uma ÂNCORA: um candle (por timestamp,
+  // não por índice — o dataset cresce a cada refresh) e a coordenada X em
+  // pixels onde ele estava na tela. Restaurar = colocar o mesmo candle no mesmo
+  // X. Medido no browser contra a klinecharts 9.8.10 (ver histórico da sessão):
+  // reconstruir a posição a partir de `visibleRange` em vez de pixels erra meia
+  // barra por vez (a lib arredonda `realTo = round(diff + total + 0.5)`), o que
+  // com o refresh de 30s vira uma deriva contínua — o gráfico "anda sozinho".
+  // Opcionais: templates salvos antes disso não têm.
+  anchorTimestamp?: number | null;
+  anchorX?: number | null;
 }
 
 export interface ChartTemplate {
