@@ -3,10 +3,11 @@
  * (`runAgent`), pra trocar de fornecedor sem tocar em index.ts nem no resto
  * do app.
  *
- * Começa em Groq (free tier, sem cartão) pra validar o produto de pé sem
- * custo. Troca pra Anthropic (paga, melhor qualidade) só mudando a secret
- * `LLM_PROVIDER` pra 'anthropic' via `supabase secrets set` — nenhum deploy
- * de código novo necessário pra essa troca.
+ * Default trocado em 2026-08-25 de Groq pra NVIDIA NIM (Nemotron 3 Ultra,
+ * 55B ativos/550B total MoE) — pedido do Cleber. Groq e Anthropic seguem
+ * disponíveis, trocáveis via secret `LLM_PROVIDER` ('nvidia' | 'groq' |
+ * 'anthropic') via `supabase secrets set` — nenhum deploy de código novo
+ * necessário pra essa troca.
  *
  * 2026-08-25: `callLLM` (texto puro) virou `runAgent` (tool-use) — pedido
  * explícito e repetido do Cleber de que o NEXUS precisa estar "conectado a
@@ -40,18 +41,27 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // regularidade.
 const GROQ_MODEL_DEFAULT = 'openai/gpt-oss-120b';
 
+// NVIDIA NIM (build.nvidia.com) — API OpenAI-compatible, mesmo formato de
+// tool calling do Groq. Pedido do Cleber em 2026-08-25: trocar o provedor
+// default de Groq pra Nemotron 3 Ultra (55B ativos / 550B total, MoE
+// Mamba-Transformer). Modelo e endpoint confirmados via NVIDIA NIM em
+// 2026-08-25. Trocável via secret NVIDIA_MODEL sem novo deploy.
+const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const NVIDIA_MODEL_DEFAULT = 'nvidia/nemotron-3-ultra-550b-a55b';
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929';
 
 const MAX_TOOL_ROUNDS = 4; // trava de segurança — evita loop de tool-call sem fim por erro do modelo
 
-async function runGroqAgent(params: RunAgentParams): Promise<string> {
-  const apiKey = Deno.env.get('GROQ_API_KEY');
-  if (!apiKey) {
-    throw new Error('[nexus-brain] GROQ_API_KEY ausente no ambiente (supabase secrets set).');
-  }
-
+// Formato OpenAI-compatible (chat completions + tool calling) — comum a
+// Groq e NVIDIA NIM. Parametrizado por provedor pra reaproveitar entre os
+// dois sem duplicar o loop de tool-use.
+async function runOpenAICompatAgent(
+  params: RunAgentParams,
+  opts: { providerLabel: string; url: string; apiKey: string; model: string },
+): Promise<string> {
   const openaiTools = params.tools.map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.input_schema },
@@ -63,11 +73,11 @@ async function runGroqAgent(params: RunAgentParams): Promise<string> {
   ];
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-    const res = await fetch(GROQ_API_URL, {
+    const res = await fetch(opts.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
       body: JSON.stringify({
-        model: Deno.env.get('GROQ_MODEL') || GROQ_MODEL_DEFAULT,
+        model: opts.model,
         max_tokens: params.maxTokens ?? 500,
         messages,
         tools: openaiTools,
@@ -75,15 +85,15 @@ async function runGroqAgent(params: RunAgentParams): Promise<string> {
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`[nexus-brain] Groq API ${res.status}: ${errText.slice(0, 300)}`);
+      throw new Error(`[nexus-brain] ${opts.providerLabel} API ${res.status}: ${errText.slice(0, 300)}`);
     }
     const data = await res.json();
     const message = data?.choices?.[0]?.message;
-    if (!message) throw new Error('[nexus-brain] Resposta da Groq sem message.');
+    if (!message) throw new Error(`[nexus-brain] Resposta da ${opts.providerLabel} sem message.`);
 
     const toolCalls = message.tool_calls;
     if (!toolCalls || toolCalls.length === 0) {
-      if (!message.content) throw new Error('[nexus-brain] Resposta da Groq sem texto nem tool_calls.');
+      if (!message.content) throw new Error(`[nexus-brain] Resposta da ${opts.providerLabel} sem texto nem tool_calls.`);
       return message.content as string;
     }
 
@@ -99,7 +109,33 @@ async function runGroqAgent(params: RunAgentParams): Promise<string> {
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(toolResult) });
     }
   }
-  throw new Error('[nexus-brain] Excedeu limite de chamadas de ferramenta (Groq) sem resposta final.');
+  throw new Error(`[nexus-brain] Excedeu limite de chamadas de ferramenta (${opts.providerLabel}) sem resposta final.`);
+}
+
+async function runGroqAgent(params: RunAgentParams): Promise<string> {
+  const apiKey = Deno.env.get('GROQ_API_KEY');
+  if (!apiKey) {
+    throw new Error('[nexus-brain] GROQ_API_KEY ausente no ambiente (supabase secrets set).');
+  }
+  return runOpenAICompatAgent(params, {
+    providerLabel: 'Groq',
+    url: GROQ_API_URL,
+    apiKey,
+    model: Deno.env.get('GROQ_MODEL') || GROQ_MODEL_DEFAULT,
+  });
+}
+
+async function runNvidiaAgent(params: RunAgentParams): Promise<string> {
+  const apiKey = Deno.env.get('NVIDIA_API_KEY');
+  if (!apiKey) {
+    throw new Error('[nexus-brain] NVIDIA_API_KEY ausente no ambiente (supabase secrets set).');
+  }
+  return runOpenAICompatAgent(params, {
+    providerLabel: 'NVIDIA',
+    url: NVIDIA_API_URL,
+    apiKey,
+    model: Deno.env.get('NVIDIA_MODEL') || NVIDIA_MODEL_DEFAULT,
+  });
 }
 
 async function runAnthropicAgent(params: RunAgentParams): Promise<string> {
@@ -163,10 +199,12 @@ async function runAnthropicAgent(params: RunAgentParams): Promise<string> {
 }
 
 export async function runAgent(params: RunAgentParams): Promise<string> {
-  // Default 'groq' de propósito: enquanto a secret LLM_PROVIDER não for
-  // setada, o NEXUS já funciona no provedor gratuito sem nenhuma ação extra.
-  const provider = (Deno.env.get('LLM_PROVIDER') || 'groq').toLowerCase();
+  // Default trocado de 'groq' pra 'nvidia' em 2026-08-25 (pedido do
+  // Cleber: testar/usar Nemotron 3 Ultra no lugar da Groq). Pra voltar pra
+  // Groq sem novo deploy, basta `supabase secrets set LLM_PROVIDER=groq`.
+  const provider = (Deno.env.get('LLM_PROVIDER') || 'nvidia').toLowerCase();
   if (provider === 'anthropic') return runAnthropicAgent(params);
   if (provider === 'groq') return runGroqAgent(params);
-  throw new Error(`[nexus-brain] LLM_PROVIDER desconhecido: "${provider}" (use "groq" ou "anthropic").`);
+  if (provider === 'nvidia') return runNvidiaAgent(params);
+  throw new Error(`[nexus-brain] LLM_PROVIDER desconhecido: "${provider}" (use "nvidia", "groq" ou "anthropic").`);
 }
