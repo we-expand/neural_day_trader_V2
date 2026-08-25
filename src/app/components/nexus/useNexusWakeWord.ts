@@ -30,7 +30,12 @@ interface IWindow extends Window {
   SpeechRecognition: any;
 }
 
-const WAKE_WORD = /\bnexus\b/i;
+// "nexus" não é palavra comum em pt-BR — o motor de reconhecimento de voz
+// erra a transcrição com frequência (ouve "nexos", "nexo", "nécsus", "next
+// us" etc.), o que antes exigia repetir a palavra várias vezes até acertar
+// por acaso. Fix (2026-08-25): aceita as variações fonéticas mais comuns,
+// igual já foi feito pra tickers no reconhecimento de ativo (c930bd9f6).
+const WAKE_WORD = /\bn[eé]x[uoi]?s?\b|\bnext\s*us\b/i;
 // Janela de conversa contínua — cada pergunta reconhecida (com ou sem
 // "nexus") estende essa janela por mais esse tanto. Enquanto ela não
 // expirar, o usuário pode encadear perguntas sem repetir a palavra de
@@ -85,7 +90,7 @@ export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean
       const isAwaitingFollowup = Date.now() < awaitingUntilRef.current;
 
       if (WAKE_WORD.test(normalized)) {
-        const afterWake = transcript.replace(/.*?\bnexus\b/i, '').trim();
+        const afterWake = transcript.replace(/.*?(\bn[eé]x[uoi]?s?\b|\bnext\s*us\b)/i, '').trim();
         // Toda interação (com pergunta junto ou só a ativação) estende a
         // janela de conversa — depois da 1ª vez que "nexus" é dito, o
         // usuário encadeia perguntas sem repetir a palavra enquanto a
