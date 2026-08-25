@@ -347,13 +347,16 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
   const handleWakeQuestion = useCallback((question: string | null) => askNexus(question ?? undefined), [askNexus]);
   const { micState } = useNexusWakeWord({ enabled: isActive, isSpeaking, onQuestion: handleWakeQuestion });
 
+  // Ativa a escuta por wake-word também quando embutido (aba VOICE do
+  // AITrader) — antes só ativava fora do modo embedded, então dizer "nexus"
+  // nessa aba nunca disparava nada porque `isActive` nunca virava true
+  // (bug encontrado em 2026-08-25: "ao chamar o Nexus ele não se ativa").
   useEffect(() => {
-    if (embedded) return;
     claimVoice('nexus');
     setIsActive(true);
     return () => releaseVoice('nexus');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [embedded]);
+  }, []);
 
   const handleSendText = () => {
     const q = textInput.trim();
