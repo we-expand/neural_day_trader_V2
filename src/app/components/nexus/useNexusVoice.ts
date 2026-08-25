@@ -4,7 +4,7 @@
  * plano free estourar, ou a rede falhar. Nunca trava a conversa por causa
  * da camada de voz.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { projectId } from '../../../../utils/supabase/info';
 
@@ -37,6 +37,13 @@ export function useNexusVoice() {
   const [voiceMode, setVoiceMode] = useState<'neural' | 'browser' | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Dispara o carregamento das vozes do navegador assim que o componente
+  // monta, não só quando alguém fala — reduz o atraso da primeira fala
+  // (getVoices() costuma vir vazio até o browser terminar de carregar).
+  useEffect(() => {
+    window.speechSynthesis?.getVoices();
+  }, []);
+
   const stop = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -47,25 +54,49 @@ export function useNexusVoice() {
     setIsSpeaking(false);
   }, []);
 
-  const speakBrowser = useCallback((text: string): Promise<void> => {
+  // getVoices() costuma devolver [] na primeira chamada — a lista só é
+  // populada de fato depois do evento 'voiceschanged'. Sem esperar isso,
+  // nenhuma voz pt-BR era encontrada e o fallback abaixo forçava
+  // voices[0] (quase sempre inglês) — essa era a causa do sotaque
+  // americanizado reportado em produção (2026-08-25).
+  const loadVoices = useCallback((): Promise<SpeechSynthesisVoice[]> => {
     return new Promise((resolve) => {
-      if (!window.speechSynthesis) return resolve();
+      const existing = window.speechSynthesis?.getVoices() ?? [];
+      if (existing.length > 0) return resolve(existing);
+      const handler = () => {
+        window.speechSynthesis.removeEventListener('voiceschanged', handler);
+        resolve(window.speechSynthesis.getVoices());
+      };
+      window.speechSynthesis?.addEventListener('voiceschanged', handler);
+      // Timeout de segurança — alguns navegadores nunca disparam o evento.
+      setTimeout(() => resolve(window.speechSynthesis?.getVoices() ?? []), 500);
+    });
+  }, []);
+
+  const speakBrowser = useCallback(
+    async (text: string): Promise<void> => {
+      if (!window.speechSynthesis) return;
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'pt-BR';
       utterance.rate = 1.0;
       utterance.pitch = 1.02;
-      const voices = window.speechSynthesis.getVoices();
+      const voices = await loadVoices();
       const ptVoice =
         voices.find((v) => v.lang.startsWith('pt') && /google|natural|female|luciana/i.test(v.name)) ||
-        voices.find((v) => v.lang.startsWith('pt')) ||
-        voices[0];
+        voices.find((v) => v.lang.startsWith('pt'));
+      // Só atribui voz explícita se for pt de verdade — nunca força uma voz
+      // de outro idioma. Sem voz pt encontrada, deixa utterance.voice vazio
+      // e o navegador escolhe pelo campo `lang` sozinho (melhor esforço).
       if (ptVoice) utterance.voice = ptVoice;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
       setVoiceMode('browser');
-      window.speechSynthesis.speak(utterance);
-    });
-  }, []);
+      await new Promise<void>((resolve) => {
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+        window.speechSynthesis.speak(utterance);
+      });
+    },
+    [loadVoices]
+  );
 
   const speak = useCallback(
     async (text: string): Promise<void> => {
