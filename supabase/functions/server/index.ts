@@ -4198,7 +4198,18 @@ app.post('/mt5-prices', async (c) => {
         // Buscar preços de todos os símbolos, com concorrência limitada (ver
         // mapWithConcurrency acima — evita rate-limit por excesso de chamadas
         // simultâneas à mesma conta MetaAPI compartilhada dentro de um chunk).
-        const results = await mapWithConcurrency(symbols, 8, async (symbol: string) => {
+        //
+        // 🔁 2026-08-25: extraído pra função nomeada (era arrow function inline
+        // dentro do mapWithConcurrency) — sem mudar NADA do corpo, só pra poder
+        // reusar a mesma lógica de fetch num retry (ver abaixo). Achado real:
+        // Dashboard reportado com vários ativos zerados mesmo já com o cache
+        // compartilhado + dedupe de chamada concorrente (L1/L2 acima) — a causa
+        // era a própria MetaAPI rejeitando (HTTP 429) uma FRAÇÃO dos símbolos
+        // dentro de um único lote sob carga (até 8 símbolos concorrentes × 2
+        // chamadas cada — tick + candle — nunca tinham retry: o símbolo que
+        // falhasse ficava sem preço até o próximo ciclo de polling do cliente
+        // tentar de novo, minutos depois, e às vezes falhava de novo).
+        const fetchOnePrice = async (symbol: string) => {
                 // Cache compartilhado entre TODOS os usuários (ver comentário acima da
                 // rota) — se outro usuário já buscou esse símbolo há pouco, reaproveita
                 // sem bater na corretora de novo.
@@ -4547,7 +4558,37 @@ app.post('/mt5-prices', async (c) => {
 
                 inFlightPriceFetches.set(symbol, fetchPromise);
                 return fetchPromise;
-        });
+        };
+
+        const results = await mapWithConcurrency(symbols, 8, fetchOnePrice);
+
+        // 🔁 2026-08-25: retry único pros símbolos que falharam na 1ª tentativa
+        // (HTTP 429/504 da própria MetaAPI sob carga, não erro do nosso lado —
+        // ver comentário acima de `fetchOnePrice`). Breve espera antes de tentar
+        // de novo (dá tempo da rajada que causou o 429 passar) + concorrência
+        // menor (4, metade da 1ª tentativa) — reduz ainda mais a chance de gerar
+        // uma 2ª rajada em cima da conta já sob pressão. Symbols que também
+        // falharem no retry mantêm o resultado de erro original (client trata
+        // isso normalmente — mantém o último preço real conhecido, ver
+        // RealMarketDataService.ts).
+        const failedIndexes = results
+            .map((r, i) => (r.price === null ? i : -1))
+            .filter(i => i !== -1);
+
+        if (failedIndexes.length > 0) {
+            console.log(`[MT5 PRICES] 🔁 Retry: ${failedIndexes.length}/${symbols.length} símbolo(s) falharam na 1ª tentativa, tentando de novo em 700ms...`);
+            await new Promise(resolve => setTimeout(resolve, 700));
+            const retrySymbols = failedIndexes.map(i => symbols[i]);
+            const retryResults = await mapWithConcurrency(retrySymbols, 4, fetchOnePrice);
+            let recovered = 0;
+            failedIndexes.forEach((origIndex, k) => {
+                if (retryResults[k].price !== null) {
+                    results[origIndex] = retryResults[k];
+                    recovered++;
+                }
+            });
+            console.log(`[MT5 PRICES] 🔁 Retry recuperou ${recovered}/${failedIndexes.length} símbolo(s).`);
+        }
 
         const successCount = results.filter(r => r.price !== null).length;
         console.log(`[MT5 PRICES] 📊 Resultado: ${successCount}/${symbols.length} ativos obtidos`);
