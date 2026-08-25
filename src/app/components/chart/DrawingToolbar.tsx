@@ -13,7 +13,7 @@
  * 6. Anotação (Texto)
  * 7. Ícones
  * 8. Medir
- * 9. Zoom
+ * 9. Zoom In / Zoom Out
  * 10. Modo Magnético
  * 11. Travar Desenhos
  * 12. Ocultar Desenhos
@@ -35,6 +35,7 @@ import {
   Smile,
   Ruler,
   ZoomIn,
+  ZoomOut,
   Magnet,
   Lock,
   Eye,
@@ -71,7 +72,8 @@ type DrawingTool =
   | 'text'
   | 'icons'
   | 'measure'
-  | 'zoom'
+  | 'zoom_in'
+  | 'zoom_out'
   | 'magnet'
   | 'lock'
   | 'hide'
@@ -165,6 +167,14 @@ export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeC
       return;
     }
 
+    // 🆕 Zoom In / Zoom Out são AÇÕES momentâneas (aplicam zoom no gráfico e
+    // pronto), não ferramentas com estado ativo — antes existia um único botão
+    // "Zoom" que só aproximava e ainda ficava marcado como ferramenta ativa.
+    if (tool === 'zoom_in' || tool === 'zoom_out') {
+      onToolSelect?.(tool);
+      return;
+    }
+
     if (tool === 'delete') {
       if (onDeleteAll) {
         onDeleteAll();
@@ -193,7 +203,8 @@ export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeC
       text: 'Anotação de Texto',
       icons: 'Ícones',
       measure: 'Medir Distância',
-      zoom: 'Zoom',
+      zoom_in: 'Aproximar',
+      zoom_out: 'Afastar',
       magnet: 'Modo Magnético',
       lock: 'Travar Desenhos',
       hide: 'Ocultar Desenhos',
@@ -324,9 +335,15 @@ export function DrawingToolbar({ onToolSelect, onSubToolSelect, onCrosshairModeC
       dividerAfter: false
     },
     {
-      id: 'zoom' as DrawingTool,
+      id: 'zoom_in' as DrawingTool,
       icon: ZoomIn,
-      label: 'Zoom',
+      label: 'Aproximar (Zoom +)',
+      dividerAfter: false
+    },
+    {
+      id: 'zoom_out' as DrawingTool,
+      icon: ZoomOut,
+      label: 'Afastar (Zoom −)',
       dividerAfter: true // Separador depois
     },
     {

@@ -1087,7 +1087,8 @@ type DrawingTool =
   | 'annotation'
   | 'icons'
   | 'measure'
-  | 'zoom'
+  | 'zoom_in'
+  | 'zoom_out'
   | 'magnet'
   | 'lock'
   | 'hide'
@@ -1689,7 +1690,8 @@ export function ChartView({
     { id: 'icons' as DrawingTool, icon: Smile, label: 'Ícones', shortcut: 'Alt + I' },
     'separator',
     { id: 'measure' as DrawingTool, icon: Ruler, label: 'Medir', shortcut: 'Alt + M' },
-    { id: 'zoom' as DrawingTool, icon: ZoomIn, label: 'Zoom', shortcut: 'Alt + Z' },
+    { id: 'zoom_in' as DrawingTool, icon: ZoomIn, label: 'Aproximar (Zoom +)', shortcut: 'Alt + Z' },
+    { id: 'zoom_out' as DrawingTool, icon: ZoomOut, label: 'Afastar (Zoom −)', shortcut: 'Alt + X' },
     'separator',
     { id: 'magnet' as DrawingTool, icon: MagnetIcon, label: 'Modo Magnético', shortcut: 'Alt + G' },
     { id: 'lock' as DrawingTool, icon: Lock, label: 'Travar Desenhos', shortcut: 'Alt + L' },
@@ -3028,6 +3030,24 @@ export function ChartView({
   useEffect(() => {
     captureCurrentChartConfigRef.current = captureCurrentChartConfig;
     userIdRef.current = user?.id;
+  });
+
+  // 🆕 Persistência do VIEWPORT (zoom + scroll horizontal). O autosave de sessão acima
+  // só dispara quando muda indicador/timeframe/grade/S-R — dar zoom não mexe em nenhum
+  // desses, então o zoom só era gravado no desmonte do componente. Isso bastava pra
+  // troca de seção, mas não pra recarregar a página nem pra qualquer caminho que não
+  // passe pelo cleanup. Aqui o zoom/scroll é gravado assim que o usuário para de
+  // mexer (debounce curto — onZoom/onScroll disparam a cada frame do gesto).
+  const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistChartViewportRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    persistChartViewportRef.current = () => {
+      if (!initialRestoreDoneRef.current) return;
+      if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
+      viewportSaveTimerRef.current = setTimeout(() => {
+        saveSessionState(userIdRef.current, captureCurrentChartConfigRef.current());
+      }, 250);
+    };
   });
   useEffect(() => {
     return () => {
@@ -5071,11 +5091,13 @@ export function ChartView({
         if (!isInitialLoadRef.current) {
           console.log('[ChartView] 🖱️ Usuário scrollou manualmente - auto-scroll desabilitado');
         }
+        persistChartViewportRef.current();
       });
       
       // 🆕 Detectar zoom do usuário
       chart.subscribeAction('onZoom', () => {
         console.log('[ChartView] 🔍 Usuário deu zoom');
+        persistChartViewportRef.current();
       });
 
       // 🆕 Ícones "⚙"/"✕" na legenda do indicador (ver INDICATOR_SETTINGS_ICON/
@@ -5378,8 +5400,15 @@ export function ChartView({
             sessionStateAppliedRef.current = true;
             favoriteSetupAppliedRef.current = true; // não aplica os dois — sessão vence
             try {
-              applyChartTemplateConfig(chart, { ...sessionState, barSpace: null, offsetRightDistance: null });
-              console.log('[ChartView] 🔄 Estado de sessão restaurado:', sessionState.indicatorIds);
+              // 🐛 FIX (relatado pelo Cleber): o zoom não "segurava" ao trocar de seção
+              // nem ao carregar template — este caminho descartava de propósito
+              // barSpace/offsetRightDistance do estado de sessão, devolvendo o gráfico
+              // pro zoom padrão da lib mesmo tendo o valor salvo em mãos. O estado de
+              // sessão é justamente "como o gráfico estava segundos atrás", então o
+              // viewport faz parte dele (diferente do setup favorito logo abaixo, que
+              // é preferência genérica e continua sem posição fixa).
+              applyChartTemplateConfig(chart, sessionState);
+              console.log('[ChartView] 🔄 Estado de sessão restaurado:', sessionState.indicatorIds, 'barSpace:', sessionState.barSpace);
             } catch (error) {
               console.error('[ChartView] ❌ Erro restaurando estado de sessão:', error);
             }
@@ -6604,9 +6633,13 @@ export function ChartView({
               // 🔧 FIX: Medir e Zoom eram decorativos (este callback era só console.log)
               if (tool === 'measure') {
                 handleDrawingToolSelect('measure');
-              } else if (tool === 'zoom') {
+              } else if (tool === 'zoom_in' || tool === 'zoom_out') {
+                // 🆕 Zoom In e Zoom Out (antes só existia "Zoom", que só aproximava).
+                // `zoomAtCoordinate` com escala <1 afasta, >1 aproxima; sem coordenada
+                // a própria klinecharts usa o centro da área visível.
                 try {
-                  chartInstanceRef.current?.zoomAtCoordinate(1.25, undefined, 200);
+                  chartInstanceRef.current?.zoomAtCoordinate(tool === 'zoom_in' ? 1.25 : 0.8, undefined, 200);
+                  persistChartViewportRef.current();
                 } catch (e) {
                   console.warn('[ChartView] ⚠️ Zoom falhou:', e);
                 }
