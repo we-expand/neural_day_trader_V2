@@ -113,13 +113,32 @@ export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean
     recognition.onend = () => {
       // Reinicia sozinho enquanto o modo de escuta contínua estiver ativo —
       // o navegador encerra a sessão de tempos em tempos mesmo em `continuous`.
-      if (shouldRunRef.current) {
+      //
+      // BUG corrigido aqui (2026-08-25): `shouldRunRef` é um ref ÚNICO
+      // compartilhado por TODAS as instâncias de recognition já criadas
+      // (cada pausa/retomada por causa de `isSpeaking` cria um objeto novo
+      // via `startRecognition`). O `onend` de uma instância ANTIGA já
+      // descartada é assíncrono e pode disparar DEPOIS que uma instância
+      // NOVA já foi criada e está rodando (ex: usuário pergunta de novo
+      // rápido, NEXUS responde, `isSpeaking` liga/desliga, um novo
+      // `recognition` é criado enquanto o `onend` do antigo ainda não tinha
+      // dado o sinal). Como o handler só checava `shouldRunRef.current`
+      // (true nesse momento, porque já estamos ouvindo de novo), ele dava
+      // `.start()` na instância FANTASMA antiga — dois `SpeechRecognition`
+      // concorrentes tentando usar o mesmo microfone, o que faz o navegador
+      // abortar ou embaralhar um dos dois de forma imprevisível. Resultado
+      // na prática: a escuta "engasgava" logo depois da 1ª resposta e a
+      // janela de conversa contínua parecia nunca funcionar, exigindo
+      // "nexus" de novo. Fix: só reinicia se ESTA instância ainda for a
+      // instância corrente (`recognitionRef.current === recognition`) — uma
+      // instância superada nunca reinicia a si mesma.
+      if (shouldRunRef.current && recognitionRef.current === recognition) {
         try {
           recognition.start();
         } catch {
           // Já rodando ou trocando de estado rápido demais — próximo ciclo de efeito corrige.
         }
-      } else {
+      } else if (recognitionRef.current === recognition) {
         setMicState('off');
       }
     };

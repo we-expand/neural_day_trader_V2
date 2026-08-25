@@ -243,8 +243,13 @@ export function useNexusVoice() {
           audio.play().catch(() => resolve());
         });
         URL.revokeObjectURL(url);
-      } catch {
-        // Voz neural indisponível (sem chave, cota estourada, rede) — cai pro TTS nativo, silenciosamente.
+      } catch (err) {
+        // Voz neural indisponível (sem chave, cota estourada, rede) — cai pro TTS
+        // nativo sem travar a conversa, mas loga o motivo real: antes esse catch
+        // engolia o erro por completo, então "voz robotizada" (fallback do
+        // navegador) era indistinguível de qualquer outra causa sem abrir o
+        // Supabase e ler os logs da function.
+        console.warn('[nexus] voz neural indisponível, caindo pro TTS do navegador:', err);
         await speakBrowser(clean);
       } finally {
         setIsSpeaking(false);
