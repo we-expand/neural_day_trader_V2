@@ -4501,6 +4501,26 @@ export function ChartView({
       } catch (e) {
         console.warn('[ChartView] ⚠️ Não foi possível desenhar zona de Order Block:', e);
       }
+
+      // 🆕 Linha horizontal clássica de S/R, na borda da zona voltada pro preço
+      // (resistência: base do retângulo; suporte: topo) — o Cleber pediu de
+      // volta além do retângulo, que sozinho não deixa claro qual preço exato
+      // é o nível de reação.
+      const lineId = `ob_line_${zone.id}`;
+      const lineLevel = isResistance ? zone.priceLow : zone.priceHigh;
+      try {
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: lineId,
+          lock: true,
+          points: [{ value: lineLevel }],
+          styles: { line: { color: borderColor, style: 'dashed', size: 1 } },
+          extendData: label
+        });
+        srOverlayIdsRef.current.push(lineId);
+      } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de S/R:', e);
+      }
     });
   };
 
