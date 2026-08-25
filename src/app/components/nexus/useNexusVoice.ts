@@ -32,6 +32,22 @@ export function getNexusVoiceLevel(): number {
   return sum / levelData.length / 255; // 0..1
 }
 
+// Espectro de frequência real (não fabricado) pro equalizador radial do HUD
+// — cada barra reage à faixa de frequência de verdade da fala, não a um
+// valor único repetido.
+export function getNexusVoiceSpectrum(bars: number): number[] {
+  if (!sharedAnalyser) return new Array(bars).fill(0);
+  sharedAnalyser.getByteFrequencyData(levelData);
+  const bucketSize = Math.max(1, Math.floor(levelData.length / bars));
+  const result: number[] = [];
+  for (let i = 0; i < bars; i++) {
+    let sum = 0;
+    for (let j = 0; j < bucketSize; j++) sum += levelData[i * bucketSize + j] ?? 0;
+    result.push(sum / bucketSize / 255);
+  }
+  return result;
+}
+
 export function useNexusVoice() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'neural' | 'browser' | null>(null);

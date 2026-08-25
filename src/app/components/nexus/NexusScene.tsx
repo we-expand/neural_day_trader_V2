@@ -1,23 +1,25 @@
 /**
- * NEXUS SCENE — visual 3D imersivo do assistente (Three.js via
- * @react-three/fiber, já usado no projeto pelo JarvisOrb). Diferente do
- * JarvisOrb (pensado pra um espaço pequeno, admin-only), esta cena ocupa a
- * tela toda: núcleo reativo maior, campo de partículas flutuantes, anéis
- * holográficos em múltiplas camadas e um plano de dados no horizonte —
- * pensado pro padrão visual "parceiro de IA" que o produto pede aqui, não
- * um indicador de status discreto.
+ * NEXUS SCENE — HUD holográfico (Three.js via @react-three/fiber, já usado
+ * no projeto pelo JarvisOrb). Pedido explícito do Cleber (2026-08-25): não
+ * quer "uma bola" orgânica — quer estética de HUD tecnológico tipo
+ * Homem de Ferro, com uma onda/equalizador de voz de verdade.
  *
- * Reage a três coisas em tempo real, sem nenhum dado fabricado:
- *  - status (idle/listening/thinking/speaking) — muda cor/velocidade.
- *  - nível de áudio real da voz neural (getNexusVoiceLevel, useNexusVoice)
- *    — pulsa o núcleo em sincronia com a fala de verdade, não um timer.
- *  - severidade dos alertas proativos reais (nexus_alerts) — health.
+ * Composição:
+ *  - Núcleo pequeno (icosaedro wireframe) — fonte de energia central.
+ *  - Equalizador radial: anel de barras finas ao redor do núcleo, cada
+ *    barra reage à frequência REAL do áudio (getNexusVoiceSpectrum) — nunca
+ *    uma animação fabricada quando está falando. Em repouso, pulso leve
+ *    senoidal (idle), não plano.
+ *  - Dois anéis HUD finos com ticks (como mira/retículo), girando em
+ *    velocidades opostas.
+ *  - Sem "bola" de distorção orgânica — tudo geometria fina, precisa,
+ *    digital.
  */
 import { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { MeshDistortMaterial, Sphere, Sparkles, Ring, Icosahedron } from '@react-three/drei';
+import { Icosahedron, Ring } from '@react-three/drei';
 import * as THREE from 'three';
-import { getNexusVoiceLevel } from './useNexusVoice';
+import { getNexusVoiceSpectrum } from './useNexusVoice';
 
 export type NexusStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 export type NexusHealth = 'normal' | 'warning' | 'critical';
@@ -28,146 +30,115 @@ const HEALTH_COLOR: Record<NexusHealth, string> = {
   critical: '#ef4444',
 };
 
+const BAR_COUNT = 32;
+
 function Core({ status, health }: { status: NexusStatus; health: NexusHealth }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const color = HEALTH_COLOR[health];
-
-  const targetSpeed = useMemo(() => {
-    switch (status) {
-      case 'listening': return 3.4;
-      case 'speaking': return 2.6;
-      case 'thinking': return 1.8;
-      default: return 0.5;
-    }
-  }, [status]);
-
-  const targetDistort = useMemo(() => {
-    switch (status) {
-      case 'listening': return 0.6;
-      case 'speaking': return 0.5;
-      case 'thinking': return 0.32;
-      default: return 0.16;
-    }
-  }, [status]);
+  const spinSpeed = status === 'listening' ? 1.4 : status === 'speaking' ? 1.0 : status === 'thinking' ? 0.7 : 0.25;
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
-    meshRef.current.rotation.y += delta * 0.22;
-    meshRef.current.rotation.x += delta * 0.06;
-
-    const audioLevel = status === 'speaking' ? getNexusVoiceLevel() : 0;
-    const basePulse =
-      status === 'listening' || status === 'speaking'
-        ? 1 + Math.sin(state.clock.elapsedTime * 6) * 0.05
-        : 1 + Math.sin(state.clock.elapsedTime * 1.1) * 0.02;
-    const voicePulse = 1 + audioLevel * 0.35;
-    meshRef.current.scale.setScalar(basePulse * voicePulse);
+    meshRef.current.rotation.y += delta * spinSpeed;
+    meshRef.current.rotation.x += delta * spinSpeed * 0.4;
+    const pulse = 1 + Math.sin(state.clock.elapsedTime * 2.2) * (status === 'idle' ? 0.03 : 0.08);
+    meshRef.current.scale.setScalar(pulse);
   });
 
   return (
-    <Sphere ref={meshRef} args={[1.55, 160, 160]}>
-      <MeshDistortMaterial
-        color={color}
-        emissive={color}
-        emissiveIntensity={0.75}
-        roughness={0.1}
-        metalness={0.5}
-        distort={targetDistort}
-        speed={targetSpeed}
-      />
-    </Sphere>
-  );
-}
-
-function HoloRings({ health, status }: { health: NexusHealth; status: NexusStatus }) {
-  const r1 = useRef<THREE.Mesh>(null);
-  const r2 = useRef<THREE.Mesh>(null);
-  const r3 = useRef<THREE.Mesh>(null);
-  const color = HEALTH_COLOR[health];
-  const speedMul = status === 'idle' ? 1 : 2.4;
-
-  useFrame((_s, delta) => {
-    if (r1.current) r1.current.rotation.z += delta * 0.3 * speedMul;
-    if (r2.current) r2.current.rotation.z -= delta * 0.18 * speedMul;
-    if (r3.current) r3.current.rotation.y += delta * 0.22 * speedMul;
-  });
-
-  return (
-    <group>
-      <group rotation={[Math.PI / 2.3, 0, 0]}>
-        <Ring ref={r1} args={[2.25, 2.29, 128]}>
-          <meshBasicMaterial color={color} transparent opacity={0.4} side={THREE.DoubleSide} />
-        </Ring>
-        <Ring ref={r2} args={[2.55, 2.58, 128]} rotation={[0.5, 0, 0]}>
-          <meshBasicMaterial color={color} transparent opacity={0.2} side={THREE.DoubleSide} />
-        </Ring>
-      </group>
-      <Ring ref={r3} args={[3.0, 3.02, 96]} rotation={[Math.PI / 1.7, 0.3, 0]}>
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.08} side={THREE.DoubleSide} />
-      </Ring>
-    </group>
-  );
-}
-
-function FloatingShards({ health }: { health: NexusHealth }) {
-  const color = HEALTH_COLOR[health];
-  const shards = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) => ({
-        pos: [
-          Math.cos((i / 7) * Math.PI * 2) * (3.6 + (i % 3) * 0.4),
-          Math.sin(i * 1.7) * 1.4,
-          Math.sin((i / 7) * Math.PI * 2) * (3.6 + (i % 2) * 0.5),
-        ] as [number, number, number],
-        scale: 0.08 + (i % 3) * 0.05,
-        speed: 0.2 + (i % 4) * 0.08,
-      })),
-    []
-  );
-
-  return (
-    <>
-      {shards.map((s, i) => (
-        <FloatingShard key={i} pos={s.pos} scale={s.scale} speed={s.speed} color={color} />
-      ))}
-    </>
-  );
-}
-
-function FloatingShard({
-  pos,
-  scale,
-  speed,
-  color,
-}: {
-  pos: [number, number, number];
-  scale: number;
-  speed: number;
-  color: string;
-}) {
-  const ref = useRef<THREE.Mesh>(null);
-  const offset = useMemo(() => Math.random() * Math.PI * 2, []);
-  useFrame((state, delta) => {
-    if (!ref.current) return;
-    ref.current.rotation.x += delta * speed;
-    ref.current.rotation.y += delta * speed * 0.7;
-    ref.current.position.y = pos[1] + Math.sin(state.clock.elapsedTime * speed + offset) * 0.3;
-  });
-  return (
-    <Icosahedron ref={ref} args={[scale, 0]} position={pos}>
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} roughness={0.3} metalness={0.6} wireframe />
+    <Icosahedron ref={meshRef} args={[0.55, 1]}>
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.1} wireframe roughness={0.2} metalness={0.8} />
     </Icosahedron>
   );
 }
 
-function DataHorizon({ health }: { health: NexusHealth }) {
-  const gridRef = useRef<THREE.GridHelper>(null);
-  useFrame((_s, delta) => {
-    if (gridRef.current) gridRef.current.position.z = (gridRef.current.position.z + delta * 0.5) % 1;
+function RadialEqualizer({ status, health }: { status: NexusStatus; health: NexusHealth }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const barsRef = useRef<THREE.Mesh[]>([]);
+  const color = HEALTH_COLOR[health];
+
+  const layout = useMemo(
+    () =>
+      Array.from({ length: BAR_COUNT }, (_, i) => {
+        const angle = (i / BAR_COUNT) * Math.PI * 2;
+        const radius = 1.0;
+        return { angle, x: Math.cos(angle) * radius, z: Math.sin(angle) * radius, phase: (i / BAR_COUNT) * Math.PI * 2 };
+      }),
+    []
+  );
+
+  useFrame((state, delta) => {
+    if (groupRef.current) groupRef.current.rotation.y += delta * 0.06;
+
+    const isLive = status === 'speaking';
+    const spectrum = isLive ? getNexusVoiceSpectrum(BAR_COUNT) : null;
+
+    barsRef.current.forEach((bar, i) => {
+      if (!bar) return;
+      let h: number;
+      if (spectrum) {
+        h = 0.08 + spectrum[i] * 0.9;
+      } else {
+        // Idle/listening/thinking: pulso senoidal leve, nunca plano, nunca fabricando "fala".
+        const base = status === 'listening' ? 0.18 : status === 'thinking' ? 0.12 : 0.06;
+        h = base + Math.sin(state.clock.elapsedTime * 3 + layout[i].phase) * base * 0.6;
+      }
+      bar.scale.y = Math.max(0.05, h);
+      bar.position.y = h / 2;
+    });
   });
-  const color = new THREE.Color(HEALTH_COLOR[health]);
+
   return (
-    <gridHelper ref={gridRef} args={[16, 32, color, color]} position={[0, -2.6, 0]} material-opacity={0.1} material-transparent />
+    <group ref={groupRef}>
+      {layout.map((bar, i) => (
+        <mesh
+          key={i}
+          ref={(el) => {
+            if (el) barsRef.current[i] = el;
+          }}
+          position={[bar.x, 0, bar.z]}
+          rotation={[0, -bar.angle, 0]}
+        >
+          <boxGeometry args={[0.035, 1, 0.035]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.9} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function HudRings({ health, status }: { health: NexusHealth; status: NexusStatus }) {
+  const outerRef = useRef<THREE.Group>(null);
+  const innerRef = useRef<THREE.Group>(null);
+  const color = HEALTH_COLOR[health];
+  const speedMul = status === 'idle' ? 1 : 2.2;
+
+  useFrame((_s, delta) => {
+    if (outerRef.current) outerRef.current.rotation.z += delta * 0.18 * speedMul;
+    if (innerRef.current) innerRef.current.rotation.z -= delta * 0.32 * speedMul;
+  });
+
+  const ticks = useMemo(() => Array.from({ length: 24 }, (_, i) => (i / 24) * Math.PI * 2), []);
+
+  return (
+    <group rotation={[Math.PI / 2.15, 0, 0]}>
+      <group ref={outerRef}>
+        <Ring args={[1.55, 1.58, 96]}>
+          <meshBasicMaterial color={color} transparent opacity={0.35} side={THREE.DoubleSide} />
+        </Ring>
+        {ticks.map((a, i) => (
+          <mesh key={i} position={[Math.cos(a) * 1.62, Math.sin(a) * 1.62, 0]} rotation={[0, 0, a]}>
+            <planeGeometry args={[0.05, i % 4 === 0 ? 0.14 : 0.07]} />
+            <meshBasicMaterial color={color} transparent opacity={0.6} side={THREE.DoubleSide} />
+          </mesh>
+        ))}
+      </group>
+      <group ref={innerRef}>
+        <Ring args={[1.32, 1.34, 96]}>
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.15} side={THREE.DoubleSide} />
+        </Ring>
+      </group>
+    </group>
   );
 }
 
@@ -181,16 +152,14 @@ export function NexusScene({ status, health, className }: NexusSceneProps) {
   const color = HEALTH_COLOR[health];
   return (
     <div className={className} style={{ width: '100%', height: '100%' }}>
-      <Canvas camera={{ position: [0, 0.3, 6.5], fov: 42 }} dpr={[1, 1.75]}>
-        <ambientLight intensity={0.35} />
-        <pointLight position={[4, 4, 4]} intensity={1.4} color={color} />
-        <pointLight position={[-4, -2, -3]} intensity={0.6} color="#ffffff" />
+      <Canvas camera={{ position: [0, 1.4, 3.4], fov: 38 }} dpr={[1, 1.75]}>
+        <ambientLight intensity={0.3} />
+        <pointLight position={[2, 2, 2]} intensity={1.6} color={color} />
+        <pointLight position={[-2, -1, -1]} intensity={0.4} color="#ffffff" />
         <Core status={status} health={health} />
-        <HoloRings health={health} status={status} />
-        <FloatingShards health={health} />
-        <DataHorizon health={health} />
-        <Sparkles count={90} scale={9} size={2.2} speed={0.35} color={color} opacity={0.55} />
-        <fog attach="fog" args={['#000000', 4.5, 11]} />
+        <RadialEqualizer status={status} health={health} />
+        <HudRings health={health} status={status} />
+        <fog attach="fog" args={['#000000', 2.6, 5.5]} />
       </Canvas>
     </div>
   );

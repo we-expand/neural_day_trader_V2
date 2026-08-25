@@ -268,21 +268,29 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
     [buildContextPackage, chat, speak]
   );
 
-  // Wake-word ("Nexus") — escuta contínua enquanto isActive, sem precisar
-  // de botão de aperta-pra-falar. Pausa sozinho enquanto o NEXUS fala,
-  // pra não se ouvir e reagir à própria voz.
+  // Wake-word ("Nexus") — escuta SEMPRE que a tela está aberta, não exige
+  // clicar em nada antes. Pausa sozinho enquanto o NEXUS fala, pra não se
+  // ouvir e reagir à própria voz. Pedido explícito do Cleber (2026-08-25):
+  // "precisa que ela seja ativada chamando 'Nexus'" — dizer a palavra é a
+  // própria ativação, o botão vira só um jeito de pausar por privacidade.
   const handleWakeQuestion = useCallback((question: string) => askNexus(question), [askNexus]);
   const { micState } = useNexusWakeWord({ enabled: isActive, isSpeaking, onQuestion: handleWakeQuestion });
 
+  useEffect(() => {
+    if (embedded) return;
+    claimVoice('nexus');
+    setIsActive(true);
+    return () => releaseVoice('nexus');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded]);
+
   const handleToggleActive = () => {
-    if (!isActive) {
+    if (isActive) {
+      stopSpeaking();
+      setIsActive(false);
+    } else {
       claimVoice('nexus');
       setIsActive(true);
-      askNexus(); // narração proativa inicial, sem pergunta
-    } else {
-      stopSpeaking();
-      releaseVoice('nexus');
-      setIsActive(false);
     }
   };
 
@@ -305,7 +313,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
             <div className="flex items-center justify-between gap-4 mb-5">
               <div className="flex items-center gap-4 min-w-0">
                 {/* Orbe 3D — janela compacta e arredondada, nunca atrás do texto */}
-                <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full overflow-hidden border border-white/10 bg-black shadow-lg shadow-cyan-500/10">
+                <div className="relative w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-full overflow-hidden border border-white/10 bg-black shadow-lg shadow-cyan-500/10">
                   <NexusScene status={sceneStatus} health={sceneHealth} />
                 </div>
                 <div className="min-w-0">
@@ -350,7 +358,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
                     : 'bg-cyan-600/90 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
                 }`}
               >
-                {isActive ? <><MicOff className="w-4 h-4" />Pausar</> : <><Mic className="w-4 h-4" />Ativar</>}
+                {isActive ? <><MicOff className="w-4 h-4" />Pausar escuta</> : <><Mic className="w-4 h-4" />Retomar escuta</>}
               </button>
             </div>
           )}
