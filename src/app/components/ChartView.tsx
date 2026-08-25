@@ -514,6 +514,39 @@ try {
   console.warn('[ChartView] ⚠️ Overlay já registrado ou erro:', e);
 }
 
+// 🎯 CUSTOM OVERLAY: linha de posição (entrada/SL/TP/pendente) com etiqueta
+// no CORPO do gráfico, não no eixo Y. O overlay nativo 'horizontalStraightLine'
+// não desenha nenhuma figura de texto (só a linha) — o campo `text` passado
+// pra ele era descartado silenciosamente. 'simpleTag' desenha texto, mas só
+// dentro da faixa estreita do eixo de preço, truncando qualquer rótulo longo
+// (ex: "SL 2440.00 · −$24.68 · 26.14 pts"). Este overlay usa a largura cheia
+// do painel pra caber o rótulo completo.
+const PositionLabelLineOverlay: OverlayTemplate = {
+  name: 'positionLabelLine',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: true,
+  needDefaultYAxisFigure: true,
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
+    const y = coordinates[0].y;
+    const label = typeof overlay.extendData === 'function' ? overlay.extendData(overlay) : (overlay.extendData ?? '');
+    return [
+      { type: 'line', attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] } },
+      {
+        type: 'text',
+        ignoreEvent: true,
+        attrs: { x: bounding.width - 6, y: y - 4, text: label, align: 'right', baseline: 'bottom' },
+      },
+    ];
+  },
+};
+
+try {
+  registerOverlay(PositionLabelLineOverlay);
+} catch (e) {
+  console.warn('[ChartView] ⚠️ Overlay de linha de posição já registrado ou erro:', e);
+}
+
 // 🎯 CUSTOM OVERLAY: Fibonacci Extension (Extensão de Fibonacci com 3 pontos)
 const FibonacciExtensionOverlay: OverlayTemplate = {
   name: 'fibonacciExtension',
@@ -4521,7 +4554,7 @@ export function ChartView({
         const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
 
         chart.createOverlay({
-          name: 'horizontalStraightLine',
+          name: 'positionLabelLine',
           id: entryId,
           points: [{ value: order.price }],
           styles: {
@@ -4540,7 +4573,7 @@ export function ChartView({
               weight: 'bold',
             },
           },
-          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
+          extendData: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
         });
         positionOverlayIdsRef.current.push(entryId);
       } catch (e) {
@@ -4551,7 +4584,7 @@ export function ChartView({
         const slId = `position_sl_${order.id}`;
         try {
           chart.createOverlay({
-            name: 'horizontalStraightLine',
+            name: 'positionLabelLine',
             id: slId,
             points: [{ value: order.sl }],
             styles: {
@@ -4572,7 +4605,7 @@ export function ChartView({
             // Custo em dólar sempre negativo (é o que se perde se o stop for
             // atingido) + distância em pontos, pra visualizar risco real sem
             // precisar calcular de cabeça.
-            text: `⛔ SL ${order.sl.toFixed(2)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(2)} pts`,
+            extendData: `⛔ Stop ${order.sl.toFixed(2)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(2)} pts`,
           });
           positionOverlayIdsRef.current.push(slId);
         } catch (e) {
@@ -4584,7 +4617,7 @@ export function ChartView({
         const tpId = `position_tp_${order.id}`;
         try {
           chart.createOverlay({
-            name: 'horizontalStraightLine',
+            name: 'positionLabelLine',
             id: tpId,
             points: [{ value: order.tp }],
             styles: {
@@ -4603,7 +4636,7 @@ export function ChartView({
               },
             },
             // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
-            text: `🎯 TP ${order.tp.toFixed(2)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(2)} pts`,
+            extendData: `🎯 Alvo ${order.tp.toFixed(2)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(2)} pts`,
           });
           positionOverlayIdsRef.current.push(tpId);
         } catch (e) {
@@ -4618,14 +4651,14 @@ export function ChartView({
       const pendingId = `pending_${order.id}`;
       try {
         chart.createOverlay({
-          name: 'horizontalStraightLine',
+          name: 'positionLabelLine',
           id: pendingId,
           points: [{ value: order.triggerPrice }],
           styles: {
             line: { color: '#94a3b8', style: 'dashed', size: 1 },
             text: { color: '#0f172a', backgroundColor: 'rgba(148,163,184,0.9)', size: 10 },
           },
-          text: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}`,
+          extendData: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}`,
         });
         positionOverlayIdsRef.current.push(pendingId);
       } catch (e) {
