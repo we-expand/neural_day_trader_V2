@@ -19,8 +19,9 @@
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { getServiceClient } from './lib/serviceClient.ts';
-import { callLLM } from './lib/llmClient.ts';
+import { runAgent } from './lib/llmClient.ts';
 import { buildSystemPrompt } from './lib/systemPrompt.ts';
+import { getToolDefinitions, executeTool } from './lib/tools.ts';
 
 interface RequestBody {
   userId?: string;
@@ -103,10 +104,14 @@ Deno.serve(async (req: Request) => {
       { role: 'user' as const, content: userTurn },
     ];
 
-    const text = await callLLM({
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const text = await runAgent({
       system: buildSystemPrompt(),
       messages,
       maxTokens: 500,
+      tools: getToolDefinitions(),
+      executeTool: (name, input) => executeTool(name, input, { userId, supabaseUrl, anonKey }),
     });
 
     // Registro leve para auditoria — reaproveita o mesmo service client que
