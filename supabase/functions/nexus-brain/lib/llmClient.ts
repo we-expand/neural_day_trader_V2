@@ -60,7 +60,7 @@ const MAX_TOOL_ROUNDS = 4; // trava de segurança — evita loop de tool-call se
 // dois sem duplicar o loop de tool-use.
 async function runOpenAICompatAgent(
   params: RunAgentParams,
-  opts: { providerLabel: string; url: string; apiKey: string; model: string },
+  opts: { providerLabel: string; url: string; apiKey: string; model: string; extraBody?: Record<string, unknown> },
 ): Promise<string> {
   const openaiTools = params.tools.map((t) => ({
     type: 'function',
@@ -81,6 +81,7 @@ async function runOpenAICompatAgent(
         max_tokens: params.maxTokens ?? 500,
         messages,
         tools: openaiTools,
+        ...opts.extraBody,
       }),
     });
     if (!res.ok) {
@@ -130,11 +131,18 @@ async function runNvidiaAgent(params: RunAgentParams): Promise<string> {
   if (!apiKey) {
     throw new Error('[nexus-brain] NVIDIA_API_KEY ausente no ambiente (supabase secrets set).');
   }
+  // Nemotron 3 Ultra é modelo de raciocínio — por padrão gera "thinking"
+  // interno antes de responder, o que mediu ~28s de ponta a ponta em
+  // produção (2026-08-25), inviável pra chat em tempo real. Desligado por
+  // padrão aqui; reativável via secret NVIDIA_ENABLE_THINKING=true se algum
+  // dia fizer sentido trocar velocidade por raciocínio mais profundo.
+  const enableThinking = Deno.env.get('NVIDIA_ENABLE_THINKING') === 'true';
   return runOpenAICompatAgent(params, {
     providerLabel: 'NVIDIA',
     url: NVIDIA_API_URL,
     apiKey,
     model: Deno.env.get('NVIDIA_MODEL') || NVIDIA_MODEL_DEFAULT,
+    extraBody: { chat_template_kwargs: { enable_thinking: enableThinking } },
   });
 }
 
