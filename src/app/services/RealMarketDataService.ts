@@ -50,6 +50,11 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 const priceCache = new Map<string, { data: RealMarketData; timestamp: number }>();
 const CACHE_TTL = 2000; // 2 segundos
 
+// 🔒 Mutex do lote de broker em `getBatchedMT5Data` — ver comentário 2026-08-25
+// no corpo da função. Serializa chamadas concorrentes de múltiplos
+// componentes contra a mesma conta MetaAPI compartilhada.
+let pendingBrokerBatchFetch: Promise<void> | null = null;
+
 /**
  * 🕐 ÚLTIMO PREÇO REAL CONHECIDO — não expira (dura a sessão do navegador).
  *
@@ -890,7 +895,33 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
   const results: Record<string, RealMarketData> = {};
   if (symbols.length === 0) return results;
 
-  const normalizedSymbols = symbols.map(s => s.toUpperCase().replace('/', '').replace(' ', ''));
+  const allNormalizedSymbols = symbols.map(s => s.toUpperCase().replace('/', '').replace(' ', ''));
+
+  // 🔁 2026-08-25: leitura compartilhada do `priceCache` — antes, cada
+  // chamador (MarketTicker, MarketDataContext, MarketScoreBoard,
+  // useApexLogic, ChartView, VIXWidgetEnhanced) disparava sua PRÓPRIA
+  // requisição de lote pra mesma conta MetaAPI compartilhada, mesmo pedindo
+  // símbolos que acabaram de ser respondidos por outro chamador segundos
+  // antes. Achado ao investigar Dashboard zerado ("$---"/"0000.00" no
+  // footer inteiro): a soma de todos os pollers concorrentes (5+ componentes,
+  // cada um com seu próprio setInterval) estourava o rate-limit documentado
+  // no CLAUDE.md ("conta MetaAPI compartilhada... sujeita a rate-limit sob
+  // carga"), sobretudo no burst de montagem inicial da página. Reusa o
+  // `priceCache` já existente (TTL 2s, usado por getRealMarketData) como
+  // cache de leitura entre TODOS os chamadores de getBatchedMT5Data —
+  // símbolo já respondido por qualquer chamador nos últimos 2s não gera
+  // nova requisição de rede.
+  const normalizedSymbols: string[] = [];
+  for (const s of allNormalizedSymbols) {
+    const cached = priceCache.get(s);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      results[s] = cached.data;
+    } else {
+      normalizedSymbols.push(s);
+    }
+  }
+  if (normalizedSymbols.length === 0) return results;
+
   // Cripto com CFD confirmado na Infinox (BTC/SOL/BNB/XRP/ADA/DOT) entra no
   // lote da corretora, igual forex/índices — as 3 fontes de Binance direta
   // estão mortas em produção (ver brokerRegistry.ts). As demais cripto
@@ -907,6 +938,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
     } catch {
       results[symbol] = getFallbackOrLastKnown(symbol);
     }
+    priceCache.set(symbol, { data: results[symbol], timestamp: Date.now() });
   }));
 
   if (brokerSymbols.length === 0) return results;
@@ -914,12 +946,36 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
   // Forex/índices/commodities/ações/cripto-com-CFD: UMA chamada só, com todos
   // os símbolos disponíveis na corretora; os indisponíveis (confirmados via
   // brokerRegistry) vão direto pro Yahoo em paralelo, sem entrar no lote.
-  const availableSymbols = brokerSymbols.filter(s => isAvailableOnBroker(s, 'infinox'));
+  let availableSymbols = brokerSymbols.filter(s => isAvailableOnBroker(s, 'infinox'));
   const unavailableSymbols = brokerSymbols.filter(s => !isAvailableOnBroker(s, 'infinox'));
 
   await Promise.all(unavailableSymbols.map(async (symbol) => {
     results[symbol] = await fetchYahooData(symbol);
+    priceCache.set(symbol, { data: results[symbol], timestamp: Date.now() });
   }));
+
+  // 🔒 2026-08-25: mutex — se OUTRA chamada já está no meio do lote pro
+  // broker agora, espera ela terminar (em vez de disparar em paralelo) e
+  // então reaproveita o que ela já colocou no `priceCache` acima. Sem isso,
+  // o cache de leitura (fix anterior nesta mesma sessão) só evita requisição
+  // duplicada se a chamada anterior já tiver TERMINADO — um lote de 40
+  // símbolos pode levar vários segundos (latência normal documentada:
+  // 3-8s), então dois componentes montando quase ao mesmo tempo (burst de
+  // carregamento da página) ainda disparavam duas requisições concorrentes
+  // à mesma conta MetaAPI compartilhada antes que qualquer uma delas
+  // tivesse chance de popular o cache.
+  if (pendingBrokerBatchFetch) {
+    await pendingBrokerBatchFetch;
+    const stillMissing = availableSymbols.filter(s => {
+      const cached = priceCache.get(s);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        results[s] = cached.data;
+        return false;
+      }
+      return true;
+    });
+    availableSymbols = stillMissing;
+  }
 
   if (availableSymbols.length > 0) {
     // ✅ 2026-07-11: mandar TODOS os símbolos disponíveis (podem passar de 200,
@@ -940,35 +996,48 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
     const priceByBrokerName = new Map<string, any>();
     let anyChunkSucceeded = false;
 
-    for (let i = 0; i < brokerNames.length; i += CHUNK_SIZE) {
-      const chunk = brokerNames.slice(i, i + CHUNK_SIZE);
+    const runChunks = async () => {
+      for (let i = 0; i < brokerNames.length; i += CHUNK_SIZE) {
+        const chunk = brokerNames.slice(i, i + CHUNK_SIZE);
 
-      try {
-        // ✅ 2026-07-23: mesmo timeout do fetchMT5Data single-symbol — sem
-        // isso, um chunk pendurado numa conta MetaAPI saturada bloqueava os
-        // chunks seguintes por minutos (chunks rodam em sequência, não em
-        // paralelo, ver o for acima).
-        const res = await fetch(MT5_PRICES_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ symbols: chunk }),
-          signal: AbortSignal.timeout(10000),
-        });
+        try {
+          // ✅ 2026-07-23: mesmo timeout do fetchMT5Data single-symbol — sem
+          // isso, um chunk pendurado numa conta MetaAPI saturada bloqueava os
+          // chunks seguintes por minutos (chunks rodam em sequência, não em
+          // paralelo, ver o for acima).
+          const res = await fetch(MT5_PRICES_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ symbols: chunk }),
+            signal: AbortSignal.timeout(10000),
+          });
 
-        const body = res.ok ? await res.json() : null;
-        const prices = Array.isArray(body?.prices) ? body.prices : [];
-        prices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
-        if (prices.length > 0) anyChunkSucceeded = true;
-      } catch (error: any) {
-        console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices, símbolos desse lote vão pro Yahoo.', error?.message);
+          const body = res.ok ? await res.json() : null;
+          const prices = Array.isArray(body?.prices) ? body.prices : [];
+          prices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
+          if (prices.length > 0) anyChunkSucceeded = true;
+        } catch (error: any) {
+          console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices, símbolos desse lote vão pro Yahoo.', error?.message);
+        }
+
+        if (i + CHUNK_SIZE < brokerNames.length) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS_MS));
+        }
       }
+    };
 
-      if (i + CHUNK_SIZE < brokerNames.length) {
-        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS_MS));
-      }
+    // 🔒 mutex: enquanto este lote roda, outra chamada concorrente de
+    // getBatchedMT5Data espera aqui em vez de disparar sua própria requisição
+    // em paralelo (ver comentário 2026-08-25 acima).
+    const chunksPromise = runChunks();
+    pendingBrokerBatchFetch = chunksPromise;
+    try {
+      await chunksPromise;
+    } finally {
+      if (pendingBrokerBatchFetch === chunksPromise) pendingBrokerBatchFetch = null;
     }
 
     if (!anyChunkSucceeded) {
@@ -992,6 +1061,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
         // corretora. Elimina de vez o padrão "corrige um ativo, quebra o
         // próximo" que se repetiu XPTUSD → VIX → cripto → NAS100 → XAUUSD.
         results[unified] = getFallbackOrLastKnown(unified);
+        priceCache.set(unified, { data: results[unified], timestamp: Date.now() });
         return;
       }
 
@@ -1007,6 +1077,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
         source: 'metaapi',
         isRealData: true,
       });
+      priceCache.set(unified, { data: results[unified], timestamp: Date.now() });
     }));
   }
 
