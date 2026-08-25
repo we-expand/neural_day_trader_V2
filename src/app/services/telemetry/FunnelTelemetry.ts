@@ -59,6 +59,10 @@ export type FunnelStage =
 
   // ── Saídas por ativo, antes da estratégia ────────────────────────────────
   | 'ASSET_ANTI_REPEAT'           // é o mesmo ativo do último trade
+  // 🆕 2026-08-25: ANTI_REPEAT só olha o ÚLTIMO trade, então alternar
+  // SOL → ETH → SOL passava direto. Este é por símbolo E por tempo — 33% dos
+  // trades reabriam o mesmo símbolo em <5min (ver TradeFrictionControls.ts).
+  | 'SYMBOL_COOLDOWN'             // fechou posição neste símbolo há pouco tempo
   | 'ASSET_ALREADY_OPEN'          // já existe posição neste ativo (anti-hedging)
   | 'ASSET_MAX_DISTINCT'          // teto de ativos diferentes simultâneos
   // 🆕 2026-08-21: era `TICK_NEWS_BLACKOUT` (blackout cego pro ciclo inteiro,
@@ -104,6 +108,7 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   TICK_NO_ASSETS_CONFIGURED: 'Nenhum ativo no Universo de Ativos',
   TICK_NO_ASSET_IN_CATALOG: 'Ativos configurados não existem no catálogo',
   ASSET_ANTI_REPEAT: 'Mesmo ativo do último trade (anti-repetição)',
+  SYMBOL_COOLDOWN: 'Cooldown pós-fechamento neste símbolo (anti-churn)',
   ASSET_ALREADY_OPEN: 'Já existe posição neste ativo (anti-hedging)',
   ASSET_MAX_DISTINCT: 'Teto de ativos diferentes simultâneos',
   ASSET_NEWS_BLACKOUT: 'Notícia macro de alto impacto na moeda do ativo',

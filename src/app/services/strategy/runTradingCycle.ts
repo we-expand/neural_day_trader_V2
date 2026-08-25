@@ -22,7 +22,13 @@ import { getPointValue, clampToMarginAffordability, MAX_MARGIN_UTILIZATION_PERCE
 import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass.ts';
 import { getAssetBySymbol } from '@/app/config/assetDatabase.ts';
 import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion.ts';
-import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate.ts';
+import { evaluateCostViability, expectedRealizedMovementPercent, TARGET_REALIZATION_FACTOR } from '@/app/services/risk/CostViabilityGate.ts';
+import {
+  clampToLeverageCap,
+  isSymbolInCooldown,
+  buildLastCloseBySymbol,
+  MAX_NOTIONAL_LEVERAGE,
+} from '@/app/services/risk/TradeFrictionControls.ts';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose.ts';
 import { detectRevengePattern } from '@/app/services/risk/RevengeTradingDetector.ts';
 import { evaluateContextGate } from '@/app/services/risk/ContextGate.ts';
@@ -221,7 +227,7 @@ export async function runTradingCycle(
   state: TradingCycleState,
   deps: TradingCycleDeps,
 ): Promise<TradingCycleResult> {
-  const { activeOrders, aiConfig } = state;
+  const { activeOrders, aiConfig, orderHistory } = state;
   const effects: TradingCycleEffect[] = [];
   let nextLastTradeTimestamp = state.lastTradeTimestamp;
   let nextLastTradedSymbol = state.lastTradedSymbol;
@@ -340,6 +346,10 @@ export async function runTradingCycle(
   const MAX_EXECUTION_ATTEMPTS = 5;
   let attempts = 0;
 
+  // 🆕 2026-08-25: mapa símbolo → último fechamento, derivado do histórico que
+  // o motor já carrega (sem campo novo de state — ver buildLastCloseBySymbol).
+  const lastCloseBySymbol = buildLastCloseBySymbol(orderHistory);
+
   for (const candidate of ranked) {
     if (attempts >= MAX_EXECUTION_ATTEMPTS) break;
 
@@ -347,6 +357,19 @@ export async function runTradingCycle(
     if (nextLastTradedSymbol === candidate.symbol) {
       console.log(`[ANTI-REPETIÇÃO] ❌ Bloqueado: Último trade foi em ${candidate.symbol}. Tentando o próximo do ranking...`);
       funnelTelemetry.recordStage('ASSET_ANTI_REPEAT', candidate.symbol);
+      continue;
+    }
+
+    // 🚫 2026-08-25 — COOLDOWN POR SÍMBOLO PÓS-FECHAMENTO.
+    // O ANTI-REPETIÇÃO acima só olha o ÚLTIMO trade do ciclo, então alternar
+    // SOL → ETH → SOL passa direto por ele: registrou 42 bloqueios no mesmo
+    // período em que 72 de 217 trades (33%) reabriram o mesmo símbolo em menos
+    // de 5 minutos do fechamento anterior. Este gate é por símbolo E por tempo.
+    // Ver TradeFrictionControls.ts pra medição completa e pro porquê de 20min.
+    const cooldownCheck = isSymbolInCooldown(candidate.symbol, lastCloseBySymbol);
+    if (cooldownCheck.blocked) {
+      console.log(`[COOLDOWN SÍMBOLO] ❄️ Bloqueado: ${cooldownCheck.reason}. Tentando o próximo do ranking...`);
+      funnelTelemetry.recordStage('SYMBOL_COOLDOWN', candidate.symbol, cooldownCheck.reason);
       continue;
     }
 
@@ -865,7 +888,14 @@ async function analyzeAsset(
       // responde à pergunta certa.
       const targets = resolveAtrTargets(atrValueForCostGate, getPointValue(selectedSymbol), aiConfig.marketMode);
       const targetDistancePercent = (targets.targetPoints * getPointValue(selectedSymbol) / currentPrice) * 100;
-      const movementPercentForCostGate = targetDistancePercent;
+      // 🆕 2026-08-25: o denominador deixa de ser o ALVO e passa a ser o
+      // movimento que o motor DE FATO captura (40% do alvo, MEDIDO em n=220 —
+      // ver TARGET_REALIZATION_FACTOR). O alvo cheio só acontece quando dá TP,
+      // e isso foi 13,4% dos trades: medir o custo contra um movimento que
+      // 86,6% dos trades nunca alcançam aprovava setups cujo custo não cabe no
+      // resultado real. Os limiares 7%/12% seguem intocados — quem mudou foi a
+      // pergunta que a razão responde.
+      const movementPercentForCostGate = expectedRealizedMovementPercent(targetDistancePercent);
       const atrBarPercent = (atrValueForCostGate / currentPrice) * 100;
 
       const { assetClass: assetClassForCostGate, source: costClassSource } = resolveCostAssetClass(selectedSymbol);
@@ -878,7 +908,7 @@ async function analyzeAsset(
 
       const costGateResult = evaluateCostViability(costPercentForCostGate, movementPercentForCostGate);
       if (!costGateResult.approved) {
-        const reason = `Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. alvo ${movementPercentForCostGate.toFixed(3)}%, classe ${assetClassForCostGate} via ${costClassSource})`;
+        const reason = `Setup ${side} descartado em ${selectedSymbol}: ${costGateResult.reason} (custo ${costPercentForCostGate.toFixed(3)}% vs. movimento capturável ${movementPercentForCostGate.toFixed(3)}% = ${(TARGET_REALIZATION_FACTOR * 100).toFixed(0)}% do alvo ${targetDistancePercent.toFixed(3)}%, classe ${assetClassForCostGate} via ${costClassSource})`;
         console.log(`[CUSTO] 🚫 ${reason}`);
         await deps.persistence.saveDecision({
           symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
@@ -886,6 +916,8 @@ async function analyzeAsset(
           riskAssessment: {
             costPercent: costPercentForCostGate,
             movementPercent: movementPercentForCostGate,
+            targetDistancePercent,
+            realizationFactor: TARGET_REALIZATION_FACTOR,
             atrBarPercent,
             assetClass: assetClassForCostGate,
             costClassSource,
@@ -1300,6 +1332,25 @@ async function analyzeAsset(
       if (marginCheck.clamped) {
         console.log(`[POSITION SIZING] 🏦 ${selectedSymbol}: margem exigida excederia ${(MAX_MARGIN_UTILIZATION_PERCENT * 100).toFixed(0)}% do balance ($${(currentBalance * MAX_MARGIN_UTILIZATION_PERCENT).toFixed(2)}) — nocional reduzido de $${tradeCapital.toFixed(2)} para $${marginCheck.notionalUsd.toFixed(2)} (margem exigida: $${marginCheck.requiredMargin.toFixed(2)}, leverage ${assetForMargin.leverage}x)`);
         tradeCapital = marginCheck.notionalUsd;
+      }
+    }
+
+    // 2026-08-25: TETO DE ALAVANCAGEM POR TRADE. Nenhum gate acima limita o
+    // notional em múltiplos do SALDO: o teto de lotes olha contagem de lotes, e
+    // o gate de margem olha margem exigida (que com leverage 500x é ~0,2% do
+    // notional — não morde). Resultado medido em produção: XAUUSD entrando com
+    // notional médio de US$2.791 numa conta de ~US$100 (28×), JP225 com 20×,
+    // e US$127.603 de notional girado em 14 dias sobre US$100 de conta.
+    // Como o custo é proporcional ao notional, esse giro é o que produz o
+    // sangramento: XAUUSD sozinho consumiu 52,5% de todo o custo em 11% dos
+    // trades, e virou líquido NEGATIVO (−US$5,10) apesar do bruto +US$14,33.
+    // Ver TradeFrictionControls.ts pra tabela completa por ativo.
+    // Mesma filosofia dos gates acima: nunca aumenta o notional, só reduz.
+    {
+      const leverageCap = clampToLeverageCap(tradeCapital, currentBalance, MAX_NOTIONAL_LEVERAGE);
+      if (leverageCap.clamped) {
+        console.log(`[POSITION SIZING] ⚖️ ${selectedSymbol}: nocional $${tradeCapital.toFixed(2)} = ${leverageCap.leverageBefore.toFixed(1)}x o saldo ($${currentBalance.toFixed(2)}) — acima do teto de ${MAX_NOTIONAL_LEVERAGE}x, reduzido para $${leverageCap.notionalUsd.toFixed(2)}`);
+        tradeCapital = leverageCap.notionalUsd;
       }
     }
 

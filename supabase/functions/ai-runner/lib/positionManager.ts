@@ -16,6 +16,7 @@ import { calculateATR, type Candle } from '../../../../src/app/services/indicato
 import { backtestDataService, type Timeframe } from '../../../../src/app/services/BacktestDataService.ts';
 import { getBatchedMT5Data, type RealMarketData } from '../../../../src/app/services/RealMarketDataService.ts';
 import { calculateRoundTripCost } from '../../../../src/app/services/risk/ExecutionCost.ts';
+import { BREAKEVEN_TRIGGER_R } from '../../../../src/app/services/risk/TradeFrictionControls.ts';
 import { getServiceClient } from './serviceClient.ts';
 
 export interface OpenPosition {
@@ -120,20 +121,24 @@ export async function tickPositionManager(params: {
 
     let effectiveSl = pos.sl;
 
-    // Breakeven automático em +1R — espelha useApexLogic.ts:1439-1458. Roda
-    // independente de stopLossMode (também em FIXO). Faltava aqui até
-    // 2026-08-18: era a única peça da lógica de fechamento que só existia no
-    // cliente, e foi a causa raiz confirmada de um balance divergente em
-    // produção (posição fechada perto de zero no cliente via breakeven,
-    // enquanto o servidor — sem essa lógica — manteve o SL original e só
-    // fechou depois, com perda real maior). Ancorado em `originalSl`
-    // (imutável), nunca em `pos.sl` (que já pode ter sido movido por esta
-    // mesma função em um tick anterior).
+    // Breakeven automático — espelha useApexLogic.ts. Roda independente de
+    // stopLossMode (também em FIXO). Faltava aqui até 2026-08-18: era a única
+    // peça da lógica de fechamento que só existia no cliente, e foi a causa
+    // raiz confirmada de um balance divergente em produção (posição fechada
+    // perto de zero no cliente via breakeven, enquanto o servidor — sem essa
+    // lógica — manteve o SL original e só fechou depois, com perda real
+    // maior). Ancorado em `originalSl` (imutável), nunca em `pos.sl` (que já
+    // pode ter sido movido por esta mesma função em um tick anterior).
+    //
+    // 2026-08-25: gatilho passou de +1R para +BREAKEVEN_TRIGGER_R (1,5R) —
+    // fonte única compartilhada com o cliente, ver TradeFrictionControls.ts
+    // para a medição que motivou (27% dos "SL" fechavam em ~zero e o motor
+    // reabria em minutos, pagando round-trip de novo).
     if (pos.originalSl > 0) {
       const originalRisk = Math.abs(pos.entryPrice - pos.originalSl);
       if (originalRisk > 0) {
         const favorableMove = pos.side === 'LONG' ? nextPrice - pos.entryPrice : pos.entryPrice - nextPrice;
-        if (favorableMove >= originalRisk) {
+        if (favorableMove >= originalRisk * BREAKEVEN_TRIGGER_R) {
           effectiveSl = pos.side === 'LONG' ? Math.max(effectiveSl, pos.entryPrice) : Math.min(effectiveSl, pos.entryPrice);
         }
       }

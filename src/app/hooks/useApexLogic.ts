@@ -15,6 +15,7 @@ import { DEFAULT_ACTIVE_ASSETS } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
 import { evaluateContextGate } from '@/app/services/risk/ContextGate';
 import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
+import { BREAKEVEN_TRIGGER_R } from '@/app/services/risk/TradeFrictionControls';
 import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass';
 import { estimateCostPercent } from '../../../research/CostModel';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
@@ -1716,20 +1717,25 @@ export function useApexLogic(
                 // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
 
-                // 🆕 BREAKEVEN AUTOMÁTICO EM +1R (2026-08-17). Independente de
+                // 🆕 BREAKEVEN AUTOMÁTICO (2026-08-17). Independente de
                 // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
-                // mover ainda mais a favor): quando o trade anda a favor a mesma
-                // distância do risco original (1R), o stop sobe pro preço de
-                // entrada. É o mecanismo que corta a perda média pra ~0 a partir
-                // desse ponto sem precisar prever direção melhor — puro
-                // gerenciamento de saída, não previsão. Ancorado em `originalSl`
-                // (imutável, gravado uma vez na abertura) pelo mesmo motivo do
-                // trailing abaixo: `order.sl` é reescrito a cada tick.
+                // mover ainda mais a favor): quando o trade anda a favor
+                // `BREAKEVEN_TRIGGER_R` vezes a distância do risco original, o
+                // stop sobe pro preço de entrada. É o mecanismo que corta a perda
+                // média pra ~0 a partir desse ponto sem precisar prever direção
+                // melhor — puro gerenciamento de saída, não previsão. Ancorado em
+                // `originalSl` (imutável, gravado uma vez na abertura) pelo mesmo
+                // motivo do trailing abaixo: `order.sl` é reescrito a cada tick.
+                //
+                // 2026-08-25: gatilho passou de +1R para +1,5R. A constante é
+                // compartilhada com o motor de servidor (positionManager.ts) de
+                // propósito — divergência entre as duas cópias dessa lógica já
+                // causou balance divergente em produção (2026-08-18).
                 if (order.originalSl > 0) {
                   const originalRisk = Math.abs(order.price - order.originalSl);
                   if (originalRisk > 0) {
                     const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
-                    if (favorableMove >= originalRisk) {
+                    if (favorableMove >= originalRisk * BREAKEVEN_TRIGGER_R) {
                       effectiveSl = order.side === 'LONG'
                         ? Math.max(effectiveSl, order.price)
                         : Math.min(effectiveSl, order.price);

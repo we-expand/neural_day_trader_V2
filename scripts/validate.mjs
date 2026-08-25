@@ -56,6 +56,10 @@ const SUITES = [
     entry: 'src/app/services/risk/__validate__execcost__.ts',
   },
   {
+    name: 'Controles de fricção — teto de alavancagem, cooldown por símbolo, fator de realização (2026-08-25)',
+    entry: 'src/app/services/risk/__validate__friction__.ts',
+  },
+  {
     name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',
     entry: 'src/app/services/analysis/__validate__.ts',
   },

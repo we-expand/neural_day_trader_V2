@@ -70,6 +70,62 @@ const FRONTEIRA_THRESHOLD = 0.07; // acima disso, custo já compromete demais o 
 const INVIAVEL_THRESHOLD = 0.12;  // acima disso, custo domina o resultado esperado
 
 /**
+ * Fração do alvo que o motor de fato CAPTURA — MEDIDO em produção, não estimado.
+ *
+ * A atualização de 2026-08-17 (acima) trocou o denominador do gate para a
+ * distância até o alvo (3,75×ATR), argumentando que "o movimento que o trade
+ * precisa capturar é o alvo dele". O argumento está certo sobre a intenção do
+ * trade e errado sobre o resultado dele: o alvo só é atingido quando o trade dá
+ * TP, o que aconteceu em 13,4% dos casos. Medir o custo contra um movimento que
+ * 86,6% dos trades nunca alcançam superestima sistematicamente o quanto há para
+ * capturar, e aprova setups cujo custo não cabe no movimento REAL.
+ *
+ * MEDIÇÃO (Supabase, `ai_trades`, 30 dias, n=220 trades fechados):
+ *   fator = |preço_saída − preço_entrada| / |take_profit − preço_entrada|
+ *
+ *   média   = 0,4003
+ *   mediana = 0,4006      ← média ≈ mediana: distribuição comportada, número robusto
+ *   alvo médio     = 1,055% do preço
+ *   realizado médio = 0,401% do preço
+ *
+ * Estabilidade por ativo (só os com n ≥ 15): SOLUSD 0,378 (n=74), ETHUSD 0,410
+ * (n=71), XAUUSD 0,416 (n=24), UKOUSD 0,370 (n=19). O fator é consistente entre
+ * ativos, então usa-se um valor GLOBAL — os símbolos com n < 20 não sustentam
+ * fator próprio, e inventar um por ativo seria fabricar precisão inexistente.
+ *
+ * Efeito: o gate passa a medir o custo contra 40% do alvo, ficando ~2,5× mais
+ * rigoroso do que estava desde 2026-08-17. Os limiares 7%/12% NÃO mudam — eles
+ * mapeiam uma razão, e a razão agora responde à pergunta certa pela segunda vez:
+ * de "o custo cabe no movimento de uma barra?" (pré-08-17, pessimista 3,75×)
+ * para "cabe no alvo?" (08-17, otimista 2,5×) para "cabe no que realmente se
+ * captura?" (agora, medido).
+ *
+ * ⚠️ RECALIBRAR quando a mecânica de saída mudar. O fator é uma propriedade do
+ * conjunto {stop, alvo, breakeven, trailing} atual, não uma constante de
+ * mercado. A mudança de breakeven de +1R para +1,5R feita nesta mesma sessão
+ * tende a AUMENTAR este fator (menos saídas em zero) — remedir depois de ~200
+ * trades novos e atualizar aqui, com o n declarado.
+ */
+export const TARGET_REALIZATION_FACTOR = 0.40;
+
+/** n da medição de `TARGET_REALIZATION_FACTOR`, para rastreabilidade. */
+export const TARGET_REALIZATION_SAMPLE_SIZE = 220;
+
+/**
+ * Converte a distância até o alvo no movimento que se espera de fato capturar,
+ * aplicando o fator medido. Existe como função (e não multiplicação inline nos
+ * chamadores) porque o motor ao vivo, a UI de viabilidade e o ranking de ativos
+ * precisam do MESMO número — replicar essa aritmética por fora já foi a causa
+ * de um bug real neste projeto (pointValue divergente, 2026-08-05).
+ */
+export function expectedRealizedMovementPercent(
+  targetDistancePercent: number,
+  realizationFactor: number = TARGET_REALIZATION_FACTOR,
+): number {
+  return targetDistancePercent * realizationFactor;
+}
+
+/**
  * Avalia se um custo estimado (round-trip, em % do notional) é viável frente
  * ao movimento típico esperado no horizonte (também em % do preço). Não
  * assume nenhuma fonte de movimento — quem chama precisa fornecer um número

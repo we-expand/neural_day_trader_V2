@@ -58,6 +58,7 @@
     "@/app/services/risk/ContextGate.ts": "../../../src/app/services/risk/ContextGate.ts",
     "@/app/services/risk/CostAssetClass.ts": "../../../src/app/services/risk/CostAssetClass.ts",
     "@/app/services/risk/CostViabilityGate.ts": "../../../src/app/services/risk/CostViabilityGate.ts",
+    "@/app/services/risk/TradeFrictionControls.ts": "../../../src/app/services/risk/TradeFrictionControls.ts",
     "@/app/services/risk/LiveCorrelationGuard.ts": "../../../src/app/services/risk/LiveCorrelationGuard.ts",
     "@/app/services/risk/LiveEmergencyClose.ts": "../../../src/app/services/risk/LiveEmergencyClose.ts",
     "@/app/services/risk/NewsCurrencyRelevance.ts": "../../../src/app/services/risk/NewsCurrencyRelevance.ts",
