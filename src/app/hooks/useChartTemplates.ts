@@ -17,6 +17,19 @@ export interface ChartTemplateConfig {
   // onde o usuário tinha deixado a visão no momento de salvar.
   barSpace: number | null;
   offsetRightDistance: number | null;
+  // 🆕 POSIÇÃO REAL de scroll horizontal. `offsetRightDistance` acima NÃO é
+  // posição: na klinecharts é a folga fixa configurada à direita do último
+  // candle, e reescrevê-la (`setOffsetRightDistance`) recalcula
+  // `_lastBarRightSideDiffBarCount = offset / barSpace`, ou seja EMPURRA o
+  // gráfico de volta pro tempo real. Salvar/restaurar aquilo achando que era
+  // "onde o usuário deixou o gráfico" era a razão de a posição nunca segurar.
+  // A posição de verdade é ancorada em dado: qual candle está encostado na
+  // borda direita (`rightEdgeTimestamp` — timestamp, não índice, pra
+  // sobreviver ao dataset crescer/mudar de tamanho) e quantas barras vazias
+  // sobram depois dele (`rightGapBars`, quando o usuário puxa o gráfico pra
+  // frente do último candle). Opcionais: templates salvos antes disso não têm.
+  rightEdgeTimestamp?: number | null;
+  rightGapBars?: number | null;
 }
 
 export interface ChartTemplate {
