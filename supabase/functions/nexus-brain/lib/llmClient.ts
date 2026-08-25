@@ -43,11 +43,17 @@ const GROQ_MODEL_DEFAULT = 'openai/gpt-oss-120b';
 
 // NVIDIA NIM (build.nvidia.com) — API OpenAI-compatible, mesmo formato de
 // tool calling do Groq. Pedido do Cleber em 2026-08-25: trocar o provedor
-// default de Groq pra Nemotron 3 Ultra (55B ativos / 550B total, MoE
-// Mamba-Transformer). Modelo e endpoint confirmados via NVIDIA NIM em
-// 2026-08-25. Trocável via secret NVIDIA_MODEL sem novo deploy.
+// default de Groq pra NVIDIA. Primeira tentativa foi Nemotron 3 Ultra (55B
+// ativos / 550B total) — medido ao vivo em ~28s de ponta a ponta mesmo com
+// enable_thinking desligado, inviável pra chat em tempo real (API padrão
+// NIM não tem infra dedicada de baixa latência tipo a LPU da Groq).
+// Trocado pra Nemotron 3 Nano (3B ativos / 30B total) no mesmo dia — é o
+// membro da família desenhado especificamente pra chat/tool-calling
+// interativo (~94 tok/s, TTFT ~0.45s), 18x menor que a Ultra. Super
+// (12B ativos / 120B total) fica como meio-termo se a Nano decepcionar em
+// qualidade — trocável via secret NVIDIA_MODEL sem novo deploy.
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
-const NVIDIA_MODEL_DEFAULT = 'nvidia/nemotron-3-ultra-550b-a55b';
+const NVIDIA_MODEL_DEFAULT = 'nvidia/nemotron-3-nano-30b-a3b';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -131,11 +137,12 @@ async function runNvidiaAgent(params: RunAgentParams): Promise<string> {
   if (!apiKey) {
     throw new Error('[nexus-brain] NVIDIA_API_KEY ausente no ambiente (supabase secrets set).');
   }
-  // Nemotron 3 Ultra é modelo de raciocínio — por padrão gera "thinking"
-  // interno antes de responder, o que mediu ~28s de ponta a ponta em
-  // produção (2026-08-25), inviável pra chat em tempo real. Desligado por
-  // padrão aqui; reativável via secret NVIDIA_ENABLE_THINKING=true se algum
-  // dia fizer sentido trocar velocidade por raciocínio mais profundo.
+  // Toda a família Nemotron 3 é modelo unificado de raciocínio — por padrão
+  // gera "thinking" interno antes de responder. Na Ultra isso mediu ~28s de
+  // ponta a ponta em produção (2026-08-25), inviável pra chat em tempo
+  // real; mantido desligado por padrão pra qualquer modelo da família.
+  // Reativável via secret NVIDIA_ENABLE_THINKING=true se algum dia fizer
+  // sentido trocar velocidade por raciocínio mais profundo.
   const enableThinking = Deno.env.get('NVIDIA_ENABLE_THINKING') === 'true';
   return runOpenAICompatAgent(params, {
     providerLabel: 'NVIDIA',
