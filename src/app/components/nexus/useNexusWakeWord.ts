@@ -35,7 +35,7 @@ function normalize(s: string): string {
     .replace(/[̀-ͯ]/g, ''); // remove acentos pra casar "néxus"/"nexús" também
 }
 
-export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean; onQuestion: (question: string) => void }) {
+export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean; onQuestion: (question: string | null) => void }) {
   const { enabled, isSpeaking, onQuestion } = params;
   const [micState, setMicState] = useState<'off' | 'listening' | 'awaiting-question' | 'unsupported'>('off');
   const recognitionRef = useRef<any>(null);
@@ -81,9 +81,14 @@ export function useNexusWakeWord(params: { enabled: boolean; isSpeaking: boolean
           awaitingUntilRef.current = 0;
           onQuestion(afterWake);
         } else {
-          // Disse só "Nexus" — abre janela curta pra próxima frase virar a pergunta.
+          // Só a palavra de ativação (ou só uma saudação, ex: "bom dia
+          // Nexus") — responde na hora com um aceno falado (question=null,
+          // vira narração curta), em vez de ficar mudo esperando. Mantém a
+          // janela de acompanhamento aberta pra já poder perguntar em
+          // seguida sem repetir "Nexus".
           awaitingUntilRef.current = Date.now() + FOLLOWUP_WINDOW_MS;
           setMicState('awaiting-question');
+          onQuestion(null);
         }
       } else if (isAwaitingFollowup) {
         awaitingUntilRef.current = 0;

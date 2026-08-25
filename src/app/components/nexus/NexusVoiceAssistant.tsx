@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, AlertTriangle, Newspaper, CalendarClock, Volume2, Ear, EarOff } from 'lucide-react';
+import { Send, AlertTriangle, Newspaper, CalendarClock, Volume2, Ear } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useNexusVoice } from './useNexusVoice';
@@ -52,21 +52,84 @@ const SYMBOL_ALIASES: Record<string, string> = {
   'ibovespa': 'BVSPX',
 };
 
-const KNOWN_SYMBOLS = new Set(ALL_ASSETS.map((a) => a.symbol));
+const KNOWN_SYMBOLS = Array.from(new Set(ALL_ASSETS.map((a) => a.symbol)));
+
+// Distância de Levenshtein simples — só usada pra tolerar erro de digitação
+// ou de transcrição de voz (ex: "smpx 500" por "SPX500", "biscoin" por
+// "bitcoin"), nunca pra "adivinhar" um ativo qualquer sem base real.
+function levenshtein(a: string, b: string): number {
+  const dp: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...new Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+// Quantos erros tolerar em função do tamanho da palavra — string curta
+// tolera menos (evita falso positivo tipo "EUR" virando qualquer coisa de 3
+// letras), string longa tolera mais (erro de STT costuma ser proporcional).
+function fuzzyTolerance(len: number): number {
+  if (len <= 4) return 1;
+  if (len <= 8) return 2;
+  return 3;
+}
+
+function fuzzyFind(candidate: string, pool: string[]): string | null {
+  let best: { symbol: string; dist: number } | null = null;
+  for (const symbol of pool) {
+    if (Math.abs(symbol.length - candidate.length) > fuzzyTolerance(symbol.length)) continue;
+    const dist = levenshtein(candidate, symbol);
+    if (dist <= fuzzyTolerance(symbol.length) && (!best || dist < best.dist || (dist === best.dist && symbol.length > best.symbol.length))) {
+      best = { symbol, dist };
+    }
+  }
+  return best?.symbol ?? null;
+}
 
 // Se o usuário mencionar outro ativo na pergunta (ex: "e o ouro, como tá?"),
 // o NEXUS responde sobre ESSE ativo, não fica travado no que está selecionado
 // no Dashboard — pedido explícito do Cleber (2026-08-25): "livre para
-// perguntar sobre qualquer ativo".
+// perguntar sobre qualquer ativo". Tolerante a erro de digitação/STT
+// (2026-08-25: "smpx 500" não batia com "SPX500" e caía sempre no ativo do
+// Dashboard, parecendo "viciado" num único ativo).
 function detectSymbolInQuestion(question: string): string | null {
   const upper = question.toUpperCase().replace(/[^A-Z0-9\s]/g, ' ');
-  for (const token of upper.split(/\s+/)) {
-    if (token.length >= 5 && KNOWN_SYMBOLS.has(token)) return token;
+  const tokens = upper.split(/\s+/).filter(Boolean);
+
+  // 1) Match exato — token isolado ou par de tokens colados (ex: "SPX 500" -> "SPX500").
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].length >= 3 && KNOWN_SYMBOLS.includes(tokens[i])) return tokens[i];
+    if (i + 1 < tokens.length) {
+      const joined = tokens[i] + tokens[i + 1];
+      if (joined.length >= 4 && KNOWN_SYMBOLS.includes(joined)) return joined;
+    }
   }
+
+  // 2) Apelido comum em PT-BR.
   const lower = question.toLowerCase();
   for (const [alias, symbol] of Object.entries(SYMBOL_ALIASES)) {
     if (lower.includes(alias)) return symbol;
   }
+
+  // 3) Fuzzy — só pra candidatos com "cara" de símbolo (>=3 chars, tem letra
+  // e não é uma palavra comum de português que por acaso é curta).
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].length >= 4) {
+      const hit = fuzzyFind(tokens[i], KNOWN_SYMBOLS);
+      if (hit) return hit;
+    }
+    if (i + 1 < tokens.length) {
+      const joined = tokens[i] + tokens[i + 1];
+      if (joined.length >= 5) {
+        const hit = fuzzyFind(joined, KNOWN_SYMBOLS);
+        if (hit) return hit;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -102,10 +165,14 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
   const symbolRef = useRef(dashboardActiveSymbol);
   symbolRef.current = dashboardActiveSymbol;
 
-  // 🎙️ Mutex de voz com as outras telas que falam (IA Preditiva etc).
+  // 🎙️ Mutex de voz com as outras telas que falam (IA Preditiva etc) — só
+  // interrompe a fala em andamento, nunca desativa a escuta. Sem botão
+  // manual (removido a pedido do Cleber, "zero interação exigida"),
+  // desativar aqui deixaria o NEXUS surdo pro resto da sessão sem jeito de
+  // reativar. askNexus() já reclama a voz de volta sozinho a cada resposta.
   useEffect(() => {
-    return onPreempted('nexus', () => setIsActive(false));
-  }, [onPreempted]);
+    return onPreempted('nexus', () => stopSpeaking());
+  }, [onPreempted, stopSpeaking]);
 
   // Carrega os alertas proativos já persistidos pelo servidor pra este ativo.
   const loadAlerts = useCallback(async () => {
@@ -256,6 +323,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
 
         if (question) setChat((prev) => [...prev, { role: 'user', text: question }]);
         setChat((prev) => [...prev, { role: 'assistant', text }]);
+        claimVoice('nexus'); // reconquista a prioridade de fala, mesmo se outra tela tinha tomado
         await speak(text);
       } catch (e: any) {
         const msg = e?.message || 'Falha ao consultar o NEXUS.';
@@ -265,15 +333,18 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
         setIsThinking(false);
       }
     },
-    [buildContextPackage, chat, speak]
+    [buildContextPackage, chat, speak, claimVoice]
   );
 
-  // Wake-word ("Nexus") — escuta SEMPRE que a tela está aberta, não exige
-  // clicar em nada antes. Pausa sozinho enquanto o NEXUS fala, pra não se
-  // ouvir e reagir à própria voz. Pedido explícito do Cleber (2026-08-25):
-  // "precisa que ela seja ativada chamando 'Nexus'" — dizer a palavra é a
-  // própria ativação, o botão vira só um jeito de pausar por privacidade.
-  const handleWakeQuestion = useCallback((question: string) => askNexus(question), [askNexus]);
+  // Wake-word — escuta SEMPRE que a tela está aberta, zero interação
+  // manual exigida. Pedido explícito do Cleber (2026-08-25): "não precisa
+  // ter nenhum botão para que o usuário tenha que interagir". Qualquer
+  // frase que contenha "nexus" ativa — inclusive "bom dia Nexus", "boa
+  // tarde Nexus" etc, já que o regex de wake-word (useNexusWakeWord.ts)
+  // casa a palavra em qualquer posição da frase. Se disser só a saudação
+  // (sem pergunta junto), o NEXUS responde na hora (question=null vira
+  // narração curta), não fica mudo esperando.
+  const handleWakeQuestion = useCallback((question: string | null) => askNexus(question ?? undefined), [askNexus]);
   const { micState } = useNexusWakeWord({ enabled: isActive, isSpeaking, onQuestion: handleWakeQuestion });
 
   useEffect(() => {
@@ -283,16 +354,6 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
     return () => releaseVoice('nexus');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded]);
-
-  const handleToggleActive = () => {
-    if (isActive) {
-      stopSpeaking();
-      setIsActive(false);
-    } else {
-      claimVoice('nexus');
-      setIsActive(true);
-    }
-  };
 
   const handleSendText = () => {
     const q = textInput.trim();
@@ -350,16 +411,6 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
                   </div>
                 </div>
               </div>
-              <button
-                onClick={handleToggleActive}
-                className={`shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-all ${
-                  isActive
-                    ? 'bg-red-600/90 hover:bg-red-500 text-white shadow-lg shadow-red-500/30'
-                    : 'bg-cyan-600/90 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
-                }`}
-              >
-                {isActive ? <><EarOff className="w-4 h-4" />Pausar escuta</> : <><Ear className="w-4 h-4" />Retomar escuta</>}
-              </button>
             </div>
           )}
 
