@@ -15,10 +15,11 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Send, AlertTriangle, Newspaper, CalendarClock } from 'lucide-react';
+import { Mic, MicOff, Send, AlertTriangle, Newspaper, CalendarClock, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { useSpeechAlert } from '@/app/hooks/useSpeechAlert';
+import { useNexusVoice } from './useNexusVoice';
+import { NexusScene } from './NexusScene';
 import { useVoiceCoordinator } from '@/app/contexts/VoiceCoordinatorContext';
 import { useTradingContext } from '@/app/contexts/TradingContext';
 import { backtestDataService } from '@/app/services/BacktestDataService';
@@ -26,7 +27,6 @@ import { generateAdvancedAnalysis, TradePosition } from '@/app/utils/advancedTra
 import { supabase } from '@/lib/supabaseClient';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { getRelevantCurrencies } from '@/app/services/risk/NewsCurrencyRelevance';
-import { JarvisOrb } from '@/app/components/jarvis/JarvisOrb';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -52,13 +52,12 @@ const NEXUS_BRAIN_URL = `https://${projectId}.supabase.co/functions/v1/nexus-bra
 
 export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }) => {
   const { dashboardActiveSymbol } = useTradingContext();
-  const { speak } = useSpeechAlert({ rate: 0.95, volume: 1.0 });
+  const { speak, stop: stopSpeaking, isSpeaking, voiceMode } = useNexusVoice();
   const { claimVoice, releaseVoice, onPreempted } = useVoiceCoordinator();
 
   const [isActive, setIsActive] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [textInput, setTextInput] = useState('');
   const [alerts, setAlerts] = useState<NexusAlertRow[]>([]);
@@ -221,9 +220,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
 
         if (question) setChat((prev) => [...prev, { role: 'user', text: question }]);
         setChat((prev) => [...prev, { role: 'assistant', text }]);
-        setIsSpeaking(true);
-        await speak(text, 'high');
-        setIsSpeaking(false);
+        await speak(text);
       } catch (e: any) {
         const msg = e?.message || 'Falha ao consultar o NEXUS.';
         setContextError(msg);
@@ -241,7 +238,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
       setIsActive(true);
       askNexus(); // narração proativa inicial, sem pergunta
     } else {
-      window.speechSynthesis?.cancel();
+      stopSpeaking();
       releaseVoice('nexus');
       setIsActive(false);
     }
@@ -286,132 +283,161 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
   };
 
   const unreadCritical = alerts.filter((a) => !a.read_at && a.severity !== 'info').length;
-  const orbStatus = isListening ? 'listening' : isSpeaking ? 'speaking' : isThinking ? 'thinking' : 'idle';
-  const orbHealth = contextError || unreadCritical > 0 ? (unreadCritical > 0 ? 'warning' : 'critical') : 'normal';
+  const sceneStatus = isListening ? 'listening' : isSpeaking ? 'speaking' : isThinking ? 'thinking' : 'idle';
+  const sceneHealth = contextError || unreadCritical > 0 ? (unreadCritical > 0 ? 'warning' : 'critical') : 'normal';
 
   return (
-    <div className={`${embedded ? 'p-0' : 'p-8'} h-full ${embedded ? 'bg-transparent' : 'bg-neutral-950'} text-white overflow-y-auto relative`}>
-      <div className="relative">
-        {!embedded && (
-          <div className="flex items-start gap-4 mb-6 pb-6 border-b border-white/5">
-            <div className="w-20 h-20 -m-2 shrink-0">
-              <JarvisOrb status={orbStatus} health={orbHealth} />
-            </div>
-            <div className="flex-1">
-              <h1 className="text-3xl font-bold tracking-tight text-white uppercase flex items-center gap-3">
-                NEXUS
-                {unreadCritical > 0 && (
-                  <span className="text-xs font-bold px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                    {unreadCritical} alerta{unreadCritical > 1 ? 's' : ''}
-                  </span>
-                )}
-              </h1>
-              <p className="text-slate-400 mt-1 tracking-wide font-light">
-                Parceiro de day trade — {dashboardActiveSymbol}, dado real, sem previsão de direção
-              </p>
-            </div>
-            <button
-              onClick={handleToggleActive}
-              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wider transition-all ${
-                isActive
-                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-500/30'
-                  : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
-              }`}
-            >
-              {isActive ? <><MicOff className="w-5 h-5" />Pausar</> : <><Mic className="w-5 h-5" />Ativar NEXUS</>}
-            </button>
-          </div>
-        )}
+    <div className={`h-full ${embedded ? 'bg-transparent' : 'bg-[#050608]'} text-white relative overflow-hidden`}>
+      {/* Backdrop 3D — ocupa a tela toda, atrás de tudo */}
+      <div className="absolute inset-0 opacity-90 pointer-events-none">
+        <NexusScene status={sceneStatus} health={sceneHealth} />
+      </div>
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: embedded
+            ? 'radial-gradient(ellipse at 50% 30%, transparent 0%, rgba(5,6,8,0.55) 70%, rgba(5,6,8,0.92) 100%)'
+            : 'radial-gradient(ellipse at 50% 20%, transparent 0%, rgba(5,6,8,0.4) 55%, #050608 92%)',
+        }}
+      />
 
-        {contextError && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            {contextError}
-          </div>
-        )}
-
-        {/* Alertas proativos recentes (gravados pelo servidor, mesmo com a tela fechada) */}
-        {alerts.length > 0 && (
-          <div className="mb-6 space-y-2">
-            {alerts.slice(0, 3).map((a) => (
-              <div
-                key={a.id}
-                className={`flex items-start gap-3 p-3 rounded-lg border text-sm ${
-                  a.severity === 'critical'
-                    ? 'bg-red-500/10 border-red-500/30 text-red-300'
-                    : a.severity === 'warning'
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                    : 'bg-neutral-800/50 border-neutral-700 text-neutral-300'
+      <div className={`relative h-full overflow-y-auto ${embedded ? 'p-0' : 'p-6 md:p-10'}`}>
+        <div className="max-w-3xl mx-auto flex flex-col min-h-full">
+          {!embedded && (
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold tracking-[0.15em] text-white uppercase flex items-center gap-3">
+                  NEXUS
+                  {unreadCritical > 0 && (
+                    <span className="text-xs font-bold px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 tracking-normal">
+                      {unreadCritical} alerta{unreadCritical > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </h1>
+                <p className="text-slate-400 mt-1 text-sm tracking-wide font-light flex items-center gap-2">
+                  Parceiro de day trade — {dashboardActiveSymbol}, dado real, sem previsão de direção
+                  {voiceMode && (
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-500/70 border border-cyan-500/20 rounded px-1.5 py-0.5">
+                      <Volume2 className="w-3 h-3" />
+                      {voiceMode === 'neural' ? 'voz neural' : 'voz do navegador'}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={handleToggleActive}
+                className={`shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-all backdrop-blur-sm ${
+                  isActive
+                    ? 'bg-red-600/90 hover:bg-red-500 text-white shadow-lg shadow-red-500/30'
+                    : 'bg-cyan-600/90 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
                 }`}
               >
-                {a.kind === 'news' ? <Newspaper className="w-4 h-4 mt-0.5 shrink-0" /> : <CalendarClock className="w-4 h-4 mt-0.5 shrink-0" />}
-                <span>{a.message}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Chat */}
-        <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6 mb-4 min-h-[280px] max-h-[440px] overflow-y-auto">
-          {chat.length === 0 && !isThinking && (
-            <p className="text-neutral-500 text-sm">
-              Ative o NEXUS ou pergunte algo sobre {dashboardActiveSymbol} — ele responde só com dado real (preço, indicador, posição aberta, agenda econômica e notícia), nunca inventa número.
-            </p>
+                {isActive ? <><MicOff className="w-4 h-4" />Pausar</> : <><Mic className="w-4 h-4" />Ativar</>}
+              </button>
+            </div>
           )}
-          <div className="space-y-3">
-            {chat.map((m, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+
+          {contextError && (
+            <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm flex items-center gap-2 backdrop-blur-sm">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              {contextError}
+            </div>
+          )}
+
+          {/* Alertas proativos recentes (gravados pelo servidor, mesmo com a tela fechada) */}
+          {alerts.length > 0 && (
+            <div className="mb-4 space-y-2">
+              {alerts.slice(0, 3).map((a) => (
                 <div
-                  className={`max-w-[80%] px-4 py-2.5 rounded-xl text-sm leading-relaxed ${
-                    m.role === 'user' ? 'bg-cyan-600/20 border border-cyan-500/30 text-cyan-50' : 'bg-neutral-800 border border-neutral-700 text-neutral-200'
+                  key={a.id}
+                  className={`flex items-start gap-3 p-3 rounded-lg border text-sm backdrop-blur-sm ${
+                    a.severity === 'critical'
+                      ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                      : a.severity === 'warning'
+                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                      : 'bg-neutral-800/40 border-neutral-700/60 text-neutral-300'
                   }`}
                 >
-                  {m.text}
+                  {a.kind === 'news' ? <Newspaper className="w-4 h-4 mt-0.5 shrink-0" /> : <CalendarClock className="w-4 h-4 mt-0.5 shrink-0" />}
+                  <span>{a.message}</span>
                 </div>
-              </motion.div>
-            ))}
-            <AnimatePresence>
-              {isThinking && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-neutral-500 text-sm flex items-center gap-2">
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
-                  NEXUS está consultando o dado real...
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
 
-        {/* Input */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleToggleListening}
-            className={`p-3 rounded-lg border transition-all ${
-              isListening ? 'bg-red-600/20 border-red-500 text-red-400 animate-pulse' : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:text-cyan-400'
-            }`}
-            title="Falar com o NEXUS"
-          >
-            <Mic className="w-5 h-5" />
-          </button>
-          <input
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-            placeholder={`Pergunte sobre ${dashboardActiveSymbol}...`}
-            className="flex-1 px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-          />
-          <button
-            onClick={handleSendText}
-            disabled={!textInput.trim() || isThinking}
-            className="p-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-all"
-          >
-            <Send className="w-5 h-5" />
-          </button>
+          {/* Chat — cresce pra preencher o espaço, sensação de conversa contínua */}
+          <div className="flex-1 flex flex-col justify-end min-h-[240px] mb-4">
+            {chat.length === 0 && !isThinking && (
+              <div className="text-center py-10">
+                <p className="text-neutral-400 text-sm max-w-md mx-auto leading-relaxed">
+                  Pergunte qualquer coisa sobre <span className="text-cyan-400">{dashboardActiveSymbol}</span> — preço,
+                  indicador, sua posição aberta, risco de calendário ou notícia recente. Sempre dado real, nunca invento número.
+                </p>
+              </div>
+            )}
+            <div className="space-y-3">
+              {chat.map((m, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed backdrop-blur-md shadow-lg ${
+                      m.role === 'user'
+                        ? 'bg-cyan-600/25 border border-cyan-500/40 text-cyan-50 rounded-br-sm'
+                        : 'bg-neutral-900/70 border border-white/10 text-neutral-100 rounded-bl-sm'
+                    }`}
+                  >
+                    {m.text}
+                  </div>
+                </motion.div>
+              ))}
+              <AnimatePresence>
+                {isThinking && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2 text-neutral-400 text-sm">
+                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse" />
+                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse [animation-delay:300ms]" />
+                    <span className="ml-1">NEXUS está consultando o dado real...</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Input — sempre disponível, conversa não exige "ativar" antes */}
+          <div className="sticky bottom-0 pb-2 pt-2">
+            <div className="flex items-center gap-2 bg-neutral-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl shadow-black/40">
+              <button
+                onClick={handleToggleListening}
+                className={`p-2.5 rounded-xl border transition-all ${
+                  isListening
+                    ? 'bg-red-600/20 border-red-500 text-red-400 animate-pulse'
+                    : 'bg-white/5 border-white/10 text-neutral-400 hover:text-cyan-400 hover:border-cyan-500/40'
+                }`}
+                title="Falar com o NEXUS"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+              <input
+                type="text"
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
+                placeholder={`Converse com o NEXUS sobre ${dashboardActiveSymbol}...`}
+                className="flex-1 bg-transparent px-2 py-2 text-white text-sm placeholder:text-neutral-500 focus:outline-none"
+              />
+              <button
+                onClick={handleSendText}
+                disabled={!textInput.trim() || isThinking}
+                className="p-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-all"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

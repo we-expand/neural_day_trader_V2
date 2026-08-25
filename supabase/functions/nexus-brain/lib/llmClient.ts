@@ -21,7 +21,13 @@ interface CallLLMParams {
 }
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+// Nem 'llama-3.3-70b-versatile' nem 'llama-3.1-8b-instant' existem no
+// catálogo da conta Groq do Cleber (confirmado via GET /v1/models em
+// produção 2026-08-25 — a conta só tem acesso a um conjunto restrito de
+// modelos, sem a família Llama). 'openai/gpt-oss-120b' é o modelo de texto
+// mais forte que apareceu na lista real. Trocável via secret GROQ_MODEL sem
+// novo deploy, já que a Groq muda catálogo com regularidade.
+const GROQ_MODEL_DEFAULT = 'openai/gpt-oss-120b';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -40,7 +46,7 @@ async function callGroq(params: CallLLMParams): Promise<string> {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: Deno.env.get('GROQ_MODEL') || GROQ_MODEL_DEFAULT,
       max_tokens: params.maxTokens ?? 500,
       messages: [{ role: 'system', content: params.system }, ...params.messages],
     }),

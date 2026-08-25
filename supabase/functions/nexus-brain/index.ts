@@ -29,6 +29,15 @@ interface RequestBody {
   history?: { role: 'user' | 'assistant'; content: string }[];
 }
 
+// Chamado direto do navegador (JWT do usuário) — sem CORS aqui, todo fetch
+// do NexusVoiceAssistant falha antes mesmo de chegar no auth. Confirmado em
+// produção: log mostrava `OPTIONS | 405` pra cada tentativa (2026-08-25).
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, content-type, x-nexus-secret',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 async function resolveUserId(req: Request): Promise<string | null> {
   const sharedSecret = Deno.env.get('NEXUS_SHARED_SECRET');
   const providedSecret = req.headers.get('x-nexus-secret');
@@ -52,14 +61,17 @@ async function resolveUserId(req: Request): Promise<string | null> {
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: CORS_HEADERS });
   }
 
   try {
     const body = (await req.json()) as RequestBody;
     if (!body.contextPackage) {
-      return new Response(JSON.stringify({ error: 'contextPackage é obrigatório' }), { status: 400 });
+      return new Response(JSON.stringify({ error: 'contextPackage é obrigatório' }), { status: 400, headers: CORS_HEADERS });
     }
 
     const sharedSecret = Deno.env.get('NEXUS_SHARED_SECRET');
@@ -69,13 +81,13 @@ Deno.serve(async (req: Request) => {
     let userId: string | null;
     if (isServerCall) {
       if (!body.userId) {
-        return new Response(JSON.stringify({ error: 'userId obrigatório em chamada servidor-a-servidor' }), { status: 400 });
+        return new Response(JSON.stringify({ error: 'userId obrigatório em chamada servidor-a-servidor' }), { status: 400, headers: CORS_HEADERS });
       }
       userId = body.userId;
     } else {
       userId = await resolveUserId(req);
       if (!userId) {
-        return new Response(JSON.stringify({ error: 'Não autenticado' }), { status: 401 });
+        return new Response(JSON.stringify({ error: 'Não autenticado' }), { status: 401, headers: CORS_HEADERS });
       }
     }
 
@@ -113,10 +125,10 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(JSON.stringify({ text }), {
-      headers: { 'content-type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
     });
   } catch (err: any) {
     console.error('[nexus-brain] Erro:', err);
-    return new Response(JSON.stringify({ error: err?.message ?? 'Erro interno' }), { status: 500 });
+    return new Response(JSON.stringify({ error: err?.message ?? 'Erro interno' }), { status: 500, headers: CORS_HEADERS });
   }
 });
