@@ -28,7 +28,7 @@ import {
   Database, // 🔥 NOVO: Ícone para painel de dados
   Settings // ⚙️ NOVO: Ícone para configuração rápida
 } from 'lucide-react';
-import { NexusQuantumAdvisor } from '../nexus/NexusQuantumAdvisor';
+import { NexusAssistant } from '../nexus/NexusAssistant';
 import { toast } from 'sonner';
 import { DepositModal } from '../wallet/DepositModal';
 import { InfinoxAssetsBrowser } from './InfinoxAssetsBrowser'; // ✅ NOVO: Import do navegador de ativos
@@ -1564,7 +1564,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
             {/* COL 3: ANÁLISE POR FONTE - EXPANDIDO 25% */}
             <div className="col-span-1 lg:col-span-5 h-full flex flex-col min-h-[400px]">
                 {/* Usar displayPrice (preço atual) e displayTrend (% de mudança diária) */}
-                <NexusQuantumAdvisor
+                <NexusAssistant
                   activeSymbol={activeSymbol}
                   scoreResult={scoreResult}
                 />

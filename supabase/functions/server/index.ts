@@ -9,7 +9,6 @@ import { translateEconomicEvents } from './translate-events.ts';
 import * as kv from './kv_store_resilient.tsx'; // 🔄 RESILIENT: auto-retry para operações do banco
 import { synthesizeSpeech, validateGoogleTTSKey } from './tts-google.ts';
 import { transcribeAudio, validateGoogleSTTKey } from './stt-google.ts';
-import { processUserQuestion, generateAlertResponse } from './neural-assistant.ts';
 import { isLedgerTrackedAction, buildExecutionLedgerRow } from './brokerExecutionLedger.ts';
 
 const app = new Hono().basePath('/server');
@@ -6421,53 +6420,6 @@ app.post("/stt/transcribe", async (c) => {
     console.error('[STT] ❌ Erro ao transcrever áudio:', error);
     return c.json({ 
       error: 'Erro ao transcrever áudio', 
-      details: error.message 
-    }, 500);
-  }
-});
-
-// ========================================
-// 🤖 NEURAL ASSISTANT (Luna) - Chat Conversacional
-// ========================================
-
-// Endpoint: Processar pergunta do usuário e gerar resposta contextual
-app.post("/assistant/chat", async (c) => {
-  try {
-    const { question, context } = await c.req.json();
-    
-    if (!question || typeof question !== 'string' || question.trim().length === 0) {
-      return c.json({ error: 'Pergunta inválida ou vazia' }, 400);
-    }
-
-    console.log('[ASSISTANT] 🤖 Processando pergunta:', {
-      question: question.substring(0, 50) + '...',
-      hasContext: !!context
-    });
-
-    // Processar pergunta usando sistema de personalidade
-    const response = await processUserQuestion(question, context || {});
-
-    console.log('[ASSISTANT] ✅ Resposta gerada:', {
-      emotion: response.emotion,
-      textLength: response.text.length,
-      hasSuggestions: !!response.suggestions
-    });
-
-    return c.json({
-      success: true,
-      response: response.text,
-      emotion: response.emotion,
-      suggestions: response.suggestions || [],
-      assistant: {
-        name: 'Luna',
-        avatar: '🌙'
-      }
-    });
-
-  } catch (error: any) {
-    console.error('[ASSISTANT] ❌ Erro ao processar pergunta:', error);
-    return c.json({ 
-      error: 'Erro ao processar pergunta', 
       details: error.message 
     }, 500);
   }

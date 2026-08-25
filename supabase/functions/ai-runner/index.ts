@@ -39,6 +39,7 @@ import { createRunnerPersistence } from './lib/persistence.ts';
 import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
 import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
 import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
+import { getRelevantCurrencies } from '../../../src/app/services/risk/NewsCurrencyRelevance.ts';
 
 const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
@@ -75,6 +76,9 @@ interface RunnerSessionState {
   triggeredPartialLayers: Map<string, Set<number>>;
   reversalSignalCache: Map<string, 'LONG' | 'SHORT'>;
   reversalSignalCacheAt: number;
+  // NEXUS (Fase 2, 2026-08-24) — throttle do tick de alerta proativo, mesmo
+  // padrão do reversalSignalCache acima (não bater no LLM a cada 5s).
+  nexusAlertCheckedAt: number;
 }
 
 const POSITION_TICK_FAILURE_ALERT_THRESHOLD = 10; // ~10s de falha consecutiva de preço dentro da mesma invocação
@@ -194,6 +198,7 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     triggeredPartialLayers: new Map(),
     reversalSignalCache: new Map(),
     reversalSignalCacheAt: 0,
+    nexusAlertCheckedAt: 0,
   };
 }
 
@@ -468,7 +473,106 @@ function applyEffects(s: RunnerSessionState, effects: TradingCycleEffect[]): voi
   }
 }
 
+const NEXUS_ALERT_TICK_MS = 15 * 60_000; // não bater no LLM a cada 5s — checa a cada 15min por sessão
+const NEXUS_CALENDAR_LOOKAHEAD_MS = 60 * 60_000; // evento de calendário dentro da próxima hora
+
+/**
+ * NEXUS (Fase 2) — alerta proativo gerado no servidor, roda mesmo se o
+ * usuário não estiver com a tela aberta. Reaproveita exatamente o mesmo dado
+ * (cachedNewsEvents, mesma janela do gate de notícia do motor) já carregado
+ * por `tradingCycleTick` — nunca busca notícia/calendário por conta própria.
+ * Só chama o LLM (nexus-brain) quando há algo real e relevante pra avisar;
+ * caso contrário não gasta chamada nenhuma.
+ */
+async function nexusAlertTick(s: RunnerSessionState): Promise<void> {
+  // Throttle via BANCO, não memória: cada invocação desta function roda por
+  // no máximo MAX_RUNTIME_MS (45s), muito menor que NEXUS_ALERT_TICK_MS
+  // (15min) — um contador em memória seria reiniciado a cada chamada do cron
+  // (a cada ~1min) e nunca segurar o throttle de verdade. `nexusAlertCheckedAt`
+  // ainda existe pra evitar rodar 2x dentro da MESMA invocação (loop de runSession).
+  const now = Date.now();
+  if (now - s.nexusAlertCheckedAt < NEXUS_ALERT_TICK_MS) return;
+  s.nexusAlertCheckedAt = now;
+
+  const nexusSecret = Deno.env.get('NEXUS_SHARED_SECRET');
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  if (!nexusSecret || !supabaseUrl) return; // NEXUS não configurado neste ambiente — silencioso, não é erro
+
+  const symbols = Array.from(new Set([...(s.config.activeAssets ?? []), ...s.activeOrders.map((o) => o.symbol)]));
+  if (symbols.length === 0) return;
+
+  const sb = getServiceClient();
+
+  for (const symbol of symbols) {
+    // Já existe alerta recente pra este ativo/usuário? Único jeito real de
+    // dar throttle entre invocações (o cron chama esta function ~1x/min, bem
+    // mais frequente que os 15min de intervalo desejado).
+    const { data: lastAlert } = await sb
+      .from('nexus_alerts')
+      .select('created_at')
+      .eq('user_id', s.userId)
+      .eq('symbol', symbol)
+      .gte('created_at', new Date(now - NEXUS_ALERT_TICK_MS).toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (lastAlert) continue;
+
+    const relevantCurrencies = getRelevantCurrencies(symbol);
+    const upcomingHighImpact = s.cachedNewsEvents.filter(
+      (e) => relevantCurrencies.includes((e.currency || '').toUpperCase()) && e.impact === 'high' && e.time - now >= 0 && e.time - now <= NEXUS_CALENDAR_LOOKAHEAD_MS
+    );
+
+    const { data: recentGuardEvents } = await sb
+      .from('price_guard_events')
+      .select('event_type, deviation_pct, created_at')
+      .eq('symbol', symbol)
+      .eq('event_type', 'suspicious_deviation')
+      .gte('created_at', new Date(now - NEXUS_ALERT_TICK_MS).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (upcomingHighImpact.length === 0 && (!recentGuardEvents || recentGuardEvents.length === 0)) continue;
+
+    const contextPackage = {
+      symbol,
+      agendaEconomicaRelevante: upcomingHighImpact,
+      guardaDePrecoRecente: recentGuardEvents ?? [],
+    };
+
+    try {
+      const res = await fetch(`${supabaseUrl}/functions/v1/nexus-brain`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-nexus-secret': nexusSecret },
+        body: JSON.stringify({ userId: s.userId, contextPackage }),
+      });
+      if (!res.ok) {
+        console.error(`[ai-runner] nexus-brain retornou ${res.status} pro alerta de ${symbol}`);
+        continue;
+      }
+      const { text } = await res.json();
+      if (!text) continue;
+
+      await sb.from('nexus_alerts').insert({
+        user_id: s.userId,
+        session_id: s.sessionId,
+        symbol,
+        severity: recentGuardEvents && recentGuardEvents.length > 0 ? 'critical' : 'warning',
+        kind: recentGuardEvents && recentGuardEvents.length > 0 ? 'price_guard' : 'calendar',
+        message: text,
+        context_json: contextPackage,
+      });
+    } catch (err) {
+      console.error(`[ai-runner] Falha ao gerar alerta NEXUS pra ${symbol}:`, err);
+    }
+  }
+}
+
 async function runSession(s: RunnerSessionState, deadline: number): Promise<void> {
+  // NEXUS (Fase 2) — checagem proativa de risco/calendário, uma vez por
+  // invocação (o próprio throttle interno decide se já é hora de fato).
+  // Roda antes do loop de tick pra nunca competir por tempo com posição/TP-SL.
+  await nexusAlertTick(s);
+
   let lastPositionTick = 0;
   let lastTradingTick = 0;
   while (Date.now() < deadline) {

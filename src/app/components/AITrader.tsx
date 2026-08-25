@@ -22,7 +22,7 @@ import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { brokerManager } from '@/app/services/brokers/BrokerAdapter';
 import { MT5Adapter } from '@/app/services/brokers/MT5Adapter';
 import { useMarketData } from '@/app/contexts/MarketDataContext';
-import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
+import { NexusVoiceAssistant } from '@/app/components/nexus/NexusVoiceAssistant';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
 import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
@@ -1031,7 +1031,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         
                         {/* AI Trader Voice Component */}
                         <div className="p-6">
-                          <AITraderVoice embedded={true} />
+                          <NexusVoiceAssistant embedded={true} />
                         </div>
                     </motion.div>
                 ) : (

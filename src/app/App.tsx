@@ -5,7 +5,7 @@ import { MarketProvider } from '@/app/contexts/MarketContext';
 import { MarketDataProvider } from '@/app/contexts/MarketDataContext'; // 🆕 Provider para MT5 Price Validator
 import { ApexTradingProvider } from '@/app/contexts/TradingContext';
 import { SimulatorProvider } from '@/app/contexts/SimulatorContext';
-import { AssistantProvider, useAssistant } from '@/app/contexts/AssistantContext';
+import { AssistantProvider } from '@/app/contexts/AssistantContext';
 import { VoiceCoordinatorProvider } from '@/app/contexts/VoiceCoordinatorContext';
 import { DebugProvider } from '@/app/components/debug/DebugController';
 import { useUserProfile } from '@/app/hooks/useUserProfile';
@@ -32,9 +32,7 @@ import { CompetitiveAnalysis } from '@/app/components/CompetitiveAnalysis';
 import { LandingPage } from '@/app/components/landing/LandingPage';
 import { AuthOverlay } from '@/app/components/auth/AuthOverlay';
 import { MarketTicker } from '@/app/components/MarketTicker';
-import { FloatingAssistantButton } from '@/app/components/FloatingAssistantButton';
 // import { LiveTradingTest } from '@/app/components/LiveTradingTest';
-import { NeuralAssistant } from '@/app/components/NeuralAssistant';
 import { QuantumAnalysis } from '@/app/components/quantum/QuantumAnalysis';
 import { UnifiedDataTester } from '@/app/components/debug/UnifiedDataTester';
 import { BinanceDirectComparison } from '@/app/components/debug/BinanceDirectComparison';
@@ -43,7 +41,7 @@ import { checkAdminPermissions } from '@/app/config/adminConfig';
 import { ComplianceAnalysis } from '@/app/components/ComplianceAnalysis';
 import { LaunchStrategy } from '@/app/components/LaunchStrategy';
 import { TraderInsights } from '@/app/components/TraderInsights';
-import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
+import { NexusVoiceAssistant } from '@/app/components/nexus/NexusVoiceAssistant';
 import { AITradingEngine } from '@/app/components/AITradingEngine';
 import { OperationLogs } from '@/app/components/admin/OperationLogs';
 import { JarvisDashboard } from '@/app/components/jarvis/JarvisDashboard';
@@ -181,7 +179,6 @@ function AppContent() {
   const [language, setLanguage] = useState<Language>('pt');
   const { user, signOut, loading } = useAuth();
   const { fullName } = useUserProfile();
-  const { isAssistantOpen, toggleAssistant, closeAssistant } = useAssistant();
   
   // 🆕 Configurar logo Trade Hub no browser
   useFavicon();
@@ -259,7 +256,7 @@ function AppContent() {
       case 'system':
         return <Settings />;
       case 'ai-voice':
-        return <AITraderVoice />;
+        return <NexusVoiceAssistant />;
       case 'innovation':
         return <LiquidityPrediction />;
       case 'strategy':
@@ -388,15 +385,6 @@ function AppContent() {
               <MarketTicker />
             </footer>
           </div>
-
-          <FloatingAssistantButton 
-            isOpen={isAssistantOpen} 
-            onClick={toggleAssistant} 
-          />
-          <NeuralAssistant 
-            isOpen={isAssistantOpen} 
-            onClose={closeAssistant} 
-          />
 
           <UnifiedDataTester />
           {/* <BinanceDirectComparison /> */}

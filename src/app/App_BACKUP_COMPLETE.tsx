@@ -3,7 +3,7 @@ import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from '@/app/contexts/AuthContext';
 import { MarketProvider } from '@/app/contexts/MarketContext';
 import { ApexTradingProvider } from '@/app/contexts/TradingContext';
-import { AssistantProvider, useAssistant } from '@/app/contexts/AssistantContext';
+import { AssistantProvider } from '@/app/contexts/AssistantContext';
 import { DebugProvider } from '@/app/components/debug/DebugController';
 import { useUserProfile } from '@/app/hooks/useUserProfile';
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
@@ -29,8 +29,6 @@ import { CompetitiveAnalysis } from '@/app/components/CompetitiveAnalysis';
 import { LandingPage } from '@/app/components/landing/LandingPage';
 import { AuthOverlay } from '@/app/components/auth/AuthOverlay';
 import { MarketTicker } from '@/app/components/MarketTicker';
-import { FloatingAssistantButton } from '@/app/components/FloatingAssistantButton';
-import { NeuralAssistant } from '@/app/components/NeuralAssistant';
 import { QuantumAnalysis } from '@/app/components/quantum/QuantumAnalysis';
 import { UnifiedDataTester } from '@/app/components/debug/UnifiedDataTester';
 import { BinanceDirectComparison } from '@/app/components/debug/BinanceDirectComparison';
@@ -49,7 +47,6 @@ function AppContent() {
   const [language, setLanguage] = useState<Language>('pt');
   const { user, signOut, mockLogin, loading } = useAuth();
   const { fullName } = useUserProfile();
-  const { isAssistantOpen, toggleAssistant, closeAssistant } = useAssistant();
 
   // 🔥 WRAPPER para setCurrentView com LOGS AGRESSIVOS
   const handleViewChange = (newView: View) => {
@@ -242,16 +239,6 @@ function AppContent() {
               <MarketTicker />
             </footer>
           </div>
-
-          {/* 🌙 NEURAL ASSISTANT - Luna (Botão flutuante + Modal) */}
-          <FloatingAssistantButton 
-            isOpen={isAssistantOpen} 
-            onClick={toggleAssistant} 
-          />
-          <NeuralAssistant 
-            isOpen={isAssistantOpen} 
-            onClose={closeAssistant} 
-          />
 
           {/* 🚀 UNIFIED DATA TESTER - Teste das novas APIs */}
           <UnifiedDataTester />
