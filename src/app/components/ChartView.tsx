@@ -535,7 +535,9 @@ const PositionLabelLineOverlay: OverlayTemplate = {
       {
         type: 'text',
         ignoreEvent: true,
-        attrs: { x: bounding.width - 6, y: y - 4, text: label, align: 'right', baseline: 'bottom' },
+        // Alinhado à esquerda, com respiro depois da barra de ferramentas de
+        // desenho (que fica sobreposta na borda esquerda do canvas).
+        attrs: { x: 56, y: y - 4, text: label, align: 'left', baseline: 'bottom' },
       },
     ];
   },
