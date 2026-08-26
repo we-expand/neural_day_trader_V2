@@ -3032,6 +3032,22 @@ export function ChartView({
   const applyChartScrollPosition = (chart: any, anchorTimestamp: number, anchorX: number) => {
     if (!chart) return;
     try {
+      // 🐛 FIX (bug real relatado pelo Cleber: gráfico abrindo com só a última vela
+      // visível, resto da tela em branco): o estado de sessão salva `anchorTimestamp`
+      // sem o SÍMBOLO — ao trocar de ativo (ou reabrir a página com sessão de outro
+      // símbolo salva), este timestamp antigo é reaplicado sobre o dataset novo. Se
+      // ele cai fora do range de candles carregado agora, `convertToPixel` extrapola
+      // pra um pixel fora da tela e `scrollByDistance` empurra o viewport inteiro pra
+      // longe dos dados reais. Guarda: só restaura se o timestamp existir de fato
+      // dentro do range carregado; fora disso, mantém a posição já definida por
+      // scrollToRealTime() em vez de arriscar um scroll absurdo.
+      const dataList = chart.getDataList();
+      const first = dataList?.[0]?.timestamp;
+      const last = dataList?.[dataList.length - 1]?.timestamp;
+      if (typeof first !== 'number' || typeof last !== 'number' || anchorTimestamp < first || anchorTimestamp > last) {
+        console.warn('[ChartView] ⚠️ Âncora de scroll fora do range carregado, ignorando restauração de posição');
+        return;
+      }
       const px = chart.convertToPixel({ timestamp: anchorTimestamp }, { paneId: 'candle_pane' });
       const x = Array.isArray(px) ? px[0]?.x : px?.x;
       if (typeof x !== 'number' || !isFinite(x)) return;
