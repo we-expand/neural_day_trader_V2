@@ -733,7 +733,9 @@ async function analyzeAsset(
     });
 
     const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
-    const MIN_CONFIDENCE = 60 + riskAdjustment.confidenceAdjust;
+    // 🔴 2026-08-26: Reduzido de 60 → 55 pra permitir mais volume sem sacrificar qualidade.
+    // Tier 1 (55+): aceita direto. Tier 2 (45-54): exige confirmação extra.
+    const MIN_CONFIDENCE = 55 + riskAdjustment.confidenceAdjust;
 
     // Confiança = score do ranking. NÃO é probabilidade calibrada de acerto —
     // é a média dos scores dos blocos de entrada, mesma natureza heurística da
@@ -767,6 +769,16 @@ async function analyzeAsset(
       return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
     }
 
+    // 🔴 2026-08-26: TIER 2 (Medium Confidence 45-54) — filtro extra pra permitir volume
+    // mas com gatilho rígido de Market Score. Se está entre 45-54, exigir que o Score
+    // concordar (não pode ser LATERAL ou OPOSTO). Isso reduz falsos positivos sem
+    // rejeitar tudo.
+    const TIER2_CONFIDENCE_FLOOR = 45;
+    const isTier2Setup = confidenceScore >= TIER2_CONFIDENCE_FLOOR && confidenceScore < MIN_CONFIDENCE;
+    if (isTier2Setup) {
+      console.log(`[TIER2] 🟡 Setup de médium confidence (${confidenceScore}%) — exigindo confirmação do Market Score...`);
+    }
+
     // 🔒 GATE DO MARKET SCORE — confirmação/veto do sinal da estratégia, nunca
     // decide sozinho. Ver comentário original em useApexLogic.ts (histórico
     // git) pro racional completo de cada ramo.
@@ -783,6 +795,20 @@ async function analyzeAsset(
         const expectedClassification = side === 'LONG' ? 'COMPRADOR' : 'VENDEDOR';
         const opposite = side === 'LONG' ? 'VENDEDOR' : 'COMPRADOR';
         if (scoreResult.classification === opposite) {
+          // 🔴 2026-08-26: Tier 2 é muito rigoroso com Market Score oposto
+          // Se está em Tier 2 e Score aponta pra direção contrária: SEMPRE rejeita
+          if (isTier2Setup) {
+            const reason = `Setup Tier2 ${side} descartado: Market Score OPOSTO (${scoreResult.classification}) com confiança ${confidenceScore}% — risco demais pra médium confidence`;
+            console.log(`[SCORE] 🚫 ${reason}`);
+            funnelTelemetry.recordStage('SCORE_OPPOSITE', selectedSymbol, `Tier2: ${scoreResult.classification} vs ${expectedClassification}`);
+            await deps.persistence.saveDecision({
+              symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+              reasoning: reason, marketScore: scoreResult.score, actionTaken: false, vetoStage: 'SCORE_OPPOSITE',
+            });
+            return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+          }
+
+          // Tier 1: rejeita normalmente
           const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) classifica ${selectedSymbol} como ${scoreResult.classification} (confiança ${scoreResult.confidence}%) — contradiz a estratégia`;
           console.log(`[SCORE] 🚫 ${reason}`);
           await deps.persistence.saveDecision({
@@ -793,18 +819,22 @@ async function analyzeAsset(
           return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
         }
         if (scoreResult.classification === 'LATERAL') {
-          const requiredConfidence = MIN_CONFIDENCE + LATERAL_CONFIDENCE_PENALTY;
+          // 🔴 2026-08-26: Tier 2 é mais rigoroso com LATERAL também
+          const lateralPenaltyForTier = isTier2Setup ? 30 : LATERAL_CONFIDENCE_PENALTY; // Tier2 exige +30 vs +25
+          const requiredConfidence = MIN_CONFIDENCE + lateralPenaltyForTier;
           if (confidenceScore < requiredConfidence) {
-            const reason = `Setup ${side} descartado: Market Score (${opTimeframe}) está LATERAL (zona de baixo edge conhecida) e a estratégia só tem ${confidenceScore}% de confiança (exige ${requiredConfidence}% nesse regime)`;
+            const tierLabel = isTier2Setup ? 'Tier2' : 'Tier1';
+            const reason = `Setup ${tierLabel} ${side} descartado: Market Score LATERAL (${opTimeframe}) + confiança ${confidenceScore}% < ${requiredConfidence}% exigido`;
             console.log(`[SCORE] 🚫 ${reason}`);
             await deps.persistence.saveDecision({
               symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
-              reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe, requiredConfidence },
+              reasoning: reason, marketScore: scoreResult.score, technicalSignals: { classification: scoreResult.classification, timeframe: opTimeframe, requiredConfidence, tierLabel },
               actionTaken: false, vetoStage: 'CONTEXT_SCORE_LATERAL',
             });
             return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
           }
-          console.log(`[SCORE] 🟡 Market Score (${opTimeframe}) LATERAL — estratégia com confiança suficiente (${confidenceScore}% ≥ ${requiredConfidence}%) pra operar mesmo sem confirmação`);
+          const tierLabel = isTier2Setup ? 'Tier2' : 'Tier1';
+          console.log(`[SCORE] 🟡 ${tierLabel}: Market Score LATERAL (${opTimeframe}) — confiança ${confidenceScore}% ≥ ${requiredConfidence}% permite operação`);
         }
         scoreConfidence = scoreResult.confidence;
         console.log(`[SCORE] ✅ Market Score (${opTimeframe}) confirma/não contradiz: ${scoreResult.classification} (confiança ${scoreResult.confidence}%)${scoreResult.classification === expectedClassification ? ' — concorda' : ' — neutro'}`);
