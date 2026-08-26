@@ -78,6 +78,7 @@ export type FunnelStage =
   // ── Saídas da estratégia ─────────────────────────────────────────────────
   | 'NO_SIGNAL'                   // blocos de entrada não dispararam neste candle
   | 'STRATEGY_CONFIDENCE_LOW'     // confiança da estratégia abaixo do mínimo
+  | 'RSI_NEUTRAL_LOW_CONFIDENCE'  // 2026-08-25: RSI em zona neutra (40-60) com confiança insuficiente
 
   // ── Saídas dos gates (estas TAMBÉM gravam em ai_decisions) ───────────────
   | 'SCORE_OPPOSITE'
@@ -87,6 +88,7 @@ export type FunnelStage =
   | 'MARKET_MODE_MISMATCH'
   | 'COST_GATE'
   | 'COST_GATE_NO_DATA'
+  | 'VOLATILITY_TOO_LOW'         // 2026-08-25: ATR < 0,2% do preço, mercado sem movimento
   | 'CONTEXT_GATE'
   | 'TAIL_RISK'
   | 'KILL_SWITCH'
@@ -118,6 +120,7 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   CANDLES_INSUFFICIENT: 'Histórico de candles insuficiente',
   NO_SIGNAL: 'Estratégia sem sinal neste candle',
   STRATEGY_CONFIDENCE_LOW: 'Confiança da estratégia abaixo do mínimo',
+  RSI_NEUTRAL_LOW_CONFIDENCE: 'RSI em zona neutra (40-60) com confiança insuficiente',
   SCORE_OPPOSITE: 'Market Score aponta direção contrária',
   SCORE_LATERAL: 'Market Score LATERAL e confiança insuficiente',
   COMBINED_CONFIDENCE_LOW: 'Confiança combinada (estratégia+Score) baixa',
@@ -125,6 +128,7 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   MARKET_MODE_MISMATCH: 'Regime não bate com o modo de mercado escolhido',
   COST_GATE: 'Custo devora o movimento típico do ativo',
   COST_GATE_NO_DATA: 'ATR indisponível para avaliar custo',
+  VOLATILITY_TOO_LOW: 'Volatilidade muito baixa (mercado sem movimento significativo)',
   CONTEXT_GATE: 'Context Gate (regime/estrutura) recusou',
   TAIL_RISK: 'Proteção de cauda bloqueou novas entradas',
   KILL_SWITCH: 'Kill switch acionado',

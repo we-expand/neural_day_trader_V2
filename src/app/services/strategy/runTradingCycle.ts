@@ -733,7 +733,7 @@ async function analyzeAsset(
     });
 
     const riskAdjustment = RISK_PROFILE_ADJUSTMENTS[aiConfig.riskProfile] || DEFAULT_RISK_ADJUSTMENT;
-    const MIN_CONFIDENCE = 45 + riskAdjustment.confidenceAdjust;
+    const MIN_CONFIDENCE = 60 + riskAdjustment.confidenceAdjust;
 
     // Confiança = score do ranking. NÃO é probabilidade calibrada de acerto —
     // é a média dos scores dos blocos de entrada, mesma natureza heurística da
@@ -744,6 +744,23 @@ async function analyzeAsset(
     const rsiSeries = calculateRSI(candles, 14);
     const rsiValue = rsiSeries[rsiSeries.length - 1] ?? 50;
 
+    // 🔴 OTIMIZAÇÃO 2026-08-25: RSI neutro (40-60) é zona de baixa confiabilidade.
+    // Exigir 15 pontos de confiança extra quando o oscilador não está em extremo.
+    // Isso filtra entradas "infantis" sem pressão direcional real no momentum.
+    const RSI_NEUTRAL_ZONE_LOW = 40;
+    const RSI_NEUTRAL_ZONE_HIGH = 60;
+    const RSI_NEUTRAL_CONFIDENCE_PENALTY = 15;
+    const isRsiNeutral = rsiValue >= RSI_NEUTRAL_ZONE_LOW && rsiValue <= RSI_NEUTRAL_ZONE_HIGH;
+    if (isRsiNeutral) {
+      const requiredConfidenceForNeutralRsi = MIN_CONFIDENCE + RSI_NEUTRAL_CONFIDENCE_PENALTY;
+      if (confidenceScore < requiredConfidenceForNeutralRsi) {
+        console.log(`[SEGURANÇA] ❌ RSI neutro (${rsiValue.toFixed(1)}, zona 40-60): confiança insuficiente ${confidenceScore}% < ${requiredConfidenceForNeutralRsi}% (exigido pra operar sem pressão de momentum)`);
+        funnelTelemetry.recordStage('RSI_NEUTRAL_LOW_CONFIDENCE', selectedSymbol, `${confidenceScore}% < ${requiredConfidenceForNeutralRsi}% (RSI=${rsiValue.toFixed(1)})`);
+        return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+      }
+      console.log(`[SEGURANÇA] 🟡 RSI neutro (${rsiValue.toFixed(1)}): confiança passando no filtro extra (${confidenceScore}% ≥ ${requiredConfidenceForNeutralRsi}%)`);
+    }
+
     if (confidenceScore < MIN_CONFIDENCE) {
       console.log(`[SEGURANÇA] ❌ Confiança abaixo do mínimo do perfil de risco: ${confidenceScore}% < ${MIN_CONFIDENCE}%`);
       funnelTelemetry.recordStage('STRATEGY_CONFIDENCE_LOW', selectedSymbol, `${confidenceScore}% < ${MIN_CONFIDENCE}%`);
@@ -753,7 +770,10 @@ async function analyzeAsset(
     // 🔒 GATE DO MARKET SCORE — confirmação/veto do sinal da estratégia, nunca
     // decide sozinho. Ver comentário original em useApexLogic.ts (histórico
     // git) pro racional completo de cada ramo.
-    const LATERAL_CONFIDENCE_PENALTY = 15;
+    // 🔴 OTIMIZAÇÃO 2026-08-25: aumentado de 15 → 25 pra reduzir entradas
+    // contra o regime dominante (zona de baixa confiabilidade provada em
+    // backtests).
+    const LATERAL_CONFIDENCE_PENALTY = 25;
     let scoreConfidence: number | null = null;
     let computedRegime: MarketRegime | null = null;
     try {
@@ -869,6 +889,24 @@ async function analyzeAsset(
         await deps.persistence.saveDecision({
           symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
           reasoning: reason, actionTaken: false, vetoStage: 'COST_GATE_NO_DATA',
+        });
+        return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+      }
+
+      // 🔴 OTIMIZAÇÃO 2026-08-25: rejeitar entradas quando ATR está muito baixo
+      // (mercado sem movimento significativo). Sem volatilidade, é impossível
+      // capturar o alvo mínimo 2,5×ATR no stop. Limiar: ATR < 0,2% do preço
+      // (mercado morto/sleep mode). Win rate em mercado sem movimento é
+      // consistentemente 30% ou pior (validado em backtests julho-agosto).
+      const minAtrPercent = (atrValueForCostGate / currentPrice) * 100;
+      const ATR_MINIMUM_PERCENT = 0.2;
+      if (minAtrPercent < ATR_MINIMUM_PERCENT) {
+        const reason = `Setup ${side} descartado em ${selectedSymbol}: volatilidade muito baixa (ATR ${minAtrPercent.toFixed(3)}% < limiar ${ATR_MINIMUM_PERCENT}%) — mercado sem movimento, captura de alvo impossível`;
+        console.log(`[CUSTO] 🚫 ${reason}`);
+        await deps.persistence.saveDecision({
+          symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+          reasoning: reason, actionTaken: false, vetoStage: 'VOLATILITY_TOO_LOW',
+          riskAssessment: { atrPercent: minAtrPercent, minimumAtrPercent: ATR_MINIMUM_PERCENT },
         });
         return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
       }
