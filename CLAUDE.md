@@ -15,6 +15,30 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-25: Trilho 2 reaberto (NVIDIA NIM Signal Discovery) + cuOpt em
+avaliação (Fase A, não integrado ainda).** A pedido do Cleber, reabrindo a
+busca de edge pausada em 2026-07-26 (seção 13 do
+[AI_BRAIN_SPEC.md](research/AI_BRAIN_SPEC.md)) usando o NVIDIA Signal
+Discovery Agent (NIM API, Nemotron) pra gerar/triar hipóteses sobre as
+fontes de dado já escopadas (correlação cross-asset, calendário-regime,
+order book pago, tick volume) — a NVIDIA só gera hipótese, validação
+continua 100% local (DSR/Sortino/bootstrap/custo real, sem exceção).
+**Decisão pendente do Cleber**: escopo original excluía notícia/sentimento
+NLP explicitamente; usar a ferramenta de destilação de notícia da NVIDIA
+reabriria essa exclusão — não decidido ainda, ver
+[hypothesis.md](research/experiments/2026-08-25-trilho2-nim-signal-discovery/hypothesis.md).
+Em paralelo, cuOpt (otimização de portfólio) está em **Fase A** —
+validação isolada em `research/experiments/`, comparando alocação conjunta
+contra o baseline sequencial real e contra um baseline aleatório (teste de
+viés de seleção, mesmo risco já sinalizado em
+`2026-08-16-portfolio-amplitude`). Integração no motor
+(`runTradingCycle.ts`) só acontece se a Fase A passar no critério de
+`CRITERIA.md` — nada de produção mudou ainda. **Pendente técnico**:
+`NVIDIA_API_KEY` (Cleber cria em build.nvidia.com) e confirmar o schema
+real do endpoint cuOpt contra a documentação oficial antes de implementar
+a chamada (deixado como stub explícito de propósito, não fabricado). Ver
+[research/experiments/2026-08-25-cuopt-portfolio-optimization/hypothesis.md](research/experiments/2026-08-25-cuopt-portfolio-optimization/hypothesis.md).
+
 **2026-08-25: NEXUS trocado de Groq pra NVIDIA Nemotron 3 (Nano).**
 Testado ao vivo em produção. Primeira tentativa (Ultra, 550B/55B ativos)
 mediu ~28s de resposta — inviável pra chat; trocado pra Nano (30B/3B
@@ -45,10 +69,11 @@ fechavam com `commission: 0`; fix confirmado em produção (v48 do
 `ai-runner`). Efeito líquido no resultado ainda não avaliado (amostra
 pequena pós-fix). Detalhe no [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
 
-**Fase de pesquisa fechada em 2026-08-23**: calendário/macro sem efeito
-direcional utilizável (só redução de custo por janela de risco);
-posicionamento/fluxo e TradingAgents/ML sem edge intraday comprovado.
-Relatórios em `research/experiments/2026-08-23-custo-nao-cobrado-e-poder/`.
+**Fase de pesquisa fechada em 2026-08-23, reaberta em 2026-08-25 (ver item
+do topo)**: calendário/macro sem efeito direcional utilizável (só redução
+de custo por janela de risco); posicionamento/fluxo e TradingAgents/ML sem
+edge intraday comprovado. Relatórios em
+`research/experiments/2026-08-23-custo-nao-cobrado-e-poder/`.
 
 Itens de 2026-08-21 (todos resolvidos, detalhe no histórico se precisar):
 log de PnL em $ + fix de import map quebrado; gate de notícias/VIX do
@@ -207,6 +232,10 @@ O que ainda está genuinamente em aberto:
    `NEXT_SESSION.md`. Runner Deno (`supabase/functions/ai-runner/`) já
    rodando em produção desde então (superou o "ainda não rodou contra o
    Supabase de verdade" que era a pendência real até 2026-08-05/17).
+   **[2026-08-25] Reaberto via NVIDIA NIM Signal Discovery + cuOpt Fase A**
+   — ver item do topo deste arquivo, detalhe em
+   `research/experiments/2026-08-25-trilho2-nim-signal-discovery/hypothesis.md`
+   e `research/experiments/2026-08-25-cuopt-portfolio-optimization/hypothesis.md`.
 1. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
 2. **Decisão pendente do Cleber (roteamento de cripto)**: manter Binance
    direto pra cripto (exceto BTCUSD, que já vai por MetaAPI) ou reverter tudo
