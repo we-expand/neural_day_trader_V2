@@ -1401,7 +1401,7 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice } = useTradingContext();
   const { user } = useAuth();
 
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
@@ -1419,6 +1419,14 @@ export function ChartView({
     return tf && VALID_TIMEFRAMES.includes(tf) ? tf : '1H';
   });
   const [currentPrice, setCurrentPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
+  // Ref sempre atualizada — os handlers de arraste dos overlays de ordem
+  // pendente são criados dentro de renderPositionOverlays (só reexecuta
+  // quando activeOrders/pendingOrders/selectedSymbol mudam), então fechariam
+  // sobre um currentPrice desatualizado se lessem o state direto.
+  const currentPriceRef = useRef<number | null>(null);
+  useEffect(() => {
+    currentPriceRef.current = currentPrice;
+  }, [currentPrice]);
   const [displayedPrice, setDisplayedPrice] = useState<number | null>(null); // Preço exibido (throttled para UI)
   // 🆕 Watchdog de preço "desatualizado" -- ver comentário completo no callback de
   // subscribeToSymbol mais abaixo. Sem isso, uma falha silenciosa no pipeline de preço
@@ -4236,16 +4244,28 @@ export function ChartView({
 
   useEffect(() => {
     const updateCountdown = () => {
-      const now = Date.now();
       const interval = TIMEFRAME_INTERVALS_MS[timeframe];
-      const elapsed = now % interval;
-      setCandleCountdown(interval - elapsed);
+      const candles = chartDataRef.current;
+      const lastCandle = candles[candles.length - 1];
+
+      // Ancora o cronômetro no timestamp real do último candle recebido do
+      // servidor (Binance/MetaAPI), não em Date.now() % interval — o boundary
+      // assumido em UTC puro diverge do fechamento real quando o candle vem
+      // de um servidor MT5 em outro fuso.
+      if (!lastCandle) {
+        setCandleCountdown(interval);
+        return;
+      }
+
+      const elapsedSinceOpen = Date.now() - lastCandle.timestamp;
+      const remaining = interval - (elapsedSinceOpen % interval);
+      setCandleCountdown(remaining > 0 ? remaining : interval);
     };
 
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
-  }, [timeframe]);
+  }, [timeframe, chartData]);
 
   const formatCountdown = (ms: number) => {
     const s = Math.floor(ms / 1000);
@@ -4684,6 +4704,9 @@ export function ChartView({
     });
 
     // Linhas tracejadas (cor neutra) pra ordem pendente ainda não disparada.
+    // Arrastável (reposiciona o gatilho) e cancelável com clique direito —
+    // sem isso a ordem só podia ser criada e esperada até disparar, sem
+    // nenhuma forma de ajustar ou desistir dela depois de postada.
     pending.filter((o) => o.symbol === symbol).forEach((order) => {
       const isBuy = order.side === 'LONG';
       const pendingId = `pending_${order.id}`;
@@ -4696,7 +4719,26 @@ export function ChartView({
             line: { color: '#94a3b8', style: 'dashed', size: 1 },
             text: { color: '#0f172a', backgroundColor: 'rgba(148,163,184,0.9)', size: 10 },
           },
-          extendData: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}`,
+          extendData: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}  ·  arraste pra mover · clique direito pra cancelar`,
+          onPressedMoveEnd: (event) => {
+            const newPrice = event.overlay?.points?.[0]?.value;
+            const price = currentPriceRef.current;
+            if (typeof newPrice !== 'number' || price == null) return false;
+            const result = updateManualPendingOrderPrice(order.id, newPrice, price);
+            if (!result.success) {
+              toast.error(result.error ?? 'Não foi possível mover a ordem');
+              // Overlay já foi redesenhado no valor errado pelo próprio klinecharts —
+              // força a re-renderização no valor antigo (a única fonte de verdade
+              // continua sendo o pendingOrders do TradingContext).
+              renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+            }
+            return false;
+          },
+          onRightClick: () => {
+            cancelManualPendingOrder(order.id);
+            toast.success('Ordem pendente cancelada');
+            return true;
+          },
         });
         positionOverlayIdsRef.current.push(pendingId);
       } catch (e) {
@@ -5912,8 +5954,23 @@ export function ChartView({
         const deviatesTooMuch = lastCandle.close > 0 &&
           Math.abs(newPrice - lastCandle.close) / lastCandle.close > 0.10;
 
-        const updatedCandle = deviatesTooMuch
-          ? { ...lastCandle, open: newPrice, high: newPrice, low: newPrice, close: newPrice }
+        // 🕐 Detecta virada de candle localmente a partir do MESMO timestamp
+        // que alimenta o cronômetro (lastCandle.timestamp), em vez de esperar
+        // o refresh de 30s trazer o candle novo do servidor — sem isso, o
+        // candle "velho" seguia sendo esticado por até 30s depois do
+        // cronômetro chegar a zero, ficando visualmente fora de sincronia.
+        const intervalMs = TIMEFRAME_INTERVALS_MS[timeframe];
+        const candleTurnedOver = !deviatesTooMuch &&
+          Date.now() - lastCandle.timestamp >= intervalMs;
+
+        const updatedCandle = (deviatesTooMuch || candleTurnedOver)
+          ? {
+              ...lastCandle,
+              timestamp: candleTurnedOver
+                ? lastCandle.timestamp + intervalMs
+                : lastCandle.timestamp,
+              open: newPrice, high: newPrice, low: newPrice, close: newPrice
+            }
           : {
               ...lastCandle,
               close: newPrice,
@@ -5930,9 +5987,13 @@ export function ChartView({
         }
 
         try {
-          // Atualizar o array inteiro
           const updatedData = [...chartDataRef.current];
-          updatedData[updatedData.length - 1] = updatedCandle;
+          if (candleTurnedOver) {
+            // Novo candle: acrescenta ao array em vez de sobrescrever o último.
+            updatedData.push(updatedCandle);
+          } else {
+            updatedData[updatedData.length - 1] = updatedCandle;
+          }
           chartDataRef.current = updatedData;
 
           // 🔥 DEBOUNCE: Agrupar atualizações para não sobrecarregar o gráfico

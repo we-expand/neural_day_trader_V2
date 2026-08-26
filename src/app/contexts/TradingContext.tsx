@@ -65,6 +65,7 @@ interface TradingContextType {
     takeProfit?: number;
   }) => { success: boolean; error?: string; orderId?: string };
   cancelManualPendingOrder: (orderId: string) => void;
+  updateManualPendingOrderPrice: (orderId: string, newTriggerPrice: number, currentPrice: number) => { success: boolean; error?: string };
   checkPendingOrderTriggers: (symbol: string, price: number) => void;
   updateAIConfig: (config: Partial<AIConfig>) => void;
   connectToMT5: (credentials: any) => Promise<void>;
@@ -439,6 +440,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     pendingOrders: logic.pendingOrders,
     openManualPendingOrder: logic.openManualPendingOrder,
     cancelManualPendingOrder: logic.cancelManualPendingOrder,
+    updateManualPendingOrderPrice: logic.updateManualPendingOrderPrice,
     checkPendingOrderTriggers: logic.checkPendingOrderTriggers,
     updateAIConfig: logic.updateAIConfig,
     connectToMT5: logic.connectToMT5,
@@ -520,6 +522,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.pendingOrders,
     logic.openManualPendingOrder,
     logic.cancelManualPendingOrder,
+    logic.updateManualPendingOrderPrice,
     logic.checkPendingOrderTriggers,
     logic.updateAIConfig,
     logic.connectToMT5,

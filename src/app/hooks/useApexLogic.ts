@@ -2560,6 +2560,43 @@ export function useApexLogic(
     addLog(`🗑️ Ordem pendente cancelada: ${orderId}`);
   }, [addLog]);
 
+  // Reposiciona o gatilho de uma ordem pendente já criada (arrastar a linha
+  // no gráfico). Mesma validação de direção do momento da criação — se o
+  // usuário arrastar pro lado errado do preço atual, rejeita e mantém o
+  // valor antigo em vez de deixar uma ordem que nunca vai disparar como
+  // limit/stop.
+  const updateManualPendingOrderPrice = useCallback((
+    orderId: string,
+    newTriggerPrice: number,
+    currentPrice: number
+  ): { success: boolean; error?: string } => {
+    const order = pendingOrdersRef.current.find(o => o.id === orderId);
+    if (!order) {
+      return { success: false, error: 'Ordem pendente não encontrada' };
+    }
+    if (!(newTriggerPrice > 0)) {
+      return { success: false, error: 'Preço inválido' };
+    }
+
+    const isBuy = order.side === 'LONG';
+    const aboveMarket = newTriggerPrice > currentPrice;
+    const validDirection = order.orderType === 'LIMIT'
+      ? (isBuy ? !aboveMarket : aboveMarket)
+      : (isBuy ? aboveMarket : !aboveMarket);
+    if (!validDirection) {
+      return {
+        success: false,
+        error: `${order.orderType === 'LIMIT' ? 'Limit' : 'Stop'} de ${isBuy ? 'compra' : 'venda'} precisa estar ${
+          (order.orderType === 'LIMIT') === isBuy ? 'abaixo' : 'acima'
+        } do preço atual`,
+      };
+    }
+
+    setPendingOrders(prev => prev.map(o => (o.id === orderId ? { ...o, triggerPrice: newTriggerPrice } : o)));
+    addLog(`✏️ Ordem pendente reposicionada: ${order.symbol} ${order.orderType} ${order.side} @ $${newTriggerPrice.toFixed(2)}`);
+    return { success: true };
+  }, [addLog]);
+
   // Chamado a cada tick de preço (ChartView, pro símbolo selecionado) — dispara
   // qualquer ordem pendente cujo gatilho o preço já cruzou. Preenche no preço
   // ATUAL da tela (não no preço de gatilho): não temos profundidade real pra
@@ -2899,6 +2936,7 @@ export function useApexLogic(
     pendingOrders,
     openManualPendingOrder,
     cancelManualPendingOrder,
+    updateManualPendingOrderPrice,
     checkPendingOrderTriggers,
     updateAIConfig,
     connectToMT5,
