@@ -311,7 +311,10 @@ const INITIAL_STATE: ApexLogicState = {
     // 60 = um bloco de entrada perfeito somado a um cruzamento de até ~8
     // candles atrás ainda passa. 100 reproduz o comportamento binário antigo
     // (só o candle exato do cruzamento). Ver doc do campo em tradingState.ts.
-    signalScoreFloor: 60,
+    // 🔴 2026-08-26: Reduzido de 60 → 45 pra aceitar mais candidatos
+    // Filtragem de qualidade agora acontece nos gates (MIN_CONFIDENCE + Tiering)
+    // em vez de rejeitar tudo no ranking (signalScoreFloor era muro demais)
+    signalScoreFloor: 45,
 
     // Gerenciamento de Risco — defaults conservadores (modelo FTMO/Topstep)
     drawdownAnchor: 'DAILY_CLOSE',
