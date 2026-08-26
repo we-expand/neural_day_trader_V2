@@ -79,6 +79,7 @@ export type FunnelStage =
   | 'NO_SIGNAL'                   // blocos de entrada não dispararam neste candle
   | 'STRATEGY_CONFIDENCE_LOW'     // confiança da estratégia abaixo do mínimo
   | 'RSI_NEUTRAL_LOW_CONFIDENCE'  // 2026-08-25: RSI em zona neutra (40-60) com confiança insuficiente
+  | 'MACD_MOMENTUM_FADING'        // 2026-08-26: histograma MACD contra/encolhendo na direção do trade, confiança insuficiente
 
   // ── Saídas dos gates (estas TAMBÉM gravam em ai_decisions) ───────────────
   | 'SCORE_OPPOSITE'
@@ -121,6 +122,7 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   NO_SIGNAL: 'Estratégia sem sinal neste candle',
   STRATEGY_CONFIDENCE_LOW: 'Confiança da estratégia abaixo do mínimo',
   RSI_NEUTRAL_LOW_CONFIDENCE: 'RSI em zona neutra (40-60) com confiança insuficiente',
+  MACD_MOMENTUM_FADING: 'MACD com momentum contra/encolhendo e confiança insuficiente',
   SCORE_OPPOSITE: 'Market Score aponta direção contrária',
   SCORE_LATERAL: 'Market Score LATERAL e confiança insuficiente',
   COMBINED_CONFIDENCE_LOW: 'Confiança combinada (estratégia+Score) baixa',

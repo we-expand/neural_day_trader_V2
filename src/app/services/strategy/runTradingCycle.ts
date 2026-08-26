@@ -328,23 +328,29 @@ export async function runTradingCycle(
 
   if (ranked.length === 0) {
     const best = bestScoreSeen;
-    console.log(`[RANKING] ⏸️ Nenhum candidato acima do piso de score (${aiConfig.signalScoreFloor}) — melhor da cesta: ${best.symbol ?? 'n/d'} com ${best.score.toFixed(0)}`);
+    console.log(`[RANKING] ⏸️ Nenhum ativo da cesta gerou sinal (LONG/SHORT) neste candle — melhor score visto: ${best.symbol ?? 'n/d'} com ${best.score.toFixed(0)}`);
     funnelTelemetry.recordStage(
       'NO_SIGNAL',
       best.symbol ?? undefined,
-      `melhor score ${best.score.toFixed(0)} < piso ${aiConfig.signalScoreFloor} (cesta de ${universe.length})`,
+      `nenhum sinal de entrada na cesta (${universe.length} ativo(s)), melhor score ${best.score.toFixed(0)}`,
     );
     return { effects, nextLastTradeTimestamp, nextLastTradedSymbol, nextCooldownUntil, nextLastStaleDataWarningAt };
   }
 
-  console.log(`[RANKING] 🏆 ${ranked.length} candidato(s) acima do piso. Top: ${ranked.slice(0, 3).map(c => `${c.symbol} ${c.side} ${c.score.toFixed(0)}`).join(' | ')}`);
+  console.log(`[RANKING] 🏆 ${ranked.length} candidato(s) com sinal na cesta. Top: ${ranked.slice(0, 3).map(c => `${c.symbol} ${c.side} ${c.score.toFixed(0)}`).join(' | ')}`);
 
   // === FASE 3: EXECUÇÃO DO MELHOR ELEGÍVEL ===
   // Percorre o ranking em ordem até abrir UMA posição. Um candidato pode ser
   // recusado por regra de carteira (já tem posição no ativo, teto de ativos
   // distintos) ou pelos gates de risco — nesse caso tenta o próximo, em vez
   // de perder o ciclo inteiro como acontecia com o sorteio.
-  const MAX_EXECUTION_ATTEMPTS = 5;
+  // 🔴 2026-08-26: era um teto fixo de 5 tentativas — com o piso de score
+  // deixando de vetar na Fase 2 (ver `rankCandidates`), a cesta ranqueada
+  // pode ter mais de 5 ativos com sinal e os 5 primeiros nem sempre passam
+  // nos gates de qualidade. Pedido explícito do Cleber: todo ativo do
+  // "Universo de Ativos" tem que ser considerado, não só os 5 com maior
+  // score bruto. Tenta a cesta ranqueada inteira.
+  const MAX_EXECUTION_ATTEMPTS = ranked.length;
   let attempts = 0;
 
   // 🆕 2026-08-25: mapa símbolo → último fechamento, derivado do histórico que
@@ -547,7 +553,6 @@ function rankCandidates(
   state: TradingCycleState,
   deps: TradingCycleDeps,
 ): RankedCandidate[] {
-  const floor = aiConfig.signalScoreFloor ?? 60;
   const candidates: RankedCandidate[] = [];
   bestScoreSeen = { symbol: null, score: 0 };
 
@@ -569,7 +574,16 @@ function rankCandidates(
       bestScoreSeen = { symbol, score: scored.score };
     }
 
-    if (!scored.side || scored.score < floor) continue;
+    // 🔴 2026-08-26: era `|| scored.score < floor` — cortava o ativo da
+    // cesta do usuário AQUI, antes de qualquer gate de qualidade (RSI, MACD,
+    // Market Score, custo) ter a chance de avaliar. Pedido explícito do
+    // Cleber: todo ativo do "Universo de Ativos" da tela tem que ENTRAR na
+    // análise, não ser descartado por um piso de score cego a esses outros
+    // sinais. O piso deixa de vetar — vira só um componente do ranking (ver
+    // sort abaixo) e o funil real de qualidade continua nos gates de
+    // `analyzeAsset` (MIN_CONFIDENCE já cobre o mesmo score, agora combinado
+    // com RSI/MACD/Score em vez de sozinho).
+    if (!scored.side) continue;
 
     // 🔒 RESPEITAR CONFIG DO USUÁRIO: direção travada na tela
     if (aiConfig.direction !== 'AUTO' && scored.side !== aiConfig.direction) {
@@ -762,6 +776,45 @@ async function analyzeAsset(
         return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
       }
       console.log(`[SEGURANÇA] 🟡 RSI neutro (${rsiValue.toFixed(1)}): confiança passando no filtro extra (${confidenceScore}% ≥ ${requiredConfidenceForNeutralRsi}%)`);
+    }
+
+    // 🔴 2026-08-26: MACD era calculado só pra um rótulo cosmético na criação
+    // do trade (ver comentário ~linha 1500, "indicators.macd") — NUNCA
+    // influenciava a decisão de entrada em si, apesar do rótulo binário
+    // BULLISH/BEARISH já derivar de linha MACD vs sinal desde 2026-08-20.
+    // Achado real que motivou este gate: SOLUSD LONG entrou 2026-08-26 10:39
+    // UTC com confiança 76%, rótulo "MACD: BULLISH" — e perdeu por stop loss
+    // 59min depois. Rótulo binário (linha > sinal = BULLISH) não captura
+    // MOMENTUM: um cruzamento bullish com histograma já encolhendo é um sinal
+    // fraco/morrendo, exatamente o padrão "infantil" relatado pelo Cleber.
+    // Gate: histograma na direção do trade tem que estar CRESCENDO (momentum
+    // ganhando força), não só do lado certo do zero. Se está encolhendo ou já
+    // invertido contra o lado da entrada, exige confiança extra — mesmo
+    // padrão dos outros filtros de momentum acima (RSI neutro, Score lateral).
+    const macdForGate = calculateMACD(candles);
+    const macdHistogram = macdForGate.histogram;
+    const lastMacdHist = macdHistogram[macdHistogram.length - 1];
+    const prevMacdHist = macdHistogram[macdHistogram.length - 2];
+    const MACD_MOMENTUM_CONFIDENCE_PENALTY = 15;
+    if (lastMacdHist !== null && lastMacdHist !== undefined && prevMacdHist !== null && prevMacdHist !== undefined) {
+      const momentumAgainstOrFading = side === 'LONG'
+        ? (lastMacdHist <= 0 || lastMacdHist < prevMacdHist)
+        : (lastMacdHist >= 0 || lastMacdHist > prevMacdHist);
+      if (momentumAgainstOrFading) {
+        const requiredConfidenceForMacd = MIN_CONFIDENCE + MACD_MOMENTUM_CONFIDENCE_PENALTY;
+        if (confidenceScore < requiredConfidenceForMacd) {
+          const reason = `Setup ${side} descartado em ${selectedSymbol}: momentum do MACD contra/enfraquecendo (histograma ${lastMacdHist.toFixed(5)}, anterior ${prevMacdHist.toFixed(5)}) e confiança ${confidenceScore}% < ${requiredConfidenceForMacd}% exigido pra entrar mesmo com momentum fraco`;
+          console.log(`[SEGURANÇA] ❌ ${reason}`);
+          funnelTelemetry.recordStage('MACD_MOMENTUM_FADING', selectedSymbol, `${confidenceScore}% < ${requiredConfidenceForMacd}% (hist=${lastMacdHist.toFixed(5)} vs ${prevMacdHist.toFixed(5)})`);
+          await deps.persistence.saveDecision({
+            symbol: selectedSymbol, decision: side === 'LONG' ? 'BUY' : 'SELL', confidence: confidenceScore,
+            reasoning: reason, technicalSignals: { macdHistogram: lastMacdHist, macdHistogramPrev: prevMacdHist },
+            actionTaken: false, vetoStage: 'MACD_MOMENTUM_FADING',
+          });
+          return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
+        }
+        console.log(`[SEGURANÇA] 🟡 MACD com momentum fraco/contra (hist=${lastMacdHist.toFixed(5)}): confiança suficiente pra operar mesmo assim (${confidenceScore}% ≥ ${requiredConfidenceForMacd}%)`);
+      }
     }
 
     if (confidenceScore < MIN_CONFIDENCE) {

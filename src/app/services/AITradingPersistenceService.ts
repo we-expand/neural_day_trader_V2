@@ -121,7 +121,8 @@ export type DecisionVetoStage =
   | 'CORRELATION_GUARD'
   | 'MARKET_MODE_REGIME_MISMATCH'
   | 'MARKET_MODE_COUNTER_NO_EXTREME'
-  | 'MIN_TRADE_SIZE';
+  | 'MIN_TRADE_SIZE'
+  | 'MACD_MOMENTUM_FADING';
 
 export interface AIDecision {
   id?: string;
