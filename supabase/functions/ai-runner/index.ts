@@ -44,6 +44,15 @@ import { getRelevantCurrencies } from '../../../src/app/services/risk/NewsCurren
 const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
 const TRADING_CYCLE_TICK_MS = 5_000;
+// 🔴 FIX 2026-08-25 (achado do Cleber: Curva de Equity não representava
+// fielmente a evolução real após reset): `persistPortfolioSnapshot` só era
+// chamado em `applyRealizedPnLAndSnapshot`, ou seja, só no fechamento de um
+// trade — confirmado com dado real do Supabase: sessão de hoje (10:36 UTC,
+// $100 inicial) teve só 6 snapshots em 4h30 de vida, o primeiro já a
+// $101,99 (quase 2h depois do início). Sem heartbeat, a curva do Dashboard
+// (hidratada desses snapshots) nunca ancora no valor real de início e fica
+// com saltos grandes e desconexos entre fechamentos, em vez de contínua.
+const HEARTBEAT_SNAPSHOT_MS = 5 * 60 * 1000;
 
 interface RunnerSessionState {
   sessionId: string;
@@ -52,6 +61,7 @@ interface RunnerSessionState {
   activeOrders: TradeVisual[];
   portfolio: PortfolioState;
   orderHistory: TradeVisual[]; // trades fechados hoje (pra gates de risco/revenge) — carregado uma vez por invocação
+  lastSnapshotAt: number; // epoch ms do último snapshot em `ai_portfolio_snapshots` — gate do heartbeat (ver heartbeatSnapshotTick)
   candleBuffer: Map<string, { candles: Candle[]; fetchedAt: number }>;
   lastTradeTimestamp: number;
   lastTradedSymbol: string | null;
@@ -185,6 +195,7 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     activeOrders,
     portfolio,
     orderHistory,
+    lastSnapshotAt: snap?.timestamp ? new Date(snap.timestamp).getTime() : 0,
     candleBuffer: new Map(),
     lastTradeTimestamp: 0,
     lastTradedSymbol: null,
@@ -231,6 +242,41 @@ async function applyRealizedPnLAndSnapshot(s: RunnerSessionState, realizedPnL: n
     equity: newEquity,
     currentDrawdown,
   });
+  s.lastSnapshotAt = Date.now();
+}
+
+/**
+ * Heartbeat da Curva de Equity (2026-08-25): grava um snapshot periódico
+ * mesmo sem nenhum trade fechar, usando o equity corrente (balance +
+ * PnL não-realizado das posições abertas, com `currentPrice` já atualizado
+ * por `positionManagerTick` neste tick). Sem isto, a curva só se move nos
+ * fechamentos de trade — que podem levar horas — e nunca reflete a
+ * variação real e contínua de equity entre eles.
+ */
+async function heartbeatSnapshotTick(s: RunnerSessionState): Promise<void> {
+  if (Date.now() - s.lastSnapshotAt < HEARTBEAT_SNAPSHOT_MS) return;
+
+  const totalUnrealizedPnL = s.activeOrders.reduce((sum, o) => {
+    const price = o.currentPrice && o.currentPrice > 0 ? o.currentPrice : o.price;
+    const pnl = o.side === 'LONG'
+      ? (price - o.price) * (o.amount / o.price)
+      : (o.price - price) * (o.amount / o.price);
+    return sum + pnl;
+  }, 0);
+  const equity = s.portfolio.balance + totalUnrealizedPnL;
+  const peakEquity = Math.max(s.portfolio.peakEquity ?? equity, equity);
+  const anchor = s.portfolio.dayAnchorEquity ?? equity;
+  const currentDrawdown = anchor > 0 && equity < anchor ? ((anchor - equity) / anchor) * 100 : 0;
+  s.portfolio = { ...s.portfolio, equity, peakEquity, currentDrawdown };
+
+  await persistPortfolioSnapshot({
+    sessionId: s.sessionId,
+    userId: s.userId,
+    balance: s.portfolio.balance,
+    equity,
+    currentDrawdown,
+  });
+  s.lastSnapshotAt = Date.now();
 }
 
 /**
@@ -580,6 +626,7 @@ async function runSession(s: RunnerSessionState, deadline: number): Promise<void
     if (now - lastPositionTick >= POSITION_TICK_MS) {
       lastPositionTick = now;
       await positionManagerTick(s);
+      await heartbeatSnapshotTick(s);
     }
     if (s.isActive && now - lastTradingTick >= TRADING_CYCLE_TICK_MS) {
       lastTradingTick = now;
