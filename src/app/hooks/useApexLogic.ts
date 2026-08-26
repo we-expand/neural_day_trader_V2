@@ -290,7 +290,10 @@ const INITIAL_STATE: ApexLogicState = {
     maxContracts: 3,
     maxPositions: 5,
     maxDrawdown: 15,
-    riskPerTrade: 2,
+    // 🔴 2026-08-26: Aumentado de 2% → 4% (Kelly fracionário adequado pra 65% win rate)
+    // Com 65% de taxa de acerto e R:R 1:2.5, Kelly Fracionário = 12.75%.
+    // 4% é 31% do Kelly pleno — agressivo mas seguro.
+    riskPerTrade: 4,
     minWinRate: 55,
     riskProfile: 'EQUILIBRADO',
     
@@ -323,7 +326,10 @@ const INITIAL_STATE: ApexLogicState = {
     cooldownMinutes: 60,
     maxTradesPerDay: 0, // 0 = sem limite
     positionSizingMode: 'ATR', // ✅ Padrão: position sizing por volatilidade real
-    atrMultiplier: 1.5,
+    // 🔴 2026-08-26: Aumentado de 1.5 → 2.0 (stop dinâmico com mais espaço)
+    // Stop = 2.0×ATR em vez de 1.5×ATR reduz "fakes" (ruído) que fecha no SL.
+    // Alvo permanece 2.5× o stop = 5.0×ATR (captura movimento real melhor).
+    atrMultiplier: 2.0,
     correlationGuardEnabled: false, // TODO: Implementar correlação real em Fase 2
     correlationThreshold: 0.7,
     killSwitchThreshold: 0, // 0 = desativado por padrão; pode ser setado pelo usuário (ex: 10% de perda)

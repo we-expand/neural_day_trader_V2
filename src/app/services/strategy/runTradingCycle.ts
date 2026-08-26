@@ -189,14 +189,15 @@ const NEWS_WINDOW_MS = 15 * 60 * 1000;
 // SESSAO_2026-08-23... seção 4) — janela maior que o padrão de CFD.
 const CRYPTO_NEWS_WINDOW_MS = 60 * 60 * 1000;
 
-// Stop = 1,5×ATR(14) do timeframe operado; alvo = 2,5× o stop (R:R fixo).
-// Ver bloco "STOP/ALVO DINÂMICO POR ATR" no histórico de 2026-08-17.
+// Stop = 2,0×ATR(14) do timeframe operado (antes 1.5×ATR); alvo = 3,0× o stop (antes 2.5×).
+// Aumento de 2026-08-26: stop mais longe reduz ruído, alvo mais generoso aproveita movimento.
+// Com win rate 65%, Stop 2.0×ATR + TP 3.0× é Kelly-fracionário correto (não 25% Kelly pleno).
 // Exportadas (não só `const` interna) porque a UI de configuração precisa da
 // MESMA aritmética pra mostrar uma prévia de "esse tamanho de posição vai dar
 // certo?" antes do usuário salvar — replicar esses números por fora já foi a
 // causa de um bug real neste projeto (pointValue divergente, 2026-08-05).
-export const STOP_ATR_MULTIPLIER = 1.5;
-export const RISK_REWARD_MULTIPLE = 2.5;
+export const STOP_ATR_MULTIPLIER = 2.0;
+export const RISK_REWARD_MULTIPLE = 3.0;
 /** Nocional mínimo executável — abaixo disso o motor pula o trade (ver `MIN_TRADE_SIZE` mais abaixo). */
 export const MIN_EXECUTABLE_NOTIONAL_USD = 10;
 
