@@ -202,6 +202,25 @@ class AITradingPersistenceService {
       if (error) throw error;
 
       console.log(`${this.LOG_PREFIX} ✅ Sessão criada:`, session.id);
+
+      // 🔴 FIX 2026-08-25 (achado do Cleber: Curva de Equity não representava
+      // fielmente o reinício em $100): sem snapshot no instante de criação da
+      // sessão, o primeiro ponto real da curva (`ai_portfolio_snapshots`) só
+      // aparecia no primeiro fechamento de trade — minutos/horas depois, já
+      // com equity movida. A curva nunca visualmente "começava" no valor real
+      // de início. Ancora explicitamente aqui.
+      await this.saveSnapshot({
+        session_id: session.id,
+        user_id: session.user_id,
+        balance: session.initial_balance,
+        equity: session.initial_equity,
+        margin: 0,
+        open_positions: 0,
+        total_pnl: 0,
+        drawdown: 0,
+        timestamp: session.created_at || new Date().toISOString(),
+      });
+
       return session as AISession;
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao criar sessão:`, error);
@@ -290,6 +309,19 @@ class AITradingPersistenceService {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar sessão ativa:`, error);
       return null;
     }
+  }
+
+  /**
+   * 🔴 2026-08-25: Salva a configuração atual da IA na sessão.
+   * Chamado automaticamente sempre que o usuário muda ANY parâmetro de config.
+   * Permite que a próxima sessão carregue com os mesmos settings.
+   *
+   * IMPORTANTE: este método usa `updateSession` sob o capô, que já trata
+   * `updated_at` — evita chamar sem limite em loops, use throttling se necessário.
+   */
+  async saveSessionConfig(sessionId: string, config: any): Promise<boolean> {
+    if (!config) return false;
+    return this.updateSession(sessionId, { config });
   }
 
   /**

@@ -19,6 +19,7 @@ import { BREAKEVEN_TRIGGER_R } from '@/app/services/risk/TradeFrictionControls';
 import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass';
 import { estimateCostPercent } from '../../../research/CostModel';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
+import { aiPersistence } from '@/app/services/AITradingPersistenceService';
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -493,6 +494,10 @@ export function useApexLogic(
   const cachedJarvisMultiplierRef = useRef(1);
   const lastJarvisMultiplierFetchRef = useRef(0);
   const JARVIS_MULTIPLIER_CACHE_DURATION = 60000; // 60s — mesmo horizonte do VIX, decisão muda a cada 6h
+
+  // 🔴 2026-08-25: refs para debounce de persistência de config
+  const updateAIConfigTimeoutRef = useRef<number>(0);
+  const updateAIConfigDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // === REFS FOR REAL-TIME ACCESS ===
   const configRef = useRef<AIConfig & { executionMode: 'DEMO' | 'LIVE' }>({
@@ -2609,8 +2614,37 @@ export function useApexLogic(
   }, [addLog]);
 
   // === UPDATE AI CONFIG ===
+  // 🔴 2026-08-25: agora persiste automaticamente a config no Supabase
   const updateAIConfig = useCallback((config: Partial<AIConfig>) => {
-    setAIConfig(prev => ({ ...prev, ...config }));
+    setAIConfig(prev => {
+      const newConfig = { ...prev, ...config };
+
+      // Salvar a config na sessão (throttled com debounce via useRef)
+      const sessionId = persistenceRef.current?.getSessionId?.();
+      if (sessionId) {
+        // Usar um ref para throttle: só salva se passou tempo mínimo desde último save
+        const now = Date.now();
+        if (!updateAIConfigTimeoutRef.current) {
+          updateAIConfigTimeoutRef.current = now;
+          aiPersistence.saveSessionConfig(sessionId, newConfig)
+            .catch(err => console.error('[useApexLogic] Erro ao salvar config:', err));
+        }
+        // Schedular próximo save em 3 segundos (evita saturar Supabase)
+        if (updateAIConfigDebounceRef.current) {
+          clearTimeout(updateAIConfigDebounceRef.current);
+        }
+        updateAIConfigDebounceRef.current = setTimeout(() => {
+          updateAIConfigTimeoutRef.current = 0;
+          const latestSessionId = persistenceRef.current?.getSessionId?.();
+          if (latestSessionId) {
+            aiPersistence.saveSessionConfig(latestSessionId, newConfig)
+              .catch(err => console.error('[useApexLogic] Erro ao salvar config (debounce):', err));
+          }
+        }, 3000);
+      }
+
+      return newConfig;
+    });
   }, []);
 
   // === CONNECT TO MT5 ===
