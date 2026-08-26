@@ -99,3 +99,95 @@ from (
     and veto_stage = 'CONTEXT_SCORE_LATERAL'
     and reasoning ~ 'confiança \d+%'
 ) t;
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ADENDO 2026-08-26 — o gargalo real é ANTES dos gates de confiança
+--
+-- Achado: o ciclo morre no RANKING, não nos limiares que calibramos hoje.
+-- O piso exigido (aiConfig.signalScoreFloor) é 60 e o melhor score da
+-- cesta de 14 é quase sempre 50 (às vezes 55) — em TODAS as horas
+-- medidas, inclusive antes do redeploy. Blocos 1-5 acima olham só o que
+-- acontece DEPOIS do ranking; os de baixo olham o próprio ranking.
+--
+-- ⚠️ ATENÇÃO ao piso: 60 NÃO está no código. Está gravado no `config`
+-- da sessão em ai_sessions (jsonb). Redeploy não o altera; commit de
+-- calibração não o altera. Mudá-lo é UPDATE no banco, não deploy.
+--
+-- ⚠️ LIMITE DOS BLOCOS 6-7: `samples` guarda 1-2 exemplos por janela de
+-- 1min, não toda avaliação. Então a distribuição abaixo é 1 observação
+-- por janela, não por tick — serve pra ver a ORDEM DE GRANDEZA do score
+-- típico, não pra estatística fina. O peso real de cada estágio vem de
+-- `stage_counts` (bloco 7), esse sim contado tick a tick.
+-- ═══════════════════════════════════════════════════════════════════════
+
+
+-- ── 6. Distribuição do "melhor score da cesta", por hora ───────────────
+-- A pergunta: o score chega perto de 60 alguma hora do dia? Se o típico
+-- é 50 e o máximo observado é 55, o piso de 60 é inatingível na prática
+-- e o problema não é o valor do piso — é a escala de pontuação, que não
+-- produz valores nessa faixa. Se o score encosta em 58-59 nos horários
+-- líquidos, aí sim o piso é que está mal calibrado.
+select
+  date_trunc('hour', created_at) as hora,
+  (regexp_match(samples->'NO_SIGNAL'->>0, 'melhor score (\d+)'))[1]::int as melhor_score,
+  count(*) as janelas
+from ai_funnel_snapshots
+where created_at > now() - interval '24 hours'
+  and samples ? 'NO_SIGNAL'
+group by 1, 2
+order by 1 desc, 2 desc;
+
+
+-- ── 6b. Resumo: score típico, máximo e distância até o piso ───────────
+select
+  min(s) as score_min,
+  round(avg(s)::numeric, 1) as score_medio,
+  max(s) as score_max,
+  60 - max(s) as pontos_faltando_no_melhor_caso,
+  count(*) as janelas
+from (
+  select (regexp_match(samples->'NO_SIGNAL'->>0, 'melhor score (\d+)'))[1]::int as s
+  from ai_funnel_snapshots
+  where created_at > now() - interval '24 hours' and samples ? 'NO_SIGNAL'
+) t;
+
+
+-- ── 7. Onde o funil realmente morre — peso por tick, não por janela ────
+-- stage_counts é contado tick a tick, então este é o número honesto.
+-- Se NO_SIGNAL domina, todo ajuste de MIN_CONFIDENCE / penalidade
+-- LATERAL é discussão sobre um portão que a maioria dos ticks nunca
+-- alcança, e mexer neles não muda a taxa de entrada.
+with expandido as (
+  select
+    date_trunc('hour', created_at) as hora,
+    key as stage,
+    (value::text)::int as ticks
+  from ai_funnel_snapshots, jsonb_each(stage_counts)
+  where created_at > now() - interval '24 hours'
+)
+select
+  stage,
+  sum(ticks) as ticks,
+  round(100.0 * sum(ticks) / sum(sum(ticks)) over (), 1) as pct
+from expandido
+group by stage
+order by ticks desc;
+
+
+-- ── 8. O piso está no banco: ver e (se decidido) alterar ───────────────
+-- Leitura — confere o piso da sessão ativa:
+select id, status,
+       config->>'signalScoreFloor' as piso,
+       config->>'riskProfile' as perfil,
+       config->>'timeframe' as tf
+from ai_sessions
+where status = 'RUNNING';
+
+-- Alteração — NÃO RODAR sem decisão do Cleber apoiada nos blocos 6/7.
+-- Baixar o piso por inferência é exatamente o erro que custou a manhã
+-- de 2026-08-26. Só rode com o dado dos blocos acima na mão.
+--
+-- update ai_sessions
+--    set config = jsonb_set(config, '{signalScoreFloor}', '55'::jsonb)
+--  where status = 'RUNNING';
