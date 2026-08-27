@@ -153,8 +153,32 @@ export const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000;
  * Efeito colateral esperado e desejável: mais trades chegam ao TP ou ao SL
  * cheio, o que deve AUMENTAR `TARGET_REALIZATION_FACTOR` (`CostViabilityGate.ts`)
  * — remedir aquele fator depois de ~200 trades novos.
+ *
+ * 2026-08-26: remedido depois de 2 dias reais em 1,5R — achado contrário ao
+ * esperado. 61,8% dos trades reais (76/123) chegaram a ficar no lucro
+ * flutuante e fecharam no zero/prejuízo (-US$57,88 de impacto); variando o
+ * gatilho sobre o mesmo histórico real (candle real, réplica fiel desta
+ * lógica), 1,5R ficou do lado PIOR da curva (-US$2,68 bruto) contra 1R
+ * (+US$2,36) e valores mais apertados ainda melhores. Testei o próprio
+ * motivo que levou a subir pra 1,5R (custo de reentrada) medindo de novo em
+ * produção: reabrir depois de um fechamento perto de zero custa só 9,4pp a
+ * mais de chance de reentrada que um fechamento normal (~US$0,70 de custo
+ * extra no total da amostra) — não anula a diferença de ~US$12 entre 1,5R e
+ * 0,5R. Detalhe completo, reprodutível:
+ * `research/experiments/2026-08-26-dynamic-exit-tp-ceiling/verdict.md`
+ * (Adendos 1, 2 e 6).
+ *
+ * MAS: a mesma ressalva de overfitting do parágrafo acima se aplica ao MEU
+ * teste também — 123 trades em ~9 dias é pouco pra cravar um valor
+ * "ótimo", e otimizar direto contra essa amostra correria o mesmo risco que
+ * o comentário original já advertia. Por isso o valor escolhido agora NÃO É
+ * o melhor da varredura (0,5R, +US$9,05 ajustado) — é uma reversão
+ * conservadora para o valor ANTERIOR já testado em produção de verdade
+ * (+1R), que segue solidamente positivo (+US$1,64 ajustado) sem ser a ponta
+ * mais extrapolada do teste. Reavaliar de novo depois de mais ~150-200
+ * trades reais em 1R antes de cogitar apertar mais.
  */
-export const BREAKEVEN_TRIGGER_R = 1.5;
+export const BREAKEVEN_TRIGGER_R = 1.0;
 
 /**
  * Constrói o mapa símbolo → timestamp do último fechamento a partir do

@@ -186,17 +186,21 @@ const NOW = 1_700_000_000_000;
 // ── Breakeven ──────────────────────────────────────────────────────────────
 
 {
-  assertTrue('gatilho de breakeven é 1,5R', BREAKEVEN_TRIGGER_R === 1.5);
-  assertTrue('gatilho é mais frouxo que o antigo +1R (menos saídas em zero)', BREAKEVEN_TRIGGER_R > 1);
+  // 2026-08-26: revertido de 1,5R pra 1R — backtest real (candle real, 123
+  // trades, ~9 dias) mostrou 1,5R do lado pior da curva mesmo depois de
+  // contabilizar o custo de reentrada que motivou subir pra lá em
+  // 2026-08-25. Detalhe: TradeFrictionControls.ts (comentário acima da
+  // constante) e research/experiments/2026-08-26-dynamic-exit-tp-ceiling/.
+  assertTrue('gatilho de breakeven é 1R (revertido de 1,5R em 2026-08-26)', BREAKEVEN_TRIGGER_R === 1.0);
 
   // Replica a aritmética dos dois motores (positionManager.ts e useApexLogic.ts)
   // pra travar o comportamento: LONG entrando em 100 com stop em 98 (risco 2).
   const entry = 100;
   const originalRisk = 2;
   const triggersAt = (price: number) => (price - entry) >= originalRisk * BREAKEVEN_TRIGGER_R;
-  assertTrue('não trava breakeven em +1R (preço 102) — era aqui que travava antes', !triggersAt(102));
-  assertTrue('trava breakeven em +1,5R (preço 103)', triggersAt(103));
-  assertTrue('trava breakeven acima de +1,5R (preço 105)', triggersAt(105));
+  assertTrue('não trava breakeven abaixo de +1R (preço 101,99)', !triggersAt(101.99));
+  assertTrue('trava breakeven em +1R (preço 102)', triggersAt(102));
+  assertTrue('trava breakeven acima de +1R (preço 105)', triggersAt(105));
 }
 
 console.log(`\n${passed} asserções passaram, ${failed} falharam`);
