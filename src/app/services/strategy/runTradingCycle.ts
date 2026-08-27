@@ -784,26 +784,29 @@ async function analyzeAsset(
     // BULLISH/BEARISH já derivar de linha MACD vs sinal desde 2026-08-20.
     // Achado real que motivou este gate: SOLUSD LONG entrou 2026-08-26 10:39
     // UTC com confiança 76%, rótulo "MACD: BULLISH" — e perdeu por stop loss
-    // 59min depois. Rótulo binário (linha > sinal = BULLISH) não captura
-    // MOMENTUM: um cruzamento bullish com histograma já encolhendo é um sinal
-    // fraco/morrendo, exatamente o padrão "infantil" relatado pelo Cleber.
-    // Gate: histograma na direção do trade tem que estar CRESCENDO (momentum
-    // ganhando força), não só do lado certo do zero. Se está encolhendo ou já
-    // invertido contra o lado da entrada, exige confiança extra — mesmo
-    // padrão dos outros filtros de momentum acima (RSI neutro, Score lateral).
+    // 59min depois.
+    // 🔴 2026-08-27: Versão original também vetava quando o histograma
+    // desacelerava um único tick AINDA do lado certo do zero (ruído normal
+    // de candle a candle) — não reversão de verdade. Medido em produção:
+    // 75% dos vetos (6.963/9.253 em 24h) eram desse tipo, travando a IA por
+    // 16h sem nenhuma entrada. Objetivo real do gate (conforme Cleber
+    // 2026-08-27): suporte de tendência — impedir entrada quando o mercado
+    // já virou pro lado oposto, não microajuste de ruído de momentum.
+    // Gate agora só dispara quando o histograma já cruzou pro lado ERRADO do
+    // zero (reversão de tendência de fato), não por desaceleração sozinha.
     const macdForGate = calculateMACD(candles);
     const macdHistogram = macdForGate.histogram;
     const lastMacdHist = macdHistogram[macdHistogram.length - 1];
     const prevMacdHist = macdHistogram[macdHistogram.length - 2];
     const MACD_MOMENTUM_CONFIDENCE_PENALTY = 15;
     if (lastMacdHist !== null && lastMacdHist !== undefined && prevMacdHist !== null && prevMacdHist !== undefined) {
-      const momentumAgainstOrFading = side === 'LONG'
-        ? (lastMacdHist <= 0 || lastMacdHist < prevMacdHist)
-        : (lastMacdHist >= 0 || lastMacdHist > prevMacdHist);
-      if (momentumAgainstOrFading) {
+      const trendReversedAgainstTrade = side === 'LONG'
+        ? lastMacdHist <= 0
+        : lastMacdHist >= 0;
+      if (trendReversedAgainstTrade) {
         const requiredConfidenceForMacd = MIN_CONFIDENCE + MACD_MOMENTUM_CONFIDENCE_PENALTY;
         if (confidenceScore < requiredConfidenceForMacd) {
-          const reason = `Setup ${side} descartado em ${selectedSymbol}: momentum do MACD contra/enfraquecendo (histograma ${lastMacdHist.toFixed(5)}, anterior ${prevMacdHist.toFixed(5)}) e confiança ${confidenceScore}% < ${requiredConfidenceForMacd}% exigido pra entrar mesmo com momentum fraco`;
+          const reason = `Setup ${side} descartado em ${selectedSymbol}: MACD já reverteu contra a tendência do trade (histograma ${lastMacdHist.toFixed(5)}, anterior ${prevMacdHist.toFixed(5)}) e confiança ${confidenceScore}% < ${requiredConfidenceForMacd}% exigido pra entrar mesmo com tendência revertendo`;
           console.log(`[SEGURANÇA] ❌ ${reason}`);
           funnelTelemetry.recordStage('MACD_MOMENTUM_FADING', selectedSymbol, `${confidenceScore}% < ${requiredConfidenceForMacd}% (hist=${lastMacdHist.toFixed(5)} vs ${prevMacdHist.toFixed(5)})`);
           await deps.persistence.saveDecision({
@@ -813,7 +816,7 @@ async function analyzeAsset(
           });
           return { effects, nextLastStaleDataWarningAt, nextCooldownUntil };
         }
-        console.log(`[SEGURANÇA] 🟡 MACD com momentum fraco/contra (hist=${lastMacdHist.toFixed(5)}): confiança suficiente pra operar mesmo assim (${confidenceScore}% ≥ ${requiredConfidenceForMacd}%)`);
+        console.log(`[SEGURANÇA] 🟡 MACD revertido contra a tendência (hist=${lastMacdHist.toFixed(5)}): confiança suficiente pra operar mesmo assim (${confidenceScore}% ≥ ${requiredConfidenceForMacd}%)`);
       }
     }
 
