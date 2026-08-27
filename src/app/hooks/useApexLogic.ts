@@ -1090,6 +1090,53 @@ export function useApexLogic(
         const trades = await persistenceRef.current.getSessionTrades(sessionId);
         if (cancelled) return;
         const open = trades.filter(t => t.status === 'OPEN');
+
+        // 🔴 FIX 2026-08-27 (achado do Cleber: "operação de NAS100 sumiu do
+        // Dash como se nunca tivesse existido"): este `reconcile()` sempre só
+        // sincronizou `activeOrders` a partir do Realtime de `ai_trades` —
+        // quando o servidor fecha uma posição (TP/SL/trailing), ela some da
+        // lista de abertas mas NUNCA foi empurrada pra `orderHistory` (só a
+        // hidratação de mount, acima, faz isso — e roda só uma vez). Resultado:
+        // todo fechamento do servidor durante uma sessão de navegador ativa
+        // ficava invisível na tela até o próximo reload completo, mesmo com o
+        // registro intacto em `ai_trades` o tempo todo. Corrigido: mesmo
+        // formato de mapeamento já usado na hidratação de mount (linhas
+        // ~832-849), aplicado aqui pros fechamentos que o Realtime acabou de
+        // detectar e que ainda não estão em `orderHistory` (dedupe por `id`).
+        const closed = trades.filter(t => t.status === 'CLOSED');
+        if (closed.length > 0) {
+          setOrderHistory(prev => {
+            const existingIds = new Set(prev.map(o => o.id));
+            const newlyClosed = closed.filter(t => !existingIds.has(t.id!));
+            if (newlyClosed.length === 0) return prev;
+            for (const t of newlyClosed) {
+              const pnl = t.net_pnl ?? t.pnl ?? 0;
+              addLogRef.current(`${pnl >= 0 ? '✅' : '🛑'} SAÍDA ${t.side}: ${t.symbol} @ $${(t.exit_price ?? t.entry_price).toFixed(2)} — ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (fechada pelo servidor)`);
+            }
+            return [
+              ...prev,
+              ...newlyClosed.map((t): TradeVisual => ({
+                id: t.id!,
+                symbol: t.symbol,
+                side: t.side,
+                amount: t.quantity,
+                price: t.entry_price,
+                currentPrice: t.exit_price ?? t.entry_price,
+                currentProfit: t.net_pnl ?? t.pnl ?? 0,
+                closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
+                tp: t.take_profit ?? t.entry_price,
+                sl: t.stop_loss ?? t.entry_price,
+                originalSl: t.stop_loss ?? t.entry_price,
+                leverage: 1.5,
+                ai_confidence: t.ai_confidence ?? 50,
+                timestamp: new Date(t.entry_time).getTime(),
+                reasoning: t.ai_reasoning || '',
+                indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+              })),
+            ];
+          });
+        }
+
         setActiveOrders(prev => {
           // Preserva `currentPrice`/`currentProfit` já calculados localmente
           // pro tick de PnL (linha ~1235) — só sincroniza QUAIS posições
