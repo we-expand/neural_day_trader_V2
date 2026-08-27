@@ -82,6 +82,28 @@ export interface AITrade {
   pyramid_layer?: number | null;
 }
 
+/**
+ * Ordem pendente DEMO (limit/stop) persistida — ver
+ * `supabase/migrations/20260826_add_ai_pending_orders.sql`. `session_id` é
+ * opcional de propósito: a ordem pendente é uma intenção do usuário, não
+ * uma métrica de sessão, e precisa sobreviver a Iniciar/Parar IA.
+ */
+export interface AIPendingOrder {
+  id?: string;
+  user_id: string;
+  session_id?: string | null;
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  order_type: 'LIMIT' | 'STOP';
+  volume: number;
+  trigger_price: number;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  status: 'PENDING' | 'FILLED' | 'CANCELLED';
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PortfolioSnapshot {
   id?: string;
   session_id: string;
@@ -535,6 +557,89 @@ class AITradingPersistenceService {
   }
 
   // ==========================================================================
+  // PENDING ORDERS (limit/stop DEMO postados no gráfico)
+  // ==========================================================================
+
+  /**
+   * Salvar ordem pendente ao ser criada.
+   */
+  async savePendingOrder(order: AIPendingOrder): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_pending_orders')
+        .insert([order])
+        .select('id')
+        .single();
+
+      if (error) throw error;
+
+      console.log(`${this.LOG_PREFIX} ✅ Ordem pendente salva:`, data.id);
+      return data.id;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao salvar ordem pendente:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Buscar ordens pendentes ainda abertas (status PENDING) do usuário —
+   * fonte de verdade pra hidratar o gráfico depois de reload/troca de aba.
+   */
+  async getOpenPendingOrders(userId: string): Promise<AIPendingOrder[]> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_pending_orders')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'PENDING')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return (data || []) as AIPendingOrder[];
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar ordens pendentes:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Reposicionar gatilho (arrastar a linha no gráfico).
+   */
+  async updatePendingOrderPrice(orderId: string, triggerPrice: number): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_pending_orders')
+        .update({ trigger_price: triggerPrice, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao reposicionar ordem pendente:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Marcar ordem pendente como cancelada (clique direito) ou disparada
+   * (preço cruzou o gatilho, virou posição em `ai_trades`).
+   */
+  async updatePendingOrderStatus(orderId: string, status: 'FILLED' | 'CANCELLED'): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_pending_orders')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao atualizar status da ordem pendente:`, error);
+      return false;
+    }
+  }
+
+  // ==========================================================================
   // PORTFOLIO SNAPSHOTS
   // ==========================================================================
 
@@ -690,6 +795,53 @@ class AITradingPersistenceService {
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar backtests:`, error);
       return [];
+    }
+  }
+
+  // ==========================================================================
+  // USER AI CONFIG (persistência da configuração da IA por usuário —
+  // sobrevive a fechar aba/trocar de navegador, ver `ai_user_config`)
+  // ==========================================================================
+
+  /**
+   * Buscar a última configuração da IA salva pelo usuário. Retorna null se
+   * o usuário nunca salvou nenhuma (primeiro uso — cai no default do código).
+   */
+  async getUserAIConfig(userId: string): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_user_config')
+        .select('config')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data?.config ?? null;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar configuração da IA do usuário:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Salvar (upsert) a configuração da IA do usuário — chamado a cada mudança
+   * na UI, não só ao criar sessão, pra que a última escolha real do usuário
+   * fique registrada mesmo que ele nunca chegue a religar a IA de novo.
+   */
+  async saveUserAIConfig(userId: string, config: any): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_user_config')
+        .upsert(
+          { user_id: userId, config, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao salvar configuração da IA do usuário:`, error);
+      return false;
     }
   }
 

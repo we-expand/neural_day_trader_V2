@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { aiPersistence, AISession, AITrade, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
+import { aiPersistence, AISession, AITrade, AIPendingOrder, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { funnelTelemetry, FunnelStage } from '@/app/services/telemetry/FunnelTelemetry';
 
@@ -82,6 +82,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   const sessionIdRef = useRef<string | null>(null);
   const snapshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const tradeDbIdsRef = useRef<Map<string, string>>(new Map()); // Mapeia trade.id local → trade.id DB
+  const pendingOrderDbIdsRef = useRef<Map<string, string>>(new Map()); // Mapeia pendingOrder.id local → id DB
   const isStartingSessionRef = useRef(false); // Trava clique duplo/chamada concorrente de startSession
 
   const LOG_PREFIX = '[AI Persistence Hook]';
@@ -510,6 +511,85 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     return await aiPersistence.getSessionTrades(sessionId);
   }, []);
 
+  // ==========================================================================
+  // PENDING ORDERS (limit/stop DEMO postados no gráfico)
+  // ==========================================================================
+
+  /**
+   * Salvar ordem pendente ao ser criada — mesmo padrão de `onTradeOpen`:
+   * id local já existe (criado na hora pra UI responder na hora), o id do
+   * banco só chega depois e fica mapeado pra uso em cancelamento/reposição.
+   */
+  const onPendingOrderOpen = useCallback(async (order: {
+    id: string;
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    orderType: 'LIMIT' | 'STOP';
+    volume: number;
+    triggerPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => {
+    if (!user?.id || !options.enabled) return;
+    try {
+      const orderData: AIPendingOrder = {
+        user_id: user.id,
+        session_id: sessionIdRef.current,
+        symbol: order.symbol,
+        side: order.side,
+        order_type: order.orderType,
+        volume: order.volume,
+        trigger_price: order.triggerPrice,
+        stop_loss: order.stopLoss ?? null,
+        take_profit: order.takeProfit ?? null,
+        status: 'PENDING',
+      };
+      const dbId = await aiPersistence.savePendingOrder(orderData);
+      if (dbId) {
+        pendingOrderDbIdsRef.current.set(order.id, dbId);
+      } else {
+        options.onPersistenceError?.('trade_open', new Error(`savePendingOrder retornou vazio para ${order.id}`));
+      }
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao salvar ordem pendente:`, error);
+      options.onPersistenceError?.('trade_open', error);
+    }
+  }, [user, options.enabled, options.onPersistenceError]);
+
+  /**
+   * Reposicionar gatilho (arrastar a linha no gráfico).
+   */
+  const onPendingOrderPriceUpdate = useCallback(async (localId: string, newTriggerPrice: number) => {
+    if (!options.enabled) return;
+    const dbId = pendingOrderDbIdsRef.current.get(localId) ?? localId;
+    await aiPersistence.updatePendingOrderPrice(dbId, newTriggerPrice);
+  }, [options.enabled]);
+
+  /**
+   * Marcar cancelada (clique direito) ou disparada (cruzou o gatilho).
+   */
+  const onPendingOrderStatusChange = useCallback(async (localId: string, status: 'FILLED' | 'CANCELLED') => {
+    if (!options.enabled) return;
+    const dbId = pendingOrderDbIdsRef.current.get(localId) ?? localId;
+    await aiPersistence.updatePendingOrderStatus(dbId, status);
+    pendingOrderDbIdsRef.current.delete(localId);
+  }, [options.enabled]);
+
+  /**
+   * Hidratar ordens pendentes ainda abertas do usuário — chamado no boot,
+   * mesmo padrão de `getUserTradeHistory`. Local id = id do banco (mesma
+   * convenção da hidratação de `activeOrders`), então o map local→DB é
+   * populado direto aqui, sem round-trip extra.
+   */
+  const getUserOpenPendingOrders = useCallback(async () => {
+    if (!user?.id) return [];
+    const orders = await aiPersistence.getOpenPendingOrders(user.id);
+    orders.forEach((o) => {
+      if (o.id) pendingOrderDbIdsRef.current.set(o.id, o.id);
+    });
+    return orders;
+  }, [user]);
+
   /**
    * Buscar TODOS os trades FECHADOS do usuário, através de todas as sessões
    * (não só a sessão ativa) — fonte real do "Histórico de Trades" da tela de
@@ -546,6 +626,24 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   const getEquityCurve = useCallback(async (sessionId: string) => {
     return await aiPersistence.getSessionSnapshots(sessionId);
   }, []);
+
+  /**
+   * Buscar a última configuração da IA salva pelo usuário (persistência real,
+   * sobrevive a fechar aba/trocar de navegador — ver `ai_user_config`).
+   * Retorna null se o usuário nunca salvou nenhuma.
+   */
+  const getUserAIConfig = useCallback(async () => {
+    if (!user?.id) return null;
+    return await aiPersistence.getUserAIConfig(user.id);
+  }, [user]);
+
+  /**
+   * Salvar (upsert) a configuração da IA do usuário.
+   */
+  const saveUserAIConfig = useCallback(async (config: any) => {
+    if (!user?.id) return false;
+    return await aiPersistence.saveUserAIConfig(user.id, config);
+  }, [user]);
 
   // ==========================================================================
   // CLEANUP
@@ -597,7 +695,17 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     getUserTradeHistory,
     recordHistoryReset,
     getEquityCurve,
-    
+
+    // Pending orders
+    onPendingOrderOpen,
+    onPendingOrderPriceUpdate,
+    onPendingOrderStatusChange,
+    getUserOpenPendingOrders,
+
+    // AI config
+    getUserAIConfig,
+    saveUserAIConfig,
+
     // Utils
     isEnabled: options.enabled,
   };

@@ -554,6 +554,12 @@ export function useApexLogic(
   // seguindo a convenção do schema de `ai_sessions`. Ver ExecutionCost.ts.
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; costUsd: number; reason: 'TP' | 'SL' }>>([]);
   const hasHydratedFromSupabaseRef = useRef(false);
+  // Idem, mas só pra config da IA (independe de haver sessão DEMO ativa —
+  // ver efeito "PERSISTÊNCIA DE CONFIG DA IA" abaixo). Dois refs: o primeiro
+  // trava o efeito de fetch pra rodar uma vez só; o segundo só vira `true`
+  // depois do fetch RESOLVER, pra liberar o efeito de salvar sem race.
+  const hasHydratingConfigRef = useRef(false);
+  const hasHydratedConfigFromSupabaseRef = useRef(false);
 
   // Preço sem dado real (`isRealData: false` — a conta MetaAPI de plataforma
   // compartilhada engasgou/retornou SIMULATED e nem havia último preço real em
@@ -761,6 +767,49 @@ export function useApexLogic(
     }
   }, []);
 
+  // === PERSISTÊNCIA DE CONFIG DA IA (fonte de verdade real, por usuário) ===
+  // Até 2026-08-27 a config só existia em `localStorage` (efeito acima) —
+  // funcionava só no mesmo navegador; em outro dispositivo/aba anônima, ou
+  // depois de limpar dados do site, a IA voltava sempre pro default
+  // hardcoded do código, sem nenhum registro de qual foi a última escolha
+  // real do usuário (achado do Cleber, pedido feito antes e nunca
+  // implementado). Roda independente de `executionMode`/sessão ativa — é
+  // configuração do usuário, não estado de uma sessão de trading específica.
+  useEffect(() => {
+    if (!user?.id || hasHydratingConfigRef.current || hasHydratedConfigFromSupabaseRef.current) return;
+    hasHydratingConfigRef.current = true;
+
+    (async () => {
+      try {
+        const savedConfig = await persistenceRef.current.getUserAIConfig();
+        if (savedConfig) {
+          setAIConfig(prev => ({ ...prev, ...savedConfig }));
+          console.log('[useApexLogic] ☁️ Configuração da IA restaurada do Supabase (última escolha do usuário)');
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar configuração da IA do Supabase (mantendo localStorage/default):', e);
+      } finally {
+        // Só libera o efeito de salvar (abaixo) DEPOIS do fetch resolver —
+        // senão a mudança de `user` que disparou este efeito também dispara
+        // o de salvar no mesmo commit, e ele gravaria o valor antigo do
+        // localStorage por cima do valor real ainda não restaurado.
+        hasHydratedConfigFromSupabaseRef.current = true;
+      }
+    })();
+  }, [user]);
+
+  // Salva no Supabase a cada mudança de config feita pelo usuário na UI —
+  // não só ao criar sessão (aquilo é uma cópia pontual dentro de
+  // `ai_sessions.config`, nunca lida de volta). Ignora a primeira mudança de
+  // `aiConfig` disparada pela própria hidratação acima, senão reescreveria o
+  // banco com o valor que acabou de vir de lá.
+  useEffect(() => {
+    if (!user?.id || !hasHydratedConfigFromSupabaseRef.current) return;
+    persistenceRef.current.saveUserAIConfig(aiConfig).catch((e) => {
+      console.warn('[useApexLogic] Falha ao salvar configuração da IA no Supabase:', e);
+    });
+  }, [user, aiConfig]);
+
   // === FASE 2: HIDRATAÇÃO A PARTIR DO SUPABASE (fonte de verdade, sobrepõe o localStorage) ===
   // localStorage acima é só um cache rápido pro primeiro paint; assim que o usuário loga,
   // busca a sessão DEMO ativa no Supabase (se existir) e usa ela como estado real.
@@ -802,6 +851,29 @@ export function useApexLogic(
         }
       } catch (e) {
         console.warn('[useApexLogic] Falha ao restaurar histórico de trades do Supabase (mantendo localStorage):', e);
+      }
+
+      // Ordens pendentes (limit/stop) — independente de haver sessão RUNNING
+      // (é uma intenção do usuário, não uma métrica de sessão). Sem isto a
+      // ordem sumia a cada reload/fechamento de aba (achado 2026-08-26).
+      try {
+        const openPendingOrders = await persistenceRef.current.getUserOpenPendingOrders();
+        if (openPendingOrders.length > 0) {
+          setPendingOrders(openPendingOrders.map((o): PendingOrderVisual => ({
+            id: o.id!,
+            symbol: o.symbol,
+            side: o.side,
+            orderType: o.order_type,
+            volume: o.volume,
+            triggerPrice: o.trigger_price,
+            stopLoss: o.stop_loss ?? undefined,
+            takeProfit: o.take_profit ?? undefined,
+            timestamp: o.created_at ? new Date(o.created_at).getTime() : Date.now(),
+          })));
+          console.log(`[useApexLogic] ☁️ Ordens pendentes restauradas do Supabase: ${openPendingOrders.length}`);
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar ordens pendentes do Supabase:', e);
       }
 
       try {
@@ -2552,12 +2624,17 @@ export function useApexLogic(
     };
     setPendingOrders(prev => [...prev, newOrder]);
     addLog(`🕓 ORDEM PENDENTE ${params.orderType} ${params.side}: ${params.symbol} @ $${params.triggerPrice.toFixed(2)} — ${params.volume} lote(s)`);
+    // Persiste no Supabase — sem isto a ordem só vivia em useState e sumia
+    // ao fechar a aba/reload (achado do Cleber 2026-08-26). Fire-and-forget,
+    // igual ao onTradeOpen: a UI já respondeu com o estado local.
+    persistenceRef.current.onPendingOrderOpen(newOrder);
     return { success: true, orderId: newOrder.id };
   }, [addLog]);
 
   const cancelManualPendingOrder = useCallback((orderId: string) => {
     setPendingOrders(prev => prev.filter(o => o.id !== orderId));
     addLog(`🗑️ Ordem pendente cancelada: ${orderId}`);
+    persistenceRef.current.onPendingOrderStatusChange(orderId, 'CANCELLED');
   }, [addLog]);
 
   // Reposiciona o gatilho de uma ordem pendente já criada (arrastar a linha
@@ -2594,6 +2671,7 @@ export function useApexLogic(
 
     setPendingOrders(prev => prev.map(o => (o.id === orderId ? { ...o, triggerPrice: newTriggerPrice } : o)));
     addLog(`✏️ Ordem pendente reposicionada: ${order.symbol} ${order.orderType} ${order.side} @ $${newTriggerPrice.toFixed(2)}`);
+    persistenceRef.current.onPendingOrderPriceUpdate(orderId, newTriggerPrice);
     return { success: true };
   }, [addLog]);
 
@@ -2616,6 +2694,7 @@ export function useApexLogic(
     setPendingOrders(prev => prev.filter(o => !toFill.some(f => f.id === o.id)));
     toFill.forEach((order) => {
       addLog(`⚡ ORDEM PENDENTE DISPAROU: ${order.symbol} ${order.orderType} ${order.side} @ $${price.toFixed(2)}`);
+      persistenceRef.current.onPendingOrderStatusChange(order.id, 'FILLED');
       openManualPosition({
         symbol: order.symbol,
         side: order.side,
