@@ -197,9 +197,29 @@ const CRYPTO_NEWS_WINDOW_MS = 60 * 60 * 1000;
 // certo?" antes do usuário salvar — replicar esses números por fora já foi a
 // causa de um bug real neste projeto (pointValue divergente, 2026-08-05).
 export const STOP_ATR_MULTIPLIER = 2.0;
+/** Fallback quando `targetPoints` vem ausente/inválido — mesmo valor de sempre (R:R 1:3). */
 export const RISK_REWARD_MULTIPLE = 3.0;
 /** Nocional mínimo executável — abaixo disso o motor pula o trade (ver `MIN_TRADE_SIZE` mais abaixo). */
 export const MIN_EXECUTABLE_NOTIONAL_USD = 10;
+
+/**
+ * 2026-08-27: o dropdown "Poucos/Médio/Muitos pontos" da UI (`aiConfig.targetPoints`)
+ * ficava salvo mas SEM EFEITO no motor ao vivo desde 2026-08-17 — o alvo era
+ * sempre stop×3, não importa a escolha (achado de bug, sessão 2026-08-27, ver
+ * SESSAO). Reconectado aqui: cada opção agora escala o R:R real usado por
+ * `resolveAtrTargets`, mantendo o stop sempre em 2×ATR (a distância de stop é
+ * sobre volatilidade do ativo, não sobre preferência de alvo — não faz sentido
+ * a escolha do usuário mudar o quanto o mercado precisa "respirar" antes do
+ * stop ser invalidado). Nunca deixar uma opção de UI salva sem efeito real de
+ * novo — se um controle for descontinuado, removê-lo da UI, não silenciá-lo.
+ */
+export const RISK_REWARD_BY_TARGET_POINTS: Record<AIConfig['targetPoints'], number> = {
+  POUCOS: 1.5,
+  CURTO: 2.0,
+  MÉDIO: 3.0,
+  LONGO: 4.0,
+  MUITOS: 5.0,
+};
 
 /**
  * Distâncias de stop e alvo, em PONTOS, a partir do ATR.
@@ -214,14 +234,16 @@ export function resolveAtrTargets(
   atrValue: number,
   pointValue: number,
   marketMode: AIConfig['marketMode'],
+  targetPoints?: AIConfig['targetPoints'],
 ): { stopPoints: number; targetPoints: number } {
+  const riskRewardMultiple = (targetPoints && RISK_REWARD_BY_TARGET_POINTS[targetPoints]) || RISK_REWARD_MULTIPLE;
   let stopPoints = (atrValue * STOP_ATR_MULTIPLIER) / pointValue;
-  let targetPoints = stopPoints * RISK_REWARD_MULTIPLE;
+  let targetPointsResult = stopPoints * riskRewardMultiple;
   if (marketMode === 'SCALP') {
-    targetPoints = Math.min(targetPoints, 80);
+    targetPointsResult = Math.min(targetPointsResult, 80);
     stopPoints = Math.min(stopPoints, 35);
   }
-  return { stopPoints, targetPoints };
+  return { stopPoints, targetPoints: targetPointsResult };
 }
 
 export async function runTradingCycle(
@@ -1011,7 +1033,7 @@ async function analyzeAsset(
       // alvo explícito em ATR; agora há, e o número certo é o alvo.
       // Os limiares (7%/12%) não mudam: eles mapeiam RAZÃO, e a razão agora
       // responde à pergunta certa.
-      const targets = resolveAtrTargets(atrValueForCostGate, getPointValue(selectedSymbol), aiConfig.marketMode);
+      const targets = resolveAtrTargets(atrValueForCostGate, getPointValue(selectedSymbol), aiConfig.marketMode, aiConfig.targetPoints);
       const targetDistancePercent = (targets.targetPoints * getPointValue(selectedSymbol) / currentPrice) * 100;
       // 🆕 2026-08-25: o denominador deixa de ser o ALVO e passa a ser o
       // movimento que o motor DE FATO captura (40% do alvo, MEDIDO em n=220 —
@@ -1274,19 +1296,20 @@ async function analyzeAsset(
 
     console.log(`[DECISÃO FINAL] ${side === 'LONG' ? '🟢 COMPRA' : '🔴 VENDA'} | Estratégia: ${strategyName} | Confiança: ${confidenceScore}%`);
 
-    // 🆕 STOP/ALVO DINÂMICO POR ATR (2026-08-17, substitui o sistema de
-    // pontos fixos por targetPoints). Pontos fixos (ex.: 120pts) tratavam
-    // mercado calmo e agitado do mesmo jeito: em mercado calmo sobra folga
-    // (perda maior que o necessário quando erra); em mercado agitado o
+    // STOP/ALVO DINÂMICO POR ATR (2026-08-17). Pontos fixos (ex.: 120pts)
+    // tratavam mercado calmo e agitado do mesmo jeito: em mercado calmo sobra
+    // folga (perda maior que o necessário quando erra); em mercado agitado o
     // preço passa do stop por ruído normal, não porque a tese errou — isso
-    // corta taxa de acerto sem motivo real. Stop = k × ATR(14) do timeframe
+    // corta taxa de acerto sem motivo real. Stop = 2×ATR(14) do timeframe
     // operado (mesmo indicador já usado pelo gate de custo acima, candles
-    // idênticos — determinístico, não é chamada nova de rede). Alvo é um
-    // múltiplo fixo do stop (R:R constante entre ativos e regimes), não
-    // mais o dropdown "Poucos/Médio/Muitos": ver NEXT_SESSION.md item 3 —
-    // mudar TP/SL não muda o EV sem edge direcional (parada opcional), só
-    // muda a forma da distribuição; aqui a forma é escolhida deliberadamente
-    // (perde pouco, ganha mais) via R:R > 1, não por promessa de mais lucro.
+    // idênticos — determinístico, não é chamada nova de rede), sempre — a
+    // distância de stop é sobre volatilidade do ativo, não preferência.
+    // Alvo é stop × R:R, e o R:R responde ao dropdown "Poucos/Médio/Muitos"
+    // (`aiConfig.targetPoints` → `RISK_REWARD_BY_TARGET_POINTS`, reconectado
+    // em 2026-08-27 — ficava salvo sem efeito real desde 2026-08-17, achado
+    // de bug nessa sessão). Mudar TP não muda o EV sem edge direcional
+    // (parada opcional), só a forma da distribuição — perde pouco/ganha
+    // pouco vs. perde pouco/ganha mais — não é promessa de mais lucro.
     const pointValue = getPointValue(selectedSymbol);
     const atrSeriesForStop = calculateATR(candles, 14);
     const atrValueForStop = atrSeriesForStop[atrSeriesForStop.length - 1];
@@ -1297,7 +1320,7 @@ async function analyzeAsset(
     if (atrValueForStop && atrValueForStop > 0) {
       // Mesma função que o gate de custo usou pra medir viabilidade — nunca
       // recalcular essa aritmética por fora (ver `resolveAtrTargets`).
-      const resolved = resolveAtrTargets(atrValueForStop, pointValue, aiConfig.marketMode);
+      const resolved = resolveAtrTargets(atrValueForStop, pointValue, aiConfig.marketMode, aiConfig.targetPoints);
       stopLossPointsValue = resolved.stopPoints;
       targetPointsValue = resolved.targetPoints;
     } else {
