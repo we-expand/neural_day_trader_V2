@@ -391,7 +391,7 @@ export function InfinoxAssetsBrowser({
                           {category.symbols.map((symbol) => {
                             const isSelected = isSymbolSelected(symbol);
                             const priceData = assetPrices[symbol];
-                            const hasPrice = !!priceData;
+                            const hasPrice = !!priceData && priceData.price > 0;
                             const isPositive = priceData ? priceData.change >= 0 : null;
 
                             // 🆕 2026-08-20: lote mínimo é regra da corretora, não sugestão —
