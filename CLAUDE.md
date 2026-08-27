@@ -15,6 +15,16 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-27: Dropdown "Poucos/Médio/Muitos pontos" (alvo de lucro)
+reconectado — ficava salvo sem efeito real no motor ao vivo desde
+2026-08-17.** O alvo era sempre stop×3 fixo, não importava a escolha da
+UI. Agora cada opção escala o R:R real (`RISK_REWARD_BY_TARGET_POINTS` em
+`runTradingCycle.ts`: POUCOS=1,5×, CURTO=2×, MÉDIO=3× sem mudança,
+LONGO=4×, MUITOS=5×), stop continua sempre 2×ATR. Deploy e commit já
+feitos. **Pendente**: nenhum dado ainda sobre qual nível performa melhor
+líquido. Detalhe: seção final de
+[SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md](SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md).
+
 **2026-08-27: Persistência de configuração da IA implementada (pedido
 antigo do Cleber, nunca feito de verdade) + 4 diagnósticos do dia.**
 Config da IA (`stopLossMode` etc) até então só existia em `localStorage`

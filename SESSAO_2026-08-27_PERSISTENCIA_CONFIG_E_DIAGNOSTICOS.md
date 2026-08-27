@@ -97,6 +97,47 @@ avançou de $104,98 pra $105,02 às 15:00:52 UTC, ~23min depois da troca —
 trailing funcionando de verdade, protegendo lucro incremental além do
 breakeven.
 
+## [FIX aplicado, mais tarde na mesma sessão] Dropdown "Poucos/Médio/Muitos pontos" salvo sem efeito real desde 2026-08-17
+
+**Gatilho**: Cleber configurou o alvo pra "poucos pontos" e achou o alvo real
+executado longo demais.
+
+**Achado**: `aiConfig.targetPoints` (dropdown POUCOS/MÉDIO/MUITOS na UI,
+`AITrader.tsx`) continuava sendo salvo em `ai_user_config` normalmente, mas
+o motor ao vivo (`runTradingCycle.ts`) **ignorava o valor desde 2026-08-17**
+— o comentário do próprio código admitia isso ("não mais o dropdown
+Poucos/Médio/Muitos"). O alvo real era sempre `stop × 3.0` fixo
+(`RISK_REWARD_MULTIPLE`), com stop = 2×ATR — não importava a escolha do
+usuário. Config real do Cleber (`ai_user_config`, checado via SQL direto)
+confirmou: `targetPoints: "MÉDIO"`, mas o resultado observado batia com o
+comportamento fixo, não com o dropdown.
+
+**Fix**: em vez de remover o controle da UI (instrução explícita do
+Cleber: "não pode existir jamais um morto na UI"), reconectado o dropdown
+ao cálculo real. `runTradingCycle.ts`:
+- Novo `RISK_REWARD_BY_TARGET_POINTS`: POUCOS=1,5×, CURTO=2×, MÉDIO=3×
+  (valor de sempre, sem mudança de comportamento pra quem já usa MÉDIO),
+  LONGO=4×, MUITOS=5×.
+- `resolveAtrTargets()` passa a receber `targetPoints` e usa esse R:R real
+  em vez do fixo 3.0 hardcoded.
+- Stop continua sempre 2×ATR em qualquer opção — é sobre volatilidade do
+  ativo, não preferência de alvo; só o alvo (numerador do R:R) responde à
+  escolha do usuário.
+- Os dois pontos que chamam `resolveAtrTargets` (gate de custo + cálculo
+  final de TP/SL) passam `aiConfig.targetPoints` — mesma fonte única de
+  sempre, sem duplicar aritmética.
+- `npm run validate` passou limpo (49 asserções, 0 falhas).
+
+**Deploy e commit já feitos pelo Cleber** (`ai-runner` redeployado). Efeito
+esperado no próximo trade: quem estiver em MÉDIO não muda nada (é o mesmo
+3× de sempre); quem trocar pra POUCOS passa a ter alvo real ~metade da
+distância anterior (1,5× o stop em vez de 3×).
+
+**Pendente**: nenhum backtest rodado pra validar se R:R menor (POUCOS)
+performa melhor ou pior líquido — é só reconexão de um controle que devia
+funcionar, não uma alegação de edge. Medir resultado real depois de
+alguns trades em cada opção antes de recomendar uma como padrão.
+
 ## Pendente / decisão do Cleber
 
 1. **Considerar `stopLossMode: DINAMICO` como default pra sessões novas**
@@ -110,3 +151,5 @@ breakeven.
 3. Confirmar em mais alguns trades fechados se os 3 fixes de ontem
    (breakeven 1R, gate MACD, janela cega) seguraram o problema de
    "ganha e vira loss" — zero trades fechados até o momento desta sessão.
+4. Medir se algum dos níveis do dropdown de alvo (POUCOS/MÉDIO/MUITOS),
+   agora reconectado, performa melhor líquido — nenhum dado ainda.
