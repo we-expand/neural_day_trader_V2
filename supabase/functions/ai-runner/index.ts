@@ -41,7 +41,17 @@ import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
 import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
 import { getRelevantCurrencies } from '../../../src/app/services/risk/NewsCurrencyRelevance.ts';
 
-const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
+// 🔴 2026-08-27: 45s → 55s (achado do Cleber: SL síncrono via polling, não
+// ordem nativa na corretora — motor 100% virtual em DEMO, ver
+// `positionManager.ts:162`). Com 45s de loop + cron de ~1min, existia uma
+// janela cega de ~15s por minuto sem NENHUMA checagem de preço — dado real
+// mostrou trades fechando 1,3+ pontos além do stop registrado (ex:
+// SOLUSD `fe0adc2e`: stop em 95,01, fechou a 96,37). Subir pra 55s reduz
+// a janela cega pra ~5s. Não subimos pra 60s cheio: não existe lock contra
+// invocação concorrente do cron, e um empate exato no minuto arriscaria
+// duas invocações processando a mesma sessão ao mesmo tempo (posição
+// duplicada) — risco pior que o gap que estamos fechando.
+const MAX_RUNTIME_MS = 55_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
 const TRADING_CYCLE_TICK_MS = 5_000;
 // 🔴 FIX 2026-08-25 (achado do Cleber: Curva de Equity não representava
