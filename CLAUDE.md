@@ -15,29 +15,34 @@
 
 ## ▶ COMECE AQUI
 
-**2026-08-25: Trilho 2 reaberto (NVIDIA NIM Signal Discovery) + cuOpt em
-avaliação (Fase A, não integrado ainda).** A pedido do Cleber, reabrindo a
-busca de edge pausada em 2026-07-26 (seção 13 do
-[AI_BRAIN_SPEC.md](research/AI_BRAIN_SPEC.md)) usando o NVIDIA Signal
-Discovery Agent (NIM API, Nemotron) pra gerar/triar hipóteses sobre as
-fontes de dado já escopadas (correlação cross-asset, calendário-regime,
-order book pago, tick volume) — a NVIDIA só gera hipótese, validação
-continua 100% local (DSR/Sortino/bootstrap/custo real, sem exceção).
-**Decisão pendente do Cleber**: escopo original excluía notícia/sentimento
-NLP explicitamente; usar a ferramenta de destilação de notícia da NVIDIA
-reabriria essa exclusão — não decidido ainda, ver
-[hypothesis.md](research/experiments/2026-08-25-trilho2-nim-signal-discovery/hypothesis.md).
-Em paralelo, cuOpt (otimização de portfólio) está em **Fase A** —
-validação isolada em `research/experiments/`, comparando alocação conjunta
-contra o baseline sequencial real e contra um baseline aleatório (teste de
-viés de seleção, mesmo risco já sinalizado em
-`2026-08-16-portfolio-amplitude`). Integração no motor
-(`runTradingCycle.ts`) só acontece se a Fase A passar no critério de
-`CRITERIA.md` — nada de produção mudou ainda. **Pendente técnico**:
-`NVIDIA_API_KEY` (Cleber cria em build.nvidia.com) e confirmar o schema
-real do endpoint cuOpt contra a documentação oficial antes de implementar
-a chamada (deixado como stub explícito de propósito, não fabricado). Ver
-[research/experiments/2026-08-25-cuopt-portfolio-optimization/hypothesis.md](research/experiments/2026-08-25-cuopt-portfolio-optimization/hypothesis.md).
+**2026-08-27: Persistência de configuração da IA implementada (pedido
+antigo do Cleber, nunca feito de verdade) + 4 diagnósticos do dia.**
+Config da IA (`stopLossMode` etc) até então só existia em `localStorage`
+por navegador — voltava pro default hardcoded em outro dispositivo/aba
+anônima. Agora persiste em `ai_user_config` (Supabase, por `user_id`),
+migration e commit já aplicados pelo Cleber, validado ponta a ponta em
+produção. De carona: bug de exibição corrigido (`InfinoxAssetsBrowser`
+mostrava "$0,00" em vez de "Sem dados"); confirmado que "82% sem preço
+real" e "só opera SOL/ETH" não são bugs (infra MetaAPI e dinâmica de
+mercado, respectivamente); achado que os 7 trades automáticos fechados
+desde a mudança de risco/TP de 26/08 ainda estão negativos (-$1,88), a
+melhora aparente vinha só de 3 fechamentos manuais. **Pendente**: decidir
+se `DINAMICO` vira default de `stopLossMode` pra sessões novas (hoje é
+opcional, pode ficar em `FIXO` sem o usuário notar). Detalhe completo:
+[SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md](SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md).
+
+**2026-08-25: Trilho 2 reaberto (NVIDIA NIM Signal Discovery, incl. NLP)
++ cuOpt em Fase A (não integrado ainda).** Etapa 0 já rodou de verdade
+contra a NIM API — 5 hipóteses geradas (correlação cross-asset,
+calendário-regime, NLP sobre texto de evento), nenhuma validada ainda.
+Nada de produção mudou. **Pendente, em ordem**: confirmar que o secret
+`NVIDIA_API_KEY` do NEXUS no Supabase (rotacionado nesta sessão após
+apagar por engano) está de fato ativo — não testado ainda; decidir
+orçamento de newsfeed pago pro NLP; escrever backtest real das 5
+hipóteses; confirmar schema do endpoint cuOpt antes da Fase A rodar de
+verdade. Detalhe completo:
+[SESSAO_2026-08-25_NVIDIA_TRILHO2_CUOPT.md](SESSAO_2026-08-25_NVIDIA_TRILHO2_CUOPT.md),
+ordem exata em [NEXT_SESSION.md](NEXT_SESSION.md).
 
 **2026-08-25: NEXUS trocado de Groq pra NVIDIA Nemotron 3 (Nano).**
 Testado ao vivo em produção. Primeira tentativa (Ultra, 550B/55B ativos)
