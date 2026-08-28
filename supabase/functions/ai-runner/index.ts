@@ -528,6 +528,8 @@ async function tradingCycleTick(s: RunnerSessionState): Promise<void> {
         userId: s.userId,
         mechanicalAction: info.mechanicalAction,
         mechanicalStage: info.mechanicalAction === 'REJECT' ? 'REJECTED_STAGES_3_9' : null,
+        entryPriceSnapshot: info.entryPriceSnapshot,
+        atrSnapshot: info.atrSnapshot,
         context: {
           symbol: info.symbol,
           strategySide: info.strategySide,

@@ -198,6 +198,17 @@ export interface TradingCycleDeps {
     macdHistogramPrev: number | null;
     adx: number | null;
     mechanicalAction: 'PROCEED' | 'REJECT';
+    /**
+     * Preço de fechamento do candle mais recente e ATR(14) no MOMENTO da
+     * decisão (2026-08-29) — nunca fabricados depois. É a base pra calcular
+     * o resultado hipotético (passo 1 da cadeia de "memória de decisões
+     * passadas", ver SESSAO_2026-08-28_..._CEREBRO_ANALITICO.md): stop/alvo
+     * hipotéticos usam a MESMA aritmética do motor real
+     * (STOP_ATR_MULTIPLIER/RISK_REWARD_MULTIPLE acima), aplicada ao
+     * mechanical_side a partir deste preço.
+     */
+    entryPriceSnapshot: number;
+    atrSnapshot: number | null;
   }) => void;
 }
 
@@ -455,6 +466,7 @@ export async function runTradingCycle(
         const rsiShadow = rsiSeriesShadow[rsiSeriesShadow.length - 1] ?? 50;
         const macdShadow = calculateMACD(candidate.candles);
         const adxSeriesShadow = calculateADX(candidate.candles, 14);
+        const atrSeriesShadow = calculateATR(candidate.candles, 14);
         deps.onDecisionPoint({
           symbol: candidate.symbol,
           strategySide: candidate.side,
@@ -464,6 +476,8 @@ export async function runTradingCycle(
           macdHistogramPrev: macdShadow.histogram[macdShadow.histogram.length - 2] ?? null,
           adx: adxSeriesShadow[adxSeriesShadow.length - 1] ?? null,
           mechanicalAction: result.tradeOpened ? 'PROCEED' : 'REJECT',
+          entryPriceSnapshot: candidate.candles[candidate.candles.length - 1].close,
+          atrSnapshot: atrSeriesShadow[atrSeriesShadow.length - 1] ?? null,
         });
       } catch (shadowErr) {
         console.warn('[TRADING] modo sombra do cérebro de decisão falhou ao montar contexto (não afeta a decisão real):', shadowErr);

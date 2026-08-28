@@ -29,6 +29,9 @@ interface ShadowLogParams {
   context: DecisionBrainContext;
   mechanicalAction: 'PROCEED' | 'REJECT';
   mechanicalStage: string | null;
+  /** Ver comentário em `onDecisionPoint` (runTradingCycle.ts) — base do resultado hipotético (2026-08-29). */
+  entryPriceSnapshot: number;
+  atrSnapshot: number | null;
 }
 
 function parseBrainOutput(raw: string, strategySide: 'LONG' | 'SHORT'): DecisionBrainResult {
@@ -57,7 +60,7 @@ function parseBrainOutput(raw: string, strategySide: 'LONG' | 'SHORT'): Decision
  * não precisa (nem deve) tratar erro daqui.
  */
 export async function runShadowDecisionAndLog(params: ShadowLogParams): Promise<void> {
-  const { sessionId, userId, context, mechanicalAction, mechanicalStage } = params;
+  const { sessionId, userId, context, mechanicalAction, mechanicalStage, entryPriceSnapshot, atrSnapshot } = params;
   const sb = getServiceClient();
 
   const baseRow = {
@@ -68,6 +71,8 @@ export async function runShadowDecisionAndLog(params: ShadowLogParams): Promise<
     mechanical_action: mechanicalAction,
     mechanical_stage: mechanicalStage,
     mechanical_side: context.strategySide,
+    entry_price_snapshot: entryPriceSnapshot,
+    atr_snapshot: atrSnapshot,
   };
 
   try {

@@ -143,6 +143,84 @@ começado ainda):
 construir"), mas primeiro documentar e pausar pra continuar em nova sessão
 — é este arquivo.
 
+## [2026-08-29] Passo 1 implementado — cálculo de resultado hipotético
+
+Construído o item 1 da lista acima (cálculo de resultado hipotético por
+decisão logada). Ainda **não commitado nem deployado** — código pronto,
+pendente do Cleber rodar os comandos abaixo.
+
+O que foi feito:
+- `supabase/migrations/20260829_add_decision_brain_hypothetical_outcome.sql`
+  — novas colunas em `ai_decision_brain_shadow`: `entry_price_snapshot`,
+  `atr_snapshot` (gravados no MOMENTO da decisão, nunca depois),
+  `hypothetical_outcome` (WIN/LOSS/TIMEOUT/NO_DATA),
+  `hypothetical_r_multiple`, `hypothetical_outcome_computed_at`.
+- `runTradingCycle.ts`: `onDecisionPoint` agora também entrega
+  `entryPriceSnapshot` (close do candle mais recente) e `atrSnapshot`
+  (ATR14 no momento) — mesmos dados que o motor real já calcula pro
+  stop/alvo, sem chamada de rede extra.
+- `decisionBrain.ts`/`index.ts` (ai-runner): repassam esses dois campos pro
+  INSERT em `ai_decision_brain_shadow`.
+- **Novo job independente** `supabase/functions/decision-brain-outcome/`
+  (não roda dentro do `ai-runner` de propósito — cadência diferente, não
+  quis aumentar carga na conta MetaAPI compartilhada a cada 1min). Lê até
+  50 linhas pendentes por invocação, busca candle real de 1m desde a
+  decisão (uma busca por símbolo, reaproveitada entre linhas), reconstrói o
+  stop/alvo hipotético do `mechanical_side` com a MESMA aritmética do motor
+  real (stop=2×ATR, alvo=3×stop — `STOP_ATR_MULTIPLIER`/
+  `RISK_REWARD_MULTIPLE`, única fonte, importados de `runTradingCycle.ts`)
+  e caminha os candles em ordem cronológica (stop primeiro em caso de
+  ambiguidade, mesma convenção de `checkGapWindowBreaches`). Marca WIN/LOSS
+  se bateu, TIMEOUT com R a mercado se passou 24h sem bater nenhum, NO_DATA
+  se o candle real não estava disponível. **Só calcula o lado mecânico** —
+  o resultado do FLIP (lado oposto) é o espelho matemático
+  (`-hypothetical_r_multiple`), não precisa de uma segunda passada.
+- `npm run validate` 100% (37 asserções + suíte de indicadores/motor).
+
+**Comandos pendentes pro Cleber** (nesta ordem):
+1. Aplicar a migration `20260829_add_decision_brain_hypothetical_outcome.sql`
+   no SQL Editor do Supabase.
+2. Deploy do novo job:
+   ```
+   supabase functions deploy decision-brain-outcome --no-verify-jwt
+   ```
+   (precisa de `--no-verify-jwt` como o `ai-runner` — não tem sessão de
+   usuário, só o secret `x-runner-secret` opcional via
+   `DECISION_BRAIN_OUTCOME_SHARED_SECRET`, se quiser proteger o endpoint;
+   sem o secret setado, o job aceita qualquer chamada, igual o
+   comportamento de `asset-performance-scorecard` hoje.)
+3. Agendar via `pg_cron` — sugestão: a cada 30min (mais que suficiente,
+   linhas só ficam elegíveis 10min depois de criadas e o resultado real
+   leva de minutos a poucas horas pra se resolver). Exemplo de SQL (ajustar
+   URL/secret reais):
+   ```sql
+   SELECT cron.schedule(
+     'decision-brain-outcome-30min',
+     '*/30 * * * *',
+     $$
+     SELECT net.http_post(
+       url := 'https://wyvdsxtcmizettljxtbg.supabase.co/functions/v1/decision-brain-outcome',
+       headers := jsonb_build_object('Content-Type', 'application/json')
+     );
+     $$
+   );
+   ```
+4. Deploy do código atualizado do `ai-runner` (mudou `index.ts` e
+   `lib/decisionBrain.ts` — precisa de redeploy, `git push` sozinho não
+   basta, ver regra em CLAUDE.md):
+   ```
+   supabase functions deploy ai-runner --no-verify-jwt
+   ```
+5. Commit do código (`git add`/`git commit`/`git push` — Claude nunca roda
+   isso sozinho, comando pronto na entrega desta sessão).
+
+**Próximo passo real (item 2 da lista, ainda não iniciado)**: esperar
+acumular algumas linhas com `hypothetical_outcome_computed_at` preenchido
+em produção, então construir o módulo de recuperação de histórico (busca
+as N decisões passadas mais parecidas COM resultado já calculado) e a
+injeção no prompt — só depois de confirmar que o passo 1 está gravando
+resultado real corretamente ao vivo.
+
 ## Pendências antigas que continuam de pé (não tocadas hoje)
 
 - Volume de trades (5 no dia 27) — Cleber pediu meta de ~10/dia. Já
