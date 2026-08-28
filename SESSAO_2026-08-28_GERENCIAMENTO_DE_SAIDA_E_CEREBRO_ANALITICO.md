@@ -221,6 +221,29 @@ as N decisões passadas mais parecidas COM resultado já calculado) e a
 injeção no prompt — só depois de confirmar que o passo 1 está gravando
 resultado real corretamente ao vivo.
 
+### [2026-08-28, mesma sessão] Passo 1 fechado ponta a ponta — CONFIRMADO AO VIVO
+
+Migration aplicada, commits (`5b2cc076e` + `e84d0cd39`, o segundo só com o
+`deno.json`/`shims` do novo job — necessário pro bundler sem Docker
+resolver o alias `@/`, mesmo padrão do `ai-runner`) e deploy feitos.
+Cron `decision-brain-outcome-30min` (jobid 9) agendado, `*/30 * * * *`,
+sem `x-runner-secret` (secret não configurada ainda pro job novo, mesmo
+estado do Jarvis hoje).
+
+Verificado em produção às 13:23 UTC: `ai-runner` já grava
+`entry_price_snapshot`/`atr_snapshot` (20 linhas desde o deploy). Job de
+outcome ainda não rodou (agendado 13:18, primeiro disparo 13:30) — checar
+na próxima sessão se `hypothetical_outcome_computed_at` começou a
+preencher e se os valores fazem sentido (WIN/LOSS/TIMEOUT plausíveis
+contra o que realmente aconteceu).
+
+**Próxima sessão, nesta ordem**:
+1. Confirmar que o job rodou e gravou resultado real (`SELECT
+   hypothetical_outcome, count(*) FROM ai_decision_brain_shadow WHERE
+   hypothetical_outcome_computed_at IS NOT NULL GROUP BY 1`).
+2. Se os números baterem com o esperado, seguir pro item 2 da lista:
+   módulo de recuperação de histórico + injeção no prompt.
+
 ## Pendências antigas que continuam de pé (não tocadas hoje)
 
 - Volume de trades (5 no dia 27) — Cleber pediu meta de ~10/dia. Já
