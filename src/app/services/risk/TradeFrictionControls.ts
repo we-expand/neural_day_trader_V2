@@ -177,8 +177,29 @@ export const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000;
  * (+1R), que segue solidamente positivo (+US$1,64 ajustado) sem ser a ponta
  * mais extrapolada do teste. Reavaliar de novo depois de mais ~150-200
  * trades reais em 1R antes de cogitar apertar mais.
+ *
+ * 2026-08-28: reavaliação ACELERADA (não os 150-200 trades planejados —
+ * só ~2 dias em 1R) — justificada por achado novo e severidade, não por
+ * calendário. Achado: análise de MFE real (candle 5m, sem look-ahead,
+ * 171 trades BTC/ETH/SOL) mostrou que 89,2% dos trades perdedores (116 de
+ * 130) tiveram lucro flutuante real — mediana US$0,55 devolvido — e a
+ * maioria REVERTE ANTES de bater 1R, faixa que nem o gatilho de 1R nem o
+ * TP parcial (implementado nesta mesma sessão, ver `PARTIAL_TP_TRIGGER_R`
+ * abaixo) alcançam. Novo sweep, candle de 5m (mais fino que o 15m
+ * anterior), já incluindo o TP parcial: 0,5R+parcial50% deu +US$14,17
+ * contra +US$4,90 em 1R+parcial50% (config em produção até esta sessão) —
+ * mesma direção monotônica do sweep de 2026-08-26, agora medida de novo
+ * com dado e granularidade diferentes. Detalhe:
+ * `research/experiments/2026-08-28-partial-tp-1r/verdict.md`.
+ *
+ * Não fui para o extremo do novo grid (0,3R, melhor resultado bruto,
+ * +US$17,85) — 0,5R já era o valor especificamente validado (com custo de
+ * reentrada incluído, Adendo 6 do experimento de 2026-08-26) na rodada
+ * anterior; ir direto para 0,3R sem medir custo de reentrada NESSE nível
+ * específico seria a mesma extrapolação que o comentário de 2026-08-26 já
+ * evitou. Reavaliar de novo depois de acumular mais trades reais em 0,5R.
  */
-export const BREAKEVEN_TRIGGER_R = 1.0;
+export const BREAKEVEN_TRIGGER_R = 0.5;
 
 /**
  * TP parcial genérico (fora de pyramiding) — fecha `PARTIAL_TP_PERCENT`%
@@ -200,8 +221,16 @@ export const BREAKEVEN_TRIGGER_R = 1.0;
  * Só implementado no servidor (`positionManager.ts`) — cliente já perdeu
  * autoridade de fechar posição em DEMO desde 2026-08-18, mesma regra que
  * rege TP/SL/trailing/breakeven.
+ *
+ * 2026-08-28: referencia `BREAKEVEN_TRIGGER_R` diretamente (era um literal
+ * `1.0` separado, só coincidentemente igual) — os dois gatilhos são a
+ * MESMA decisão de produto ("proteger o trade a partir daqui") e o sweep
+ * de contenção que baixou `BREAKEVEN_TRIGGER_R` pra 0,5R testou os dois
+ * sempre juntos. Nunca editar um sem editar o outro; a referência garante
+ * isso por construção em vez de depender de lembrar de sincronizar dois
+ * números.
  */
-export const PARTIAL_TP_TRIGGER_R = 1.0;
+export const PARTIAL_TP_TRIGGER_R = BREAKEVEN_TRIGGER_R;
 export const PARTIAL_TP_PERCENT = 50;
 
 /**

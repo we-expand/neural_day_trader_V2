@@ -116,3 +116,60 @@ novo desalinhado.
 - Reavaliar depois de acumular mais trades reais com a mudança em
   produção (mesma disciplina do experimento de 2026-08-26: não travar
   parâmetro fino numa amostra de ~9 dias sem reconfirmar depois).
+
+---
+
+## Adendo (2026-08-28, mesma sessão): sweep de contenção — MFE severo + gatilho apertado pra 0,5R
+
+Pedido do Cleber, urgente, depois de ver o número de MFE: "89,2% dos
+perdedores tiveram lucro flutuante real, mediana $0,55 devolvido — medidas
+de contenção severas".
+
+**Achado-chave**: o TP parcial acima (gatilho 1R) só cobre os ~26% dos
+trades que chegam a 1R inteiro. A maioria do padrão "ganha e devolve"
+acontece ANTES de 1R — na faixa de $0,05 a $0,89 (p10-p75 do MFE dos
+perdedores), abaixo de onde qualquer proteção existia até esta sessão.
+
+**Sweep**: gatilho de breakeven+parcial (mesmo valor, acoplados de
+propósito) de 0,3R a 1,0R × % do parcial (30/50/70%), candle real de 5m
+(mais fino que o 15m usado nos experimentos anteriores), 126 trades
+válidos de BTC/ETH/SOL (12 dias), réplica fiel de `positionManager.ts`,
+sem look-ahead. Script: `scripts/sweep_containment.mjs`.
+
+| Gatilho | Sem parcial | Parcial 30% | Parcial 50% | Parcial 70% |
+|---|---|---|---|---|
+| 1,0R (prod. até hoje) | +$2,66 | +$4,00 | **+$4,90** | +$5,79 |
+| 0,75R | +$3,94 | +$5,36 | +$6,30 | +$7,24 |
+| 0,6R | +$7,16 | +$8,38 | +$9,20 | +$10,01 |
+| **0,5R** | +$10,98 | +$12,90 | **+$14,17** | +$15,45 |
+| 0,4R | +$14,19 | +$15,59 | +$16,52 | +$17,45 |
+| 0,3R | +$16,78 | +$17,24 | +$17,54 | +$17,85 |
+
+Sinal monotônico e limpo em toda a grade — mesmo padrão já visto no sweep
+de breakeven de 2026-08-26 (Adendo 2), agora confirmado com o TP parcial
+incluído e candle mais fino (5m vs 15m).
+
+**Decisão**: `BREAKEVEN_TRIGGER_R` e `PARTIAL_TP_TRIGGER_R` (agora
+acoplados por referência, nunca mais dois literais separados) de 1,0R
+para **0,5R**, mantendo `PARTIAL_TP_PERCENT` em 50% (não mexi nos dois
+parâmetros incertos ao mesmo tempo). Não fui para 0,3R (melhor resultado
+bruto do grid, +$17,85): 0,5R já era o valor especificamente validado com
+custo de reentrada incluído no experimento de 2026-08-26 (Adendo 6,
++$9,05 ajustado); 0,3R não tem essa medição e reduziria a distância média
+até o stop a um ponto onde ruído de candle passa a competir com o sinal —
+mesma disciplina anti-overfitting já documentada em `TradeFrictionControls.ts`.
+
+**Ressalva não escondida**: esta reavaliação veio ~2 dias depois de 1R
+entrar em produção, não os "150-200 trades" que o comentário de 2026-08-26
+tinha planejado como critério pra reavaliar de novo. Acelerada por
+severidade (número de MFE) e por convergência de duas medições
+independentes (candle 15m em 26/08, candle 5m agora) apontando pra mesma
+direção — não é capricho, mas também não é o critério original cumprido.
+Reavaliar de novo depois de acumular trades reais em 0,5R.
+
+**Implementado**: `TradeFrictionControls.ts` (`BREAKEVEN_TRIGGER_R = 0.5`,
+`PARTIAL_TP_TRIGGER_R` agora referencia a mesma constante),
+`__validate__friction__.ts` atualizado. `npm run validate` e
+`deno check` limpos. Nenhuma mudança de código adicional necessária —
+`positionManager.ts` e `useApexLogic.ts` já leem essas constantes, não
+têm o valor hardcoded.
