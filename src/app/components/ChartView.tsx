@@ -4596,21 +4596,39 @@ export function ChartView({
     const chart = chartInstanceRef.current;
     if (!chart) return;
 
-    positionOverlayIdsRef.current.forEach((id) => {
+    const symbolOrders = orders.filter((o) => o.symbol === symbol);
+
+    // 🔴 2026-08-28/29: antes disto removia TODAS as overlays de posição e
+    // recriava do zero a cada render — mesmo quando só o P&L ao vivo (tick de
+    // preço, ~1s) mudava e nada da posição em si (entrada/SL/TP) tinha
+    // mudado. O gráfico observa `activeOrders` por referência e essa troca
+    // acontece a cada tick, então as linhas piscavam (remove+recria)
+    // continuamente. Agora só remove/recria o que realmente saiu (posição
+    // fechada) ou entrou (posição nova); pra ordens que continuam abertas,
+    // atualiza a overlay existente no lugar via overrideOverlay (mesmo
+    // padrão já usado no resto do arquivo pra desenhos do usuário).
+    const currentIds = new Set(symbolOrders.map((o) => o.id));
+    const idsToRemove = positionOverlayIdsRef.current.filter((id) => {
+      const orderId = id.replace(/^position_(entry|sl|tp)_/, '');
+      return !currentIds.has(orderId);
+    });
+    idsToRemove.forEach((id) => {
       try {
         chart.removeOverlay(id);
       } catch (e) {
         // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
       }
     });
-    positionOverlayIdsRef.current = [];
-
-    const symbolOrders = orders.filter((o) => o.symbol === symbol);
-    if (symbolOrders.length === 0) return;
+    positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => !idsToRemove.includes(id));
 
     symbolOrders.forEach((order) => {
       const isLong = order.side === 'LONG';
       const entryId = `position_entry_${order.id}`;
+      const slId = `position_sl_${order.id}`;
+      const tpId = `position_tp_${order.id}`;
+      const entryExists = positionOverlayIdsRef.current.includes(entryId);
+      const slExists = positionOverlayIdsRef.current.includes(slId);
+      const tpExists = positionOverlayIdsRef.current.includes(tpId);
 
       // Unidades da posição (mesma conta usada no PNL LOOP de useApexLogic.ts
       // pra P&L ao vivo): amount é o valor em dólar da posição, amount/preço
@@ -4637,96 +4655,119 @@ export function ChartView({
         const pointsSign = pointsFavorable >= 0 ? '+' : '';
         const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(2)} pts)`;
         const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
+        const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`;
 
-        chart.createOverlay({
-          name: 'positionLabelLine',
-          id: entryId,
-          points: [{ value: order.price }],
-          styles: {
-            line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
-            text: {
-              color: '#ffffff',
-              backgroundColor: isLong ? 'rgba(34,197,94,0.92)' : 'rgba(239,68,68,0.92)',
-              borderColor: isLong ? '#16a34a' : '#dc2626',
-              borderSize: 1,
-              borderRadius: 3,
-              paddingLeft: 6,
-              paddingRight: 6,
-              paddingTop: 3,
-              paddingBottom: 3,
-              size: 11,
-              weight: 'bold',
+        // 🔴 2026-08-29: atualiza a overlay existente no lugar (preço +
+        // texto de P&L ao vivo) em vez de remove+recria — é isto que
+        // elimina o piscar a cada tick, já que o `points`/`extendData` mudam
+        // sem a linha sumir do gráfico entre um frame e outro.
+        if (entryExists) {
+          chart.overrideOverlay({ id: entryId, points: [{ value: order.price }], extendData: entryExtendData });
+        } else {
+          chart.createOverlay({
+            name: 'positionLabelLine',
+            id: entryId,
+            points: [{ value: order.price }],
+            styles: {
+              line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
+              text: {
+                color: '#ffffff',
+                backgroundColor: isLong ? 'rgba(34,197,94,0.92)' : 'rgba(239,68,68,0.92)',
+                borderColor: isLong ? '#16a34a' : '#dc2626',
+                borderSize: 1,
+                borderRadius: 3,
+                paddingLeft: 6,
+                paddingRight: 6,
+                paddingTop: 3,
+                paddingBottom: 3,
+                size: 11,
+                weight: 'bold',
+              },
             },
-          },
-          extendData: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
-        });
-        positionOverlayIdsRef.current.push(entryId);
+            extendData: entryExtendData,
+          });
+          positionOverlayIdsRef.current.push(entryId);
+        }
       } catch (e) {
         console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de entrada da posição:', e);
       }
 
       if (hasSl) {
-        const slId = `position_sl_${order.id}`;
         try {
-          chart.createOverlay({
-            name: 'positionLabelLine',
-            id: slId,
-            points: [{ value: order.sl }],
-            styles: {
-              line: { color: '#ef4444', style: 'dashed', size: 1 },
-              text: {
-                color: '#ffffff',
-                backgroundColor: 'rgba(239,68,68,0.85)',
-                borderColor: '#dc2626',
-                borderSize: 1,
-                borderRadius: 3,
-                paddingLeft: 5,
-                paddingRight: 5,
-                paddingTop: 2,
-                paddingBottom: 2,
-                size: 10,
+          const slExtendData = `⛔ Stop ${order.sl.toFixed(2)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(2)} pts`;
+          if (slExists) {
+            chart.overrideOverlay({ id: slId, points: [{ value: order.sl }], extendData: slExtendData });
+          } else {
+            chart.createOverlay({
+              name: 'positionLabelLine',
+              id: slId,
+              points: [{ value: order.sl }],
+              styles: {
+                line: { color: '#ef4444', style: 'dashed', size: 1 },
+                text: {
+                  color: '#ffffff',
+                  backgroundColor: 'rgba(239,68,68,0.85)',
+                  borderColor: '#dc2626',
+                  borderSize: 1,
+                  borderRadius: 3,
+                  paddingLeft: 5,
+                  paddingRight: 5,
+                  paddingTop: 2,
+                  paddingBottom: 2,
+                  size: 10,
+                },
               },
-            },
-            // Custo em dólar sempre negativo (é o que se perde se o stop for
-            // atingido) + distância em pontos, pra visualizar risco real sem
-            // precisar calcular de cabeça.
-            extendData: `⛔ Stop ${order.sl.toFixed(2)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(2)} pts`,
-          });
-          positionOverlayIdsRef.current.push(slId);
+              // Custo em dólar sempre negativo (é o que se perde se o stop for
+              // atingido) + distância em pontos, pra visualizar risco real sem
+              // precisar calcular de cabeça.
+              extendData: slExtendData,
+            });
+            positionOverlayIdsRef.current.push(slId);
+          }
         } catch (e) {
           // silencioso — mesma tolerância do resto dos overlays de sistema
         }
+      } else if (slExists) {
+        try { chart.removeOverlay(slId); } catch (e) { /* ignora */ }
+        positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => id !== slId);
       }
 
       if (hasTp) {
-        const tpId = `position_tp_${order.id}`;
         try {
-          chart.createOverlay({
-            name: 'positionLabelLine',
-            id: tpId,
-            points: [{ value: order.tp }],
-            styles: {
-              line: { color: '#22c55e', style: 'dashed', size: 1 },
-              text: {
-                color: '#ffffff',
-                backgroundColor: 'rgba(34,197,94,0.85)',
-                borderColor: '#16a34a',
-                borderSize: 1,
-                borderRadius: 3,
-                paddingLeft: 5,
-                paddingRight: 5,
-                paddingTop: 2,
-                paddingBottom: 2,
-                size: 10,
+          const tpExtendData = `🎯 Alvo ${order.tp.toFixed(2)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(2)} pts`;
+          if (tpExists) {
+            chart.overrideOverlay({ id: tpId, points: [{ value: order.tp }], extendData: tpExtendData });
+          } else {
+            chart.createOverlay({
+              name: 'positionLabelLine',
+              id: tpId,
+              points: [{ value: order.tp }],
+              styles: {
+                line: { color: '#22c55e', style: 'dashed', size: 1 },
+                text: {
+                  color: '#ffffff',
+                  backgroundColor: 'rgba(34,197,94,0.85)',
+                  borderColor: '#16a34a',
+                  borderSize: 1,
+                  borderRadius: 3,
+                  paddingLeft: 5,
+                  paddingRight: 5,
+                  paddingTop: 2,
+                  paddingBottom: 2,
+                  size: 10,
+                },
               },
-            },
-            // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
-            extendData: `🎯 Alvo ${order.tp.toFixed(2)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(2)} pts`,
-          });
-          positionOverlayIdsRef.current.push(tpId);
+              // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
+              extendData: tpExtendData,
+            });
+            positionOverlayIdsRef.current.push(tpId);
+          }
         } catch (e) {
           // silencioso — mesma tolerância do resto dos overlays de sistema
         }
+      } else if (tpExists) {
+        try { chart.removeOverlay(tpId); } catch (e) { /* ignora */ }
+        positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => id !== tpId);
       }
     });
 
