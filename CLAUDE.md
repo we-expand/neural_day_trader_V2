@@ -37,12 +37,19 @@ mecânica intocável. Achado que definiu a validação: este projeto já tinha
 rejeitado arquitetura LLM-de-decisão antes por risco de vazamento
 temporal em backtest — só pode ser validado **pra frente**. Fase 0 (modo
 sombra, nunca decide de verdade) implementada e **confirmada ao vivo**
-(`ai_decision_brain_shadow` recebendo linhas reais desde hoje). **Pendente
-imediato, já alinhado com o Cleber, não iniciado**: memória de decisões
-passadas no prompt (não é fine-tuning — é o cérebro ver o próprio
-histórico com resultado real antes de decidir de novo), que por sua vez
-precisa primeiro do cálculo de resultado hipotético por decisão logada.
-Handoff completo com o passo a passo exato:
+(`ai_decision_brain_shadow` recebendo linhas reais desde hoje). Pedido do
+Cleber: o cérebro precisa "entender o que fez de errado pra não repetir" —
+memória de decisões passadas no prompt (não é fine-tuning — é o cérebro
+ver o próprio histórico com resultado real antes de decidir de novo).
+**Passo 1 dessa cadeia (cálculo de resultado hipotético por decisão
+logada, candle real sem look-ahead) já implementado, deployado, migration
+aplicada e cron agendado — confirmado ao vivo** (`entry_price_snapshot`/
+`atr_snapshot` gravando desde 13:23 UTC de hoje). **Pendente imediato,
+próxima sessão**: confirmar que o job `decision-brain-outcome`
+(`*/30 * * * *`) gravou `hypothetical_outcome` de verdade após o primeiro
+disparo, e então construir o passo 2 (módulo de recuperação de histórico +
+injeção no prompt) — ainda não iniciado. Handoff completo com o passo a
+passo exato:
 [SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md](SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md).
 
 **2026-08-27: 3 bugs corrigidos após alarme do Cleber (NAS100 mostrando
