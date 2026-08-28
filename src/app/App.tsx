@@ -27,7 +27,6 @@ import { PropChallenge } from '@/app/components/PropChallenge';
 import { AdminDashboard } from '@/app/components/admin/AdminDashboard';
 import { Marketplace } from '@/app/components/Marketplace';
 import { UserProfile } from '@/app/components/UserProfile';
-import PyramidingExample from '@/app/components/examples/InfinoxExamples';
 import { CompetitiveAnalysis } from '@/app/components/CompetitiveAnalysis';
 import { LandingPage } from '@/app/components/landing/LandingPage';
 import { AuthOverlay } from '@/app/components/auth/AuthOverlay';
@@ -170,7 +169,7 @@ if (typeof window !== 'undefined') {
 
 type Language = 'en' | 'pt' | 'es';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'pyramiding' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs' | 'jarvis';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs' | 'jarvis';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -284,8 +283,6 @@ function AppContent() {
         return <Marketplace />;
       case 'profile':
         return <UserProfile />;
-      case 'pyramiding':
-        return <PyramidingExample />;
       case 'competitive-analysis':
         return <CompetitiveAnalysis />;
       case 'quantum-analysis':
