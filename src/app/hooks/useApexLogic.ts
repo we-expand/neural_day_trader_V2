@@ -1186,7 +1186,7 @@ export function useApexLogic(
               addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${t.entry_price.toFixed(2)} (aberta pelo servidor)`);
             }
           }
-          return open.map((t): TradeVisual => {
+          const next = open.map((t): TradeVisual => {
             const existing = prevById.get(t.id!);
             return {
               id: t.id!,
@@ -1219,6 +1219,27 @@ export function useApexLogic(
                 : (existing?.trailMoves || 0),
             };
           });
+
+          // 🔴 2026-08-28: sem este guard, cada poll (POLL_MS) trocava a
+          // referência do array mesmo quando nada mudou no servidor —
+          // ChartView.tsx observa `activeOrders` por referência e
+          // redesenhava (remove+recria) TODAS as linhas de entrada/SL/TP a
+          // cada 30s, causando o piscar visível no gráfico. Só troca a
+          // referência quando algo que afeta o desenho de fato mudou.
+          const unchanged =
+            next.length === prev.length &&
+            next.every((o, i) => {
+              const p = prev[i];
+              return (
+                p &&
+                p.id === o.id &&
+                p.price === o.price &&
+                p.tp === o.tp &&
+                p.sl === o.sl &&
+                p.trailMoves === o.trailMoves
+              );
+            });
+          return unchanged ? prev : next;
         });
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
