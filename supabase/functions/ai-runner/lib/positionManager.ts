@@ -16,7 +16,7 @@ import { calculateATR, type Candle } from '../../../../src/app/services/indicato
 import { backtestDataService, type Timeframe } from '../../../../src/app/services/BacktestDataService.ts';
 import { getBatchedMT5Data, type RealMarketData } from '../../../../src/app/services/RealMarketDataService.ts';
 import { calculateRoundTripCost } from '../../../../src/app/services/risk/ExecutionCost.ts';
-import { BREAKEVEN_TRIGGER_R } from '../../../../src/app/services/risk/TradeFrictionControls.ts';
+import { BREAKEVEN_TRIGGER_R, PARTIAL_TP_TRIGGER_R, PARTIAL_TP_PERCENT } from '../../../../src/app/services/risk/TradeFrictionControls.ts';
 import { getServiceClient } from './serviceClient.ts';
 
 export interface OpenPosition {
@@ -32,6 +32,10 @@ export interface OpenPosition {
   // pyramidGroupId ausente = esta é a raiz do grupo (ou não é pyramiding).
   pyramidGroupId?: string | null;
   pyramidLayer?: number | null;
+  // TP parcial genérico (2026-08-28) — idempotência entre invocações, ver
+  // migration 20260828_add_partial_tp_tracking.sql. Ausente/false = ainda
+  // não disparou.
+  partialTpTaken?: boolean;
 }
 
 export interface PositionCloseResult {
@@ -300,7 +304,14 @@ export async function partialClosePosition(params: {
   }
 
   if (remainingAmount > 0) {
-    const { error: updateErr } = await sb.from('ai_trades').update({ quantity: remainingAmount }).eq('id', position.id);
+    // `partial_tp_taken: true` só quando o motivo é PARTIAL_TP — marca a
+    // linha original (que segue OPEN com o restante) pra idempotência do
+    // TP parcial genérico entre invocações do runner (evita disparar de
+    // novo enquanto o preço seguir acima do gatilho). REVERSAL não usa essa
+    // marca (é fechamento total de grupo de pyramiding, não parcial único).
+    const updatePayload: Record<string, unknown> = { quantity: remainingAmount };
+    if (reason === 'PARTIAL_TP') updatePayload.partial_tp_taken = true;
+    const { error: updateErr } = await sb.from('ai_trades').update(updatePayload).eq('id', position.id);
     if (updateErr) console.error('[ai-runner/positionManager] partialClosePosition: falha ao reduzir quantity restante (fração fechada já persistida)', updateErr, position.id);
   } else {
     // Fechou 100% — a linha original também precisa virar CLOSED (não pode
@@ -395,6 +406,54 @@ export async function evaluatePyramidGroups(params: {
           if (result) updates.push({ orderId: pos.id, closedAmount: result.closedAmount, remainingAmount: result.remainingAmount, pnl: result.pnl, fullyClosed: result.remainingAmount <= 0 });
         }
       }
+    }
+  }
+
+  return updates;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// TP PARCIAL GENÉRICO — fora de pyramiding (2026-08-28)
+// ════════════════════════════════════════════════════════════════════════
+// `evaluatePyramidGroups` acima só cobre grupos com 2+ camadas
+// (`group.length < 2` pula) — a maioria dos trades é posição única e nunca
+// realiza lucro parcial algum antes do TP cheio (raro: só ~14% dos trades
+// recentes em produção) ou do SL. Resultado medido: 26% dos trades
+// recentes chegaram a +1R de lucro flutuante e devolveram tudo até fechar
+// perto de zero. Esta função fecha PARTIAL_TP_PERCENT% no mesmo gatilho
+// que já arma o breakeven (PARTIAL_TP_TRIGGER_R, TradeFrictionControls.ts)
+// — validado com backtest candle-a-candle real, ver
+// research/experiments/2026-08-28-partial-tp-1r/verdict.md.
+export async function evaluateSinglePositionPartialTP(params: {
+  sessionId: string;
+  userId: string;
+  positions: OpenPosition[]; // já filtradas: sem pyramid de grupo, sem partialTpTaken
+  currentPrices: Map<string, number>; // preços já buscados neste tick (tickPositionManager)
+}): Promise<PyramidGroupUpdate[]> {
+  const { sessionId, userId, positions, currentPrices } = params;
+  const updates: PyramidGroupUpdate[] = [];
+
+  for (const pos of positions) {
+    if (pos.partialTpTaken || !(pos.originalSl > 0)) continue;
+    const price = currentPrices.get(pos.symbol);
+    if (!price || !(price > 0)) continue;
+
+    const originalRisk = Math.abs(pos.entryPrice - pos.originalSl);
+    if (!(originalRisk > 0)) continue;
+
+    const favorableMove = pos.side === 'LONG' ? price - pos.entryPrice : pos.entryPrice - price;
+    if (favorableMove < originalRisk * PARTIAL_TP_TRIGGER_R) continue;
+
+    const result = await partialClosePosition({
+      sessionId, userId, position: pos,
+      closePercent: PARTIAL_TP_PERCENT, exitPrice: price, reason: 'PARTIAL_TP',
+    });
+    if (result) {
+      updates.push({
+        orderId: pos.id, closedAmount: result.closedAmount,
+        remainingAmount: result.remainingAmount, pnl: result.pnl,
+        fullyClosed: result.remainingAmount <= 0,
+      });
     }
   }
 

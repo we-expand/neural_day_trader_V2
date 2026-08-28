@@ -36,7 +36,8 @@ import type { Candle } from '../../../src/app/services/indicators/TechnicalIndic
 import { PRESET_STRATEGIES } from '../../../src/app/data/presetStrategies.ts';
 import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
-import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
+import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, evaluateSinglePositionPartialTP, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
+import { PARTIAL_TP_PERCENT, PARTIAL_TP_TRIGGER_R } from '../../../src/app/services/risk/TradeFrictionControls.ts';
 import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
 import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
 import { getRelevantCurrencies } from '../../../src/app/services/risk/NewsCurrencyRelevance.ts';
@@ -96,6 +97,11 @@ interface RunnerSessionState {
   triggeredPartialLayers: Map<string, Set<number>>;
   reversalSignalCache: Map<string, 'LONG' | 'SHORT'>;
   reversalSignalCacheAt: number;
+  // TP parcial genérico fora de pyramiding (2026-08-28) — espelha
+  // `ai_trades.partial_tp_taken` (migration 20260828), carregado uma vez
+  // por invocação em loadSession e atualizado em memória quando dispara
+  // nesta mesma invocação (evita reconsulta ao banco a cada tick de 1s).
+  partialTpTakenIds: Set<string>;
   // NEXUS (Fase 2, 2026-08-24) — throttle do tick de alerta proativo, mesmo
   // padrão do reversalSignalCache acima (não bater no LLM a cada 5s).
   nexusAlertCheckedAt: number;
@@ -220,6 +226,7 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     reversalSignalCache: new Map(),
     reversalSignalCacheAt: 0,
     nexusAlertCheckedAt: 0,
+    partialTpTakenIds: new Set((openTrades ?? []).filter((t: any) => t.partial_tp_taken).map((t: any) => t.id)),
   };
 }
 
@@ -428,6 +435,41 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
         console.log(`[ai-runner] PYRAMIDING: ${u.fullyClosed ? 'fechado 100%' : `fechado ${u.closedAmount.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`} — trade ${u.orderId} — ${u.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${u.pnl >= 0 ? '+' : '-'}$${Math.abs(u.pnl).toFixed(2)}`);
       }
       await applyRealizedPnLAndSnapshot(s, realizedPnL);
+    }
+  }
+
+  // TP parcial genérico fora de pyramiding (2026-08-28, ver
+  // positionManager.ts). Exclui QUALQUER posição de grupo de pyramiding
+  // real (2+ camadas) — mesmo com pyramiding desligado ou sem TP parcial
+  // configurado ali, pra nunca competir com o mecanismo de layer do
+  // pyramiding num mesmo grupo (escopo deliberadamente simples: uma
+  // posição pertence a exatamente um dos dois mecanismos, nunca aos dois).
+  if (s.activeOrders.length > 0) {
+    const positionsForPartial: OpenPosition[] = s.activeOrders
+      .filter(o => (pyramidGroupCounts.get(o.pyramidGroupId ?? o.id) ?? 0) < 2 && !s.partialTpTakenIds.has(o.id))
+      .map(o => ({
+        id: o.id, symbol: o.symbol, side: o.side, amount: o.amount,
+        entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
+      }));
+    if (positionsForPartial.length > 0) {
+      const partialUpdates = await evaluateSinglePositionPartialTP({
+        sessionId: s.sessionId, userId: s.userId, positions: positionsForPartial, currentPrices: prices,
+      });
+      if (partialUpdates.length > 0) {
+        let realizedPnL = 0;
+        for (const u of partialUpdates) {
+          realizedPnL += u.pnl;
+          s.partialTpTakenIds.add(u.orderId);
+          const order = s.activeOrders.find(o => o.id === u.orderId);
+          if (u.fullyClosed) {
+            s.activeOrders = s.activeOrders.filter(o => o.id !== u.orderId);
+          } else if (order) {
+            order.amount = u.remainingAmount;
+          }
+          console.log(`[ai-runner] TP PARCIAL (${PARTIAL_TP_PERCENT}% em +${PARTIAL_TP_TRIGGER_R}R): ${order?.symbol ?? u.orderId} — GANHO de +$${u.pnl.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`);
+        }
+        await applyRealizedPnLAndSnapshot(s, realizedPnL);
+      }
     }
   }
 }

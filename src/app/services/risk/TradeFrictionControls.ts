@@ -181,6 +181,30 @@ export const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000;
 export const BREAKEVEN_TRIGGER_R = 1.0;
 
 /**
+ * TP parcial genérico (fora de pyramiding) — fecha `PARTIAL_TP_PERCENT`%
+ * da posição assim que o preço atinge `PARTIAL_TP_TRIGGER_R` × risco
+ * original, deixando o resto correr com o breakeven já armado (mesmo
+ * gatilho de propósito — ver `BREAKEVEN_TRIGGER_R` acima).
+ *
+ * Motivação (2026-08-28): achado real do Cleber — trade em SOLUSD chegou a
+ * ~$5 de lucro flutuante e devolveu mais da metade antes de fechar em
+ * $2,38. Código confirmou a causa: `positionManager.ts` não realizava
+ * NENHUM lucro parcial fora de pyramiding (que só cobre grupos com 2+
+ * camadas — a maioria dos trades é posição única). Validado com backtest
+ * candle-a-candle real (mesmo motor/dado do experimento de 2026-08-26 que
+ * já validou `BREAKEVEN_TRIGGER_R`): sobre os mesmos 123 trades reais,
+ * net foi de +$2,36 (sem parcial) para +$5,93 (com parcial 50% em 1R) —
+ * delta +$3,57, 21 trades melhores contra 3 piores. Detalhe completo:
+ * `research/experiments/2026-08-28-partial-tp-1r/verdict.md`.
+ *
+ * Só implementado no servidor (`positionManager.ts`) — cliente já perdeu
+ * autoridade de fechar posição em DEMO desde 2026-08-18, mesma regra que
+ * rege TP/SL/trailing/breakeven.
+ */
+export const PARTIAL_TP_TRIGGER_R = 1.0;
+export const PARTIAL_TP_PERCENT = 50;
+
+/**
  * Constrói o mapa símbolo → timestamp do último fechamento a partir do
  * histórico de ordens que o motor já carrega.
  *

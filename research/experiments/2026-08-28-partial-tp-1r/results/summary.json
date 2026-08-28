@@ -1,0 +1,43 @@
+{
+  "total_trades_input": 166,
+  "skipped_sem_mapeamento_sessao": 0,
+  "replicaA_producao_atual": {
+    "n": 123,
+    "skipped": 43,
+    "netSum": 2.3599477053304945,
+    "wins": 46,
+    "winRate": 0.37398373983739835
+  },
+  "replicaC_com_parcial_1R": {
+    "n": 123,
+    "skipped": 43,
+    "netSum": 5.929198123066984,
+    "wins": 67,
+    "winRate": 0.5447154471544715
+  },
+  "comparacao_pareada_A_vs_C": {
+    "n_pares": 123,
+    "trades_com_parcial_disparado": 25,
+    "net_replicaA": 2.3599477053304945,
+    "net_replicaC": 5.929198123066984,
+    "delta_C_menos_A": 3.569250417736489,
+    "trades_melhores_em_C": 21,
+    "trades_piores_em_C": 3,
+    "trades_iguais": 99,
+    "maior_melhora": {
+      "id": "3efe52b7-89fe-4087-b7fe-cdff79f4d22c",
+      "symbol": "SOLUSD",
+      "delta": 1.0843836570230678
+    },
+    "maior_piora": {
+      "id": "4cee8a28-1061-4e63-88ba-5cf826cb9559",
+      "symbol": "SOLUSD",
+      "delta": -2.611144422782245
+    }
+  },
+  "checagem_sanidade_replicaA_vs_experimento_2026_08_26": "esperado ~+3.24 nos pares DINAMICO válidos (mesma metodologia, mesmo dado) — ver campo abaixo",
+  "replicaA_apenas_dinamico": {
+    "n": 110,
+    "netSum": 6.158377076632868
+  }
+}
