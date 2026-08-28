@@ -36,6 +36,7 @@ import { AssetHealthMonitor } from '@/app/components/system/AssetHealthMonitor';
 import { MassAssetDiagnostics } from '@/app/components/system/MassAssetDiagnostics';
 import { DataSourceHealthDashboard } from '@/app/components/system/DataSourceHealthDashboard';
 import { AlertSystemPanel } from '@/app/components/system/AlertSystemPanel';
+import { DecisionBrainShadowPanel } from '@/app/components/system/DecisionBrainShadowPanel';
 import { useAuth } from '@/app/contexts/AuthContext';
 
 export function Settings() {
@@ -1059,6 +1060,11 @@ export function Settings() {
               {/* Alert System Panel */}
               <div className="col-span-1 xl:col-span-2">
                 <AlertSystemPanel />
+              </div>
+
+              {/* Cérebro Analítico — Modo Sombra (2026-08-30) */}
+              <div className="col-span-1 xl:col-span-2">
+                <DecisionBrainShadowPanel />
               </div>
             </>
           )}
