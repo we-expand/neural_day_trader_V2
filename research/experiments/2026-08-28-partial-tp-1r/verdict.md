@@ -173,3 +173,63 @@ Reavaliar de novo depois de acumular trades reais em 0,5R.
 `deno check` limpos. Nenhuma mudança de código adicional necessária —
 `positionManager.ts` e `useApexLogic.ts` já leem essas constantes, não
 têm o valor hardcoded.
+
+---
+
+## Adendo 2 (2026-08-28): "inverter direção na exaustão" — hipótese testada e REJEITADA
+
+Pedido do Cleber, motivado pelo trade SOLUSD SHORT com RSI 32 ("vendida na
+mínima do dia"): em vez de VETAR entrada com RSI/estocástico em exaustão
+contra o lado do setup, consultar o indicador e OPERAR O LADO OPOSTO.
+
+**Precedente já registrado neste projeto**: "stop-and-reverse" (reverter
+DEPOIS do stop bater) já foi testado e REJEITADO com folga
+(`2026-08-26-dynamic-exit-tp-ceiling/verdict.md`, Adendo 7: -$9,65
+líquido, 84 piores contra 15 melhores). Esta é uma hipótese DIFERENTE
+(inverte NA ENTRADA por RSI extremo, não depois do stop) — testada aqui
+como hipótese própria, não presumida rejeitada por associação.
+
+**Metodologia**: 33 trades reais de produção (14 dias, BTC/ETH/SOL) com
+RSI em exaustão contra o lado do setup (SHORT com RSI≤35, LONG com
+RSI≥65 — mesmos limiares já usados no modo COUNTER existente no motor).
+Candle real de 5m, sem look-ahead. Simula a versão invertida (lado
+oposto, mesma distância de risco/alvo espelhada a partir da mesma
+entrada) e compara contra o resultado REAL gravado. Script:
+`scripts/exhaustion_flip_test.mjs`.
+
+| | Direção original (real) | Direção invertida (simulada) |
+|---|---|---|
+| Net PnL (33 trades) | **+$0,70** | -$0,29 |
+| Win rate | 30,3% | 18,2% |
+
+**Resultado**: inverter pioraria tanto o líquido quanto a taxa de acerto.
+22 dos 33 trades individualmente teriam saída melhor se invertidos, mas
+os 11 que pioram concentram perdas muito maiores — são exatamente os
+casos em que o trade original bateu o TP cheio (momentum real continuou
+apesar do RSI extremo); invertê-los transforma um ganho de +$1 a +$3 num
+prejuízo do mesmo tamanho. Ver `results/exhaustion_flip_detail.json` pro
+detalhe trade a trade, incluindo o caso específico que motivou o pedido
+(SOLUSD RSI 31, entry_time 2026-08-22 10:21 — nesse caso isolado inverter
+teria dado +$4,78 de diferença; a intuição do Cleber estava certa PARA
+AQUELE trade, mas não generaliza pro conjunto).
+
+**Achado adicional, honesto**: mesmo na direção ORIGINAL, esta zona (RSI
+em exaustão) rende só 30,3% de acerto e +$0,70 líquido em 33 trades — é
+uma zona de qualidade baixa/marginal nos dois sentidos, não só no
+invertido.
+
+**Decisão: NÃO implementado.** Consistente com a disciplina do projeto
+(`CLAUDE.md`: "nunca prometer edge sem validação estatística... reportar
+resultado real sempre, mesmo quando ruim") e com o histórico de busca
+sistemática por edge técnico já fechado sem resultado (`AI_BRAIN_SPEC.md`
+seção 11-14) — inverter direção por RSI/estocástico se junta a
+"stop-and-reverse" e "Order Block Fade" na lista de hipóteses de reversão
+testadas e rejeitadas neste projeto. Terceiro resultado negativo
+consistente na mesma família de hipótese é sinal forte, não ruído.
+
+**Amostra pequena, reconhecido**: 33 trades é pouco — não é prova
+definitiva de ausência de edge, é o dado que existe hoje. Se quiser
+retestar com mais indicadores de confirmação (estocástico junto, não só
+RSI) ou mais dado acumulado, é um próximo passo válido — mas testar mais
+variações sobre a mesma amostra pequena sem dado novo seria o exato risco
+de overfitting que este documento já adverte em outros pontos.

@@ -36,7 +36,7 @@ import type { Candle } from '../../../src/app/services/indicators/TechnicalIndic
 import { PRESET_STRATEGIES } from '../../../src/app/data/presetStrategies.ts';
 import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
-import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, evaluateSinglePositionPartialTP, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
+import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, evaluateSinglePositionPartialTP, checkGapWindowBreaches, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
 import { PARTIAL_TP_PERCENT, PARTIAL_TP_TRIGGER_R } from '../../../src/app/services/risk/TradeFrictionControls.ts';
 import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
 import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
@@ -665,11 +665,45 @@ async function nexusAlertTick(s: RunnerSessionState): Promise<void> {
   }
 }
 
+/**
+ * Checagem de janela cega (ver positionManager.ts, `checkGapWindowBreaches`)
+ * — roda UMA VEZ no início da invocação, antes do loop de 1s, pra pegar
+ * qualquer SL/TP cruzado enquanto o runner estava parado (ou entre dois
+ * ticks de 1s da invocação anterior) antes que o loop normal de preço
+ * pontual sequer comece.
+ */
+async function gapWindowCheckTick(s: RunnerSessionState): Promise<void> {
+  if (s.activeOrders.length === 0) return;
+  const positions: OpenPosition[] = s.activeOrders.map(o => ({
+    id: o.id, symbol: o.symbol, side: o.side, amount: o.amount,
+    entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
+  }));
+
+  const closed = await checkGapWindowBreaches(positions);
+  if (closed.length === 0) return;
+
+  const closedIds = new Set(closed.map(c => c.id));
+  s.activeOrders = s.activeOrders.filter(o => !closedIds.has(o.id));
+  for (const c of closed) {
+    console.log(
+      `[ai-runner] JANELA CEGA — ${c.reason} cruzado durante o gap: ${c.symbol} @ ${c.exitPrice} — ` +
+      `${c.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${c.pnl >= 0 ? '+' : '-'}$${Math.abs(c.pnl).toFixed(2)}`,
+    );
+    await persistPositionClose(s.sessionId, c);
+  }
+  const realizedPnL = closed.reduce((sum, c) => sum + c.pnl, 0);
+  await applyRealizedPnLAndSnapshot(s, realizedPnL);
+}
+
 async function runSession(s: RunnerSessionState, deadline: number): Promise<void> {
   // NEXUS (Fase 2) — checagem proativa de risco/calendário, uma vez por
   // invocação (o próprio throttle interno decide se já é hora de fato).
   // Roda antes do loop de tick pra nunca competir por tempo com posição/TP-SL.
   await nexusAlertTick(s);
+
+  // Janela cega (2026-08-28) — antes de QUALQUER tick de preço pontual,
+  // fecha o que já deveria ter fechado enquanto o runner estava parado.
+  await gapWindowCheckTick(s);
 
   let lastPositionTick = 0;
   let lastTradingTick = 0;

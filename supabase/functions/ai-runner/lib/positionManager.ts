@@ -186,6 +186,87 @@ export async function tickPositionManager(params: {
   return { closed, slUpdates, prices, priceFetchFailed: false };
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// JANELA CEGA — checagem por RANGE, uma vez por invocação (2026-08-28)
+// ════════════════════════════════════════════════════════════════════════
+// Achado do Cleber: "encostou no stop, tem que fechar!" — `tickPositionManager`
+// acima só compara um PREÇO PONTUAL (`tick.price`) a cada 1s, e só enquanto
+// esta invocação estiver rodando. Duas lacunas reais:
+// (a) entre o fim de uma invocação e o início da próxima (cron ~1/min,
+//     `MAX_RUNTIME_MS` = 55s, ver index.ts) não existe NENHUMA checagem —
+//     documentado desde 2026-08-27, já reduzido de ~15s pra ~5s de gap, mas
+//     nunca fechado de verdade;
+// (b) mesmo DENTRO de uma invocação, um preço que fura o stop e volta entre
+//     dois ticks de 1s nunca é visto por uma comparação pontual.
+// Fix: uma vez por invocação (nunca por tick de 1s — ver ressalva de custo
+// abaixo), busca o candle de 1 minuto mais recente de cada símbolo com
+// posição aberta e verifica se o HIGH/LOW da janela (não só o close) cruzou
+// o SL/TP gravado no banco. Cobre as duas lacunas de uma vez: o candle mais
+// recente inclui tanto o período em que o runner estava parado quanto
+// qualquer wick intra-tick durante a invocação anterior.
+//
+// Escopo deliberadamente conservador — CHAMADA UMA VEZ POR INVOCAÇÃO
+// (~1/min), nunca a cada tick de 1s: símbolos não-cripto caem em MetaAPI via
+// `backtestDataService` (conta de plataforma COMPARTILHADA, histórico
+// documentado de rate-limit sob carga — ver CLAUDE.md "Risco crônico
+// conhecido"). Ampliar a cadência desta checagem sem medir o efeito na
+// conta compartilhada seria trocar um bug de janela cega por um bug de
+// rate-limit — mesma classe de erro que a regra "sempre espaçar chamadas"
+// já existe pra evitar.
+export async function checkGapWindowBreaches(positions: OpenPosition[]): Promise<PositionCloseResult[]> {
+  const closed: PositionCloseResult[] = [];
+  if (positions.length === 0) return closed;
+
+  const uniqueSymbols = [...new Set(positions.map(p => p.symbol))];
+  const rangeBySymbol = new Map<string, { high: number; low: number }>();
+
+  for (const symbol of uniqueSymbols) {
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - 3 * 60_000); // 3min de folga sobre o gap real (~5-10s) — margem de segurança, não estica o escopo
+      const history = await backtestDataService.fetchHistoricalData(symbol, start, end, '1m');
+      if (history.candles.length === 0) continue;
+      let high = -Infinity;
+      let low = Infinity;
+      for (const c of history.candles) {
+        if (c.high > high) high = c.high;
+        if (c.low < low) low = c.low;
+      }
+      rangeBySymbol.set(symbol, { high, low });
+    } catch (error) {
+      console.warn(`[ai-runner/positionManager] checkGapWindowBreaches: falha ao buscar candle de gap pra ${symbol}, pulando checagem de range neste ciclo`, error);
+    }
+  }
+
+  for (const pos of positions) {
+    const range = rangeBySymbol.get(pos.symbol);
+    if (!range) continue;
+
+    const hitSl = pos.sl > 0 && (pos.side === 'LONG' ? range.low <= pos.sl : range.high >= pos.sl);
+    const hitTp = pos.tp > 0 && (pos.side === 'LONG' ? range.high >= pos.tp : range.low <= pos.tp);
+    if (!hitSl && !hitTp) continue;
+
+    // Ambiguidade (range cruzou os dois): SL primeiro — mesma convenção
+    // conservadora usada em todo backtest deste projeto (nunca assume o
+    // cenário mais favorável quando os dois são possíveis).
+    const reason: 'TP' | 'SL' = hitSl ? 'SL' : 'TP';
+    // Fecha exatamente NO preço do gatilho (não no high/low real do candle,
+    // que pode ter ido além) — mesma disciplina conservadora: não fabrica um
+    // preço de execução melhor nem pior do que o gatilho registrado.
+    const exitPrice = reason === 'SL' ? pos.sl : pos.tp;
+
+    const grossPnl = pos.side === 'LONG'
+      ? (exitPrice - pos.entryPrice) * (pos.amount / pos.entryPrice)
+      : (pos.entryPrice - exitPrice) * (pos.amount / pos.entryPrice);
+    const { costUsd } = calculateRoundTripCost(pos.symbol, pos.amount, pos.entryPrice);
+    const pnl = grossPnl - costUsd;
+
+    closed.push({ id: pos.id, symbol: pos.symbol, exitPrice, pnl, grossPnl, costUsd, reason });
+  }
+
+  return closed;
+}
+
 /** Espelha `onTradeClose` (useAIPersistence.ts:256-296) — grava direto via service-role. */
 export async function persistPositionClose(sessionId: string, close: PositionCloseResult): Promise<void> {
   const sb = getServiceClient();
