@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { toast as toastOriginal } from 'sonner';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
-import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
+import { calculateRealisticPnL, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
 import { calculateRoundTripCost } from '@/app/services/risk/ExecutionCost.ts'; // 💸 Custo de execução real (spread+slippage) — fonte única, mesma do ai-runner
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
@@ -20,6 +20,37 @@ import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass';
 import { estimateCostPercent } from '../../../research/CostModel';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
 import { aiPersistence } from '@/app/services/AITradingPersistenceService';
+
+/**
+ * 🔴 FIX 2026-08-27 (achado do Cleber: posição de NAS100 mostrando -$16,30
+ * de PnL não-realizado quando o risco real da posição era ~$1). Causa raiz:
+ * `calculatePnLWithLeverage` (contractSpecs.ts) usa `INFINOX_CONTRACT_SPECS`,
+ * que pra símbolos INDICES (ex: NAS100 tickValue $5/tickSize 0.25 = $20 por
+ * ponto) carrega a especificação do CONTRATO FUTURO E-mini da CME — não o
+ * CFD de varejo que o motor de sizing (`TradeSizing.ts`, `pointValue = 1.0`
+ * pra não-forex/metal/energia) e o fechamento real no servidor
+ * (`positionManager.ts`, `grossPnl = (price-entry) * (amount/entry)`) sempre
+ * assumiram. As duas fórmulas nunca foram a mesma — pra NAS100 o multiplicador
+ * de $20/ponto contra o $1/ponto do motor infla o PnL em ~20x.
+ *
+ * Correção: o cliente para de usar `calculatePnLWithLeverage` pra qualquer
+ * cálculo que afete o que o usuário vê como resultado real (ticket de posição
+ * aberta, fechamento manual) e passa a espelhar EXATAMENTE a fórmula que o
+ * servidor usa pra fechar de verdade e gravar `net_pnl` — mesma classe de
+ * duplicação já documentada pra `BREAKEVEN_TRIGGER_R` acima: as duas cópias
+ * têm que ser idênticas, nunca reconciliadas por acaso.
+ */
+function calculateEngineConsistentPnL(
+  entryPrice: number,
+  exitPrice: number,
+  side: 'LONG' | 'SHORT',
+  amountUsd: number,
+): number {
+  if (!(entryPrice > 0)) return 0;
+  return side === 'LONG'
+    ? (exitPrice - entryPrice) * (amountUsd / entryPrice)
+    : (entryPrice - exitPrice) * (amountUsd / entryPrice);
+}
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -1910,15 +1941,8 @@ export function useApexLogic(
                   console.log(`[PNL LOOP] ${order.symbol} ${order.side}: Preço $${currentPrice.toFixed(2)} | TP: $${order.tp.toFixed(2)} (${distanceToTP.toFixed(2)} de distância) | SL: $${effectiveSl.toFixed(2)} (${distanceToSL.toFixed(2)} de distância)${configRef.current.stopLossMode === 'DINAMICO' && effectiveSl !== order.sl ? ' [trailing]' : ''}`);
                 }
 
-                // Calculate P&L
-                const pnl = calculatePnLWithLeverage(
-                    order.symbol,
-                    order.price,
-                    nextPrice,
-                    order.side,
-                    order.amount,
-                    order.leverage
-                );
+                // Calculate P&L (mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo)
+                const pnl = calculateEngineConsistentPnL(order.price, nextPrice, order.side, order.amount);
 
                 totalUnrealizedPnL += pnl;
                 totalExposure += order.amount * nextPrice * order.leverage;
@@ -2237,14 +2261,8 @@ export function useApexLogic(
 
     const closedWithPnL = closingOrders.map(order => {
       const currentPrice = order.currentPrice || order.price;
-      const tradePnL = calculatePnLWithLeverage(
-        order.symbol,
-        order.price,
-        currentPrice,
-        order.side,
-        order.amount,
-        order.leverage
-      );
+      // Mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo.
+      const tradePnL = calculateEngineConsistentPnL(order.price, currentPrice, order.side, order.amount);
       // 💸 Fechamento manual também paga spread — ver ExecutionCost.ts.
       const { costUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
       const tradePnLNet = tradePnL - costUsd;
@@ -2758,14 +2776,8 @@ export function useApexLogic(
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
     if (!order) return;
 
-    const tradePnL = calculatePnLWithLeverage(
-      order.symbol,
-      order.price,
-      currentPrice,
-      order.side,
-      order.amount,
-      order.leverage
-    );
+    // Mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo.
+    const tradePnL = calculateEngineConsistentPnL(order.price, currentPrice, order.side, order.amount);
 
     // 💸 Fechamento manual de posição única também paga spread — ver ExecutionCost.ts.
     const { costUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);

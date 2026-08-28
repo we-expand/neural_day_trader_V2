@@ -1454,6 +1454,20 @@ export function ChartView({
   });
   const [chartData, setChartData] = useState<KLineData[]>([]);
   const chartDataRef = useRef<KLineData[]>([]); // 🆕 Ref para evitar loop infinito no useEffect
+  // 🔴 FIX 2026-08-27 (achado do Cleber, com vídeo: cronômetro de candle
+  // saltando ~10min em <2s reais). Causa raiz: o cronômetro (efeito "Candle
+  // countdown" abaixo) lia `chartDataRef.current[last].timestamp` direto —
+  // mas esse ref é escrito tanto pelo fetch REAL (linha ~5703, dado confiável
+  // do servidor) quanto pelo tick local de "virada de vela" sintética (linha
+  // ~5997, um CHUTE de que passou exatamente 1 intervalo desde a última vela,
+  // usado só pra não esperar até 30s pelo refresh do servidor). Quando o
+  // fetch real seguinte trazia a vela verdadeira com um timestamp diferente
+  // do chute local (broker não necessariamente alinhado ao múltiplo exato de
+  // UTC assumido), o cronômetro saltava de forma descontínua e confusa.
+  // Corrigido: âncora separada, escrita SÓ pelo fetch real — o cronômetro
+  // nunca mais fabrica progresso a partir do chute local (mesma disciplina
+  // de "nunca fabricar dado" já documentada em CLAUDE.md pra preço/indicador).
+  const lastRealCandleTimestampRef = useRef<number | null>(null);
   const chartUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Debounce de updateData
   const [dataSource, setDataSource] = useState<'metaapi' | 'generated' | 'loading'>('loading');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -4245,21 +4259,34 @@ export function ChartView({
   useEffect(() => {
     const updateCountdown = () => {
       const interval = TIMEFRAME_INTERVALS_MS[timeframe];
-      const candles = chartDataRef.current;
-      const lastCandle = candles[candles.length - 1];
 
       // Ancora o cronômetro no timestamp real do último candle recebido do
       // servidor (Binance/MetaAPI), não em Date.now() % interval — o boundary
       // assumido em UTC puro diverge do fechamento real quando o candle vem
       // de um servidor MT5 em outro fuso.
-      if (!lastCandle) {
+      //
+      // 🔴 FIX 2026-08-27: antes lia `chartDataRef.current[last].timestamp`,
+      // que também é escrito pelo "chute" de virada de vela local (não é dado
+      // do servidor, ver comentário na declaração de `lastRealCandleTimestampRef`)
+      // — as duas fontes discordando entre si é o que causava o cronômetro
+      // saltar minutos de forma descontínua. Agora só a âncora confirmada por
+      // fetch real é usada.
+      const anchor = lastRealCandleTimestampRef.current;
+      if (anchor === null) {
         setCandleCountdown(interval);
         return;
       }
 
-      const elapsedSinceOpen = Date.now() - lastCandle.timestamp;
-      const remaining = interval - (elapsedSinceOpen % interval);
-      setCandleCountdown(remaining > 0 ? remaining : interval);
+      const elapsedSinceOpen = Date.now() - anchor;
+      if (elapsedSinceOpen >= interval) {
+        // Já deveria ter virado, mas o próximo candle real ainda não chegou
+        // (fetch periódico/streaming) — nunca fabricar o próximo boundary por
+        // adivinhação: trava em 00:00 até a âncora real confirmar a virada,
+        // em vez de contar pra frente sobre um período que ainda não existe.
+        setCandleCountdown(0);
+        return;
+      }
+      setCandleCountdown(interval - elapsedSinceOpen);
     };
 
     updateCountdown();
@@ -4827,6 +4854,7 @@ export function ChartView({
     // chart.updateData num gráfico vazio → um único candle gigante na tela até o
     // applyNewData do fetch substituir tudo ("gráfico buga e depois volta").
     chartDataRef.current = [];
+    lastRealCandleTimestampRef.current = null; // 🔴 FIX cronômetro: âncora também reseta na troca de símbolo/timeframe
     console.log('[ChartView] 🔄 Flag isInitialLoad resetada (novo símbolo/timeframe)');
 
     // 🎯 Eixo de PREÇO com mais marcações — versão anterior nunca funcionava:
@@ -5701,6 +5729,8 @@ export function ChartView({
           // Store chart data and analyze
           setChartData(candles);
           chartDataRef.current = candles; // 🔄 Sincronizar ref para uso no useEffect de atualização de preço
+          // 🔴 FIX cronômetro: âncora do countdown só avança com dado REAL do servidor.
+          lastRealCandleTimestampRef.current = lastCandle.timestamp;
           
           // Detecta zonas de Order Block (SMC) na janela curta carregada no gráfico
           const zones = detectOrderBlockZones(candles, selectedSymbol, timeframe);
