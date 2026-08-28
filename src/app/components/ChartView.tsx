@@ -5067,6 +5067,19 @@ export function ChartView({
 
       console.log('[ChartView] ✅ Chart object created successfully:', chart);
 
+      // 🔴 FIX 2026-08-28: dispose()+init() acima recria o chart do zero — todo
+      // overlay desenhado nele (inclusive as linhas de entrada/SL/TP de
+      // posição aberta) é destruído junto. Mas `positionOverlayIdsRef` não era
+      // limpo aqui, então na próxima chamada de renderPositionOverlays() o
+      // código achava que a linha "já existe" (entryExists/slExists/tpExists
+      // true, baseado no ref antigo) e só chamava overrideOverlay() — que não
+      // faz nada num id que não existe mais no chart novo. Resultado: a linha
+      // simplesmente sumia e nunca mais voltava, mesmo com a posição
+      // continuando aberta de verdade. Limpar o ref aqui força o próximo
+      // render a recriar do zero (createOverlay) em vez de tentar atualizar
+      // um overlay fantasma.
+      positionOverlayIdsRef.current = [];
+
       // 🎯 Ativa os eixos densos — `id` é obrigatório (sem ele, setPaneOptions
       // não faz NADA, ver comentário acima de onde o eixo é registrado).
       chart.setPaneOptions({
