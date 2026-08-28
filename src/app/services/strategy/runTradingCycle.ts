@@ -13,7 +13,7 @@
 import type { Strategy as StrategyDef } from '@/app/types/strategy.ts';
 import { evaluateStrategyScoreBothSides } from '@/app/services/strategy/StrategyEvaluator.ts';
 import { ASSETS_REFRESHED_PER_TICK } from '@/app/config/defaultBasket.ts';
-import { calculateRSI, calculateATR, calculateMACD } from '@/app/services/indicators/TechnicalIndicators.ts';
+import { calculateRSI, calculateATR, calculateMACD, calculateADX } from '@/app/services/indicators/TechnicalIndicators.ts';
 import type { Candle } from '@/app/services/indicators/TechnicalIndicators.ts';
 import { backtestDataService } from '@/app/services/BacktestDataService.ts';
 import { MarketScoreEngine, type MarketRegime } from '@/app/services/MarketScoreEngine.ts';
@@ -174,6 +174,31 @@ export interface TradingCycleDeps {
    * tamanho hoje). Opcional — ausente ou 1 = sem ajuste do Jarvis neste ciclo.
    */
   jarvisSizeMultiplier?: number;
+  /**
+   * Modo sombra do redesenho do cérebro de decisão (2026-08-28, ver plano
+   * arquivado em research/). NUNCA aguardado (chamado fire-and-forget pelo
+   * chamador) e NUNCA influencia `effects`/`tradeOpened` — só observa o
+   * candidato #1 do ranking de cada ciclo e o desfecho mecânico real
+   * (abriu ou não), pra log de comparação. Ausente = nenhum efeito (é
+   * assim que o driver browser continua rodando sem essa camada — só o
+   * `ai-runner` fornece este dep). Escopo desta primeira versão:
+   * RSI/MACD/ADX (computados aqui, sem custo de rede — já temos os
+   * candles) + resultado mecânico. Market Score/regime/notícia NÃO estão
+   * neste payload ainda (ficariam presos atrás do mesmo `MarketScoreEngine
+   * .compute()` que só roda dentro de `analyzeAsset`, duplicar a chamada
+   * dobraria custo de rede por ciclo) — enriquecer é trabalho futuro, não
+   * finge que já está completo.
+   */
+  onDecisionPoint?: (info: {
+    symbol: string;
+    strategySide: 'LONG' | 'SHORT';
+    strategyConfidence: number;
+    rsi: number;
+    macdHistogram: number | null;
+    macdHistogramPrev: number | null;
+    adx: number | null;
+    mechanicalAction: 'PROCEED' | 'REJECT';
+  }) => void;
 }
 
 export interface TradingCycleResult {
@@ -420,6 +445,31 @@ export async function runTradingCycle(
 
     attempts++;
     const result = await analyzeAsset(candidate, activeStrategy, opTimeframe, state, deps);
+
+    // Modo sombra (2026-08-28) — só o candidato #1 do ciclo, fire-and-forget,
+    // nunca aguardado nem capaz de mudar `result`. Ver comentário em
+    // `onDecisionPoint` (TradingCycleDeps) pro escopo desta primeira versão.
+    if (attempts === 1 && deps.onDecisionPoint) {
+      try {
+        const rsiSeriesShadow = calculateRSI(candidate.candles, 14);
+        const rsiShadow = rsiSeriesShadow[rsiSeriesShadow.length - 1] ?? 50;
+        const macdShadow = calculateMACD(candidate.candles);
+        const adxSeriesShadow = calculateADX(candidate.candles, 14);
+        deps.onDecisionPoint({
+          symbol: candidate.symbol,
+          strategySide: candidate.side,
+          strategyConfidence: Math.round(candidate.score),
+          rsi: rsiShadow,
+          macdHistogram: macdShadow.histogram[macdShadow.histogram.length - 1] ?? null,
+          macdHistogramPrev: macdShadow.histogram[macdShadow.histogram.length - 2] ?? null,
+          adx: adxSeriesShadow[adxSeriesShadow.length - 1] ?? null,
+          mechanicalAction: result.tradeOpened ? 'PROCEED' : 'REJECT',
+        });
+      } catch (shadowErr) {
+        console.warn('[TRADING] modo sombra do cérebro de decisão falhou ao montar contexto (não afeta a decisão real):', shadowErr);
+      }
+    }
+
     for (const e of result.effects) effects.push(e);
     if (result.nextLastStaleDataWarningAt !== undefined) {
       nextLastStaleDataWarningAt = result.nextLastStaleDataWarningAt;

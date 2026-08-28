@@ -41,6 +41,7 @@ import { PARTIAL_TP_PERCENT, PARTIAL_TP_TRIGGER_R } from '../../../src/app/servi
 import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
 import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
 import { getRelevantCurrencies } from '../../../src/app/services/risk/NewsCurrencyRelevance.ts';
+import { runShadowDecisionAndLog } from './lib/decisionBrain.ts';
 
 // 🔴 2026-08-27: 45s → 55s (achado do Cleber: SL síncrono via polling, não
 // ordem nativa na corretora — motor 100% virtual em DEMO, ver
@@ -512,6 +513,44 @@ async function tradingCycleTick(s: RunnerSessionState): Promise<void> {
     fetchVIXCached: async () => s.cachedVIX,
     // getWsPrice deliberadamente omitido — sem WebSocket no servidor, cai pro REST (RealMarketDataService).
     jarvisSizeMultiplier,
+    // Modo sombra do cérebro de decisão (2026-08-28) — só o driver servidor
+    // fornece este dep (o browser, via useApexLogic.ts, não passa
+    // onDecisionPoint, então roda inerte lá). Fire-and-forget de propósito:
+    // `runShadowDecisionAndLog` nunca é aguardado aqui, então uma chamada de
+    // LLM lenta ou fora do ar NUNCA atrasa nem afeta o ciclo real de trading.
+    onDecisionPoint: (info) => {
+      const upcomingHighImpactNews = s.cachedNewsEvents
+        .filter(e => e.impact === 'high')
+        .map(e => ({ currency: e.currency, minutesAway: Math.round((e.time - Date.now()) / 60000) }))
+        .filter(e => e.minutesAway >= -5 && e.minutesAway <= 240);
+      void runShadowDecisionAndLog({
+        sessionId: s.sessionId,
+        userId: s.userId,
+        mechanicalAction: info.mechanicalAction,
+        mechanicalStage: info.mechanicalAction === 'REJECT' ? 'REJECTED_STAGES_3_9' : null,
+        context: {
+          symbol: info.symbol,
+          strategySide: info.strategySide,
+          strategyConfidence: info.strategyConfidence,
+          rsi: info.rsi,
+          macdHistogram: info.macdHistogram,
+          macdHistogramPrev: info.macdHistogramPrev,
+          adx: info.adx,
+          // Market Score/regime/estrutura ainda não disponíveis neste payload
+          // (ver comentário em runTradingCycle.ts, onDecisionPoint) — null é
+          // o valor real conhecido agora, não um placeholder escondido.
+          marketScoreClassification: null,
+          marketScoreValue: null,
+          marketScoreRegime: null,
+          structureBias: null,
+          priceChangePercent24h: 0,
+          upcomingHighImpactNews,
+          userMarketMode: s.config.marketMode,
+          userDirection: s.config.direction,
+          sessionTimeUtc: new Date().toISOString(),
+        },
+      });
+    },
   };
 
   let result;
