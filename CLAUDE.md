@@ -15,6 +15,36 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-28: gerenciamento de saída reforçado (TP parcial + breakeven
+0,5R + linha de stop unificada + janela cega fechada) e Fase 0 do
+redesenho do cérebro de decisão AO VIVO em modo sombra.** Achado de MFE
+real (candle 5m, sem look-ahead): 89,2% dos trades perdedores tiveram
+lucro flutuante real antes de reverter (mediana $0,55) — TP parcial 50%
+implementado, depois o gatilho de breakeven+parcial apertado de 1R pra
+0,5R (sweep de contenção, sinal monotônico limpo). De carona: linha de
+stop exibida ao cliente divergia da que o servidor executava (achado
+grave, classificado pelo Cleber como risco jurídico/credibilidade) —
+corrigido, cliente em DEMO nunca mais recalcula, só reflete o servidor;
+e janela cega de detecção de stop (servidor só checava preço pontual, não
+faixa) fechada com checagem de high/low por invocação. Testado e
+**rejeitado** com dado real: inverter direção por RSI/estocástico em
+exaustão (pioraria líquido e taxa de acerto, 33 trades reais) — mesma
+disciplina que já rejeitou "stop-and-reverse" e "Order Block Fade".
+**Maior item da sessão**: Cleber pediu redesenho do cérebro de decisão pra
+julgamento analítico contextual (persona "operador gênio" — princípios de
+Soros/Simons/Livermore/PTJ/Druckenmiller) dentro de uma jaula de risco
+mecânica intocável. Achado que definiu a validação: este projeto já tinha
+rejeitado arquitetura LLM-de-decisão antes por risco de vazamento
+temporal em backtest — só pode ser validado **pra frente**. Fase 0 (modo
+sombra, nunca decide de verdade) implementada e **confirmada ao vivo**
+(`ai_decision_brain_shadow` recebendo linhas reais desde hoje). **Pendente
+imediato, já alinhado com o Cleber, não iniciado**: memória de decisões
+passadas no prompt (não é fine-tuning — é o cérebro ver o próprio
+histórico com resultado real antes de decidir de novo), que por sua vez
+precisa primeiro do cálculo de resultado hipotético por decisão logada.
+Handoff completo com o passo a passo exato:
+[SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md](SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md).
+
 **2026-08-27: 3 bugs corrigidos após alarme do Cleber (NAS100 mostrando
 -$16,30 de PnL, quase 10% da conta).** Investigado ponta a ponta: o risco
 real era só ~$1 (posição de 0,01 lote), o número exibido vinha de
