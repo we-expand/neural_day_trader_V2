@@ -19,7 +19,7 @@ import { BREAKEVEN_TRIGGER_R } from '@/app/services/risk/TradeFrictionControls';
 import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass';
 import { estimateCostPercent } from '../../../research/CostModel';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
-import { aiPersistence } from '@/app/services/AITradingPersistenceService';
+import { aiPersistence, type AITrade } from '@/app/services/AITradingPersistenceService';
 
 /**
  * 🔴 FIX 2026-08-27 (achado do Cleber: posição de NAS100 mostrando -$16,30
@@ -1126,8 +1126,25 @@ export function useApexLogic(
       const sessionId = persistenceRef.current.getSessionId();
       if (!sessionId) return;
       try {
-        const trades = await persistenceRef.current.getSessionTrades(sessionId);
+        // 🔴 FIX 2026-08-28 (achado do Cleber: posição some e reaparece do
+        // Dashboard/gráfico a cada ~30s): `persistenceRef.current.getSessionTrades`
+        // engole qualquer erro de rede/Supabase internamente e devolve `[]`
+        // (AITradingPersistenceService.ts) — indistinguível de "sessão sem
+        // nenhum trade". Uma falha transitória de rede virava, aos olhos deste
+        // `reconcile()`, "0 posições abertas" e `setActiveOrders([])` apagava
+        // a posição real da tela até o próximo poll (30s) ter sucesso e
+        // repopular. Consulta direto ao Supabase aqui (sem o wrapper que
+        // engole erro) pra deixar a falha propagar pro catch já existente
+        // deste bloco, que corretamente MANTÉM o estado anterior em vez de
+        // tratar erro como "sem posição".
+        const { data: tradesData, error: tradesError } = await supabase
+          .from('ai_trades')
+          .select('*')
+          .eq('session_id', sessionId)
+          .order('entry_time', { ascending: false });
+        if (tradesError) throw tradesError;
         if (cancelled) return;
+        const trades = (tradesData || []) as AITrade[];
         const open = trades.filter(t => t.status === 'OPEN');
 
         // 🔴 FIX 2026-08-27 (achado do Cleber: "operação de NAS100 sumiu do
