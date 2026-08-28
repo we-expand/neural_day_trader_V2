@@ -817,14 +817,22 @@ export function useApexLogic(
           setAIConfig(prev => ({ ...prev, ...savedConfig }));
           console.log('[useApexLogic] ☁️ Configuração da IA restaurada do Supabase (última escolha do usuário)');
         }
-      } catch (e) {
-        console.warn('[useApexLogic] Falha ao restaurar configuração da IA do Supabase (mantendo localStorage/default):', e);
-      } finally {
-        // Só libera o efeito de salvar (abaixo) DEPOIS do fetch resolver —
-        // senão a mudança de `user` que disparou este efeito também dispara
-        // o de salvar no mesmo commit, e ele gravaria o valor antigo do
-        // localStorage por cima do valor real ainda não restaurado.
+        // Só libera o efeito de salvar (abaixo) depois de uma LEITURA
+        // CONFIRMADA (sucesso, mesmo que vazia) — nunca no `catch`. Achado
+        // 2026-08-30: ambiente com rede instável (CORS/403/408 recorrentes
+        // em vários serviços) fazia essa busca falhar de vez em quando; o
+        // código antigo armava o gravador de qualquer jeito no `finally`,
+        // então o valor desatualizado do localStorage (podia ter dias) era
+        // salvo de volta por cima de qualquer edição feita direto no banco
+        // — o Cleber viu isso ao vivo: um ajuste de config voltava sozinho
+        // pro valor antigo em minutos, em QUALQUER aba nova, porque cada
+        // nova aba tinha a mesma chance de falhar essa busca e regravar o
+        // localStorage antigo. Sem armar aqui, uma falha de rede só adia a
+        // sincronização pro próximo mount — nunca sobrescreve o banco às
+        // cegas.
         hasHydratedConfigFromSupabaseRef.current = true;
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar configuração da IA do Supabase (mantendo localStorage/default nesta sessão, sem regravar o banco):', e);
       }
     })();
   }, [user]);
