@@ -130,8 +130,14 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'recent_news',
-      description: 'Manchetes de notícia real recentes agregadas (RSS). Use quando o usuário perguntar "o que está saindo na notícia" de forma geral.',
-      input_schema: { type: 'object', properties: {} },
+      description:
+        'Manchetes de notícia real recentes agregadas (RSS). Use quando o usuário perguntar "o que está saindo na notícia". SEMPRE passe categoria compatível com o ativo perguntado (crypto para cripto, forex para câmbio/índice/commodity) — sem isso o feed é dominado por notícia de cripto/bitcoin e a resposta fica irrelevante pro ativo em questão.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          categoria: { type: 'string', enum: ['crypto', 'forex', 'macro'], description: 'Filtra pela categoria relevante ao ativo perguntado. Omitir só se a pergunta for genérica, sem ativo específico.' },
+        },
+      },
     },
     {
       name: 'recent_alerts',
@@ -201,7 +207,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!res.ok) throw new Error(`news/aggregate retornou HTTP ${res.status}.`);
       const data = await res.json();
       const items = Array.isArray(data?.items) ? data.items : [];
-      return { manchetes: items.slice(0, 10).map((n: any) => ({ titulo: n.title, fonte: n.source, categoria: n.category, quando: n.timestamp ?? null })) };
+      const categoria = input.categoria ? String(input.categoria).toLowerCase().trim() : null;
+      const filtered = categoria ? items.filter((n: any) => n.category === categoria) : items;
+      // Se filtrar e não sobrar nada, cai pro conjunto todo em vez de devolver vazio.
+      const source = filtered.length > 0 ? filtered : items;
+      return { manchetes: source.slice(0, 10).map((n: any) => ({ titulo: n.title, fonte: n.source, categoria: n.category, quando: n.timestamp ?? null })) };
     }
     case 'recent_alerts': {
       const svc = getServiceClient();

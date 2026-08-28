@@ -165,6 +165,16 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
   const symbolRef = useRef(dashboardActiveSymbol);
   symbolRef.current = dashboardActiveSymbol;
 
+  // Rolagem automática do painel de chat pra sempre mostrar a mensagem mais
+  // recente — sem isso o usuário tinha que rolar manualmente toda resposta
+  // nova (alarme do Cleber 2026-08-28). O scroll de verdade acontece no
+  // wrapper com overflow-y-auto (a div externa da página), não no card do
+  // chat em si, então o sentinel precisa ficar dentro dele.
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [chat, isThinking]);
+
   // 🎙️ Mutex de voz com as outras telas que falam (IA Preditiva etc) — só
   // interrompe a fala em andamento, nunca desativa a escuta. Sem botão
   // manual (removido a pedido do Cleber, "zero interação exigida"),
@@ -252,7 +262,15 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
       // Sem calendário real disponível agora — segue sem essa fatia do contexto, nunca fabrica.
     }
 
-    // Notícia real recente (RSS agregado já existente no servidor).
+    // Notícia real recente (RSS agregado já existente no servidor). O
+    // endpoint não filtra por ativo — 2 dos 5 feeds são só de cripto, então
+    // sem filtro aqui o NEXUS sempre recebia o mesmo bloco dominado por
+    // bitcoin, mesmo perguntando sobre outro ativo (alarme do Cleber
+    // 2026-08-28: "parece viciado em notícia de bitcoin"). Filtra pela
+    // categoria relevante ao símbolo atual; se sobrar pouco, completa com o
+    // resto pra nunca ficar sem contexto nenhum.
+    const isCrypto = /USD$/.test(symbol) && ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB'].some((c) => symbol.startsWith(c));
+    const relevantCategory = isCrypto ? 'crypto' : relevantCurrencies.length > 0 ? 'forex' : null;
     let newsHeadlines: any[] = [];
     try {
       const newsRes = await fetch(`https://${projectId}.supabase.co/functions/v1/server/news/aggregate`, {
@@ -261,7 +279,10 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
       if (newsRes.ok) {
         const newsData = await newsRes.json();
         const items = Array.isArray(newsData?.items) ? newsData.items : [];
-        newsHeadlines = items.slice(0, 8).map((n: any) => ({ title: n.title, source: n.source, categoria: n.category, quando: n.timestamp ? new Date(n.timestamp).toISOString() : null }));
+        const matching = relevantCategory ? items.filter((n: any) => n.category === relevantCategory) : items;
+        const rest = items.filter((n: any) => !matching.includes(n));
+        const ordered = matching.length > 0 ? [...matching, ...rest] : items;
+        newsHeadlines = ordered.slice(0, 8).map((n: any) => ({ title: n.title, source: n.source, categoria: n.category, quando: n.timestamp ? new Date(n.timestamp).toISOString() : null }));
       }
     } catch {
       // Sem notícia real disponível agora — segue sem essa fatia do contexto.
@@ -311,7 +332,13 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
           body: JSON.stringify({
             question,
             contextPackage,
-            history: chat.slice(-6).map((m) => ({ role: m.role, content: m.text })),
+            // 6 mensagens (3 pares pergunta/resposta) era pouco pra "dar
+            // sequência" numa conversa mais longa — o histórico perdia o que
+            // foi dito cedo demais (alarme do Cleber 2026-08-28: "não dá
+            // sequência, como se não fosse conversa"). 20 mensagens é texto
+            // puro (m.text, sem o JSON de contexto), então o custo extra de
+            // tokens é baixo.
+            history: chat.slice(-20).map((m) => ({ role: m.role, content: m.text })),
           }),
         });
 
@@ -484,6 +511,7 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
                   </motion.div>
                 )}
               </AnimatePresence>
+              <div ref={chatEndRef} />
             </div>
           </div>
 
