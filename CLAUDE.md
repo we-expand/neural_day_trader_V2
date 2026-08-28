@@ -44,12 +44,19 @@ ver o próprio histórico com resultado real antes de decidir de novo).
 **Passo 1 dessa cadeia (cálculo de resultado hipotético por decisão
 logada, candle real sem look-ahead) já implementado, deployado, migration
 aplicada e cron agendado — confirmado ao vivo** (`entry_price_snapshot`/
-`atr_snapshot` gravando desde 13:23 UTC de hoje). **Pendente imediato,
-próxima sessão**: confirmar que o job `decision-brain-outcome`
-(`*/30 * * * *`) gravou `hypothetical_outcome` de verdade após o primeiro
-disparo, e então construir o passo 2 (módulo de recuperação de histórico +
-injeção no prompt) — ainda não iniciado. Handoff completo com o passo a
-passo exato:
+`atr_snapshot` gravando desde 13:23 UTC de hoje). **[FECHADO 2026-08-28
+13:30 UTC] Job `decision-brain-outcome-30min` disparou pela primeira vez
+com sucesso, `hypothetical_outcome` confirmado gravando de verdade**
+(50/65 linhas com snapshot já preenchidas). **[IMPLEMENTADO 2026-08-28,
+aguardando deploy] Passo 2** (módulo de recuperação de histórico + injeção
+no prompt) pronto — `decisionBrainHistory.ts` novo, `decisionBrainPrompt.ts`/
+`decisionBrain.ts` atualizados, `npm run validate` + `deno check` limpos.
+**Pendente**: `supabase functions deploy ai-runner --no-verify-jwt` e
+commit — os 3 itens da cadeia de memória do cérebro (resultado
+hipotético, recuperação de histórico, injeção no prompt) estão todos
+implementados; falta só deploy e acumular amostra (mínimo 20 decisões
+avaliadas) pra a seção de histórico sair do fallback "amostra
+insuficiente" em produção. Handoff completo com o passo a passo exato:
 [SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md](SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md).
 
 **2026-08-27: 3 bugs corrigidos após alarme do Cleber (NAS100 mostrando

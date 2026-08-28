@@ -29,6 +29,8 @@
  * validação ainda não sustenta.
  */
 
+import { MIN_SAMPLE_FOR_HISTORY, type DecisionBrainHistorySummary } from './decisionBrainHistory.ts';
+
 export interface DecisionBrainContext {
   symbol: string;
   strategySide: 'LONG' | 'SHORT';
@@ -68,6 +70,9 @@ Você NUNCA decide tamanho de posição, stop, alvo, ou se o trade é "seguro" f
 REGRA MAIS IMPORTANTE — NUNCA INVENTAR DADO
 Você só pode basear sua leitura no bloco CONTEXTO abaixo. Se algo relevante não está lá (ex: notícia específica, posicionamento institucional), diga explicitamente que não tem esse dado — nunca finja saber.
 
+SEU HISTÓRICO RECENTE — REVISE ANTES DE DECIDIR
+Quando o bloco "SEU HISTÓRICO RECENTE" aparecer abaixo, ele mostra como suas próprias decisões passadas se saíram de verdade (candle real, sem look-ahead). Use isso como um trader revisando o próprio diário antes de operar de novo — para calibrar sua confiança e desconfiar de padrões que já erraram muito, NÃO como uma regra fixa a seguir cegamente. Se o histórico disser "amostra insuficiente", trate como se não houvesse histórico — nunca finja um padrão que a amostra ainda não sustenta.
+
 VOCÊ NÃO TEM EDGE COMPROVADO ESTATISTICAMENTE — E TUDO BEM
 Este produto já rodou uma busca sistemática por edge de sinal técnico clássico e não encontrou nada comprovado (walk-forward, custo real, correção estatística). Você é uma HIPÓTESE em teste, não uma capacidade provada. Isso não te impede de fazer uma boa leitura contextual — só significa que sua confiança declarada deve refletir incerteza real, nunca convicção artificial pra parecer útil.
 
@@ -79,7 +84,56 @@ FORMATO DE SAÍDA — OBRIGATÓRIO, SÓ JSON, NADA ANTES OU DEPOIS
 }`;
 }
 
-export function buildDecisionBrainUserPrompt(ctx: DecisionBrainContext): string {
+function formatPct(winRate: number | null): string {
+  return winRate === null ? 'sem dado' : `${(winRate * 100).toFixed(0)}%`;
+}
+
+function formatR(avgR: number | null): string {
+  return avgR === null ? 'sem dado' : `${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R`;
+}
+
+const ACTION_LABEL_PT: Record<'PROCEED' | 'SKIP' | 'FLIP', string> = {
+  PROCEED: 'seguir o lado sugerido',
+  SKIP: 'pular',
+  FLIP: 'inverter o lado',
+};
+
+function buildHistorySection(history: DecisionBrainHistorySummary | null, symbol: string, regime: string | null): string {
+  if (!history) {
+    return `\nSEU HISTÓRICO RECENTE: indisponível nesta chamada (falha ao buscar ou ainda sem infraestrutura) — decida só pelo CONTEXTO abaixo.\n`;
+  }
+  if (!history.hasEnoughSample) {
+    return `\nSEU HISTÓRICO RECENTE: amostra insuficiente ainda (${history.totalEvaluatedOverall} decisões com resultado real calculado, mínimo de ${MIN_SAMPLE_FOR_HISTORY} pra qualquer estatística valer). Decida só pelo CONTEXTO abaixo, sem inferir padrão do histórico.\n`;
+  }
+
+  const lines: string[] = ['', 'SEU HISTÓRICO RECENTE — resultado real (candle real, sem look-ahead) das suas últimas decisões:'];
+
+  lines.push(`- Em ${symbol} especificamente: ${history.sameSymbol.evaluatedCount} decisões avaliadas, taxa de acerto ${formatPct(history.sameSymbol.winRate)}, R médio ${formatR(history.sameSymbol.avgRMultiple)}.`);
+
+  if (history.sameRegime) {
+    lines.push(`- Em regime "${regime}" (qualquer símbolo): ${history.sameRegime.evaluatedCount} decisões avaliadas, taxa de acerto ${formatPct(history.sameRegime.winRate)}, R médio ${formatR(history.sameRegime.avgRMultiple)}.`);
+  }
+
+  for (const action of ['PROCEED', 'SKIP', 'FLIP'] as const) {
+    const stats = history.byAction[action];
+    if (stats.count > 0) {
+      lines.push(`- Quando você decidiu "${ACTION_LABEL_PT[action]}" (últimas ${stats.count}, qualquer símbolo/regime): taxa de acerto ${formatPct(stats.winRate)}.`);
+    }
+  }
+
+  const recentEntries = history.sameSymbol.entries.slice(0, 5);
+  if (recentEntries.length > 0) {
+    lines.push('Últimas decisões neste símbolo:');
+    for (const e of recentEntries) {
+      const verdict = e.correct === null ? 'sem dado' : e.correct ? 'certo' : 'errado';
+      lines.push(`  • ${ACTION_LABEL_PT[e.brainAction]} → ${verdict} (${formatR(e.rMultiple)})`);
+    }
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+export function buildDecisionBrainUserPrompt(ctx: DecisionBrainContext, history: DecisionBrainHistorySummary | null = null): string {
   return `CONTEXTO — candidato ranqueado pelo motor mecânico, aguardando sua leitura:
 
 Símbolo: ${ctx.symbol}
@@ -102,7 +156,7 @@ Variação de preço nas últimas 24h: ${ctx.priceChangePercent24h >= 0 ? '+' : 
 Notícia de alto impacto próxima: ${ctx.upcomingHighImpactNews.length > 0
     ? ctx.upcomingHighImpactNews.map(n => `${n.currency} em ${n.minutesAway}min`).join('; ')
     : 'nenhuma na janela relevante'}
-
+${buildHistorySection(history, ctx.symbol, ctx.marketScoreRegime)}
 Preferência configurada pelo usuário: modo de mercado "${ctx.userMarketMode}", direção travada "${ctx.userDirection}"
 Horário (UTC): ${ctx.sessionTimeUtc}
 

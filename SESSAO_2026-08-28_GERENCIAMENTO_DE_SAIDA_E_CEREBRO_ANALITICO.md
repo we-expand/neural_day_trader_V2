@@ -244,6 +244,68 @@ contra o que realmente aconteceu).
 2. Se os números baterem com o esperado, seguir pro item 2 da lista:
    módulo de recuperação de histórico + injeção no prompt.
 
+## [2026-08-28, mesma sessão] Passo 1 confirmado ao vivo + Passo 2 implementado
+
+**Passo 1 confirmado às 13:34 UTC**: cron `decision-brain-outcome-30min`
+disparou pela primeira vez às 13:30:00 UTC (`status: succeeded`),
+`hypothetical_outcome` já preenchido em 50/65 linhas com snapshot.
+
+**Passo 2 (módulo de recuperação de histórico + injeção no prompt)
+implementado.** Ainda **não commitado nem deployado** — código pronto,
+pendente do Cleber rodar os comandos abaixo. `npm run validate` 100% +
+`deno check` limpo em `lib/decisionBrainHistory.ts`,
+`lib/decisionBrainPrompt.ts`, `lib/decisionBrain.ts` e `index.ts`.
+
+O que foi feito:
+- **Novo** `supabase/functions/ai-runner/lib/decisionBrainHistory.ts`
+  (`fetchDecisionBrainHistorySummary`) — busca as decisões passadas do
+  cérebro sombra já avaliadas pelo passo 1 (mesmo símbolo, mesmo regime
+  detectado, e quebra geral por tipo de ação PROCEED/SKIP/FLIP), deriva
+  "certo/errado" e o R-multiple efetivo do que o CÉREBRO propôs (não o
+  mecânico bruto): PROCEED usa o resultado direto, FLIP usa o espelho
+  matemático (`-hypothetical_r_multiple`), SKIP julga se evitou um
+  perdedor ou perdeu um ganhador. **Gate de amostra mínima** (não é
+  atalho, é o item 4 da lista original): com menos de
+  `MIN_SAMPLE_FOR_HISTORY = 20` decisões avaliadas no total, a seção do
+  prompt diz explicitamente "amostra insuficiente" em vez de sugerir um
+  padrão que a amostra ainda não sustenta.
+- `decisionBrainPrompt.ts`: nova seção "SEU HISTÓRICO RECENTE" no
+  system prompt (instrui o modelo a usar isso como calibração, nunca como
+  regra fixa) e `buildDecisionBrainUserPrompt` ganhou parâmetro opcional
+  `history` que renderiza taxa de acerto/R médio por símbolo, por regime,
+  por tipo de ação, e as últimas 5 decisões no mesmo símbolo com veredito.
+- `decisionBrain.ts`: `runShadowDecisionAndLog` busca o histórico antes de
+  montar o prompt (mesmo `sb`/`userId` já disponíveis, sem chamada de rede
+  extra além da query no Supabase) e repassa pro
+  `buildDecisionBrainUserPrompt`. Falha na busca de histórico nunca quebra
+  a decisão — vira `null`, prompt cai no fallback "histórico indisponível".
+- Nenhuma migration nova — reaproveita 100% das colunas do passo 1
+  (`hypothetical_outcome`/`hypothetical_r_multiple`/
+  `hypothetical_outcome_computed_at`) e `context_snapshot.marketScoreRegime`
+  que já existiam.
+
+**Comandos pendentes pro Cleber**:
+1. Deploy do `ai-runner` atualizado (mudou `lib/decisionBrain.ts`,
+   `lib/decisionBrainPrompt.ts`, novo `lib/decisionBrainHistory.ts`):
+   ```
+   supabase functions deploy ai-runner --no-verify-jwt
+   ```
+2. Commit do código (comando pronto na entrega desta sessão).
+
+**Como validar em produção depois do deploy**: esperar o cérebro sombra
+gerar algumas decisões novas e conferir se `context_snapshot`/a próxima
+chamada ao LLM reflete o histórico — mais simples é olhar
+`brain_reasoning` das novas linhas e ver se cita o próprio histórico
+quando a amostra já bateu 20 (hoje ~65 linhas com snapshot, mas nem todas
+têm `hypothetical_outcome_computed_at` — confirmar contagem real antes de
+esperar a seção aparecer com estatística de verdade).
+
+**Próximo passo real, ainda não iniciado**: nenhum — os 3 itens da cadeia
+original (cálculo de resultado, recuperação de histórico, injeção no
+prompt) estão implementados. Falta só deploy + acumular amostra
+suficiente pra a seção de histórico parar de cair no fallback "amostra
+insuficiente" em produção.
+
 ## Pendências antigas que continuam de pé (não tocadas hoje)
 
 - Volume de trades (5 no dia 27) — Cleber pediu meta de ~10/dia. Já

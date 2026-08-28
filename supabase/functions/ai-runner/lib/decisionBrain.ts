@@ -15,6 +15,7 @@
 import { runDecisionBrainCompletion } from './llmClient.ts';
 import { buildDecisionBrainSystemPrompt, buildDecisionBrainUserPrompt, type DecisionBrainContext } from './decisionBrainPrompt.ts';
 import { getServiceClient } from './serviceClient.ts';
+import { fetchDecisionBrainHistorySummary } from './decisionBrainHistory.ts';
 
 export interface DecisionBrainResult {
   action: 'PROCEED' | 'SKIP' | 'FLIP';
@@ -76,8 +77,13 @@ export async function runShadowDecisionAndLog(params: ShadowLogParams): Promise<
   };
 
   try {
+    const history = await fetchDecisionBrainHistorySummary(sb, {
+      userId,
+      symbol: context.symbol,
+      regime: context.marketScoreRegime,
+    });
     const system = buildDecisionBrainSystemPrompt();
-    const userPrompt = buildDecisionBrainUserPrompt(context);
+    const userPrompt = buildDecisionBrainUserPrompt(context, history);
     const completion = await runDecisionBrainCompletion(system, userPrompt);
     const result = parseBrainOutput(completion.text, context.strategySide);
 
