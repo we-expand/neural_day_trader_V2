@@ -15,6 +15,24 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-27: 3 bugs corrigidos após alarme do Cleber (NAS100 mostrando
+-$16,30 de PnL, quase 10% da conta).** Investigado ponta a ponta: o risco
+real era só ~$1 (posição de 0,01 lote), o número exibido vinha de
+`calculatePnLWithLeverage` usando especificação de **contrato futuro E-mini
+da CME** (NAS100 $20/ponto) em vez do modelo de $1/ponto que o motor de
+sizing e o fechamento real no servidor sempre assumiram — inflava PnL
+exibido (e o **realizado**, se fechado manualmente) em ~20x. Corrigido com
+`calculateEngineConsistentPnL()`, que espelha a fórmula do servidor. De
+carona: histórico de trades sumindo do Dashboard quando o servidor fecha
+posição em sessão ativa (`reconcile()` nunca escrevia em `orderHistory`,
+só hidratava uma vez no mount) e cronômetro de candle saltando minutos
+(confirmado em vídeo — duas fontes de timestamp conflitantes, corrigido
+pra usar só a âncora do fetch real, trava em 00:00 em vez de adivinhar).
+`npm run validate` 100%, commit pronto pro Cleber. **Pendente**: auditar se
+o mesmo bug de contractSpecs.ts afeta outros símbolos INDICES (US30,
+US2000, GER40, UK100...) além de NAS100. Detalhe completo:
+[SESSAO_2026-08-27_BUG_PNL_INDICES_E_HISTORICO.md](SESSAO_2026-08-27_BUG_PNL_INDICES_E_HISTORICO.md).
+
 **2026-08-27: Dropdown "Poucos/Médio/Muitos pontos" (alvo de lucro)
 reconectado — ficava salvo sem efeito real no motor ao vivo desde
 2026-08-17.** O alvo era sempre stop×3 fixo, não importava a escolha da
