@@ -66,6 +66,61 @@ export const MIN_SAMPLE_FOR_HISTORY = 20;
 
 const RECENT_LIMIT_PER_BUCKET = 20;
 const ENTRIES_SHOWN_PER_BUCKET = 8;
+// Amostra bruta usada só pra montar os episódios (ver `collapseIntoEpisodes`) —
+// maior que RECENT_LIMIT_PER_BUCKET porque cada linha bruta some várias por
+// episódio (achado 2026-08-30, ver comentário em `collapseIntoEpisodes`).
+const RAW_FETCH_LIMIT = 500;
+
+/**
+ * 2026-08-30 — achado de bug real em produção: `ai-runner-tick` roda 1×/min
+ * e grava uma linha de cérebro sombra a cada tick em que existe candidato
+ * mecânico, SEM dedup. Como RSI/MACD/ADX não trocam de sinal a cada minuto,
+ * o MESMO setup (mesmo símbolo, mesmo lado) fica sendo "candidato #1" por
+ * dezenas de minutos seguidos — um único movimento real de mercado (ex:
+ * EURUSD subindo 90min contra um SHORT mecânico persistente) virava ~40
+ * linhas "LOSS" correlacionadas, não 40 trades independentes. Contagem bruta
+ * de linhas (achado em produção: EURUSD SHORT com 86 LOSS/2 WIN, taxa de
+ * acerto de ~2% — estatisticamente implausível mesmo pro pior cenário já
+ * medido neste projeto) enganava tanto o gate `MIN_SAMPLE_FOR_HISTORY`
+ * quanto o win rate por bucket.
+ *
+ * Fix: colapsa em "episódios" — sequência de linhas consecutivas (ordenadas
+ * por tempo) do MESMO símbolo + MESMA ação do cérebro, sem gap maior que
+ * EPISODE_GAP_MINUTES entre uma e a próxima. Cada episódio vira UMA entrada
+ * nas estatísticas (a mais recente do grupo, mais perto da resolução real).
+ * Não muda a tabela nem o log bruto (auditoria continua linha a linha) — só
+ * a camada de estatística que alimenta o prompt do cérebro.
+ */
+const EPISODE_GAP_MINUTES = 5;
+
+function collapseIntoEpisodes(rows: RawHistoryRow[]): RawHistoryRow[] {
+  // Ordena cronologicamente (ascendente) pra detectar sequências consecutivas.
+  const sorted = [...rows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const episodes: RawHistoryRow[] = [];
+  let currentEpisode: RawHistoryRow[] = [];
+
+  const flush = () => {
+    if (currentEpisode.length === 0) return;
+    // Representante do episódio = linha mais recente do grupo (mais perto de
+    // quando o resultado hipotético terminou de se resolver).
+    episodes.push(currentEpisode[currentEpisode.length - 1]);
+    currentEpisode = [];
+  };
+
+  for (const row of sorted) {
+    const prev = currentEpisode[currentEpisode.length - 1];
+    const sameSetup = prev && prev.symbol === row.symbol && prev.brain_action === row.brain_action;
+    const gapMinutes = prev
+      ? (new Date(row.created_at).getTime() - new Date(prev.created_at).getTime()) / 60_000
+      : Infinity;
+    if (!sameSetup || gapMinutes > EPISODE_GAP_MINUTES) flush();
+    currentEpisode.push(row);
+  }
+  flush();
+
+  // Ordem mais recente primeiro, igual ao que as queries já entregavam.
+  return episodes.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
 
 function deriveCorrectAndR(
   brainAction: BrainAction,
@@ -134,49 +189,35 @@ export async function fetchDecisionBrainHistorySummary(
   params: { userId: string; symbol: string; regime: string | null },
 ): Promise<DecisionBrainHistorySummary | null> {
   try {
-    const { count: totalEvaluatedOverall } = await sb
-      .from('ai_decision_brain_shadow')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', params.userId)
-      .not('hypothetical_outcome_computed_at', 'is', null);
-
-    const total = totalEvaluatedOverall ?? 0;
-    const hasEnoughSample = total >= MIN_SAMPLE_FOR_HISTORY;
-
     const baseSelect = 'created_at, symbol, brain_action, context_snapshot, hypothetical_outcome, hypothetical_r_multiple';
 
-    const { data: symbolRows, error: symbolErr } = await sb
+    // Uma única busca (linhas brutas, ainda com duplicação de episódio) —
+    // todos os buckets abaixo são derivados dela em memória, já colapsada
+    // (ver `collapseIntoEpisodes`). Antes eram 3 queries separadas (símbolo/
+    // regime/geral) + 1 count exato; unificado porque o count exato não dava
+    // pra colapsar em episódio sem trazer as linhas de qualquer forma.
+    const { data: rawRows, error: fetchErr } = await sb
       .from('ai_decision_brain_shadow')
       .select(baseSelect)
       .eq('user_id', params.userId)
-      .eq('symbol', params.symbol)
       .not('hypothetical_outcome_computed_at', 'is', null)
       .order('created_at', { ascending: false })
-      .limit(RECENT_LIMIT_PER_BUCKET);
-    if (symbolErr) throw symbolErr;
+      .limit(RAW_FETCH_LIMIT);
+    if (fetchErr) throw fetchErr;
+
+    const episodes = collapseIntoEpisodes((rawRows ?? []) as RawHistoryRow[]);
+    const total = episodes.length;
+    const hasEnoughSample = total >= MIN_SAMPLE_FOR_HISTORY;
+
+    const symbolEpisodes = episodes.filter(r => r.symbol === params.symbol).slice(0, RECENT_LIMIT_PER_BUCKET);
 
     let regimeStats: BucketStats | null = null;
     if (params.regime) {
-      const { data: regimeRows, error: regimeErr } = await sb
-        .from('ai_decision_brain_shadow')
-        .select(baseSelect)
-        .eq('user_id', params.userId)
-        .not('hypothetical_outcome_computed_at', 'is', null)
-        .contains('context_snapshot', { marketScoreRegime: params.regime })
-        .order('created_at', { ascending: false })
-        .limit(RECENT_LIMIT_PER_BUCKET);
-      if (regimeErr) throw regimeErr;
-      regimeStats = buildBucketStats((regimeRows ?? []) as RawHistoryRow[]);
+      const regimeEpisodes = episodes
+        .filter(r => r.context_snapshot?.marketScoreRegime === params.regime)
+        .slice(0, RECENT_LIMIT_PER_BUCKET);
+      regimeStats = buildBucketStats(regimeEpisodes);
     }
-
-    const { data: allRecentRows, error: allErr } = await sb
-      .from('ai_decision_brain_shadow')
-      .select(baseSelect)
-      .eq('user_id', params.userId)
-      .not('hypothetical_outcome_computed_at', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(200);
-    if (allErr) throw allErr;
 
     const byAction: Record<BrainAction, { count: number; winRate: number | null }> = {
       PROCEED: { count: 0, winRate: null },
@@ -184,15 +225,14 @@ export async function fetchDecisionBrainHistorySummary(
       FLIP: { count: 0, winRate: null },
     };
     for (const action of ['PROCEED', 'SKIP', 'FLIP'] as const) {
-      const rowsForAction = ((allRecentRows ?? []) as RawHistoryRow[]).filter(r => r.brain_action === action);
-      const stats = buildBucketStats(rowsForAction);
+      const stats = buildBucketStats(episodes.filter(r => r.brain_action === action));
       byAction[action] = { count: stats.count, winRate: stats.winRate };
     }
 
     return {
       totalEvaluatedOverall: total,
       hasEnoughSample,
-      sameSymbol: buildBucketStats((symbolRows ?? []) as RawHistoryRow[]),
+      sameSymbol: buildBucketStats(symbolEpisodes),
       sameRegime: regimeStats,
       byAction,
     };
