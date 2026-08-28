@@ -1196,6 +1196,19 @@ export function useApexLogic(
               timestamp: new Date(t.entry_time).getTime(),
               reasoning: t.ai_reasoning || '',
               indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+              // 🔴 2026-08-28: fonte do contador "movimentos do stop"
+              // (ATRTrailingStopManager.tsx) migrou pra cá — antes vinha do
+              // cálculo LOCAL de trailing no loop de 1s (linha ~1935), removido
+              // em DEMO por ser a mesma causa raiz da divergência entre o SL
+              // exibido e o que o servidor executa (ver comentário grande na
+              // função do PNL loop). Incrementa quando ESTA reconciliação
+              // detecta que `stop_loss` mudou desde a última leitura confirmada
+              // do servidor — subconta se o servidor mover o stop mais de uma
+              // vez entre dois polls (POLL_MS), mas nunca fabrica um movimento
+              // que não aconteceu, ao contrário do cálculo local antigo.
+              trailMoves: existing && t.stop_loss != null && existing.sl !== t.stop_loss
+                ? (existing.trailMoves || 0) + 1
+                : (existing?.trailMoves || 0),
             };
           });
         });
@@ -1880,58 +1893,82 @@ export function useApexLogic(
                 // pular o trailing inteiro quando não há SL real definido (0 = sem
                 // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
+                let trailMoved = false;
 
-                // 🆕 BREAKEVEN AUTOMÁTICO (2026-08-17). Independente de
-                // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
-                // mover ainda mais a favor): quando o trade anda a favor
-                // `BREAKEVEN_TRIGGER_R` vezes a distância do risco original, o
-                // stop sobe pro preço de entrada. É o mecanismo que corta a perda
-                // média pra ~0 a partir desse ponto sem precisar prever direção
-                // melhor — puro gerenciamento de saída, não previsão. Ancorado em
-                // `originalSl` (imutável, gravado uma vez na abertura) pelo mesmo
-                // motivo do trailing abaixo: `order.sl` é reescrito a cada tick.
+                // 🔴 FIX 2026-08-28 (achado do Cleber: "existem duas linhas de stop
+                // diferentes — a que você vê e a que executa", classificado por ele
+                // como sério o bastante pra risco jurídico/credibilidade). Causa
+                // raiz: mesmo em DEMO — onde desde 2026-08-18 o `ai-runner` (servidor)
+                // é a ÚNICA entidade com autoridade de fechar posição — este loop
+                // recalculava breakeven+trailing com SEU PRÓPRIO ATR/preço a cada 1s
+                // e gravava o resultado em `order.sl`, sobrescrevendo o valor que a
+                // reconciliação (linha ~1121 acima) tinha acabado de sincronizar do
+                // banco. Como os dois cálculos rodam sobre feeds independentes, a
+                // linha desenhada na tela quase nunca era a mesma que o servidor de
+                // fato ia usar pra fechar. Em DEMO, este bloco não tinha NENHUM efeito
+                // sobre quando a posição fecha (`hitSL` abaixo já é sempre `false` em
+                // DEMO via `clientHasCloseAuthority`) — só maquiava o número exibido.
+                // Fix: em DEMO, nunca recalcula — `effectiveSl` fica exatamente igual
+                // a `order.sl`, que só muda quando a reconciliação trouxer o valor
+                // real gravado pelo servidor. O que o usuário vê passa a ser,
+                // literalmente, o mesmo dado que decide o fechamento.
                 //
-                // 2026-08-25: gatilho passou de +1R para +1,5R. A constante é
-                // compartilhada com o motor de servidor (positionManager.ts) de
-                // propósito — divergência entre as duas cópias dessa lógica já
-                // causou balance divergente em produção (2026-08-18).
-                if (order.originalSl > 0) {
-                  const originalRisk = Math.abs(order.price - order.originalSl);
-                  if (originalRisk > 0) {
-                    const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
-                    if (favorableMove >= originalRisk * BREAKEVEN_TRIGGER_R) {
-                      effectiveSl = order.side === 'LONG'
-                        ? Math.max(effectiveSl, order.price)
-                        : Math.min(effectiveSl, order.price);
+                // Em LIVE o cliente ainda tem autoridade de fechamento própria (fora
+                // do escopo auditado nesta sessão — ver comentário em
+                // `clientHasCloseAuthority` abaixo), por isso mantém o cálculo local
+                // aqui: sem ele, LIVE perderia proteção de stop de verdade.
+                if (configRef.current.executionMode !== 'DEMO') {
+                  // 🆕 BREAKEVEN AUTOMÁTICO (2026-08-17). Independente de
+                  // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
+                  // mover ainda mais a favor): quando o trade anda a favor
+                  // `BREAKEVEN_TRIGGER_R` vezes a distância do risco original, o
+                  // stop sobe pro preço de entrada. É o mecanismo que corta a perda
+                  // média pra ~0 a partir desse ponto sem precisar prever direção
+                  // melhor — puro gerenciamento de saída, não previsão. Ancorado em
+                  // `originalSl` (imutável, gravado uma vez na abertura) pelo mesmo
+                  // motivo do trailing abaixo: `order.sl` é reescrito a cada tick.
+                  //
+                  // 2026-08-25: gatilho passou de +1R para +1,5R. A constante é
+                  // compartilhada com o motor de servidor (positionManager.ts) de
+                  // propósito — divergência entre as duas cópias dessa lógica já
+                  // causou balance divergente em produção (2026-08-18).
+                  if (order.originalSl > 0) {
+                    const originalRisk = Math.abs(order.price - order.originalSl);
+                    if (originalRisk > 0) {
+                      const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
+                      if (favorableMove >= originalRisk * BREAKEVEN_TRIGGER_R) {
+                        effectiveSl = order.side === 'LONG'
+                          ? Math.max(effectiveSl, order.price)
+                          : Math.min(effectiveSl, order.price);
+                      }
                     }
                   }
-                }
 
-                let trailMoved = false;
-                if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
-                  // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
-                  // (mesmo `calculateATR` do resto do motor), não mais fixa na distância
-                  // de entrada — é o que o widget "ATR Trailing Stop" da UI sempre
-                  // anunciou fazer, mas nunca fazia de fato (achado da auditoria de
-                  // config: card com número hardcoded, ATRTrailingStopManager.tsx com
-                  // mock data explícito). Busca no MESMO cache de candles (60s) já
-                  // mantido pelo ciclo de análise — sem chamada de rede extra aqui. Só
-                  // usa ATR real e recente (< 5min); sem candle fresco pro símbolo,
-                  // cai pro fallback antigo (distância fixa da entrada) — nunca
-                  // fabrica um ATR.
-                  const freshAtr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
-                  const atrDistance = freshAtr !== null ? freshAtr * configRef.current.atrTrailingMultiplier : null;
+                  if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
+                    // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
+                    // (mesmo `calculateATR` do resto do motor), não mais fixa na distância
+                    // de entrada — é o que o widget "ATR Trailing Stop" da UI sempre
+                    // anunciou fazer, mas nunca fazia de fato (achado da auditoria de
+                    // config: card com número hardcoded, ATRTrailingStopManager.tsx com
+                    // mock data explícito). Busca no MESMO cache de candles (60s) já
+                    // mantido pelo ciclo de análise — sem chamada de rede extra aqui. Só
+                    // usa ATR real e recente (< 5min); sem candle fresco pro símbolo,
+                    // cai pro fallback antigo (distância fixa da entrada) — nunca
+                    // fabrica um ATR.
+                    const freshAtr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
+                    const atrDistance = freshAtr !== null ? freshAtr * configRef.current.atrTrailingMultiplier : null;
 
-                  const originalSlDistance = Math.abs(order.price - order.originalSl);
-                  const trailDistance = atrDistance ?? originalSlDistance;
-                  const trailedSl = order.side === 'LONG'
-                    ? nextPrice - trailDistance
-                    : nextPrice + trailDistance;
+                    const originalSlDistance = Math.abs(order.price - order.originalSl);
+                    const trailDistance = atrDistance ?? originalSlDistance;
+                    const trailedSl = order.side === 'LONG'
+                      ? nextPrice - trailDistance
+                      : nextPrice + trailDistance;
 
-                  effectiveSl = order.side === 'LONG'
-                    ? Math.max(effectiveSl, trailedSl)
-                    : Math.min(effectiveSl, trailedSl);
-                  trailMoved = effectiveSl !== order.sl;
+                    effectiveSl = order.side === 'LONG'
+                      ? Math.max(effectiveSl, trailedSl)
+                      : Math.min(effectiveSl, trailedSl);
+                    trailMoved = effectiveSl !== order.sl;
+                  }
                 }
 
                 // ✅ LOG DE DEBUG (apenas para primeira iteração)
