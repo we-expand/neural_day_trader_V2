@@ -242,8 +242,12 @@ export function Settings() {
           </div>
         </div>
 
-        {/* Tabs - Mais compacto */}
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+        {/* Tabs - Mais compacto. flex-wrap (não overflow-x-auto) de propósito:
+            com 7 abas, overflow-x escondia "Corretoras"/"Sistema" fora da tela
+            sem nenhuma indicação visual de scroll — achado 2026-08-30, dois
+            usuários (Cleber incluso) não acharam a aba Sistema por causa
+            disso. Quebrar linha deixa toda aba sempre visível de cara. */}
+        <div className="flex flex-wrap gap-2 mb-4 pb-2">
           <button
             onClick={() => setActiveTab('general')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${

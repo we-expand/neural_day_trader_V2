@@ -185,7 +185,11 @@ export function DecisionBrainShadowPanel() {
                         mecânico: {row.mechanical_action === 'REJECT' ? 'REJECT' : row.mechanical_side}
                       </span>
                       <span className={`px-2 py-0.5 rounded text-xs font-semibold ${ACTION_BADGE[row.brain_action]}`}>
-                        cérebro: {row.brain_action}{row.brain_side ? ` ${row.brain_side}` : ''}
+                        cérebro: {row.brain_action}
+                        {/* Lado só é decisão de fato em PROCEED/FLIP — em SKIP o
+                            cérebro não escolheu lado nenhum, `brain_side` aqui é
+                            o lado do candidato que ele recusou, não do próprio SKIP. */}
+                        {row.brain_side && row.brain_action !== 'SKIP' ? ` ${row.brain_side}` : ''}
                       </span>
                       {row.brain_confidence !== null && (
                         <span className="text-slate-400 text-xs">conf. {Math.round(row.brain_confidence)}%</span>
