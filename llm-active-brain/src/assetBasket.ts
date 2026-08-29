@@ -1,13 +1,16 @@
 /**
- * Cesta usada pelo cérebro LLM ativo no trilho MT5 (2026-08-29) -- subconjunto
- * líquido e de nome já confirmado idêntico entre o catálogo unificado do
- * Neural Day Trader e a corretora Infinox (ver `brokerRegistry.ts` no repo
- * principal: nenhum destes símbolos tem override de nome), pra evitar
- * duplicar aqui a tabela inteira de tradução de símbolo. Cobre forex maior,
- * ouro e os dois índices/cripto com CFD confirmado que também aparecem no
- * motor mecânico.
+ * Cesta usada pelo cérebro LLM ativo no trilho MT5 (2026-08-29+) -- apenas
+ * MOEDAS (forex + cripto). Nenhum commodity (ouro) ou índice.
+ *
+ * 🔴 2026-08-29 (pedido urgente do Cleber): apenas forex (24/5 durante dia útil)
+ * e cripto (24/5 fim de semana). Teste performance ao máximo em moedas puras.
  */
-export const MT5_ASSET_BASKET = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "NAS100", "US30", "BTCUSD"];
+export const MT5_ASSET_BASKET = [
+  // Forex (24/5 durante dia útil)
+  "EURUSD", "GBPUSD", "USDJPY",
+  // Cripto (24/5 — preferencial fim de semana quando forex fica parado)
+  "BTCUSD", "ETHUSD", "SOLUSD"
+];
 
 /**
  * `lotSize` de cada símbolo — cópia deliberada de `assetDatabase.ts` (repo
@@ -27,10 +30,9 @@ export const LOT_SIZE: Record<string, number> = {
   EURUSD: 100000,
   GBPUSD: 100000,
   USDJPY: 100000,
-  XAUUSD: 100,
-  NAS100: 1,
-  US30: 1,
   BTCUSD: 1,
+  ETHUSD: 1,
+  SOLUSD: 1,
 };
 
 export const MIN_LOTS = 0.01;

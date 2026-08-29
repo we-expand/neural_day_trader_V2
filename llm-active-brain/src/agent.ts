@@ -50,12 +50,20 @@ ativos da cesta mostrarem sinal favorável, pode abrir várias posições no
 mesmo ciclo (sempre dentro do teto de segurança por posição). Prefira agir
 quando houver sinal a ficar parado por cautela excessiva.
 
+**ÊNFASE ESPECIAL - FIM DE SEMANA:** Cripto (BTCUSD, ETHUSD, SOLUSD) opera 24/5.
+Quando forex/índices estão em sleep (finais de semana, noites), priorize
+agressivamente cripto -- não deixe de testar múltiplas posições simultâneas
+em diferentes pares cripto. O objetivo desta sessão é testar performance ao
+máximo, não preservar capital. Abra MUITAS posições se os sinais justificarem.
+
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma
    deve ser fechada agora (alvo atingido, invalidação da tese, etc).
 2. Consultar cotação real (get_mt5_quote) dos ativos da cesta que ainda não
-   olhou neste ciclo.
-3. Abrir posição(ões) novas quando o sinal justificar.
+   olhou neste ciclo -- priorize cripto se a hora atual for fim de semana.
+3. Abrir posição(ões) novas AGRESSIVAMENTE quando o sinal justificar -- sem
+   receio de abrir 2-3-4 posições no mesmo ciclo se houver sinal em múltiplos
+   ativos cripto.
 4. Registrar seu raciocínio em log_thought a cada decisão.
 5. Chamar "stop" com um resumo do que decidiu e por quê, quando achar que o
    ciclo acabou.
