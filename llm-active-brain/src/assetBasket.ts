@@ -1,64 +1,50 @@
 /**
- * Cesta usada pelo cérebro LLM ativo no trilho MT5 (2026-08-29+) -- apenas
- * MOEDAS (forex + cripto). Nenhum commodity (ouro) ou índice.
+ * Cesta usada pelo cérebro LLM ativo no trilho MT5 (2026-08-29+).
  *
- * 🔴 2026-08-29 (pedido urgente do Cleber): apenas forex (24/5 durante dia útil)
- * e cripto (24/5 fim de semana). Teste performance ao máximo em moedas puras.
- *
- * 🔴 2026-08-29 (achado do Cleber): Ethereum na Infinox/MT5 NÃO se chama
- * "ETHUSD" -- esse símbolo existe no catálogo unificado do app mas roteia
- * pra Binance (fora de escopo aqui). O contrato real cotado no MT5 é
- * "XETUSD" (confirmado em `assetDatabase.ts:151` e `brokerRegistry.ts` do
- * repo principal). Era a causa do "Sem cotacao real disponivel" pra
- * Ethereum nesta cesta.
+ * 🔴 2026-08-29 (pedido do Cleber, mesmo dia): cesta trocada pra rodar HOJE
+ * com estes 8 símbolos especificamente (confirmados pelo Cleber como
+ * existentes na Infinox/MetaTrader com esta MESMA nomenclatura, e testados
+ * ao vivo contra /mt5-prices por este agente antes de entrar aqui -- todos
+ * devolveram bid/ask reais). Forex tirado por completo por enquanto -- só
+ * cripto/cross hoje. Objetivo: o agente analisar esta cesta específica hoje
+ * pra informar a operação de amanhã.
  */
 export const MT5_ASSET_BASKET = [
-  // Forex (24/5 durante dia útil)
-  "EURUSD", "GBPUSD", "USDJPY",
-  // Cripto (24/5 — preferencial fim de semana quando forex fica parado)
-  "BTCUSD", "XETUSD", "SOLUSD"
+  "BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "XPTUSD", "BTCXBN",
 ];
 
 /**
- * `lotSize` de cada símbolo — cópia deliberada de `assetDatabase.ts` (repo
- * principal, só pros 7 símbolos desta cesta) pra este projeto Node/tsx não
- * precisar importar a árvore inteira de módulos client-side. Manter em
- * sincronia com aquele arquivo se o catálogo mudar.
- *
- * 🔴 2026-08-29 (achado do Cleber): a ponte abria posição de $10 fixos,
- * independente do símbolo -- pra BTCUSD isso é ~0,0001 lote, ~1% do menor
- * contrato real permitido na plataforma (0,01 lote, confirmado pelo
- * Cleber). O motor mecânico nunca abriria uma posição desse tamanho (gate
- * `MIN_TRADE_SIZE`). Corrigido: o agente agora especifica LOTES (mínimo
- * 0,01), e o notional em dólar é calculado daqui (`lots * lotSize * preço`),
- * igual à conversão que o Dashboard já usa (`lotSizeConversion.ts`).
+ * `lotSize` de cada símbolo. Os 5 já validados em sessões anteriores mantêm
+ * o valor confirmado; os 3 novos (DOGUSD, DOTUSD, XRPUSD, XPTUSD, BTCXBN)
+ * seguem o MESMO padrão (lotSize=1) dos demais cripto/cross desta cesta --
+ * não há entrada equivalente no catálogo estático do app pra confirmar
+ * contra (esses símbolos com esta nomenclatura exata não estão em
+ * `assetDatabase.ts`), então usa o padrão já validado em vez de inventar um
+ * valor. Se o tamanho de posição parecer estranho pra algum desses,
+ * revisitar.
  */
 export const LOT_SIZE: Record<string, number> = {
-  EURUSD: 100000,
-  GBPUSD: 100000,
-  USDJPY: 100000,
   BTCUSD: 1,
   XETUSD: 1,
   SOLUSD: 1,
+  DOGUSD: 1,
+  DOTUSD: 1,
+  XRPUSD: 1,
+  XPTUSD: 1,
+  BTCXBN: 1,
 };
 
 export const MIN_LOTS = 0.01;
 
-const FOREX_SYMBOLS = new Set(["EURUSD", "GBPUSD", "USDJPY"]);
+// Nenhum símbolo de forex na cesta de hoje -- todos operam 24/7, sem janela
+// de fechamento de fim de semana.
+const FOREX_SYMBOLS = new Set<string>([]);
 
 /**
  * Forex (via CFD MetaAPI/Infinox) fecha no fim de semana -- mesmo horário
  * que `isCfdMarketOpen()` em `src/app/utils/marketHours.ts` (repo
- * principal), copiado aqui deliberadamente (mesmo motivo do `LOT_SIZE`
- * acima: este projeto Node/tsx não importa a árvore client-side).
- *
- * 🔴 2026-08-29 (achado do Cleber): sem essa checagem, o agente abria
- * LONG/SHORT em EURUSD/GBPUSD/USDJPY com mercado fechado -- a rota
- * `/mt5-prices` não erra nesse caso, só devolve o último tick conhecido
- * (changePercent trava em 0%), e o agente confundia isso com "mercado
- * parado, sem sinal" em vez de perceber que não dava pra operar ali.
- * Cripto (BTCUSD/XETUSD/SOLUSD) não tem essa restrição -- 24/5 real.
- *
+ * principal). Mantido aqui mesmo com a cesta de hoje sem forex, pra não
+ * precisar reintroduzir a lógica se a cesta voltar a incluir forex amanhã.
  * Fecha: Sexta 22:00 UTC. Abre: Domingo 23:00 UTC.
  */
 export function isForexMarketOpen(now: Date = new Date()): boolean {
@@ -72,23 +58,27 @@ export function isForexMarketOpen(now: Date = new Date()): boolean {
 }
 
 export function isSymbolTradable(symbol: string, now: Date = new Date()): boolean {
-  if (!FOREX_SYMBOLS.has(symbol)) return true; // cripto: sempre
+  if (!FOREX_SYMBOLS.has(symbol)) return true; // cripto/cross: sempre
   return isForexMarketOpen(now);
 }
 
 /**
- * Grupos de ativos correlacionados (2026-08-29, otimização urgente pós-perda
- * do dia). Achado real: o teto de "3 posições por símbolo" não impedia o
- * agente de abrir 2-3 SHORT em BTCUSD **e** 2-3 SHORT em SOLUSD **e** 2-3
- * SHORT em XETUSD ao mesmo tempo -- os três são cripto e andam fortemente
- * correlacionados (mesmo regime de mercado, mesmo apetite a risco). Isso não
- * é diversificação: é a MESMA aposta direcional triplicada, com exposição em
- * dólar 3x maior do que o "teto por símbolo" sozinho sugere. `getCorrelatedGroup`
- * devolve o grupo do símbolo (ou o próprio símbolo isolado se não tiver
- * grupo), pra `open_position` somar a exposição do GRUPO inteiro no mesmo
- * lado antes de liberar mais uma entrada.
+ * Grupos de ativos correlacionados. Achado real (2026-08-29): stackear a
+ * MESMA aposta direcional em vários cripto ao mesmo tempo (ex: SHORT em
+ * BTCUSD+XETUSD+SOLUSD simultâneo) não é diversificação, é triplicar
+ * (quintuplicar, aqui) o mesmo risco -- `getCorrelatedGroup` devolve o grupo
+ * do símbolo (ou o próprio símbolo isolado se não tiver grupo), pra
+ * `open_position` somar a exposição do GRUPO inteiro no mesmo lado antes de
+ * liberar mais uma entrada.
+ *
+ * 🔴 2026-08-29 (cesta de hoje): BTCUSD/XETUSD/SOLUSD/DOGUSD/DOTUSD/XRPUSD/
+ * BTCXBN são todos cripto (ou cross de cripto) -- mesmo grupo. XPTUSD é
+ * platina (metal precioso via CFD, não cripto) -- fica FORA do grupo cripto
+ * de propósito, não tem a mesma correlação de regime de risco.
  */
-const CORRELATED_GROUPS: string[][] = [["BTCUSD", "XETUSD", "SOLUSD"]];
+const CORRELATED_GROUPS: string[][] = [
+  ["BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN"],
+];
 
 export function getCorrelatedGroup(symbol: string): string[] {
   return CORRELATED_GROUPS.find((group) => group.includes(symbol)) ?? [symbol];

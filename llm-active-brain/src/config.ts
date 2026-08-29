@@ -89,7 +89,12 @@ export const config = {
   llmModel: process.env.LLM_MODEL || llmProviderDefaults.model,
   agentPrivateKey: requireEnv("AGENT_PRIVATE_KEY") as `0x${string}`,
   rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || undefined,
-  maxIterations: Number(process.env.MAX_ITERATIONS ?? 15),
+  // 🔴 2026-08-29 (pedido do Cleber): cesta de hoje tem 8 ativos (5 deles
+  // novos, com missao explicita de reconhecimento no prompt -- ver
+  // agent.ts) -- 15 -> 25 pra sobrar espaco real pra list_open_positions +
+  // get_mt5_quote de cada um dos 8 + log_thought detalhado por ativo novo +
+  // possiveis open_position/close_position + stop, sem esbarrar no teto.
+  maxIterations: Number(process.env.MAX_ITERATIONS ?? 25),
   maxTxValueEth: Number(process.env.MAX_TX_VALUE_ETH ?? 0.0002),
   // Modo continuo: roda varios ciclos de decisao em sequencia, ate atingir
   // maxCycles ou uma condicao de parada (sem saldo em nenhuma das duas

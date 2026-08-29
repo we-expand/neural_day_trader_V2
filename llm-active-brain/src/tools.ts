@@ -263,8 +263,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `Isso existe porque BTCUSD, XETUSD e SOLUSD tem precos MUITO diferentes (~$77.000 vs ~$2.400 vs ~$100), ` +
         `entao o MESMO numero de lotes gera exposicoes em dolar completamente diferentes; o codigo normaliza isso ` +
         `automaticamente pra exposicao-alvo igual (~$${config.mt5TargetNotionalUsd}) em qualquer simbolo. ` +
-        `BTCUSD/XETUSD/SOLUSD sao cripto correlacionada -- exposicao combinada do MESMO lado nesses 3 tem teto proprio ` +
-        `(nao e so por simbolo). Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
+        `BTCUSD/XETUSD/SOLUSD/DOGUSD/DOTUSD/XRPUSD/BTCXBN sao cripto correlacionada (XPTUSD, platina, fica de fora do grupo) -- ` +
+        `exposicao combinada do MESMO lado nesse grupo tem teto proprio (nao e so por simbolo). ` +
+        `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
         `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal (ver "volume") tambem e bloqueado -- ` +
         `contrarian trade e permitido, mas so com confirmacao real de participacao, nao no vacuo.`,
       parameters: {
