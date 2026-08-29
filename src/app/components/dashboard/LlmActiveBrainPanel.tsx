@@ -30,14 +30,18 @@ import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 // dispensar Binance e operar a MESMA cesta/preço/execução do motor
 // mecânico (ver llm-active-brain/src/mt5Broker.ts + assetBasket.ts).
 const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
-// 🔴 2026-08-29 (pedido do Cleber: "preciso que esse painel esteja vivo,
-// funcionando segundo a segundo"). Preço/PnL flutuante em loop de 1s
-// (barato: `getBatchedMT5Data` já compartilha cache/TTL de 2s com o resto
-// do app, não gera requisição extra na conta MetaAPI a cada tick) — só a
-// sincronização de trades/sessão com o Supabase (abriu/fechou posição
-// nova) continua num loop mais espaçado.
-const PRICE_POLL_MS = 1_000;
+// 🔴 2026-08-29: primeira tentativa foi buscar preço a cada 1s, mas
+// `getBatchedMT5Data` bate na CONTA METAAPI COMPARTILHADA (mesma conta de
+// TODO o app -- ver aviso em CLAUDE.md: "sujeita a rate-limit sob carga,
+// sempre espaçar chamadas, nunca testar em paralelo contra ela"). A 1s,
+// "atualizado há Ns" ficava oscilando (0s, 7s, 8s...) em vez de andar liso
+// -- sinal de requisições brigando/falhando, não de sucesso a cada 1s.
+// Preço real fica no MESMO ritmo que o motor mecânico já usa com sucesso
+// (5s, useApexLogic.ts tradingInterval) -- a sensação "segundo a segundo"
+// vem do TICK_MS abaixo (sem rede, só força re-render do relógio/labels).
+const PRICE_POLL_MS = 5_000;
 const TRADES_POLL_MS = 5_000;
+const TICK_MS = 1_000;
 
 interface BrainTrade {
   id: string;
@@ -84,6 +88,7 @@ export function LlmActiveBrainPanel() {
   const [trades, setTrades] = useState<BrainTrade[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const [lastUpdate, setLastUpdate] = useState<number>(0);
+  const [, setTick] = useState(0); // força re-render a cada 1s (sem rede) pro "atualizado há Ns" andar liso
   const cancelledRef = useRef(false);
   // Ref (não state) pra o loop de preço de 1s ler sempre a lista mais
   // recente de posições abertas sem precisar recriar o interval a cada
@@ -138,10 +143,12 @@ export function LlmActiveBrainPanel() {
     pollTrades().then(pollPrice);
     const tradesInterval = setInterval(pollTrades, TRADES_POLL_MS);
     const priceInterval = setInterval(pollPrice, PRICE_POLL_MS);
+    const tickInterval = setInterval(() => setTick(t => t + 1), TICK_MS);
     return () => {
       cancelledRef.current = true;
       clearInterval(tradesInterval);
       clearInterval(priceInterval);
+      clearInterval(tickInterval);
     };
   }, []);
 
