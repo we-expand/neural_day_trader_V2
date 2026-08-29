@@ -48,15 +48,28 @@ async function getOrCreateSession(): Promise<string> {
     }
     const sb = getClient();
 
-    // Reusa a sessao RUNNING mais recente marcada com esta strategy_name,
-    // se existir (permite reiniciar o processo sem abrir sessao nova toda
-    // hora). Caso contrario, cria uma.
+    // Reusa a sessao mais recente marcada com esta strategy_name, se existir
+    // (permite reiniciar o processo sem abrir sessao nova toda hora). Caso
+    // contrario, cria uma.
+    //
+    // 🔴 NUNCA filtrar/criar com status='RUNNING' aqui (bug real, 2026-08-29,
+    // achado do Cleber por captura de tela: "posicao aberta parada e com
+    // valor de patrimonio do motor mecanico"). `AITradingPersistenceService.
+    // getActiveSession()` -- usado pelo MOTOR MECANICO DE VERDADE no
+    // navegador -- busca simplesmente "a sessao RUNNING mais recente do
+    // usuario", SEM filtrar por strategy_name. Como esta sessao isolada e
+    // criada depois da sessao do motor mecanico, ela virava "a sessao ativa"
+    // do proprio motor real no navegador -- nao so exibicao, o motor mecanico
+    // passava a operar em cima do estado desta sessao isolada. Usar
+    // status='PAUSED' mantem esta sessao completamente fora do alcance de
+    // getActiveSession() (que so olha RUNNING), sem impedir nada do que esta
+    // ponte precisa fazer (ela sempre acessa por session_id direto, nunca
+    // via "sessao ativa").
     const { data: existing, error: findError } = await sb
       .from("ai_sessions")
       .select("id")
       .eq("user_id", config.neuralUserId)
       .eq("strategy_name", "LLM_ACTIVE_BRAIN_AUTONOMOUS_MONEY")
-      .eq("status", "RUNNING")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -72,7 +85,7 @@ async function getOrCreateSession(): Promise<string> {
         symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
         initial_balance: 50,
         initial_equity: 50,
-        status: "RUNNING",
+        status: "PAUSED",
         config: {
           source: "autonomous_money agent (full tool-calling LLM, sem gate mecanico)",
           binance_testnet: config.binanceTestnet,
