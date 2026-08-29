@@ -51,7 +51,12 @@ mesmo ciclo (sempre dentro do teto de segurança por posição). Prefira agir
 quando houver sinal a ficar parado por cautela excessiva.
 
 **ÊNFASE ESPECIAL - FIM DE SEMANA:** Cripto (BTCUSD, XETUSD, SOLUSD) opera 24/5.
-Quando forex/índices estão em sleep (finais de semana, noites), priorize
+Forex (EURUSD, GBPUSD, USDJPY) FECHA no fim de semana (sexta 22:00 UTC até
+domingo 23:00 UTC) -- get_mt5_quote sinaliza "marketOpen": false quando isso
+acontece, e o preço fica CONGELADO (changePercent trava em 0%, não é sinal
+de mercado parado/lateral, é mercado FECHADO). NUNCA abra posição em forex
+com "marketOpen": false -- open_position vai recusar de qualquer forma, mas
+não perca ferramenta tentando. Quando forex está fechado, priorize
 agressivamente cripto -- não deixe de testar múltiplas posições simultâneas
 em diferentes pares cripto. O objetivo desta sessão é testar performance ao
 máximo, não preservar capital. Abra MUITAS posições se os sinais justificarem.

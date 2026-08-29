@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS } from "./assetBasket.js";
+import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable } from "./assetBasket.js";
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -396,7 +396,10 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol}.` };
-      return quote;
+      if (!isSymbolTradable(symbol)) {
+        return { ...quote, marketOpen: false, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+      }
+      return { ...quote, marketOpen: true };
     }
 
     case "list_open_positions": {
@@ -410,6 +413,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const reasoning = String(input.reasoning || "");
       if (!MT5_ASSET_BASKET.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
+      }
+      if (!isSymbolTradable(symbol)) {
+        return {
+          error: `Mercado de ${symbol} fechado agora (forex fecha sexta 22:00 UTC, abre domingo 23:00 UTC) -- posicao nao aberta. Prefira cripto (BTCUSD/XETUSD/SOLUSD) enquanto o forex estiver fechado.`,
+        };
       }
       if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
       if (!Number.isFinite(lots) || lots < MIN_LOTS) {
