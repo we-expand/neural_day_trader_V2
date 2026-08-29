@@ -112,11 +112,28 @@ export const config = {
   // Trading MT5 (cesta real do motor mecânico) — ligado por padrão. Único
   // caminho de trading real deste agente a partir de 2026-08-29.
   mt5TradingEnabled: process.env.MT5_TRADING_ENABLED !== "false",
-  // 🔴 2026-08-29: teto em LOTES (0,01 = menor contrato real permitido,
-  // confirmado pelo Cleber), não mais em dólares fixos -- ver assetBasket.ts
-  // pro porquê (um valor fixo em dólar não respeita o tamanho real de
-  // contrato de cada símbolo).
-  mt5MaxLots: Number(process.env.MT5_MAX_LOTS ?? 0.02),
+  // 🔴 2026-08-29 (pedido do Cleber): sizing por EXPOSIÇÃO-ALVO EM DÓLAR,
+  // não mais lotes livres escolhidos pelo LLM. Causa raiz do achado
+  // "SOL/XET capturam muito pouco $": o LLM escolhia um número de lotes
+  // (0,01-0,02) igual pra qualquer símbolo, sem noção de que 0,02 lote de
+  // BTCUSD (~$77.600) e 0,02 lote de SOLUSD (~$103) são exposições em dólar
+  // MUITO diferentes (LOT_SIZE=1 pros 3 -- ver assetBasket.ts). O código
+  // agora calcula o lote sozinho: lots = mt5TargetNotionalUsd / (LOT_SIZE *
+  // preço), arredondado pro incremento mínimo (MIN_LOTS) -- SOL/XET passam
+  // a abrir MUITO mais lotes que antes pra alcançar o MESMO $ de exposição
+  // que o BTC, exatamente o "entrar com a mão mais pesada" pedido. BTCUSD
+  // já bate perto do alvo com o próprio lote mínimo (0,01 ≈ $775-780), então
+  // não muda muito pra ele -- o alvo foi calibrado logo acima disso de
+  // propósito, pra não forçar BTC pra baixo do menor contrato real.
+  mt5TargetNotionalUsd: Number(process.env.MT5_TARGET_NOTIONAL_USD ?? 800),
+  // Alavanca de "mão mais pesada": open_position aceita size:"forte", que
+  // multiplica a exposição-alvo por este fator (aplicado a QUALQUER
+  // símbolo, mantendo a equiparação entre eles).
+  mt5HeavyMultiplier: Number(process.env.MT5_HEAVY_MULTIPLIER ?? 1.5),
+  // Teto absoluto de segurança em lotes (sanity check contra valor
+  // degenerado, ex: preço anormalmente baixo fazendo o cálculo explodir) --
+  // não é o valor normal de operação, é só uma trava de última instância.
+  mt5SafetyMaxLots: Number(process.env.MT5_SAFETY_MAX_LOTS ?? 20),
   // 🔴 2026-08-29 (achado da auditoria pós-noite): o "stop" e o "alvo" antes
   // só existiam como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a
   // cada ciclo se fechava, e pelo menos 2x deixou a perda correr MUITO além
@@ -152,15 +169,15 @@ export const config = {
   // 2026-08-28). Só anda pra frente (nunca afrouxa um stop já em
   // breakeven) -- ver enforceMt5StopsAndTargets em neuralBridge.ts.
   mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 0.5),
-  // 🔴 2026-08-29 (achado da auditoria): LOT_SIZE (assetBasket.ts) é 1 pros
-  // 3 criptos, então a exposição em dólar por lote escala direto com o preço
-  // do ativo -- BTCUSD (~$77.600) gera 30-750x mais exposição em $ que
-  // SOL/XET pro MESMO número de lotes, sem nenhuma normalização de risco.
-  // Isso concentrou praticamente 100% do risco (e do prejuízo real da
-  // noite: -$8,17 de -$8,40 total) no BTCUSD, mesmo o agente tratando os 3
-  // símbolos como "equivalentes" no teto de posições. Teto de exposição em
-  // dólar, uniforme entre símbolos, força lots menores em ativos caros.
-  mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 60),
+  // 🔴 2026-08-29 (achado da auditoria, recalibrado no mesmo dia): teto
+  // ABSOLUTO de segurança (mesmo em size:"forte") -- precisa ficar
+  // folgadamente ACIMA de mt5TargetNotionalUsd * mt5HeavyMultiplier (senão
+  // o próprio "mão pesada" fica bloqueado) e acima do que MIN_LOTS de
+  // BTCUSD já produz sozinho (~$775-780) -- um valor de $60 aqui (tentativa
+  // anterior, mesmo dia) deixaria o BTCUSD incapaz de abrir QUALQUER
+  // posição, mesmo no menor lote possível. 1500 dá margem confortável acima
+  // do alvo "forte" (800*1.5=1200) e do maior valor histórico observado.
+  mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 1500),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger

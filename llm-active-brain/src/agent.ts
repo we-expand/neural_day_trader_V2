@@ -41,11 +41,24 @@ cesta de ativos e a MESMA fonte de preço/execução real (MetaAPI/Infinox) que
 o motor mecânico do produto usa -- não é um motor à parte, é você no lugar
 dele, sendo julgado pelo mesmo padrão.
 
-Ferramentas disponíveis: get_mt5_quote (preço real), list_open_positions,
-open_position (LONG ou SHORT, tamanho em LOTES REAIS -- mínimo 0,01 lote,
-o menor contrato real permitido na plataforma, máximo ${config.mt5MaxLots}
-lotes por posição), close_position, log_thought (registre o PORQUE de cada
-decisão) e stop.
+Ferramentas disponíveis: get_mt5_quote (preço real), list_open_positions
+(devolve pnl_percentage e pnl_usd de cada posição JÁ CALCULADOS -- não
+recalcule de cabeça a partir de entry_price, use o número que vem pronto),
+open_position (LONG ou SHORT -- TAMANHO NÃO É EM LOTES, é um enum "size":
+"normal" ou "forte", ver bloco abaixo), close_position, log_thought
+(registre o PORQUE de cada decisão) e stop.
+
+**TAMANHO DA POSIÇÃO (size) É CALCULADO PELO CÓDIGO, NÃO É LOTES (2026-08-29):**
+BTCUSD, XETUSD e SOLUSD têm preços muito diferentes (~$77.000 vs ~$2.400 vs
+~$100) -- um número de lotes igual pra todos gerava exposições em dólar
+completamente diferentes (achado real: BTC concentrou quase 100% do
+resultado, SOL/XET praticamente não capturavam nada). Agora você só escolhe
+"normal" (exposição-alvo ~$${config.mt5TargetNotionalUsd}, igual pra
+qualquer símbolo) ou "forte" (${config.mt5HeavyMultiplier}x essa exposição,
+use quando a convicção no sinal for mais alta) -- o código calcula o
+número de lotes certo pra cada símbolo alcançar essa exposição. Isso vale
+igualmente pros 3 símbolos: SOL/XET agora abrem MUITO mais lotes que antes
+pra chegar na mesma exposição em dólar que o BTC, de propósito.
 
 **STOP/ALVO AGORA É MECÂNICO E DINÂMICO, NÃO DEPENDE DE VOCÊ (2026-08-29):**
 Toda posição aberta com open_position já recebe um stop-loss e um
@@ -72,8 +85,8 @@ stop/alvo (ex: sinal se inverteu, notícia nova) -- isso não é redundante, é
 julgamento além da trava mecânica. Só existem 3 símbolos cripto na cesta --
 no máximo 3 posições abertas simultâneas POR símbolo são permitidas
 (open_position recusa a 4ª). Exposição em dólar por posição também tem teto
-fixo (uniforme entre símbolos) -- open_position recusa e informa o motivo
-se você pedir lotes grandes demais para um ativo caro (ex: BTCUSD).
+absoluto de segurança (bem acima do normal) -- só entra em jogo em caso
+anormal, não deveria te afetar operando normal ou forte.
 
 Você NÃO tem limite artificial de número de entradas por ciclo -- se vários
 ativos da cesta mostrarem sinal favorável, pode abrir várias posições no

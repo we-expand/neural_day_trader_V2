@@ -252,17 +252,26 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       name: "open_position",
       description:
         `Abre uma posicao virtual (DEMO, dinheiro simulado) num ativo da cesta, comprado/vendido a preco real de mercado. ` +
-        `Tamanho em LOTES reais (nao dolares) -- minimo ${MIN_LOTS} lote (menor contrato real permitido na plataforma), ` +
-        `maximo ${config.mt5MaxLots} lotes por posicao.`,
+        `O TAMANHO EM LOTES E CALCULADO PELO CODIGO, nao por voce -- ver "size" abaixo. ` +
+        `Isso existe porque BTCUSD, XETUSD e SOLUSD tem precos MUITO diferentes (~$77.000 vs ~$2.400 vs ~$100), ` +
+        `entao o MESMO numero de lotes gera exposicoes em dolar completamente diferentes; o codigo normaliza isso ` +
+        `automaticamente pra exposicao-alvo igual (~$${config.mt5TargetNotionalUsd}) em qualquer simbolo.`,
       parameters: {
         type: "object",
         properties: {
           symbol: { type: "string", description: `Um dos simbolos da cesta: ${MT5_ASSET_BASKET.join(", ")}.` },
           side: { type: "string", enum: ["LONG", "SHORT"], description: "Comprado (aposta em alta) ou vendido (aposta em baixa)." },
-          lots: { type: "number", description: `Tamanho da posicao em lotes (minimo ${MIN_LOTS}, maximo ${config.mt5MaxLots}).` },
+          size: {
+            type: "string",
+            enum: ["normal", "forte"],
+            description:
+              `"normal" = exposicao-alvo padrao (~$${config.mt5TargetNotionalUsd}, igual pra qualquer simbolo). ` +
+              `"forte" = ${config.mt5HeavyMultiplier}x essa exposicao -- use quando a conviccao no sinal for mais alta, ` +
+              `nao como padrao pra tudo.`,
+          },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
         },
-        required: ["symbol", "side", "lots", "reasoning"],
+        required: ["symbol", "side", "size", "reasoning"],
       },
     },
   },
@@ -404,17 +413,52 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     }
 
     case "list_open_positions": {
+      // 🔴 2026-08-29 (achado da auditoria): o LLM calculando %/PnL de cabeca
+      // a partir de entry_price + preco atual errou pelo menos 2x na noite
+      // de 2026-08-29 (uma vez inverteu lucro/prejuizo, outra escreveu
+      // "Lucratividade alcancada: prejuizo de ~1.125%" na mesma frase).
+      // Modelo pequeno/rapido fazendo aritmetica em texto livre erra com
+      // frequencia nao-trivial -- a correcao nao e "pedir pra pensar melhor",
+      // e tirar a conta da mao dele: devolver pnl_percentage/pnl_usd JA
+      // CALCULADOS (mesma formula de closeMt5Position em neuralBridge.ts),
+      // deterministico, nunca erra. O LLM so precisa ler o numero.
+      let positions;
       try {
-        return { positions: await listMt5OpenPositions() };
+        positions = await listMt5OpenPositions();
       } catch (err) {
         return { error: `Falha ao consultar posicoes abertas (rede/Supabase): ${err instanceof Error ? err.message : err}. Tente de novo antes de decidir.` };
       }
+      const quoteCache = new Map<string, { price: number } | null>();
+      const enriched = await Promise.all(
+        positions.map(async (pos) => {
+          if (!quoteCache.has(pos.symbol)) {
+            quoteCache.set(pos.symbol, await getMt5Quote(pos.symbol));
+          }
+          const quote = quoteCache.get(pos.symbol);
+          if (!quote) {
+            return { ...pos, current_price: null, pnl_percentage: null, pnl_usd: null, aviso: "Sem cotacao real agora -- nao foi possivel calcular PnL atual." };
+          }
+          const amountUsd = pos.quantity; // convencao: quantity = exposicao em dolar, ver comentario em neuralBridge.ts
+          const pnlUsd =
+            pos.side === "LONG"
+              ? (quote.price - pos.entry_price) * (amountUsd / pos.entry_price)
+              : (pos.entry_price - quote.price) * (amountUsd / pos.entry_price);
+          const pnlPct = ((quote.price - pos.entry_price) / pos.entry_price) * 100 * (pos.side === "LONG" ? 1 : -1);
+          return {
+            ...pos,
+            current_price: quote.price,
+            pnl_percentage: Number(pnlPct.toFixed(4)),
+            pnl_usd: Number(pnlUsd.toFixed(4)),
+          };
+        })
+      );
+      return { positions: enriched };
     }
 
     case "open_position": {
       const symbol = String(input.symbol || "").toUpperCase();
       const side = input.side as string;
-      const lots = Number(input.lots);
+      const sizeInput = String(input.size || "normal").toLowerCase();
       const reasoning = String(input.reasoning || "");
       if (!MT5_ASSET_BASKET.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
@@ -425,12 +469,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         };
       }
       if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
-      if (!Number.isFinite(lots) || lots < MIN_LOTS) {
-        return { error: `lots invalido -- minimo ${MIN_LOTS} lote (menor contrato real permitido).` };
-      }
-      if (lots > config.mt5MaxLots) {
-        return { error: `Tamanho pedido (${lots} lotes) excede o teto de seguranca por posicao (${config.mt5MaxLots} lotes). Bloqueado.` };
-      }
+      if (sizeInput !== "normal" && sizeInput !== "forte") return { error: "size precisa ser 'normal' ou 'forte'." };
       // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o
       // agente nunca fechava nada -- so empilhava posicoes quase-duplicadas
       // no mesmo simbolo, as vezes ao MESMO preco de entrada (visto no log
@@ -454,26 +493,49 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
-      // Notional em dolares = lotes * tamanho do lote * preco -- MESMA conversao
-      // que o Dashboard usa (lotSizeConversion.ts) pra ir de exposicao($) a
-      // lotes reais. Grava-se o notional (nao os lotes) em ai_trades.quantity,
-      // convencao que `calculateEngineConsistentPnL` (useApexLogic.ts) espera.
-      const amountUsd = lots * LOT_SIZE[symbol] * quote.price;
-      // 🔴 2026-08-29 (achado da auditoria): LOT_SIZE=1 pros 3 criptos faz a
-      // exposicao em dolar escalar direto com o preco do ativo -- BTCUSD
-      // (~$77.600) gera dezenas de vezes mais exposicao que SOL/XET pro
-      // MESMO numero de lotes, mesmo com o mesmo teto de "lotes" (mt5MaxLots)
-      // aplicado aos tres. Foi o que concentrou quase 100% do prejuizo real
-      // da noite de 2026-08-29 (-$8,17 de -$8,40) no BTCUSD sozinho. Teto de
-      // exposicao em dolar, uniforme entre simbolos, independente do teto de
-      // lotes.
-      if (amountUsd > config.mt5MaxNotionalUsd) {
+      // 🔴 2026-08-29 (achado da auditoria): confirmado ao vivo 7 posicoes
+      // BTCUSD SHORT abertas no MESMO preco exato (77658.82) ao longo de 12
+      // minutos -- estatisticamente improvavel pra um ativo que nunca fica
+      // parado, indicio de cotacao obsoleta vinda da propria MetaAPI (o
+      // feed ja teve quedas confirmadas na mesma madrugada). O LLM nao tem
+      // como perceber isso sozinho (so ve o preco que a ferramenta devolve),
+      // entao a trava e aqui: nunca abre uma posicao identica (mesmo
+      // simbolo+lado+preco ao centavo) a uma ja aberta -- nao importa a
+      // causa, duplicar nao agrega informacao nova, so duplica risco.
+      const duplicatePrice = openPositions.find((p) => p.symbol === symbol && p.side === side && p.entry_price === quote.price);
+      if (duplicatePrice) {
         return {
           error:
-            `Exposicao pedida ($${amountUsd.toFixed(2)}) excede o teto de seguranca por posicao ` +
-            `($${config.mt5MaxNotionalUsd}, uniforme entre simbolos). Peca um numero de lotes menor ` +
-            `para ${symbol} (ativo caro gera mais exposicao por lote que SOL/XET).`,
+            `Ja existe uma posicao aberta em ${symbol} ${side} no MESMO preco exato (${quote.price}) -- ` +
+            `provavel cotacao obsoleta (feed pode estar travado). Posicao NAO aberta. Tente de novo em instantes ou avalie outro ativo.`,
         };
+      }
+      // 🔴 2026-08-29 (achado da auditoria, redesenhado no mesmo dia a
+      // pedido do Cleber): LOT_SIZE=1 pros 3 criptos faz a exposicao em
+      // dolar escalar direto com o preco do ativo -- BTCUSD (~$77.600) gera
+      // dezenas de vezes mais exposicao que SOL/XET pro MESMO numero de
+      // lotes. Antes isso so tinha um TETO uniforme (deixava SOL/XET presos
+      // perto do minimo, sem forcar pra cima) -- agora o lote e CALCULADO
+      // pelo codigo a partir de uma exposicao-ALVO uniforme
+      // (mt5TargetNotionalUsd), nao escolhido livremente pelo LLM. SOL/XET
+      // passam a abrir MUITO mais lotes que antes pra alcancar a MESMA
+      // exposicao em $ que o BTC -- resolve o achado "SOL/XET capturam
+      // pouco $" na raiz (exposicao, nao so pontos de saida).
+      const targetNotional = config.mt5TargetNotionalUsd * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);
+      lots = Math.max(MIN_LOTS, Math.min(lots, config.mt5SafetyMaxLots));
+      lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
+      let amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      // Teto absoluto de seguranca -- so deveria disparar em caso degenerado
+      // (preco anormal), o calculo acima ja mira dentro do alvo normalmente.
+      if (amountUsd > config.mt5MaxNotionalUsd) {
+        lots = Math.floor(config.mt5MaxNotionalUsd / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS;
+        if (lots < MIN_LOTS) {
+          return {
+            error: `Exposicao minima possivel para ${symbol} neste preco excede o teto absoluto de seguranca ($${config.mt5MaxNotionalUsd}). Posicao NAO aberta.`,
+          };
+        }
+        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
       }
       // 🔴 2026-08-29 (achado da auditoria): antes o "stop"/"alvo" so existia
       // como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a cada
@@ -516,6 +578,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         trade_id: tradeId,
         symbol,
         side,
+        size: sizeInput,
         entry_price: quote.price,
         lots,
         amount_usd: amountUsd,
