@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { MT5_ASSET_BASKET } from "./assetBasket.js";
+import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS } from "./assetBasket.js";
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -251,16 +251,17 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       name: "open_position",
       description:
         `Abre uma posicao virtual (DEMO, dinheiro simulado) num ativo da cesta, comprado/vendido a preco real de mercado. ` +
-        `Teto por posicao: $${config.mt5MaxOrderUsd}.`,
+        `Tamanho em LOTES reais (nao dolares) -- minimo ${MIN_LOTS} lote (menor contrato real permitido na plataforma), ` +
+        `maximo ${config.mt5MaxLots} lotes por posicao.`,
       parameters: {
         type: "object",
         properties: {
           symbol: { type: "string", description: `Um dos simbolos da cesta: ${MT5_ASSET_BASKET.join(", ")}.` },
           side: { type: "string", enum: ["LONG", "SHORT"], description: "Comprado (aposta em alta) ou vendido (aposta em baixa)." },
-          amount_usd: { type: "number", description: `Exposicao em dolares da posicao (maximo $${config.mt5MaxOrderUsd}).` },
+          lots: { type: "number", description: `Tamanho da posicao em lotes (minimo ${MIN_LOTS}, maximo ${config.mt5MaxLots}).` },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
         },
-        required: ["symbol", "side", "amount_usd", "reasoning"],
+        required: ["symbol", "side", "lots", "reasoning"],
       },
     },
   },
@@ -405,18 +406,25 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     case "open_position": {
       const symbol = String(input.symbol || "").toUpperCase();
       const side = input.side as string;
-      const amountUsd = Number(input.amount_usd);
+      const lots = Number(input.lots);
       const reasoning = String(input.reasoning || "");
       if (!MT5_ASSET_BASKET.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
       }
       if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
-      if (!Number.isFinite(amountUsd) || amountUsd <= 0) return { error: "amount_usd invalido." };
-      if (amountUsd > config.mt5MaxOrderUsd) {
-        return { error: `Valor pedido ($${amountUsd}) excede o teto de seguranca por posicao ($${config.mt5MaxOrderUsd}). Bloqueado.` };
+      if (!Number.isFinite(lots) || lots < MIN_LOTS) {
+        return { error: `lots invalido -- minimo ${MIN_LOTS} lote (menor contrato real permitido).` };
+      }
+      if (lots > config.mt5MaxLots) {
+        return { error: `Tamanho pedido (${lots} lotes) excede o teto de seguranca por posicao (${config.mt5MaxLots} lotes). Bloqueado.` };
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
+      // Notional em dolares = lotes * tamanho do lote * preco -- MESMA conversao
+      // que o Dashboard usa (lotSizeConversion.ts) pra ir de exposicao($) a
+      // lotes reais. Grava-se o notional (nao os lotes) em ai_trades.quantity,
+      // convencao que `calculateEngineConsistentPnL` (useApexLogic.ts) espera.
+      const amountUsd = lots * LOT_SIZE[symbol] * quote.price;
       const tradeId = await openMt5Position({
         symbol,
         side: side as "LONG" | "SHORT",
@@ -426,7 +434,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         symbolsForNewSession: MT5_ASSET_BASKET,
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
-      return { trade_id: tradeId, symbol, side, entry_price: quote.price, amount_usd: amountUsd };
+      return { trade_id: tradeId, symbol, side, entry_price: quote.price, lots, amount_usd: amountUsd };
     }
 
     case "close_position": {

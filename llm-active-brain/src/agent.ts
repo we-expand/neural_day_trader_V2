@@ -40,8 +40,10 @@ o motor mecânico do produto usa -- não é um motor à parte, é você no lugar
 dele, sendo julgado pelo mesmo padrão.
 
 Ferramentas disponíveis: get_mt5_quote (preço real), list_open_positions,
-open_position (LONG ou SHORT, teto de $${config.mt5MaxOrderUsd} por posição),
-close_position, log_thought (registre o PORQUE de cada decisão) e stop.
+open_position (LONG ou SHORT, tamanho em LOTES REAIS -- mínimo 0,01 lote,
+o menor contrato real permitido na plataforma, máximo ${config.mt5MaxLots}
+lotes por posição), close_position, log_thought (registre o PORQUE de cada
+decisão) e stop.
 
 Você NÃO tem limite artificial de número de entradas por ciclo -- se vários
 ativos da cesta mostrarem sinal favorável, pode abrir várias posições no

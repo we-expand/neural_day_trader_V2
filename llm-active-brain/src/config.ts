@@ -74,7 +74,11 @@ export const config = {
   // Trading MT5 (cesta real do motor mecânico) — ligado por padrão. Único
   // caminho de trading real deste agente a partir de 2026-08-29.
   mt5TradingEnabled: process.env.MT5_TRADING_ENABLED !== "false",
-  mt5MaxOrderUsd: Number(process.env.MT5_MAX_ORDER_USD ?? 10),
+  // 🔴 2026-08-29: teto em LOTES (0,01 = menor contrato real permitido,
+  // confirmado pelo Cleber), não mais em dólares fixos -- ver assetBasket.ts
+  // pro porquê (um valor fixo em dólar não respeita o tamanho real de
+  // contrato de cada símbolo).
+  mt5MaxLots: Number(process.env.MT5_MAX_LOTS ?? 0.02),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
@@ -105,10 +109,13 @@ if (!Number.isFinite(config.cycleDelaySeconds) || config.cycleDelaySeconds < 5) 
 if (!Number.isFinite(config.maxCycles) || config.maxCycles <= 0) {
   throw new Error("MAX_CYCLES precisa ser um numero positivo.");
 }
-if (config.maxCycles > 1000) {
-  // Trava dura contra loop continuo sem fim: 1000 ciclos ja e um teto
-  // generoso pra um experimento educacional.
-  throw new Error("MAX_CYCLES acima do teto permitido (1000).");
+if (config.maxCycles > 20_000) {
+  // 🔴 2026-08-29 (pedido do Cleber): rodar o fim de semana inteiro
+  // (sexta-noite -> segunda-manhã, ~60h) com CYCLE_DELAY_SECONDS=30 precisa
+  // de bem mais que os 1000 ciclos originais (~20 000 cobrem folgadamente
+  // mesmo com iterações mais longas por ciclo). Teto subiu de 1000 -> 20 000,
+  // mas continua sendo uma trava dura -- nunca vira loop realmente infinito.
+  throw new Error("MAX_CYCLES acima do teto permitido (20000).");
 }
 if (config.tradingEnabled) {
   if (!config.binanceApiKey || !config.binanceSecretKey) {
