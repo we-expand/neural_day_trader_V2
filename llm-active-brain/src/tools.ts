@@ -228,12 +228,14 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       description:
         `Consulta o preco real de um ativo da cesta do motor mecanico do Neural Day Trader ` +
         `(via MetaAPI/Infinox -- MESMA fonte que o motor mecanico usa, nao Binance). ` +
-        `Devolve tambem "trend" (variacao % e rotulo ALTA/BAIXA/LATERAL na ultima 1h) e "volume" (razao do volume ` +
-        `real recente vs a media de 1h, e "elevated" true/false) -- proxies reais de direcao/participacao (nao e ` +
-        `book de ofertas, mas e dado real da MetaAPI, nao fabricado). AMBOS podem vir null quando o candle do ` +
-        `provedor esta temporariamente indisponivel -- null NAO significa "sem tendencia", significa "sem essa ` +
-        `informacao agora": use "changePercent" (sempre preenchido) como proxy e opere pelo julgamento normal, ` +
-        `nao trave o ciclo esperando esses campos aparecerem. So quando trend/volume vierem preenchidos e a ` +
+        `Devolve tambem "trend" (variacao % e rotulo ALTA/BAIXA/LATERAL) e "volume" (razao de participacao e ` +
+        `"elevated" true/false) -- proxies reais de direcao/participacao, nunca fabricados. Cada um tem um campo ` +
+        `"source": trend.source e "candle" (candle oficial da MetaAPI, janela de 1h) ou "tick" (fallback: preco ` +
+        `real deste processo, janela pode ser mais curta no inicio, ate 60min conforme o historico cresce). ` +
+        `volume.source e "candle_volume" (tickVolume real) ou "tick_momentum" (fallback: aceleracao de preco -- ` +
+        `nao e volume de verdade, mas e sinal real, nao inventado). AMBOS podem vir null so nos primeiros minutos ` +
+        `apos reiniciar o processo (historico de tick ainda curto) -- nesse caso use "changePercent" (sempre ` +
+        `preenchido) como proxy e opere pelo julgamento normal. So quando trend/volume vierem preenchidos e a ` +
         `entrada for CONTRA a tendencia SEM volume elevado, open_position bloqueia por codigo. ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {

@@ -9,6 +9,7 @@
  * desenvolvido".
  */
 import { config } from "./config.js";
+import { recordTick } from "./tickHistory.js";
 
 interface Mt5PriceTick {
   price: number;
@@ -74,6 +75,15 @@ export async function getQuote(
 
     const bid = Number.isFinite(tick.bid) ? (tick.bid as number) : tick.price;
     const ask = Number.isFinite(tick.ask) ? (tick.ask as number) : tick.price;
+
+    // 🔴 2026-08-29 (achado do Cleber: "não está conseguindo ver pra onde o
+    // mercado está indo"): todo tick REAL (nunca chega aqui se for SIMULATED,
+    // ver checagem acima) alimenta o histórico em memória deste processo --
+    // ver tickHistory.ts. É o que passa a sustentar tendência/volatilidade/
+    // momentum quando o endpoint de candles (fonte original dessas métricas)
+    // está fora do ar, como está agora.
+    recordTick(symbol, tick.price);
+
     return { symbol, price: tick.price, bid, ask, changePercent: tick.changePercent ?? 0 };
   } catch {
     return null;

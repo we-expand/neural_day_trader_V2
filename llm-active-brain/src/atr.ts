@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { getTickTrend, getTickVolatility, getMomentumAcceleration } from "./tickHistory.js";
 
 /**
  * Stop/alvo DINÂMICO por volatilidade real (2026-08-29, pedido do Cleber
@@ -98,14 +99,27 @@ async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
  * Retorna o ATR do símbolo como fração do preço (ex: 0.004 = 0.4%), ou
  * `null` se não deu pra calcular com dado real (chamador deve cair pro %
  * fixo de segurança nesse caso, nunca travar a abertura de posição).
+ *
+ * 🔴 2026-08-29 (achado do Cleber, "capacidade de análise direcional muito
+ * fraca"): `/mt5-candles` (única fonte usada até aqui) devolve 404 em
+ * produção pra todos os símbolos desta cesta -- confirmado nos logs, ATR
+ * SEMPRE caía no % fixo de segurança. Agora tenta o candle oficial primeiro
+ * (mais preciso, formula Wilder de verdade) e cai pro fallback de
+ * volatilidade por TICK REAL (tickHistory.ts, construído pelo próprio
+ * processo a partir de /mt5-prices, que funciona) antes do último recurso
+ * (% fixo hardcoded).
  */
 export async function getAtrPercent(symbol: string): Promise<number | null> {
   const candles = await fetchRecentCandles(symbol);
-  if (!candles) return null;
-  const atr = calculateAtr(candles, 14);
-  const lastClose = candles[candles.length - 1].close;
-  if (atr == null || !Number.isFinite(atr) || !Number.isFinite(lastClose) || lastClose <= 0) return null;
-  return atr / lastClose;
+  if (candles) {
+    const atr = calculateAtr(candles, 14);
+    const lastClose = candles[candles.length - 1].close;
+    if (atr != null && Number.isFinite(atr) && Number.isFinite(lastClose) && lastClose > 0) {
+      return atr / lastClose;
+    }
+  }
+  const tickVol = getTickVolatility(symbol);
+  return tickVol ? tickVol.rangePct : null;
 }
 
 export interface TrendInfo {
@@ -114,6 +128,8 @@ export interface TrendInfo {
   /** Rótulo simples pro LLM não ter que interpretar o número sozinho. */
   label: "ALTA" | "BAIXA" | "LATERAL";
   lookbackMinutes: number;
+  /** "candle" = veio do candle oficial da MetaAPI; "tick" = fallback por histórico de tick real deste processo. */
+  source: "candle" | "tick";
 }
 
 // 🔴 2026-08-29 (otimização urgente pós-perda do dia, achado real: cérebro
@@ -126,27 +142,41 @@ export interface TrendInfo {
 const TREND_LOOKBACK_CANDLES = 12; // 12 * 5min = 1h
 const TREND_FLAT_THRESHOLD_PCT = 0.15; // abaixo disso, chama de LATERAL em vez de forcar rotulo de direcao
 
+/**
+ * 🔴 2026-08-29 (achado do Cleber, "capacidade de análise direcional muito
+ * fraca" / "não está conseguindo ver pra onde o mercado está indo"): a
+ * ÚNICA fonte usada até aqui (`/mt5-candles`) está 404 em produção pra toda
+ * a cesta -- `trend` vinha `null` em 100% dos ciclos, confirmado nos logs.
+ * Agora tenta o candle oficial primeiro; se não vier, cai pro histórico de
+ * tick REAL deste processo (tickHistory.ts, alimentado por /mt5-prices, que
+ * funciona) -- nunca fabrica tendência, só usa fonte diferente de dado real.
+ */
 export async function getTrendInfo(symbol: string): Promise<TrendInfo | null> {
   const candles = await fetchRecentCandles(symbol);
-  if (!candles || candles.length < TREND_LOOKBACK_CANDLES + 1) return null;
+  if (candles && candles.length >= TREND_LOOKBACK_CANDLES + 1) {
+    const recent = candles.slice(-TREND_LOOKBACK_CANDLES - 1);
+    const startClose = recent[0].close;
+    const endClose = recent[recent.length - 1].close;
+    if (Number.isFinite(startClose) && startClose > 0 && Number.isFinite(endClose)) {
+      const changePct = ((endClose - startClose) / startClose) * 100;
+      const label: TrendInfo["label"] =
+        Math.abs(changePct) < TREND_FLAT_THRESHOLD_PCT ? "LATERAL" : changePct > 0 ? "ALTA" : "BAIXA";
+      return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: TREND_LOOKBACK_CANDLES * 5, source: "candle" };
+    }
+  }
 
-  const recent = candles.slice(-TREND_LOOKBACK_CANDLES - 1);
-  const startClose = recent[0].close;
-  const endClose = recent[recent.length - 1].close;
-  if (!Number.isFinite(startClose) || startClose <= 0 || !Number.isFinite(endClose)) return null;
-
-  const changePct = ((endClose - startClose) / startClose) * 100;
-  const label: TrendInfo["label"] =
-    Math.abs(changePct) < TREND_FLAT_THRESHOLD_PCT ? "LATERAL" : changePct > 0 ? "ALTA" : "BAIXA";
-
-  return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: TREND_LOOKBACK_CANDLES * 5 };
+  const tickTrend = getTickTrend(symbol);
+  if (!tickTrend) return null;
+  return { changePct: tickTrend.changePct, label: tickTrend.label, lookbackMinutes: tickTrend.lookbackMinutes, source: "tick" };
 }
 
 export interface VolumeConfirmation {
-  /** Volume das últimas 3 velas (15min) dividido pela média das 12 anteriores (1h). >1 = participação crescente. */
+  /** Volume das últimas 3 velas (15min) dividido pela média das 12 anteriores (1h) -- OU (fallback) razão entre inclinação recente e anterior do preço, ver "source". */
   ratio: number;
-  /** true quando a participação (volume) está claramente acima do normal recente -- proxy honesto de "força por trás do movimento". */
+  /** true quando a participação (volume real, ou aceleração de momentum no fallback) está claramente acima do normal recente. */
   elevated: boolean;
+  /** "candle_volume" = tickVolume real da MetaAPI; "tick_momentum" = fallback (aceleração de preço, sem volume disponível). */
+  source: "candle_volume" | "tick_momentum";
 }
 
 // 🔴 2026-08-29 (otimização pós-conversa sobre Rotter/Pulcini/Antunes -- os
@@ -167,17 +197,30 @@ const VOLUME_RECENT_CANDLES = 3; // 15min
 const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
 const VOLUME_ELEVATED_RATIO = 1.15;
 
+/**
+ * 🔴 2026-08-29 (mesmo achado do Cleber): fallback quando o candle (e o
+ * volume real dele) não vem -- usa aceleração de momentum por tick real
+ * (tickHistory.ts) como proxy de participação. Não é volume de verdade, é
+ * derivado só de preço, mas é dado real deste processo, nunca fabricado.
+ */
 export async function getVolumeConfirmation(symbol: string): Promise<VolumeConfirmation | null> {
   const candles = await fetchRecentCandles(symbol);
-  if (!candles || candles.length < VOLUME_RECENT_CANDLES + VOLUME_BASELINE_CANDLES) return null;
-  if (candles.some((c) => typeof c.volume !== "number" || !Number.isFinite(c.volume))) return null; // sem volume real -- nao inventa
+  if (candles && candles.length >= VOLUME_RECENT_CANDLES + VOLUME_BASELINE_CANDLES) {
+    const hasVolume = !candles.some((c) => typeof c.volume !== "number" || !Number.isFinite(c.volume));
+    if (hasVolume) {
+      const recent = candles.slice(-VOLUME_RECENT_CANDLES);
+      const baseline = candles.slice(-VOLUME_RECENT_CANDLES - VOLUME_BASELINE_CANDLES, -VOLUME_RECENT_CANDLES);
+      const recentAvg = recent.reduce((sum, c) => sum + (c.volume as number), 0) / recent.length;
+      const baselineAvg = baseline.reduce((sum, c) => sum + (c.volume as number), 0) / baseline.length;
+      if (baselineAvg > 0) {
+        const ratio = recentAvg / baselineAvg;
+        return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= VOLUME_ELEVATED_RATIO, source: "candle_volume" };
+      }
+    }
+  }
 
-  const recent = candles.slice(-VOLUME_RECENT_CANDLES);
-  const baseline = candles.slice(-VOLUME_RECENT_CANDLES - VOLUME_BASELINE_CANDLES, -VOLUME_RECENT_CANDLES);
-  const recentAvg = recent.reduce((sum, c) => sum + (c.volume as number), 0) / recent.length;
-  const baselineAvg = baseline.reduce((sum, c) => sum + (c.volume as number), 0) / baseline.length;
-  if (!(baselineAvg > 0)) return null;
-
-  const ratio = recentAvg / baselineAvg;
-  return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= VOLUME_ELEVATED_RATIO };
+  const momentum = getMomentumAcceleration(symbol);
+  if (!momentum) return null;
+  const ratio = momentum.priorSlopePct !== 0 ? Math.abs(momentum.recentSlopePct / momentum.priorSlopePct) : momentum.accelerating ? 2 : 1;
+  return { ratio: Number(ratio.toFixed(2)), elevated: momentum.accelerating, source: "tick_momentum" };
 }
