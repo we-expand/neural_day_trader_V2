@@ -17,9 +17,13 @@ function requireEnv(name: string): string {
 
 // Provedor de LLM: endpoint compativel com a API da OpenAI, trocavel por
 // env var pra nao depender de um unico free tier (ja migramos NVIDIA ->
-// Groq por 403 misterioso, e Groq -> NVIDIA por cota diaria curta demais
-// pro modo continuo - ver CONTEXT.md).
-type LlmProvider = "nvidia" | "groq";
+// Groq por 403 misterioso, Groq -> NVIDIA por cota diaria curta demais pro
+// modo continuo, NVIDIA de volta -> Groq/Cerebras em 2026-08-29 quando o
+// endpoint de chat completions da NVIDIA ficou fora do ar, Groq -> Gemini
+// no mesmo dia quando a cota diaria do Groq esgotou de novo mesmo com
+// modelo menor, e Gemini -> SambaNova quando nem Cerebras (pede cartao) nem
+// Gemini (conta Google do Cleber bloqueada) deram certo - ver CONTEXT.md).
+type LlmProvider = "nvidia" | "groq" | "cerebras" | "gemini" | "sambanova";
 
 const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: string; apiKeyEnv: string }> = {
   nvidia: {
@@ -36,11 +40,43 @@ const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: strin
     model: "openai/gpt-oss-120b",
     apiKeyEnv: "GROQ_API_KEY",
   },
+  // 2026-08-29: Cerebras hospeda o MESMO modelo (openai/gpt-oss-120b) com
+  // free tier de cota diaria bem maior que o do Groq pra esse modelo,
+  // pensado pra inferencia continua/alta frequencia. Precisa de conta
+  // gratuita em cloud.cerebras.ai (chave gerada la, nao pode ser criada por
+  // automacao).
+  cerebras: {
+    baseUrl: "https://api.cerebras.ai/v1",
+    model: "gpt-oss-120b",
+    apiKeyEnv: "CEREBRAS_API_KEY",
+  },
+  // 2026-08-29: Google AI Studio (nao Vertex AI/GCP billing) -- tier
+  // gratuito historicamente NAO pede cartao de credito (confirmado pelo
+  // Cleber que o Cerebras pedia, Gemini via aistudio.google.com nao pede).
+  // Endpoint compativel com a API da OpenAI, cota bem mais folgada que o
+  // free tier do Groq pro modelo Flash.
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    model: "gemini-2.0-flash",
+    apiKeyEnv: "GEMINI_API_KEY",
+  },
+  // 2026-08-29: SambaNova Cloud -- historicamente sem cartao de credito no
+  // tier gratuito (cloud.sambanova.ai), endpoint compativel com OpenAI,
+  // hospeda modelos abertos com tool-calling (Llama 3.3 70B confirmado
+  // suportado na doc oficial deles). Confirmar o nome exato do modelo via
+  // GET /v1/models com a chave real antes de rodar em modo continuo --
+  // catalogo deles muda; "Meta-Llama-3.3-70B-Instruct" e o nome documentado
+  // no momento desta escrita, pode ter mudado.
+  sambanova: {
+    baseUrl: "https://api.sambanova.ai/v1",
+    model: "Meta-Llama-3.3-70B-Instruct",
+    apiKeyEnv: "SAMBANOVA_API_KEY",
+  },
 };
 
 const llmProvider = (process.env.LLM_PROVIDER || "nvidia") as LlmProvider;
 if (!LLM_PROVIDER_DEFAULTS[llmProvider]) {
-  throw new Error(`LLM_PROVIDER invalido: "${llmProvider}". Use "nvidia" ou "groq".`);
+  throw new Error(`LLM_PROVIDER invalido: "${llmProvider}". Use "nvidia", "groq", "cerebras", "gemini" ou "sambanova".`);
 }
 const llmProviderDefaults = LLM_PROVIDER_DEFAULTS[llmProvider];
 
