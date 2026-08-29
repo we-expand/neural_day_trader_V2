@@ -45,6 +45,20 @@ o menor contrato real permitido na plataforma, máximo ${config.mt5MaxLots}
 lotes por posição), close_position, log_thought (registre o PORQUE de cada
 decisão) e stop.
 
+**REGRA DE SAÍDA OBRIGATÓRIA -- defina alvo ANTES de abrir, não depois:**
+Ao decidir abrir uma posição, você precisa ter em mente um alvo de saída
+CONCRETO (não "vou decidir depois se o preço mudar"). Regra prática pra
+mercado de curto prazo: considere fechar quando o preço se mover ~0,3-0,5%
+a seu favor (lucro) OU ~0,3-0,5% contra (stop) desde a entrada -- não
+precisa ser exato, mas TEM que ser uma decisão, não indefinição. Toda vez
+que checar list_open_positions, calcule a variação % de cada posição
+(entry_price vs preço atual do get_mt5_quote mais recente) e feche com
+close_position qualquer uma que já bateu esse alvo, pra qualquer lado. Só
+existem 3 símbolos cripto na cesta -- no máximo 3 posições abertas
+simultâneas POR símbolo são permitidas (open_position recusa a 4ª). Não
+existe "não há alvo definido, então não fecho" -- isso é comportamento
+proibido: você sempre tem que decidir um alvo e agir sobre ele.
+
 Você NÃO tem limite artificial de número de entradas por ciclo -- se vários
 ativos da cesta mostrarem sinal favorável, pode abrir várias posições no
 mesmo ciclo (sempre dentro do teto de segurança por posição). Prefira agir
@@ -249,7 +263,12 @@ export async function runAgent(cycle: number): Promise<boolean> {
       tools: toolDefinitions,
       tool_choice: "auto",
       messages,
-    });
+      // A familia Nemotron 3 (NVIDIA) por padrao gera "thinking" interno
+      // antes de responder -- mesmo ajuste do NEXUS (nexus-brain), evita
+      // latencia alta desnecessaria pro caso de tool-calling em ciclo.
+      // Campo ignorado por outros provedores (Groq/Cerebras/Gemini/etc).
+      ...(config.llmProvider === "nvidia" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+    } as ChatCompletionCreateParamsNonStreaming);
 
     const message = response.choices[0].message;
 

@@ -41,9 +41,17 @@ async function runContinuous() {
     const ethBalance = Number(await getBalanceEth());
     const usdBalance = getBalanceUsd();
 
-    console.log(`\n[resumo ciclo ${cycle}] ETH testnet: ${ethBalance} | USD ficticio: $${usdBalance}`);
+    // 🔴 2026-08-29 (achado do Cleber): esse resumo (saldo ETH testnet/USD
+    // ficticio) e do trilho Binance/economia simulada ANTIGO -- morto desde
+    // que o trilho MT5 assumiu (ENABLE_TRADING=false). Sempre igual porque
+    // nada mais escreve nele; imprimir isso a cada ciclo so confundia,
+    // parecendo que "o robo esta sempre com o mesmo valor". Omitido em modo
+    // MT5 (o estado real esta no Dashboard/Supabase, nao aqui).
+    if (!config.mt5TradingEnabled) {
+      console.log(`\n[resumo ciclo ${cycle}] ETH testnet: ${ethBalance} | USD ficticio: $${usdBalance}`);
+    }
 
-    if (ethBalance <= 0 && usdBalance <= 0) {
+    if (ethBalance <= 0 && usdBalance <= 0 && !config.mt5TradingEnabled) {
       cyclesWithoutFunds++;
       console.log(
         `Sem saldo em nenhuma das duas moedas (${cyclesWithoutFunds}/${STOP_AFTER_EMPTY_CYCLES} ciclos seguidos).`

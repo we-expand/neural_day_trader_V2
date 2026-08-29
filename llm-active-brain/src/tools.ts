@@ -426,6 +426,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (lots > config.mt5MaxLots) {
         return { error: `Tamanho pedido (${lots} lotes) excede o teto de seguranca por posicao (${config.mt5MaxLots} lotes). Bloqueado.` };
       }
+      // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o
+      // agente nunca fechava nada -- so empilhava posicoes quase-duplicadas
+      // no mesmo simbolo, as vezes ao MESMO preco de entrada (visto no log
+      // real: 8 posicoes SHORT em BTCUSD a 77658.82). Teto por simbolo forca
+      // o agente a avaliar fechar posicoes existentes antes de abrir mais.
+      const MAX_POSITIONS_PER_SYMBOL = 3;
+      const openPositions = await listMt5OpenPositions();
+      const openInSymbol = openPositions.filter((p) => p.symbol === symbol).length;
+      if (openInSymbol >= MAX_POSITIONS_PER_SYMBOL) {
+        return {
+          error: `Ja existem ${openInSymbol} posicoes abertas em ${symbol} (teto: ${MAX_POSITIONS_PER_SYMBOL}). Feche alguma com close_position antes de abrir outra neste simbolo.`,
+        };
+      }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
       // Notional em dolares = lotes * tamanho do lote * preco -- MESMA conversao
