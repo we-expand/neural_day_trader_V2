@@ -15,6 +15,66 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-29: Falso alarme de "motor travado" — era processo duplicado do
+LLM Brain rodando em paralelo, nenhum bug de código.** Ao reiniciar o
+`llm-active-brain` via terminal, o `kill` do processo antigo não rodou
+antes do novo `nohup npm run start` subir — chegaram a existir 2 processos
+vivos ao mesmo tempo contra a mesma conta (risco real de ordens
+duplicadas). Resolvido matando o antigo, só 1 processo confirmado no fim.
+Log seguia avançando ciclo a ciclo o tempo todo — a sensação de
+"congelado" vinha de `tail -f` (trava a saída de propósito) e do feed
+MetaAPI intermitente de fim de semana, ambos comportamento esperado, não
+falha. Detalhe e comandos de referência:
+[SESSAO_2026-08-29_PROCESSO_DUPLICADO_LLM_BRAIN.md](SESSAO_2026-08-29_PROCESSO_DUPLICADO_LLM_BRAIN.md).
+
+**2026-08-29 (madrugada): Auditoria completa do Cérebro LLM Ativo +
+monitoramento noturno (11 checagdas, 01:02-07:22) — 2 achados corrigidos,
+nenhuma pendência de código.** Confirmado ao vivo (terminal + Dashboard +
+Supabase) que o fix de saída da sessão anterior funciona de verdade
+(`close_position` sendo chamado, PnL real) e que o preço é real (MetaAPI,
+nunca simulado — trava confirmada no código). 2 achados novos corrigidos:
+processo zumbi rodando com modelo velho (morto) e furo no teto de posição
+por símbolo (`listMt5OpenPositions` engolia erro de rede e devolvia `[]`,
+deixando passar 6 posições em SOLUSD com teto de 3 — mesmo padrão de bug
+já visto no motor mecânico em 08-28). **Ambos os commits pendentes da
+sessão anterior + o fix novo já estão commitados e pushados** (`70ca87f00`,
+`1e0591124`) — nenhuma ação de código pendente. PnL da sessão terminou
+negativo (-$8,40, sem validação estatística, é só 1 noite de amostra).
+Detalhe completo, trajetória de PnL noite inteira e achados de qualidade
+do modelo (confundiu direção lucro/prejuízo 1x, confirmado no banco):
+[SESSAO_2026-08-29_AUDITORIA_LLM_BRAIN_E_MONITORAMENTO_NOTURNO.md](SESSAO_2026-08-29_AUDITORIA_LLM_BRAIN_E_MONITORAMENTO_NOTURNO.md).
+
+**[RESOLVIDO 2026-08-29] LLM Brain — provedor NVIDIA + bug de nunca fechar
+posição.** Causa raiz do provedor: não era a API da NVIDIA fora do ar, era
+o modelo `openai/gpt-oss-120b` especificamente travando o endpoint deles —
+trocado pro mesmo modelo do NEXUS (`nvidia/nemotron-3-nano-30b-a3b`).
+Causa raiz do fechamento: sem alvo de saída concreto no prompt, o agente
+só empilhava posições quase-duplicadas (26 até o ciclo 14, P&L sempre
+$0.00) — corrigido com teto de 3 posições/símbolo + regra de saída
+obrigatória. Detalhe:
+[SESSAO_2026-08-29_LLM_BRAIN_PROVEDOR_NVIDIA_E_COMPORTAMENTO_DE_SAIDA.md](SESSAO_2026-08-29_LLM_BRAIN_PROVEDOR_NVIDIA_E_COMPORTAMENTO_DE_SAIDA.md).
+
+**2026-08-28: 2 bugs corrigidos (linha de posição sumindo do gráfico/Dash)
+após alarme do Cleber (Solana some do gráfico) + Cérebro Sombra
+verificado, sem risco.** Bug 1: fix de "elimina piscar" mais cedo no dia
+(`156b751b6`) passou a atualizar overlay existente em vez de recriar, mas
+não limpava o rastreamento de ids quando o chart é destruído/recriado
+(`dispose()+init()` na troca de símbolo/timeframe) — linha de entrada/SL/TP
+some pra sempre depois disso, corrigido resetando o ref logo após o
+`init()` (`ChartView.tsx`). Bug 2, mais grave (explicava o "aparece e some
+a cada ~30s" no Dashboard): `getSessionTrades` engolia erro de rede do
+Supabase e devolvia `[]` — indistinguível de "sem trade aberto" — fazendo
+o `reconcile()` de `useApexLogic.ts` (poll 30s) apagar a posição real da
+tela numa falha transitória, até o próximo poll repopular. Corrigido
+consultando o Supabase direto dentro do `reconcile()`, deixando erro
+propagar pro catch que já mantém o estado anterior. `npm run validate`
+100%, commits prontos pro Cleber. De carona: confirmado (rastreado
+`runTradingCycle.ts`→`decisionBrain.ts`→`ai-runner/index.ts`) que o
+Cérebro Analítico em Modo Sombra **não tem nenhum poder de execução** —
+só loga "o que teria feito" numa tabela separada, fire-and-forget, sem
+influenciar a decisão mecânica real. Detalhe completo:
+[SESSAO_2026-08-28_BUG_LINHA_POSICAO_SOME_E_CEREBRO_SOMBRA_VERIFICADO.md](SESSAO_2026-08-28_BUG_LINHA_POSICAO_SOME_E_CEREBRO_SOMBRA_VERIFICADO.md).
+
 **2026-08-28: gerenciamento de saída reforçado (TP parcial + breakeven
 0,5R + linha de stop unificada + janela cega fechada) e Fase 0 do
 redesenho do cérebro de decisão AO VIVO em modo sombra.** Achado de MFE

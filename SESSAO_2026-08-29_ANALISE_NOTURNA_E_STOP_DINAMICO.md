@@ -2,32 +2,45 @@
 
 ## Estado exato de onde continuar
 
-- **Branch**: `dev`.
-- **Commits já feitos e pushados nesta sessão** (pelo Cleber, pelos comandos
-  que entreguei):
+- **Branch**: `dev`, `origin/dev` em dia (nenhum commit pendente).
+- **Commits desta sessão, todos feitos e pushados** (pelo Cleber, pelos
+  comandos que entreguei):
   - `e48076b6f` — `fix(llm-brain): stop/alvo mecanico + teto de exposicao por simbolo`
   - `9e40999be` — `feat(llm-brain): stop dinamico por ATR + breakeven + trailing mecanicos`
-- **Mudanças NÃO commitadas ainda** (última leva desta sessão, código pronto
-  em disco, comando de commit entregue mas ainda não rodado):
-  `llm-active-brain/src/agent.ts`, `config.ts`, `mt5Broker.ts`, `tools.ts`.
-  Cobrem: PnL pré-calculado em `list_open_positions`, trava de entrada
-  duplicada no mesmo preço exato, aviso de feed travado, e o redesenho de
-  sizing por exposição-alvo em dólar (`size: "normal"|"forte"` substituindo
-  lotes livres). Comando de commit pronto na seção "Commits" abaixo.
+  - `0b5c8c3d8` — `fix(llm-brain): pnl pre-calculado + trava de duplicata + sizing por exposicao-alvo`
 - **Backup do código original** (antes de qualquer fix desta sessão) salvo
   em `llm-active-brain/_backup_pre_stop_fix_2026-08-29/` (não versionado de
   propósito, é só referência local) + link permanente do GitHub pro commit
   anterior a tudo isso:
   `https://github.com/we-expand/neural_day_trader_V2/tree/1e0591124/llm-active-brain/src`
-- **Processo do agente**: reiniciado às 08:09 com o código até `9e40999be`
-  (PID `81216`/`81234`/`81237`, log em
-  `llm-active-brain/logs/restart_20260829_0809.log`). **Ainda não pegou** a
-  última leva (PnL pré-calculado, trava de duplicata, sizing por exposição)
-  — precisa reiniciar de novo depois do commit pendente.
-- **Próximo passo real**: commitar+pushar a leva pendente, reiniciar o
-  processo, e decidir se reseta a sessão de teste no Supabase (PnL
-  acumulado real na sessão isolada: -$8,40 até 07:22, -$11,20 até 10:28,
-  todos ANTES de qualquer um dos fixes desta sessão valerem de verdade).
+- **Processo do agente**: rodando com o código completo (até `0b5c8c3d8`),
+  **1 único processo limpo** (PID `82119`/`82138`, log em
+  `llm-active-brain/logs/restart_20260829_0839.log`). Confirmado no log:
+  `pnl_percentage`/`pnl_usd` pré-calculados funcionando, e o aviso de feed
+  travado já disparou de verdade (`XETUSD devolveu o MESMO preco 2434.7 3x
+  seguidas`).
+- **Susto no meio do caminho (resolvido)**: ao reiniciar manualmente várias
+  vezes seguidas sem confirmar que o processo anterior tinha morrido, 3
+  cópias completas do agente ficaram rodando em paralelo (PIDs
+  `81997/82015`, `82020/82038`, `82045/82063`) -- risco real de duplicar
+  trades na mesma sessão isolada (3 agentes competindo pelo mesmo teto de
+  posição/mesma sessão ao mesmo tempo). Detectado via `ps aux`, todos os 6
+  PIDs mortos, e reiniciado 1 único processo limpo. **Lição prática**:
+  sempre `ps aux | grep tsx` antes de rodar `npm run start` de novo, pra
+  confirmar que o anterior morreu.
+- **Proteção retroativa aplicada nas posições legadas**: das 8 posições
+  abertas na sessão de teste, 5 tinham sido abertas ANTES do stop mecânico
+  existir (`stop_loss`/`take_profit` nulos -- `enforceMt5StopsAndTargets`
+  pula qualquer posição sem esses campos, então ficariam sem proteção pra
+  sempre). Rodado um `UPDATE` pontual no Supabase aplicando o stop de
+  segurança de 0,5% (mesmo fallback que o código já usa) só nas 5 que
+  estavam sem stop -- as 3 que já tinham stop ATR não foram tocadas. Todas
+  as 8 posições abertas agora estão cobertas pelo enforcement mecânico.
+- **Próximo passo real**: nenhuma ação de código pendente. Só falta decidir
+  se reseta a sessão de teste no Supabase (PnL acumulado real: -$8,40 até
+  07:22, -$11,20 até 10:28 -- tudo isso ANTES de qualquer fix desta sessão
+  valer de verdade) ou deixa acumular em cima do saldo atual já testando os
+  fixes novos.
 
 ## O que foi feito (em ordem cronológica)
 
@@ -130,7 +143,7 @@ que agora retorna `{closed, breakevens, trails}` — o LLM é avisado no
 início de cada ciclo do que já aconteceu por código, não decide nada
 disso.
 
-### 4. Fix 3 — PnL pré-calculado, trava de entrada duplicada, sizing por exposição-alvo (NÃO COMMITADO AINDA)
+### 4. Fix 3 — PnL pré-calculado, trava de entrada duplicada, sizing por exposição-alvo (commit `0b5c8c3d8`)
 
 Disparado por duas perguntas/pedidos do Cleber na sequência:
 
@@ -175,41 +188,44 @@ pesada seria a solução"** — redesenho do sizing:
 
 ## Commits desta sessão
 
-Já feitos e pushados:
+Todos já feitos e pushados:
 ```
+0b5c8c3d8 fix(llm-brain): pnl pre-calculado + trava de duplicata + sizing por exposicao-alvo
 9e40999be feat(llm-brain): stop dinamico por ATR + breakeven + trailing mecanicos
 e48076b6f fix(llm-brain): stop/alvo mecanico + teto de exposicao por simbolo
 ```
 
-**Pendente** (código pronto em disco, comando ainda não rodado):
-```bash
-git add llm-active-brain/src/agent.ts llm-active-brain/src/mt5Broker.ts llm-active-brain/src/tools.ts llm-active-brain/src/config.ts
-git commit -m "fix(llm-brain): pnl pre-calculado + trava de duplicata + sizing por exposicao-alvo
+## Ação de dado (não é código) rodada nesta sessão
 
-list_open_positions devolve pnl_percentage/pnl_usd ja calculados (LLM
-confundiu lucro/prejuizo 2x fazendo essa conta de cabeca). open_position
-recusa abrir no mesmo simbolo+lado+preco exato de uma ja aberta (achado:
-7 entradas BTCUSD no mesmo preco em 12min, indicio de feed travado).
-mt5Broker.ts loga aviso de preco repetido 3x+. Redesenho de sizing: lots
-livre vira size:'normal'|'forte', codigo calcula lotes por
-exposicao-alvo em dolar uniforme entre simbolos (corrige SOL/XET
-capturando exposicao irrelevante comparado ao BTC, e corrige teto de
-$60 do commit anterior que deixaria BTC incapaz de abrir posicao)."
-git push
-```
-
-Depois disso, reiniciar o processo do agente pra pegar o código novo
-(matar PID atual, `npm run start` de novo com log em arquivo — mesmo
-padrão das vezes anteriores).
+`UPDATE` pontual em `ai_trades` (Supabase, projeto `wyvdsxtcmizettljxtbg`),
+escopo restrito a `session_id='6220f3b4-...' AND status='OPEN' AND
+stop_loss IS NULL` -- aplicou stop de 0,5%/alvo de 0,5% nas 5 posições
+legadas sem stop mecânico (2x SOLUSD, 2x BTCUSD, 1x XETUSD). Não mexeu nas
+3 que já tinham stop ATR. Rodado direto via ferramenta MCP do Supabase
+nesta sessão (não foi um `UPDATE` silencioso -- registrado aqui, e é
+ajuste de proteção de posição aberta, não correção de registro financeiro
+fechado -- não se aplica a regra de auditoria de `ai_trades_audit_log` do
+CLAUDE.md, que é pra dado já fechado/histórico).
 
 ## Pendências reais pra próxima sessão
 
-1. Commitar+pushar a leva pendente (comando acima) e reiniciar o processo.
+1. **Nenhuma ação de código pendente.** Os 3 commits estão rodando em
+   produção local (processo PID `82119`/`82138`), 1 único processo
+   confirmado (sem duplicata).
 2. Decidir se reseta a sessão de teste isolada (`ai_sessions` id
    `6220f3b4-...`) pra $50 zerada de novo, ou deixa acumular em cima do
-   saldo atual (-$11,20) já testando os fixes novos.
+   saldo atual (-$11,20 na última leitura completa, antes dos fixes de
+   hoje valerem) já testando os fixes novos.
 3. Investigar a causa raiz do feed de preço possivelmente travando
    (achado nº1 em aberto acima) — hoje só tem log de aviso, não conserto.
+   Log já confirmou uma nova ocorrência ao vivo (XETUSD, 3x seguidas) logo
+   no primeiro ciclo pós-restart.
 4. Acumular amostra nova (pós todos os fixes desta sessão) antes de tirar
    qualquer conclusão sobre desempenho — nada aqui corrige "falta de edge",
    corrige mecanismos de execução que estavam sabidamente quebrados.
+5. **Prática operacional pra não repetir**: antes de rodar `npm run start`
+   de novo pra reiniciar o agente, sempre confirmar com `ps aux | grep tsx`
+   que o processo anterior morreu de verdade -- nesta sessão, reinícios
+   manuais seguidos sem essa checagem deixaram 3 processos duplicados
+   rodando ao mesmo tempo por alguns minutos (sem dano confirmado, mas
+   risco real de duplicar trades).
