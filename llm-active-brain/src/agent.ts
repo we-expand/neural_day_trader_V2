@@ -60,29 +60,35 @@ número de lotes certo pra cada símbolo alcançar essa exposição. Isso vale
 igualmente pros 3 símbolos: SOL/XET agora abrem MUITO mais lotes que antes
 pra chegar na mesma exposição em dólar que o BTC, de propósito.
 
-**STOP/ALVO AGORA É MECÂNICO E DINÂMICO, NÃO DEPENDE DE VOCÊ (2026-08-29):**
-Toda posição aberta com open_position já recebe um stop-loss e um
-take-profit calculados a partir da VOLATILIDADE REAL do ativo (ATR das
-últimas velas de 5min, não um % fixo igual pra todo símbolo) e gravados
-automaticamente na abertura. A PARTIR DAÍ, TRÊS COISAS acontecem por
-código, sem você precisar fazer nada:
-1. O CÓDIGO fecha a posição sozinho assim que o preço real bater o stop ou
-   o alvo -- você é avisado no início do próximo ciclo ("Fechamentos
-   automáticos").
-2. Assim que a posição andar a favor até a metade da distância do stop
+**STOP É MECÂNICO E DINÂMICO, SEM TETO DE LUCRO FIXO (atualizado 2026-08-29):**
+Toda posição aberta com open_position já recebe um stop-loss calculado a
+partir da VOLATILIDADE REAL do ativo (ATR das últimas velas de 5min, não um %
+fixo igual pra todo símbolo) e gravado automaticamente na abertura. Também
+existe um "take_profit" gravado no trade, mas ele é SÓ REFERÊNCIA/EXIBIÇÃO --
+NÃO fecha mais a posição sozinho (mudou nesta data: antes um winner era
+fechado automaticamente ao bater 2x a distância do stop, o que cortava
+tendências maiores cedo demais). A PARTIR DA ABERTURA, DUAS COISAS acontecem
+por código, sem você precisar fazer nada:
+1. Assim que a posição andar a favor até a metade da distância do stop
    original, o CÓDIGO move o stop pro preço de entrada (breakeven) --
    avisado como "Stops movidos para breakeven". Dali em diante o pior caso
    dessa posição é ~$0, não mais o stop cheio.
-3. Depois disso, enquanto a posição continuar correndo a favor, o CÓDIGO
+2. Depois disso, enquanto a posição continuar correndo a favor, o CÓDIGO
    segue subindo (LONG) ou descendo (SHORT) o stop atrás do preço, sempre a
    uma distância ATR -- avisado como "Stops trilhados". Ele só aperta, nunca
-   afrouxa: o pior caso só melhora com o tempo, nunca piora.
-Não precisa (e não deve tentar) fechar uma posição só porque acha que ela
-"deveria" ter batido stop/alvo -- se ainda está em list_open_positions, é
-porque o nível ainda não foi batido de verdade. Continua valendo você fechar
-manualmente com close_position quando a TESE mudar antes de bater
-stop/alvo (ex: sinal se inverteu, notícia nova) -- isso não é redundante, é
-julgamento além da trava mecânica. Só existem 3 símbolos cripto na cesta --
+   afrouxa: o pior caso só melhora com o tempo, nunca piora. SEM teto
+   superior -- uma tendência forte pode correr bem além do "alvo" antigo
+   antes do trailing finalmente fechar.
+O CÓDIGO só fecha uma posição sozinho quando o preço bate o STOP atual
+(inicial, breakeven ou trilhado) -- você é avisado no início do próximo
+ciclo ("Fechamentos automáticos"). Não precisa (e não deve tentar) fechar
+uma posição só porque acha que ela "deveria" ter batido o stop -- se ainda
+está em list_open_positions, é porque o nível ainda não foi batido de
+verdade. Continua valendo você fechar manualmente com close_position quando
+a TESE mudar antes de bater o stop (ex: sinal se inverteu, notícia nova, ou
+você julga que o movimento a favor já esgotou e prefere realizar o lucro
+agora em vez de arriscar dar de volta pro trailing) -- isso não é redundante,
+é julgamento além da trava mecânica. Só existem 3 símbolos cripto na cesta --
 no máximo 3 posições abertas simultâneas POR símbolo são permitidas
 (open_position recusa a 4ª). Exposição em dólar por posição também tem teto
 absoluto de segurança (bem acima do normal) -- só entra em jogo em caso
