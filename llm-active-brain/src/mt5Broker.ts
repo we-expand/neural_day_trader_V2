@@ -28,7 +28,21 @@ interface Mt5PriceTick {
 let lastPriceBySymbol: Record<string, number> = {};
 let repeatCountBySymbol: Record<string, number> = {};
 
-export async function getQuote(symbol: string): Promise<{ symbol: string; price: number; changePercent: number } | null> {
+// 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao contemplando o
+// spread"): antes, abertura/fechamento/PnL flutuante usavam um unico "price"
+// (o mid/last tick) -- isso escondia o custo real de operar (o LLM comprava e
+// vendia no MESMO preco, como se o spread nao existisse). Agora devolve
+// bid/ask reais do MESMO tick da MetaAPI -- quem usa esta cotacao pra abrir/
+// fechar posicao (tools.ts, neuralBridge.ts) preenche no lado certo: LONG
+// compra no ask e vende (fecha) no bid, SHORT vende no bid e compra (fecha)
+// no ask. Efeito esperado (pedido explicito): uma posicao recem-aberta ja
+// mostra PnL flutuante igual a -spread ate o preco andar o suficiente pra
+// cobrir esse custo -- exatamente como uma corretora real mostra. Se o
+// provedor nao devolver bid/ask (raro), cai pra price em ambos -- spread
+// vira 0 nesse caso, nunca inventa um spread fabricado.
+export async function getQuote(
+  symbol: string
+): Promise<{ symbol: string; price: number; bid: number; ask: number; changePercent: number } | null> {
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-prices`;
   try {
     const res = await fetch(url, {
@@ -58,7 +72,9 @@ export async function getQuote(symbol: string): Promise<{ symbol: string; price:
       lastPriceBySymbol[symbol] = tick.price;
     }
 
-    return { symbol, price: tick.price, changePercent: tick.changePercent ?? 0 };
+    const bid = Number.isFinite(tick.bid) ? (tick.bid as number) : tick.price;
+    const ask = Number.isFinite(tick.ask) ? (tick.ask as number) : tick.price;
+    return { symbol, price: tick.price, bid, ask, changePercent: tick.changePercent ?? 0 };
   } catch {
     return null;
   }

@@ -151,13 +151,23 @@ captura um alvo PEQUENO, recolhe, parte pra próxima oportunidade. Pense nisso
 como girar o capital várias vezes com alvo pequeno em vez de apostar tudo
 numa única tacada grande.
 
+**O SPREAD É REAL E CONTA (2026-08-29):** entrada e saída acontecem no lado
+certo do book -- LONG compra no ASK e vende (fecha) no BID, SHORT vende no
+BID e compra de volta (fecha) no ASK, nunca no preço "do meio". Isso significa
+que uma posição RECÉM-ABERTA já nasce com PnL flutuante levemente negativo
+(o custo do spread) até o preço andar o suficiente pra cobrir isso -- é
+assim que uma corretora de verdade mostra, e é assim que você vai saber se
+uma estratégia realmente vale a pena ou só parece lucrativa no papel. Não é
+bug nem motivo pra fechar a posição na hora -- é o custo real de operar.
+
 Toda posição aberta com open_position já recebe, calculados a partir da
 VOLATILIDADE REAL do ativo (ATR das últimas velas de 5min) e gravados
 automaticamente na abertura:
 - **stop_loss**: distância de ~1,5x ATR.
-- **take_profit**: CURTO por design (por padrão a MESMA distância do stop,
-  R:R ~1:1 -- não é 2R nem 3R como já foi no passado). Em ativo/momento com
-  volume ABAIXO do normal (dia parado), o alvo fica AINDA MAIS curto
+- **take_profit**: CURTO por design (por padrão ~1,7x ATR, um pouco mais que
+  o stop -- R:R levemente acima de 1:1, de propósito, pra sobrar alguma
+  margem depois de pagar o spread na entrada E na saída). Em ativo/momento
+  com volume ABAIXO do normal (dia parado), o alvo fica AINDA MAIS curto
   automaticamente (ver "alvo_encolhido_por_baixo_volume" na resposta de
   open_position) -- um alvo dimensionado pra dia de volume normal pode nunca
   ser alcançado num dia sem fôlego, e a ideia é justamente não deixar

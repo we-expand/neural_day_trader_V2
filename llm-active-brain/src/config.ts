@@ -182,7 +182,13 @@ export const config = {
   // giro: capturar um alvo pequeno e reciclar o capital pra próxima entrada.
   // 1.5x ATR = MESMA distância do stop (R:R ~1:1) -- alvo pequeno de
   // propósito, alcançável rápido, não uma aposta em tendência longa.
-  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 1.5),
+  //
+  // 🔴 2026-08-29 (pedido do Cleber, mesmo dia): 1.5 -> 1.7, um pouco só, pra
+  // já contemplar o SPREAD depois que entrada/saída passaram a preencher no
+  // bid/ask real (ver mt5Broker.ts/tools.ts) em vez do mid -- sem esse
+  // reajuste, o giro rapido bateria o alvo mas ainda saisse com PnL liquido
+  // negativo (spread pago na entrada + na saida) mesmo "acertando" o alvo.
+  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 1.7),
   mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.002),
   mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
   mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),

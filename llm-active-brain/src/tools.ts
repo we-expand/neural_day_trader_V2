@@ -451,7 +451,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       } catch (err) {
         return { error: `Falha ao consultar posicoes abertas (rede/Supabase): ${err instanceof Error ? err.message : err}. Tente de novo antes de decidir.` };
       }
-      const quoteCache = new Map<string, { price: number } | null>();
+      const quoteCache = new Map<string, { price: number; bid: number; ask: number } | null>();
       const enriched = await Promise.all(
         positions.map(async (pos) => {
           if (!quoteCache.has(pos.symbol)) {
@@ -461,15 +461,22 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           if (!quote) {
             return { ...pos, current_price: null, pnl_percentage: null, pnl_usd: null, aviso: "Sem cotacao real agora -- nao foi possivel calcular PnL atual." };
           }
+          // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao
+          // contemplando o spread"): PnL flutuante usa o preco que FECHARIA a
+          // posicao agora de verdade -- bid pra LONG (venderia), ask pra
+          // SHORT (compraria de volta) -- nao o mid/last tick. Efeito
+          // esperado: uma posicao recem-aberta ja mostra -spread ate o preco
+          // andar o suficiente pra cobrir esse custo, igual corretora real.
+          const execPrice = pos.side === "LONG" ? quote.bid : quote.ask;
           const amountUsd = pos.quantity; // convencao: quantity = exposicao em dolar, ver comentario em neuralBridge.ts
           const pnlUsd =
             pos.side === "LONG"
-              ? (quote.price - pos.entry_price) * (amountUsd / pos.entry_price)
-              : (pos.entry_price - quote.price) * (amountUsd / pos.entry_price);
-          const pnlPct = ((quote.price - pos.entry_price) / pos.entry_price) * 100 * (pos.side === "LONG" ? 1 : -1);
+              ? (execPrice - pos.entry_price) * (amountUsd / pos.entry_price)
+              : (pos.entry_price - execPrice) * (amountUsd / pos.entry_price);
+          const pnlPct = ((execPrice - pos.entry_price) / pos.entry_price) * 100 * (pos.side === "LONG" ? 1 : -1);
           return {
             ...pos,
-            current_price: quote.price,
+            current_price: execPrice,
             pnl_percentage: Number(pnlPct.toFixed(4)),
             pnl_usd: Number(pnlUsd.toFixed(4)),
           };
@@ -562,6 +569,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
+      // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao contemplando
+      // o spread"): preco de PREENCHIMENTO real -- LONG compra no ask, SHORT
+      // vende no bid (nunca no mid/last, que escondia o custo de operar).
+      // Usado como entry_price gravado no trade -- a partir dele, o PnL
+      // flutuante (list_open_positions) e o fechamento (enforceMt5Stops...)
+      // ja nascem descontando o spread automaticamente.
+      const fillPrice = side === "LONG" ? quote.ask : quote.bid;
       // 🔴 2026-08-29 (otimizacao pos-conversa sobre Rotter/Pulcini/Antunes):
       // os 3 sao scalpers de order flow -- este sistema nao tem book de
       // ofertas, entao nao da pra imitar a tecnica de verdade. O que da pra
@@ -595,11 +609,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // entao a trava e aqui: nunca abre uma posicao identica (mesmo
       // simbolo+lado+preco ao centavo) a uma ja aberta -- nao importa a
       // causa, duplicar nao agrega informacao nova, so duplica risco.
-      const duplicatePrice = openPositions.find((p) => p.symbol === symbol && p.side === side && p.entry_price === quote.price);
+      const duplicatePrice = openPositions.find((p) => p.symbol === symbol && p.side === side && p.entry_price === fillPrice);
       if (duplicatePrice) {
         return {
           error:
-            `Ja existe uma posicao aberta em ${symbol} ${side} no MESMO preco exato (${quote.price}) -- ` +
+            `Ja existe uma posicao aberta em ${symbol} ${side} no MESMO preco exato (${fillPrice}) -- ` +
             `provavel cotacao obsoleta (feed pode estar travado). Posicao NAO aberta. Tente de novo em instantes ou avalie outro ativo.`,
         };
       }
@@ -667,12 +681,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         lowVolumeAdjusted = true;
       }
 
-      const stopLoss = side === "LONG" ? quote.price * (1 - stopPct) : quote.price * (1 + stopPct);
-      const takeProfit = side === "LONG" ? quote.price * (1 + takeProfitPct) : quote.price * (1 - takeProfitPct);
+      // 🔴 2026-08-29: stop/alvo calculados a partir do fillPrice (preco real
+      // de preenchimento, ver acima) -- nao do mid/last tick.
+      const stopLoss = side === "LONG" ? fillPrice * (1 - stopPct) : fillPrice * (1 + stopPct);
+      const takeProfit = side === "LONG" ? fillPrice * (1 + takeProfitPct) : fillPrice * (1 - takeProfitPct);
       const tradeId = await openMt5Position({
         symbol,
         side: side as "LONG" | "SHORT",
-        entryPrice: quote.price,
+        entryPrice: fillPrice,
         amountUsd,
         stopLoss,
         takeProfit,
@@ -685,7 +701,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         symbol,
         side,
         size: sizeInput,
-        entry_price: quote.price,
+        entry_price: fillPrice,
+        spread_pago: Number(Math.abs(quote.ask - quote.bid).toFixed(6)),
         lots,
         amount_usd: amountUsd,
         stop_loss: stopLoss,
@@ -712,9 +729,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
       const quote = await getMt5Quote(position.symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${position.symbol} -- posicao nao fechada.` };
-      const closed = await closeMt5Position({ tradeId, exitPrice: quote.price, reasoning });
+      // 🔴 2026-08-29: fechar um LONG e VENDER (recebe o bid); fechar um
+      // SHORT e COMPRAR de volta (paga o ask) -- nao o mid/last tick.
+      const exitPrice = position.side === "LONG" ? quote.bid : quote.ask;
+      const closed = await closeMt5Position({ tradeId, exitPrice, reasoning });
       if (!closed) return { error: "Falha ao fechar a posicao (ver log do processo)." };
-      return { trade_id: tradeId, exit_price: quote.price };
+      return { trade_id: tradeId, exit_price: exitPrice };
     }
 
     case "place_market_order": {

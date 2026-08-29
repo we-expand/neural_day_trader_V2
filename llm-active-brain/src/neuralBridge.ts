@@ -543,13 +543,13 @@ async function updateStopLoss(tradeId: string, newStopLoss: number): Promise<boo
  * evitar ou atrasar o fechamento.
  */
 export async function enforceMt5StopsAndTargets(
-  getQuote: (symbol: string) => Promise<{ price: number } | null>
+  getQuote: (symbol: string) => Promise<{ price: number; bid: number; ask: number } | null>
 ): Promise<{ closed: StopEnforcementResult[]; breakevens: BreakevenMoveResult[]; trails: TrailMoveResult[] }> {
   const positions = await listMt5OpenPositions();
   const closed: StopEnforcementResult[] = [];
   const breakevens: BreakevenMoveResult[] = [];
   const trails: TrailMoveResult[] = [];
-  const quoteCache = new Map<string, { price: number } | null>();
+  const quoteCache = new Map<string, { price: number; bid: number; ask: number } | null>();
 
   for (const pos of positions) {
     if (pos.stop_loss == null) continue; // posicao antiga, de antes deste fix -- sem trava
@@ -560,7 +560,15 @@ export async function enforceMt5StopsAndTargets(
     const quote = quoteCache.get(pos.symbol);
     if (!quote) continue; // sem preco real agora -- nao decide no escuro, tenta de novo no proximo ciclo
 
-    const price = quote.price;
+    // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao contemplando o
+    // spread" / "so comeca a computar lucro depois de pagar o spread"): o
+    // preco que FECHARIA a posicao agora nao e o mid/last tick -- e o lado
+    // oposto do book. Fechar um LONG e VENDER (recebe o bid); fechar um
+    // SHORT e COMPRAR de volta (paga o ask). Usar isso pra TODA checagem de
+    // stop/alvo/breakeven/trailing abaixo faz o spread aparecer sozinho no
+    // PnL flutuante -- uma posicao recem-aberta ja mostra -spread ate o
+    // preco andar o suficiente pra cobrir esse custo, igual corretora real.
+    const price = pos.side === "LONG" ? quote.bid : quote.ask;
     // 🔴 2026-08-29 (mudança de filosofia, pedido do Cleber): take_profit
     // VOLTA a ser gatilho de saída mecânico. O motivo de ter sido desligado
     // antes (capava todo vencedor em 2R, anulando o trailing numa tendência
