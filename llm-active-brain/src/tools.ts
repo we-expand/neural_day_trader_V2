@@ -228,11 +228,13 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       description:
         `Consulta o preco real de um ativo da cesta do motor mecanico do Neural Day Trader ` +
         `(via MetaAPI/Infinox -- MESMA fonte que o motor mecanico usa, nao Binance). ` +
-        `Devolve tambem "trend" (variacao % e rotulo ALTA/BAIXA/LATERAL na ultima 1h, ou null se indisponivel) -- ` +
-        `use pra saber se voce estaria entrando A FAVOR ou CONTRA o movimento recente, nao decida so pelo preco do instante. ` +
-        `Devolve tambem "volume" (razao do volume real recente vs a media de 1h, e "elevated" true/false) -- ` +
-        `proxy honesto de participacao (nao e book de ofertas, mas e dado real da MetaAPI, nao fabricado): ` +
-        `entrar CONTRA a tendencia SEM volume elevado e bloqueado em open_position. ` +
+        `Devolve tambem "trend" (variacao % e rotulo ALTA/BAIXA/LATERAL na ultima 1h) e "volume" (razao do volume ` +
+        `real recente vs a media de 1h, e "elevated" true/false) -- proxies reais de direcao/participacao (nao e ` +
+        `book de ofertas, mas e dado real da MetaAPI, nao fabricado). AMBOS podem vir null quando o candle do ` +
+        `provedor esta temporariamente indisponivel -- null NAO significa "sem tendencia", significa "sem essa ` +
+        `informacao agora": use "changePercent" (sempre preenchido) como proxy e opere pelo julgamento normal, ` +
+        `nao trave o ciclo esperando esses campos aparecerem. So quando trend/volume vierem preenchidos e a ` +
+        `entrada for CONTRA a tendencia SEM volume elevado, open_position bloqueia por codigo. ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {
         type: "object",
