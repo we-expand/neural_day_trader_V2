@@ -9,6 +9,8 @@ import { toolDefinitions, executeTool } from "./tools.js";
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
+import { enforceMt5StopsAndTargets } from "./neuralBridge.js";
+import { getQuote as getMt5Quote } from "./mt5Broker.js";
 
 const TRADING_SECTION = config.tradingEnabled
   ? `
@@ -45,19 +47,22 @@ o menor contrato real permitido na plataforma, máximo ${config.mt5MaxLots}
 lotes por posição), close_position, log_thought (registre o PORQUE de cada
 decisão) e stop.
 
-**REGRA DE SAÍDA OBRIGATÓRIA -- defina alvo ANTES de abrir, não depois:**
-Ao decidir abrir uma posição, você precisa ter em mente um alvo de saída
-CONCRETO (não "vou decidir depois se o preço mudar"). Regra prática pra
-mercado de curto prazo: considere fechar quando o preço se mover ~0,3-0,5%
-a seu favor (lucro) OU ~0,3-0,5% contra (stop) desde a entrada -- não
-precisa ser exato, mas TEM que ser uma decisão, não indefinição. Toda vez
-que checar list_open_positions, calcule a variação % de cada posição
-(entry_price vs preço atual do get_mt5_quote mais recente) e feche com
-close_position qualquer uma que já bateu esse alvo, pra qualquer lado. Só
-existem 3 símbolos cripto na cesta -- no máximo 3 posições abertas
-simultâneas POR símbolo são permitidas (open_position recusa a 4ª). Não
-existe "não há alvo definido, então não fecho" -- isso é comportamento
-proibido: você sempre tem que decidir um alvo e agir sobre ele.
+**STOP/ALVO AGORA É MECÂNICO, NÃO DEPENDE DE VOCÊ (2026-08-29):**
+Toda posição aberta com open_position já recebe um stop-loss e um
+take-profit calculados e gravados automaticamente (±${(config.mt5StopLossPct * 100).toFixed(2)}% da entrada).
+O CÓDIGO fecha a posição sozinho assim que o preço real bater um desses
+níveis -- você vai ser informado disso no início do próximo ciclo ("Fechamentos
+automáticos"), não precisa (e não deve tentar) fechar uma posição só porque
+acha que ela "deveria" ter batido stop/alvo -- se ainda está na lista de
+list_open_positions, é porque o nível ainda não foi batido de verdade.
+Continua valendo você fechar manualmente com close_position quando a TESE
+mudar antes de bater stop/alvo (ex: sinal se inverteu, notícia nova) -- isso
+não é redundante, é julgamento além da trava mecânica. Só existem 3 símbolos
+cripto na cesta -- no máximo 3 posições abertas simultâneas POR símbolo são
+permitidas (open_position recusa a 4ª). Exposição em dólar por posição
+também tem teto fixo (uniforme entre símbolos) -- open_position recusa e
+informa o motivo se você pedir lotes grandes demais para um ativo caro
+(ex: BTCUSD).
 
 Você NÃO tem limite artificial de número de entradas por ciclo -- se vários
 ativos da cesta mostrarem sinal favorável, pode abrir várias posições no
@@ -234,7 +239,26 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
 export async function runAgent(cycle: number): Promise<boolean> {
   let userMessage: string;
   if (config.mt5TradingEnabled) {
-    userMessage = `Ciclo #${cycle}. Comece checando suas posicoes abertas.`;
+    // 🔴 2026-08-29: trava MECANICA de stop/alvo roda ANTES do LLM decidir
+    // qualquer coisa neste ciclo -- ver enforceMt5StopsAndTargets
+    // (neuralBridge.ts) pro porque (o stop em texto no prompt deixou perdas
+    // correrem muito alem do alvo declarado na noite de 2026-08-29). O
+    // agente so fica sabendo o que ja foi fechado, nao decide se fecha.
+    let stopSummary = "";
+    try {
+      const autoClosed = await enforceMt5StopsAndTargets(getMt5Quote);
+      if (autoClosed.length > 0) {
+        stopSummary =
+          " Fechamentos automaticos (mecanicos, stop/alvo -- voce NAO decidiu isso, so informativo): " +
+          autoClosed
+            .map((c) => `${c.symbol} ${c.side} (${c.reason === "STOP_LOSS" ? "stop" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
+            .join("; ") +
+          ".";
+      }
+    } catch (err) {
+      console.error("[agent] falha ao checar stop/alvo mecanico (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
+    }
+    userMessage = `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}`;
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();

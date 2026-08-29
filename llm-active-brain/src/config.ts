@@ -117,6 +117,26 @@ export const config = {
   // pro porquê (um valor fixo em dólar não respeita o tamanho real de
   // contrato de cada símbolo).
   mt5MaxLots: Number(process.env.MT5_MAX_LOTS ?? 0.02),
+  // 🔴 2026-08-29 (achado da auditoria pós-noite): o "stop" e o "alvo" antes
+  // só existiam como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a
+  // cada ciclo se fechava, e pelo menos 2x deixou a perda correr MUITO além
+  // do alvo declarado (0.5%) antes de agir: uma posição BTCUSD chegou a
+  // -3.5% (-$5,96, sozinha quase o prejuízo líquido da noite inteira) e
+  // outra a -3.5%/-$3,50 (ver SESSAO_2026-08-29_AUDITORIA_...). Estes dois
+  // valores agora viram um stop/alvo MECÂNICO (preço gravado no trade na
+  // abertura, fechado por código -- ver enforceMt5StopsAndTargets em
+  // neuralBridge.ts), não sugestão pro modelo.
+  mt5StopLossPct: Number(process.env.MT5_STOP_LOSS_PCT ?? 0.005),
+  mt5TakeProfitPct: Number(process.env.MT5_TAKE_PROFIT_PCT ?? 0.005),
+  // 🔴 2026-08-29 (achado da auditoria): LOT_SIZE (assetBasket.ts) é 1 pros
+  // 3 criptos, então a exposição em dólar por lote escala direto com o preço
+  // do ativo -- BTCUSD (~$77.600) gera 30-750x mais exposição em $ que
+  // SOL/XET pro MESMO número de lotes, sem nenhuma normalização de risco.
+  // Isso concentrou praticamente 100% do risco (e do prejuízo real da
+  // noite: -$8,17 de -$8,40 total) no BTCUSD, mesmo o agente tratando os 3
+  // símbolos como "equivalentes" no teto de posições. Teto de exposição em
+  // dólar, uniforme entre símbolos, força lots menores em ativos caros.
+  mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 60),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger

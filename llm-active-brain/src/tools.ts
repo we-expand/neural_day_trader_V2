@@ -458,16 +458,56 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // lotes reais. Grava-se o notional (nao os lotes) em ai_trades.quantity,
       // convencao que `calculateEngineConsistentPnL` (useApexLogic.ts) espera.
       const amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      // 🔴 2026-08-29 (achado da auditoria): LOT_SIZE=1 pros 3 criptos faz a
+      // exposicao em dolar escalar direto com o preco do ativo -- BTCUSD
+      // (~$77.600) gera dezenas de vezes mais exposicao que SOL/XET pro
+      // MESMO numero de lotes, mesmo com o mesmo teto de "lotes" (mt5MaxLots)
+      // aplicado aos tres. Foi o que concentrou quase 100% do prejuizo real
+      // da noite de 2026-08-29 (-$8,17 de -$8,40) no BTCUSD sozinho. Teto de
+      // exposicao em dolar, uniforme entre simbolos, independente do teto de
+      // lotes.
+      if (amountUsd > config.mt5MaxNotionalUsd) {
+        return {
+          error:
+            `Exposicao pedida ($${amountUsd.toFixed(2)}) excede o teto de seguranca por posicao ` +
+            `($${config.mt5MaxNotionalUsd}, uniforme entre simbolos). Peca um numero de lotes menor ` +
+            `para ${symbol} (ativo caro gera mais exposicao por lote que SOL/XET).`,
+        };
+      }
+      // 🔴 2026-08-29 (achado da auditoria): antes o "stop"/"alvo" so existia
+      // como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a cada
+      // ciclo se fechava, e por 2x deixou a perda correr MUITO alem do alvo
+      // declarado (0.5%) antes de agir (uma vez ate -3.5%/-$5,96). Agora o
+      // preco de stop/alvo e calculado e GRAVADO no trade na abertura --
+      // enforceMt5StopsAndTargets (neuralBridge.ts) fecha sozinho por codigo
+      // a cada ciclo, antes do LLM decidir qualquer coisa, sem depender do
+      // modelo perceber ou lembrar.
+      const stopLoss =
+        side === "LONG" ? quote.price * (1 - config.mt5StopLossPct) : quote.price * (1 + config.mt5StopLossPct);
+      const takeProfit =
+        side === "LONG" ? quote.price * (1 + config.mt5TakeProfitPct) : quote.price * (1 - config.mt5TakeProfitPct);
       const tradeId = await openMt5Position({
         symbol,
         side: side as "LONG" | "SHORT",
         entryPrice: quote.price,
         amountUsd,
+        stopLoss,
+        takeProfit,
         reasoning,
         symbolsForNewSession: MT5_ASSET_BASKET,
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
-      return { trade_id: tradeId, symbol, side, entry_price: quote.price, lots, amount_usd: amountUsd };
+      return {
+        trade_id: tradeId,
+        symbol,
+        side,
+        entry_price: quote.price,
+        lots,
+        amount_usd: amountUsd,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        aviso: "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado.",
+      };
     }
 
     case "close_position": {

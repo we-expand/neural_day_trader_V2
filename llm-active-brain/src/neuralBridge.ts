@@ -314,6 +314,11 @@ export interface OpenMt5PositionParams {
   side: "LONG" | "SHORT";
   entryPrice: number;
   amountUsd: number;
+  // 🔴 2026-08-29: stop/alvo MECÂNICOS (preço absoluto, não %), calculados em
+  // tools.ts na abertura e gravados aqui -- ver enforceMt5StopsAndTargets
+  // abaixo, que os lê a cada ciclo e fecha por código, independente do LLM.
+  stopLoss: number;
+  takeProfit: number;
   reasoning: string;
   symbolsForNewSession: string[];
 }
@@ -334,6 +339,8 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         side: params.side,
         entry_price: params.entryPrice,
         quantity: params.amountUsd,
+        stop_loss: params.stopLoss,
+        take_profit: params.takeProfit,
         ai_reasoning: params.reasoning,
         entry_time: new Date().toISOString(),
         status: "OPEN",
@@ -361,6 +368,8 @@ export interface Mt5OpenPosition {
   entry_price: number;
   quantity: number;
   entry_time: string;
+  stop_loss: number | null;
+  take_profit: number | null;
 }
 
 /**
@@ -383,7 +392,7 @@ export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
-    .select("id, symbol, side, entry_price, quantity, entry_time")
+    .select("id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit")
     .eq("session_id", sessionId)
     .eq("status", "OPEN")
     .order("entry_time", { ascending: true });
@@ -392,7 +401,12 @@ export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
 }
 
 /** Fecha uma posição OPEN do trilho MT5 pelo id, calculando PnL com a MESMA fórmula do motor mecânico. Nunca lança. */
-export async function closeMt5Position(params: { tradeId: string; exitPrice: number; reasoning: string }): Promise<boolean> {
+export async function closeMt5Position(params: {
+  tradeId: string;
+  exitPrice: number;
+  reasoning: string;
+  exitReason?: "AI_SIGNAL" | "STOP_LOSS" | "TAKE_PROFIT";
+}): Promise<boolean> {
   if (!config.neuralBridgeEnabled) return false;
   try {
     const sb = getClient();
@@ -422,7 +436,7 @@ export async function closeMt5Position(params: { tradeId: string; exitPrice: num
         status: "CLOSED",
         exit_price: params.exitPrice,
         exit_time: new Date().toISOString(),
-        exit_reason: "AI_SIGNAL",
+        exit_reason: params.exitReason ?? "AI_SIGNAL",
         pnl,
         pnl_percentage: pnlPercentage,
         net_pnl: pnl,
@@ -435,4 +449,75 @@ export async function closeMt5Position(params: { tradeId: string; exitPrice: num
     console.error("[neuralBridge/mt5] falha ao fechar posição:", err instanceof Error ? err.message : err);
     return false;
   }
+}
+
+export interface StopEnforcementResult {
+  tradeId: string;
+  symbol: string;
+  side: "LONG" | "SHORT";
+  reason: "STOP_LOSS" | "TAKE_PROFIT";
+  entryPrice: number;
+  exitPrice: number;
+}
+
+/**
+ * Trava MECÂNICA de stop/alvo -- roda a cada ciclo, ANTES do LLM decidir
+ * qualquer coisa, independente do que o modelo escolher fazer naquele ciclo.
+ *
+ * Por que existe (2026-08-29, achado da auditoria pós-noite): a versão
+ * anterior só tinha o stop/alvo como TEXTO no prompt (GENESIS_PROMPT_MT5) --
+ * o LLM precisava lembrar de checar e decidir fechar a cada ciclo. Isso
+ * falhou de forma confirmada: uma posição BTCUSD correu até -3.5%/-$5,96
+ * antes do agente fechar (alvo declarado era -0.5%), e outra até -3.5%/
+ * -$3,50 -- as duas juntas já cobrem quase todo o prejuízo líquido da noite
+ * (-$8,40). Ver SESSAO_2026-08-29_AUDITORIA_LLM_BRAIN_E_MONITORAMENTO_NOTURNO.md.
+ *
+ * Agora o preço de stop/alvo é decidido e GRAVADO no trade na abertura
+ * (tools.ts open_position), e esta função fecha sozinha por código assim
+ * que o preço real (MESMO getQuote que o agente usa, nunca simulado) bate
+ * o nível -- o LLM só fica sabendo depois, não precisa (nem consegue)
+ * evitar ou atrasar o fechamento.
+ */
+export async function enforceMt5StopsAndTargets(
+  getQuote: (symbol: string) => Promise<{ price: number } | null>
+): Promise<StopEnforcementResult[]> {
+  const positions = await listMt5OpenPositions();
+  const closed: StopEnforcementResult[] = [];
+  const quoteCache = new Map<string, { price: number } | null>();
+
+  for (const pos of positions) {
+    if (pos.stop_loss == null && pos.take_profit == null) continue; // posicao antiga, de antes deste fix -- sem trava
+
+    if (!quoteCache.has(pos.symbol)) {
+      quoteCache.set(pos.symbol, await getQuote(pos.symbol));
+    }
+    const quote = quoteCache.get(pos.symbol);
+    if (!quote) continue; // sem preco real agora -- nao decide no escuro, tenta de novo no proximo ciclo
+
+    const price = quote.price;
+    let reason: "STOP_LOSS" | "TAKE_PROFIT" | null = null;
+    if (pos.side === "LONG") {
+      if (pos.stop_loss != null && price <= pos.stop_loss) reason = "STOP_LOSS";
+      else if (pos.take_profit != null && price >= pos.take_profit) reason = "TAKE_PROFIT";
+    } else {
+      if (pos.stop_loss != null && price >= pos.stop_loss) reason = "STOP_LOSS";
+      else if (pos.take_profit != null && price <= pos.take_profit) reason = "TAKE_PROFIT";
+    }
+    if (!reason) continue;
+
+    const ok = await closeMt5Position({
+      tradeId: pos.id,
+      exitPrice: price,
+      exitReason: reason,
+      reasoning:
+        `Fechamento MECANICO automatico (${reason === "STOP_LOSS" ? "stop-loss" : "take-profit"} atingido: ` +
+        `nivel ${reason === "STOP_LOSS" ? pos.stop_loss : pos.take_profit}, preco real ${price}) -- ` +
+        `nao depende de decisao do LLM neste ciclo.`,
+    });
+    if (ok) {
+      closed.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, reason, entryPrice: pos.entry_price, exitPrice: price });
+    }
+  }
+
+  return closed;
 }
