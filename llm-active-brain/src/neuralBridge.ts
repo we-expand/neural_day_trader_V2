@@ -363,24 +363,32 @@ export interface Mt5OpenPosition {
   entry_time: string;
 }
 
-/** Lista as posições OPEN do trilho MT5 (pro agente decidir o que fechar). Nunca lança -- [] em falha. */
+/**
+ * Lista as posições OPEN do trilho MT5 (pro agente decidir o que fechar, e
+ * pro teto de posições por símbolo em `open_position`).
+ *
+ * 🔴 2026-08-29 (achado de auditoria): esta função ANTES engolia qualquer
+ * erro de rede/Supabase e devolvia `[]` -- indistinguível de "sem posição
+ * aberta de verdade". Isso furava o teto de MAX_POSITIONS_PER_SYMBOL em
+ * `open_position` (tools.ts): uma falha transitória fazia o teto contar
+ * "0 abertas" mesmo com várias já abertas, e o agente empilhava mais
+ * (confirmado ao vivo: 6 posições SHORT simultâneas em SOLUSD, teto era 3).
+ * Mesmo padrão de bug já corrigido no `reconcile()` do motor mecânico em
+ * 2026-08-28. Agora propaga o erro -- cada chamador decide como falhar
+ * fechado (bloquear a ação) em vez de assumir "sem posição".
+ */
 export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
   if (!config.neuralBridgeEnabled) return [];
-  try {
-    const sessionId = await getOrCreateMt5Session([]);
-    const sb = getClient();
-    const { data, error } = await sb
-      .from("ai_trades")
-      .select("id, symbol, side, entry_price, quantity, entry_time")
-      .eq("session_id", sessionId)
-      .eq("status", "OPEN")
-      .order("entry_time", { ascending: true });
-    if (error) throw error;
-    return (data ?? []) as Mt5OpenPosition[];
-  } catch (err) {
-    console.error("[neuralBridge/mt5] falha ao listar posições abertas:", err instanceof Error ? err.message : err);
-    return [];
-  }
+  const sessionId = await getOrCreateMt5Session([]);
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("ai_trades")
+    .select("id, symbol, side, entry_price, quantity, entry_time")
+    .eq("session_id", sessionId)
+    .eq("status", "OPEN")
+    .order("entry_time", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Mt5OpenPosition[];
 }
 
 /** Fecha uma posição OPEN do trilho MT5 pelo id, calculando PnL com a MESMA fórmula do motor mecânico. Nunca lança. */

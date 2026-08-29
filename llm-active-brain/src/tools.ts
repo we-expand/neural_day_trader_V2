@@ -403,7 +403,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     }
 
     case "list_open_positions": {
-      return { positions: await listMt5OpenPositions() };
+      try {
+        return { positions: await listMt5OpenPositions() };
+      } catch (err) {
+        return { error: `Falha ao consultar posicoes abertas (rede/Supabase): ${err instanceof Error ? err.message : err}. Tente de novo antes de decidir.` };
+      }
     }
 
     case "open_position": {
@@ -432,7 +436,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // real: 8 posicoes SHORT em BTCUSD a 77658.82). Teto por simbolo forca
       // o agente a avaliar fechar posicoes existentes antes de abrir mais.
       const MAX_POSITIONS_PER_SYMBOL = 3;
-      const openPositions = await listMt5OpenPositions();
+      let openPositions;
+      try {
+        openPositions = await listMt5OpenPositions();
+      } catch (err) {
+        // Falha fechada: sem confirmar o estado real, nao abre -- ver
+        // comentario em neuralBridge.ts/listMt5OpenPositions sobre o furo
+        // que isso corrigia (teto furado por erro transitorio virando "0").
+        return { error: `Nao foi possivel confirmar quantas posicoes ja existem em ${symbol} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO aberta -- tente de novo.` };
+      }
       const openInSymbol = openPositions.filter((p) => p.symbol === symbol).length;
       if (openInSymbol >= MAX_POSITIONS_PER_SYMBOL) {
         return {
@@ -462,7 +474,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const tradeId = String(input.trade_id || "");
       const reasoning = String(input.reasoning || "");
       if (!tradeId) return { error: "trade_id invalido." };
-      const positions = await listMt5OpenPositions();
+      let positions;
+      try {
+        positions = await listMt5OpenPositions();
+      } catch (err) {
+        return { error: `Nao foi possivel confirmar a posicao ${tradeId} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO fechada -- tente de novo.` };
+      }
       const position = positions.find((p) => p.id === tradeId);
       if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
       const quote = await getMt5Quote(position.symbol);
