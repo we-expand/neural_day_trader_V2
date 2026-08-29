@@ -1,3 +1,6 @@
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent } from "./agent.js";
 import { config } from "./config.js";
@@ -5,6 +8,57 @@ import { getBalanceUsd } from "./economy.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Trava de instancia unica: dois processos escrevendo no mesmo
+// ledger/actions.json ao mesmo tempo corrompe o arquivo (JSON.parse quebra
+// em todo ciclo seguinte, travando o agente antes de decidir qualquer
+// trade -- ja aconteceu 2026-08-29). Um segundo processo que tentar subir
+// com o primeiro ainda vivo deve morrer imediatamente, nao competir.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOCK_FILE = join(__dirname, "..", "llm-brain.pid");
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function acquireSingleInstanceLock() {
+  if (existsSync(LOCK_FILE)) {
+    const existingPid = Number(readFileSync(LOCK_FILE, "utf-8").trim());
+    if (existingPid && isProcessAlive(existingPid)) {
+      console.error(
+        `Ja existe um processo do llm-active-brain rodando (PID ${existingPid}). ` +
+          `Nao vou subir um segundo em paralelo -- isso corrompe o ledger compartilhado. ` +
+          `Mate o processo antigo primeiro se quiser reiniciar.`
+      );
+      process.exit(1);
+    }
+    // PID morto (crash sem limpar o lock) -- pode seguir.
+  }
+  writeFileSync(LOCK_FILE, String(process.pid), "utf-8");
+  const releaseLock = () => {
+    try {
+      if (existsSync(LOCK_FILE) && readFileSync(LOCK_FILE, "utf-8").trim() === String(process.pid)) {
+        unlinkSync(LOCK_FILE);
+      }
+    } catch {
+      // melhor esforco -- nao deixa o shutdown travar por causa do lock
+    }
+  };
+  process.on("exit", releaseLock);
+  process.on("SIGINT", () => {
+    releaseLock();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    releaseLock();
+    process.exit(0);
+  });
 }
 
 async function runSingleCycle() {
@@ -74,6 +128,7 @@ async function runContinuous() {
 }
 
 async function main() {
+  acquireSingleInstanceLock();
   await assertOnTestnet();
   if (config.continuousMode) {
     await runContinuous();

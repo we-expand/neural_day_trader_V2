@@ -5,3 +5,4 @@ dist/
 ledger/*.json
 !ledger/.gitkeep
 logs/
+llm-brain.pid
