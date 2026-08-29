@@ -401,6 +401,36 @@ export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
   return (data ?? []) as Mt5OpenPosition[];
 }
 
+export interface Mt5RecentClosedTrade {
+  side: "LONG" | "SHORT";
+  exit_time: string;
+  exit_reason: string | null;
+}
+
+/**
+ * Últimos `limit` trades FECHADOS de um símbolo (mais recente primeiro) --
+ * usado pelo circuito de perda consecutiva em `open_position` (tools.ts,
+ * 2026-08-29). Propaga erro de rede/Supabase em vez de engolir e devolver
+ * `[]` -- mesmo motivo do fix em `listMt5OpenPositions` acima (uma falha
+ * transitória virando "sem histórico" furaria o circuito de proteção, não só
+ * o teto de posições).
+ */
+export async function getRecentClosedTrades(symbol: string, limit = 5): Promise<Mt5RecentClosedTrade[]> {
+  if (!config.neuralBridgeEnabled) return [];
+  const sessionId = await getOrCreateMt5Session([]);
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("ai_trades")
+    .select("side, exit_time, exit_reason")
+    .eq("session_id", sessionId)
+    .eq("symbol", symbol)
+    .eq("status", "CLOSED")
+    .order("exit_time", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as Mt5RecentClosedTrade[];
+}
+
 /** Fecha uma posição OPEN do trilho MT5 pelo id, calculando PnL com a MESMA fórmula do motor mecânico. Nunca lança. */
 export async function closeMt5Position(params: {
   tradeId: string;
@@ -456,7 +486,7 @@ export interface StopEnforcementResult {
   tradeId: string;
   symbol: string;
   side: "LONG" | "SHORT";
-  reason: "STOP_LOSS";
+  reason: "STOP_LOSS" | "TAKE_PROFIT";
   entryPrice: number;
   exitPrice: number;
 }
@@ -531,22 +561,25 @@ export async function enforceMt5StopsAndTargets(
     if (!quote) continue; // sem preco real agora -- nao decide no escuro, tenta de novo no proximo ciclo
 
     const price = quote.price;
-    // 🔴 2026-08-29 (pedido do Cleber, "seguir por esse caminho" apos analise
-    // de captura por trade): take_profit DEIXOU de ser gatilho de saida.
-    // Antes, um winner que batesse 2R (3xATR) fechava na hora por codigo,
-    // MESMO que o trailing (que so comeca a proteger a partir do breakeven,
-    // 0.5R) ainda estivesse longe do preco -- isso capava TODO trade
-    // vencedor em exatamente 2R, anulando o proprio trailing em qualquer
-    // tendencia maior que isso. Agora take_profit so fica gravado no trade
-    // como referencia/exibicao (ver tools.ts open_position) -- quem decide a
-    // saida de um trade lucrativo e SOMENTE o stop_loss (inicial -> breakeven
-    // -> trailing continuo abaixo). Um winner sem teto superior corre ate o
-    // trailing (a 1 distancia ATR do pico) fechar sozinho.
-    let reason: "STOP_LOSS" | null = null;
+    // 🔴 2026-08-29 (mudança de filosofia, pedido do Cleber): take_profit
+    // VOLTA a ser gatilho de saída mecânico. O motivo de ter sido desligado
+    // antes (capava todo vencedor em 2R, anulando o trailing numa tendência
+    // maior) não se aplica mais -- o alvo agora é CURTO por design
+    // (mt5TakeProfitAtrMultiplier ~1.5x ATR, ainda mais curto em dia de baixo
+    // volume, ver tools.ts open_position) e a estratégia deixou de ser
+    // "deixar o vencedor correr indefinidamente" e passou a ser "giro": entra,
+    // captura um alvo pequeno, recicla o capital pra próxima entrada, em vez
+    // de prender capital numa posição só esperando uma tendência longa que um
+    // dia de pouco volume não tem fôlego pra sustentar. Breakeven/trailing
+    // (abaixo) continuam ativos -- protegem o caso de o preço não chegar no
+    // alvo mas correr um pouco a favor antes de reverter.
+    let reason: "STOP_LOSS" | "TAKE_PROFIT" | null = null;
     if (pos.side === "LONG") {
       if (price <= pos.stop_loss) reason = "STOP_LOSS";
+      else if (pos.take_profit != null && price >= pos.take_profit) reason = "TAKE_PROFIT";
     } else {
       if (price >= pos.stop_loss) reason = "STOP_LOSS";
+      else if (pos.take_profit != null && price <= pos.take_profit) reason = "TAKE_PROFIT";
     }
     if (reason) {
       const ok = await closeMt5Position({
@@ -554,8 +587,8 @@ export async function enforceMt5StopsAndTargets(
         exitPrice: price,
         exitReason: reason,
         reasoning:
-          `Fechamento MECANICO automatico (stop-loss atingido: ` +
-          `nivel ${pos.stop_loss}, preco real ${price}) -- ` +
+          `Fechamento MECANICO automatico (${reason === "STOP_LOSS" ? "stop-loss" : "alvo (take-profit) curto"} atingido: ` +
+          `nivel ${reason === "STOP_LOSS" ? pos.stop_loss : pos.take_profit}, preco real ${price}) -- ` +
           `nao depende de decisao do LLM neste ciclo.`,
       });
       if (ok) {

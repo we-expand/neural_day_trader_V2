@@ -4,10 +4,10 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent } from "./atr.js";
-import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable } from "./assetBasket.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation } from "./atr.js";
+import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -228,6 +228,11 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       description:
         `Consulta o preco real de um ativo da cesta do motor mecanico do Neural Day Trader ` +
         `(via MetaAPI/Infinox -- MESMA fonte que o motor mecanico usa, nao Binance). ` +
+        `Devolve tambem "trend" (variacao % e rotulo ALTA/BAIXA/LATERAL na ultima 1h, ou null se indisponivel) -- ` +
+        `use pra saber se voce estaria entrando A FAVOR ou CONTRA o movimento recente, nao decida so pelo preco do instante. ` +
+        `Devolve tambem "volume" (razao do volume real recente vs a media de 1h, e "elevated" true/false) -- ` +
+        `proxy honesto de participacao (nao e book de ofertas, mas e dado real da MetaAPI, nao fabricado): ` +
+        `entrar CONTRA a tendencia SEM volume elevado e bloqueado em open_position. ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {
         type: "object",
@@ -255,7 +260,11 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `O TAMANHO EM LOTES E CALCULADO PELO CODIGO, nao por voce -- ver "size" abaixo. ` +
         `Isso existe porque BTCUSD, XETUSD e SOLUSD tem precos MUITO diferentes (~$77.000 vs ~$2.400 vs ~$100), ` +
         `entao o MESMO numero de lotes gera exposicoes em dolar completamente diferentes; o codigo normaliza isso ` +
-        `automaticamente pra exposicao-alvo igual (~$${config.mt5TargetNotionalUsd}) em qualquer simbolo.`,
+        `automaticamente pra exposicao-alvo igual (~$${config.mt5TargetNotionalUsd}) em qualquer simbolo. ` +
+        `BTCUSD/XETUSD/SOLUSD sao cripto correlacionada -- exposicao combinada do MESMO lado nesses 3 tem teto proprio ` +
+        `(nao e so por simbolo). Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
+        `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal (ver "volume") tambem e bloqueado -- ` +
+        `contrarian trade e permitido, mas so com confirmacao real de participacao, nao no vacuo.`,
       parameters: {
         type: "object",
         properties: {
@@ -406,10 +415,22 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol}.` };
+      // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
+      // tendência de curto prazo (1h) vai junto da cotação -- achado real foi
+      // o agente abrindo SHORT repetido em cripto bem no meio de um rali de
+      // horas, decidindo só a partir do preço do instante, sem nenhuma noção
+      // de "isso já está subindo há um tempo". null quando não dá pra
+      // calcular com dado real -- nunca inventa tendência.
+      const trend = await getTrendInfo(symbol);
+      // 🔴 2026-08-29: proxy honesto de participacao/forca por tras do
+      // movimento (tickVolume real da MetaAPI, ver atr.ts) -- nao e order
+      // flow/book de ofertas de verdade (o sistema nao tem esse dado), mas e
+      // volume real, nao fabricado. null quando indisponivel.
+      const volume = await getVolumeConfirmation(symbol);
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
-      return { ...quote, marketOpen: true };
+      return { ...quote, marketOpen: true, trend, volume };
     }
 
     case "list_open_positions": {
@@ -491,8 +512,78 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           error: `Ja existem ${openInSymbol} posicoes abertas em ${symbol} (teto: ${MAX_POSITIONS_PER_SYMBOL}). Feche alguma com close_position antes de abrir outra neste simbolo.`,
         };
       }
+      // 🔴 2026-08-29 (otimizacao urgente pos-perda do dia): teto de exposicao
+      // do GRUPO CORRELACIONADO inteiro no mesmo lado -- ver getCorrelatedGroup
+      // (assetBasket.ts) e mt5MaxCorrelatedNotionalUsd (config.ts). Achado
+      // real: o teto por simbolo sozinho deixou passar SHORT simultaneo em
+      // BTCUSD+XETUSD+SOLUSD (cripto correlacionada) durante um rali que
+      // pegou os 3 juntos -- isso e UMA aposta direcional triplicada, nao 3
+      // independentes.
+      const correlatedGroup = getCorrelatedGroup(symbol);
+      if (correlatedGroup.length > 1) {
+        const sameSideGroupExposure = openPositions
+          .filter((p) => correlatedGroup.includes(p.symbol) && p.side === side)
+          .reduce((sum, p) => sum + Number(p.quantity), 0);
+        if (sameSideGroupExposure >= config.mt5MaxCorrelatedNotionalUsd) {
+          return {
+            error:
+              `Exposicao ${side} combinada no grupo correlacionado (${correlatedGroup.join("/")}) ja e $${sameSideGroupExposure.toFixed(0)} ` +
+              `(teto: $${config.mt5MaxCorrelatedNotionalUsd}). Esses ativos andam juntos -- empilhar mais ${side} em qualquer um deles ` +
+              `e triplicar a MESMA aposta, nao diversificar. Feche alguma posicao do grupo ou opere o lado oposto.`,
+          };
+        }
+      }
+      // 🔴 2026-08-29 (otimizacao urgente pos-perda do dia): circuito de
+      // perda consecutiva -- ver mt5LossStreakThreshold/mt5LossStreakCooldownMinutes
+      // (config.ts). Achado real: o agente reabriu SHORT em cripto que ja
+      // tinha acabado de bater stop no MESMO lado, minutos depois, repetidas
+      // vezes, contra uma tendencia que ja tinha virado -- sem nada que o
+      // fizesse parar e reavaliar a tese antes de reentrar igual.
+      try {
+        const recentClosed = await getRecentClosedTrades(symbol, config.mt5LossStreakThreshold);
+        const cooldownMs = config.mt5LossStreakCooldownMinutes * 60 * 1000;
+        const sameSideStreak =
+          recentClosed.length >= config.mt5LossStreakThreshold &&
+          recentClosed.every(
+            (t) => t.side === side && t.exit_reason === "STOP_LOSS" && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
+          );
+        if (sameSideStreak) {
+          return {
+            error:
+              `${symbol} bateu stop-loss ${config.mt5LossStreakThreshold}x seguidas no lado ${side} nos ultimos ${config.mt5LossStreakCooldownMinutes} minutos. ` +
+              `Entrada ${side} neste simbolo em cooldown ate a tese ficar clara de novo -- opere outro ativo, ` +
+              `avalie o lado oposto (com convicção real, nao so pra "tentar de novo"), ou aguarde o cooldown passar.`,
+          };
+        }
+      } catch (err) {
+        return { error: `Nao foi possivel confirmar o historico recente de ${symbol} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO aberta -- tente de novo.` };
+      }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
+      // 🔴 2026-08-29 (otimizacao pos-conversa sobre Rotter/Pulcini/Antunes):
+      // os 3 sao scalpers de order flow -- este sistema nao tem book de
+      // ofertas, entao nao da pra imitar a tecnica de verdade. O que da pra
+      // aproveitar de forma honesta (dado real, tickVolume da MetaAPI, nao
+      // fabricado) e a mesma ideia por tras dela: um movimento contra a
+      // tendencia recente SEM volume acima do normal e uma entrada de baixa
+      // conviccao -- exatamente o padrao (SHORT repetido durante um rali,
+      // sem nenhuma leitura de forca/fraqueza) que gerou o prejuizo de
+      // 2026-08-29. Bloqueia so a combinacao contra-tendencia + volume fraco;
+      // a favor da tendencia (ou lateral, ou volume elevado mesmo contra)
+      // continua liberado -- nao e proibir contrarian trade (Kotegawa fez
+      // fortuna com isso), e proibir contrarian trade SEM confirmacao.
+      const [trend, volume] = await Promise.all([getTrendInfo(symbol), getVolumeConfirmation(symbol)]);
+      if (trend && trend.label !== "LATERAL" && volume) {
+        const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
+        if (counterTrend && !volume.elevated) {
+          return {
+            error:
+              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) ` +
+              `e o volume recente NAO esta acima do normal (razao ${volume.ratio}x) -- ${side} aqui seria ir contra o movimento sem confirmacao real de forca por tras dele. ` +
+              `Posicao NAO aberta. Espere volume elevado confirmando reversao, opere a favor da tendencia, ou avalie outro ativo.`,
+          };
+        }
+      }
       // 🔴 2026-08-29 (achado da auditoria): confirmado ao vivo 7 posicoes
       // BTCUSD SHORT abertas no MESMO preco exato (77658.82) ao longo de 12
       // minutos -- estatisticamente improvavel pra um ativo que nunca fica
@@ -559,7 +650,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       });
       let usedFallbackStop = stopPct == null;
       if (stopPct == null) stopPct = config.mt5StopFallbackPct;
-      const takeProfitPct = usedFallbackStop ? config.mt5StopFallbackPct : stopPct * (config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier);
+      let takeProfitPct = usedFallbackStop ? config.mt5StopFallbackPct : stopPct * (config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier);
+      // 🔴 2026-08-29 (pedido do Cleber): "nao pode ter alvo longo num dia
+      // sem volume" -- volume abaixo da propria media de 1h (nao "elevated",
+      // ver getVolumeConfirmation em atr.ts) encolhe SO o alvo por este fator
+      // extra, nao o stop (o risco continua o mesmo, so a meta de saida fica
+      // mais curta/alcancavel). Sem essa reducao, um alvo dimensionado pra
+      // dia de volume normal pode nunca ser atingido num dia parado -- a
+      // posicao fica presa esperando um movimento que o volume do dia nao
+      // sustenta, o oposto do giro rapido pedido.
+      let lowVolumeAdjusted = false;
+      if (volume && !volume.elevated && volume.ratio < 1) {
+        takeProfitPct *= config.mt5LowVolumeTakeProfitMultiplier;
+        lowVolumeAdjusted = true;
+      }
 
       const stopLoss = side === "LONG" ? quote.price * (1 - stopPct) : quote.price * (1 + stopPct);
       const takeProfit = side === "LONG" ? quote.price * (1 + takeProfitPct) : quote.price * (1 - takeProfitPct);
@@ -586,6 +690,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         take_profit: takeProfit,
         stop_dinamico: !usedFallbackStop,
         stop_pct: (stopPct * 100).toFixed(3) + "%",
+        take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
+        alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
         aviso: "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado.",
       };
     }

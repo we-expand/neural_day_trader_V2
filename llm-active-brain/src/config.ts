@@ -171,10 +171,29 @@ export const config = {
   // range, ou se o ATR não vier de dado real, cai pro mt5StopFallbackPct
   // fixo (mesmo valor que era o único modo antes), nunca fica sem stop.
   mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 1.5),
-  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 3),
+  // 🔴 2026-08-29 (pedido do Cleber, mudança de filosofia pós-otimizações do
+  // dia): 3 -> 1.5 -- VOLTA a ser gatilho de saída MECÂNICO de verdade (ver
+  // enforceMt5StopsAndTargets em neuralBridge.ts), mas agora com alvo CURTO
+  // por design, não o teto de 2R que tinha sido removido antes. Pedido
+  // explícito: "entra na operação, deixa correr um alvo pequeno, recolhe e
+  // parte pra outra" -- em vez de tentar deixar um vencedor correr
+  // indefinidamente com o trailing (o que só fez sentido enquanto havia
+  // volume/tendência real sustentando o movimento), a estratégia agora é
+  // giro: capturar um alvo pequeno e reciclar o capital pra próxima entrada.
+  // 1.5x ATR = MESMA distância do stop (R:R ~1:1) -- alvo pequeno de
+  // propósito, alcançável rápido, não uma aposta em tendência longa.
+  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 1.5),
   mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.002),
   mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
   mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),
+  // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em
+  // que o dia não tem volume" -- em dia/momento de baixa participação (ver
+  // getVolumeConfirmation em atr.ts, proxy real de tickVolume da MetaAPI), o
+  // alvo normal ainda pode ser grande demais pra esse ativo alcançar rápido.
+  // Quando o volume recente está ABAIXO da própria média de 1h (ratio < 1,
+  // não é "elevated"), o alvo (não o stop -- risco continua igual) encolhe
+  // por este fator extra na abertura da posição (tools.ts open_position).
+  mt5LowVolumeTakeProfitMultiplier: Number(process.env.MT5_LOW_VOLUME_TAKE_PROFIT_MULTIPLIER ?? 0.6),
   // 🔴 2026-08-29 (pedido do Cleber): breakeven MECÂNICO -- assim que o
   // preço andar a favor `mt5BreakevenTriggerR` vezes a distância original do
   // stop (0.5 = meio caminho até bater o stop, na direção contrária), o
@@ -198,6 +217,30 @@ export const config = {
   // proporcional acima do novo "forte" (1200*1.5=1800) -- sem isso, o
   // próprio teto de segurança bloquearia o "mão mais forte" pedido.
   mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 2200),
+  // 🔴 2026-08-29 (otimização urgente pós-perda do dia: -$119 realizados,
+  // 96% concentrados em 56 trades depois do aumento de exposição/remoção do
+  // teto de TP). Achado real no log de trades: BTCUSD, XETUSD e SOLUSD são
+  // cripto correlacionada (mesmo regime de mercado) -- o agente empilhou
+  // SHORT nos 3 ao mesmo tempo (até o teto de 3/símbolo em cada um) bem no
+  // meio de um rali de horas que atingiu os 3 juntos, o que é UMA aposta
+  // direcional triplicada, não 3 independentes. Este teto limita a exposição
+  // TOTAL do mesmo lado (LONG ou SHORT) somada em todo o grupo correlacionado
+  // (ver getCorrelatedGroup em assetBasket.ts) -- 2x o "forte" de um símbolo
+  // sozinho dá espaço real pra operar mais de um ativo do grupo sem permitir
+  // a mesma aposta triplicada de hoje.
+  mt5MaxCorrelatedNotionalUsd: Number(process.env.MT5_MAX_CORRELATED_NOTIONAL_USD ?? 2700),
+  // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
+  // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
+  // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO
+  // lado, no MESMO símbolo, contra uma tendência que já tinha virado contra
+  // ele -- sem nenhum mecanismo que o fizesse parar e reavaliar. Depois de
+  // `mt5LossStreakThreshold` fechamentos consecutivos por STOP_LOSS no mesmo
+  // símbolo+lado, novas entradas nesse símbolo+lado ficam bloqueadas por
+  // `mt5LossStreakCooldownMinutes` -- o lado oposto (ou outro símbolo)
+  // continua livre, isso não pausa o agente inteiro, só impede reentrar
+  // teimosamente numa mesma tese que acabou de ser invalidada 2x seguidas.
+  mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 2),
+  mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 30),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger

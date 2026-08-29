@@ -75,3 +75,21 @@ export function isSymbolTradable(symbol: string, now: Date = new Date()): boolea
   if (!FOREX_SYMBOLS.has(symbol)) return true; // cripto: sempre
   return isForexMarketOpen(now);
 }
+
+/**
+ * Grupos de ativos correlacionados (2026-08-29, otimização urgente pós-perda
+ * do dia). Achado real: o teto de "3 posições por símbolo" não impedia o
+ * agente de abrir 2-3 SHORT em BTCUSD **e** 2-3 SHORT em SOLUSD **e** 2-3
+ * SHORT em XETUSD ao mesmo tempo -- os três são cripto e andam fortemente
+ * correlacionados (mesmo regime de mercado, mesmo apetite a risco). Isso não
+ * é diversificação: é a MESMA aposta direcional triplicada, com exposição em
+ * dólar 3x maior do que o "teto por símbolo" sozinho sugere. `getCorrelatedGroup`
+ * devolve o grupo do símbolo (ou o próprio símbolo isolado se não tiver
+ * grupo), pra `open_position` somar a exposição do GRUPO inteiro no mesmo
+ * lado antes de liberar mais uma entrada.
+ */
+const CORRELATED_GROUPS: string[][] = [["BTCUSD", "XETUSD", "SOLUSD"]];
+
+export function getCorrelatedGroup(symbol: string): string[] {
+  return CORRELATED_GROUPS.find((group) => group.includes(symbol)) ?? [symbol];
+}

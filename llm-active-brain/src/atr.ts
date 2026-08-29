@@ -30,6 +30,7 @@ interface Candle {
   high: number;
   low: number;
   close: number;
+  volume?: number;
 }
 
 interface Mt5CandlesResponse {
@@ -56,17 +57,18 @@ function calculateAtr(candles: Candle[], period = 14): number | null {
   return atr;
 }
 
-const atrCache = new Map<string, { pct: number; fetchedAt: number }>();
-const ATR_CACHE_TTL_MS = 5 * 60 * 1000; // 5min -- ATR de candle de 5m não muda de forma relevante a cada ciclo (30s)
+const candlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+const CANDLES_CACHE_TTL_MS = 5 * 60 * 1000; // 5min -- candle de 5m não muda de forma relevante a cada ciclo (10s)
 
 /**
- * Retorna o ATR do símbolo como fração do preço (ex: 0.004 = 0.4%), ou
- * `null` se não deu pra calcular com dado real (chamador deve cair pro %
- * fixo de segurança nesse caso, nunca travar a abertura de posição).
+ * Busca (com cache) as últimas velas de 5m reais do símbolo, MESMA fonte que
+ * `getAtrPercent`/`getTrendInfo` usam -- extraído pra um só fetch por
+ * símbolo/ciclo em vez de duplicar a chamada de rede pra cada métrica
+ * derivada dela (2026-08-29, otimização urgente pós-perda do dia).
  */
-export async function getAtrPercent(symbol: string): Promise<number | null> {
-  const cached = atrCache.get(symbol);
-  if (cached && Date.now() - cached.fetchedAt < ATR_CACHE_TTL_MS) return cached.pct;
+async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
+  const cached = candlesCache.get(symbol);
+  if (cached && Date.now() - cached.fetchedAt < CANDLES_CACHE_TTL_MS) return cached.candles;
 
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`;
   try {
@@ -85,14 +87,97 @@ export async function getAtrPercent(symbol: string): Promise<number | null> {
     const candles = result.candles;
     if (!Array.isArray(candles) || candles.length < 15) return null;
 
-    const atr = calculateAtr(candles, 14);
-    const lastClose = candles[candles.length - 1].close;
-    if (atr == null || !Number.isFinite(atr) || !Number.isFinite(lastClose) || lastClose <= 0) return null;
-
-    const pct = atr / lastClose;
-    atrCache.set(symbol, { pct, fetchedAt: Date.now() });
-    return pct;
+    candlesCache.set(symbol, { candles, fetchedAt: Date.now() });
+    return candles;
   } catch {
     return null;
   }
+}
+
+/**
+ * Retorna o ATR do símbolo como fração do preço (ex: 0.004 = 0.4%), ou
+ * `null` se não deu pra calcular com dado real (chamador deve cair pro %
+ * fixo de segurança nesse caso, nunca travar a abertura de posição).
+ */
+export async function getAtrPercent(symbol: string): Promise<number | null> {
+  const candles = await fetchRecentCandles(symbol);
+  if (!candles) return null;
+  const atr = calculateAtr(candles, 14);
+  const lastClose = candles[candles.length - 1].close;
+  if (atr == null || !Number.isFinite(atr) || !Number.isFinite(lastClose) || lastClose <= 0) return null;
+  return atr / lastClose;
+}
+
+export interface TrendInfo {
+  /** Variação % do fechamento nas últimas `lookback` velas de 5m (positivo = subiu). */
+  changePct: number;
+  /** Rótulo simples pro LLM não ter que interpretar o número sozinho. */
+  label: "ALTA" | "BAIXA" | "LATERAL";
+  lookbackMinutes: number;
+}
+
+// 🔴 2026-08-29 (otimização urgente pós-perda do dia, achado real: cérebro
+// LLM empilhou SHORTs em BTCUSD/SOLUSD/XETUSD bem no meio de um rali de
+// várias horas nesses 3 ativos, sem NENHUMA noção de tendência recente --
+// só via o preço do instante, igual olhar uma foto sem saber se o carro
+// estava acelerando ou freando). Contexto de tendência de curto prazo
+// (1h = 12 velas de 5m) agora vai junto de get_mt5_quote, pra decisão
+// deixar de ser cega à direção que o mercado já estava seguindo.
+const TREND_LOOKBACK_CANDLES = 12; // 12 * 5min = 1h
+const TREND_FLAT_THRESHOLD_PCT = 0.15; // abaixo disso, chama de LATERAL em vez de forcar rotulo de direcao
+
+export async function getTrendInfo(symbol: string): Promise<TrendInfo | null> {
+  const candles = await fetchRecentCandles(symbol);
+  if (!candles || candles.length < TREND_LOOKBACK_CANDLES + 1) return null;
+
+  const recent = candles.slice(-TREND_LOOKBACK_CANDLES - 1);
+  const startClose = recent[0].close;
+  const endClose = recent[recent.length - 1].close;
+  if (!Number.isFinite(startClose) || startClose <= 0 || !Number.isFinite(endClose)) return null;
+
+  const changePct = ((endClose - startClose) / startClose) * 100;
+  const label: TrendInfo["label"] =
+    Math.abs(changePct) < TREND_FLAT_THRESHOLD_PCT ? "LATERAL" : changePct > 0 ? "ALTA" : "BAIXA";
+
+  return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: TREND_LOOKBACK_CANDLES * 5 };
+}
+
+export interface VolumeConfirmation {
+  /** Volume das últimas 3 velas (15min) dividido pela média das 12 anteriores (1h). >1 = participação crescente. */
+  ratio: number;
+  /** true quando a participação (volume) está claramente acima do normal recente -- proxy honesto de "força por trás do movimento". */
+  elevated: boolean;
+}
+
+// 🔴 2026-08-29 (otimização pós-conversa sobre Rotter/Pulcini/Antunes -- os
+// três são scalpers de order flow/tape reading, técnica que depende de book
+// de ofertas em tempo real que este sistema NÃO tem, ver CLAUDE.md/histórico
+// da conversa). O que ESTE sistema tem de real e comparável é o tickVolume
+// que a própria MetaAPI já devolve em /mt5-candles (campo `volume`,
+// `formattedCandles` em supabase/functions/server/index.ts) -- nunca usado
+// até agora neste projeto. Não é profundidade de book nem fluxo de ordens de
+// verdade, mas é um proxy honesto e real (não fabricado) da mesma ideia por
+// trás do "tape reading": um movimento de preço acompanhado de volume acima
+// do normal tem mais probabilidade de ser participação real (dinheiro
+// entrando) do que ruído -- e o oposto (mover contra a tendência com volume
+// FRACO) é exatamente o tipo de entrada de baixa convicção que gerou o
+// prejuízo de 2026-08-29 (SHORT repetido durante um rali sem nenhuma leitura
+// de força/fraqueza por trás do movimento).
+const VOLUME_RECENT_CANDLES = 3; // 15min
+const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
+const VOLUME_ELEVATED_RATIO = 1.15;
+
+export async function getVolumeConfirmation(symbol: string): Promise<VolumeConfirmation | null> {
+  const candles = await fetchRecentCandles(symbol);
+  if (!candles || candles.length < VOLUME_RECENT_CANDLES + VOLUME_BASELINE_CANDLES) return null;
+  if (candles.some((c) => typeof c.volume !== "number" || !Number.isFinite(c.volume))) return null; // sem volume real -- nao inventa
+
+  const recent = candles.slice(-VOLUME_RECENT_CANDLES);
+  const baseline = candles.slice(-VOLUME_RECENT_CANDLES - VOLUME_BASELINE_CANDLES, -VOLUME_RECENT_CANDLES);
+  const recentAvg = recent.reduce((sum, c) => sum + (c.volume as number), 0) / recent.length;
+  const baselineAvg = baseline.reduce((sum, c) => sum + (c.volume as number), 0) / baseline.length;
+  if (!(baselineAvg > 0)) return null;
+
+  const ratio = recentAvg / baselineAvg;
+  return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= VOLUME_ELEVATED_RATIO };
 }
