@@ -91,7 +91,6 @@ async function getOrCreateSession(): Promise<string> {
 interface MirrorBuyParams {
   symbol: string;
   priceUsd: number;
-  quantity: number;
   notionalUsd: number;
   reasoning: string;
 }
@@ -99,9 +98,19 @@ interface MirrorBuyParams {
 interface MirrorSellParams {
   symbol: string;
   priceUsd: number;
-  quantity: number;
+  notionalUsd: number;
   reasoning: string;
 }
+
+/**
+ * `ai_trades.quantity` NÃO é a quantidade bruta do ativo (ex: 0.002 ETH) --
+ * é a exposição em dólares da posição (`amountUsd`), mesma convenção que
+ * `calculateEngineConsistentPnL` (useApexLogic.ts) e o motor mecânico usam
+ * pra todo símbolo (`pnl = (exit-entry) * (amountUsd/entry)`). Gravar a
+ * quantidade bruta do ativo aqui faria o PnL exibido na plataforma ficar
+ * ~1000x menor que o real pra cripto (achado do Cleber via vídeo, 2026-08-28:
+ * posições ETHUSDT mostrando -2% de variação mas "-$0.00" de PnL).
+ */
 
 /** Abre um trade virtual OPEN (espelha uma compra real). Nunca lanca. */
 export async function mirrorBuy(params: MirrorBuyParams): Promise<void> {
@@ -116,7 +125,7 @@ export async function mirrorBuy(params: MirrorBuyParams): Promise<void> {
       type: "BUY",
       side: "LONG",
       entry_price: params.priceUsd,
-      quantity: params.quantity,
+      quantity: params.notionalUsd,
       ai_reasoning: params.reasoning,
       entry_time: new Date().toISOString(),
       status: "OPEN",
@@ -131,9 +140,9 @@ export async function mirrorBuy(params: MirrorBuyParams): Promise<void> {
 }
 
 /**
- * Fecha trade(s) OPEN do simbolo em FIFO ate cobrir a quantidade vendida
- * (espelha uma venda real -- Binance ja impede vender mais do que o agente
- * tem em caixa, entao nao ha caso de "vender mais do que abriu" aqui).
+ * Fecha trade(s) OPEN do simbolo em FIFO ate cobrir a exposicao em dolares
+ * vendida (espelha uma venda real -- Binance ja impede vender mais do que o
+ * agente tem em caixa, entao nao ha caso de "vender mais do que abriu" aqui).
  * Nunca lanca.
  */
 export async function mirrorSell(params: MirrorSellParams): Promise<void> {
@@ -151,14 +160,15 @@ export async function mirrorSell(params: MirrorSellParams): Promise<void> {
       .order("entry_time", { ascending: true });
     if (fetchError) throw fetchError;
 
-    let remaining = params.quantity;
+    let remaining = params.notionalUsd;
     const nowIso = new Date().toISOString();
     for (const trade of openTrades ?? []) {
       if (remaining <= 0) break;
       const lotQty = Number(trade.quantity);
       const closeQty = Math.min(lotQty, remaining);
-      const pnl = (params.priceUsd - Number(trade.entry_price)) * closeQty;
-      const pnlPercentage = ((params.priceUsd - Number(trade.entry_price)) / Number(trade.entry_price)) * 100;
+      const entryPrice = Number(trade.entry_price);
+      const pnl = (params.priceUsd - entryPrice) * (closeQty / entryPrice);
+      const pnlPercentage = ((params.priceUsd - entryPrice) / entryPrice) * 100;
 
       if (closeQty >= lotQty) {
         // Fecha o lote inteiro.
@@ -215,8 +225,8 @@ export async function mirrorSell(params: MirrorSellParams): Promise<void> {
 
     if (remaining > 0) {
       console.error(
-        `[neuralBridge] SELL de ${params.quantity} ${params.symbol} excedeu o total em lotes OPEN espelhados ` +
-          `(sobrou ${remaining} sem lote pra fechar) -- provavel dessincronia entre o saldo real da Binance e o espelho local.`
+        `[neuralBridge] SELL de $${params.notionalUsd} ${params.symbol} excedeu o total em lotes OPEN espelhados ` +
+          `(sobrou $${remaining} sem lote pra fechar) -- provavel dessincronia entre o saldo real da Binance e o espelho local.`
       );
     }
   } catch (err) {

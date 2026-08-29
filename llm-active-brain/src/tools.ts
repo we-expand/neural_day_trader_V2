@@ -338,9 +338,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const fillPrice = notional / Number(order.executed_qty || notional);
       const reasoning = String(input.reasoning || "");
       if (side === "buy") {
-        await mirrorBuy({ symbol, priceUsd: fillPrice, quantity: Number(order.executed_qty), notionalUsd: notional, reasoning });
+        await mirrorBuy({ symbol, priceUsd: fillPrice, notionalUsd: notional, reasoning });
       } else {
-        await mirrorSell({ symbol, priceUsd: fillPrice, quantity: Number(order.executed_qty), reasoning });
+        await mirrorSell({ symbol, priceUsd: fillPrice, notionalUsd: notional, reasoning });
       }
       return order;
     }
