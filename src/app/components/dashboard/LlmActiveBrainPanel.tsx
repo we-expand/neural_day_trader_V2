@@ -30,7 +30,14 @@ import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 // dispensar Binance e operar a MESMA cesta/preço/execução do motor
 // mecânico (ver llm-active-brain/src/mt5Broker.ts + assetBasket.ts).
 const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
-const POLL_MS = 10_000;
+// 🔴 2026-08-29 (pedido do Cleber: "preciso que esse painel esteja vivo,
+// funcionando segundo a segundo"). Preço/PnL flutuante em loop de 1s
+// (barato: `getBatchedMT5Data` já compartilha cache/TTL de 2s com o resto
+// do app, não gera requisição extra na conta MetaAPI a cada tick) — só a
+// sincronização de trades/sessão com o Supabase (abriu/fechou posição
+// nova) continua num loop mais espaçado.
+const PRICE_POLL_MS = 1_000;
+const TRADES_POLL_MS = 5_000;
 
 interface BrainTrade {
   id: string;
@@ -78,11 +85,16 @@ export function LlmActiveBrainPanel() {
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const [lastUpdate, setLastUpdate] = useState<number>(0);
   const cancelledRef = useRef(false);
+  // Ref (não state) pra o loop de preço de 1s ler sempre a lista mais
+  // recente de posições abertas sem precisar recriar o interval a cada
+  // atualização de `trades` (mesmo padrão de `activeOrdersRef` em
+  // useApexLogic.ts).
+  const openSymbolsRef = useRef<string[]>([]);
 
   useEffect(() => {
     cancelledRef.current = false;
 
-    const poll = async () => {
+    const pollTrades = async () => {
       try {
         const { data: session } = await supabase
           .from('ai_sessions')
@@ -108,25 +120,28 @@ export function LlmActiveBrainPanel() {
         if (cancelledRef.current) return;
         const rows = (tradesData || []) as BrainTrade[];
         setTrades(rows);
-
-        const openSymbols = Array.from(new Set(rows.filter(t => t.status === 'OPEN').map(t => t.symbol)));
-        if (openSymbols.length > 0) {
-          const prices = await fetchLivePrices(openSymbols);
-          if (cancelledRef.current) return;
-          setLivePrices(prev => ({ ...prev, ...prices }));
-        }
-        setLastUpdate(Date.now());
+        openSymbolsRef.current = Array.from(new Set(rows.filter(t => t.status === 'OPEN').map(t => t.symbol)));
       } catch {
         // Falha de rede/Supabase: mantém o último estado conhecido na tela
         // (mesma disciplina do reconcile() principal) em vez de zerar.
       }
     };
 
-    poll();
-    const interval = setInterval(poll, POLL_MS);
+    const pollPrice = async () => {
+      if (openSymbolsRef.current.length === 0) return;
+      const prices = await fetchLivePrices(openSymbolsRef.current);
+      if (cancelledRef.current) return;
+      setLivePrices(prev => ({ ...prev, ...prices }));
+      setLastUpdate(Date.now());
+    };
+
+    pollTrades().then(pollPrice);
+    const tradesInterval = setInterval(pollTrades, TRADES_POLL_MS);
+    const priceInterval = setInterval(pollPrice, PRICE_POLL_MS);
     return () => {
       cancelledRef.current = true;
-      clearInterval(interval);
+      clearInterval(tradesInterval);
+      clearInterval(priceInterval);
     };
   }, []);
 
