@@ -36,11 +36,19 @@ const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
 // sempre espaçar chamadas, nunca testar em paralelo contra ela"). A 1s,
 // "atualizado há Ns" ficava oscilando (0s, 7s, 8s...) em vez de andar liso
 // -- sinal de requisições brigando/falhando, não de sucesso a cada 1s.
-// Preço real fica no MESMO ritmo que o motor mecânico já usa com sucesso
-// (5s, useApexLogic.ts tradingInterval) -- a sensação "segundo a segundo"
-// vem do TICK_MS abaixo (sem rede, só força re-render do relógio/labels).
+//
+// 🔴 2026-08-29 (pedido do Cleber, mesmo dia): tentativa de 5s -> 3s pra
+// preço, revertida no mesmo dia -- achado confirmado ao vivo ("atualizado há
+// 9s" preso, print do Cleber): `getBatchedMT5Data` (RealMarketDataService.ts,
+// linha ~962) documenta latência NORMAL de 3-8s pra essa busca em lote contra
+// a conta MetaAPI compartilhada. Disparar a busca a cada 3s é mais rápido que
+// o round-trip real da fonte -- o rótulo nunca ia bater 3s cravado, só ia
+// refletir a latência de rede de qualquer forma. PRICE_POLL_MS volta pro 5s
+// que já é o ritmo validado (mesmo do motor mecânico, useApexLogic.ts
+// tradingInterval). TRADES_POLL_MS continua em 3s -- é só um select leve no
+// Supabase (ai_sessions/ai_trades), sem a mesma limitação de latência.
 const PRICE_POLL_MS = 5_000;
-const TRADES_POLL_MS = 5_000;
+const TRADES_POLL_MS = 3_000;
 const TICK_MS = 1_000;
 
 interface BrainTrade {
@@ -133,7 +141,16 @@ export function LlmActiveBrainPanel() {
     };
 
     const pollPrice = async () => {
-      if (openSymbolsRef.current.length === 0) return;
+      // 🔴 2026-08-29 (achado do Cleber: "atualizado há Ns" preso em ~10s
+      // mesmo depois do polling ir pra 3s): este early-return pulava
+      // setLastUpdate inteiro quando não havia posição aberta no momento --
+      // o contador ficava congelado na última vez que existiu posição, em
+      // vez de refletir o ciclo de poll de verdade. setLastUpdate agora
+      // marca que o ciclo RODOU, independente de ter preço pra buscar.
+      if (openSymbolsRef.current.length === 0) {
+        setLastUpdate(Date.now());
+        return;
+      }
       const prices = await fetchLivePrices(openSymbolsRef.current);
       if (cancelledRef.current) return;
       setLivePrices(prev => ({ ...prev, ...prices }));
