@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
+import { getAtrPercent } from "./atr.js";
 
 /**
  * Ponte pro Neural Day Trader (2026-08-28): espelha cada ordem real de
@@ -460,6 +461,39 @@ export interface StopEnforcementResult {
   exitPrice: number;
 }
 
+export interface BreakevenMoveResult {
+  tradeId: string;
+  symbol: string;
+  side: "LONG" | "SHORT";
+  entryPrice: number;
+  oldStopLoss: number;
+}
+
+export interface TrailMoveResult {
+  tradeId: string;
+  symbol: string;
+  side: "LONG" | "SHORT";
+  oldStopLoss: number;
+  newStopLoss: number;
+}
+
+/**
+ * Atualiza o stop_loss de uma posição OPEN pra um novo preço (breakeven ou
+ * trailing). Nunca lança -- falha silenciosa (o próximo ciclo tenta de novo)
+ * é preferível a derrubar o enforcement inteiro por causa de 1 posição.
+ */
+async function updateStopLoss(tradeId: string, newStopLoss: number): Promise<boolean> {
+  try {
+    const sb = getClient();
+    const { error } = await sb.from("ai_trades").update({ stop_loss: newStopLoss }).eq("id", tradeId).eq("status", "OPEN");
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("[neuralBridge/mt5] falha ao atualizar stop_loss:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 /**
  * Trava MECÂNICA de stop/alvo -- roda a cada ciclo, ANTES do LLM decidir
  * qualquer coisa, independente do que o modelo escolher fazer naquele ciclo.
@@ -480,9 +514,11 @@ export interface StopEnforcementResult {
  */
 export async function enforceMt5StopsAndTargets(
   getQuote: (symbol: string) => Promise<{ price: number } | null>
-): Promise<StopEnforcementResult[]> {
+): Promise<{ closed: StopEnforcementResult[]; breakevens: BreakevenMoveResult[]; trails: TrailMoveResult[] }> {
   const positions = await listMt5OpenPositions();
   const closed: StopEnforcementResult[] = [];
+  const breakevens: BreakevenMoveResult[] = [];
+  const trails: TrailMoveResult[] = [];
   const quoteCache = new Map<string, { price: number } | null>();
 
   for (const pos of positions) {
@@ -503,21 +539,60 @@ export async function enforceMt5StopsAndTargets(
       if (pos.stop_loss != null && price >= pos.stop_loss) reason = "STOP_LOSS";
       else if (pos.take_profit != null && price <= pos.take_profit) reason = "TAKE_PROFIT";
     }
-    if (!reason) continue;
+    if (reason) {
+      const ok = await closeMt5Position({
+        tradeId: pos.id,
+        exitPrice: price,
+        exitReason: reason,
+        reasoning:
+          `Fechamento MECANICO automatico (${reason === "STOP_LOSS" ? "stop-loss" : "take-profit"} atingido: ` +
+          `nivel ${reason === "STOP_LOSS" ? pos.stop_loss : pos.take_profit}, preco real ${price}) -- ` +
+          `nao depende de decisao do LLM neste ciclo.`,
+      });
+      if (ok) {
+        closed.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, reason, entryPrice: pos.entry_price, exitPrice: price });
+      }
+      continue; // posicao ja fechada -- nao faz sentido checar breakeven dela
+    }
 
-    const ok = await closeMt5Position({
-      tradeId: pos.id,
-      exitPrice: price,
-      exitReason: reason,
-      reasoning:
-        `Fechamento MECANICO automatico (${reason === "STOP_LOSS" ? "stop-loss" : "take-profit"} atingido: ` +
-        `nivel ${reason === "STOP_LOSS" ? pos.stop_loss : pos.take_profit}, preco real ${price}) -- ` +
-        `nao depende de decisao do LLM neste ciclo.`,
-    });
+    if (pos.stop_loss == null) continue; // sem stop original gravado -- nada pra mover/trilhar
+    const favorableMove = pos.side === "LONG" ? price - pos.entry_price : pos.entry_price - price;
+    if (favorableMove <= 0) continue; // so mexe no stop quando a operacao esta correndo A FAVOR
+
+    // 🔴 2026-08-29 (pedido do Cleber): breakeven MECANICO -- assim que o
+    // preco andar a favor mt5BreakevenTriggerR vezes a distancia original do
+    // stop, trava o pior caso em ~$0 movendo o stop pro preco de entrada.
+    // So anda pra frente: nunca reaplica se o stop ja esta em (ou alem de)
+    // breakeven -- a partir dali quem assume e o trailing continuo abaixo.
+    const alreadyAtBreakeven = pos.side === "LONG" ? pos.stop_loss >= pos.entry_price : pos.stop_loss <= pos.entry_price;
+    if (!alreadyAtBreakeven) {
+      const stopDistance = Math.abs(pos.entry_price - pos.stop_loss);
+      if (favorableMove >= stopDistance * config.mt5BreakevenTriggerR) {
+        const ok = await updateStopLoss(pos.id, pos.entry_price);
+        if (ok) {
+          breakevens.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, entryPrice: pos.entry_price, oldStopLoss: pos.stop_loss });
+        }
+      }
+      continue; // so trilha (abaixo) a partir do ciclo em que ja estiver em breakeven -- evita usar stop_loss desatualizado no mesmo passo
+    }
+
+    // 🔴 2026-08-29 (pedido do Cleber): trailing CONTÍNUO -- uma vez em
+    // breakeven, o stop continua subindo (LONG) / descendo (SHORT) atrás do
+    // preço, sempre a uma distância ATR recalculada a cada ciclo (mesmo
+    // espírito do stop de abertura em tools.ts). Só protege mais lucro, nunca
+    // afrouxa -- só move se o novo nível for MAIS protetor que o atual.
+    const trailPct = await getAtrPercent(pos.symbol);
+    if (trailPct == null) continue; // sem ATR real agora -- mantem o stop onde esta, tenta de novo no proximo ciclo
+    const trailDistancePct = trailPct * config.mt5StopAtrMultiplier;
+    const candidateStop = pos.side === "LONG" ? price * (1 - trailDistancePct) : price * (1 + trailDistancePct);
+    const isMoreProtective = pos.side === "LONG" ? candidateStop > pos.stop_loss : candidateStop < pos.stop_loss;
+    if (!isMoreProtective) continue;
+
+    const ok = await updateStopLoss(pos.id, candidateStop);
     if (ok) {
-      closed.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, reason, entryPrice: pos.entry_price, exitPrice: price });
+      trails.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, oldStopLoss: pos.stop_loss, newStopLoss: candidateStop });
     }
   }
 
-  return closed;
+  return { closed, breakevens, trails };
 }

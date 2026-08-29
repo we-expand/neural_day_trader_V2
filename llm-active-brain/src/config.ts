@@ -126,8 +126,32 @@ export const config = {
   // valores agora viram um stop/alvo MECÂNICO (preço gravado no trade na
   // abertura, fechado por código -- ver enforceMt5StopsAndTargets em
   // neuralBridge.ts), não sugestão pro modelo.
-  mt5StopLossPct: Number(process.env.MT5_STOP_LOSS_PCT ?? 0.005),
-  mt5TakeProfitPct: Number(process.env.MT5_TAKE_PROFIT_PCT ?? 0.005),
+  //
+  // 🔴 2026-08-29 (pedido do Cleber, mesma sessão): % fixo virou DINÂMICO --
+  // calculado por símbolo a partir do ATR real (ver atr.ts), não um número
+  // igual pra BTCUSD/XETUSD/SOLUSD independente da volatilidade de cada um.
+  // stopLoss = ATR% * mt5StopAtrMultiplier, takeProfit = ATR% *
+  // mt5TakeProfitAtrMultiplier (2x o do stop -- mesmo espírito de R:R de
+  // pelo menos 1:2 que o motor mecânico já usa, "stop sempre 2×ATR" no
+  // CLAUDE.md, aqui o stop e 1.5x ATR e o alvo 3x ATR, R:R 1:2). Clamps
+  // (mt5StopMinPct/mt5StopMaxPct) evitam stop degenerado (ATR indisponível,
+  // símbolo anormalmente parado ou anormalmente errático) -- fora desse
+  // range, ou se o ATR não vier de dado real, cai pro mt5StopFallbackPct
+  // fixo (mesmo valor que era o único modo antes), nunca fica sem stop.
+  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 1.5),
+  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 3),
+  mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.002),
+  mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
+  mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),
+  // 🔴 2026-08-29 (pedido do Cleber): breakeven MECÂNICO -- assim que o
+  // preço andar a favor `mt5BreakevenTriggerR` vezes a distância original do
+  // stop (0.5 = meio caminho até bater o stop, na direção contrária), o
+  // código move o stop_loss pro preço de entrada. Dali em diante o pior
+  // caso da posição vira ~$0 em vez do stop cheio -- mesmo espírito do
+  // "breakeven em 0,5R" que o motor mecânico já usa (ver CLAUDE.md,
+  // 2026-08-28). Só anda pra frente (nunca afrouxa um stop já em
+  // breakeven) -- ver enforceMt5StopsAndTargets em neuralBridge.ts.
+  mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 0.5),
   // 🔴 2026-08-29 (achado da auditoria): LOT_SIZE (assetBasket.ts) é 1 pros
   // 3 criptos, então a exposição em dólar por lote escala direto com o preço
   // do ativo -- BTCUSD (~$77.600) gera 30-750x mais exposição em $ que

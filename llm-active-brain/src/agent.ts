@@ -47,22 +47,33 @@ o menor contrato real permitido na plataforma, máximo ${config.mt5MaxLots}
 lotes por posição), close_position, log_thought (registre o PORQUE de cada
 decisão) e stop.
 
-**STOP/ALVO AGORA É MECÂNICO, NÃO DEPENDE DE VOCÊ (2026-08-29):**
+**STOP/ALVO AGORA É MECÂNICO E DINÂMICO, NÃO DEPENDE DE VOCÊ (2026-08-29):**
 Toda posição aberta com open_position já recebe um stop-loss e um
-take-profit calculados e gravados automaticamente (±${(config.mt5StopLossPct * 100).toFixed(2)}% da entrada).
-O CÓDIGO fecha a posição sozinho assim que o preço real bater um desses
-níveis -- você vai ser informado disso no início do próximo ciclo ("Fechamentos
-automáticos"), não precisa (e não deve tentar) fechar uma posição só porque
-acha que ela "deveria" ter batido stop/alvo -- se ainda está na lista de
-list_open_positions, é porque o nível ainda não foi batido de verdade.
-Continua valendo você fechar manualmente com close_position quando a TESE
-mudar antes de bater stop/alvo (ex: sinal se inverteu, notícia nova) -- isso
-não é redundante, é julgamento além da trava mecânica. Só existem 3 símbolos
-cripto na cesta -- no máximo 3 posições abertas simultâneas POR símbolo são
-permitidas (open_position recusa a 4ª). Exposição em dólar por posição
-também tem teto fixo (uniforme entre símbolos) -- open_position recusa e
-informa o motivo se você pedir lotes grandes demais para um ativo caro
-(ex: BTCUSD).
+take-profit calculados a partir da VOLATILIDADE REAL do ativo (ATR das
+últimas velas de 5min, não um % fixo igual pra todo símbolo) e gravados
+automaticamente na abertura. A PARTIR DAÍ, TRÊS COISAS acontecem por
+código, sem você precisar fazer nada:
+1. O CÓDIGO fecha a posição sozinho assim que o preço real bater o stop ou
+   o alvo -- você é avisado no início do próximo ciclo ("Fechamentos
+   automáticos").
+2. Assim que a posição andar a favor até a metade da distância do stop
+   original, o CÓDIGO move o stop pro preço de entrada (breakeven) --
+   avisado como "Stops movidos para breakeven". Dali em diante o pior caso
+   dessa posição é ~$0, não mais o stop cheio.
+3. Depois disso, enquanto a posição continuar correndo a favor, o CÓDIGO
+   segue subindo (LONG) ou descendo (SHORT) o stop atrás do preço, sempre a
+   uma distância ATR -- avisado como "Stops trilhados". Ele só aperta, nunca
+   afrouxa: o pior caso só melhora com o tempo, nunca piora.
+Não precisa (e não deve tentar) fechar uma posição só porque acha que ela
+"deveria" ter batido stop/alvo -- se ainda está em list_open_positions, é
+porque o nível ainda não foi batido de verdade. Continua valendo você fechar
+manualmente com close_position quando a TESE mudar antes de bater
+stop/alvo (ex: sinal se inverteu, notícia nova) -- isso não é redundante, é
+julgamento além da trava mecânica. Só existem 3 símbolos cripto na cesta --
+no máximo 3 posições abertas simultâneas POR símbolo são permitidas
+(open_position recusa a 4ª). Exposição em dólar por posição também tem teto
+fixo (uniforme entre símbolos) -- open_position recusa e informa o motivo
+se você pedir lotes grandes demais para um ativo caro (ex: BTCUSD).
 
 Você NÃO tem limite artificial de número de entradas por ciclo -- se vários
 ativos da cesta mostrarem sinal favorável, pode abrir várias posições no
@@ -246,14 +257,30 @@ export async function runAgent(cycle: number): Promise<boolean> {
     // agente so fica sabendo o que ja foi fechado, nao decide se fecha.
     let stopSummary = "";
     try {
-      const autoClosed = await enforceMt5StopsAndTargets(getMt5Quote);
-      if (autoClosed.length > 0) {
-        stopSummary =
-          " Fechamentos automaticos (mecanicos, stop/alvo -- voce NAO decidiu isso, so informativo): " +
-          autoClosed
-            .map((c) => `${c.symbol} ${c.side} (${c.reason === "STOP_LOSS" ? "stop" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
-            .join("; ") +
-          ".";
+      const { closed, breakevens, trails } = await enforceMt5StopsAndTargets(getMt5Quote);
+      const parts: string[] = [];
+      if (closed.length > 0) {
+        parts.push(
+          "Fechamentos automaticos (stop/alvo mecanico): " +
+            closed
+              .map((c) => `${c.symbol} ${c.side} (${c.reason === "STOP_LOSS" ? "stop" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
+              .join("; ")
+        );
+      }
+      if (breakevens.length > 0) {
+        parts.push(
+          "Stops movidos para breakeven (posicao correndo a favor): " +
+            breakevens.map((b) => `${b.symbol} ${b.side} (stop agora em ${b.entryPrice}, preco de entrada)`).join("; ")
+        );
+      }
+      if (trails.length > 0) {
+        parts.push(
+          "Stops trilhados (subiram acompanhando o preco a favor): " +
+            trails.map((t) => `${t.symbol} ${t.side} (${t.oldStopLoss} -> ${t.newStopLoss})`).join("; ")
+        );
+      }
+      if (parts.length > 0) {
+        stopSummary = " " + parts.join(". ") + ". Tudo isso ja aconteceu por codigo -- voce NAO decidiu, e so informativo.";
       }
     } catch (err) {
       console.error("[agent] falha ao checar stop/alvo mecanico (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);

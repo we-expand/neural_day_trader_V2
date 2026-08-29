@@ -6,6 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
+import { getAtrPercent } from "./atr.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable } from "./assetBasket.js";
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
@@ -482,10 +483,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // enforceMt5StopsAndTargets (neuralBridge.ts) fecha sozinho por codigo
       // a cada ciclo, antes do LLM decidir qualquer coisa, sem depender do
       // modelo perceber ou lembrar.
-      const stopLoss =
-        side === "LONG" ? quote.price * (1 - config.mt5StopLossPct) : quote.price * (1 + config.mt5StopLossPct);
-      const takeProfit =
-        side === "LONG" ? quote.price * (1 + config.mt5TakeProfitPct) : quote.price * (1 - config.mt5TakeProfitPct);
+      //
+      // 🔴 2026-08-29 (pedido do Cleber, mesma sessao): stop/alvo agora e
+      // DINAMICO por volatilidade real (ATR, ver atr.ts) em vez de % fixo
+      // igual pros 3 simbolos. Cai pro % fixo de seguranca
+      // (mt5StopFallbackPct) so se o ATR nao vier de dado real (candle
+      // simulado/indisponivel) -- nunca abre posicao sem stop.
+      let stopPct = await getAtrPercent(symbol).then((atrPct) => {
+        if (atrPct == null) return null;
+        const dynamicStopPct = atrPct * config.mt5StopAtrMultiplier;
+        if (dynamicStopPct < config.mt5StopMinPct || dynamicStopPct > config.mt5StopMaxPct) return null;
+        return dynamicStopPct;
+      });
+      let usedFallbackStop = stopPct == null;
+      if (stopPct == null) stopPct = config.mt5StopFallbackPct;
+      const takeProfitPct = usedFallbackStop ? config.mt5StopFallbackPct : stopPct * (config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier);
+
+      const stopLoss = side === "LONG" ? quote.price * (1 - stopPct) : quote.price * (1 + stopPct);
+      const takeProfit = side === "LONG" ? quote.price * (1 + takeProfitPct) : quote.price * (1 - takeProfitPct);
       const tradeId = await openMt5Position({
         symbol,
         side: side as "LONG" | "SHORT",
@@ -506,6 +521,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         amount_usd: amountUsd,
         stop_loss: stopLoss,
         take_profit: takeProfit,
+        stop_dinamico: !usedFallbackStop,
+        stop_pct: (stopPct * 100).toFixed(3) + "%",
         aviso: "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado.",
       };
     }
