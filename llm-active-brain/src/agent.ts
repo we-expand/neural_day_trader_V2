@@ -50,23 +50,30 @@ ativos da cesta mostrarem sinal favorável, pode abrir várias posições no
 mesmo ciclo (sempre dentro do teto de segurança por posição). Prefira agir
 quando houver sinal a ficar parado por cautela excessiva.
 
-**ÊNFASE ESPECIAL - FIM DE SEMANA:** Cripto (BTCUSD, ETHUSD, SOLUSD) opera 24/5.
+**ÊNFASE ESPECIAL - FIM DE SEMANA:** Cripto (BTCUSD, XETUSD, SOLUSD) opera 24/5.
 Quando forex/índices estão em sleep (finais de semana, noites), priorize
 agressivamente cripto -- não deixe de testar múltiplas posições simultâneas
 em diferentes pares cripto. O objetivo desta sessão é testar performance ao
 máximo, não preservar capital. Abra MUITAS posições se os sinais justificarem.
 
+A cesta completa tem 6 ativos: EURUSD, GBPUSD, USDJPY, BTCUSD, XETUSD, SOLUSD.
+Você tem espaço (até ${config.maxIterations} chamadas de ferramenta por ciclo)
+pra consultar cotação de TODOS os 6 antes de decidir -- não pare de checar
+ativos cedo demais. Cubra a cesta inteira a cada ciclo sempre que possível.
+
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma
    deve ser fechada agora (alvo atingido, invalidação da tese, etc).
-2. Consultar cotação real (get_mt5_quote) dos ativos da cesta que ainda não
-   olhou neste ciclo -- priorize cripto se a hora atual for fim de semana.
-3. Abrir posição(ões) novas AGRESSIVAMENTE quando o sinal justificar -- sem
-   receio de abrir 2-3-4 posições no mesmo ciclo se houver sinal em múltiplos
-   ativos cripto.
+2. Consultar cotação real (get_mt5_quote) de TODOS os ativos da cesta que
+   ainda não olhou neste ciclo -- priorize cripto se a hora atual for fim de
+   semana, mas não pule os outros ativos, cheque todos.
+3. Abrir posição(ões) novas AGRESSIVAMENTE em QUANTOS ativos diferentes
+   mostrarem sinal favorável -- sem receio de abrir várias posições
+   simultâneas em ativos distintos no mesmo ciclo. Diversificar entre vários
+   ativos ao mesmo tempo é o comportamento esperado, não uma exceção.
 4. Registrar seu raciocínio em log_thought a cada decisão.
 5. Chamar "stop" com um resumo do que decidiu e por quê, quando achar que o
-   ciclo acabou.
+   ciclo acabou (só depois de ter avaliado a cesta inteira).
 
 Você sempre opera dentro dos limites de segurança fixos em código (teto por
 posição, número máximo de iterações por ciclo). Não pode contornar esses
@@ -240,6 +247,21 @@ export async function runAgent(cycle: number): Promise<boolean> {
     });
 
     const message = response.choices[0].message;
+
+    // O gpt-oss as vezes vaza tokens internos de formatacao (ex:
+    // "check_balance<|channel|>commentary") grudados no nome da tool. Corta
+    // tudo a partir do primeiro caractere invalido ANTES de guardar no
+    // historico -- se o nome sujo for empurrado pra `messages` como esta
+    // (so seria limpo depois, na hora de executar), o proximo request pra
+    // API reenvia esse historico e o provedor rejeita com 400 (nome nao
+    // bate com nenhuma tool declarada), travando o ciclo inteiro.
+    if (message.tool_calls) {
+      for (const call of message.tool_calls) {
+        if (call.type === "function") {
+          call.function.name = call.function.name.split(/[<|]/)[0];
+        }
+      }
+    }
     messages.push(message);
 
     if (message.content && message.content.trim()) {
@@ -255,10 +277,7 @@ export async function runAgent(cycle: number): Promise<boolean> {
 
     for (const call of toolCalls) {
       if (call.type !== "function") continue;
-      // O gpt-oss as vezes vaza tokens internos de formatacao (ex:
-      // "check_balance<|channel|>commentary") grudados no nome da tool.
-      // Corta tudo a partir do primeiro caractere invalido em nome de tool.
-      const name = call.function.name.split(/[<|]/)[0];
+      const name = call.function.name;
       let input: Record<string, unknown> = {};
       try {
         input = JSON.parse(call.function.arguments || "{}");
