@@ -41,7 +41,22 @@ let repeatCountBySymbol: Record<string, number> = {};
 // cobrir esse custo -- exatamente como uma corretora real mostra. Se o
 // provedor nao devolver bid/ask (raro), cai pra price em ambos -- spread
 // vira 0 nesse caso, nunca inventa um spread fabricado.
-export async function getQuote(
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 🔴 2026-08-29 (achado real): open_position/close_position chamam getQuote
+// de novo internamente (nao reaproveitam a cotacao que o LLM ja tinha visto
+// via get_mt5_quote segundos antes) -- uma unica falha transitoria de rede
+// contra o endpoint MetaAPI compartilhado (rate-limit/504, risco cronico ja
+// documentado no CLAUDE.md) fazia open_position devolver "sem cotacao
+// disponivel" e abortar a entrada, mesmo com o feed saudavel no instante
+// seguinte. 3 tentativas com pequeno backoff absorve esse tipo de soluco sem
+// mascarar uma falha real e persistente (essa ainda devolve null no fim).
+const QUOTE_RETRY_ATTEMPTS = 3;
+const QUOTE_RETRY_DELAY_MS = 500;
+
+async function fetchQuoteOnce(
   symbol: string
 ): Promise<{ symbol: string; price: number; bid: number; ask: number; changePercent: number } | null> {
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-prices`;
@@ -88,4 +103,15 @@ export async function getQuote(
   } catch {
     return null;
   }
+}
+
+export async function getQuote(
+  symbol: string
+): Promise<{ symbol: string; price: number; bid: number; ask: number; changePercent: number } | null> {
+  for (let attempt = 1; attempt <= QUOTE_RETRY_ATTEMPTS; attempt++) {
+    const quote = await fetchQuoteOnce(symbol);
+    if (quote) return quote;
+    if (attempt < QUOTE_RETRY_ATTEMPTS) await sleep(QUOTE_RETRY_DELAY_MS * attempt);
+  }
+  return null;
 }
