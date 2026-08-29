@@ -125,7 +125,14 @@ export const config = {
   // já bate perto do alvo com o próprio lote mínimo (0,01 ≈ $775-780), então
   // não muda muito pra ele -- o alvo foi calibrado logo acima disso de
   // propósito, pra não forçar BTC pra baixo do menor contrato real.
-  mt5TargetNotionalUsd: Number(process.env.MT5_TARGET_NOTIONAL_USD ?? 800),
+  //
+  // 🔴 2026-08-29 (pedido do Cleber, mesmo dia): subido 800 -> 1200 pra
+  // "entrar com a mão um pouco mais forte, nos ativos em geral" -- aumenta o
+  // $ de exposição de toda posição nova (normal e forte) proporcionalmente
+  // em qualquer símbolo da cesta, sem mexer em stop/alvo/breakeven/trailing
+  // (só o tamanho, não a lógica de saída). mt5MaxNotionalUsd reajustado junto
+  // pra manter a mesma margem de segurança acima do "forte".
+  mt5TargetNotionalUsd: Number(process.env.MT5_TARGET_NOTIONAL_USD ?? 1200),
   // Alavanca de "mão mais pesada": open_position aceita size:"forte", que
   // multiplica a exposição-alvo por este fator (aplicado a QUALQUER
   // símbolo, mantendo a equiparação entre eles).
@@ -177,7 +184,12 @@ export const config = {
   // anterior, mesmo dia) deixaria o BTCUSD incapaz de abrir QUALQUER
   // posição, mesmo no menor lote possível. 1500 dá margem confortável acima
   // do alvo "forte" (800*1.5=1200) e do maior valor histórico observado.
-  mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 1500),
+  //
+  // 🔴 2026-08-29 (mesmo dia, junto com o aumento de mt5TargetNotionalUsd
+  // 800->1200): reajustado 1500 -> 2200 pra manter a MESMA margem
+  // proporcional acima do novo "forte" (1200*1.5=1800) -- sem isso, o
+  // próprio teto de segurança bloquearia o "mão mais forte" pedido.
+  mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 2200),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
