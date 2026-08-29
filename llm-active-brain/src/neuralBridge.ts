@@ -246,3 +246,185 @@ export async function mirrorSell(params: MirrorSellParams): Promise<void> {
     console.error("[neuralBridge] falha ao espelhar SELL:", err instanceof Error ? err.message : err);
   }
 }
+
+// ============================================================================
+// TRILHO MT5 (2026-08-29) -- cesta/preço/execução do motor mecânico, sem
+// Binance/cripto. Sessão própria e separada da do trilho Binance acima (não
+// mistura os dois experimentos). Aqui a posição é aberta/fechada pelo ID
+// direto (não FIFO por quantidade vendida) porque o agente decide LONG/SHORT
+// explicitamente, igual ao motor mecânico -- não é "comprar/vender um saldo
+// de ativo" como no trilho spot cripto.
+// ============================================================================
+
+const MT5_STRATEGY_NAME = "LLM_ACTIVE_BRAIN_MT5";
+const MT5_TEST_DATA_REASON =
+  "Cérebro LLM ativo (trilho MT5, sem Binance/cripto) operando a mesma cesta/preço/execução " +
+  "do motor mecânico, em sessão isolada -- pedido do Cleber, 2026-08-29.";
+
+let mt5SessionIdPromise: Promise<string> | null = null;
+
+async function getOrCreateMt5Session(symbols: string[]): Promise<string> {
+  if (mt5SessionIdPromise) return mt5SessionIdPromise;
+  mt5SessionIdPromise = (async () => {
+    if (!config.neuralUserId) {
+      throw new Error("NEURAL_USER_ID ausente no .env (necessario com NEURAL_BRIDGE_ENABLED=true).");
+    }
+    const sb = getClient();
+
+    // Mesma regra do trilho Binance acima: NUNCA status='RUNNING' aqui (ver
+    // comentário grande em getOrCreateSession) -- ficaria visível pro
+    // getActiveSession() do motor mecânico real no navegador.
+    const { data: existing, error: findError } = await sb
+      .from("ai_sessions")
+      .select("id")
+      .eq("user_id", config.neuralUserId)
+      .eq("strategy_name", MT5_STRATEGY_NAME)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (existing?.id) return existing.id as string;
+
+    const { data: created, error: createError } = await sb
+      .from("ai_sessions")
+      .insert({
+        user_id: config.neuralUserId,
+        strategy_name: MT5_STRATEGY_NAME,
+        mode: "DEMO",
+        symbols,
+        initial_balance: 50,
+        initial_equity: 50,
+        status: "PAUSED",
+        config: {
+          source: "llm-active-brain (agente full tool-calling, sem gate mecanico, cesta/preco/execucao do motor mecanico)",
+          llm_provider: config.llmProvider,
+          llm_model: config.llmModel,
+        },
+      })
+      .select("id")
+      .single();
+    if (createError) throw createError;
+    return created.id as string;
+  })();
+  return mt5SessionIdPromise;
+}
+
+export interface OpenMt5PositionParams {
+  symbol: string;
+  side: "LONG" | "SHORT";
+  entryPrice: number;
+  amountUsd: number;
+  reasoning: string;
+  symbolsForNewSession: string[];
+}
+
+/** Abre uma posição virtual OPEN no trilho MT5. Retorna o id (pra poder fechar depois) ou null se falhar. Nunca lança. */
+export async function openMt5Position(params: OpenMt5PositionParams): Promise<string | null> {
+  if (!config.neuralBridgeEnabled) return null;
+  try {
+    const sessionId = await getOrCreateMt5Session(params.symbolsForNewSession);
+    const sb = getClient();
+    const { data, error } = await sb
+      .from("ai_trades")
+      .insert({
+        session_id: sessionId,
+        user_id: config.neuralUserId,
+        symbol: params.symbol,
+        type: params.side === "LONG" ? "BUY" : "SELL",
+        side: params.side,
+        entry_price: params.entryPrice,
+        quantity: params.amountUsd,
+        ai_reasoning: params.reasoning,
+        entry_time: new Date().toISOString(),
+        status: "OPEN",
+        commission: 0,
+        is_test_data: true,
+        test_data_reason: MT5_TEST_DATA_REASON,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      console.error("[neuralBridge/mt5] falha ao abrir posição:", error.message);
+      return null;
+    }
+    return data.id as string;
+  } catch (err) {
+    console.error("[neuralBridge/mt5] falha ao abrir posição:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+export interface Mt5OpenPosition {
+  id: string;
+  symbol: string;
+  side: "LONG" | "SHORT";
+  entry_price: number;
+  quantity: number;
+  entry_time: string;
+}
+
+/** Lista as posições OPEN do trilho MT5 (pro agente decidir o que fechar). Nunca lança -- [] em falha. */
+export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
+  if (!config.neuralBridgeEnabled) return [];
+  try {
+    const sessionId = await getOrCreateMt5Session([]);
+    const sb = getClient();
+    const { data, error } = await sb
+      .from("ai_trades")
+      .select("id, symbol, side, entry_price, quantity, entry_time")
+      .eq("session_id", sessionId)
+      .eq("status", "OPEN")
+      .order("entry_time", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Mt5OpenPosition[];
+  } catch (err) {
+    console.error("[neuralBridge/mt5] falha ao listar posições abertas:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/** Fecha uma posição OPEN do trilho MT5 pelo id, calculando PnL com a MESMA fórmula do motor mecânico. Nunca lança. */
+export async function closeMt5Position(params: { tradeId: string; exitPrice: number; reasoning: string }): Promise<boolean> {
+  if (!config.neuralBridgeEnabled) return false;
+  try {
+    const sb = getClient();
+    const { data: trade, error: fetchError } = await sb
+      .from("ai_trades")
+      .select("entry_price, side, quantity")
+      .eq("id", params.tradeId)
+      .eq("status", "OPEN")
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!trade) {
+      console.error(`[neuralBridge/mt5] tentativa de fechar posição inexistente/já fechada: ${params.tradeId}`);
+      return false;
+    }
+    const entryPrice = Number(trade.entry_price);
+    const amountUsd = Number(trade.quantity);
+    const side = trade.side as "LONG" | "SHORT";
+    const pnl =
+      side === "LONG"
+        ? (params.exitPrice - entryPrice) * (amountUsd / entryPrice)
+        : (entryPrice - params.exitPrice) * (amountUsd / entryPrice);
+    const pnlPercentage = ((params.exitPrice - entryPrice) / entryPrice) * 100 * (side === "LONG" ? 1 : -1);
+
+    const { error: updateError } = await sb
+      .from("ai_trades")
+      .update({
+        status: "CLOSED",
+        exit_price: params.exitPrice,
+        exit_time: new Date().toISOString(),
+        exit_reason: "AI_SIGNAL",
+        pnl,
+        pnl_percentage: pnlPercentage,
+        net_pnl: pnl,
+        ai_reasoning: params.reasoning,
+      })
+      .eq("id", params.tradeId);
+    if (updateError) throw updateError;
+    return true;
+  } catch (err) {
+    console.error("[neuralBridge/mt5] falha ao fechar posição:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}

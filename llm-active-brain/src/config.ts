@@ -59,26 +59,29 @@ export const config = {
   continuousMode: process.env.CONTINUOUS_MODE === "true",
   cycleDelaySeconds: Number(process.env.CYCLE_DELAY_SECONDS ?? 30),
   maxCycles: Number(process.env.MAX_CYCLES ?? 100),
-  // Trading real/testnet via Binance. Tudo opcional - so exigido se
-  // ENABLE_TRADING=true (o agente so ganha as ferramentas de trading
-  // quando isso esta ligado).
+  // 🔴 2026-08-29 (pedido do Cleber): "não precisamos utilizar a Binance...
+  // com a nossa cesta de ativos... como se estivesse no lugar do motor que a
+  // gente tinha desenvolvido". A partir daqui o agente opera sobre a MESMA
+  // cesta/preço/execução do motor mecânico do Neural Day Trader (MT5 via
+  // Infinox, ver mt5Broker.ts) — Binance/cripto deixa de ser usado por
+  // padrão (código antigo mantido só pro experimento já rodado, não apagado).
   tradingEnabled: process.env.ENABLE_TRADING === "true",
   binanceApiKey: process.env.BINANCE_API_KEY ?? "",
   binanceSecretKey: process.env.BINANCE_SECRET_KEY ?? "",
-  // TESTNET (dinheiro simulado) e o padrao. So vira LIVE (dinheiro real) se
-  // a pessoa explicitamente setar BINANCE_TESTNET=false no .env.
   binanceTestnet: process.env.BINANCE_TESTNET !== "false",
-  // 5 e o valor minimo tipico de ordem na Binance (varia por par) - abaixo
-  // disso, quase toda ordem e recusada com "Filter failure: NOTIONAL".
   maxOrderUsd: Number(process.env.MAX_ORDER_USD ?? 5),
   maxLiveBudgetUsd: Number(process.env.MAX_LIVE_BUDGET_USD ?? 5),
-  // Ponte opcional pro Neural Day Trader: espelha cada ordem executada aqui
-  // (fill real de Binance, testnet ou live) como um trade virtual isolado
-  // em ai_trades/ai_sessions daquele projeto, pra o resultado aparecer na
-  // plataforma (Dashboard) em vez de so no ledger local deste repo. Nunca
-  // bloqueia nem derruba o agente se falhar - e so espelhamento.
+  // Trading MT5 (cesta real do motor mecânico) — ligado por padrão. Único
+  // caminho de trading real deste agente a partir de 2026-08-29.
+  mt5TradingEnabled: process.env.MT5_TRADING_ENABLED !== "false",
+  mt5MaxOrderUsd: Number(process.env.MT5_MAX_ORDER_USD ?? 10),
+  // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
+  // agente como trade virtual isolado em ai_trades/ai_sessions daquele
+  // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
+  // local deste repo. Nunca bloqueia nem derruba o agente se falhar.
   neuralBridgeEnabled: process.env.NEURAL_BRIDGE_ENABLED === "true",
   neuralSupabaseUrl: process.env.NEURAL_SUPABASE_URL ?? "",
+  neuralSupabaseAnonKey: process.env.NEURAL_SUPABASE_ANON_KEY ?? "",
   neuralSupabaseServiceRoleKey: process.env.NEURAL_SUPABASE_SERVICE_ROLE_KEY ?? "",
   neuralUserId: process.env.NEURAL_USER_ID ?? "",
 };

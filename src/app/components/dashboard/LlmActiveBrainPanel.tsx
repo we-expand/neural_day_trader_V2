@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Brain } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 
 /**
  * Painel de acompanhamento do "cérebro LLM ativo" (llm-active-brain/,
@@ -10,18 +11,25 @@ import { supabase } from '@/lib/supabaseClient';
  * Dashboard (`reconcile()`/PNL loop em useApexLogic.ts) só acompanha a
  * sessão do MOTOR MECÂNICO do próprio navegador (`persistenceRef.current.
  * getSessionId()`), nunca uma sessão isolada de outro processo — a sessão do
- * cérebro LLM (strategy_name='LLM_ACTIVE_BRAIN_AUTONOMOUS_MONEY') nunca
- * entrava nesse loop, então a tela só mostrava o snapshot do carregamento
- * inicial da página, sem nunca atualizar.
+ * cérebro LLM nunca entrava nesse loop, então a tela só mostrava o snapshot
+ * do carregamento inicial da página, sem nunca atualizar.
  *
  * Este painel é standalone (não reusa o hook do motor mecânico — reusar
  * exigiria repontar `useApexLogic` inteiro pra outra sessão, que não é o
  * design dele). Faz seu próprio poll de baixo custo (10s: 1 select em
- * ai_trades + 1 select de preço via Binance direto, sem passar pela conta
- * MetaAPI compartilhada).
+ * ai_trades + preço via `getBatchedMT5Data` — MESMO serviço/fonte que o
+ * motor mecânico usa, MT5/Infinox pra forex/índices).
+ *
+ * 2026-08-29: trilho trocado de Binance/cripto pra cesta/preço/execução do
+ * próprio motor mecânico (`llm-active-brain/src/mt5Broker.ts`), a pedido do
+ * Cleber — "não precisamos utilizar a Binance... como se estivesse no lugar
+ * do motor que a gente tinha desenvolvido".
  */
 
-const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_AUTONOMOUS_MONEY';
+// 🔴 2026-08-29: trilho Binance/cripto substituído -- Cleber pediu pra
+// dispensar Binance e operar a MESMA cesta/preço/execução do motor
+// mecânico (ver llm-active-brain/src/mt5Broker.ts + assetBasket.ts).
+const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
 const POLL_MS = 10_000;
 
 interface BrainTrade {
@@ -45,16 +53,22 @@ function calcPnl(entryPrice: number, currentPrice: number, side: 'LONG' | 'SHORT
     : (entryPrice - currentPrice) * (amountUsd / entryPrice);
 }
 
-async function fetchBinancePrice(symbol: string): Promise<number | null> {
+async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
+  // Mesmo `getBatchedMT5Data` que `useApexLogic.ts` usa pro loop de PnL do
+  // motor mecânico — MT5/Infinox pra forex/índices, Binance direto (com
+  // proxy CORS) pra cripto sem CFD confirmado. Cache/mutex compartilhado
+  // com o resto do app, não gera requisição duplicada.
+  const result: Record<string, number> = {};
   try {
-    const res = await fetch(`https://testnet.binance.vision/api/v3/ticker/price?symbol=${symbol}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const price = Number(data.price);
-    return Number.isFinite(price) && price > 0 ? price : null;
+    const batch = await getBatchedMT5Data(symbols);
+    for (const s of symbols) {
+      const data = batch[s];
+      if (data && Number.isFinite(data.price) && data.price > 0) result[s] = data.price;
+    }
   } catch {
-    return null;
+    // mantém o que já tinha
   }
+  return result;
 }
 
 export function LlmActiveBrainPanel() {
@@ -97,13 +111,9 @@ export function LlmActiveBrainPanel() {
 
         const openSymbols = Array.from(new Set(rows.filter(t => t.status === 'OPEN').map(t => t.symbol)));
         if (openSymbols.length > 0) {
-          const prices = await Promise.all(openSymbols.map(async (s) => [s, await fetchBinancePrice(s)] as const));
+          const prices = await fetchLivePrices(openSymbols);
           if (cancelledRef.current) return;
-          setLivePrices(prev => {
-            const next = { ...prev };
-            for (const [s, p] of prices) if (p != null) next[s] = p;
-            return next;
-          });
+          setLivePrices(prev => ({ ...prev, ...prices }));
         }
         setLastUpdate(Date.now());
       } catch {
@@ -139,7 +149,7 @@ export function LlmActiveBrainPanel() {
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-purple-400" />
           <h2 className="text-sm font-bold uppercase tracking-wider text-purple-300">
-            Cérebro LLM Ativo (teste, Binance) — isolado do motor mecânico
+            Cérebro LLM Ativo (teste, cesta do motor) — isolado do motor mecânico
           </h2>
         </div>
         <span className="text-[10px] text-neutral-500 font-mono">

@@ -3,8 +3,10 @@ import type { OpenAI } from "openai";
 import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js";
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
-import { getAccount, getQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell } from "./neuralBridge.js";
+import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions } from "./neuralBridge.js";
+import { getQuote as getMt5Quote } from "./mt5Broker.js";
+import { MT5_ASSET_BASKET } from "./assetBasket.js";
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -217,7 +219,71 @@ const tradingToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
   },
 ];
 
-export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.tradingEnabled
+const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "get_mt5_quote",
+      description:
+        `Consulta o preco real de um ativo da cesta do motor mecanico do Neural Day Trader ` +
+        `(via MetaAPI/Infinox -- MESMA fonte que o motor mecanico usa, nao Binance). ` +
+        `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: `Um dos simbolos da cesta: ${MT5_ASSET_BASKET.join(", ")}.` },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_open_positions",
+      description: "Lista as posicoes que VOCE tem abertas agora nesta sessao isolada (id, simbolo, lado, preco de entrada, exposicao em USD).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_position",
+      description:
+        `Abre uma posicao virtual (DEMO, dinheiro simulado) num ativo da cesta, comprado/vendido a preco real de mercado. ` +
+        `Teto por posicao: $${config.mt5MaxOrderUsd}.`,
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: `Um dos simbolos da cesta: ${MT5_ASSET_BASKET.join(", ")}.` },
+          side: { type: "string", enum: ["LONG", "SHORT"], description: "Comprado (aposta em alta) ou vendido (aposta em baixa)." },
+          amount_usd: { type: "number", description: `Exposicao em dolares da posicao (maximo $${config.mt5MaxOrderUsd}).` },
+          reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
+        },
+        required: ["symbol", "side", "amount_usd", "reasoning"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "close_position",
+      description: "Fecha uma posicao aberta (pelo id devolvido por open_position ou list_open_positions), a preco real de mercado.",
+      parameters: {
+        type: "object",
+        properties: {
+          trade_id: { type: "string", description: "Id da posicao a fechar." },
+          reasoning: { type: "string", description: "Por que fechar agora (alvo atingido, invalidacao da tese, etc)." },
+        },
+        required: ["trade_id", "reasoning"],
+      },
+    },
+  },
+];
+
+export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.mt5TradingEnabled
+  ? [...baseToolDefinitions, ...mt5ToolDefinitions]
+  : config.tradingEnabled
   ? [...baseToolDefinitions, ...tradingToolDefinitions]
   : baseToolDefinitions;
 
@@ -319,7 +385,62 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     case "get_market_quote": {
       const symbol = String(input.symbol || "").toUpperCase();
       if (!symbol) return { error: "symbol invalido." };
-      return await getQuote(symbol);
+      return await getBinanceQuote(symbol);
+    }
+
+    case "get_mt5_quote": {
+      const symbol = String(input.symbol || "").toUpperCase();
+      if (!MT5_ASSET_BASKET.includes(symbol)) {
+        return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
+      }
+      const quote = await getMt5Quote(symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol}.` };
+      return quote;
+    }
+
+    case "list_open_positions": {
+      return { positions: await listMt5OpenPositions() };
+    }
+
+    case "open_position": {
+      const symbol = String(input.symbol || "").toUpperCase();
+      const side = input.side as string;
+      const amountUsd = Number(input.amount_usd);
+      const reasoning = String(input.reasoning || "");
+      if (!MT5_ASSET_BASKET.includes(symbol)) {
+        return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
+      }
+      if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
+      if (!Number.isFinite(amountUsd) || amountUsd <= 0) return { error: "amount_usd invalido." };
+      if (amountUsd > config.mt5MaxOrderUsd) {
+        return { error: `Valor pedido ($${amountUsd}) excede o teto de seguranca por posicao ($${config.mt5MaxOrderUsd}). Bloqueado.` };
+      }
+      const quote = await getMt5Quote(symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
+      const tradeId = await openMt5Position({
+        symbol,
+        side: side as "LONG" | "SHORT",
+        entryPrice: quote.price,
+        amountUsd,
+        reasoning,
+        symbolsForNewSession: MT5_ASSET_BASKET,
+      });
+      if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
+      return { trade_id: tradeId, symbol, side, entry_price: quote.price, amount_usd: amountUsd };
+    }
+
+    case "close_position": {
+      const tradeId = String(input.trade_id || "");
+      const reasoning = String(input.reasoning || "");
+      if (!tradeId) return { error: "trade_id invalido." };
+      const positions = await listMt5OpenPositions();
+      const position = positions.find((p) => p.id === tradeId);
+      if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
+      const quote = await getMt5Quote(position.symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${position.symbol} -- posicao nao fechada.` };
+      const closed = await closeMt5Position({ tradeId, exitPrice: quote.price, reasoning });
+      if (!closed) return { error: "Falha ao fechar a posicao (ver log do processo)." };
+      return { trade_id: tradeId, exit_price: quote.price };
     }
 
     case "place_market_order": {

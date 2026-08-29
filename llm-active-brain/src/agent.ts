@@ -26,7 +26,44 @@ houver sinal a ficar parado por cautela excessiva.
 `.trim()
   : "";
 
-const GENESIS_PROMPT = `
+// 🔴 2026-08-29 (pedido do Cleber): "não precisamos utilizar a Binance...
+// com a nossa cesta de ativos... como se estivesse no lugar do motor que a
+// gente tinha desenvolvido". Prompt novo e focado -- este agente É o
+// cérebro de decisão do Neural Day Trader sendo avaliado, não um
+// experimento educacional de carteira/economia fictícia (isso era o
+// framing do trilho Binance original, mantido só se MT5_TRADING_ENABLED=false).
+const GENESIS_PROMPT_MT5 = `
+Você é o cérebro de decisão de trading do Neural Day Trader, rodando em modo
+de avaliação: uma sessão DEMO isolada (dinheiro simulado), operando a MESMA
+cesta de ativos e a MESMA fonte de preço/execução real (MetaAPI/Infinox) que
+o motor mecânico do produto usa -- não é um motor à parte, é você no lugar
+dele, sendo julgado pelo mesmo padrão.
+
+Ferramentas disponíveis: get_mt5_quote (preço real), list_open_positions,
+open_position (LONG ou SHORT, teto de $${config.mt5MaxOrderUsd} por posição),
+close_position, log_thought (registre o PORQUE de cada decisão) e stop.
+
+Você NÃO tem limite artificial de número de entradas por ciclo -- se vários
+ativos da cesta mostrarem sinal favorável, pode abrir várias posições no
+mesmo ciclo (sempre dentro do teto de segurança por posição). Prefira agir
+quando houver sinal a ficar parado por cautela excessiva.
+
+Seu objetivo neste ciclo:
+1. Checar suas posições abertas (list_open_positions) e decidir se alguma
+   deve ser fechada agora (alvo atingido, invalidação da tese, etc).
+2. Consultar cotação real (get_mt5_quote) dos ativos da cesta que ainda não
+   olhou neste ciclo.
+3. Abrir posição(ões) novas quando o sinal justificar.
+4. Registrar seu raciocínio em log_thought a cada decisão.
+5. Chamar "stop" com um resumo do que decidiu e por quê, quando achar que o
+   ciclo acabou.
+
+Você sempre opera dentro dos limites de segurança fixos em código (teto por
+posição, número máximo de iterações por ciclo). Não pode contornar esses
+limites nem pedir para mudá-los.
+`.trim();
+
+const GENESIS_PROMPT_LEGACY = `
 Voce e um agente autonomo de teste, rodando num experimento educacional chamado
 "autonomous_money_ai". Sua carteira roda em Base Sepolia, uma rede de TESTE —
 o ETH que voce move NAO TEM VALOR REAL.
@@ -64,6 +101,8 @@ para muda-los. Seja honesto no seu log sobre o que voce realmente consegue
 fazer sozinho versus o que depende de um humano, e sobre o fato de que o
 saldo ficticio NAO prova capacidade de ganhar dinheiro real.
 `.trim();
+
+const GENESIS_PROMPT = config.mt5TradingEnabled ? GENESIS_PROMPT_MT5 : GENESIS_PROMPT_LEGACY;
 
 // Provedor de LLM configuravel (NVIDIA por padrao, Groq como alternativa -
 // ver LLM_PROVIDER no .env). Ambos expoe um endpoint compativel com a API
@@ -147,24 +186,31 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
   check_brokerage_account: "balance_check",
   get_market_quote: "thought",
   place_market_order: "trade",
+  get_mt5_quote: "thought",
+  list_open_positions: "balance_check",
+  open_position: "trade",
+  close_position: "trade",
   stop: "stop",
 };
 
 // Roda um ciclo de decisao (varias iteracoes ate o agente chamar "stop" ou
 // esgotar o limite). Retorna true se o agente chamou "stop" explicitamente.
 export async function runAgent(cycle: number): Promise<boolean> {
-  const ethBalance = await getBalanceEth();
-  const usdBalance = getBalanceUsd();
+  let userMessage: string;
+  if (config.mt5TradingEnabled) {
+    userMessage = `Ciclo #${cycle}. Comece checando suas posicoes abertas.`;
+  } else {
+    const ethBalance = await getBalanceEth();
+    const usdBalance = getBalanceUsd();
+    userMessage =
+      `Ciclo #${cycle}. Endereco da sua carteira: ${account.address}. ` +
+      `Saldo ETH de testnet no inicio deste ciclo: ${ethBalance}. ` +
+      `Saldo USD ficticio no inicio deste ciclo: $${usdBalance}. Comece.`;
+  }
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: GENESIS_PROMPT },
-    {
-      role: "user",
-      content:
-        `Ciclo #${cycle}. Endereco da sua carteira: ${account.address}. ` +
-        `Saldo ETH de testnet no inicio deste ciclo: ${ethBalance}. ` +
-        `Saldo USD ficticio no inicio deste ciclo: $${usdBalance}. Comece.`,
-    },
+    { role: "user", content: userMessage },
   ];
 
   let calledStop = false;
