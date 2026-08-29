@@ -370,7 +370,7 @@ export async function runAgent(cycle: number): Promise<boolean> {
         parts.push(
           "Fechamentos automaticos (stop/alvo mecanico): " +
             closed
-              .map((c) => `${c.symbol} ${c.side} (${c.reason === "STOP_LOSS" ? "stop" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
+              .map((c) => `${c.symbol} ${c.side} (${c.reason === "SL" ? "stop" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
               .join("; ")
         );
       }

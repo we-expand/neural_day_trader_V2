@@ -545,7 +545,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const sameSideStreak =
           recentClosed.length >= config.mt5LossStreakThreshold &&
           recentClosed.every(
-            (t) => t.side === side && t.exit_reason === "STOP_LOSS" && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
+            (t) => t.side === side && t.exit_reason === "SL" && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
           );
         if (sameSideStreak) {
           return {

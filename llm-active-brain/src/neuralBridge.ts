@@ -436,7 +436,7 @@ export async function closeMt5Position(params: {
   tradeId: string;
   exitPrice: number;
   reasoning: string;
-  exitReason?: "AI_SIGNAL" | "STOP_LOSS" | "TAKE_PROFIT";
+  exitReason?: "AI_SIGNAL" | "SL" | "TP";
 }): Promise<boolean> {
   if (!config.neuralBridgeEnabled) return false;
   try {
@@ -486,7 +486,7 @@ export interface StopEnforcementResult {
   tradeId: string;
   symbol: string;
   side: "LONG" | "SHORT";
-  reason: "STOP_LOSS" | "TAKE_PROFIT";
+  reason: "SL" | "TP";
   entryPrice: number;
   exitPrice: number;
 }
@@ -573,13 +573,27 @@ export async function enforceMt5StopsAndTargets(
     // dia de pouco volume não tem fôlego pra sustentar. Breakeven/trailing
     // (abaixo) continuam ativos -- protegem o caso de o preço não chegar no
     // alvo mas correr um pouco a favor antes de reverter.
-    let reason: "STOP_LOSS" | "TAKE_PROFIT" | null = null;
+    //
+    // 🔴 2026-08-29 (achado GRAVE, mesma sessão): "SL"/"TP" abaixo -- NÃO
+    // "STOP_LOSS"/"TAKE_PROFIT" como estava. `ai_trades_exit_reason_check`
+    // (constraint real do banco) só aceita 'TP'|'SL'|'MANUAL'|'TIMEOUT'|
+    // 'AI_SIGNAL' (mesma convenção do motor mecânico, ver
+    // AITradingPersistenceService.ts). Com o valor errado, TODO update de
+    // fechamento mecânico vinha FALHANDO silenciosamente desde que este
+    // enforcement foi criado -- confirmado direto no banco: das 206 posições
+    // fechadas no dia, 100% tinham exit_reason='AI_SIGNAL' (fechamento
+    // manual do LLM), ZERO tinham o texto de fechamento mecânico. O stop-loss
+    // "mecânico" nunca protegeu NADA o dia inteiro -- toda posição que
+    // fechou, fechou porque o LLM decidiu fechar sozinho, não porque o preço
+    // bateu um nível. Isso também quebrava silenciosamente o circuito de
+    // perda consecutiva (tools.ts checa exit_reason==='SL', nunca disparava).
+    let reason: "SL" | "TP" | null = null;
     if (pos.side === "LONG") {
-      if (price <= pos.stop_loss) reason = "STOP_LOSS";
-      else if (pos.take_profit != null && price >= pos.take_profit) reason = "TAKE_PROFIT";
+      if (price <= pos.stop_loss) reason = "SL";
+      else if (pos.take_profit != null && price >= pos.take_profit) reason = "TP";
     } else {
-      if (price >= pos.stop_loss) reason = "STOP_LOSS";
-      else if (pos.take_profit != null && price <= pos.take_profit) reason = "TAKE_PROFIT";
+      if (price >= pos.stop_loss) reason = "SL";
+      else if (pos.take_profit != null && price <= pos.take_profit) reason = "TP";
     }
     if (reason) {
       const ok = await closeMt5Position({
@@ -587,8 +601,8 @@ export async function enforceMt5StopsAndTargets(
         exitPrice: price,
         exitReason: reason,
         reasoning:
-          `Fechamento MECANICO automatico (${reason === "STOP_LOSS" ? "stop-loss" : "alvo (take-profit) curto"} atingido: ` +
-          `nivel ${reason === "STOP_LOSS" ? pos.stop_loss : pos.take_profit}, preco real ${price}) -- ` +
+          `Fechamento MECANICO automatico (${reason === "SL" ? "stop-loss" : "alvo (take-profit) curto"} atingido: ` +
+          `nivel ${reason === "SL" ? pos.stop_loss : pos.take_profit}, preco real ${price}) -- ` +
           `nao depende de decisao do LLM neste ciclo.`,
       });
       if (ok) {
