@@ -95,7 +95,15 @@ export const config = {
   // maxCycles ou uma condicao de parada (sem saldo em nenhuma das duas
   // "moedas" por rodadas consecutivas).
   continuousMode: process.env.CONTINUOUS_MODE === "true",
-  cycleDelaySeconds: Number(process.env.CYCLE_DELAY_SECONDS ?? 30),
+  // 🔴 2026-08-29 (pedido do Cleber): 30 -> 10, pra reduzir o tempo de reacao
+  // da LLM em relacao ao mercado -- boa parte dos 30s antigos era espera
+  // ociosa (a chamada ao Nemotron responde em ~0.7s, o ciclo inteiro com
+  // poucas iteracoes de tool-calling termina bem antes do delay configurado).
+  // Risco monitorado: cota de free tier do provedor de LLM (ja trocamos de
+  // provedor 5x por esgotamento de cota, ver LLM_PROVIDER acima) -- se
+  // aparecerem 429 recorrentes no log apos essa mudanca, e sinal de subir
+  // esse valor de novo.
+  cycleDelaySeconds: Number(process.env.CYCLE_DELAY_SECONDS ?? 10),
   maxCycles: Number(process.env.MAX_CYCLES ?? 100),
   // 🔴 2026-08-29 (pedido do Cleber): "não precisamos utilizar a Binance...
   // com a nossa cesta de ativos... como se estivesse no lugar do motor que a
