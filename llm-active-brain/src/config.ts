@@ -28,11 +28,13 @@ type LlmProvider = "nvidia" | "groq" | "cerebras" | "gemini" | "sambanova";
 const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: string; apiKeyEnv: string }> = {
   nvidia: {
     baseUrl: "https://integrate.api.nvidia.com/v1",
-    // Mesmo modelo usado no Groq - o NVIDIA API Catalog tambem hospeda
-    // openai/gpt-oss-120b, e o codigo ja sanitiza o vazamento de tokens
-    // Harmony dele (ver agent.ts). "meta/llama-3.3-70b-instruct" nao
-    // existe mais no catalogo (confirmado via GET /v1/models -> 410).
-    model: "openai/gpt-oss-120b",
+    // 🔴 2026-08-29 (achado do Cleber): "openai/gpt-oss-120b" especificamente
+    // trava o endpoint de chat completions da NVIDIA (testado 2x, HTTP 000
+    // apos 25-60s, sem resposta nenhuma). NAO e a API da NVIDIA fora do ar
+    // -- o NEXUS (nexus-brain) usa a MESMA API com OUTRO modelo e funciona
+    // normal. Trocado pro mesmo modelo do NEXUS, testado e confirmado (HTTP
+    // 200, ~0.7s, tool-calling funcionando): "nvidia/nemotron-3-nano-30b-a3b".
+    model: "nvidia/nemotron-3-nano-30b-a3b",
     apiKeyEnv: "NVIDIA_API_KEY",
   },
   groq: {
