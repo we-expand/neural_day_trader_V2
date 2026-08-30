@@ -590,6 +590,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
       if (sizeInput !== "normal" && sizeInput !== "forte") return { error: "size precisa ser 'normal' ou 'forte'." };
+      // 🔴 2026-08-30 (achado real, sessao de monitoramento): o schema desta
+      // ferramenta ja declarava "reasoning" como campo obrigatorio, mas o
+      // handler nunca validava isso -- so caia no fallback `|| ""`, entao
+      // uma chamada sem reasoning abria a posicao normalmente com
+      // justificativa vazia gravada em ai_reasoning. Isso quebra a exigencia
+      // do projeto de que toda decisao da IA seja auditavel (CLAUDE.md,
+      // "nunca fabricar dado... sempre justificar decisao"). Trade real
+      // confirmado sem reasoning: SOLUSD SHORT aberta as 2026-08-30 09:25 UTC.
+      if (reasoning.trim().length === 0) {
+        return { error: "reasoning e obrigatorio -- explique por que esta entrada faz sentido agora antes de abrir a posicao." };
+      }
       // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o
       // agente nunca fechava nada -- so empilhava posicoes quase-duplicadas
       // no mesmo simbolo, as vezes ao MESMO preco de entrada (visto no log
@@ -638,18 +649,32 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // tinha acabado de bater stop no MESMO lado, minutos depois, repetidas
       // vezes, contra uma tendencia que ja tinha virado -- sem nada que o
       // fizesse parar e reavaliar a tese antes de reentrar igual.
+      //
+      // 🔴 2026-08-30 (achado real, sessao de monitoramento): a checagem so
+      // contava exit_reason==="SL" -- perda fechada manualmente pelo LLM
+      // (AI_SIGNAL) nao contava pra streak, furando o proprio proposito do
+      // circuito. Confirmado ao vivo: SOLUSD SHORT perdeu 2x seguidas por
+      // decisao manual (~-$6 e ~-$3, ambos AI_SIGNAL), cooldown nunca
+      // disparou, e a 3a reentrada no MESMO simbolo+lado bateu stop de
+      // verdade por -$7,12 -- maior perda da sessao ate entao. Agora conta
+      // QUALQUER fechamento com resultado negativo (SL ou AI_SIGNAL), nao so
+      // stop mecanico.
       try {
         const recentClosed = await getRecentClosedTrades(symbol, config.mt5LossStreakThreshold);
         const cooldownMs = config.mt5LossStreakCooldownMinutes * 60 * 1000;
+        const isLoss = (t: Awaited<ReturnType<typeof getRecentClosedTrades>>[number]) => {
+          const result = t.net_pnl ?? t.pnl;
+          return t.exit_reason === "SL" || (result != null && result < 0);
+        };
         const sameSideStreak =
           recentClosed.length >= config.mt5LossStreakThreshold &&
           recentClosed.every(
-            (t) => t.side === side && t.exit_reason === "SL" && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
+            (t) => t.side === side && isLoss(t) && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
           );
         if (sameSideStreak) {
           return {
             error:
-              `${symbol} bateu stop-loss ${config.mt5LossStreakThreshold}x seguidas no lado ${side} nos ultimos ${config.mt5LossStreakCooldownMinutes} minutos. ` +
+              `${symbol} perdeu ${config.mt5LossStreakThreshold}x seguidas no lado ${side} nos ultimos ${config.mt5LossStreakCooldownMinutes} minutos (stop mecanico ou fechamento manual negativo). ` +
               `Entrada ${side} neste simbolo em cooldown ate a tese ficar clara de novo -- opere outro ativo, ` +
               `avalie o lado oposto (com convicção real, nao so pra "tentar de novo"), ou aguarde o cooldown passar.`,
           };
