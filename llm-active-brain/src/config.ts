@@ -289,8 +289,17 @@ export const config = {
   // `mt5LossStreakCooldownMinutes` -- o lado oposto (ou outro símbolo)
   // continua livre, isso não pausa o agente inteiro, só impede reentrar
   // teimosamente numa mesma tese que acabou de ser invalidada 2x seguidas.
-  mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 2),
-  mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 30),
+  // 🔴 2026-08-30 (pedido do Cleber, monitoramento ao vivo): afrouxado um
+  // pouco -- threshold 2->3 e cooldown 30->20min. Motivo: com threshold=2 a
+  // cesta inteira (10 ativos) ficou 1h+ com so 1 posicao aberta porque quase
+  // todo simbolo tinha acabado de bater 2 perdas seguidas em algum lado e
+  // ficava travado por meia hora, mesmo com sinal novo aparecendo. Ainda e
+  // uma trava real (3 perdas seguidas no mesmo simbolo+lado ainda bloqueia),
+  // so um pouco menos agressiva. Sem validacao estatistica de que isso
+  // melhora o resultado liquido -- e afrouxamento de frequencia, nao alegacao
+  // de edge.
+  mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 3),
+  mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 20),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
