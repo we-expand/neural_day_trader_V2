@@ -16,9 +16,28 @@
  * um slot da cesta e gerando warning todo fim de semana sem nunca poder
  * operar de verdade (mercado de metal fechado, feed morto ~30h). Sem motivo
  * pra manter na cesta.
+ *
+ * 🔴 2026-08-30 (redesenho pós "1,7% de acerto, -$124/-$135 líquido, sessão
+ * e7eef768"): SOLUSD removido -- diagnóstico via SQL direto em `ai_trades`
+ * (não suposição) mostrou SOLUSD sozinho respondendo por 13/66 trades da
+ * sessão, 0 VITÓRIAS, -$77,67 (57% de TODO o prejuízo líquido da noite).
+ * Padrão observado em 10 dos 13 trades: fechamento por stop em MENOS DE 1
+ * MINUTO após a abertura (17-50s), perda quase idêntica a cada vez (~0,50%-
+ * 0,55%, ~$6), em AMBAS as direções (5 LONG perdedores, 8 SHORT perdedores --
+ * não é viés de lado, é o símbolo). Nenhum outro símbolo da cesta mostrou
+ * esse padrão (BTCUSD e BTCXBN tiveram pelo menos 1 vitória cada, XRPUSD/
+ * DOGUSD tiveram perdas pequenas, não $6 batendo quase toda vez). Isso é
+ * consistente com o stop dinâmico (calculado por ATR de candle de 5m) sendo
+ * SISTEMATICAMENTE apertado demais pro ruído de tick-a-tick real de SOLUSD
+ * nesta corretora/feed especificamente -- o candle de 5m não captura a
+ * volatilidade de curtíssimo prazo que bate o stop antes de qualquer tese
+ * direcional ter chance real de se confirmar. Removido pendente de
+ * investigação dedicada (comparar ATR-do-candle vs volatilidade real de tick
+ * a tick pra este símbolo especificamente antes de reintroduzir) -- ver
+ * SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md.
  */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
+  "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
 ];
 
 /**
@@ -34,7 +53,6 @@ export const MT5_ASSET_BASKET = [
 export const LOT_SIZE: Record<string, number> = {
   BTCUSD: 1,
   XETUSD: 1,
-  SOLUSD: 1,
   DOGUSD: 1,
   DOTUSD: 1,
   XRPUSD: 1,
@@ -78,11 +96,11 @@ export function isSymbolTradable(symbol: string, now: Date = new Date()): boolea
  * `open_position` somar a exposição do GRUPO inteiro no mesmo lado antes de
  * liberar mais uma entrada.
  *
- * 🔴 2026-08-29 (cesta de hoje): BTCUSD/XETUSD/SOLUSD/DOGUSD/DOTUSD/XRPUSD/
- * BTCXBN são todos cripto (ou cross de cripto) -- mesmo grupo.
+ * 🔴 2026-08-29 (cesta de hoje): BTCUSD/XETUSD/DOGUSD/DOTUSD/XRPUSD/BTCXBN
+ * são todos cripto (ou cross de cripto) -- mesmo grupo.
  */
 const CORRELATED_GROUPS: string[][] = [
-  ["BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN"],
+  ["BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN"],
 ];
 
 export function getCorrelatedGroup(symbol: string): string[] {

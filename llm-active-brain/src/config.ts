@@ -175,7 +175,19 @@ export const config = {
   // símbolo anormalmente parado ou anormalmente errático) -- fora desse
   // range, ou se o ATR não vier de dado real, cai pro mt5StopFallbackPct
   // fixo (mesmo valor que era o único modo antes), nunca fica sem stop.
-  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 1.5),
+  // 🔴 2026-08-30 (redesenho pós -$135 líquido / 1,7% de acerto, sessão
+  // e7eef768): 1.5 -> 2.0. Diagnóstico via SQL direto (ver assetBasket.ts,
+  // remoção de SOLUSD) confirmou dois problemas concorrentes com o desenho
+  // "giro rápido" de 2026-08-29: (1) ZERO das 66 posições fechadas bateram
+  // take-profit -- o alvo nunca é alcançado, só stop ou fechamento manual
+  // (2) o stop apertado (0,2%-2%, R:R ~1:1,13) é vulnerável demais a ruído
+  // de tick-a-tick + custo de spread pago 2x (entrada e saída), sem sobrar
+  // margem real pra qualquer edge direcional que exista se expressar.
+  // Voltando pro stop mais largo (respira mais o ruído) + alvo assimétrico
+  // (ver mt5TakeProfitAtrMultiplier abaixo) -- MESMA convenção de R:R 1:2 que
+  // o motor mecânico principal do produto já usa (CLAUDE.md, "stop sempre
+  // 2×ATR").
+  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 2.0),
   // 🔴 2026-08-29 (pedido do Cleber, mudança de filosofia pós-otimizações do
   // dia): 3 -> 1.5 -- VOLTA a ser gatilho de saída MECÂNICO de verdade (ver
   // enforceMt5StopsAndTargets em neuralBridge.ts), mas agora com alvo CURTO
@@ -193,8 +205,22 @@ export const config = {
   // bid/ask real (ver mt5Broker.ts/tools.ts) em vez do mid -- sem esse
   // reajuste, o giro rapido bateria o alvo mas ainda saisse com PnL liquido
   // negativo (spread pago na entrada + na saida) mesmo "acertando" o alvo.
-  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 1.7),
-  mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.002),
+  // 🔴 2026-08-30 (mesmo redesenho): 1.7 -> 4.0. Com stop em 2.0x ATR (acima),
+  // isso da R:R 1:2 (4.0/2.0) -- abandona deliberadamente a filosofia "giro
+  // rápido, alvo curto" (testada de verdade em 66 trades reais na sessão
+  // e7eef768, resultado: 0 TP hits, -$135 líquido, 1,7%-3% de acerto) em
+  // favor do MESMO R:R que o motor mecânico principal já usa e que a
+  // pesquisa de julho/agosto deste projeto já estabeleceu como a referência
+  // de disciplina do produto (ver CLAUDE.md, "Cérebro de decisão da IA").
+  // Alvo mais largo tambem sobra mais margem acima do custo de spread
+  // pago 2x (entrada+saida) -- no desenho anterior, o spread sozinho podia
+  // consumir uma fração grande demais de um alvo de 1,7% ATR.
+  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 4.0),
+  // 🔴 2026-08-30 (mesmo redesenho): 0.002 -> 0.003 -- piso um pouco mais
+  // largo, margem extra de segurança contra whipsaw por ruído puro em
+  // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:
+  // stop apertado demais bate por ruído antes de qualquer tese ter chance).
+  mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.003),
   mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
   mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),
   // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em

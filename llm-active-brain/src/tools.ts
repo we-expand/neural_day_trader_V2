@@ -298,10 +298,10 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       description:
         `Abre uma posicao virtual (DEMO, dinheiro simulado) num ativo da cesta, comprado/vendido a preco real de mercado. ` +
         `O TAMANHO EM LOTES E CALCULADO PELO CODIGO, nao por voce -- ver "size" abaixo. ` +
-        `Isso existe porque BTCUSD, XETUSD e SOLUSD tem precos MUITO diferentes (~$77.000 vs ~$2.400 vs ~$100), ` +
+        `Isso existe porque os simbolos da cesta tem precos MUITO diferentes entre si (ex: BTCUSD ~$77.000 vs XETUSD ~$2.400), ` +
         `entao o MESMO numero de lotes gera exposicoes em dolar completamente diferentes; o codigo normaliza isso ` +
         `automaticamente pra exposicao-alvo igual (~$${config.mt5TargetNotionalUsd}) em qualquer simbolo. ` +
-        `BTCUSD/XETUSD/SOLUSD/DOGUSD/DOTUSD/XRPUSD/BTCXBN sao cripto correlacionada (XPTUSD, platina, fica de fora do grupo) -- ` +
+        `Todos os simbolos da cesta (${MT5_ASSET_BASKET.join("/")}) sao cripto correlacionada -- ` +
         `exposicao combinada do MESMO lado nesse grupo tem teto proprio (nao e so por simbolo). ` +
         `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
         `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal (ver "volume") tambem e bloqueado -- ` +
@@ -585,7 +585,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       if (!isSymbolTradable(symbol)) {
         return {
-          error: `Mercado de ${symbol} fechado agora (forex fecha sexta 22:00 UTC, abre domingo 23:00 UTC) -- posicao nao aberta. Prefira cripto (BTCUSD/XETUSD/SOLUSD) enquanto o forex estiver fechado.`,
+          error: `Mercado de ${symbol} fechado agora (forex fecha sexta 22:00 UTC, abre domingo 23:00 UTC) -- posicao nao aberta. Prefira um dos criptos da cesta enquanto o forex estiver fechado.`,
         };
       }
       if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
@@ -601,12 +601,55 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (reasoning.trim().length === 0) {
         return { error: "reasoning e obrigatorio -- explique por que esta entrada faz sentido agora antes de abrir a posicao." };
       }
+      // 🔴 2026-08-30 (achado real, sessao de monitoramento -- pendencia de
+      // politica de risco explicitamente listada no handoff anterior, agora
+      // resolvida): o "reasoning" da PROPRIA entrada as vezes contradiz a
+      // acao que ele esta justificando -- confirmado ao vivo pelo menos 5-6x
+      // (texto termina "fora por enquanto"/"operacao bloqueada"/"preciso
+      // analisar mais antes de abrir"/"devo evitar repetir padrao... sem
+      // nova evidencia" e o open_position executa mesmo assim, com o mesmo
+      // side/symbol que a propria frase acabou de descartar). Checagem
+      // deliberadamente simples e conservadora (palavra-chave, nao NLP): so
+      // bloqueia quando ha uma negacao explicita de ABRIR/ENTRAR sem nenhuma
+      // reversao depois dela no mesmo texto -- prefere falso negativo (deixa
+      // passar reasoning ambiguo) a falso positivo (bloquear entrada valida
+      // por uma palavra solta).
+      const NEGATION_CUES = [
+        "nao abrir", "não abrir", "nao entrar", "não entrar", "nao devo abrir", "não devo abrir",
+        "nao deveria abrir", "não deveria abrir", "evitar essa entrada", "evitar esta entrada",
+        "fico de fora", "ficar de fora", "por enquanto fora", "operacao bloqueada", "operação bloqueada",
+        "sem nova evidencia", "sem nova evidência", "preciso analisar mais antes de abrir",
+      ];
+      const REVERSAL_CUES = [
+        "mas agora", "porem agora", "porém agora", "mudei de ideia", "reconsiderando", "na verdade vou abrir",
+      ];
+      const reasoningLower = reasoning.toLowerCase();
+      const hasNegation = NEGATION_CUES.some((cue) => reasoningLower.includes(cue));
+      const hasReversal = REVERSAL_CUES.some((cue) => reasoningLower.includes(cue));
+      if (hasNegation && !hasReversal) {
+        return {
+          error:
+            `Contradicao detectada: o proprio reasoning enviado contem uma negacao explicita de abrir/entrar ` +
+            `("${NEGATION_CUES.find((cue) => reasoningLower.includes(cue))}"), mas voce chamou open_position mesmo assim. ` +
+            `Posicao NAO aberta. Se realmente mudou de ideia DEPOIS de escrever isso, reescreva o reasoning deixando claro ` +
+            `o motivo da mudanca (ex: "mudei de ideia: ...") e chame open_position de novo.`,
+        };
+      }
       // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o
       // agente nunca fechava nada -- so empilhava posicoes quase-duplicadas
       // no mesmo simbolo, as vezes ao MESMO preco de entrada (visto no log
       // real: 8 posicoes SHORT em BTCUSD a 77658.82). Teto por simbolo forca
       // o agente a avaliar fechar posicoes existentes antes de abrir mais.
-      const MAX_POSITIONS_PER_SYMBOL = 3;
+      //
+      // 🔴 2026-08-30 (redesenho pos -$135 liquido -- pendencia de politica
+      // de risco #1 do handoff anterior, resolvida): 3 -> 1. Empilhar ate 3
+      // posicoes no MESMO simbolo+lado foi observado ao vivo (ex: 2x BTCXBN
+      // LONG simultaneas) sem nenhum ganho real de informacao -- e so
+      // "dobrar na mesma aposta" com dinheiro extra, exatamente o padrao que
+      // o circuito de perda consecutiva (abaixo) tenta impedir depois do
+      // fato. Uma posicao por simbolo de cada vez forca o agente a fechar
+      // (ganhando ou perdendo) antes de reentrar, nunca empilhar.
+      const MAX_POSITIONS_PER_SYMBOL = 1;
       let openPositions;
       try {
         openPositions = await listMt5OpenPositions();
@@ -616,10 +659,27 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // que isso corrigia (teto furado por erro transitorio virando "0").
         return { error: `Nao foi possivel confirmar quantas posicoes ja existem em ${symbol} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO aberta -- tente de novo.` };
       }
+      // 🔴 2026-08-30 (pendencia de politica de risco #2 do handoff anterior,
+      // resolvida): guard contra posicoes OPOSTAS simultaneas no mesmo
+      // simbolo. Confirmado ao vivo na sessao anterior: SOLUSD LONG e SOLUSD
+      // SHORT abertas ao mesmo tempo por ~1min11s (entry_time 07:11:26 e
+      // 07:12:02 UTC, ambas fechadas com prejuizo) -- paga spread 2x nas duas
+      // pernas sem chance nenhuma de lucro liquido em qualquer direcao. O
+      // teto por simbolo (abaixo) nao pegava isso porque MAX_POSITIONS_PER_SYMBOL
+      // media o total independente do lado.
+      const oppositeOpen = openPositions.find((p) => p.symbol === symbol && p.side !== side);
+      if (oppositeOpen) {
+        return {
+          error:
+            `Ja existe uma posicao ${oppositeOpen.side} aberta em ${symbol} -- abrir ${side} agora criaria posicoes ` +
+            `opostas simultaneas no mesmo simbolo, pagando spread 2x sem chance real de lucro liquido em nenhuma ` +
+            `direcao. Feche a posicao ${oppositeOpen.side} existente (close_position) antes de abrir ${side}.`,
+        };
+      }
       const openInSymbol = openPositions.filter((p) => p.symbol === symbol).length;
       if (openInSymbol >= MAX_POSITIONS_PER_SYMBOL) {
         return {
-          error: `Ja existem ${openInSymbol} posicoes abertas em ${symbol} (teto: ${MAX_POSITIONS_PER_SYMBOL}). Feche alguma com close_position antes de abrir outra neste simbolo.`,
+          error: `Ja existe ${openInSymbol} posicao aberta em ${symbol} (teto: ${MAX_POSITIONS_PER_SYMBOL}). Feche com close_position antes de abrir outra neste simbolo.`,
         };
       }
       // 🔴 2026-08-29 (otimizacao urgente pos-perda do dia): teto de exposicao
@@ -807,20 +867,26 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       });
       let usedFallbackStop = stopPct == null;
       if (stopPct == null) stopPct = config.mt5StopFallbackPct;
-      let takeProfitPct = usedFallbackStop ? config.mt5StopFallbackPct : stopPct * (config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier);
-      // 🔴 2026-08-29 (pedido do Cleber): "nao pode ter alvo longo num dia
-      // sem volume" -- volume abaixo da propria media de 1h (nao "elevated",
-      // ver getVolumeConfirmation em atr.ts) encolhe SO o alvo por este fator
-      // extra, nao o stop (o risco continua o mesmo, so a meta de saida fica
-      // mais curta/alcancavel). Sem essa reducao, um alvo dimensionado pra
-      // dia de volume normal pode nunca ser atingido num dia parado -- a
-      // posicao fica presa esperando um movimento que o volume do dia nao
-      // sustenta, o oposto do giro rapido pedido.
-      let lowVolumeAdjusted = false;
-      if (volume && !volume.elevated && volume.ratio < 1) {
-        takeProfitPct *= config.mt5LowVolumeTakeProfitMultiplier;
-        lowVolumeAdjusted = true;
-      }
+      // 🔴 2026-08-30 (achado real, confirmado NO PRIMEIRO trade real depois
+      // do redesenho R:R 1:2 -- BTCUSD LONG, ciclo 2 da sessao reiniciada):
+      // quando o ATR real nao vem (usedFallbackStop=true), a linha antiga
+      // jogava takeProfitPct = mt5StopFallbackPct DIRETO, ignorando por
+      // completo o multiplicador de R:R -- colapsava pra R:R 1:1 mesmo
+      // sozinho, e SOMADO ao encolhimento de baixo volume (removido abaixo)
+      // o alvo saiu MENOR que o stop (0,300% de alvo contra 0,500% de risco,
+      // R:R 0,6:1 -- pior que aleatorio, o oposto do redesenho). Agora o
+      // fallback tambem respeita o MESMO multiplicador R:R do caminho
+      // dinamico -- nunca colapsa pra 1:1 por acidente so por falta de ATR.
+      let takeProfitPct = stopPct * (config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier);
+      // 🔴 2026-08-30 (mesmo achado, mesmo redesenho): o encolhimento extra de
+      // alvo em dia de baixo volume (0,6x) foi REMOVIDO -- existia
+      // especificamente pra servir a filosofia "giro rapido, alvo curto"
+      // (2026-08-29), que a sessao real mostrou nunca alcancar o alvo (0 de
+      // 66 trades bateram take-profit). Encolher o alvo ainda mais nessas
+      // condicoes so pioraria o MESMO problema que o redesenho tenta
+      // resolver -- o risco (stop) ja e o mesmo independente do volume, e o
+      // R:R 1:2 ja da margem suficiente sem precisar de um ajuste extra.
+      const lowVolumeAdjusted = false;
 
       // 🔴 2026-08-29: stop/alvo calculados a partir do fillPrice (preco real
       // de preenchimento, ver acima) -- nao do mid/last tick.

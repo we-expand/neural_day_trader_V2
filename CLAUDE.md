@@ -15,6 +15,96 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-30 (manhã): redesenho do Cérebro LLM Ativo depois do "desesperador"
+1,7% de acerto/-$124 da noite anterior — autonomia total dada pelo Cleber.**
+Diagnóstico via SQL direto (não suposição) achou 2 causas concretas, não
+"falta de edge" genérica: (1) SOLUSD sozinho respondeu por 57% de todo o
+prejuízo (13 trades, 0 vitórias, quase todos stopados em <1min, ambas
+direções — removido da cesta, pendente investigação de causa); (2) ZERO das
+66 posições bateram take-profit (alvo "giro rápido" de 2026-08-29 nunca era
+alcançável). Corrigido: R:R 1:2 (era ~1:1,13, mesmo R:R do motor mecânico
+principal), teto de 1 posição/símbolo (era 3) + guard novo contra posição
+OPOSTA simultânea no mesmo símbolo (confirmado que aconteceu de verdade),
+guard novo de contradição reasoning↔ação em `open_position`, `tool_choice:
+"auto"→"required"` (testado direto contra a API antes de aplicar — elimina
+as 3 variantes de falha de formato de tool-call da noite anterior,
+confirmado limpo ao vivo depois do restart). **Bug real encontrado E
+corrigido AO VIVO, no primeiro trade sob o R:R novo**: fallback de stop sem
+ATR real colapsava o alvo pra R:R 1:1 (ou pior) ignorando o multiplicador —
+sem dano (a IA fechou manualmente, -$0,24). Processo reiniciado 2x,
+confirmado rodando 1 instância só. **Sem promessa de edge** — pode só
+reduzir o ritmo da perda (bug fixes) sem criar lucro real; precisa de
+amostra nova antes de julgar (ver query pronta no handoff). Achado de
+metodologia à parte: restart **não** cria sessão nova no Supabase (reusa a
+mais recente por `strategy_name`) — corrige suposição errada do handoff
+anterior. Handoff completo, com o diagnóstico detalhado, lista de arquivos
+mudados e pendências: [SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md](SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md).
+
+**2026-08-30 (noite anterior): monitoramento contínuo do Cérebro LLM Ativo
+terminou em 1,7% de acerto, -$124 líquido — motivou o redesenho acima.** 2
+bugs de auditoria corrigidos e commitados (`75fffa6c4`, `8a3bcde6a`,
+`768720d5a`: cooldown ignorava fechamento manual negativo; `open_position`
+aceitava `reasoning` vazio). Achados de degradação do modelo sem fix de
+código possível (erro de leitura de percentual, alucinação de contagem,
+corrupção de texto) catalogados no handoff — a maior parte das falhas de
+formato de tool-call foi endereçada no redesenho acima via `tool_choice:
+"required"`. Detalhe completo:
+[SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md](SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md).
+
+**2026-08-30 (madrugada): sessão de manutenção do LLM Brain — 3 fixes implementados,
+TODOS commitados, código ao vivo. Nenhuma ação de código pendente.**
+Commits: `e043e0308` (remove XPTUSD da cesta, fica com 7 ativos — mercado
+de platina ficava fechado com tick morto ~30h todo fim de semana),
+`8236d5774` (reasoning apagado: `closeMt5Position`/`neuralBridge.ts`
+sobrescrevia `ai_reasoning` da entrada com o da saída — agora concatena
+`entrada || SAIDA: saida` — + `tradeMemory.ts` novo, injeta no `userMessage`
+de cada ciclo um resumo dos últimos ~30 trades fechados por símbolo+lado,
+cache 60s, teto 1600 caracteres — NÃO é ML/fine-tuning, é injeção de
+contexto factual, **efeito ainda não validado**, validar exigiria comparar
+taxa de reentrada em símbolo+lado perdedor com/sem o bloco ao longo de
+dias, amostra que não existe ainda), `81c995bf4` (feed travado + spread
+anormal: XPTUSD tinha tick de ~30h tratado como vivo, poluindo o histórico
+de tendência/volatilidade — corrigido com trava de cotação obsoleta
+>120s; DOTUSD com spread de ~10% é dado REAL da corretora fim de semana,
+não bug — trava de spread em 2,0% implementada em `mt5Broker.ts`/
+`tools.ts`; detalhe completo em
+[SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD_ANORMAL.md](SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD_ANORMAL.md)).
+Processo reiniciado depois de cada fix (procedimento padrão: matar o
+antigo, confirmar 1 só rodando, subir de novo — posições abertas nunca se
+perdem, continuam no Supabase). **Pendências reais**: (1) remedir o teto
+de 2,0% de spread em dia útil (calibrado com amostra de fim de semana,
+pode estar folgado demais no pregão normal); (2) Parte A do handoff
+anterior (ML de volatilidade via EWMA→GARCH→HAR-RV) segue sem
+implementar, falta histórico de candle real (~7-35 dias mínimo) — handoff
+completo em
+[SESSAO_2026-08-29_CANDLE_REAL_E_PRICE_ACTION.md](SESSAO_2026-08-29_CANDLE_REAL_E_PRICE_ACTION.md)
+seção "HANDOFF PRA PRÓXIMA SESSÃO", Parte A, se for retomar; (3) observar
+1-2h de log/Supabase confirmando que o bloco de memória de trades está de
+fato chegando no modelo e o reasoning composto está gravando certo (não
+confirmado visualmente ainda — o log do processo não imprime o
+`userMessage` inteiro, só resposta do modelo e chamadas de ferramenta).
+
+**Achado de metodologia pro monitoramento (vale pra qualquer sessão
+futura que for calcular PnL)**: `ledger/actions.json`
+(`llm-active-brain/`) é um arquivo local que NUNCA reseta entre
+restarts/dias — qualquer PnL agregado calculado a partir dele mistura
+várias sessões, NÃO é "PnL da sessão atual". Fonte certa: tabela
+`ai_trades` no Supabase, filtrada por `session_id`
+(`getClosedTradesForMemory` em `neuralBridge.ts` já faz isso certo).
+Sessão que estava rodando quando isto foi escrito (iniciada ~02:02 UTC de
+2026-08-30, sobreviveu a 2 restarts) tinha, na última checagem (~03:19
+UTC), **9 trades fechados, 0 vitórias — 0% de acerto, -$17,98**. Amostra
+pequena, sem validade estatística — só um retrato do momento, não
+conclusão. Monitoramento automático (cron a cada 6min, checava
+processo/ledger/PnL/anomalias) foi armado e depois **desarmado a pedido
+do Cleber** — não está mais rodando; religar com `/loop 6m <prompt>` se
+quiser retomar (prompt completo do que checar a cada ciclo fica no
+histórico desta conversa, não reproduzido aqui pra não inchar este
+arquivo — pedir pro Cleber colar de novo se precisar, ou reconstruir a
+partir da lista de 6 itens: processo único, aberturas/fechamentos novos
+com racional, PnL agregado via `ai_trades`, anomalias, avaliação de
+receita líquida, e proposta de fix sem restart/commit automático).
+
 **2026-08-29: LLM Brain — 3ª ocorrência de ledger corrompido por processo
 duplicado (raiz real do "não abre posição"), retry de cotação MT5, e proxy
 honesto de exaustão ("extension") depois de entrada ruim em XETUSD.**
