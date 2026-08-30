@@ -10,6 +10,23 @@ import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistanc
 import { getPriceExtension } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 
+// 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
+// Medicao REAL da cesta inteira, 6 chamadas seguidas a /mt5-prices em ~50s
+// (2026-08-30 02:45-02:46 UTC, sabado, cripto em pregao 24/7):
+//   BTCUSD 0,015% | XETUSD 0,106% | BTCXBN 0,177% | XPTUSD 0,463%
+//   SOLUSD 0,505% | DOGUSD 1,30-1,42% | XRPUSD 1,469% | DOTUSD 10,44%
+// Confirmado que NAO e bug de cache/staleness: o timestamp do tick de DOTUSD
+// AVANCA normalmente (02:45:00 -> 02:46:10) com bid/ask vindos do MESMO
+// objeto `current-tick` da MetaAPI -- e o spread cotado de verdade pela
+// Infinox pra esse CFD (fim de semana, liquidez minima). Sendo dado real, a
+// resposta certa e trava de risco, nao "fix de dado": com 10,4% de spread a
+// posicao nasce ~10% negativa (foi exatamente o que aconteceu no LONG de
+// DOTUSD observado nesta sessao, -9,46% flutuante instantaneo, stopado logo
+// em seguida). 2,0% de teto bloqueia so o DOTUSD; o 2o pior da cesta
+// (XRPUSD, 1,47%) segue liberado, com aviso a partir de 0,8%.
+export const SPREAD_BLOCK_PCT = 2.0;
+export const SPREAD_WARN_PCT = 0.8;
+
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
   return Math.random() < successChance;
@@ -288,7 +305,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `exposicao combinada do MESMO lado nesse grupo tem teto proprio (nao e so por simbolo). ` +
         `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
         `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal (ver "volume") tambem e bloqueado -- ` +
-        `contrarian trade e permitido, mas so com confirmacao real de participacao, nao no vacuo.`,
+        `contrarian trade e permitido, mas so com confirmacao real de participacao, nao no vacuo. ` +
+        `Tambem e bloqueado abrir com cotacao OBSOLETA (ultimo tick real da corretora com mais de 120s -- mercado fechado/feed parado) ` +
+        `ou com spread bid/ask acima de ${SPREAD_BLOCK_PCT}% (custo de entrada real alto demais; a cesta tipica fica entre 0,02% e 1,5%).`,
       parameters: {
         type: "object",
         properties: {
@@ -474,7 +493,36 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!isSymbolTradable(symbol)) {
         return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
-      return { ...quote, marketOpen: true, trend, volume, extension, supportResistance };
+      // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
+      // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
+      // medidos ao vivo neste dia, ver SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD.md.
+      // (1) tick obsoleto: XPTUSD (platina) devolvia preco de ~30h atras, e o
+      // calendario de mercado deste codigo so cobre FOREX (assetBasket.ts),
+      // entao platina passava como "mercado aberto" no fim de semana.
+      // (2) spread real absurdo: DOTUSD cotado com 10,4% de spread bid/ask --
+      // dado REAL da corretora, nao bug, mas uma entrada ali ja nasce ~10%
+      // negativa. Aviso aqui + bloqueio em open_position.
+      const avisos: string[] = [];
+      if (quote.stale) {
+        avisos.push(
+          `COTACAO OBSOLETA: ultimo tick real tem ${quote.tickAgeSeconds}s de idade (mercado provavelmente fechado ou feed parado). Nao abra posicao aqui.`
+        );
+      }
+      if (Number.isFinite(quote.spreadPct) && quote.spreadPct >= SPREAD_WARN_PCT) {
+        avisos.push(
+          `SPREAD ALTO: ${quote.spreadPct.toFixed(2)}% entre bid e ask -- uma entrada aqui ja nasce ~${quote.spreadPct.toFixed(2)}% negativa ` +
+            `so pelo custo de operar (${quote.spreadPct >= SPREAD_BLOCK_PCT ? "acima do teto: open_position BLOQUEIA" : "abaixo do teto de bloqueio, mas exige alvo bem maior que isso pra compensar"}).`
+        );
+      }
+      return {
+        ...quote,
+        marketOpen: true,
+        trend,
+        volume,
+        extension,
+        supportResistance,
+        ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
+      };
     }
 
     case "list_open_positions": {
@@ -611,6 +659,32 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
+      // 🔴 2026-08-30 (investigacao de feed travado): NUNCA abrir posicao em
+      // cima de tick REAL porem MORTO. Medido ao vivo: XPTUSD (platina)
+      // devolvia bid/ask com timestamp de ~30h antes -- mercado fechado no
+      // fim de semana -- e passava direto por `isSymbolTradable`, que so tem
+      // calendario de FOREX (assetBasket.ts). Guard generico por idade do
+      // tick cobre qualquer simbolo/feriado/parada de feed sem precisar
+      // manter calendario por instrumento.
+      if (quote.stale) {
+        return {
+          error:
+            `Cotacao de ${symbol} esta OBSOLETA: o ultimo tick real da corretora tem ${quote.tickAgeSeconds}s de idade ` +
+            `(preco ${quote.price}). Mercado provavelmente fechado ou feed parado -- abrir aqui seria operar um preco morto, ` +
+            `sem saber onde o mercado realmente esta. Posicao NAO aberta. Opere um ativo com tick vivo.`,
+        };
+      }
+      // 🔴 2026-08-30: teto de spread -- ver SPREAD_BLOCK_PCT acima pra
+      // medicao real da cesta que sustenta o numero.
+      if (Number.isFinite(quote.spreadPct) && quote.spreadPct > SPREAD_BLOCK_PCT) {
+        return {
+          error:
+            `Spread de ${symbol} esta em ${quote.spreadPct.toFixed(2)}% (bid ${quote.bid} / ask ${quote.ask}), acima do teto de ${SPREAD_BLOCK_PCT}%. ` +
+            `Esse e o custo REAL de operar esse ativo agora: a posicao nasceria ~${quote.spreadPct.toFixed(2)}% negativa e precisaria de um movimento ` +
+            `maior que isso so pra empatar -- o stop mecanico dispararia bem antes. Posicao NAO aberta. Opere um ativo com spread normal ` +
+            `(cesta tipica: 0,02%-1,5%).`,
+        };
+      }
       // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao contemplando
       // o spread"): preco de PREENCHIMENTO real -- LONG compra no ask, SHORT
       // vende no bid (nunca no mid/last, que escondia o custo de operar).
