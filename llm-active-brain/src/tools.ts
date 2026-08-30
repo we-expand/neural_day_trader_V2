@@ -1111,10 +1111,22 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 🔴 2026-08-29: fechar um LONG e VENDER (recebe o bid); fechar um
       // SHORT e COMPRAR de volta (paga o ask) -- nao o mid/last tick.
       const exitPrice = position.side === "LONG" ? quote.bid : quote.ask;
-      // 🔴 2026-08-30 (pedido do Cleber, "nao podemos ter teses fracas"): ver
-      // flipAttemptBlockedThisCycle acima -- so entra em vigor quando este
-      // simbolo teve uma tentativa de inversao bloqueada NESTE MESMO ciclo.
-      if (flipAttemptBlockedThisCycle.get(position.symbol) === cycle && position.stop_loss != null && position.take_profit != null) {
+      // 🔴 2026-08-30 (pedido do Cleber, "nao podemos ter teses fracas" --
+      // generalizado apos achado ao vivo: XETUSD SHORT e BTCXBN SHORT
+      // fechados MANUALMENTE perto do zero a zero, citando sinal
+      // fraco/ambiguo -- em AMBOS os casos o preco voltou a favor da posicao
+      // logo depois do fechamento, confirmado consultando cotacao real
+      // minutos depois. Nao era flip (nenhum tinha tentativa de lado oposto
+      // bloqueada), era so fechamento nervoso em ruido normal de mercado,
+      // nao invalidacao real da tese. Antes esta regra so valia pos-flip-
+      // bloqueado; agora vale pra QUALQUER fechamento manual -- exige que a
+      // posicao ja tenha percorrido pelo menos metade do caminho ate o stop
+      // (tese realmente enfraquecendo) ou ate o alvo (lucro real capturado)
+      // antes de aceitar o fechamento discricionario. Contrapartida
+      // conhecida e aceita pelo Cleber: atrasa tambem cortes rapidos em
+      // teses genuinamente invalidadas cedo -- decisao de politica de risco,
+      // nao bug.
+      if (position.stop_loss != null && position.take_profit != null) {
         const stopDistance = Math.abs(position.entry_price - position.stop_loss);
         const targetDistance = Math.abs(position.take_profit - position.entry_price);
         const adverseMove = position.side === "LONG" ? position.entry_price - exitPrice : exitPrice - position.entry_price;
@@ -1127,11 +1139,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ) {
           return {
             error:
-              `Voce acabou de tentar abrir o lado oposto em ${position.symbol} e foi bloqueado -- agora esta tentando fechar a posicao ` +
-              `existente pra abrir espaco, mas ela mal se moveu (${(stopConsumedPct * 100).toFixed(0)}% do caminho ate o stop, ` +
-              `${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo). Isso e trocar de lado por vontade de inverter, nao porque a tese ` +
-              `morreu de verdade. Posicao NAO fechada. Ou espere a tese se confirmar/invalidar de verdade (>=${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% ` +
-              `do caminho ate stop ou alvo), ou avalie outro ativo pra a ideia nova em vez de reverter este.`,
+              `Fechamento manual de ${position.symbol} recusado: a posicao mal se moveu (${(stopConsumedPct * 100).toFixed(0)}% do caminho ate ` +
+              `o stop, ${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo). Fechar aqui e reagir a ruido normal de mercado ou a um ` +
+              `sinal ambiguo, nao a invalidacao real da tese -- confirmado ao vivo 2x hoje (posicoes fechadas perto do zero a zero cujo preco ` +
+              `voltou a favor logo depois). Posicao NAO fechada. So aceita fechamento manual quando a posicao ja percorreu pelo menos ` +
+              `${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% do caminho ate o stop (tese realmente enfraquecendo) ou ate o alvo ` +
+              `(lucro real ja capturado) -- antes disso, deixe o stop/alvo mecanico decidir.`,
           };
         }
       }
