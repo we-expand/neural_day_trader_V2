@@ -7,6 +7,7 @@ import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./bro
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation } from "./atr.js";
+import { getPriceExtension } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
@@ -432,10 +433,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // flow/book de ofertas de verdade (o sistema nao tem esse dado), mas e
       // volume real, nao fabricado. null quando indisponivel.
       const volume = await getVolumeConfirmation(symbol);
+      // 🔴 2026-08-29 (achado do Cleber: entrada LONG em XETUSD com preco ja
+      // "longe das medias", Estocastico quase virando, MACD com exaustao --
+      // sinais que este sistema nao tinha como enxergar). MACD/Estocastico de
+      // verdade exigem OHLC real de candle, que /mt5-candles nao entrega pra
+      // esta cesta (devolve SIMULATED, confirmado ao vivo) -- fabricar esses
+      // indicadores em cima de candle fake seria inventar precisao que nao
+      // existe. "extension" e o substituto honesto possivel com o unico dado
+      // real disponivel: distancia do preco pra media do proprio historico
+      // de tick real. Mais fraco que uma media movel de candle de verdade,
+      // mas nunca fabricado -- ver getPriceExtension em tickHistory.ts.
+      const extension = getPriceExtension(symbol);
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
-      return { ...quote, marketOpen: true, trend, volume };
+      return { ...quote, marketOpen: true, trend, volume, extension };
     }
 
     case "list_open_positions": {

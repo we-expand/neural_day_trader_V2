@@ -15,6 +15,50 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-29: LLM Brain — 3ª ocorrência de ledger corrompido por processo
+duplicado (raiz real do "não abre posição"), retry de cotação MT5, e proxy
+honesto de exaustão ("extension") depois de entrada ruim em XETUSD.**
+Achado principal: `ledger/actions.json` corrompido (dois arrays JSON
+colados) fazia `appendLedger` quebrar todo ciclo, abortando antes de
+qualquer decisão — trava de instância única (`llm-brain.pid`) e reparo do
+arquivo aplicados. De carona: `open_position` falhava em soluço transitório
+de rede sem retry (agora tenta 3x) — confirmado resolvendo 5/5 entradas
+seguidas com sucesso depois do fix. Terceiro achado, a pedido do Cleber
+(apontou LONG em XETUSD comprado "esticado", Estocástico/MACD em exaustão):
+confirmado que `/mt5-candles` (candle OHLC oficial) devolve dado
+**fabricado** (`SIMULATED`) em produção pra esta cesta — MACD/Estocástico
+reais são impossíveis de implementar com integridade até esse endpoint ser
+corrigido (fora do escopo do `llm-active-brain`, mexe na Edge Function
+principal compartilhada). Entregue no lugar: `extension` (distância % do
+preço pra média do próprio histórico real de tick), dado 100% real embora
+mais fraco que uma média móvel de candle de verdade — agente instruído a
+usar como fator de cautela, não bloqueio mecânico. Discussão de risco (stop
+de ~$3-5 por trade nos $1.200 de exposição atuais) resolvida com a
+matemática explicada ao Cleber — ele decidiu manter o tamanho como está por
+enquanto. **Pendências**: investigar por que `/mt5-candles` cai em
+SIMULATED; `XPTUSD` com feed travado (24+ ciclos no mesmo preço,
+candidato a sair da cesta); commit de `agent.ts`/`tickHistory.ts`/`tools.ts`
+ainda não feito. Detalhe completo:
+[SESSAO_2026-08-29_LLM_BRAIN_RETRY_EXTENSAO_E_LEDGER_CORROMPIDO.md](SESSAO_2026-08-29_LLM_BRAIN_RETRY_EXTENSAO_E_LEDGER_CORROMPIDO.md).
+
+**2026-08-29: Otimizações de captura do LLM Active Brain (sizing $800→$1200,
+remove teto de take-profit mecânico, ciclo 30s→10s) + fix de bug real no
+Dashboard + 2ª ocorrência de processo duplicado no mesmo dia.** Achado
+principal: take-profit fixo em 2R fechava todo trade vencedor antes do
+trailing stop (que só começa a proteger a partir do breakeven) ter chance
+de deixar tendências maiores correrem — corrigido, agora só o stop
+(inicial→breakeven→trailing) decide a saída de lucro, take-profit vira só
+referência/exibição. De carona no Dashboard: bug real corrigido
+(`LlmActiveBrainPanel.tsx` congelava "atualizado há Ns" quando não havia
+posição aberta) + achado de que 3s de polling de preço é mais rápido que a
+latência real documentada da MetaAPI compartilhada (3-8s) — revertido pra
+5s, só o poll de trades (Supabase puro) ficou em 3s. Mesmo padrão de
+processo duplicado do item anterior se repetiu (2 pares rodando em
+paralelo, log entrelaçado) — resolvido do mesmo jeito. Nenhuma pendência de
+código; vale observar amostra de trades vencedores maiores nas próximas
+sessões. Detalhe completo:
+[SESSAO_2026-08-29_OTIMIZACOES_CAPTURA_E_DASHBOARD_LLM_BRAIN.md](SESSAO_2026-08-29_OTIMIZACOES_CAPTURA_E_DASHBOARD_LLM_BRAIN.md).
+
 **2026-08-29: Falso alarme de "motor travado" — era processo duplicado do
 LLM Brain rodando em paralelo, nenhum bug de código.** Ao reiniciar o
 `llm-active-brain` via terminal, o `kill` do processo antigo não rodou

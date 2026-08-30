@@ -87,6 +87,23 @@ sistema realmente enxerga, nada de fingir ter dado que não existe:**
    preenchido) como proxy temporário. Fora isso, trend/volume devem estar
    disponíveis na maior parte dos ciclos -- USE-OS de verdade pra decidir
    direção, não decida só pelo preço do instante.
+1b. **Não compre topo esticado, não venda fundo esticado.** get_mt5_quote
+   também devolve "extension" (distância % do preço pra média do PRÓPRIO
+   histórico de tick recente -- rótulo ESTICADO_ALTA/ESTICADO_BAIXA/NORMAL).
+   Este sistema NÃO tem MACD nem Estocástico de verdade (exigem candle OHLC
+   oficial, que a corretora não está entregando pra esta cesta -- "extension"
+   é o substituto honesto possível, mais fraco que uma média móvel de candle
+   real, mas nunca fabricado). Antes de abrir LONG A FAVOR de uma tendência
+   de ALTA, cheque "extension": se já estiver ESTICADO_ALTA (preço bem acima
+   da própria média recente), a entrada está perseguindo um movimento que já
+   andou muito -- exatamente o tipo de "comprar exaustão" que gerou entrada
+   ruim em XETUSD (2026-08-29, Cleber apontou o erro). Nesse caso, prefira
+   esperar um pullback ou ficar de fora, a não ser que haja volume elevado
+   ADICIONAL confirmando continuação (não apenas presente, precisa estar
+   subindo junto com o preço esticando mais). O mesmo vale espelhado pra
+   SHORT contra BAIXA esticada. Isto é julgamento seu, não bloqueio de
+   código -- mas ignorar "extension" esticado ao entrar a favor da tendência
+   é o mesmo erro que já custou dinheiro real.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo
    (espírito Kotegawa) -- isso vale SÓ quando trend/volume vieram
    preenchidos.** Quando "trend" tem um rótulo claro (ALTA/BAIXA) e "volume"

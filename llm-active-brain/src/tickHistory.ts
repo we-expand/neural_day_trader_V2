@@ -121,6 +121,65 @@ export function getTickVolatility(symbol: string, now: number = Date.now()): Tic
   return null;
 }
 
+export interface PriceExtension {
+  /** (preço atual - média da janela) / média da janela, em %. Positivo = preço acima da própria média recente. */
+  distancePct: number;
+  label: "ESTICADO_ALTA" | "ESTICADO_BAIXA" | "NORMAL";
+  lookbackMinutes: number;
+  sampleCount: number;
+}
+
+const EXTENSION_STRETCHED_THRESHOLD_PCT = 0.6;
+const MIN_SAMPLES_FOR_EXTENSION = 5;
+
+/**
+ * 🔴 2026-08-29 (achado do Cleber: entrada LONG em XETUSD com preço já
+ * "longe das médias" -- exaustão que uma média móvel/Estocástico pegaria,
+ * mas que o agente não tinha como ver). MACD/Estocástico de verdade
+ * precisam de OHLC real de candle -- `/mt5-candles` devolve SIMULATED em
+ * produção pra esta cesta (confirmado ao vivo, mesmo achado documentado em
+ * atr.ts/getTrendInfo), então fabricar esses indicadores em cima de candle
+ * fake seria inventar precisão que não existe (viola a convenção do
+ * projeto). Este é o substituto HONESTO possível com o único dado real
+ * disponível (tick de `/mt5-prices`): distância do preço atual pra média do
+ * seu próprio histórico recente de tick -- mais fraco que uma média móvel de
+ * candle de verdade (span mais curto, sem OHLC), mas 100% real, nunca
+ * fabricado. Serve como proxy de "quão esticado" o preço está, pro LLM usar
+ * como fator de cautela ao entrar A FAVOR de um movimento que já andou muito
+ * -- não é um bloqueio mecânico (mesma razão histórica do projeto pra não
+ * hard-codar reversão por RSI/Estocástico: já testado e rejeitado com dado
+ * real no motor mecânico principal), é informação real pro julgamento do
+ * agente.
+ */
+export function getPriceExtension(symbol: string, now: number = Date.now()): PriceExtension | null {
+  for (const lookbackMinutes of [30, 15, 7]) {
+    const window = samplesSince(symbol, lookbackMinutes, now);
+    if (!window || window.length < MIN_SAMPLES_FOR_EXTENSION) continue;
+    const actualSpanMinutes = (window[window.length - 1].t - window[0].t) / 60000;
+    if (actualSpanMinutes < lookbackMinutes / 2) continue;
+
+    const prices = window.map((s) => s.price);
+    const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+    const last = prices[prices.length - 1];
+    if (!(mean > 0) || !(last > 0)) continue;
+
+    const distancePct = ((last - mean) / mean) * 100;
+    const label: PriceExtension["label"] =
+      Math.abs(distancePct) < EXTENSION_STRETCHED_THRESHOLD_PCT
+        ? "NORMAL"
+        : distancePct > 0
+          ? "ESTICADO_ALTA"
+          : "ESTICADO_BAIXA";
+    return {
+      distancePct: Number(distancePct.toFixed(3)),
+      label,
+      lookbackMinutes: Number(actualSpanMinutes.toFixed(1)),
+      sampleCount: window.length,
+    };
+  }
+  return null;
+}
+
 export interface MomentumAcceleration {
   recentSlopePct: number;
   priorSlopePct: number;
