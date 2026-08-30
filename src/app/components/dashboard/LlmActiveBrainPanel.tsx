@@ -83,9 +83,20 @@ function calcPnl(entryPrice: number, currentPrice: number, side: 'LONG' | 'SHORT
 // então o preço nunca resolve e a linha fica travada em "...". BTCUSD/XETUSD/
 // DOTUSD/XRPUSD/SOLUSD já são literalmente iguais ao símbolo unificado, só
 // BTCXBN (unificado: BTCBNB) e DOGUSD (unificado: DOGEUSD) precisam de alias.
+// 🔴 2026-08-30 (achado ao vivo, mesmo padrão do BTCXBN/DOGUSD acima):
+// cesta do llm-active-brain expandida pra 10 símbolos (SOLUSD/ADAUSD/
+// LNKUSD/UNIUSD) no mesmo dia -- LNKUSD é o nome literal do Chainlink na
+// Infinox (ver llm-active-brain/src/assetBasket.ts, confirmado ao vivo:
+// "LINKUSD" dá 404), mas o catálogo unificado do app usa "LINKUSD"
+// (assetDatabase.ts). Sem o alias, uma posição aberta em LNKUSD nunca
+// resolveria preço aqui -- mesmo bug do BTCXBN, pego ANTES de acontecer
+// (nenhuma posição real em LNKUSD foi aberta ainda quando isto foi
+// corrigido). SOLUSD/ADAUSD/UNIUSD já batem com o símbolo unificado, sem
+// precisar de alias.
 const LLM_SYMBOL_TO_UNIFIED: Record<string, string> = {
   BTCXBN: 'BTCBNB',
   DOGUSD: 'DOGEUSD',
+  LNKUSD: 'LINKUSD',
 };
 
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
