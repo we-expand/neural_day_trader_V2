@@ -15,6 +15,33 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-30: `/code-review ultra` no diff local (working tree) + 3 bugs reais
+corrigidos e commitados (`45d26c24b`).** Revisão multi-ângulo (xhigh effort,
+finders em agentes + verificação) sobre `OrderTicket.tsx`, `AITrader.tsx` e
+`discoverSignals.ts` (o diff não-commitado no momento da revisão) achou 5
+problemas, todos corrigidos no mesmo commit: (1) `discoverSignals.ts`
+montava o caminho de saída com `process.cwd()`, que quebra exatamente do
+jeito que o próprio cabeçalho do script manda rodar (cwd = pasta do
+experimento, não raiz do repo) — resultado seria gravado num caminho
+duplicado sem nenhum erro visível; corrigido com
+`fileURLToPath(import.meta.url)`, agora independente de cwd, e caminho
+extraído pra uma constante única (`RESULTS_DIR`, era repetido 4x); (2) o
+fix do bug de PnL 20x do NAS100 (27/08, `OrderTicket.tsx`) tinha introduzido
+uma regressão nova sem ninguém notar: a guarda `!asset` adicionada zerava a
+prévia de risco/retorno também em **LIVE**, que nunca precisou de `asset`
+(só de `contractSpec`, que sempre tem fallback) — símbolos que existem em
+`contractSpecs` mas não em `assetDatabase` (ex: BTCUSDT, caso já documentado
+no próprio arquivo) perdiam a prévia inteira; corrigido movendo a guarda pro
+branch DEMO só; (3-4) a fórmula de PnL de DEMO estava duplicada dentro do
+próprio `OrderTicket.tsx` (`riskUsd`/`rewardUsd`, cópia idêntica) — extraída
+pra `computePriceMagnitudePnl`, exportada de `useApexLogic.ts` como fonte
+única, ao lado de `calculateEngineConsistentPnL` (mesma disciplina, mesmo
+motivo: essa exata duplicação de fórmula foi a causa raiz do bug do NAS100
+original). `AITrader.tsx` (slider novo de `signalScoreFloor`, campo que já
+existia no motor desde antes) foi revisado e não tinha bug. `npx tsc
+--noEmit` limpo nos 3 arquivos tocados pelo fix, comportamento preservado
+exatamente (refactor + fix pontual, não mudança de resultado).
+
 **2026-08-30 (manhã): redesenho do Cérebro LLM Ativo depois do "desesperador"
 1,7% de acerto/-$124 da noite anterior — autonomia total dada pelo Cleber.**
 Diagnóstico via SQL direto (não suposição) achou 2 causas concretas, não
@@ -31,14 +58,27 @@ as 3 variantes de falha de formato de tool-call da noite anterior,
 confirmado limpo ao vivo depois do restart). **Bug real encontrado E
 corrigido AO VIVO, no primeiro trade sob o R:R novo**: fallback de stop sem
 ATR real colapsava o alvo pra R:R 1:1 (ou pior) ignorando o multiplicador —
-sem dano (a IA fechou manualmente, -$0,24). Processo reiniciado 2x,
-confirmado rodando 1 instância só. **Sem promessa de edge** — pode só
-reduzir o ritmo da perda (bug fixes) sem criar lucro real; precisa de
-amostra nova antes de julgar (ver query pronta no handoff). Achado de
-metodologia à parte: restart **não** cria sessão nova no Supabase (reusa a
-mais recente por `strategy_name`) — corrige suposição errada do handoff
-anterior. Handoff completo, com o diagnóstico detalhado, lista de arquivos
-mudados e pendências: [SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md](SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md).
+sem dano (a IA fechou manualmente, -$0,24). **Depois do redesenho já
+validado ao vivo, Cleber pediu reset do dashboard pra $50 limpos** pra
+testar o modelo novo sem a bagagem da sessão antiga — sessão nova criada
+(`ai_sessions.id = aa279c75-1acd-49aa-9fef-a76e8ddf0b2e`, $50, zero
+trades), processo reiniciado uma 3ª vez pra migrar pra ela. As 2 posições
+que ficaram órfãs na sessão antiga (XETUSD SHORT e BTCXBN SHORT, essa
+última aberta no ÚLTIMO ciclo do processo antigo, minutos antes da
+migração) foram fechadas manualmente a preço real (rota `/mt5-prices`,
+nunca fabricado), `exit_reason='MANUAL'`, motivo registrado em
+`ai_reasoning` (nunca `UPDATE` silencioso) — -$0,41 e -$2,33
+respectivamente. **A amostra pra julgar o redesenho é a partir de agora,
+sessão `aa279c75...`** — a antiga (`e7eef768...`, -$135/1,7% de acerto)
+fica congelada como histórico do R:R velho, não comparável. **Sem promessa
+de edge** — pode só reduzir o ritmo da perda (bug fixes) sem criar lucro
+real; precisa de amostra nova antes de julgar (ver query pronta no
+handoff). Achado de metodologia à parte: restart **não** cria sessão nova
+sozinho no Supabase (reusa a mais recente por `strategy_name` — só criei
+uma nova explicitamente por pedido do Cleber) — corrige suposição errada
+do handoff anterior. Handoff completo, com o diagnóstico detalhado, lista
+de arquivos mudados e pendências:
+[SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md](SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md).
 
 **2026-08-30 (noite anterior): monitoramento contínuo do Cérebro LLM Ativo
 terminou em 1,7% de acerto, -$124 líquido — motivou o redesenho acima.** 2
