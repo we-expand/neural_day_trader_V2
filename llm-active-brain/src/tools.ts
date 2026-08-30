@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns } from "./atr.js";
 import { getPriceExtension } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -561,6 +561,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // leitura de exaustao classica. null quando nao ha candle real
       // suficiente, nunca fabrica indicador.
       const stochastic = await getSlowStochastic(symbol);
+      // 🔴 2026-08-30 (pedido do Cleber, "10 padroes de candle mais
+      // famosos"): primeira vez que o LLM recebe a FORMA da vela (corpo vs
+      // pavios), nao so o fechamento -- ver getCandlePatterns em atr.ts pra
+      // detalhe dos 10 padroes e criterio geometrico de cada um.
+      const candlePatterns = await getCandlePatterns(symbol);
       lastQuoteSnapshotBySymbol.set(symbol, {
         trendLabel: trend?.label ?? null,
         volumeElevated: volume?.elevated ?? null,
@@ -568,7 +573,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stochasticLabel: stochastic?.label ?? null,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -602,6 +607,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         supportResistance,
         macd,
         stochastic,
+        candlePatterns,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }

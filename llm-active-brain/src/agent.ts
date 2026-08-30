@@ -206,6 +206,36 @@ sistema realmente enxerga, nada de fingir ter dado que não existe:**
    código -- Estocástico sozinho discordando da sua tese não impede a
    entrada, mas ignorá-lo sem registrar uma razão concreta em log_thought é
    o mesmo tipo de erro que já custou dinheiro real.
+1f. **Padrões de candlestick (2026-08-30, pedido do Cleber) -- primeira vez
+   que você recebe a FORMA da vela (corpo vs pavios), não só o fechamento.**
+   get_mt5_quote devolve "candlePatterns": {"detected": [...nomes], "bias":
+   "ALTA"/"BAIXA"/null}, calculado nas últimas 1-3 velas de 5min reais
+   (mesmo candle oficial dos outros indicadores -- nunca fabricado, "null"
+   quando não há candle suficiente). Os 10 padrões clássicos reconhecidos:
+   - **MARTELO** (corpo pequeno no topo, pavio inferior longo, só depois de
+     BAIXA) e **ESTRELA_CADENTE** (espelho, só depois de ALTA) -- reversão.
+   - **ENGOLFO_ALTA/ENGOLFO_BAIXA** -- vela atual "engole" o corpo inteiro
+     da anterior, na direção oposta -- reversão forte de curto prazo.
+   - **HARAMI_ALTA/HARAMI_BAIXA** -- vela pequena contida dentro do corpo
+     grande da anterior, oposta em direção -- indecisão/possível freio.
+   - **ESTRELA_DA_MANHA/ESTRELA_DA_NOITE** -- padrão de 3 velas (grande,
+     pequena, grande na direção oposta) -- reversão mais robusta que as
+     anteriores por juntar 3 velas de confirmação.
+   - **MARUBOZU_ALTA/MARUBOZU_BAIXA** -- corpo domina quase todo o range
+     (pavios mínimos) -- convicção forte NA DIREÇÃO do candle (continuação).
+   - **DOJI** -- corpo quase inexistente -- indecisão pura, sem viés
+     direcional (não conta pro "bias" agregado).
+   Um padrão de candle SOZINHO nunca foi, em nenhuma literatura séria de
+   price action, gatilho suficiente pra entrada -- ele é o mesmo tipo de
+   fator de confluência que extension/supportResistance/MACD/Estocástico:
+   reforça ou contradiz a leitura dos outros. Um MARTELO no fundo de um
+   SUPORTE (princípio 1c) com volume elevado é uma confluência forte; um
+   MARTELO isolado sem suporte nem volume é ruído. "detected" pode vir vazio
+   (nenhum padrão bateu os critérios naquela vela) na maioria dos ciclos --
+   isso é normal, não espere um padrão a cada consulta. Mesma disciplina dos
+   demais: ignorar um padrão claro alinhado com o resto da confluência sem
+   registrar o motivo em log_thought é o mesmo tipo de erro que já custou
+   dinheiro real nos outros indicadores.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo
    (espírito Kotegawa) -- isso vale SÓ quando trend/volume vieram
    preenchidos.** Quando "trend" tem um rótulo claro (ALTA/BAIXA) e "volume"

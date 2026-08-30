@@ -481,3 +481,204 @@ export async function getSlowStochastic(symbol: string): Promise<SlowStochasticR
     crossing,
   };
 }
+
+// 🔴 2026-08-30 (pedido direto do Cleber, "10 padroes de candle mais
+// famosos"): reconhecimento de padroes classicos de candlestick, calculado
+// EM CIMA do MESMO candle OHLC oficial (fetchRecentCandles) que os outros
+// indicadores deste arquivo ja usam -- nenhum candle sintetico, nunca
+// fabrica padrao. Ao contrario de trend/volume/MACD/estocastico (que leem
+// so o FECHAMENTO das velas), isto e o primeiro indicador deste arquivo que
+// olha a FORMA da vela (corpo vs pavio superior/inferior) -- ate agora o
+// LLM nunca teve acesso a essa dimensao do candle (auditado nesta mesma
+// sessao: nenhum campo devolvido por get_mt5_quote expunha open/high/low/
+// close individual de vela nenhuma). Os 10 padroes: Doji, Martelo, Estrela
+// Cadente, Engolfo de Alta, Engolfo de Baixa, Harami de Alta, Harami de
+// Baixa, Estrela da Manha, Estrela da Noite, Marubozu (Alta/Baixa). Mesma
+// disciplina do resto do arquivo: `null` quando nao ha candle real
+// suficiente, deteccao puramente geometrica (razao corpo/pavio/range), sem
+// nenhum numero inventado.
+export interface CandlePatternResult {
+  /** Nomes dos padroes detectados terminando na ULTIMA vela fechada (pode ser mais de um). Vazio quando nenhum padrao bateu os criterios. */
+  detected: string[];
+  /** Vies classico agregado dos padroes detectados -- "ALTA" (reversao/continuacao compradora), "BAIXA" (vendedora), null quando nenhum padrao detectado ou padroes contraditorios entre si. */
+  bias: "ALTA" | "BAIXA" | null;
+  lookbackMinutes: number;
+}
+
+const CANDLE_PATTERN_TREND_CONTEXT_CANDLES = 5; // ~25min antes do padrao, pra achar "veio de alta/baixa" (martelo/estrela cadente exigem contexto de tendencia pra fazer sentido classico)
+const CANDLE_PATTERN_TREND_MIN_PCT = 0.15; // mesmo limiar de TREND_FLAT_THRESHOLD_PCT acima -- abaixo disso nao conta como "vindo de tendencia" nenhuma
+
+interface CandleShape {
+  body: number;
+  range: number;
+  upperWick: number;
+  lowerWick: number;
+  bullish: boolean;
+  bodyRatio: number; // body / range, 0 quando range=0 (vela sem movimento nenhum)
+}
+
+function shapeOf(c: Candle): CandleShape {
+  const body = Math.abs(c.close - c.open);
+  const range = c.high - c.low;
+  const upperWick = c.high - Math.max(c.open, c.close);
+  const lowerWick = Math.min(c.open, c.close) - c.low;
+  const bullish = c.close > c.open;
+  return { body, range, upperWick, lowerWick, bullish, bodyRatio: range > 0 ? body / range : 0 };
+}
+
+/** Tendência simples de contexto (não é o mesmo TrendInfo público -- só olha o trecho ANTES do candle-alvo, pra padrões que exigem "veio de alta"/"veio de baixa" pra fazer sentido classico). */
+function priorTrendDirection(candles: Candle[], beforeIndex: number): "ALTA" | "BAIXA" | "LATERAL" {
+  const fromIdx = beforeIndex - CANDLE_PATTERN_TREND_CONTEXT_CANDLES;
+  if (fromIdx < 0) return "LATERAL";
+  const startClose = candles[fromIdx].close;
+  const endClose = candles[beforeIndex - 1]?.close;
+  if (!Number.isFinite(startClose) || !Number.isFinite(endClose) || startClose <= 0) return "LATERAL";
+  const changePct = ((endClose - startClose) / startClose) * 100;
+  if (Math.abs(changePct) < CANDLE_PATTERN_TREND_MIN_PCT) return "LATERAL";
+  return changePct > 0 ? "ALTA" : "BAIXA";
+}
+
+const MIN_CANDLES_FOR_PATTERNS = CANDLE_PATTERN_TREND_CONTEXT_CANDLES + 3; // contexto de tendencia + as ate 3 velas do padrao maior (estrela)
+
+/**
+ * Reconhece os 10 padrões de candlestick clássicos mais conhecidos, olhando
+ * as últimas 1-3 velas fechadas (a mais recente é sempre a última do
+ * padrão). Critérios geométricos padrão de mercado, deliberadamente
+ * simples e conservadores -- prefere não detectar (falso negativo) a
+ * inventar um padrão que não está lá (falso positivo).
+ */
+export async function getCandlePatterns(symbol: string): Promise<CandlePatternResult | null> {
+  const candles = await fetchRecentCandles(symbol);
+  if (!candles || candles.length < MIN_CANDLES_FOR_PATTERNS) return null;
+
+  const n = candles.length;
+  const c0 = candles[n - 3]; // só existe/usado nos padrões de 3 velas
+  const c1 = candles[n - 2];
+  const c2 = candles[n - 1]; // vela mais recente fechada -- padrão sempre "termina" aqui
+  const s1 = shapeOf(c1);
+  const s2 = shapeOf(c2);
+  if (s2.range <= 0) return { detected: [], bias: null, lookbackMinutes: candles.length * 5 };
+
+  const detected: string[] = [];
+  const biases: Array<"ALTA" | "BAIXA"> = [];
+
+  // --- Padrões de 1 vela (avaliados na vela mais recente, c2) ---
+  const trendBeforeC2 = priorTrendDirection(candles, n - 1);
+
+  // Doji: corpo praticamente inexistente perto do range da vela -- indecisão.
+  if (s2.bodyRatio <= 0.1) {
+    detected.push("DOJI");
+    // Doji não tem viés direcional próprio -- só sinaliza indecisão/possível virada, sem contar pro bias agregado.
+  }
+
+  // Marubozu: corpo domina quase todo o range (pavios mínimos) -- convicção forte na direção do candle.
+  if (s2.bodyRatio >= 0.9) {
+    if (s2.bullish) {
+      detected.push("MARUBOZU_ALTA");
+      biases.push("ALTA");
+    } else {
+      detected.push("MARUBOZU_BAIXA");
+      biases.push("BAIXA");
+    }
+  }
+
+  // Martelo (Hammer): corpo pequeno no topo do range, pavio inferior longo (>=2x corpo), pavio superior mínimo -- reversão compradora, só faz sentido clássico depois de uma BAIXA.
+  if (
+    s2.body > 0 &&
+    s2.bodyRatio <= 0.35 &&
+    s2.lowerWick >= s2.body * 2 &&
+    s2.upperWick <= s2.range * 0.15 &&
+    trendBeforeC2 === "BAIXA"
+  ) {
+    detected.push("MARTELO");
+    biases.push("ALTA");
+  }
+
+  // Estrela Cadente (Shooting Star): espelho do martelo -- pavio superior longo, corpo pequeno na base, só faz sentido depois de uma ALTA.
+  if (
+    s2.body > 0 &&
+    s2.bodyRatio <= 0.35 &&
+    s2.upperWick >= s2.body * 2 &&
+    s2.lowerWick <= s2.range * 0.15 &&
+    trendBeforeC2 === "ALTA"
+  ) {
+    detected.push("ESTRELA_CADENTE");
+    biases.push("BAIXA");
+  }
+
+  // --- Padrões de 2 velas (c1 -> c2) ---
+  // Engolfo de Alta: c1 vermelha, c2 verde, e o corpo de c2 "engole" o corpo inteiro de c1.
+  if (!s1.bullish && s2.bullish && c2.open <= c1.close && c2.close >= c1.open && s2.body > s1.body) {
+    detected.push("ENGOLFO_ALTA");
+    biases.push("ALTA");
+  }
+  // Engolfo de Baixa: espelho.
+  if (s1.bullish && !s2.bullish && c2.open >= c1.close && c2.close <= c1.open && s2.body > s1.body) {
+    detected.push("ENGOLFO_BAIXA");
+    biases.push("BAIXA");
+  }
+
+  // Harami de Alta: c1 vermelha com corpo grande, c2 verde com corpo pequeno TOTALMENTE dentro do corpo de c1.
+  if (
+    !s1.bullish &&
+    s1.bodyRatio >= 0.5 &&
+    s2.bullish &&
+    s2.body < s1.body * 0.6 &&
+    c2.open >= c1.close &&
+    c2.close <= c1.open
+  ) {
+    detected.push("HARAMI_ALTA");
+    biases.push("ALTA");
+  }
+  // Harami de Baixa: espelho.
+  if (
+    s1.bullish &&
+    s1.bodyRatio >= 0.5 &&
+    !s2.bullish &&
+    s2.body < s1.body * 0.6 &&
+    c2.open <= c1.close &&
+    c2.close >= c1.open
+  ) {
+    detected.push("HARAMI_BAIXA");
+    biases.push("BAIXA");
+  }
+
+  // --- Padrões de 3 velas (c0 -> c1 -> c2), só avaliados se houver candle suficiente antes de c0 pro contexto ---
+  if (n - 3 - CANDLE_PATTERN_TREND_CONTEXT_CANDLES >= 0) {
+    const s0 = shapeOf(c0);
+    const midpointC0 = (c0.open + c0.close) / 2;
+
+    // Estrela da Manhã: vela 1 vermelha grande (queda), vela 2 pequena (indecisão, "estrela"), vela 3 verde grande fechando acima do meio da vela 1 -- reversão compradora clássica.
+    if (
+      !s0.bullish &&
+      s0.bodyRatio >= 0.5 &&
+      s1.bodyRatio <= 0.35 &&
+      Math.max(c1.open, c1.close) <= c0.close + s0.range * 0.1 &&
+      s2.bullish &&
+      s2.bodyRatio >= 0.5 &&
+      c2.close > midpointC0
+    ) {
+      detected.push("ESTRELA_DA_MANHA");
+      biases.push("ALTA");
+    }
+
+    // Estrela da Noite: espelho -- vela 1 verde grande, vela 2 pequena, vela 3 vermelha grande fechando abaixo do meio da vela 1.
+    if (
+      s0.bullish &&
+      s0.bodyRatio >= 0.5 &&
+      s1.bodyRatio <= 0.35 &&
+      Math.min(c1.open, c1.close) >= c0.close - s0.range * 0.1 &&
+      !s2.bullish &&
+      s2.bodyRatio >= 0.5 &&
+      c2.close < midpointC0
+    ) {
+      detected.push("ESTRELA_DA_NOITE");
+      biases.push("BAIXA");
+    }
+  }
+
+  const uniqueBiases = new Set(biases);
+  const bias: CandlePatternResult["bias"] = uniqueBiases.size === 1 ? [...uniqueBiases][0] : null;
+
+  return { detected, bias, lookbackMinutes: candles.length * 5 };
+}
