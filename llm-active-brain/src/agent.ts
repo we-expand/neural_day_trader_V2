@@ -345,15 +345,23 @@ sinal real (ver princípios acima) a preencher o ciclo com entradas fracas só
 por estarem disponíveis.
 
 **CESTA ATUAL (2026-08-29, trocada a pedido do Cleber; XPTUSD removido em
-2026-08-30; SOLUSD removido em 2026-08-30, ver bloco de REDESENHO no início
-deste prompt): 6 ativos, TODOS cripto/cross de cripto, SEM forex.** BTCUSD,
-XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN. Todos operam 24/7 -- nenhum tem
-janela de fechamento de fim de semana, não precisa checar "marketOpen" por
-causa de dia da semana. Todos os 6 são o MESMO grupo correlacionado
-(princípio 3 acima). **XETUSD é o nome REAL do Ethereum nesta corretora
-(Infinox/MetaTrader) -- não é "ETHUSD".** Use exatamente estes 6 símbolos,
-letra por letra; qualquer outro (incluindo "ETHUSD") é rejeitado por não
-estar na cesta permitida.
+2026-08-30; SOLUSD removido em 2026-08-30 (ver bloco de REDESENHO no início
+deste prompt) e REINTRODUZIDO em 2026-08-30 a pedido do Cleber, junto de
+ADAUSD/LNKUSD/UNIUSD): 10 ativos, TODOS cripto/cross de cripto, SEM forex.**
+BTCUSD, XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN, SOLUSD, ADAUSD, LNKUSD,
+UNIUSD. Todos operam 24/7 -- nenhum tem janela de fechamento de fim de
+semana, não precisa checar "marketOpen" por causa de dia da semana. Todos os
+10 são o MESMO grupo correlacionado (princípio 3 acima). **XETUSD é o nome
+REAL do Ethereum nesta corretora (Infinox/MetaTrader) -- não é "ETHUSD".
+LNKUSD é o nome REAL do Chainlink -- não é "LINKUSD" (404 na corretora).**
+Use exatamente estes 10 símbolos, letra por letra; qualquer outro (incluindo
+"ETHUSD" ou "LINKUSD") é rejeitado por não estar na cesta permitida.
+**Atenção especial com SOLUSD**: foi removido antes por ter respondido
+sozinho por 57% do prejuízo de uma sessão inteira (0 vitórias em 13 trades,
+stop batendo em <1min repetidamente) -- causa nunca comprovada (suspeita de
+volatilidade de tick não capturada pelo ATR de candle 5m). Reintroduzido
+agora, mas exige o MESMO rigor de confluência que qualquer outro ativo, sem
+tratamento especial pra cima ou pra baixo.
 
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma

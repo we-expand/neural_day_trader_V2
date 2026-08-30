@@ -36,8 +36,23 @@
  * a tick pra este símbolo especificamente antes de reintroduzir) -- ver
  * SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md.
  */
+/**
+ * 🔴 2026-08-30 (pedido do Cleber, mesma sessao de monitoramento): 4 simbolos
+ * adicionados -- SOLUSD, ADAUSD, LNKUSD, UNIUSD. Todos testados AO VIVO
+ * contra /mt5-prices antes de entrar aqui, todos devolveram bid/ask reais
+ * (LNKUSD confirmado como nomenclatura certa da corretora -- "LINKUSD" da
+ * 404). SOLUSD MERECE ATENCAO: foi removido desta cesta mais cedo hoje por
+ * ter respondido por 57% de todo o prejuizo da sessao anterior (13 trades,
+ * 0 vitorias, stop batendo em <1min sistematicamente em ambas direcoes --
+ * ver comentario historico abaixo). Causa nunca foi investigada a fundo,
+ * so removido por precaucao. Reintroduzido agora a pedido explicito do
+ * Cleber -- MACD/Estocastico reais e o validador semantico contra dado real
+ * (ambos adicionados nesta mesma sessao) podem mudar o comportamento, mas
+ * isso NAO foi validado especificamente pra SOLUSD ainda. Monitorar de perto.
+ */
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
+  "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
 ];
 
 /**
@@ -57,6 +72,10 @@ export const LOT_SIZE: Record<string, number> = {
   DOTUSD: 1,
   XRPUSD: 1,
   BTCXBN: 1,
+  SOLUSD: 1,
+  ADAUSD: 1,
+  LNKUSD: 1,
+  UNIUSD: 1,
 };
 
 export const MIN_LOTS = 0.01;
@@ -97,10 +116,12 @@ export function isSymbolTradable(symbol: string, now: Date = new Date()): boolea
  * liberar mais uma entrada.
  *
  * 🔴 2026-08-29 (cesta de hoje): BTCUSD/XETUSD/DOGUSD/DOTUSD/XRPUSD/BTCXBN
- * são todos cripto (ou cross de cripto) -- mesmo grupo.
+ * são todos cripto (ou cross de cripto) -- mesmo grupo. 2026-08-30: SOLUSD/
+ * ADAUSD/LNKUSD/UNIUSD adicionados ao mesmo grupo (mesma lógica -- todos
+ * cripto, mesmo risco correlacionado de mercado).
  */
 const CORRELATED_GROUPS: string[][] = [
-  ["BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN"],
+  ["BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD"],
 ];
 
 export function getCorrelatedGroup(symbol: string): string[] {
