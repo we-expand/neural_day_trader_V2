@@ -223,6 +223,19 @@ export const config = {
   mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.003),
   mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
   mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),
+  // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+  // redesenho R:R 1:2): 2 dos primeiros 3 trades reais (XRPUSD LONG) bateram
+  // stop em 64s e 14s -- nao por movimento de preco, mas porque o stop
+  // calculado (0,500% fallback) era MENOR que o proprio spread do ativo
+  // (~1,47%). fillPrice = ask (LONG) e o preco de fechamento e o bid
+  // (enforceMt5StopsAndTargets) -- se stopPct < spreadPct, a posicao ja
+  // nasce abaixo do proprio stop, ANTES de qualquer movimento real. O aviso
+  // de SPREAD ALTO em tools.ts so alertava sobre o ALVO precisar ser maior,
+  // nunca sobre o STOP -- por isso o modelo raciocinava (errado) que R:R 1:2
+  // "mitigava" o custo do spread. Fix: stop nunca fica menor que
+  // spreadPct * mt5SpreadStopSafetyMultiplier (margem REAL alem do custo de
+  // ida-e-volta do spread, nao so empatar) -- ver open_position em tools.ts.
+  mt5SpreadStopSafetyMultiplier: Number(process.env.MT5_SPREAD_STOP_SAFETY_MULTIPLIER ?? 1.5),
   // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em
   // que o dia não tem volume" -- em dia/momento de baixa participação (ver
   // getVolumeConfirmation em atr.ts, proxy real de tickVolume da MetaAPI), o

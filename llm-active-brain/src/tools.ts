@@ -511,7 +511,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (Number.isFinite(quote.spreadPct) && quote.spreadPct >= SPREAD_WARN_PCT) {
         avisos.push(
           `SPREAD ALTO: ${quote.spreadPct.toFixed(2)}% entre bid e ask -- uma entrada aqui ja nasce ~${quote.spreadPct.toFixed(2)}% negativa ` +
-            `so pelo custo de operar (${quote.spreadPct >= SPREAD_BLOCK_PCT ? "acima do teto: open_position BLOQUEIA" : "abaixo do teto de bloqueio, mas exige alvo bem maior que isso pra compensar"}).`
+            `so pelo custo de operar (${quote.spreadPct >= SPREAD_BLOCK_PCT ? "acima do teto: open_position BLOQUEIA" : "abaixo do teto de bloqueio"}). ` +
+            `O CODIGO ja alarga o stop automaticamente pra nunca ficar menor que o spread (nao precisa/deve compensar isso na decisao de ENTRAR), ` +
+            `mas um spread alto ainda encolhe a margem real de lucro ate o alvo -- prefira ativos com spread normal quando houver sinal equivalente em mais de um.`
         );
       }
       return {
@@ -867,6 +869,32 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       });
       let usedFallbackStop = stopPct == null;
       if (stopPct == null) stopPct = config.mt5StopFallbackPct;
+      // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, primeiros 3 trades
+      // reais depois do redesenho R:R 1:2 -- ver mt5SpreadStopSafetyMultiplier
+      // em config.ts pro detalhe completo): 2 de 3 trades (XRPUSD LONG)
+      // bateram stop em 64s/14s por o stop (0,500%) ser MENOR que o spread
+      // (~1,47%) -- a posicao ja nascia derrotada, sem nenhum movimento real
+      // de preco. Aqui o stop e alargado (nunca encolhido) pra sempre ficar
+      // pelo menos mt5SpreadStopSafetyMultiplier vezes o spread pago; se nem
+      // o teto maximo (mt5StopMaxPct) alcanca essa margem, bloqueia a
+      // entrada em vez de abrir com stop artificialmente apertado.
+      const spreadPctFrac = Number.isFinite(quote.spreadPct) ? quote.spreadPct / 100 : 0;
+      const minStopForSpread = spreadPctFrac * config.mt5SpreadStopSafetyMultiplier;
+      let widenedForSpread = false;
+      if (minStopForSpread > stopPct) {
+        if (minStopForSpread > config.mt5StopMaxPct) {
+          return {
+            error:
+              `Spread de ${symbol} (${quote.spreadPct.toFixed(2)}%) e alto demais pro stop ficar com margem real ` +
+              `(precisaria de ${(minStopForSpread * 100).toFixed(2)}%, acima do teto maximo de ${(config.mt5StopMaxPct * 100).toFixed(2)}%) -- ` +
+              `a posicao nasceria com o stop mais perto do preco de entrada do que o proprio custo de operar, disparando quase sem ` +
+              `movimento real. Posicao NAO aberta. Opere um ativo com spread menor ou aguarde o spread normalizar.`,
+          };
+        }
+        stopPct = minStopForSpread;
+        widenedForSpread = true;
+        usedFallbackStop = true;
+      }
       // 🔴 2026-08-30 (achado real, confirmado NO PRIMEIRO trade real depois
       // do redesenho R:R 1:2 -- BTCUSD LONG, ciclo 2 da sessao reiniciada):
       // quando o ATR real nao vem (usedFallbackStop=true), a linha antiga
@@ -918,7 +946,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stop_pct: (stopPct * 100).toFixed(3) + "%",
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
         alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
-        aviso: "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado.",
+        stop_alargado_por_spread: widenedForSpread,
+        aviso:
+          "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado." +
+          (widenedForSpread
+            ? ` ATENCAO: o stop foi ALARGADO automaticamente pra ${(stopPct * 100).toFixed(3)}% (em vez do normal) porque o spread deste ativo (${quote.spreadPct.toFixed(2)}%) e alto -- um stop mais apertado bateria so pelo custo de operar, sem nenhum movimento real de preco.`
+            : ""),
       };
     }
 
