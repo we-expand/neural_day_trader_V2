@@ -15,7 +15,49 @@ function rollSuccess(successChance: number): boolean {
   return Math.random() < successChance;
 }
 
-const baseToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+// 🔴 2026-08-29/30 (achado do Cleber durante monitoramento ao vivo): em modo
+// MT5, o agente estava recebendo TODAS as ferramentas do experimento legado
+// (carteira ETH de testnet, "economia ficticia" de USD por gigs/apostas
+// simuladas) mesmo sem nenhuma relacao com a missao real -- confirmado no
+// log chamando check_balance/check_fictional_balance e RACIOCINANDO sobre o
+// saldo ficticio ($3.51) como se fosse capital disponivel pra dimensionar
+// entrada real. Isso e ruido puro na decisao, nao so ferramenta inutil.
+// Agora `commonToolDefinitions` (usado em TODOS os modos) tem so log_thought
+// e stop; as ferramentas do experimento ETH/economia ficticia viram
+// `legacyToolDefinitions`, oferecidas SO no modo legado (nem MT5 nem
+// Binance).
+const commonToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "log_thought",
+      description: "Registra um raciocinio/observacao do agente no ledger, sem executar nenhuma acao externa.",
+      parameters: {
+        type: "object",
+        properties: {
+          thought: { type: "string", description: "O que o agente esta pensando/concluindo." },
+        },
+        required: ["thought"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "stop",
+      description: "Encerra o loop do agente quando ele julgar que a tarefa acabou ou nao ha mais o que fazer com segurança.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: { type: "string", description: "Por que o agente decidiu parar." },
+        },
+        required: ["reason"],
+      },
+    },
+  },
+];
+
+const legacyToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
@@ -142,34 +184,6 @@ const baseToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
           reason: { type: "string", description: "Em que o agente esta gastando." },
         },
         required: ["amount_usd", "reason"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "log_thought",
-      description: "Registra um raciocinio/observacao do agente no ledger, sem executar nenhuma acao externa.",
-      parameters: {
-        type: "object",
-        properties: {
-          thought: { type: "string", description: "O que o agente esta pensando/concluindo." },
-        },
-        required: ["thought"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "stop",
-      description: "Encerra o loop do agente quando ele julgar que a tarefa acabou ou nao ha mais o que fazer com segurança.",
-      parameters: {
-        type: "object",
-        properties: {
-          reason: { type: "string", description: "Por que o agente decidiu parar." },
-        },
-        required: ["reason"],
       },
     },
   },
@@ -312,10 +326,10 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
 ];
 
 export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.mt5TradingEnabled
-  ? [...baseToolDefinitions, ...mt5ToolDefinitions]
+  ? [...commonToolDefinitions, ...mt5ToolDefinitions]
   : config.tradingEnabled
-  ? [...baseToolDefinitions, ...tradingToolDefinitions]
-  : baseToolDefinitions;
+  ? [...commonToolDefinitions, ...legacyToolDefinitions, ...tradingToolDefinitions]
+  : [...commonToolDefinitions, ...legacyToolDefinitions];
 
 export async function executeTool(name: string, input: Record<string, unknown>, cycle: number) {
   switch (name) {
