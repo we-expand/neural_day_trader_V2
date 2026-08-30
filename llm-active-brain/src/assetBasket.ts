@@ -8,17 +8,25 @@
  * devolveram bid/ask reais). Forex tirado por completo por enquanto -- só
  * cripto/cross hoje. Objetivo: o agente analisar esta cesta específica hoje
  * pra informar a operação de amanhã.
+ *
+ * 🔴 2026-08-30 (pedido do Cleber): XPTUSD (platina) removido da cesta.
+ * Investigação da sessão anterior (SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD_
+ * ANORMAL.md) já tinha neutralizado o dano (trava de tick obsoleto bloqueava
+ * abertura e tirava o tick morto do histórico), mas o ativo seguia ocupando
+ * um slot da cesta e gerando warning todo fim de semana sem nunca poder
+ * operar de verdade (mercado de metal fechado, feed morto ~30h). Sem motivo
+ * pra manter na cesta.
  */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "XPTUSD", "BTCXBN",
+  "BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
 ];
 
 /**
  * `lotSize` de cada símbolo. Os 5 já validados em sessões anteriores mantêm
- * o valor confirmado; os 3 novos (DOGUSD, DOTUSD, XRPUSD, XPTUSD, BTCXBN)
- * seguem o MESMO padrão (lotSize=1) dos demais cripto/cross desta cesta --
- * não há entrada equivalente no catálogo estático do app pra confirmar
- * contra (esses símbolos com esta nomenclatura exata não estão em
+ * o valor confirmado; os novos (DOGUSD, DOTUSD, XRPUSD, BTCXBN) seguem o
+ * MESMO padrão (lotSize=1) dos demais cripto/cross desta cesta -- não há
+ * entrada equivalente no catálogo estático do app pra confirmar contra
+ * (esses símbolos com esta nomenclatura exata não estão em
  * `assetDatabase.ts`), então usa o padrão já validado em vez de inventar um
  * valor. Se o tamanho de posição parecer estranho pra algum desses,
  * revisitar.
@@ -30,7 +38,6 @@ export const LOT_SIZE: Record<string, number> = {
   DOGUSD: 1,
   DOTUSD: 1,
   XRPUSD: 1,
-  XPTUSD: 1,
   BTCXBN: 1,
 };
 
@@ -72,9 +79,7 @@ export function isSymbolTradable(symbol: string, now: Date = new Date()): boolea
  * liberar mais uma entrada.
  *
  * 🔴 2026-08-29 (cesta de hoje): BTCUSD/XETUSD/SOLUSD/DOGUSD/DOTUSD/XRPUSD/
- * BTCXBN são todos cripto (ou cross de cripto) -- mesmo grupo. XPTUSD é
- * platina (metal precioso via CFD, não cripto) -- fica FORA do grupo cripto
- * de propósito, não tem a mesma correlação de regime de risco.
+ * BTCXBN são todos cripto (ou cross de cripto) -- mesmo grupo.
  */
 const CORRELATED_GROUPS: string[][] = [
   ["BTCUSD", "XETUSD", "SOLUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN"],

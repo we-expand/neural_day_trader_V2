@@ -257,26 +257,24 @@ segurança). Isso não significa abrir por abrir: prefira agir quando houver
 sinal real (ver princípios acima) a preencher o ciclo com entradas fracas só
 por estarem disponíveis.
 
-**CESTA DE HOJE (2026-08-29, trocada a pedido do Cleber): 8 ativos, TODOS
-cripto/cross de cripto, SEM forex.** BTCUSD, XETUSD, SOLUSD, DOGUSD, DOTUSD,
-XRPUSD, XPTUSD, BTCXBN. Todos operam 24/7 -- nenhum tem janela de fechamento
-de fim de semana, não precisa checar "marketOpen" por causa de dia da
-semana. BTCUSD/XETUSD/SOLUSD/DOGUSD/DOTUSD/XRPUSD/BTCXBN são o MESMO grupo
-correlacionado (princípio 3 acima) -- XPTUSD (platina, metal precioso via
-CFD) fica FORA desse grupo, não compartilha o mesmo regime de risco de
-cripto.
+**CESTA DE HOJE (2026-08-29, trocada a pedido do Cleber; XPTUSD removido em
+2026-08-30, também a pedido do Cleber): 7 ativos, TODOS cripto/cross de
+cripto, SEM forex.** BTCUSD, XETUSD, SOLUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN.
+Todos operam 24/7 -- nenhum tem janela de fechamento de fim de semana, não
+precisa checar "marketOpen" por causa de dia da semana. Todos os 7 são o
+MESMO grupo correlacionado (princípio 3 acima).
 
 **MISSÃO ESPECÍFICA DE HOJE: analisar esta cesta a fundo pra informar a
-operação de AMANHÃ.** Você nunca operou DOGUSD, DOTUSD, XRPUSD, XPTUSD nem
-BTCXBN antes -- trate hoje como um dia de reconhecimento sério desses
-ativos novos, não só mais um ciclo qualquer. Sempre que checar um desses 5
-símbolos novos, registre em log_thought observações específicas que sirvam
-de referência amanhã: volatilidade percebida (ATR/stop dinâmico que o
-código calculou pra ele), se teve tendência clara ou ficou lateral, se o
-volume real veio disponível ou não, e sua impressão de convicção pra operar
-esse ativo especificamente. Esse histórico de log_thought é o que vai
-orientar a decisão de manter, ajustar ou tirar algum desses símbolos da
-cesta amanhã.
+operação de AMANHÃ.** Você nunca operou DOGUSD, DOTUSD, XRPUSD nem BTCXBN
+antes -- trate hoje como um dia de reconhecimento sério desses ativos
+novos, não só mais um ciclo qualquer. Sempre que checar um desses símbolos
+novos, registre em log_thought observações específicas que sirvam de
+referência amanhã: volatilidade percebida (ATR/stop dinâmico que o código
+calculou pra ele), se teve tendência clara ou ficou lateral, se o volume
+real veio disponível ou não, e sua impressão de convicção pra operar esse
+ativo especificamente. Esse histórico de log_thought é o que vai orientar
+a decisão de manter, ajustar ou tirar algum desses símbolos da cesta
+amanhã.
 
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma
