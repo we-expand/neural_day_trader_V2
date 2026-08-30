@@ -44,6 +44,26 @@ export const SPREAD_WARN_PCT = 0.8;
 // memoria stale ou contaminacao cruzada entre simbolos.
 const lastQuotedCycleBySymbol = new Map<string, number>();
 
+// 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido do Cleber apos
+// BTCUSD SHORT perder $5,58): o guard de "cotacao fresca no mesmo ciclo"
+// acima so garante que o agente CHAMOU get_mt5_quote antes de decidir --
+// nao garante que o reasoning escrito reflete o que aquela chamada
+// devolveu. Confirmado no log (linha do open_position BTCUSD SHORT,
+// 2026-08-30 15:58 UTC): o get_mt5_quote imediatamente anterior devolveu
+// trend.label="LATERAL" e volume.elevated=false, mas o reasoning da
+// entrada afirmou "trend currently LOW, volume elevated" -- fatos
+// inventados que contradizem o proprio dado real recem-recebido (BTCUSD
+// estava de fato em ALTA persistente nos ciclos vizinhos; o SHORT foi
+// contra a tendencia real). O validador semantico (reasoningValidator.ts)
+// so checa autocontradicao (reasoning vs a propria acao), nunca checou
+// reasoning vs o dado real que o motivou -- por isso nao pegou. Cache aqui
+// guarda o ultimo snapshot renderizado por get_mt5_quote por simbolo, pra
+// alimentar o validador com o dado real e ele comparar contra o texto.
+const lastQuoteSnapshotBySymbol = new Map<
+  string,
+  { trendLabel: string | null; volumeElevated: boolean | null; macdLabel: string | null; stochasticLabel: string | null }
+>();
+
 // 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas" -- 3
 // ocorrencias reais na mesma sessao: BTCUSD LONG fechado com +$1,39
 // flutuante, depois de novo a -$2,49 usando dado do XETUSD, depois de novo
@@ -493,6 +513,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol}.` };
       lastQuotedCycleBySymbol.set(symbol, cycle);
+      // snapshot atualizado logo abaixo, depois de trend/volume/macd/stochastic serem calculados
       // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
       // tendência de curto prazo (1h) vai junto da cotação -- achado real foi
       // o agente abrindo SHORT repetido em cripto bem no meio de um rali de
@@ -540,6 +561,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // leitura de exaustao classica. null quando nao ha candle real
       // suficiente, nunca fabrica indicador.
       const stochastic = await getSlowStochastic(symbol);
+      lastQuoteSnapshotBySymbol.set(symbol, {
+        trendLabel: trend?.label ?? null,
+        volumeElevated: volume?.elevated ?? null,
+        macdLabel: macd?.label ?? null,
+        stochasticLabel: stochastic?.label ?? null,
+      });
       if (!isSymbolTradable(symbol)) {
         return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
@@ -738,6 +765,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         symbol,
         side: side as "LONG" | "SHORT",
         reasoning,
+        realSnapshot: lastQuoteSnapshotBySymbol.get(symbol),
       });
       if (!consistencyCheckOpen.consistent) {
         return {
@@ -1090,6 +1118,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         actionKind: "close_position",
         symbol: position.symbol,
         reasoning,
+        realSnapshot: lastQuoteSnapshotBySymbol.get(position.symbol),
       });
       if (!consistencyCheckClose.consistent) {
         return {

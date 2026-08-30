@@ -31,26 +31,52 @@ const validatorClient = new OpenAI({
   baseURL: config.llmBaseUrl,
 });
 
+export interface QuoteSnapshot {
+  trendLabel: string | null;
+  volumeElevated: boolean | null;
+  macdLabel: string | null;
+  stochasticLabel: string | null;
+}
+
 function buildPrompt(params: {
   actionKind: "open_position" | "close_position";
   symbol: string;
   side?: "LONG" | "SHORT";
   reasoning: string;
+  realSnapshot?: QuoteSnapshot;
 }): string {
   const acao =
     params.actionKind === "open_position"
       ? `abrir posicao ${params.side} em ${params.symbol}`
       : `fechar posicao em ${params.symbol}`;
 
-  return `Voce e um verificador de consistencia para um sistema de trading automatizado. Sua UNICA tarefa e dizer se o RACIOCINIO abaixo CONTRADIZ a ACAO que esta prestes a ser executada.
+  // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75 -- BTCUSD SHORT perdeu
+  // $5,58 porque o reasoning da entrada afirmou "trend currently LOW, volume
+  // elevated" quando o get_mt5_quote chamado no MESMO ciclo, pro MESMO
+  // simbolo, tinha acabado de devolver trend LATERAL e volume.elevated=false):
+  // sem o dado real aqui, o validador so consegue checar se o texto se
+  // contradiz sozinho, nunca se ele inventa fatos. Quando disponivel, o
+  // snapshot real da ultima cotacao entra no prompt e a definicao de
+  // contradicao passa a incluir fatos inventados/invertidos.
+  const snapshotBlock = params.realSnapshot
+    ? `\n\nDADO REAL da ultima cotacao consultada para ${params.symbol} (fonte: get_mt5_quote, mesmo ciclo): ` +
+      `tendencia=${params.realSnapshot.trendLabel ?? "indisponivel"}, ` +
+      `volume_elevado=${params.realSnapshot.volumeElevated === null ? "indisponivel" : params.realSnapshot.volumeElevated ? "SIM" : "NAO"}, ` +
+      `MACD=${params.realSnapshot.macdLabel ?? "indisponivel"}, ` +
+      `estocastico=${params.realSnapshot.stochasticLabel ?? "indisponivel"}.`
+    : "";
 
-Contradicao = o raciocinio afirma que falta confirmacao, que nao ha razao pra agir, que o sinal e fraco/insuficiente, que seria melhor esperar, ou qualquer coisa equivalente a "eu nao deveria fazer isso agora" -- e mesmo assim a acao abaixo esta prestes a acontecer.
+  return `Voce e um verificador de consistencia para um sistema de trading automatizado. Sua tarefa e dizer se o RACIOCINIO abaixo CONTRADIZ a ACAO que esta prestes a ser executada, EM QUALQUER UMA das duas formas abaixo.
 
-NAO e contradicao: o raciocinio mencionar riscos, ressalvas ou fatores desfavoraveis MENORES como parte de uma analise equilibrada que ainda conclui a favor da acao. So marque contradicao quando a conclusao implicita do proprio texto for CONTRA a acao, nao a favor dela.
+FORMA 1 (autocontradicao): o raciocinio afirma que falta confirmacao, que nao ha razao pra agir, que o sinal e fraco/insuficiente, que seria melhor esperar, ou qualquer coisa equivalente a "eu nao deveria fazer isso agora" -- e mesmo assim a acao abaixo esta prestes a acontecer.
+
+FORMA 2 (fato inventado ou invertido): quando o DADO REAL abaixo estiver presente, o raciocinio afirma uma tendencia, volume, MACD ou estocastico que CONTRADIZ DIRETAMENTE esse dado real (ex: raciocinio diz "tendencia de baixa"/"trend LOW" mas o dado real diz tendencia=ALTA; raciocinio diz "volume elevado" mas o dado real diz volume_elevado=NAO). So conte como contradicao de forma 2 quando a divergencia for clara e objetiva sobre um destes 4 campos -- nao invente contradicao por causa de nuance, sinonimo ou interpretacao razoavel do mesmo dado.
+
+NAO e contradicao: o raciocinio mencionar riscos, ressalvas ou fatores desfavoraveis MENORES como parte de uma analise equilibrada que ainda conclui a favor da acao. So marque contradicao quando a conclusao implicita do proprio texto for CONTRA a acao (forma 1), ou quando ele afirmar um fato objetivamente errado sobre os 4 campos do dado real (forma 2).
 
 ACAO: ${acao}
 
-RACIOCINIO: "${params.reasoning}"
+RACIOCINIO: "${params.reasoning}"${snapshotBlock}
 
 Responda APENAS com um JSON valido, sem nenhum texto antes ou depois: {"contradiction": true ou false, "why": "motivo em 1 frase curta, so se contradiction=true, senao string vazia"}`;
 }
@@ -60,6 +86,7 @@ export async function checkReasoningConsistency(params: {
   symbol: string;
   side?: "LONG" | "SHORT";
   reasoning: string;
+  realSnapshot?: QuoteSnapshot;
 }): Promise<ConsistencyCheck> {
   if (!config.mt5ReasoningValidatorEnabled) {
     return { consistent: true };
