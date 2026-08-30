@@ -300,6 +300,24 @@ export const config = {
   neuralSupabaseAnonKey: process.env.NEURAL_SUPABASE_ANON_KEY ?? "",
   neuralSupabaseServiceRoleKey: process.env.NEURAL_SUPABASE_SERVICE_ROLE_KEY ?? "",
   neuralUserId: process.env.NEURAL_USER_ID ?? "",
+  // 🔴 2026-08-30 (pedido do Cleber): camada de validacao SEMANTICA do
+  // reasoning, alem da trava por palavra-chave (NEGATION_CUES/REVERSAL_CUES
+  // em tools.ts). Achado real da sessao: 3 variacoes diferentes de
+  // contradicao ("como teste", "ainda nao ocorreu", "nao ha razao para
+  // entrar") apareceram na MESMA sessao e precisaram ser adicionadas uma a
+  // uma na lista fixa -- ela nunca cobre todas as formas possiveis do
+  // modelo se contradizer em linguagem natural. Ver reasoningValidator.ts.
+  // Desligavel sem custo nenhum (nao chama API nenhuma quando false).
+  mt5ReasoningValidatorEnabled: (process.env.MT5_REASONING_VALIDATOR_ENABLED ?? "true") === "true",
+  // 🔴 2026-08-30: nao existe hoje, em nenhum provedor ja configurado neste
+  // projeto (ver LLM_PROVIDER_DEFAULTS acima), um modelo obviamente mais
+  // barato/rapido que o principal disponivel pronto pra uso -- default cai
+  // pro MESMO modelo do cerebro principal (llmModel) como fail-safe.
+  // Limitacao conhecida: isso NAO garante que o validador seja mais
+  // barato/rapido que a decisao principal, so garante que funciona com a
+  // mesma chave/endpoint ja configurados. Trocar via env var assim que um
+  // modelo mais leve for confirmado disponivel no provedor em uso.
+  mt5ReasoningValidatorModel: process.env.MT5_REASONING_VALIDATOR_MODEL || process.env.LLM_MODEL || llmProviderDefaults.model,
 };
 
 if (!Number.isFinite(config.maxIterations) || config.maxIterations <= 0) {

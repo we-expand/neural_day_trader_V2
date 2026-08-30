@@ -9,6 +9,7 @@ import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance } from "./atr.js";
 import { getPriceExtension } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
+import { checkReasoningConsistency } from "./reasoningValidator.js";
 
 // 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
 // Medicao REAL da cesta inteira, 6 chamadas seguidas a /mt5-prices em ~50s
@@ -42,6 +43,23 @@ export const SPREAD_WARN_PCT = 0.8;
 // forca a decisao a se basear em dado fresco e do ativo certo, nao em
 // memoria stale ou contaminacao cruzada entre simbolos.
 const lastQuotedCycleBySymbol = new Map<string, number>();
+
+// 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas" -- 3
+// ocorrencias reais na mesma sessao: BTCUSD LONG fechado com +$1,39
+// flutuante, depois de novo a -$2,49 usando dado do XETUSD, depois de novo
+// a -$0,47 quase no zero a zero -- todas pra abrir o lado OPOSTO no mesmo
+// simbolo). Quando open_position e bloqueado por ja existir posicao oposta
+// no simbolo, o mesmo impulso de inverter direcao as vezes vira um
+// close_position na posicao existente com tese fraca (PnL perto de zero,
+// nem perto do stop nem do alvo) so pra abrir espaco pro lado novo. Fix:
+// se esse simbolo teve uma tentativa de inversao bloqueada NESTE ciclo, o
+// fechamento so e aceito se a posicao ja consumiu pelo menos metade da
+// distancia ate o stop (tese realmente enfraquecendo) OU ja capturou
+// metade da distancia ate o alvo (ja realizou boa parte do lucro) -- barra
+// especificamente a zona "mal se moveu" onde o motivo real e "quero
+// apostar no lado contrario", nao "a tese morreu".
+const flipAttemptBlockedThisCycle = new Map<string, number>();
+const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -676,6 +694,22 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `o motivo da mudanca (ex: "mudei de ideia: ...") e chame open_position de novo.`,
         };
       }
+      // 🔴 2026-08-30 (pedido do Cleber): camada semantica ADICIONAL, alem da
+      // trava por palavra-chave acima -- so roda quando a trava por
+      // palavra-chave NAO bloqueou. Ver reasoningValidator.ts.
+      const consistencyCheckOpen = await checkReasoningConsistency({
+        actionKind: "open_position",
+        symbol,
+        side: side as "LONG" | "SHORT",
+        reasoning,
+      });
+      if (!consistencyCheckOpen.consistent) {
+        return {
+          error:
+            `Contradicao semantica detectada pelo validador: ${consistencyCheckOpen.note || "raciocinio parece argumentar contra a propria acao"}. ` +
+            `Posicao NAO aberta. Revise o raciocinio -- se a decisao de abrir ainda fizer sentido, reescreva deixando claro o motivo real, ou avalie outro ativo/lado.`,
+        };
+      }
       // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o
       // agente nunca fechava nada -- so empilhava posicoes quase-duplicadas
       // no mesmo simbolo, as vezes ao MESMO preco de entrada (visto no log
@@ -710,6 +744,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // media o total independente do lado.
       const oppositeOpen = openPositions.find((p) => p.symbol === symbol && p.side !== side);
       if (oppositeOpen) {
+        // 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas"):
+        // marca que este simbolo teve uma tentativa de INVERSAO bloqueada
+        // neste ciclo -- close_position usa isso pra exigir invalidacao real
+        // (nao so PnL neutro) antes de aceitar fechar a posicao existente
+        // logo em seguida. Ver bloco irmao em close_position.
+        flipAttemptBlockedThisCycle.set(symbol, cycle);
         return {
           error:
             `Ja existe uma posicao ${oppositeOpen.side} aberta em ${symbol} -- abrir ${side} agora criaria posicoes ` +
@@ -1006,6 +1046,22 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const position = positions.find((p) => p.id === tradeId);
       if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
+      // 🔴 2026-08-30 (pedido do Cleber): mesma camada semantica de
+      // open_position -- close_position nao tem trava por palavra-chave
+      // equivalente hoje, entao esta roda direto aqui, ANTES da logica de
+      // fechamento em si (cotacao/preco de saida). Ver reasoningValidator.ts.
+      const consistencyCheckClose = await checkReasoningConsistency({
+        actionKind: "close_position",
+        symbol: position.symbol,
+        reasoning,
+      });
+      if (!consistencyCheckClose.consistent) {
+        return {
+          error:
+            `Contradicao semantica detectada pelo validador: ${consistencyCheckClose.note || "raciocinio parece argumentar contra a propria acao"}. ` +
+            `Posicao NAO fechada. Revise o raciocinio -- se a decisao de fechar ainda fizer sentido, reescreva deixando claro o motivo real.`,
+        };
+      }
       if (lastQuotedCycleBySymbol.get(position.symbol) !== cycle) {
         return {
           error:
@@ -1019,6 +1075,30 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 🔴 2026-08-29: fechar um LONG e VENDER (recebe o bid); fechar um
       // SHORT e COMPRAR de volta (paga o ask) -- nao o mid/last tick.
       const exitPrice = position.side === "LONG" ? quote.bid : quote.ask;
+      // 🔴 2026-08-30 (pedido do Cleber, "nao podemos ter teses fracas"): ver
+      // flipAttemptBlockedThisCycle acima -- so entra em vigor quando este
+      // simbolo teve uma tentativa de inversao bloqueada NESTE MESMO ciclo.
+      if (flipAttemptBlockedThisCycle.get(position.symbol) === cycle && position.stop_loss != null && position.take_profit != null) {
+        const stopDistance = Math.abs(position.entry_price - position.stop_loss);
+        const targetDistance = Math.abs(position.take_profit - position.entry_price);
+        const adverseMove = position.side === "LONG" ? position.entry_price - exitPrice : exitPrice - position.entry_price;
+        const favorableMove = -adverseMove;
+        const stopConsumedPct = stopDistance > 0 ? adverseMove / stopDistance : 0;
+        const targetConsumedPct = targetDistance > 0 ? favorableMove / targetDistance : 0;
+        if (
+          stopConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
+          targetConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE
+        ) {
+          return {
+            error:
+              `Voce acabou de tentar abrir o lado oposto em ${position.symbol} e foi bloqueado -- agora esta tentando fechar a posicao ` +
+              `existente pra abrir espaco, mas ela mal se moveu (${(stopConsumedPct * 100).toFixed(0)}% do caminho ate o stop, ` +
+              `${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo). Isso e trocar de lado por vontade de inverter, nao porque a tese ` +
+              `morreu de verdade. Posicao NAO fechada. Ou espere a tese se confirmar/invalidar de verdade (>=${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% ` +
+              `do caminho ate stop ou alvo), ou avalie outro ativo pra a ideia nova em vez de reverter este.`,
+          };
+        }
+      }
       const closed = await closeMt5Position({ tradeId, exitPrice, reasoning });
       if (!closed) return { error: "Falha ao fechar a posicao (ver log do processo)." };
       return { trade_id: tradeId, exit_price: exitPrice };
