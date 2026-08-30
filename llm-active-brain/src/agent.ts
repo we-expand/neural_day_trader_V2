@@ -11,6 +11,7 @@ import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
 import { enforceMt5StopsAndTargets } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
+import { getTradeMemoryBlock } from "./tradeMemory.js";
 
 const TRADING_SECTION = config.tradingEnabled
   ? `
@@ -159,7 +160,13 @@ sistema realmente enxerga, nada de fingir ter dado que não existe:**
    por um tempo (cooldown) -- isso existe porque hoje você tentou de novo,
    no mesmo sentido, repetidamente, e perdeu de novo cada vez. Quando isso
    acontecer, é o momento de reavaliar a tese (ou o lado oposto, ou outro
-   ativo), não de insistir.
+   ativo), não de insistir. Toda mensagem também traz um bloco "MEMORIA DE
+   TRADES" (quando houver histórico) com o resultado real dos últimos
+   trades fechados desta sessão, agregado por símbolo+lado -- não é
+   estatística validada nem garantia de padrão (amostra pequena), é só o
+   fato registrado, pra você não repetir a mesma tese que já perdeu sem um
+   motivo novo de verdade. "O preço está um pouco diferente agora" sozinho
+   não é motivo novo o suficiente.
 5. **Convicção real é rara -- "forte" deveria ser exceção, não hábito.**
    Reserve size:"forte" pra quando múltiplos fatores realmente convergem
    (tendência clara + volume + bom preço + sem sinal contrário). Usar "forte"
@@ -468,7 +475,18 @@ export async function runAgent(cycle: number): Promise<boolean> {
     } catch (err) {
       console.error("[agent] falha ao checar stop/alvo mecanico (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
     }
-    userMessage = `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}`;
+    // 🔴 2026-08-30 (handoff "Parte B", memoria de trades): fire-and-forget --
+    // uma excecao nao capturada aqui abortaria o ciclo inteiro antes de
+    // qualquer decisao (mesma causa raiz do bug de ledger corrompido de uma
+    // sessao anterior), entao sem memoria e sempre melhor que ciclo abortado.
+    let memoryBlock = "";
+    try {
+      memoryBlock = await getTradeMemoryBlock();
+    } catch (err) {
+      console.error("[agent] falha ao montar memoria de trades (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
+    }
+    userMessage =
+      `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` + (memoryBlock ? `\n\n${memoryBlock}` : "");
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();

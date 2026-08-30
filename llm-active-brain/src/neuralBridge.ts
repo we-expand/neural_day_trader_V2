@@ -431,6 +431,41 @@ export async function getRecentClosedTrades(symbol: string, limit = 5): Promise<
   return (data ?? []) as Mt5RecentClosedTrade[];
 }
 
+export interface Mt5ClosedTradeForMemory {
+  symbol: string;
+  side: "LONG" | "SHORT";
+  pnl: number | null;
+  pnl_percentage: number | null;
+  exit_reason: string | null;
+  exit_time: string;
+  ai_reasoning: string | null;
+}
+
+/**
+ * Últimos `limit` trades FECHADOS de TODA a sessão (qualquer símbolo), mais
+ * recente primeiro -- fonte de dado pra `tradeMemory.ts` (2026-08-30,
+ * handoff "Parte B" em CLAUDE.md). Dedicada em vez de expor o client cru
+ * (recomendação do Agente 1): mantém a superfície de `neuralBridge.ts` como
+ * único ponto de acesso ao Supabase. Propaga erro em vez de engolir --
+ * mesmo motivo das outras funções deste arquivo: memória vazia por falha
+ * transitória de rede é pior que abortar e o chamador decidir (aqui,
+ * `tradeMemory.ts` decide cair pra "sem memória" via try/catch, não aqui).
+ */
+export async function getClosedTradesForMemory(limit = 30): Promise<Mt5ClosedTradeForMemory[]> {
+  if (!config.neuralBridgeEnabled) return [];
+  const sessionId = await getOrCreateMt5Session([]);
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("ai_trades")
+    .select("symbol, side, pnl, pnl_percentage, exit_reason, exit_time, ai_reasoning")
+    .eq("session_id", sessionId)
+    .eq("status", "CLOSED")
+    .order("exit_time", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as Mt5ClosedTradeForMemory[];
+}
+
 /** Fecha uma posição OPEN do trilho MT5 pelo id, calculando PnL com a MESMA fórmula do motor mecânico. Nunca lança. */
 export async function closeMt5Position(params: {
   tradeId: string;
@@ -443,7 +478,7 @@ export async function closeMt5Position(params: {
     const sb = getClient();
     const { data: trade, error: fetchError } = await sb
       .from("ai_trades")
-      .select("entry_price, side, quantity")
+      .select("entry_price, side, quantity, ai_reasoning")
       .eq("id", params.tradeId)
       .eq("status", "OPEN")
       .maybeSingle();
@@ -455,6 +490,13 @@ export async function closeMt5Position(params: {
     const entryPrice = Number(trade.entry_price);
     const amountUsd = Number(trade.quantity);
     const side = trade.side as "LONG" | "SHORT";
+    // 🔴 2026-08-30 (achado do Agente 1, handoff em CLAUDE.md/SESSAO_2026-08-29
+    // _CANDLE_REAL_E_PRICE_ACTION.md "Parte B"): o UPDATE abaixo sobrescrevia
+    // ai_reasoning com só o motivo da SAIDA, apagando pra sempre o motivo da
+    // ENTRADA -- a memoria de trades (tradeMemory.ts) depende de ler os dois.
+    // .split idempotente: reprocessar o mesmo trade nao acumula "|| SAIDA:"
+    // em cadeia.
+    const entryReasoning = String(trade.ai_reasoning ?? "").split(" || SAIDA: ")[0];
     const pnl =
       side === "LONG"
         ? (params.exitPrice - entryPrice) * (amountUsd / entryPrice)
@@ -471,7 +513,7 @@ export async function closeMt5Position(params: {
         pnl,
         pnl_percentage: pnlPercentage,
         net_pnl: pnl,
-        ai_reasoning: params.reasoning,
+        ai_reasoning: `${entryReasoning} || SAIDA: ${params.reasoning}`,
       })
       .eq("id", params.tradeId);
     if (updateError) throw updateError;
