@@ -72,6 +72,22 @@ function calcPnl(entryPrice: number, currentPrice: number, side: 'LONG' | 'SHORT
     : (entryPrice - currentPrice) * (amountUsd / entryPrice);
 }
 
+// 🔴 2026-08-30 (achado do Cleber: BTCXBN preso em "..." pra sempre no
+// painel): o llm-active-brain grava em `ai_trades.symbol` o nome LITERAL do
+// contrato na Infinox (ver `llm-active-brain/src/assetBasket.ts`), que pra
+// alguns ativos difere do símbolo UNIFICADO do catálogo do app
+// (`assetDatabase.ts`) usado por `getBatchedMT5Data`/`brokerRegistry.ts`.
+// Sem essa tradução, `isCryptoSymbol`/`isCryptoCfdAvailable` não reconhecem
+// o símbolo literal, tratam como cripto genérica sem CFD e mandam pra
+// Binance direta -- que não tem esse ticker (é nome específico da Infinox),
+// então o preço nunca resolve e a linha fica travada em "...". BTCUSD/XETUSD/
+// DOTUSD/XRPUSD/SOLUSD já são literalmente iguais ao símbolo unificado, só
+// BTCXBN (unificado: BTCBNB) e DOGUSD (unificado: DOGEUSD) precisam de alias.
+const LLM_SYMBOL_TO_UNIFIED: Record<string, string> = {
+  BTCXBN: 'BTCBNB',
+  DOGUSD: 'DOGEUSD',
+};
+
 async function fetchLivePrices(symbols: string[]): Promise<Record<string, number>> {
   // Mesmo `getBatchedMT5Data` que `useApexLogic.ts` usa pro loop de PnL do
   // motor mecânico — MT5/Infinox pra forex/índices, Binance direto (com
@@ -79,9 +95,11 @@ async function fetchLivePrices(symbols: string[]): Promise<Record<string, number
   // com o resto do app, não gera requisição duplicada.
   const result: Record<string, number> = {};
   try {
-    const batch = await getBatchedMT5Data(symbols);
-    for (const s of symbols) {
-      const data = batch[s];
+    const unifiedSymbols = symbols.map(s => LLM_SYMBOL_TO_UNIFIED[s] ?? s);
+    const batch = await getBatchedMT5Data(unifiedSymbols);
+    for (let i = 0; i < symbols.length; i++) {
+      const s = symbols[i];
+      const data = batch[unifiedSymbols[i]];
       if (data && Number.isFinite(data.price) && data.price > 0) result[s] = data.price;
     }
   } catch {
