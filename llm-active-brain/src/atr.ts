@@ -224,3 +224,60 @@ export async function getVolumeConfirmation(symbol: string): Promise<VolumeConfi
   const ratio = momentum.priorSlopePct !== 0 ? Math.abs(momentum.recentSlopePct / momentum.priorSlopePct) : momentum.accelerating ? 2 : 1;
   return { ratio: Number(ratio.toFixed(2)), elevated: momentum.accelerating, source: "tick_momentum" };
 }
+
+export interface SupportResistance {
+  /** Máxima e mínima real da janela de candle recente (2,5h em velas de 5m) -- topo/fundo honesto, não projetado. */
+  resistance: number;
+  support: number;
+  /** Distância % do preço atual até cada nível (sempre >= 0 -- preço nunca fica "acima" da resistência nem "abaixo" do suporte por definição de como são calculados). */
+  distanceToResistancePct: number;
+  distanceToSupportPct: number;
+  /** true quando o preço está a menos de 0,15% de um dos dois níveis -- zona onde reação (rejeição ou rompimento) é mais provável. */
+  nearLevel: "RESISTENCIA" | "SUPORTE" | null;
+  lookbackMinutes: number;
+}
+
+const SR_NEAR_LEVEL_THRESHOLD_PCT = 0.15;
+
+/**
+ * 🔴 2026-08-29 (pedido do Cleber, "fundamentos completos de price action"):
+ * suporte/resistência é o fundamento mais básico de price action e só agora
+ * é honesto de calcular -- depende de candle OHLC real, que `/mt5-candles`
+ * só passou a entregar de verdade depois do fix do endpoint (era 404 na
+ * MetaAPI, caindo sempre em SIMULATED). Deliberadamente simples (máxima/
+ * mínima da própria janela que já buscamos para ATR/tendência/volume, sem
+ * fetch extra): não é zona de order block nem nível institucional, é o
+ * topo/fundo real e recente que qualquer trader discricionário olharia
+ * primeiro. `null` quando não há candle real disponível -- nunca fabrica.
+ */
+export async function getSupportResistance(symbol: string): Promise<SupportResistance | null> {
+  const candles = await fetchRecentCandles(symbol);
+  if (!candles || candles.length < 10) return null;
+
+  const highs = candles.map((c) => c.high).filter((v) => Number.isFinite(v));
+  const lows = candles.map((c) => c.low).filter((v) => Number.isFinite(v));
+  if (highs.length === 0 || lows.length === 0) return null;
+
+  const resistance = Math.max(...highs);
+  const support = Math.min(...lows);
+  const lastClose = candles[candles.length - 1].close;
+  if (!Number.isFinite(lastClose) || lastClose <= 0 || resistance <= 0 || support <= 0) return null;
+
+  const distanceToResistancePct = ((resistance - lastClose) / lastClose) * 100;
+  const distanceToSupportPct = ((lastClose - support) / lastClose) * 100;
+  const nearLevel: SupportResistance["nearLevel"] =
+    distanceToResistancePct <= SR_NEAR_LEVEL_THRESHOLD_PCT
+      ? "RESISTENCIA"
+      : distanceToSupportPct <= SR_NEAR_LEVEL_THRESHOLD_PCT
+      ? "SUPORTE"
+      : null;
+
+  return {
+    resistance: Number(resistance.toFixed(6)),
+    support: Number(support.toFixed(6)),
+    distanceToResistancePct: Number(Math.max(0, distanceToResistancePct).toFixed(3)),
+    distanceToSupportPct: Number(Math.max(0, distanceToSupportPct).toFixed(3)),
+    nearLevel,
+    lookbackMinutes: candles.length * 5,
+  };
+}

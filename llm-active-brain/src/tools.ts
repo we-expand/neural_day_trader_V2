@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance } from "./atr.js";
 import { getPriceExtension } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 
@@ -238,6 +238,10 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `apos reiniciar o processo (historico de tick ainda curto) -- nesse caso use "changePercent" (sempre ` +
         `preenchido) como proxy e opere pelo julgamento normal. So quando trend/volume vierem preenchidos e a ` +
         `entrada for CONTRA a tendencia SEM volume elevado, open_position bloqueia por codigo. ` +
+        `Tambem devolve "supportResistance" (maxima/minima reais das ultimas ~2,5h de candle de 5m, distancia % ` +
+        `do preco pra cada nivel, e "nearLevel" RESISTENCIA/SUPORTE/null quando o preco esta a menos de 0,15% de ` +
+        `um deles) -- topo/fundo recente de verdade, calculado do mesmo candle oficial de "trend", null quando ` +
+        `candle nao disponivel. ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {
         type: "object",
@@ -435,19 +439,28 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const volume = await getVolumeConfirmation(symbol);
       // 🔴 2026-08-29 (achado do Cleber: entrada LONG em XETUSD com preco ja
       // "longe das medias", Estocastico quase virando, MACD com exaustao --
-      // sinais que este sistema nao tinha como enxergar). MACD/Estocastico de
-      // verdade exigem OHLC real de candle, que /mt5-candles nao entrega pra
-      // esta cesta (devolve SIMULATED, confirmado ao vivo) -- fabricar esses
-      // indicadores em cima de candle fake seria inventar precisao que nao
-      // existe. "extension" e o substituto honesto possivel com o unico dado
-      // real disponivel: distancia do preco pra media do proprio historico
-      // de tick real. Mais fraco que uma media movel de candle de verdade,
-      // mas nunca fabricado -- ver getPriceExtension em tickHistory.ts.
+      // sinais que este sistema nao tinha como enxergar). Na epoca, MACD/
+      // Estocastico de verdade eram impossiveis porque /mt5-candles devolvia
+      // SIMULATED pra esta cesta (endpoint chamava path errado da MetaAPI,
+      // 404 sempre -- CORRIGIDO no mesmo dia, ver historico de sessao:
+      // candle real confirmado chegando pros 8 simbolos). "extension" segue
+      // como substituto honesto pra exaustao de curtissimo prazo (media do
+      // proprio historico de tick, mais rapida de reagir que MACD/
+      // Estocastico de candle), mas MACD/Estocastico REAIS agora sao
+      // viaveis de implementar em cima do candle que ja chega -- nao feito
+      // ainda nesta sessao, fica como proximo passo se quiser indicador de
+      // exaustao mais forte que "extension".
       const extension = getPriceExtension(symbol);
+      // 🔴 2026-08-29 (pedido do Cleber, "fundamentos completos de price
+      // action"): suporte/resistencia real, so ficou honesto de calcular
+      // depois do fix de /mt5-candles (era 404 na MetaAPI, sempre caia em
+      // SIMULATED -- ver historico de sessao). null quando candle real nao
+      // disponivel, nunca fabrica nivel.
+      const supportResistance = await getSupportResistance(symbol);
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
-      return { ...quote, marketOpen: true, trend, volume, extension };
+      return { ...quote, marketOpen: true, trend, volume, extension, supportResistance };
     }
 
     case "list_open_positions": {

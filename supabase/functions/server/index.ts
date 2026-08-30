@@ -4774,25 +4774,32 @@ app.post('/mt5-candles', async (c) => {
         
         const mt5Timeframe = timeframeMap[timeframe] || '1h';
         const candleLimit = limit || 1000;
-        
+
         // Calcular intervalo de tempo
         const endTime = new Date();
-        const startTime = new Date(endTime.getTime() - (candleLimit * 60 * 60 * 1000)); // Aproximação
-        
-        // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
-        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
-        const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
+
+        // 🔴 2026-08-29: endpoint correto de candle histórico é o de
+        // MARKET DATA (historical-market-data), não o de trading (client
+        // API) -- a rota antiga chamava `/symbols/{s}/candles` no host de
+        // trading, que a MetaAPI sempre devolve 404 (path não existe ali),
+        // fazendo TODO ciclo cair silenciosamente em SIMULATED. Mesmo host
+        // e mesmo path que `/mt5-candles-history` já usa corretamente
+        // (ver getMetaApiMarketDataApiBase acima), só que aqui carregando
+        // pra trás a partir de "agora" em vez de um range explícito.
+        const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
+        const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
 
         console.log(`[MT5 CANDLES] URL: ${candlesUrl}`);
         console.log(`[MT5 CANDLES] Timeframe: ${mt5Timeframe}, Limit: ${candleLimit}`);
-        
+
         const response = await fetch(
-            `${candlesUrl}?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}&timeframe=${mt5Timeframe}`,
+            `${candlesUrl}?startTime=${endTime.toISOString()}&limit=${Math.min(candleLimit, 1000)}`,
             {
                 headers: {
                     'auth-token': metaapiToken,
                     'Accept': 'application/json'
-                }
+                },
+                signal: AbortSignal.timeout(8000)
             }
         );
         
