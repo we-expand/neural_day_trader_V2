@@ -97,7 +97,19 @@ export async function checkReasoningConsistency(params: {
       {
         model: config.mt5ReasoningValidatorModel,
         temperature: 0,
-        max_tokens: 150,
+        // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+        // deploy, 2a rodada): o default deste validador e o MESMO modelo
+        // Nemotron (reasoning model) do cerebro principal -- ele gasta os
+        // tokens pensando em texto livre ("We need to determine if...")
+        // ANTES de emitir o JSON final. Com max_tokens:150 a resposta era
+        // cortada no meio do raciocinio, nunca chegava no JSON, e 100% das
+        // chamadas caiam no fail-open abaixo -- confirmado no log ao vivo
+        // (toda linha "[reasoningValidator] resposta sem JSON reconhecivel"
+        // da sessao, sem excecao, incluindo o caso real que deixou passar
+        // "Confluencia insuficiente para abrir SHORT aqui" seguido do
+        // open_position SHORT de verdade). A trava estava, na pratica,
+        // sempre desligada. Elevado pra dar espaco pro raciocinio + JSON.
+        max_tokens: 600,
         // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
         // deploy): confirmado repetidas vezes (5+) que so PEDIR JSON no
         // prompt nao basta -- o modelo frequentemente responde com texto
