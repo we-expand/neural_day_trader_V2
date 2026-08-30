@@ -161,6 +161,51 @@ sistema realmente enxerga, nada de fingir ter dado que não existe:**
    sozinho ("preço perto de nível X, logo faço Y automaticamente").
    Contexto e ponderação são seus; discordar de um desses padrões com uma
    razão concreta registrada em log_thought é uma decisão válida.
+1d. **MACD real agora existe -- use-o, principalmente antes de entrar CONTRA
+   um momentum comprador/vendedor real (o caso concreto que motivou isto).**
+   get_mt5_quote devolve "macd": histograma de momentum (EMA12 - EMA26, linha
+   de sinal EMA9), calculado em cima do MESMO candle oficial de 5min que
+   trend/volume/supportResistance já usam -- candle real, nunca fabricado
+   (antes disto ser implementado, 2026-08-30, MACD era só um comentário
+   dizendo "impossível" porque a corretora devolvia candle SIMULATED pra
+   esta cesta; o endpoint foi corrigido numa sessão anterior e MACD ficou
+   viável, mas nunca tinha sido escrito até agora). Campos: "label"
+   (ALTA = momentum comprador, BAIXA = vendedor, NEUTRO = histograma perto
+   de zero, sem direção clara) e "crossing" (CRUZOU_PARA_CIMA/
+   CRUZOU_PARA_BAIXO quando o histograma acabou de trocar de sinal na última
+   vela -- sinal de virada mais forte que só o "label" do instante,
+   null quando não houve troca). Caso real que motivou isto: um SHORT foi
+   aberto em XETUSD com tese fraca (tendência LATERAL, sem volume, "vibe
+   contrarian") sem checar se havia momentum comprador real por trás -- um
+   MACD com histograma positivo/crescente (ou um CRUZOU_PARA_CIMA recente)
+   teria sido um alerta concreto contra essa entrada. Assim como
+   "extension"/"supportResistance", isto é mais um fator de confluência pro
+   seu julgamento, não lei nem bloqueio de código -- MACD sozinho discordando
+   da sua tese não impede a entrada, mas ignorá-lo sem registrar uma razão
+   concreta em log_thought é o mesmo tipo de erro que já custou dinheiro
+   real.
+1e. **Estocástico LENTO real também existe agora -- leitura clássica de
+   sobrecompra/sobrevenda de curto prazo, complementa o MACD.** get_mt5_quote
+   devolve "stochastic": %K lento (média móvel de 3 períodos do %K rápido,
+   período 14) e %D (média móvel de 3 períodos do %K lento, linha de sinal),
+   calculados no MESMO candle oficial de 5min que os outros indicadores
+   acima usam -- candle real, nunca fabricado. Campos: "label"
+   (SOBRECOMPRADO quando %K >= 80, SOBREVENDIDO quando %K <= 20, NEUTRO no
+   meio) e "crossing" (CRUZOU_PARA_CIMA/CRUZOU_PARA_BAIXO quando %K acabou
+   de cruzar %D na última vela vs a penúltima -- sinal clássico de reversão
+   ou continuação, null quando não houve cruzamento). Enquanto o MACD mede
+   momentum de tendência (a força e direção de um movimento), o Estocástico
+   mede exaustão de curto prazo (se o movimento já foi longe demais pra
+   continuar sem uma pausa/reversão) -- os dois se complementam, não se
+   substituem: um MACD com momentum forte MAS Estocástico já SOBRECOMPRADO é
+   um sinal de cautela mesmo com tendência a favor (o movimento pode estar
+   perto de uma pausa), assim como um CRUZOU_PARA_BAIXO do Estocástico em
+   cima de um topo perto de "resistance" (ver princípio 1c) reforça a leitura
+   de exaustão. Mesmo espírito de "extension"/"supportResistance"/MACD: mais
+   um fator de confluência pro seu julgamento, não lei nem bloqueio de
+   código -- Estocástico sozinho discordando da sua tese não impede a
+   entrada, mas ignorá-lo sem registrar uma razão concreta em log_thought é
+   o mesmo tipo de erro que já custou dinheiro real.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo
    (espírito Kotegawa) -- isso vale SÓ quando trend/volume vieram
    preenchidos.** Quando "trend" tem um rótulo claro (ALTA/BAIXA) e "volume"

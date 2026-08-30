@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic } from "./atr.js";
 import { getPriceExtension } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -525,8 +525,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // SIMULATED -- ver historico de sessao). null quando candle real nao
       // disponivel, nunca fabrica nivel.
       const supportResistance = await getSupportResistance(symbol);
+      // 🔴 2026-08-30 (pedido do Cleber, XETUSD SHORT com tese fraca sem
+      // checar MACD): MACD real, calculado em cima do MESMO candle oficial
+      // que trend/volume/supportResistance já usam (ver atr.ts) -- antes
+      // era impossível porque a corretora devolvia candle SIMULATED pra
+      // esta cesta, corrigido numa sessão anterior. null quando não há
+      // candle real suficiente, nunca fabrica indicador.
+      const macd = await getMacd(symbol);
+      // 🔴 2026-08-30 (pedido do Cleber, junto do MACD -- "MACD e Estocastico
+      // lento sao fundamentais"): Estocastico LENTO real (%K/%D classicos,
+      // periodo 14, suavizacao 3+3), mesmo candle oficial que os outros
+      // indicadores acima ja usam (ver atr.ts). Mede sobrecompra/sobrevenda
+      // de curto prazo -- complementa o MACD (momentum de tendencia) com uma
+      // leitura de exaustao classica. null quando nao ha candle real
+      // suficiente, nunca fabrica indicador.
+      const stochastic = await getSlowStochastic(symbol);
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -558,6 +573,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volume,
         extension,
         supportResistance,
+        macd,
+        stochastic,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }

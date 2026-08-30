@@ -79,14 +79,25 @@ async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
         Authorization: `Bearer ${config.neuralSupabaseAnonKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ symbol, timeframe: "5m", limit: 30 }),
+      // 🔴 2026-08-30 (implementação de MACD real, pedido do Cleber pós
+      // XETUSD SHORT com tese fraca): limit subiu de 30 pra 60 velas. MACD
+      // clássico (EMA12/26/9) precisa de aquecimento real -- com 30 velas a
+      // EMA26 mal teria 4-5 velas de warm-up antes do primeiro valor
+      // usável, ficando instável logo no início da série. 60 velas de 5m
+      // (~5h de histórico) dá warm-up de verdade pras 3 EMAs sem pesar
+      // demais o fetch (mesmo endpoint, mesmo cache de 5min).
+      body: JSON.stringify({ symbol, timeframe: "5m", limit: 60 }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
     const result = (await res.json()) as Mt5CandlesResponse;
     if (result.source === "SIMULATED") return null; // mesma trava de mt5Broker.ts -- nunca decide em cima de candle fabricado
     const candles = result.candles;
-    if (!Array.isArray(candles) || candles.length < 15) return null;
+    // 🔴 2026-08-30: mínimo subiu de 15 pra 35 -- abaixo disso o MACD (que
+    // agora também consome esta mesma função) sairia capenga (EMA26 sem
+    // warm-up suficiente). ATR/tendência/volume/S&R continuam funcionando
+    // bem acima desse mínimo, então não perdem precisão com o ajuste.
+    if (!Array.isArray(candles) || candles.length < 35) return null;
 
     candlesCache.set(symbol, { candles, fetchedAt: Date.now() });
     return candles;
@@ -279,5 +290,194 @@ export async function getSupportResistance(symbol: string): Promise<SupportResis
     distanceToSupportPct: Number(Math.max(0, distanceToSupportPct).toFixed(3)),
     nearLevel,
     lookbackMinutes: candles.length * 5,
+  };
+}
+
+export interface MacdResult {
+  /** Linha MACD (EMA12 - EMA26), em unidade de preço (mesma unidade do símbolo). */
+  macd: number;
+  /** EMA9 da linha MACD -- linha de sinal. */
+  signal: number;
+  /** macd - signal -- o que realmente importa pra leitura de momentum. */
+  histogram: number;
+  /** ALTA = histograma positivo (momentum comprador), BAIXA = negativo, NEUTRO = perto de zero. */
+  label: "ALTA" | "BAIXA" | "NEUTRO";
+  /** Histograma mudou de sinal na última vela vs a penúltima -- sinal de virada real, não só direção atual. null quando não houve troca de sinal. */
+  crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
+}
+
+const MACD_FAST_PERIOD = 12;
+const MACD_SLOW_PERIOD = 26;
+const MACD_SIGNAL_PERIOD = 9;
+// Limiar de "perto de zero" pra rotular NEUTRO em vez de forçar ALTA/BAIXA
+// num histograma tecnicamente positivo/negativo mas irrisório -- mesmo
+// espírito do TREND_FLAT_THRESHOLD_PCT acima, só que relativo ao preço do
+// símbolo (histograma de BTCUSD e de XETUSD vivem em escalas bem diferentes).
+const MACD_NEUTRAL_THRESHOLD_RATIO = 0.0001; // 0,01% do preço de fechamento
+
+/** Calcula a série completa de EMA (não só o último valor) -- necessário pra poder derivar a EMA9 da própria série de MACD depois. Seed = SMA dos primeiros `period` valores, mesmo espírito do seed de `calculateAtr` acima. */
+function calculateEmaSeries(values: number[], period: number): number[] | null {
+  if (values.length < period) return null;
+  const k = 2 / (period + 1);
+  const seed = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const emaSeries: number[] = new Array(values.length).fill(NaN);
+  emaSeries[period - 1] = seed;
+  let ema = seed;
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+    emaSeries[i] = ema;
+  }
+  return emaSeries;
+}
+
+/**
+ * 🔴 2026-08-30 (pedido direto do Cleber): MACD clássico (EMA12 - EMA26,
+ * linha de sinal EMA9 da linha MACD) -- fica viável de calcular de verdade
+ * agora que `/mt5-candles` entrega candle OHLC oficial real pra esta cesta
+ * (era 404/SIMULATED até uma sessão anterior, ver histórico). Reaproveita
+ * `fetchRecentCandles` (mesmo fetch, mesmo cache de 5min, mesmos closes que
+ * trend/volume/extension/S&R já usam) -- não fabrica nenhum número: se não
+ * houver candle real suficiente (mínimo 35 velas, ver ajuste acima),
+ * retorna `null`, MESMA disciplina do resto deste arquivo.
+ */
+export async function getMacd(symbol: string): Promise<MacdResult | null> {
+  const candles = await fetchRecentCandles(symbol);
+  if (!candles || candles.length < MACD_SLOW_PERIOD + MACD_SIGNAL_PERIOD) return null;
+
+  const closes = candles.map((c) => c.close).filter((v) => Number.isFinite(v));
+  if (closes.length !== candles.length) return null; // algum close inválido -- não tenta calcular em cima de dado incompleto
+
+  const emaFastSeries = calculateEmaSeries(closes, MACD_FAST_PERIOD);
+  const emaSlowSeries = calculateEmaSeries(closes, MACD_SLOW_PERIOD);
+  if (!emaFastSeries || !emaSlowSeries) return null;
+
+  // Linha MACD só existe a partir de onde a EMA lenta (26) começa a existir.
+  const macdSeries: number[] = [];
+  for (let i = MACD_SLOW_PERIOD - 1; i < closes.length; i++) {
+    macdSeries.push(emaFastSeries[i] - emaSlowSeries[i]);
+  }
+  if (macdSeries.length < MACD_SIGNAL_PERIOD) return null; // sem warm-up suficiente pra linha de sinal
+
+  const signalSeries = calculateEmaSeries(macdSeries, MACD_SIGNAL_PERIOD);
+  if (!signalSeries) return null;
+
+  const lastIdx = macdSeries.length - 1;
+  const macd = macdSeries[lastIdx];
+  const signal = signalSeries[lastIdx];
+  if (!Number.isFinite(macd) || !Number.isFinite(signal)) return null;
+  const histogram = macd - signal;
+
+  const lastClose = closes[closes.length - 1];
+  const neutralThreshold = Number.isFinite(lastClose) && lastClose > 0 ? lastClose * MACD_NEUTRAL_THRESHOLD_RATIO : 0;
+  const label: MacdResult["label"] =
+    Math.abs(histogram) < neutralThreshold ? "NEUTRO" : histogram > 0 ? "ALTA" : "BAIXA";
+
+  // Crossing: compara o sinal do histograma da última vela vs a penúltima
+  // (precisa de pelo menos 2 pontos de sinal calculados).
+  let crossing: MacdResult["crossing"] = null;
+  const prevIdx = lastIdx - 1;
+  if (prevIdx >= 0 && Number.isFinite(signalSeries[prevIdx])) {
+    const prevHistogram = macdSeries[prevIdx] - signalSeries[prevIdx];
+    if (Number.isFinite(prevHistogram)) {
+      if (prevHistogram <= 0 && histogram > 0) crossing = "CRUZOU_PARA_CIMA";
+      else if (prevHistogram >= 0 && histogram < 0) crossing = "CRUZOU_PARA_BAIXO";
+    }
+  }
+
+  return {
+    macd: Number(macd.toFixed(6)),
+    signal: Number(signal.toFixed(6)),
+    histogram: Number(histogram.toFixed(6)),
+    label,
+    crossing,
+  };
+}
+
+export interface SlowStochasticResult {
+  /** %K lento (media movel de 3 periodos do %K rapido), 0-100. */
+  k: number;
+  /** %D -- media movel de 3 periodos do %K lento (linha de sinal). */
+  d: number;
+  /** k >= 80 = SOBRECOMPRADO, k <= 20 = SOBREVENDIDO, senao NEUTRO. */
+  label: "SOBRECOMPRADO" | "SOBREVENDIDO" | "NEUTRO";
+  /** %K cruzou %D na ultima vela vs a penultima -- sinal classico de reversao/continuacao. null quando nao houve cruzamento. */
+  crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
+}
+
+const STOCH_PERIOD = 14;
+const STOCH_K_SMOOTHING = 3;
+const STOCH_D_SMOOTHING = 3;
+const STOCH_OVERBOUGHT = 80;
+const STOCH_OVERSOLD = 20;
+
+/** Media movel simples de janela `period`, retorna série completa (NaN onde não há dados suficientes). */
+function calculateSmaSeries(values: number[], period: number): number[] {
+  const result: number[] = new Array(values.length).fill(NaN);
+  for (let i = period - 1; i < values.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += values[j];
+    result[i] = sum / period;
+  }
+  return result;
+}
+
+/**
+ * 🔴 2026-08-30 (pedido direto do Cleber, junto do MACD): Estocástico LENTO
+ * clássico -- %K rápido de cada vela = (close - menor_low_periodo) /
+ * (maior_high_periodo - menor_low_periodo) * 100 (período 14), %K lento =
+ * SMA3 do %K rápido, %D = SMA3 do %K lento. Mesma fonte/cache de
+ * `fetchRecentCandles` que MACD/ATR/tendência já usam -- se não houver
+ * candle real suficiente, retorna `null`, nunca fabrica indicador.
+ */
+export async function getSlowStochastic(symbol: string): Promise<SlowStochasticResult | null> {
+  const candles = await fetchRecentCandles(symbol);
+  const minCandles = STOCH_PERIOD + STOCH_K_SMOOTHING + STOCH_D_SMOOTHING; // warm-up real pra dupla suavização
+  if (!candles || candles.length < minCandles) return null;
+
+  const closes = candles.map((c) => c.close);
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  if (!closes.every(Number.isFinite) || !highs.every(Number.isFinite) || !lows.every(Number.isFinite)) return null;
+
+  // %K rápido pra série completa (a partir de onde há janela de 14 velas).
+  const fastK: number[] = new Array(candles.length).fill(NaN);
+  for (let i = STOCH_PERIOD - 1; i < candles.length; i++) {
+    const windowHigh = Math.max(...highs.slice(i - STOCH_PERIOD + 1, i + 1));
+    const windowLow = Math.min(...lows.slice(i - STOCH_PERIOD + 1, i + 1));
+    const range = windowHigh - windowLow;
+    fastK[i] = range > 0 ? ((closes[i] - windowLow) / range) * 100 : 50; // range 0 = preço parado, neutro
+  }
+
+  const validFastK = fastK.filter((v) => Number.isFinite(v));
+  if (validFastK.length < STOCH_K_SMOOTHING + STOCH_D_SMOOTHING) return null;
+
+  const slowKSeries = calculateSmaSeries(validFastK, STOCH_K_SMOOTHING);
+  const validSlowK = slowKSeries.filter((v) => Number.isFinite(v));
+  if (validSlowK.length < STOCH_D_SMOOTHING) return null;
+
+  const dSeries = calculateSmaSeries(validSlowK, STOCH_D_SMOOTHING);
+
+  const lastK = validSlowK[validSlowK.length - 1];
+  const lastD = dSeries[dSeries.length - 1];
+  if (!Number.isFinite(lastK) || !Number.isFinite(lastD)) return null;
+
+  const label: SlowStochasticResult["label"] =
+    lastK >= STOCH_OVERBOUGHT ? "SOBRECOMPRADO" : lastK <= STOCH_OVERSOLD ? "SOBREVENDIDO" : "NEUTRO";
+
+  let crossing: SlowStochasticResult["crossing"] = null;
+  const prevK = validSlowK[validSlowK.length - 2];
+  const prevD = dSeries[dSeries.length - 2];
+  if (Number.isFinite(prevK) && Number.isFinite(prevD)) {
+    const prevDiff = prevK - prevD;
+    const lastDiff = lastK - lastD;
+    if (prevDiff <= 0 && lastDiff > 0) crossing = "CRUZOU_PARA_CIMA";
+    else if (prevDiff >= 0 && lastDiff < 0) crossing = "CRUZOU_PARA_BAIXO";
+  }
+
+  return {
+    k: Number(lastK.toFixed(2)),
+    d: Number(lastD.toFixed(2)),
+    label,
+    crossing,
   };
 }
