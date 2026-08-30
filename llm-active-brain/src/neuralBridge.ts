@@ -405,6 +405,8 @@ export interface Mt5RecentClosedTrade {
   side: "LONG" | "SHORT";
   exit_time: string;
   exit_reason: string | null;
+  net_pnl: number | null;
+  pnl: number | null;
 }
 
 /**
@@ -414,6 +416,16 @@ export interface Mt5RecentClosedTrade {
  * `[]` -- mesmo motivo do fix em `listMt5OpenPositions` acima (uma falha
  * transitória virando "sem histórico" furaria o circuito de proteção, não só
  * o teto de posições).
+ *
+ * 🔴 2026-08-30 (achado real, sessão de monitoramento): o circuito só olhava
+ * `exit_reason === "SL"` -- perda real fechada manualmente pelo LLM
+ * (`AI_SIGNAL`) não contava pra streak. Aconteceu ao vivo: SOLUSD SHORT
+ * perdeu 2x seguidas por decisão manual da própria IA (~-$6 e ~-$3, ambos
+ * `AI_SIGNAL`), o cooldown nunca disparou porque nenhum dos dois foi `SL`, e
+ * a 3ª reentrada no MESMO símbolo+lado bateu stop de verdade por -$7,12 --
+ * maior perda da sessão até aqui. Passa `net_pnl`/`pnl` agora pra o circuito
+ * (tools.ts) poder contar QUALQUER fechamento negativo como perda pra fins
+ * de streak, não só stop mecânico.
  */
 export async function getRecentClosedTrades(symbol: string, limit = 5): Promise<Mt5RecentClosedTrade[]> {
   if (!config.neuralBridgeEnabled) return [];
@@ -421,7 +433,7 @@ export async function getRecentClosedTrades(symbol: string, limit = 5): Promise<
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
-    .select("side, exit_time, exit_reason")
+    .select("side, exit_time, exit_reason, net_pnl, pnl")
     .eq("session_id", sessionId)
     .eq("symbol", symbol)
     .eq("status", "CLOSED")
