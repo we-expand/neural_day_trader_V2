@@ -27,6 +27,22 @@ import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGr
 export const SPREAD_BLOCK_PCT = 2.0;
 export const SPREAD_WARN_PCT = 0.8;
 
+// 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, root cause confirmado
+// rastreando o log ciclo a ciclo, pedido explicito do Cleber -- "perdeu
+// $2,49 a toa"): a IA fechou uma posicao LONG lucrativa em BTCUSD citando
+// "resistencia de 2471.26, volume ratio 0.4" -- numeros REAIS, mas do
+// XETUSD (cotado 2 chamadas antes, apos um open_position em XETUSD ser
+// bloqueado pela guarda de contradicao acima). Ela NUNCA chamou
+// get_mt5_quote(BTCUSD) naquele ciclo antes de decidir fechar -- decidiu
+// com dado de 2 ciclos atras (ou de outro simbolo). Mecanismo: quando uma
+// tentativa de abrir e bloqueada, o mesmo impulso as vezes "migra" pra
+// fechar uma posicao aberta usando o raciocinio/numeros que acabaram de
+// ser escritos pro simbolo errado. Fix: exige get_mt5_quote do MESMO
+// simbolo no MESMO ciclo antes de aceitar um close_position manual nele --
+// forca a decisao a se basear em dado fresco e do ativo certo, nao em
+// memoria stale ou contaminacao cruzada entre simbolos.
+const lastQuotedCycleBySymbol = new Map<string, number>();
+
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
   return Math.random() < successChance;
@@ -458,6 +474,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const quote = await getMt5Quote(symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol}.` };
+      lastQuotedCycleBySymbol.set(symbol, cycle);
       // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
       // tendência de curto prazo (1h) vai junto da cotação -- achado real foi
       // o agente abrindo SHORT repetido em cripto bem no meio de um rali de
@@ -635,6 +652,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         "como teste", "para teste", "ainda nao ocorreu", "ainda não ocorreu",
         "nao esta presente", "não está presente", "sem confirmacao real", "sem confirmação real",
         "nao ha confirmacao", "não há confirmação",
+        // 🔴 2026-08-30 (mesma sessao, 3a ocorrencia -- BTCXBN SHORT, perda de
+        // $5,56): "nao ha razao para entrar contra a tendencia... pode levar
+        // a perdas" no proprio reasoning da entrada, aberta mesmo assim. Cada
+        // ocorrencia usa uma frase nova -- esta lista nunca vai cobrir todas
+        // as variacoes possiveis (limite conhecido de checagem por
+        // palavra-chave, ver comentario acima), mas cada padrao real
+        // observado entra aqui assim que aparece.
+        "nao ha razao para entrar", "não há razão para entrar", "pode levar a perdas", "pode levar a perda",
       ];
       const REVERSAL_CUES = [
         "mas agora", "porem agora", "porém agora", "mudei de ideia", "reconsiderando", "na verdade vou abrir",
@@ -981,6 +1006,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const position = positions.find((p) => p.id === tradeId);
       if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
+      if (lastQuotedCycleBySymbol.get(position.symbol) !== cycle) {
+        return {
+          error:
+            `Voce ainda nao chamou get_mt5_quote("${position.symbol}") NESTE ciclo -- fechar com dado velho (ou de outro ` +
+            `simbolo) foi exatamente o erro que fechou um BTCUSD lucrativo usando numeros do XETUSD. Chame get_mt5_quote("${position.symbol}") ` +
+            `primeiro pra confirmar tendencia/volume/preco REAIS e atuais deste ativo especifico, depois chame close_position de novo.`,
+        };
+      }
       const quote = await getMt5Quote(position.symbol);
       if (!quote) return { error: `Sem cotacao real disponivel agora para ${position.symbol} -- posicao nao fechada.` };
       // 🔴 2026-08-29: fechar um LONG e VENDER (recebe o bid); fechar um
