@@ -71,6 +71,17 @@ export async function checkReasoningConsistency(params: {
         model: config.mt5ReasoningValidatorModel,
         temperature: 0,
         max_tokens: 150,
+        // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+        // deploy): confirmado repetidas vezes (5+) que so PEDIR JSON no
+        // prompt nao basta -- o modelo frequentemente responde com texto
+        // corrido ("We need to determine if there is a contradiction...")
+        // em vez do JSON puro, caindo no fail-open por falta de match no
+        // regex. response_format forca o provedor (quando suportado) a
+        // devolver JSON valido de verdade, em vez de confiar so na obediencia
+        // textual. Se o provedor/modelo nao suportar o parametro, a chamada
+        // simplesmente falha e cai no MESMO catch fail-open de sempre --
+        // seguro de tentar, sem downside novo.
+        response_format: { type: "json_object" },
         messages: [{ role: "user", content: buildPrompt(params) }],
       },
       // 🔴 2026-08-30: timeout curto -- esta validacao secundaria NUNCA pode
