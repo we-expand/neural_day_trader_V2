@@ -621,6 +621,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         "nao deveria abrir", "não deveria abrir", "evitar essa entrada", "evitar esta entrada",
         "fico de fora", "ficar de fora", "por enquanto fora", "operacao bloqueada", "operação bloqueada",
         "sem nova evidencia", "sem nova evidência", "preciso analisar mais antes de abrir",
+        // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido explicito do
+        // Cleber apos ver o padrao 2x na mesma sessao): a lista acima so pega
+        // negacao direta de "abrir/entrar" -- nao pegava o reasoning admitir a
+        // PROPRIA falta de confirmacao e abrir mesmo assim. Visto ao vivo:
+        // XETUSD SHORT ("confirmacao de exaustao, que nao esta presente.
+        // Contudo... operar um SHORT pequeno como teste") e BTCUSD LONG
+        // ("Entro com LONG apenas se houver confirmacao... o que ainda nao
+        // ocorreu"). Ambos descreveram o proprio criterio como NAO cumprido e
+        // entraram de qualquer forma -- mesmo padrao de contradicao, frases
+        // diferentes. Adicionadas aqui, nao numa lista separada, pra reusar a
+        // MESMA logica de bloqueio + REVERSAL_CUES ja testada.
+        "como teste", "para teste", "ainda nao ocorreu", "ainda não ocorreu",
+        "nao esta presente", "não está presente", "sem confirmacao real", "sem confirmação real",
+        "nao ha confirmacao", "não há confirmação",
       ];
       const REVERSAL_CUES = [
         "mas agora", "porem agora", "porém agora", "mudei de ideia", "reconsiderando", "na verdade vou abrir",

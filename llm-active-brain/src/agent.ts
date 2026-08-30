@@ -305,7 +305,10 @@ deste prompt): 6 ativos, TODOS cripto/cross de cripto, SEM forex.** BTCUSD,
 XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN. Todos operam 24/7 -- nenhum tem
 janela de fechamento de fim de semana, não precisa checar "marketOpen" por
 causa de dia da semana. Todos os 6 são o MESMO grupo correlacionado
-(princípio 3 acima).
+(princípio 3 acima). **XETUSD é o nome REAL do Ethereum nesta corretora
+(Infinox/MetaTrader) -- não é "ETHUSD".** Use exatamente estes 6 símbolos,
+letra por letra; qualquer outro (incluindo "ETHUSD") é rejeitado por não
+estar na cesta permitida.
 
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma
