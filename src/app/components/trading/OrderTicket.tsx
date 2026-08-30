@@ -19,6 +19,7 @@ import {
 } from '../../services/BrokerClient';
 import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlertStage';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
+import { computePriceMagnitudePnl } from '../../hooks/useApexLogic';
 
 type Side = 'BUY' | 'SELL';
 type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
@@ -202,21 +203,29 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     return { ok: true };
   }
 
+  // 🔴 FIX 2026-08-28 (auditoria do bug de PnL 20x do NAS100, 27/08):
+  // em DEMO a posição REAL que abre daqui usa `amountUsd = volume *
+  // asset.lotSize * entryPrice` e depois `calculateEngineConsistentPnL`
+  // (useApexLogic.ts) — nunca `contractSpec.tickValue`. Antes deste fix, a
+  // prévia de risco/retorno mostrada AQUI, antes do clique, usava a
+  // especificação de contrato futuro E-mini da CME (mesma raiz do bug do
+  // NAS100), divergindo do valor que a posição de fato mostra depois de
+  // aberta — mesmo símbolo, dois números diferentes. LIVE continua usando
+  // `contractSpec` de propósito: ali é a MetaAPI/corretora real quem cobra
+  // pelo tick, então o valor de contrato é o correto pra essa via.
   const riskUsd = useMemo(() => {
     if (!slSet || !currentPrice || !(volume > 0)) return null;
     const priceDelta = Math.abs(currentPrice - slNum);
-    const ticks = contractSpec.tickSize > 0 ? priceDelta / contractSpec.tickSize : 0;
-    return ticks * contractSpec.tickValue * volume;
-  }, [slSet, currentPrice, slNum, volume, contractSpec]);
+    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode);
+  }, [slSet, currentPrice, slNum, volume, contractSpec, executionMode, asset]);
 
   const riskPercent = riskUsd != null && portfolio.balance > 0 ? (riskUsd / portfolio.balance) * 100 : null;
 
   const rewardUsd = useMemo(() => {
     if (!tpSet || !currentPrice || !(volume > 0)) return null;
     const priceDelta = Math.abs(tpNum - currentPrice);
-    const ticks = contractSpec.tickSize > 0 ? priceDelta / contractSpec.tickSize : 0;
-    return ticks * contractSpec.tickValue * volume;
-  }, [tpSet, currentPrice, tpNum, volume, contractSpec]);
+    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode);
+  }, [tpSet, currentPrice, tpNum, volume, contractSpec, executionMode, asset]);
 
   const marginEstimate = useMemo(() => {
     if (!currentPrice || !asset || !(volume > 0)) return null;

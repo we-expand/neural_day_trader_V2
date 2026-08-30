@@ -52,6 +52,35 @@ function calculateEngineConsistentPnL(
     : (entryPrice - exitPrice) * (amountUsd / entryPrice);
 }
 
+/**
+ * 🔴 Fonte única pra "quanto vale, em USD, um deslocamento de preço" na
+ * prévia de risco/retorno do OrderTicket — extraído em 2026-08-30 pra
+ * eliminar a duplicação exata dessa fórmula entre `riskUsd` e `rewardUsd`
+ * (mesma classe de bug do comentário de `calculateEngineConsistentPnL`
+ * acima: duas cópias da mesma conta que podem divergir sem ninguém notar).
+ *
+ * DEMO: espelha `amountUsd = volume * asset.lotSize * entryPrice` usado por
+ * `calculateEngineConsistentPnL`/posição real — algebricamente
+ * `priceDelta * volume * asset.lotSize`. Exige `asset` (retorna `null` sem
+ * ele, mesmo comportamento de antes).
+ * LIVE: usa o `contractSpec` da corretora (tickSize/tickValue) — não
+ * depende de `asset`.
+ */
+export function computePriceMagnitudePnl(
+  priceDelta: number,
+  volume: number,
+  asset: { lotSize: number } | undefined,
+  contractSpec: { tickSize: number; tickValue: number },
+  executionMode: 'DEMO' | 'LIVE',
+): number | null {
+  if (executionMode === 'DEMO') {
+    if (!asset) return null;
+    return priceDelta * volume * asset.lotSize;
+  }
+  const ticks = contractSpec.tickSize > 0 ? priceDelta / contractSpec.tickSize : 0;
+  return ticks * contractSpec.tickValue * volume;
+}
+
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
     assetSelection: false,   // 🎯 Pool selection
