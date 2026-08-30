@@ -655,6 +655,25 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (reasoning.trim().length === 0) {
         return { error: "reasoning e obrigatorio -- explique por que esta entrada faz sentido agora antes de abrir a posicao." };
       }
+      // 🔴 2026-08-30 (pedido direto do Cleber, "ela nao pode ter raciocinio
+      // raso e muito menos entrar porque fez um raciocinio raso"): confirmado
+      // ao vivo rastreando o log ciclo a ciclo -- open_position(BTCXBN,
+      // SHORT) foi chamado como a PRIMEIRA acao do ciclo #3, ANTES de
+      // qualquer get_mt5_quote naquele ciclo. Decisao pura de "memoria de
+      // trades" (perdas passadas), zero trend/volume/macd/stochastic/spread
+      // AO VIVO consultado pro simbolo sendo negociado. Mesma trava que ja
+      // existe em close_position (ver lastQuotedCycleBySymbol acima) --
+      // exige get_mt5_quote do MESMO simbolo no MESMO ciclo antes de aceitar
+      // abrir posicao nele. Isso forca a decisao a estar ancorada em dado
+      // real e atual do ativo, nao so em memoria de trades passados.
+      if (lastQuotedCycleBySymbol.get(symbol) !== cycle) {
+        return {
+          error:
+            `Voce ainda nao chamou get_mt5_quote("${symbol}") NESTE ciclo -- abrir posicao sem consultar tendencia/volume/` +
+            `MACD/estocastico/spread REAIS e ATUAIS deste ativo especifico e raciocinio raso, baseado so em memoria de ` +
+            `trades passados. Chame get_mt5_quote("${symbol}") primeiro, avalie o dado de verdade, depois chame open_position de novo.`,
+        };
+      }
       // 🔴 2026-08-30 (achado real, sessao de monitoramento -- pendencia de
       // politica de risco explicitamente listada no handoff anterior, agora
       // resolvida): o "reasoning" da PROPRIA entrada as vezes contradiz a
