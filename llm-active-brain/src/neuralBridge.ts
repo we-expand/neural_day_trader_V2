@@ -701,7 +701,12 @@ export async function enforceMt5StopsAndTargets(
     // afrouxa -- só move se o novo nível for MAIS protetor que o atual.
     const trailPct = await getAtrPercent(pos.symbol);
     if (trailPct == null) continue; // sem ATR real agora -- mantem o stop onde esta, tenta de novo no proximo ciclo
-    const trailDistancePct = trailPct * config.mt5StopAtrMultiplier;
+    // 🔴 2026-08-30: multiplicador dedicado (mt5TrailAtrMultiplier), mais
+    // apertado que o do stop de abertura (mt5StopAtrMultiplier) -- ver
+    // comentario em config.ts. Usar o mesmo multiplicador do stop inicial
+    // aqui criava uma faixa morta onde o preco corria a favor sem o stop
+    // acompanhar nada.
+    const trailDistancePct = trailPct * config.mt5TrailAtrMultiplier;
     const candidateStop = pos.side === "LONG" ? price * (1 - trailDistancePct) : price * (1 + trailDistancePct);
     const isMoreProtective = pos.side === "LONG" ? candidateStop > pos.stop_loss : candidateStop < pos.stop_loss;
     if (!isMoreProtective) continue;

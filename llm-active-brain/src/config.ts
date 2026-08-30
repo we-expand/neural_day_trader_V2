@@ -253,6 +253,24 @@ export const config = {
   // 2026-08-28). Só anda pra frente (nunca afrouxa um stop já em
   // breakeven) -- ver enforceMt5StopsAndTargets em neuralBridge.ts.
   mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 0.5),
+  // 🔴 2026-08-30 (achado ao vivo, pedido explicito do Cleber -- "chegou a
+  // ganhar $3, saiu a -$0,10, isso nao pode acontecer"): o trailing em
+  // enforceMt5StopsAndTargets usava a MESMA distancia do stop de abertura
+  // (mt5StopAtrMultiplier, 2.0x ATR) pro trailing continuo pos-breakeven.
+  // Como o breakeven dispara com so mt5BreakevenTriggerR (0.5x = 1x ATR de
+  // lucro), existia uma faixa morta entre 1x e 2x ATR de lucro em que o
+  // trailing calculado (preco - 2x ATR) NUNCA ficava mais protetor que o
+  // breakeven (preco de entrada) -- o stop simplesmente nao subia, apesar do
+  // preco continuar correndo a favor. Foi exatamente o caso real: BTCUSD
+  // SHORT chegou a +$3 (dentro dessa faixa morta), reverteu, e foi fechado
+  // no breakeven + custo de spread (-$0,19) sem nunca ter protegido nenhum
+  // fragmento do lucro que passou por ali. Multiplicador dedicado, mais
+  // apertado que o stop inicial, faz o trailing comecar a proteger lucro
+  // real assim que o preco sair do breakeven, em vez de exigir dobrar a
+  // distancia do stop original antes de mexer. Sem validacao estatistica de
+  // que isso melhora o liquido -- e correcao de mecanica de protecao de
+  // lucro, nao alegacao de edge.
+  mt5TrailAtrMultiplier: Number(process.env.MT5_TRAIL_ATR_MULTIPLIER ?? 0.8),
   // 🔴 2026-08-29 (achado da auditoria, recalibrado no mesmo dia): teto
   // ABSOLUTO de segurança (mesmo em size:"forte") -- precisa ficar
   // folgadamente ACIMA de mt5TargetNotionalUsd * mt5HeavyMultiplier (senão
