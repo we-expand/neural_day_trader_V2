@@ -15,6 +15,16 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-31: decisão do Cleber — Cérebro LLM Ativo vira o motor de IA
+principal e único do produto, motor mecânico (`ai-runner`) descontinuado.
+Fase 1 aplicada (só Dashboard, sem mudança de arquitetura): removido o
+rótulo "teste/isolado" do painel, painel tratado como principal.** Migração
+real (multi-tenant, LIVE do zero, deploy como serviço, migração segura de
+posições do motor antigo) é trabalho de múltiplas sessões, ainda não
+iniciado — levantamento completo do que falta e ordem de execução no
+handoff:
+[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
+
 **2026-08-30 (noite, ~19h-01h UTC): monitoramento contínuo de 5 em 5 min do
 Cérebro LLM Ativo (sessão `aa279c75...`, ~66 checagens) — 1 bug real
 corrigido NO CÓDIGO, NÃO COMMITADO, NÃO APLICADO (processo não foi

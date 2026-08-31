@@ -4,26 +4,24 @@ import { supabase } from '@/lib/supabaseClient';
 import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
 
 /**
- * Painel de acompanhamento do "cérebro LLM ativo" (llm-active-brain/,
- * agente full tool-calling rodando via terminal, ver README daquela pasta) —
- * pedido do Cleber, 2026-08-28: ele reportou (via vídeo) que os números da
- * posição ficavam "parados como um JPEG". Causa raiz: o loop ao vivo do
- * Dashboard (`reconcile()`/PNL loop em useApexLogic.ts) só acompanha a
- * sessão do MOTOR MECÂNICO do próprio navegador (`persistenceRef.current.
- * getSessionId()`), nunca uma sessão isolada de outro processo — a sessão do
- * cérebro LLM nunca entrava nesse loop, então a tela só mostrava o snapshot
- * do carregamento inicial da página, sem nunca atualizar.
+ * Painel do Cérebro LLM Ativo (llm-active-brain/, agente full tool-calling —
+ * ver README daquela pasta) — a partir de 2026-08-31, motor de IA principal
+ * do produto, por decisão do Cleber (o motor mecânico anterior fica
+ * descontinuado; ver CLAUDE.md e SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
  *
- * Este painel é standalone (não reusa o hook do motor mecânico — reusar
- * exigiria repontar `useApexLogic` inteiro pra outra sessão, que não é o
- * design dele). Faz seu próprio poll de baixo custo (10s: 1 select em
- * ai_trades + preço via `getBatchedMT5Data` — MESMO serviço/fonte que o
- * motor mecânico usa, MT5/Infinox pra forex/índices).
+ * Nota técnica (histórico, ainda válida): este painel não reusa o hook do
+ * motor mecânico (`useApexLogic`) — faz seu próprio poll de baixo custo
+ * (3s: select em `ai_trades`; 5s: preço via `getBatchedMT5Data`, mesma
+ * fonte MT5/Infinox). Origem: pedido do Cleber em 2026-08-28 depois de
+ * reportar (via vídeo) que os números da posição ficavam "parados como um
+ * JPEG" — o loop antigo só acompanhava a sessão do motor mecânico do
+ * próprio navegador, nunca a sessão deste processo separado.
  *
- * 2026-08-29: trilho trocado de Binance/cripto pra cesta/preço/execução do
- * próprio motor mecânico (`llm-active-brain/src/mt5Broker.ts`), a pedido do
- * Cleber — "não precisamos utilizar a Binance... como se estivesse no lugar
- * do motor que a gente tinha desenvolvido".
+ * Escopo técnico atual (ainda não mudou nesta sessão): processo Node
+ * single-tenant, 1 conta MT5 de teste, sempre DEMO — ver pendências reais
+ * de arquitetura (multi-tenant, LIVE, deploy como serviço) no handoff
+ * acima antes de tratar isto como "motor de produção" pra todos os
+ * usuários.
  */
 
 // 🔴 2026-08-29: trilho Binance/cripto substituído -- Cleber pediu pra
@@ -217,7 +215,7 @@ export function LlmActiveBrainPanel() {
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-purple-400" />
           <h2 className="text-sm font-bold uppercase tracking-wider text-purple-300">
-            Cérebro LLM Ativo (teste, cesta do motor) — isolado do motor mecânico
+            Cérebro LLM Ativo — Motor de IA
           </h2>
         </div>
         <span className="text-[10px] text-neutral-500 font-mono">
