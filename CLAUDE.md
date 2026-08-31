@@ -24,6 +24,9 @@ posições do motor antigo) é trabalho de múltiplas sessões, ainda não
 iniciado — levantamento completo do que falta e ordem de execução no
 handoff:
 [SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
+**Próxima sessão começa direto na Fase 2** (multi-tenant em DEMO, ordem de
+trabalho exata já escrita) — ver
+[NEXT_SESSION.md](NEXT_SESSION.md).
 
 **2026-08-30 (noite, ~19h-01h UTC): monitoramento contínuo de 5 em 5 min do
 Cérebro LLM Ativo (sessão `aa279c75...`, ~66 checagens) — 1 bug real
