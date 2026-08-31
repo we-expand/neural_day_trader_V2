@@ -76,8 +76,11 @@ function acquireSingleInstanceLock() {
  * hoje (single-tenant) como caso particular de N=1.
  */
 async function resolveMt5Sessions(): Promise<Mt5Session[]> {
+  console.log("[DEBUG] resolveMt5Sessions() chamada");
   const eligible = await listEligibleMt5Sessions();
+  console.log(`[DEBUG] eligible.length=${eligible.length}`);
   if (eligible.length > 0) {
+    console.log(`[DEBUG] Retornando ${eligible.length} sessões elegíveis`);
     return eligible.map((s) => ({ sessionId: s.id, userId: s.userId }));
   }
   if (!config.neuralUserId) {
@@ -85,7 +88,9 @@ async function resolveMt5Sessions(): Promise<Mt5Session[]> {
       "Nenhuma sessao MT5 elegivel encontrada e NEURAL_USER_ID ausente no .env -- nao ha sessao bootstrap pra criar."
     );
   }
+  console.log(`[DEBUG] Criando nova sessão para user ${config.neuralUserId}`);
   const sessionId = await getOrCreateMt5Session(config.neuralUserId, MT5_ASSET_BASKET);
+  console.log(`[DEBUG] Sessão criada: ${sessionId}`);
   return [{ sessionId, userId: config.neuralUserId }];
 }
 
@@ -106,6 +111,7 @@ async function runContinuous() {
 
   for (let cycle = 1; cycle <= config.maxCycles; cycle++) {
     console.log(`\n========== CICLO ${cycle}/${config.maxCycles} ==========`);
+    if (cycle === 1) console.log(`[DEBUG] MT5_TRADING_ENABLED=${config.mt5TradingEnabled}`);
 
     let calledStop = false;
     if (config.mt5TradingEnabled) {
@@ -125,6 +131,7 @@ async function runContinuous() {
       }
       for (const session of sessions) {
         try {
+          console.log(`[DEBUG] Session antes de runAgent:`, JSON.stringify(session));
           const stoppedThisSession = await runAgent(cycle, session);
           calledStop = calledStop || stoppedThisSession;
         } catch (err) {
