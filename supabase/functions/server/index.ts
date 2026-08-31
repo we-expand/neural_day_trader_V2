@@ -4289,7 +4289,16 @@ app.post('/mt5-prices', async (c) => {
                     // rolagem 24h real é a metodologia que bate com a expectativa do
                     // usuário. CFD tradicionais continuam em D1 (ver bloco `else` abaixo).
                     const isCrypto24h = CRYPTO_CFD_SYMBOLS.has(symbol);
-                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '1h' : '1d'}/candles`;
+                    // ✅ 2026-08-31: referência de 24h era em velas de 1h (janela de
+                    // imprecisão de até ~1h contra a referência exata e contínua que a
+                    // Binance usa) — em dia de BTC andando de lado (variação < 0,1%), essa
+                    // imprecisão já bastava pra trocar o SINAL da variação exibida (Cleber
+                    // reportou +0,04% na plataforma vs -0,26% na Binance no mesmo instante).
+                    // Trocado pra velas de 5min (12x mais granular) — reduz a janela de
+                    // imprecisão de ~1h pra ~5min, não elimina (ainda é discreto, Binance é
+                    // contínuo), mas reduz bastante a chance de cruzar o zero por causa só
+                    // da granularidade da referência.
+                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '5m' : '1d'}/candles`;
                     // ✅ 2026-07-15 (4ª parte): `limit=2` funcionou pra praticamente todo
                     // ativo por meses (posição fixa `length-2` = candle de ontem fechado).
                     // Só o BTCUSD (mercado 24/7, sem a pausa diária que CFD tradicional tem)
@@ -4322,10 +4331,10 @@ app.post('/mt5-prices', async (c) => {
                     let previousCandleForDebug: any = null;
 
                     if (isCrypto24h) {
-                        // 25 velas de 1h ≈ últimas 25h — folga de 1h sobre a janela exata
+                        // 300 velas de 5min ≈ últimas 25h — folga de 1h sobre a janela exata
                         // de 24h pra garantir que sobre pelo menos uma vela perto o
                         // suficiente do alvo mesmo com pequenas lacunas de dado.
-                        const rolling = await fetchCandles(25);
+                        const rolling = await fetchCandles(300);
 
                         if (rolling.ok && rolling.candles && rolling.candles.length >= 1) {
                             const candles = rolling.candles;
