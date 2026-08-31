@@ -15,26 +15,86 @@
 
 ## ▶ COMECE AQUI
 
-**[RESOLVIDO 2026-08-31, fim do dia] Setup do AI Trader — Capital da IA,
-Ativos Simultâneos e Cadência de Entrada (novo) reconectados ao LLM
-Brain.** Cleber reportou que boa parte do Setup "AVANÇADO" não era
-obedecida pela IA. `direction`/`activeAssets`/`dailyLossLimit`/
-`riskPerTrade` já eram lidos de verdade; `allocatedCapital` (Capital da
-IA) e `maxAssets` (Ativos Simultâneos) eram salvos mas nunca consumidos
-pelo motor — corrigido (`tools.ts`: sizing usa capital alocado como teto,
-`open_position` bloqueia símbolo novo acima do teto de simultâneos).
-Campo novo **Cadência de Entrada** (CONSERVADORA/NORMAL/AGRESSIVA)
-adicionado — como o loop de ciclos é global (multi-tenant, serial), ela
-não pausa o processo: restringe só a avaliação de ENTRADA NOVA a 1 a cada
-N ciclos (1/2/4), nunca o monitoramento de stop/breakeven/trailing de
-posições já abertas (roda todo ciclo, sempre). `npm run validate` 37/37,
-`tsc --noEmit` limpo nos dois lados. **Achado de processo, não de
-código**: as mudanças em `llm-active-brain/` acabaram commitadas/pushadas
-sem revisão por causa de outra sessão do Claude Code rodando em paralelo
-na mesma pasta (commit `64397d751`, mensagem sobre outro fix) — evitar
-sessões paralelas no mesmo working directory. **Pendente**: reiniciar o
-processo `llm-active-brain` pra aplicar; commit do frontend (`AITrader.tsx`
-etc.) ainda não feito, comando pronto no handoff. Detalhe completo:
+**[RESOLVIDO 2026-08-31, noite] Cesta do Cérebro LLM Ativo ampliada de 9
+criptos pra 16 símbolos (forex/metal/energia/índices) — Cleber pediu que a
+IA respeitasse TODOS os ativos configurados no Setup, não só cripto.**
+Testados ao vivo contra `/mt5-prices` (mesmo pipeline do motor mecânico
+antigo): `EURUSD, XAUUSD, UKOUSD, GER40, SPX500, NAS100, UK100` entraram na
+cesta (`assetBasket.ts`); `COFUSD`/`COCUSD` devolveram HTTP 404 nesta
+corretora e ficaram de fora. `lotSize`/sizing de cada um usa o valor real
+de `assetDatabase.ts` (mesma fonte que corrigiu o bug de PnL 20x do NAS100
+em 27/08), não suposição. Com a config atual do Cleber, a cesta efetiva
+foi de 1 ativo (só BTCUSD) pra 9. Achado de risco real (não bug) no
+monitoramento pós-deploy: BTCUSD a ~$79.000 tem lote mínimo que já força
+~$3,95 de risco, acima do teto de 3% de uma conta de $100 — fica
+efetivamente inoperável nesse tamanho de conta até o Cleber decidir
+aumentar capital/relaxar risco. `SOLUSD` continua fora por decisão de
+sessões anteriores (causou a maioria do prejuízo líquido 2x). Achado de
+processo à parte: outra sessão do Claude Code estava rodando em paralelo
+na mesma pasta de novo (mesmo risco já documentado abaixo) — mesclou sem
+conflito desta vez. Commit: `e825b2c2e`. Handoff completo:
+[SESSAO_2026-08-31_CESTA_AMPLIADA_MULTI_ATIVO_LLM_BRAIN.md](SESSAO_2026-08-31_CESTA_AMPLIADA_MULTI_ATIVO_LLM_BRAIN.md),
+próximos passos em [NEXT_SESSION.md](NEXT_SESSION.md).
+
+**[RESOLVIDO 2026-08-31, noite] Cleber ligou a IA pelo painel normal e ela
+não entrou em nenhuma operação — causa raiz: cesta de ativos poluída em
+`ai_user_config` travava o motor em confusão, + sessão órfã mascarando o
+Dashboard.** `ai_user_config` é a MESMA tabela lida pelo Setup do AI Trader
+(motor mecânico, seletor `AssetUniverse.tsx` oferece o catálogo Infinox
+inteiro) e pelo `getUserTradingConfig` do LLM Brain
+(`neuralBridge.ts:377`) — uma interação anterior com o seletor "Cesta de
+Ativos" tinha gravado os 12 ativos do motor mecânico (EURUSD, XAUUSD,
+GER40...), cuja interseção com a cesta real do LLM Brain (9 criptos MT5)
+era só BTCUSD. Confirmado ao vivo no log: 8/9 símbolos retornavam "fora da
+cesta permitida" todo ciclo, agente ficava chamando `stop()` interno
+confuso em vez de operar. De carona: "Ligar IA" também criou uma sessão
+órfã `strategy_name='Apex AI'` (motor mecânico, cron `ai-runner-tick`
+desligado definitivamente) que `getActiveSession()` mostrava em vez da
+sessão real do LLM Brain, por pegar só a mais recente por data sem filtrar
+motor — corrigido priorizando `LLM_ACTIVE_BRAIN_MT5` explicitamente
+(`AITradingPersistenceService.ts:434`, commit `9bcb5e16b`, já no
+`origin/dev`). Achado extra de risco, sem relação com a causa raiz: 1
+posição BTCUSD LONG real ficou órfã numa troca de sessão (sessão virou
+COMPLETED sem fechá-la, fechamento em lote seguinte não pegou por 10s de
+diferença) — fechada a preço real da Binance, `-$0,84`. **Pendente**:
+seletor "Cesta de Ativos" do Setup ainda oferece ativos que o LLM Brain
+não executa (só cripto MT5 tem efeito real hoje) — pode reproduzir o
+mesmo problema se mexido de novo sem essa ciência; decisão de como
+restringir fica pro Cleber. Handoff completo:
+[SESSAO_2026-08-31_CESTA_POLUIDA_LLM_BRAIN_E_SESSAO_ORFA.md](SESSAO_2026-08-31_CESTA_POLUIDA_LLM_BRAIN_E_SESSAO_ORFA.md).
+
+**[RESOLVIDO 2026-08-31, fim do dia] Setup do AI Trader (aba AVANÇADO) —
+TODOS os campos da tela original restaurados e reconectados de verdade ao
+LLM Brain (motor único).** Cleber reportou que boa parte do Setup
+"AVANÇADO" não era obedecida pela IA, e pediu a tela igual ao original
+("Pedi igual a isso! Tudo tem que funcionar + cadencia agressiva") — vários
+campos tinham sido removidos da UX num commit anterior do mesmo dia por
+"não ter equivalente no motor novo". Em vez de manter removidos, cada campo
+foi RECONECTADO com efeito real: **Timeframe Operacional** (1m/5m/15m/1H/4H)
+agora rege todos os indicadores derivados de candle (tendência/volume/S&R/
+MACD/estocástico/padrões) — antes fixo em 5m, `atr.ts`
+(`fetchRecentCandles`) ganhou parâmetro de timeframe threadado por 6
+funções + cache por símbolo+timeframe; **Estratégia** (dropdown de preset)
+vira diretiva de estilo injetada no prompt do LLM (`agent.ts`) — não é
+regra mecânica, o agente raciocina livre, sem motor de blocos equivalente;
+**Fluxo de Operação** (A Favor/Contra) — guard real em `open_position`
+(`tools.ts`); **Alvo de Lucro** (Poucos/Médio/Muitos) — sobrepõe o R:R
+real (take-profit/stop); **Lotes Máximos por Trade** e **Máximo de
+Posições Abertas** (agregado, diferente de Ativos Simultâneos que conta
+símbolos distintos) — tetos reais no sizing/abertura; **Capital para IA**
+voltou a ser editável (usado como teto do sizing quando menor que o saldo
+real); **Cadência de Entrada** (novo, CONSERVADORA/NORMAL/AGRESSIVA) —
+como o loop de ciclos é global (multi-tenant, serial), não pausa o
+processo: restringe só a AVALIAÇÃO DE ENTRADA NOVA a 1 a cada N ciclos
+(1/2/4), nunca o monitoramento de stop/breakeven/trailing de posições já
+abertas (roda todo ciclo, sempre). `npm run validate` 37/37, `tsc
+--noEmit` limpo nos dois lados (engine + frontend), testado ao vivo após
+restart — log confirma os 6 campos novos chegando via `getUserTradingConfig`
+(`neuralBridge.ts`). **Achado de processo, não de código**: parte das
+mudanças em `llm-active-brain/` acabou commitada/pushada sem revisão por
+causa de outra sessão do Claude Code rodando em paralelo na mesma pasta
+(commit `64397d751`, mensagem sobre outro fix não relacionado) — evitar
+sessões paralelas no mesmo working directory. Detalhe completo:
 [SESSAO_2026-08-31_SETUP_IA_CAPITAL_ATIVOS_CADENCIA.md](SESSAO_2026-08-31_SETUP_IA_CAPITAL_ATIVOS_CADENCIA.md).
 
 **[RESOLVIDO 2026-08-31, fim do dia] Linha de posição piscando no gráfico +
