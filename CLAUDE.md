@@ -15,6 +15,55 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-08-31, fim do dia] Linha de posição piscando no gráfico +
+gatilho de breakeven do LLM Brain nunca disparava — 2 achados, commitados
+(`3a0d9efd9`).** Cleber reportou linhas de entrada/stop/alvo "piscando" no
+gráfico e stop não acompanhando o preço a favor (posições do Cérebro LLM
+Ativo em modo DEMO). Achado 1 (bug real): a reconciliação de overlays em
+`ChartView.tsx` (fix de 2026-08-28/29 que eliminou o piscar de posição
+aberta) usava uma regex que não reconhecia o prefixo `pending_` das ordens
+pendentes — toda linha de ordem pendente era removida+recriada a cada tick
+de P&L (~1s), causando o piscar; corrigido (ids `pending_*` ignorados na
+checagem + bloco de criação tornado idempotente). Achado 2 (não é bug, é
+threshold): o breakeven+trailing do Cérebro LLM Ativo (`neuralBridge.ts`)
+roda de verdade a cada ciclo, mas nunca disparou em nenhum trade do log
+(`llm-brain.log`, zero ocorrências de "Stops trilhados"/"movidos para
+breakeven") — gatilho de 0,5R exigia mais lucro flutuante do que a
+excursão favorável mediana histórica (~$0,55) costuma entregar antes do
+trade reverter/bater stop/alvo. Baixado pra 0,25R via
+`llm-active-brain/.env` (`MT5_BREAKEVEN_TRIGGER_R`), a pedido do Cleber —
+sem validação estatística de melhora no líquido, é correção de mecânica de
+proteção. **Pendente**: observar próximos trades pra confirmar que o
+mecanismo passa a disparar de verdade com o threshold novo. Handoff
+completo:
+[SESSAO_2026-08-31_PISCAR_LINHA_E_BREAKEVEN_LLM_BRAIN.md](SESSAO_2026-08-31_PISCAR_LINHA_E_BREAKEVEN_LLM_BRAIN.md).
+
+**[RESOLVIDO 2026-08-31] Preço/variação de BTCUSD "errados" contra a
+Binance — 3 causas reais corrigidas, depois confirmado OK.** Cleber
+reportou repetidamente preço/% de BTCUSD divergindo da Binance (chegou a
+inverter sinal). Achados reais, em ordem: (1) referência de 24h em
+`/mt5-prices` usava vela de 1h, depois 5min, depois **1min ancorada no
+alvo** — reduz ruído de janela discreta; (2) causa raiz maior: BTCUSD
+sempre cotou pelo TICK do broker (Infinox/MetaAPI), nunca pela Binance —
+venues diferentes nunca são idênticos por definição; resolvido roteando
+BTCUSD **direto pra API pública da Binance** em `/mt5-prices`
+(`BINANCE_DIRECT_SYMBOL_MAP`), sem CORS (chamada servidor-servidor) —
+resolve a decisão de produto "roteamento de cripto" que estava pendente há
+dias, só pro BTCUSD; (3) polling do Gráfico pra BTCUSD reduzido de 2s pra
+1,5s (sem risco, não bate mais na conta MetaAPI compartilhada). Efeito
+colateral avisado: `/mt5-prices` é a mesma rota que o LLM Brain usa pra
+cotar BTCUSD — motor passa a decidir/calcular P&L de BTCUSD contra Binance,
+não broker (dado real, não fabricado). **Fechamento real**: depois do
+deploy, Cleber ainda via diferença — investigado com print lado a lado e
+achado que ele comparava com o par **BTC/BRL** da Binance (variação própria,
+embute câmbio USD/BRL, nunca bate com BTCUSD por definição), não BTC/USDT —
+confirmado que bate exatamente contra o par certo. Não é bug, resolvido.
+De carona, confirmado que `streaming-relay/` está DESLIGADO desde
+2026-07-23 (não tentar `fly deploy`, não existe app no Fly.io). Commits:
+`a885bc82f`, `34cae231c`, `b0ef7f2e8` (já commitados e deployados). Handoff
+completo:
+[SESSAO_2026-08-31_VARIACAO_PCT_CRIPTO_24H.md](SESSAO_2026-08-31_VARIACAO_PCT_CRIPTO_24H.md).
+
 **[RESOLVIDO 2026-08-31, fim do dia] Cérebro LLM Ativo é agora o motor único
 da plataforma, execução real (não só rótulo) — motor mecânico DESLIGADO
 DEFINITIVAMENTE.** Cron `ai-runner-tick` desativado no Supabase (decisão
