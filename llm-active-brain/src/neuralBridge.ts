@@ -277,17 +277,32 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
   const promise = (async () => {
     const sb = getClient();
 
-    // Mesma regra do trilho Binance acima: NUNCA status='RUNNING' aqui (ver
-    // comentário grande em getOrCreateSession) -- ficaria visível pro
-    // getActiveSession() do motor mecânico real no navegador. O motor
-    // mecânico (ai-runner) continua ativo em produção (cron confirmado
-    // 2026-08-31) -- não mudar este status sem decidir isso explicitamente
-    // com o Cleber primeiro (ver item 3 do handoff da Fase 2).
+    // 🔴 2026-08-31 (decisão definitiva do Cleber): motor mecânico (ai-runner)
+    // DESATIVADO em produção (cron.job id=5 desativado via
+    // cron.alter_job(active:=false)) -- LLM Brain agora é o único motor.
+    // status='RUNNING' aqui É intencional a partir de agora: é o que faz
+    // `getActiveSession()` (usado por todo o Dashboard/AI Trader/Gráfico via
+    // useApexLogic.ts) enxergar esta sessão como "a sessão ativa do
+    // usuário" e passar a exibir posição/patrimônio/histórico REAIS do LLM
+    // Brain nos mesmos painéis que antes mostravam o motor mecânico -- sem
+    // duplicar UI. Antes disto ser decidido (histórico: ver comentário
+    // equivalente em getOrCreateSession, ainda status='PAUSED' lá por ser
+    // outro trilho/estratégia, não migrado nesta mudança), rodar os dois
+    // motores como RUNNING ao mesmo tempo teria sido perigoso -- não é mais
+    // o caso porque o motor mecânico está desligado.
+    // 🔴 2026-08-31 (achado ao vivo, mesma mudança): esta busca NÃO filtrava
+    // por status -- reaproveitava a sessão mais recente mesmo se já
+    // COMPLETED/encerrada (ex: pelo botão "Reinicialização Total"),
+    // ressuscitando uma sessão zerada em vez de criar uma nova de verdade.
+    // Confirmado ao vivo: sessão b38d5862 (COMPLETED) sendo reaproveitada
+    // pelo fallback bootstrap de resolveMt5Sessions() logo depois de um
+    // reset. Só reaproveita se ainda estiver RUNNING de verdade.
     const { data: existing, error: findError } = await sb
       .from("ai_sessions")
       .select("id")
       .eq("user_id", userId)
       .eq("strategy_name", MT5_STRATEGY_NAME)
+      .eq("status", "RUNNING")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -301,9 +316,15 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
         strategy_name: MT5_STRATEGY_NAME,
         mode: "DEMO",
         symbols,
-        initial_balance: 50,
-        initial_equity: 50,
-        status: "PAUSED",
+        // 🔴 2026-08-31 (decisão definitiva do Cleber): $50 era só o valor
+        // usado durante o período de teste/isolamento do LLM Brain. Agora
+        // que ele é o motor único e principal da plataforma, toda sessão
+        // nova (inclusive a criada por este bootstrap) nasce no mesmo valor
+        // aceito pela plataforma pro "Reinicialização Total" -- $100 (ver
+        // AITradingPersistenceService.ts `resetLlmActiveBrainSession`).
+        initial_balance: 100,
+        initial_equity: 100,
+        status: "RUNNING",
         config: {
           source: "llm-active-brain (motor de IA principal, agente full tool-calling, cesta/preco/execucao MT5)",
           llm_provider: config.llmProvider,
@@ -319,6 +340,74 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
   return promise;
 }
 
+/**
+ * 🔴 2026-08-31 (pedido do Cleber): reconecta ao LLM Brain só os campos do
+ * Setup do AI Trader que têm equivalente real neste motor (o resto foi
+ * removido da UX -- eram do motor mecânico antigo, sem equivalente num
+ * agente que raciocina livremente por ciclo). Lê direto de `ai_user_config`
+ * (mesma tabela que o Setup grava via `saveUserAIConfig`), cache de 60s por
+ * usuário pra não bater no Supabase todo ciclo.
+ *
+ * `activeAssets` do Setup usa o catálogo unificado do app (ex: "BTCBNB"),
+ * que difere do símbolo literal da Infinox pra 3 ativos desta cesta (ver
+ * LLM_SYMBOL_TO_UNIFIED em LlmActiveBrainPanel.tsx) -- INVERSE_ALIAS
+ * traduz de volta pro nome que este motor usa.
+ */
+export interface UserTradingConfig {
+  riskPerTradePct: number | null; // ex: 2 = 2% (já em %, não fração)
+  allocatedCapitalUsd: number | null;
+  dailyLossLimitPct: number | null; // ex: 5 = 5%
+  direction: "AUTO" | "LONG" | "SHORT";
+  activeAssets: string[] | null; // símbolos literais da Infinox, já traduzidos; null = sem filtro (usa cesta inteira)
+}
+
+const INVERSE_ALIAS: Record<string, string> = { BTCBNB: "BTCXBN", DOGEUSD: "DOGUSD", LINKUSD: "LNKUSD" };
+
+const userConfigCache = new Map<string, { value: UserTradingConfig; fetchedAt: number }>();
+const USER_CONFIG_CACHE_MS = 60_000;
+
+export async function getUserTradingConfig(userId: string, fullBasket: string[]): Promise<UserTradingConfig> {
+  const cached = userConfigCache.get(userId);
+  if (cached && Date.now() - cached.fetchedAt < USER_CONFIG_CACHE_MS) return cached.value;
+
+  const fallback: UserTradingConfig = {
+    riskPerTradePct: null,
+    allocatedCapitalUsd: null,
+    dailyLossLimitPct: null,
+    direction: "AUTO",
+    activeAssets: null,
+  };
+  try {
+    const sb = getClient();
+    const { data, error } = await sb
+      .from("ai_user_config")
+      .select("config")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    const raw = (data?.config ?? {}) as Record<string, unknown>;
+
+    const rawAssets = Array.isArray(raw.activeAssets) ? (raw.activeAssets as string[]) : null;
+    const translatedAssets = rawAssets?.map((s) => INVERSE_ALIAS[s] ?? s) ?? null;
+    const intersected = translatedAssets ? translatedAssets.filter((s) => fullBasket.includes(s)) : null;
+
+    const value: UserTradingConfig = {
+      riskPerTradePct: typeof raw.riskPerTrade === "number" && raw.riskPerTrade > 0 ? raw.riskPerTrade : null,
+      allocatedCapitalUsd: typeof raw.allocatedCapital === "number" && raw.allocatedCapital > 0 ? raw.allocatedCapital : null,
+      dailyLossLimitPct: typeof raw.dailyLossLimit === "number" && raw.dailyLossLimit > 0 ? raw.dailyLossLimit : null,
+      direction: raw.direction === "LONG" || raw.direction === "SHORT" ? raw.direction : "AUTO",
+      // cesta do usuario intersectada com a cesta real vazia (nenhum ativo em comum) =
+      // sem filtro util, cai pra cesta inteira em vez de travar o motor sem nenhum ativo pra operar.
+      activeAssets: intersected && intersected.length > 0 ? intersected : null,
+    };
+    userConfigCache.set(userId, { value, fetchedAt: Date.now() });
+    return value;
+  } catch (err) {
+    console.warn("[neuralBridge] falha ao buscar ai_user_config, seguindo com defaults do motor:", err instanceof Error ? err.message : err);
+    return fallback;
+  }
+}
+
 export interface EligibleMt5Session {
   id: string;
   userId: string;
@@ -329,16 +418,21 @@ export interface EligibleMt5Session {
  * Lista as sessões do trilho MT5 elegíveis pro loop principal processar
  * neste ciclo (Fase 2 multi-tenant, 2026-08-31). Mesmo filtro
  * `strategy_name=LLM_ACTIVE_BRAIN_MT5` usado por `getOrCreateMt5Session`
- * acima; `status='PAUSED'` continua sendo o valor real gravado nessas sessões
- * (hack documentado ali pra ficar fora do alcance do motor mecânico antigo,
- * ainda ativo em produção -- não é "sessão pausada" no sentido usual).
+ * acima.
  *
- * 🔴 2026-08-31 (achado ao vivo): histórico de sessões antigas (08-29 até
- * hoje) ficavam com `status='PAUSED'` sem nunca serem apagadas. A query
- * original trazia TODAS -- um bug multi-tenant real onde 6 cérebros
- * independentes processavam o mesmo user_id/conta MT5 no mesmo ciclo, cegos
- * entre si sobre teto de posição/exposição. Agora retorna só a sessão mais
- * recente por `user_id` (a que está realmente ativa naquele tenant).
+ * 🔴 2026-08-31 (decisão definitiva do Cleber, motor mecânico desativado):
+ * filtro trocado de `status='PAUSED'` pra `status='RUNNING'` -- acompanha a
+ * mudança em `getOrCreateMt5Session` acima (ver comentário lá pro porquê).
+ * Sessões antigas (08-29 até 08-31) ficaram com `status='PAUSED'` de quando
+ * o hack ainda era necessário -- ficam paradas/históricas, não processadas
+ * por este loop, o que é o comportamento correto (não devem reviver).
+ *
+ * 🔴 2026-08-31 (achado ao vivo, mesma sessão): histórico de sessões antigas
+ * ficavam acumuladas sem nunca serem apagadas. A query original trazia
+ * TODAS -- um bug multi-tenant real onde 6 cérebros independentes
+ * processavam o mesmo user_id/conta MT5 no mesmo ciclo, cegos entre si sobre
+ * teto de posição/exposição. Agora retorna só a sessão mais recente por
+ * `user_id` (a que está realmente ativa naquele tenant).
  */
 export async function listEligibleMt5Sessions(): Promise<EligibleMt5Session[]> {
   const sb = getClient();
@@ -346,7 +440,7 @@ export async function listEligibleMt5Sessions(): Promise<EligibleMt5Session[]> {
     .from("ai_sessions")
     .select("id, user_id, symbols, created_at")
     .eq("strategy_name", MT5_STRATEGY_NAME)
-    .eq("status", "PAUSED")
+    .eq("status", "RUNNING")
     .order("created_at", { ascending: false });
   if (error) throw error;
 
@@ -483,6 +577,26 @@ export async function getMt5AccountBalance(sessionId: string): Promise<number> {
   const initialBalance = Number(session?.initial_balance ?? 50);
   const realizedPnl = (trades ?? []).reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
   return initialBalance + realizedPnl;
+}
+
+/**
+ * PnL realizado (soma de net_pnl dos trades FECHADOS) desde 00:00 UTC de
+ * hoje -- usado pelo gate de "Limite de Perda Diária" do Setup do AI
+ * Trader (tools.ts, open_position). Só considera fechamentos de HOJE, não
+ * o total acumulado da sessão inteira (que pode ter dias).
+ */
+export async function getTodayRealizedPnl(sessionId: string): Promise<number> {
+  const sb = getClient();
+  const todayStartUtc = new Date();
+  todayStartUtc.setUTCHours(0, 0, 0, 0);
+  const { data: trades, error } = await sb
+    .from("ai_trades")
+    .select("net_pnl")
+    .eq("session_id", sessionId)
+    .eq("status", "CLOSED")
+    .gte("exit_time", todayStartUtc.toISOString());
+  if (error) throw error;
+  return (trades ?? []).reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
 }
 
 export interface Mt5RecentClosedTrade {

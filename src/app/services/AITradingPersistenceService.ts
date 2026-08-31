@@ -293,6 +293,86 @@ class AITradingPersistenceService {
   }
 
   /**
+   * 🔴 2026-08-31 (pedido do Cleber): "Reinicialização Total" do AI Trader
+   * precisa resetar TAMBÉM a sessão do LLM Active Brain (strategy_name
+   * `LLM_ACTIVE_BRAIN_MT5`, ver `llm-active-brain/src/neuralBridge.ts`
+   * `getOrCreateMt5Session`) -- até aqui esse botão só resetava o estado do
+   * motor mecânico antigo no navegador, sem nenhum efeito na sessão real
+   * que o LLM Brain opera no servidor. Sem isto, uma sessão que zerou o
+   * saldo (crédito negativo) ficava travada pra sempre -- risco por trade
+   * calculado sobre saldo negativo nunca cabe no lote mínimo, então NENHUMA
+   * posição nova consegue abrir até uma sessão nova existir.
+   *
+   * 🔴 2026-08-31 (decisão definitiva do Cleber): motor mecânico
+   * DESATIVADO (cron `ai-runner-tick` desligado). A sessão nova agora nasce
+   * com `status: 'RUNNING'` DE PROPÓSITO -- é o que faz `getActiveSession()`
+   * (usado por Dashboard/AI Trader/Gráfico/Header via useApexLogic.ts)
+   * enxergar esta sessão como "a sessão ativa do usuário" e passar a exibir
+   * posição/patrimônio/histórico REAIS do LLM Brain nos mesmos painéis que
+   * antes mostravam o motor mecânico -- sem precisar duplicar nenhuma UI.
+   * Ver mesma mudança espelhada em `llm-active-brain/src/neuralBridge.ts`
+   * (`getOrCreateMt5Session`/`listEligibleMt5Sessions`).
+   */
+  async resetLlmActiveBrainSession(userId: string, resetBalanceUsd: number): Promise<boolean> {
+    const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
+    // Mesma cesta de `llm-active-brain/src/assetBasket.ts` (MT5_ASSET_BASKET)
+    // -- duplicado aqui de propósito: este arquivo roda no browser, aquele
+    // roda no processo Node do LLM Brain, sem import compartilhado entre os
+    // dois hoje.
+    const MT5_ASSET_BASKET = [
+      'BTCUSD', 'XETUSD', 'DOGUSD', 'DOTUSD', 'XRPUSD', 'BTCXBN',
+      'ADAUSD', 'LNKUSD', 'UNIUSD',
+    ];
+    try {
+      const { data: existing, error: findError } = await supabase
+        .from('ai_sessions')
+        .select('id, initial_balance')
+        .eq('user_id', userId)
+        .eq('strategy_name', STRATEGY_NAME)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (findError) throw findError;
+
+      if (existing?.id) {
+        // Fecha a sessão antiga com o saldo real (initial_balance + soma de
+        // net_pnl dos trades fechados) -- nunca sobrescreve, só encerra.
+        const { data: trades, error: tradesError } = await supabase
+          .from('ai_trades')
+          .select('net_pnl')
+          .eq('session_id', existing.id)
+          .eq('status', 'CLOSED');
+        if (tradesError) throw tradesError;
+        const netPnl = (trades || []).reduce((sum, t: any) => sum + (Number(t.net_pnl) || 0), 0);
+        const finalBalance = Number(existing.initial_balance ?? 50) + netPnl;
+        await this.endSession(existing.id, finalBalance, finalBalance);
+      }
+
+      const { error: createError } = await supabase
+        .from('ai_sessions')
+        .insert([{
+          user_id: userId,
+          strategy_name: STRATEGY_NAME,
+          mode: 'DEMO',
+          symbols: MT5_ASSET_BASKET,
+          initial_balance: resetBalanceUsd,
+          initial_equity: resetBalanceUsd,
+          status: 'RUNNING',
+          config: {
+            source: 'Reset via botão "Reinicialização Total" (AI Trader)',
+          },
+        }]);
+      if (createError) throw createError;
+
+      console.log(`${this.LOG_PREFIX} ✅ Sessão do LLM Active Brain resetada para $${resetBalanceUsd}`);
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao resetar sessão do LLM Active Brain:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Buscar sessões do usuário
    */
   async getUserSessions(userId: string, limit = 20): Promise<AISession[]> {

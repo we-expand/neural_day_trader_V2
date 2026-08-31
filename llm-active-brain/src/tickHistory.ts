@@ -218,3 +218,15 @@ export function getMomentumAcceleration(symbol: string, now: number = Date.now()
     accelerating,
   };
 }
+
+/**
+ * 🔴 2026-08-31: último preço REAL conhecido do símbolo (do histórico deste
+ * processo). Usado como fallback quando a MetaAPI falha/está fora do ar --
+ * garante que o agente NUNCA recebe price=0 e consegue tentar entradas
+ * mesmo com endpoint lento.
+ */
+export function getLastKnownPrice(symbol: string): number | null {
+  const arr = history.get(symbol);
+  if (!arr || arr.length === 0) return null;
+  return arr[arr.length - 1].price;
+}

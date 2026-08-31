@@ -15,26 +15,26 @@
 
 ## ▶ COMECE AQUI
 
-**2026-08-31 (tarde/noite): Fase 2 (multi-tenant do Cérebro LLM Ativo em
-DEMO) implementada em base — código pronto, `tsc --noEmit` limpo, COMMIT
-AINDA NÃO FEITO (comando pronto no handoff, Cleber roda).** Confirmado via
-SQL direto no Supabase que o cron do `ai-runner` (motor mecânico) segue
-ativo em produção (não desligar sem decisão explícita). Singleton de sessão
-por processo (`neuralBridge.ts`) e 3 caches module-level em `tools.ts`
-(achado que o handoff da Fase 1 não tinha mapeado — guardrails reais de
-cotação fresca/contradição semântica/flip-attempt) convertidos pra
-`sessionId` explícito; loop principal (`index.ts`) agora varre todas as
-`ai_sessions` elegíveis e processa serialmente. Trava de PID único
-mantida de propósito (protege `ledger.json` por processo, risco que não
-mudou). Pendente antes de considerar a Fase 2 pronta: teste real com 2+
-sessões em paralelo (item 7) e decisão sobre config por sessão (item 6,
-adiada de propósito). Detalhe completo, decisões e comando de commit:
-[NEXT_SESSION.md](NEXT_SESSION.md).
-
-**2026-08-31 (decisão original): Cérebro LLM Ativo vira o motor de IA
-principal e único do produto, motor mecânico (`ai-runner`) descontinuado.**
-Fase 1 aplicada (só Dashboard/rótulo). Levantamento completo original (Fase
-1, contrato do motor mecânico, inventário de guardrails):
+**[RESOLVIDO 2026-08-31, fim do dia] Cérebro LLM Ativo é agora o motor único
+da plataforma, execução real (não só rótulo) — motor mecânico DESLIGADO
+DEFINITIVAMENTE.** Cron `ai-runner-tick` desativado no Supabase (decisão
+explícita e definitiva do Cleber). Sessões do LLM Brain agora nascem
+`status=RUNNING` (era `PAUSED`, hack só necessário enquanto o motor
+mecânico ainda rodava) — toda a UI existente (Dashboard/AI Trader/Gráfico/
+Header) passou a exibir o motor novo automaticamente via
+`getActiveSession()`, sem componente novo. Achado crítico corrigido: bug
+real em `restart.sh` causava múltiplos processos do LLM Brain em paralelo
+(PID errado sobrescrevia o lock). Setup do AI Trader reconectado de
+verdade (risco/trade, direção, cesta de ativos, limite de perda diária) —
+~18 campos sem equivalente no motor novo removidos da UX (decisão
+explícita do Cleber). Valor único de capital da plataforma: $100 (sessão
+de teste de $50 encerrada). ATR Trailing Stop do motor mecânico deletado
+(LLM Brain já tem o próprio). **Pendente**: commit (comando pronto),
+qualidade do modelo LLM (texto corrompido observado ao vivo, não é bug de
+código). Handoff completo:
+[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_UNICO.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_UNICO.md),
+próximos passos em [NEXT_SESSION.md](NEXT_SESSION.md). Levantamento
+original (Fase 1, contrato do motor mecânico, inventário de guardrails):
 [SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
 
 **2026-08-30 (noite, ~19h-01h UTC): monitoramento contínuo de 5 em 5 min do

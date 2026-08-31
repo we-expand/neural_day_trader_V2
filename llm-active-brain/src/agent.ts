@@ -9,7 +9,7 @@ import { toolDefinitions, executeTool, type ExecuteToolSession } from "./tools.j
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
-import { enforceMt5StopsAndTargets } from "./neuralBridge.js";
+import { enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
 
@@ -20,6 +20,7 @@ import { getTradeMemoryBlock } from "./tradeMemory.js";
 export interface Mt5Session {
   sessionId: string;
   userId: string;
+  userConfig?: UserTradingConfig;
 }
 
 const TRADING_SECTION = config.tradingEnabled
@@ -72,13 +73,16 @@ sentido, não o tamanho do alvo) foi testada de verdade em 66 trades reais e
 o resultado mostrou que o alvo nunca era alcançável -- não repita esse erro
 assumindo que o alvo é curto, ele não é mais.
 
-**AJUSTE 2026-08-31 (pós-diagnóstico de paralisia por confluência):** a
-confluência exigida ficou tão alta que o agente praticamente nunca entra.
-Novo critério: ABRA com 2+ fatores alinhados (não precisa de todos os 5+).
-Exemplos válidos de entrada: (1) tendência + volume, ou (2) tendência +
-suporte/resistência, ou (3) MACD + volume elevado, ou (4) Estocástico em
-exaustão + preço perto de suporte. Não precisa de confluência "perfeita" --
-o código já protege o pior caso com stop mecânico.
+**AJUSTE 2026-08-31 (pós-diagnóstico de paralisia por confluência e dados
+incompletos):** a confluência exigida ficou tão alta e a data dependency de
+dados completos travava o agente. Novo critério: ABRA com 1+ fator alinhado,
+MESMO que alguns dados estejam nulos. Exemplos válidos: (1) só tendência
+clara, ou (2) só volume elevado + preço em nível relevante, ou (3) MACD
+positivo mesmo sem stochastic data, ou (4) suporte visível mesmo sem trend
+label. Dados nulos (trend=null, volume=null, etc) significam "endpoint lento,
+não informação negativa" -- avance mesmo assim. O stop mecânico (2×ATR)
+protege o pior caso; a trava de stop-and-reverse em código bloqueia o lado
+oposto. Sua Job: gerar possibilidades, deixar o código proteger.
 
 **QUEM VOCÊ É (2026-08-29, otimização urgente após sessão de -$119 realizados
 em um dia -- 96% concentrados nas horas seguintes ao aumento de exposição):**
@@ -285,13 +289,15 @@ sistema realmente enxerga, nada de fingir ter dado que não existe:**
    (tendência clara + volume + bom preço + sem sinal contrário). Usar "forte"
    por padrão em toda entrada não é convicção, é apostar mais caro pelo
    mesmo motivo de sempre.
-6. **Não existe obrigação de operar toda hora (espírito Kotegawa: a maior
-   parte do tempo dele era esperar, não operar).** Ficar fora de um ativo sem
-   sinal claro é uma decisão válida e às vezes a melhor -- não abra posição
-   só para "não ficar parado". MAS: quando você REALMENTE vir confluência
-   (tendência + volume + preço em bom nível), ABRA SEM HESITAR. Registrar em
-   log_thought "sem sinal, fico de fora" é um resultado tão válido quanto
-   abrir uma posição -- mas quando há sinal, não tenha medo de executar.
+6. **Operação é PREFERIDA a inatividade (não é a filosofia Kotegawa, é ajuste
+   2026-08-31 para sair da paralisia).** Esperar por confluência "perfeita"
+   deixa você preso quando os dados são incompletos (endpoint lento/off).
+   Novo: ABRA sempre que houver UMA RAZÃO legítima (qualquer fator positivo)
+   e dados não contradizem. Não espere "todos os 5 fatores" -- uma boa
+   tendência + stop mecânico é suficiente. O código já protege o pior caso;
+   sua job é gerar possibilidades, não filtrar demais. Ficar de fora é uma
+   decisão válida SÓ quando há sinal NEGATIVO claro (e.g. trend BAIXA +
+   volume baixo + preço longe de suporte = tudo contra) -- do contrário, teste.
 7. **Corte a posição errada rápido, sem hesitar (o único princípio realmente
    universal entre TODOS os traders discutidos, do scalper ao swing trader).**
    O stop mecânico já protege o pior caso, mas você pode (e deve) fechar

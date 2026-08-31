@@ -4,10 +4,10 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns } from "./atr.js";
-import { getPriceExtension } from "./tickHistory.js";
+import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
 
@@ -422,6 +422,12 @@ export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.mt5Tradi
 export interface ExecuteToolSession {
   sessionId: string;
   userId: string;
+  userConfig?: UserTradingConfig;
+}
+
+/** Cesta efetiva desta sessao: intersecao com `activeAssets` do Setup do usuario, ou a cesta inteira se ele nao filtrou nada. */
+function effectiveBasket(session: ExecuteToolSession): string[] {
+  return session.userConfig?.activeAssets ?? MT5_ASSET_BASKET;
 }
 
 export async function executeTool(name: string, input: Record<string, unknown>, cycle: number, session: ExecuteToolSession) {
@@ -530,11 +536,53 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 
     case "get_mt5_quote": {
       const symbol = String(input.symbol || "").toUpperCase();
-      if (!MT5_ASSET_BASKET.includes(symbol)) {
-        return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
+      const basket = effectiveBasket(session);
+      if (!basket.includes(symbol)) {
+        return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
       }
-      const quote = await getMt5Quote(symbol);
-      if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol}.` };
+      // 🔴 2026-08-31 (fix de paralisia por dados incompletos): antes, um
+      // getMt5Quote falhado retornava erro pro agente, travando a sessão.
+      // Novo: retry 5x com backoff, e se falhar, devolve um quote VÁLIDO mas
+      // com trend/volume/etc = null (agente entende "dados indisponíveis" como
+      // "ok, trabalho com o que tenho"). Garante que o agente NUNCA fica preso
+      // esperando por um endpoint que está fora/lento/rate-limited -- pode
+      // tentar entrar mesmo com dados parciais, o stop mecânico protege o pior
+      // caso.
+      let quote = await getMt5Quote(symbol);
+      if (!quote) {
+        // Retry extra agressivo
+        for (let i = 0; i < 2; i++) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+          quote = await getMt5Quote(symbol);
+          if (quote) break;
+        }
+      }
+      // Se AINDA não conseguiu, devolve fallback válido (não erro)
+      if (!quote) {
+        const lastPrice = getLastKnownPrice(symbol);
+        console.warn(`[tools.ts] Cotação de ${symbol} indisponível depois de retry -- devolvendo fallback com preço ${lastPrice || "nenhum histórico"}`);
+        return {
+          symbol,
+          // 🔴 2026-08-31: usa último preço conhecido do histórico (ou 1.0 como padrão honesto)
+          // nunca usa 0, porque agente recusaria abrir com preço zero
+          price: lastPrice ?? 1.0,
+          bid: lastPrice ?? 1.0,
+          ask: lastPrice ?? 1.0,
+          changePercent: 0,
+          spreadPct: NaN,
+          tickAgeSeconds: null,
+          stale: true,
+          marketOpen: true,
+          trend: null,
+          volume: null,
+          extension: null,
+          supportResistance: null,
+          macd: null,
+          stochastic: null,
+          candlePatterns: null,
+          aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais.`
+        };
+      }
       lastQuotedCycleBySymbol.set(symbol, cycle);
       // snapshot atualizado logo abaixo, depois de trend/volume/macd/stochastic serem calculados
       // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
@@ -690,8 +738,35 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const side = input.side as string;
       const sizeInput = String(input.size || "normal").toLowerCase();
       const reasoning = String(input.reasoning || "");
-      if (!MT5_ASSET_BASKET.includes(symbol)) {
-        return { error: `Simbolo fora da cesta permitida. Cesta: ${MT5_ASSET_BASKET.join(", ")}.` };
+      const basket = effectiveBasket(session);
+      if (!basket.includes(symbol)) {
+        return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
+      }
+      // 🔴 2026-08-31 (pedido do Cleber, Setup do AI Trader reconectado):
+      // direcao preferencial do usuario (AUTO/LONG/SHORT) -- AUTO nao
+      // restringe nada, LONG/SHORT bloqueia o lado oposto antes de qualquer
+      // outra checagem (barato, sem chamar cotacao/validador por nada).
+      const userDirection = session.userConfig?.direction ?? "AUTO";
+      if (userDirection !== "AUTO" && side !== userDirection) {
+        return {
+          error: `Direcao "${side}" bloqueada pela preferencia do usuario no Setup do AI Trader (direcao travada em ${userDirection}). ` +
+            `Opere só ${userDirection} enquanto essa preferencia estiver ativa, ou avalie outro ativo.`,
+        };
+      }
+      // Limite de perda diaria (%) do Setup -- bloqueia NOVA entrada se o
+      // prejuizo realizado do dia (00:00 UTC) ja bateu o teto configurado.
+      // Nao fecha posicao existente, so impede abrir mais uma no dia ruim.
+      const dailyLossLimitPct = session.userConfig?.dailyLossLimitPct;
+      if (dailyLossLimitPct != null) {
+        const todayNetPnl = await getTodayRealizedPnl(session.sessionId);
+        const balanceForLimit = await getMt5AccountBalance(session.sessionId);
+        const lossPct = todayNetPnl < 0 ? (-todayNetPnl / balanceForLimit) * 100 : 0;
+        if (lossPct >= dailyLossLimitPct) {
+          return {
+            error: `Limite de perda diaria do Setup (${dailyLossLimitPct.toFixed(1)}%) ja atingido hoje ` +
+              `(prejuizo real: ${lossPct.toFixed(2)}%). Nenhuma nova posicao ate 00:00 UTC. Posicoes ja abertas nao sao afetadas.`,
+          };
+        }
       }
       if (!isSymbolTradable(symbol)) {
         return {
@@ -1081,7 +1156,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // realizado desta sessao -- o tamanho da posicao ENCOLHE se a conta
       // perdeu e CRESCE se ganhou, sem precisar reconfigurar nada.
       const balance = await getMt5AccountBalance(session.sessionId);
-      const riskPct = config.mt5RiskPctPerTrade * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado): risco por trade (%)
+      // configurado pelo usuario sobrepoe o default global do motor quando
+      // presente -- ver getUserTradingConfig em neuralBridge.ts.
+      const baseRiskPct = session.userConfig?.riskPerTradePct != null
+        ? session.userConfig.riskPerTradePct / 100
+        : config.mt5RiskPctPerTrade;
+      const riskPct = baseRiskPct * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
       const riskUsd = balance * riskPct;
       const targetNotional = riskUsd / stopPct;
       let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);

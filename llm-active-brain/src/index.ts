@@ -5,7 +5,7 @@ import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
-import { getOrCreateMt5Session, listEligibleMt5Sessions } from "./neuralBridge.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
 
 function sleep(ms: number) {
@@ -81,7 +81,17 @@ async function resolveMt5Sessions(): Promise<Mt5Session[]> {
   console.log(`[DEBUG] eligible.length=${eligible.length}`);
   if (eligible.length > 0) {
     console.log(`[DEBUG] Retornando ${eligible.length} sessões elegíveis`);
-    return eligible.map((s) => ({ sessionId: s.id, userId: s.userId }));
+    // 🔴 2026-08-31 (pedido do Cleber): busca a config real do Setup do AI
+    // Trader por usuario (risco/trade, capital, cesta, perda diaria,
+    // direcao) -- cache de 60s dentro de getUserTradingConfig, seguro
+    // chamar todo ciclo.
+    return Promise.all(
+      eligible.map(async (s) => ({
+        sessionId: s.id,
+        userId: s.userId,
+        userConfig: await getUserTradingConfig(s.userId, MT5_ASSET_BASKET),
+      }))
+    );
   }
   if (!config.neuralUserId) {
     throw new Error(
@@ -91,7 +101,8 @@ async function resolveMt5Sessions(): Promise<Mt5Session[]> {
   console.log(`[DEBUG] Criando nova sessão para user ${config.neuralUserId}`);
   const sessionId = await getOrCreateMt5Session(config.neuralUserId, MT5_ASSET_BASKET);
   console.log(`[DEBUG] Sessão criada: ${sessionId}`);
-  return [{ sessionId, userId: config.neuralUserId }];
+  const userConfig = await getUserTradingConfig(config.neuralUserId, MT5_ASSET_BASKET);
+  return [{ sessionId, userId: config.neuralUserId, userConfig }];
 }
 
 async function runSingleCycle() {

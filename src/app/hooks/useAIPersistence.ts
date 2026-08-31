@@ -645,6 +645,16 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     return await aiPersistence.saveUserAIConfig(user.id, config);
   }, [user]);
 
+  /**
+   * 🔴 2026-08-31: reseta a sessão do LLM Active Brain (motor de IA
+   * principal, roda no servidor via llm-active-brain) -- chamado pela
+   * "Reinicialização Total" do AI Trader, ver resetLogic em useApexLogic.ts.
+   */
+  const resetLlmActiveBrainSession = useCallback(async (resetBalanceUsd: number) => {
+    if (!user?.id) return false;
+    return await aiPersistence.resetLlmActiveBrainSession(user.id, resetBalanceUsd);
+  }, [user]);
+
   // ==========================================================================
   // CLEANUP
   // ==========================================================================
@@ -664,6 +674,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Session
     startSession,
     endSession,
+    resetLlmActiveBrainSession,
     restoreActiveSession,
     getLastCompletedSession,
     currentSessionId: sessionIdRef.current,

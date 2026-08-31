@@ -2323,6 +2323,13 @@ export function useApexLogic(
     if (persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
     }
+    // 🔴 2026-08-31 (pedido do Cleber): "Reinicialização Total" precisa
+    // resetar TAMBÉM a sessão do LLM Active Brain (motor de IA principal,
+    // roda no servidor) -- sem isto, uma sessão que zerou o saldo (crédito
+    // negativo) travava pra sempre, impedindo qualquer posição nova de
+    // abrir (risco por trade sobre saldo negativo nunca cabe no lote
+    // mínimo). Fire-and-forget, mesmo padrão do endSession acima.
+    persistenceRef.current.resetLlmActiveBrainSession(INITIAL_STATE.portfolio.balance);
     // Reset explícito = "começar do zero" pra Performance também — sem isto,
     // trades fechados de semanas atrás (inclusive registros comprovadamente
     // contaminados por bugs já corrigidos no motor) reapareciam na tela
