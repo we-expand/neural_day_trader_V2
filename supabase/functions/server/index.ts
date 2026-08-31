@@ -4035,6 +4035,64 @@ app.delete('/clear-metaapi-token', async (c) => {
 // frontend, replicar aqui também.
 const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD', 'ATOMUSD', 'NEARUSD', 'SANDUSD', 'ALGOUSD', 'SHIBUSD', 'AVAXUSD', 'ETCUSD', 'GRTUSD', 'TRXUSD', 'FILUSD', 'ZECUSD', 'XTZUSD', 'CRVUSD', 'NEOUSD', 'SUSHIUSD', 'IOTAUSD', 'ONEUSD', 'INCUSD']);
 
+// ✅ 2026-08-31 (3ª parte): Cleber reportou preço/variação "muito errados"
+// contra o site da Binance mesmo depois do fix de granularidade de vela —
+// causa raiz real (não candle noise): BTCUSD sempre foi cotado pelo TICK do
+// broker (Infinox via MetaAPI, `tickerData.bid/ask`), nunca pela Binance —
+// preço de CFD numa corretora e preço da Binance são cotações de VENUES
+// diferentes, nunca serão idênticas por definição, só parecidas dentro do
+// spread. Cleber pediu explicitamente identidade com a Binance pro BTCUSD
+// (ele já assumia que a fonte era a Binance). Decisão de produto já estava
+// registrada como pendente ("roteamento de cripto") — resolvida agora só
+// pro BTCUSD (o símbolo reportado): busca preço+variação 24h DIRETO da
+// Binance pública (`/api/v3/ticker/24hr`), sem CORS aqui porque é chamada
+// servidor-servidor (Edge Function), não do browser — as tentativas antigas
+// de Binance direto que morreram em produção (ver `RealMarketDataService.ts`)
+// eram todas do CLIENTE, problema que não existe aqui. Fallback pro fluxo
+// MetaAPI de sempre se a Binance falhar (nunca deixa o preço quebrado).
+const BINANCE_DIRECT_SYMBOL_MAP: Record<string, string> = {
+    'BTCUSD': 'BTCUSDT',
+};
+
+async function fetchBinanceDirectPrice(symbol: string): Promise<{
+    symbol: string;
+    price: number;
+    change: number;
+    changePercent: number;
+    bid: number;
+    ask: number;
+    timestamp: string;
+    source: string;
+} | null> {
+    const binancePair = BINANCE_DIRECT_SYMBOL_MAP[symbol];
+    if (!binancePair) return null;
+
+    try {
+        const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binancePair}`);
+        if (!res.ok) {
+            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: Binance direto falhou (HTTP ${res.status}), caindo pro fluxo MetaAPI.`);
+            return null;
+        }
+        const b = await res.json();
+        const price = parseFloat(b.lastPrice);
+        if (!(price > 0)) return null;
+
+        return {
+            symbol,
+            price,
+            change: parseFloat(b.priceChange) || 0,
+            changePercent: parseFloat(b.priceChangePercent) || 0,
+            bid: parseFloat(b.bidPrice) || price,
+            ask: parseFloat(b.askPrice) || price,
+            timestamp: new Date(b.closeTime || Date.now()).toISOString(),
+            source: 'binance',
+        };
+    } catch (err) {
+        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: Binance direto deu erro, caindo pro fluxo MetaAPI:`, err);
+        return null;
+    }
+}
+
 // 🔍 2026-07-15: AUDJPY reportado com % levemente errada (-0.05% no app vs
 // -0.08% no MT5 real, preço batendo) — mesma família de sintoma do SOL/ADA,
 // mas em forex tradicional (não 24/7), então a hipótese de mercado sem pausa
@@ -4240,6 +4298,25 @@ app.post('/mt5-prices', async (c) => {
                     } catch (kvError) {
                         // KV indisponível não deve travar o preço — segue pro fetch real.
                         console.warn(`[MT5 PRICES] ⚠️ ${symbol}: leitura do cache KV falhou, buscando direto da corretora:`, kvError);
+                    }
+
+                    // ✅ 2026-08-31 (3ª parte): símbolos mapeados pra Binance direta
+                    // (hoje só BTCUSD, ver `BINANCE_DIRECT_SYMBOL_MAP`) pulam o tick/candle
+                    // do broker inteiramente — preço e variação idênticos ao que a Binance
+                    // mostra, por vir da mesma fonte. Se a Binance falhar, cai pro fluxo
+                    // MetaAPI de sempre logo abaixo (nunca fica sem preço).
+                    if (BINANCE_DIRECT_SYMBOL_MAP[symbol]) {
+                        const binanceResult = await fetchBinanceDirectPrice(symbol);
+                        if (binanceResult) {
+                            const cacheExpiresAt = Date.now() + PRICE_CACHE_TTL_MS;
+                            priceCache.set(symbol, { data: binanceResult, expiresAt: cacheExpiresAt });
+                            try {
+                                await kv.set(priceCacheKvKey(symbol), { data: binanceResult, expiresAt: cacheExpiresAt });
+                            } catch (kvError) {
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: escrita no cache KV (Binance direto) falhou:`, kvError);
+                            }
+                            return binanceResult;
+                        }
                     }
 
                     // 1️⃣ Buscar TICKER (preço atual)
