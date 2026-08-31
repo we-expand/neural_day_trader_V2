@@ -36,7 +36,8 @@ import {
   Copy,
   Layers,
   Clock,
-  CheckSquare
+  CheckSquare,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -452,6 +453,21 @@ export function DrawingContextToolbar({
           </div>
         )}
       </div>
+
+      {/* Separador */}
+      <div className="w-px h-6 bg-gray-700 mx-1" />
+
+      {/* 🔧 FIX: não existia NENHUM jeito explícito de fechar este menu -- só clicando em
+          espaço vazio do gráfico (fácil de não notar, especialmente com o menu em cima do
+          painel de compra/venda). Fechar aqui só esconde o menu; o desenho continua
+          selecionado/destacado (ver `onClose` no ChartView). */}
+      <button
+        onClick={onClose}
+        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+        title="Fechar"
+      >
+        <X className="w-4 h-4" />
+      </button>
     </div>
   );
 }

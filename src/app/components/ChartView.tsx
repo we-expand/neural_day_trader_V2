@@ -1826,6 +1826,64 @@ export function ChartView({
   // recriada com createOverlay() depois que o chart novo termina de carregar o dataset.
   const userDrawingOverlayIdsRef = useRef<string[]>([]);
   const userDrawingsSnapshotRef = useRef<Array<{ name: string; points: any; styles: any; extendData: any; lock: boolean; visible: boolean }>>([]);
+  // 🔧 FIX: a "DrawingContextToolbar" (menu de Mover/Estilo/Travar/Apagar) abria
+  // automaticamente no PRIMEIRO clique em cima de um desenho -- inclusive o clique que
+  // TERMINA de desenhar a linha (2º clique de uma Linha de Tendência, por exemplo) -- e
+  // ficava fixa no topo-centro do gráfico até o usuário clicar num espaço vazio ou apagar
+  // o desenho. Cleber reportou que isso atrapalha o trade (fica em cima do painel de
+  // compra/venda). Novo comportamento: 1º clique num desenho só SELECIONA (linha fica
+  // levemente mais grossa, um sinal visual discreto de "isto está acionado"); só um 2º
+  // clique NO MESMO desenho já selecionado abre o menu, perto de onde foi clicado (não
+  // mais fixo no topo-centro, que ficava em cima do painel BTCUSD/SELL/BUY). `selectedDrawingIdRef`
+  // existe porque o `onClick` de cada overlay é capturado no momento da CRIAÇÃO (a
+  // klinecharts não recria o callback a cada render) -- comparar contra o state
+  // `selectedDrawing` ali dentro leria sempre o valor "congelado" de quando o desenho foi
+  // criado, nunca o estado real depois de cliques seguintes; um ref sempre lê o valor atual.
+  const selectedDrawingIdRef = useRef<string | null>(null);
+  const originalOverlayStylesRef = useRef<Record<string, any>>({});
+  // Espelha `showContextToolbar` pro onClick do overlay (capturado na criação, closure
+  // congelada) sempre ler o valor real -- mesmo motivo do `selectedDrawingIdRef` acima.
+  const showContextToolbarRef = useRef(false);
+
+  const applyDrawingSelectionHighlight = (id: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    try {
+      const ov = chart.getOverlayById(id);
+      if (!ov) return;
+      const styles = ov.styles || {};
+      originalOverlayStylesRef.current[id] = styles;
+      const bump = (obj: any, key: string, delta: number) => (obj ? { ...obj, [key]: (obj[key] ?? 2) + delta } : obj);
+      chart.overrideOverlay({
+        id,
+        styles: {
+          ...styles,
+          line: bump(styles.line, 'size', 2),
+          rect: bump(styles.rect, 'borderSize', 2),
+          circle: bump(styles.circle, 'borderSize', 2),
+          polygon: bump(styles.polygon, 'borderSize', 2)
+        }
+      });
+    } catch (e) {
+      console.warn('[ChartView] ⚠️ Falha ao destacar desenho selecionado:', e);
+    }
+  };
+
+  const clearDrawingSelectionHighlight = (id: string | null) => {
+    if (!id) return;
+    const chart = chartInstanceRef.current;
+    const original = originalOverlayStylesRef.current[id];
+    delete originalOverlayStylesRef.current[id];
+    if (!chart || !original) return;
+    try {
+      chart.overrideOverlay({ id, styles: original });
+    } catch (e) {
+      // Desenho pode já ter sido apagado (ex: pelo botão "Apagar") -- nada a restaurar.
+    }
+  };
+  useEffect(() => {
+    showContextToolbarRef.current = showContextToolbar;
+  }, [showContextToolbar]);
   // 🆕 Cache da estrutura de longo prazo (SMC, 1D/~5 anos) por símbolo — mesma ideia do
   // Detector de Liquidez do Dashboard: sem isso, S/R só enxerga a janela curta do gráfico
   // e nunca acha zona real acima/abaixo quando o preço está longe de qualquer extremo recente.
@@ -3709,20 +3767,53 @@ export function ChartView({
             infoLineTextRef.current = existingText;
             setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
           } else {
-            setSelectedDrawing({
-              id: event.overlay.id,
-              type: event.overlay.name,
-              isLocked: !!event.overlay.lock,
-              isHidden: event.overlay.visible === false
-            });
-            const chartRect = chartContainerRef.current?.getBoundingClientRect();
-            if (chartRect) {
-              setContextToolbarPosition({
-                x: chartRect.left + chartRect.width / 2 - 200,
-                y: chartRect.top + 50
-              });
+            const clickedId = event.overlay.id;
+            // 🔧 FIX: 1º clique só seleciona + destaca (linha fica levemente mais grossa);
+            // só um 2º clique NO MESMO desenho já selecionado abre o menu -- ver comentário
+            // completo na declaração de `selectedDrawingIdRef` acima. Isso também resolve o
+            // menu abrindo sozinho no clique que TERMINA de desenhar (esse clique final é o
+            // "1º clique" deste desenho, então agora só seleciona).
+            if (selectedDrawingIdRef.current && selectedDrawingIdRef.current !== clickedId) {
+              clearDrawingSelectionHighlight(selectedDrawingIdRef.current);
             }
-            setShowContextToolbar(true);
+            if (selectedDrawingIdRef.current === clickedId && showContextToolbarRef.current) {
+              // Já selecionado e com o menu aberto -- clicar de novo FECHA o menu (mesmo
+              // gesto abre/fecha), mantendo o destaque de "selecionado".
+              setShowContextToolbar(false);
+            } else if (selectedDrawingIdRef.current === clickedId) {
+              // Já selecionado, menu fechado -- este clique é o "acionar" pedido pelo Cleber:
+              // abre o menu perto de onde o usuário clicou (não mais fixo no topo-centro,
+              // que ficava em cima do painel de compra/venda).
+              const chartRect = chartContainerRef.current?.getBoundingClientRect();
+              if (chartRect) {
+                const TOOLBAR_WIDTH = 420;
+                const TOOLBAR_HEIGHT = 56;
+                // 🔧 event.x/event.y da klinecharts são relativos ao CONTAINER do gráfico
+                // (mesma convenção já usada pelo infoLineEditor/textAnnotationEditor, ambos
+                // `position:absolute` DENTRO do container) -- mas este menu usa
+                // `position:fixed` (coordenada de viewport), então precisa somar
+                // chartRect.left/top pra converter, senão abre fora do lugar.
+                const rawX = chartRect.left + (event.x ?? chartRect.width / 2) + 12;
+                const rawY = chartRect.top + (event.y ?? 50) - TOOLBAR_HEIGHT - 12;
+                setContextToolbarPosition({
+                  x: Math.min(Math.max(rawX, chartRect.left + 8), chartRect.right - TOOLBAR_WIDTH - 8),
+                  y: Math.min(Math.max(rawY, chartRect.top + 8), chartRect.bottom - TOOLBAR_HEIGHT - 8)
+                });
+              }
+              setShowContextToolbar(true);
+            } else {
+              // Seleciona um desenho novo (ou troca de um pra outro) -- só destaca, o menu
+              // fica oculto por padrão (comportamento pedido: "via de regra ela fica oculta").
+              selectedDrawingIdRef.current = clickedId;
+              applyDrawingSelectionHighlight(clickedId);
+              setSelectedDrawing({
+                id: clickedId,
+                type: event.overlay.name,
+                isLocked: !!event.overlay.lock,
+                isHidden: event.overlay.visible === false
+              });
+              setShowContextToolbar(false);
+            }
           }
           return true;
         }
@@ -4168,6 +4259,8 @@ export function ChartView({
     try {
       chartInstanceRef.current.removeOverlay(selectedDrawing.id);
       userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== selectedDrawing.id); // 🔧 FIX: mantém o rastreamento coerente
+      delete originalOverlayStylesRef.current[selectedDrawing.id]; // apagado -- nada a restaurar depois
+      if (selectedDrawingIdRef.current === selectedDrawing.id) selectedDrawingIdRef.current = null;
       setShowContextToolbar(false);
       setSelectedDrawing(null);
       toast.success('Desenho removido');
@@ -5473,9 +5566,12 @@ export function ChartView({
       // tratado pelo onClick por instância, atribuído na criação de cada overlay
       // (ver handleDrawingToolSelect).
 
-      // Fechar toolbar ao clicar no gráfico (não em overlay)
+      // Fechar toolbar e desselecionar (removendo o destaque) ao clicar no gráfico fora de
+      // qualquer overlay
       chart.subscribeAction('onClick', (data: any) => {
         if (!data?.overlay) {
+          clearDrawingSelectionHighlight(selectedDrawingIdRef.current);
+          selectedDrawingIdRef.current = null;
           setShowContextToolbar(false);
           setSelectedDrawing(null);
         }
@@ -8224,10 +8320,12 @@ export function ChartView({
         onDuplicate={handleDrawingDuplicate}
         onCopy={handleDrawingCopy}
         onHideToggle={handleDrawingHideToggle}
-        onClose={() => {
-          setShowContextToolbar(false);
-          setSelectedDrawing(null);
-        }}
+        // 🔧 FIX: fechar o menu (X) só esconde o painel -- o desenho continua selecionado/
+        // destacado (linha um pouco mais grossa), então o usuário pode reabrir o menu com
+        // outro clique nele sem precisar selecionar de novo do zero. Clicar em espaço vazio
+        // do gráfico (ver `chart.subscribeAction('onClick', ...)` acima) é o gesto que
+        // desseleciona de verdade e remove o destaque.
+        onClose={() => setShowContextToolbar(false)}
       />
 
       {/* 🎬 BACKTEST / REPLAY BAR - Barra de controle no rodapé (cobre o catálogo inteiro de ativos) */}
