@@ -326,22 +326,40 @@ export interface EligibleMt5Session {
 }
 
 /**
- * Lista todas as sessões do trilho MT5 elegíveis pro loop principal processar
+ * Lista as sessões do trilho MT5 elegíveis pro loop principal processar
  * neste ciclo (Fase 2 multi-tenant, 2026-08-31). Mesmo filtro
  * `strategy_name=LLM_ACTIVE_BRAIN_MT5` usado por `getOrCreateMt5Session`
  * acima; `status='PAUSED'` continua sendo o valor real gravado nessas sessões
  * (hack documentado ali pra ficar fora do alcance do motor mecânico antigo,
  * ainda ativo em produção -- não é "sessão pausada" no sentido usual).
+ *
+ * 🔴 2026-08-31 (achado ao vivo): histórico de sessões antigas (08-29 até
+ * hoje) ficavam com `status='PAUSED'` sem nunca serem apagadas. A query
+ * original trazia TODAS -- um bug multi-tenant real onde 6 cérebros
+ * independentes processavam o mesmo user_id/conta MT5 no mesmo ciclo, cegos
+ * entre si sobre teto de posição/exposição. Agora retorna só a sessão mais
+ * recente por `user_id` (a que está realmente ativa naquele tenant).
  */
 export async function listEligibleMt5Sessions(): Promise<EligibleMt5Session[]> {
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_sessions")
-    .select("id, user_id, symbols")
+    .select("id, user_id, symbols, created_at")
     .eq("strategy_name", MT5_STRATEGY_NAME)
-    .eq("status", "PAUSED");
+    .eq("status", "PAUSED")
+    .order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((row) => ({
+
+  // Mantém só a mais recente por user_id (a sessão "atual" daquele tenant)
+  const byUser = new Map<string, (typeof data)[0]>();
+  for (const row of data ?? []) {
+    const userId = row.user_id as string;
+    if (!byUser.has(userId)) {
+      byUser.set(userId, row);
+    }
+  }
+
+  return Array.from(byUser.values()).map((row) => ({
     id: row.id as string,
     userId: row.user_id as string,
     symbols: (row.symbols ?? []) as string[],
