@@ -1296,6 +1296,33 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     ))}
                                 </div>
                             </div>
+
+                            {/* Signal Score Floor — 2026-08-30: campo já existia no motor
+                                (runTradingCycle.ts, `aiConfig.signalScoreFloor`) mas nunca
+                                teve controle na UI — achado depois que o Cleber pediu "IA
+                                mais severa na escolha de entrada" e mexeu no controle errado
+                                (minWinRate, que é freio de segurança pós-trade, não filtro de
+                                entrada). Este é o controle real: piso de pontuação do ranking
+                                mecânico (RSI/MACD/ADX/confiança) que um candidato precisa
+                                bater ANTES de ser considerado pra abrir posição. */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Seletividade de Entrada (Piso de Score)</label>
+                                    <span className="text-xs font-mono text-purple-400">{(config.signalScoreFloor || 0).toFixed(0)}</span>
+                                </div>
+                                <input
+                                    type="range" min="30" max="80" step="1"
+                                    value={config.signalScoreFloor}
+                                    onChange={(e) => setConfig({ ...config, signalScoreFloor: parseFloat(e.target.value) })}
+                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                />
+                                <p className="text-[9px] text-slate-500">
+                                    Pontuação mínima (RSI/MACD/ADX/confiança combinados) que um candidato precisa bater
+                                    ANTES de virar entrada — quanto mais alto, menos trades, exigindo setup mais forte.
+                                    Sem garantia de mais acerto (nenhum edge técnico foi validado com dado real até
+                                    hoje neste motor).
+                                </p>
+                            </div>
                             </div>
 
                             {/* COLUMN 2: VOLUMETRIA (Contracts/Assets) */}
@@ -1601,7 +1628,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Taxa de Acerto Mínima (%)</label>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Freio de Segurança — Acerto Mínimo Aceitável (%)</label>
                                             <span className="text-xs font-mono text-amber-400">{(config.minWinRate || 0).toFixed(0)}%</span>
                                         </div>
                                         <input
@@ -1610,7 +1637,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                             onChange={(e) => setConfig({ ...config, minWinRate: parseFloat(e.target.value) })}
                                             className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                                         />
-                                        <p className="text-[9px] text-slate-500">Abaixo desta taxa de acerto (amostra ≥10 trades), a IA entra em Safe Mode.</p>
+                                        {/* 2026-08-30: renomeado de "Taxa de Acerto Mínima (%)" — nome
+                                            confundia isto com um filtro de qualidade de entrada (o
+                                            Cleber tentou usar este campo pra deixar a IA "mais severa
+                                            na escolha"). Não é isso: é retroativo, só desliga a IA
+                                            DEPOIS de já ter operado mal. O filtro real de entrada é
+                                            "Seletividade de Entrada" (signalScoreFloor), na aba Trading. */}
+                                        <p className="text-[9px] text-slate-500">
+                                            Freio de emergência, não filtro de entrada: depois de ≥10 trades fechados no dia,
+                                            se a taxa de acerto real cair abaixo deste valor, a IA entra em Safe Mode. Não
+                                            muda quais trades são escolhidos — só decide quando parar depois do fato.
+                                        </p>
                                     </div>
                                 </div>
 
