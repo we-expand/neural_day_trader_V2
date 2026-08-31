@@ -2,19 +2,26 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { assertOnTestnet, getBalanceEth } from "./wallet.js";
-import { runAgent } from "./agent.js";
+import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions } from "./neuralBridge.js";
+import { MT5_ASSET_BASKET } from "./assetBasket.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Trava de instancia unica: dois processos escrevendo no mesmo
-// ledger/actions.json ao mesmo tempo corrompe o arquivo (JSON.parse quebra
-// em todo ciclo seguinte, travando o agente antes de decidir qualquer
-// trade -- ja aconteceu 2026-08-29). Um segundo processo que tentar subir
-// com o primeiro ainda vivo deve morrer imediatamente, nao competir.
+// 🔴 2026-08-31 (Fase 2 multi-tenant): a trava de instância única por PID
+// existia pra impedir 2 processos concorrentes escrevendo no MESMO
+// ledger/actions.json (corrompia o arquivo, JSON.parse quebrava todo ciclo
+// seguinte -- achado real de 2026-08-29). Esse motivo ainda é válido (o
+// ledger local continua sendo 1 arquivo por processo), então a trava de
+// processo único CONTINUA -- o que muda é que agora o loop dentro de um
+// único processo processa N sessões, não mais 1. Nunca processar a MESMA
+// sessão duas vezes AO MESMO TEMPO dentro do processo é garantido pelo loop
+// ser serial (for..of sequencial em runContinuous abaixo), não paralelo --
+// não precisa de lock adicional por sessão enquanto isso for verdade.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOCK_FILE = join(__dirname, "..", "llm-brain.pid");
 
@@ -61,6 +68,27 @@ function acquireSingleInstanceLock() {
   });
 }
 
+/**
+ * Sessões MT5 a processar neste ciclo (Fase 2 multi-tenant, 2026-08-31).
+ * Consulta `ai_sessions` (mesmo padrão do `ai-runner`, ver item 4 do handoff
+ * da Fase 2) -- se nenhuma existir ainda (primeira execução), cria a sessão
+ * bootstrap a partir de `NEURAL_USER_ID`/env, preservando o comportamento de
+ * hoje (single-tenant) como caso particular de N=1.
+ */
+async function resolveMt5Sessions(): Promise<Mt5Session[]> {
+  const eligible = await listEligibleMt5Sessions();
+  if (eligible.length > 0) {
+    return eligible.map((s) => ({ sessionId: s.id, userId: s.userId }));
+  }
+  if (!config.neuralUserId) {
+    throw new Error(
+      "Nenhuma sessao MT5 elegivel encontrada e NEURAL_USER_ID ausente no .env -- nao ha sessao bootstrap pra criar."
+    );
+  }
+  const sessionId = await getOrCreateMt5Session(config.neuralUserId, MT5_ASSET_BASKET);
+  return [{ sessionId, userId: config.neuralUserId }];
+}
+
 async function runSingleCycle() {
   console.log("Iniciando agente em Base Sepolia (testnet — sem valor real)...\n");
   await runAgent(1);
@@ -80,16 +108,44 @@ async function runContinuous() {
     console.log(`\n========== CICLO ${cycle}/${config.maxCycles} ==========`);
 
     let calledStop = false;
-    try {
-      calledStop = await runAgent(cycle);
-    } catch (err) {
-      // Um erro nao recuperavel num ciclo (ex: rate limit persistente,
-      // API fora do ar) nao deve derrubar o modo continuo inteiro - loga,
-      // espera, e tenta o proximo ciclo.
-      console.error(`\nErro no ciclo ${cycle}:`, err instanceof Error ? err.message : err);
-      console.log(`Aguardando ${config.cycleDelaySeconds}s antes de tentar o proximo ciclo...`);
-      await sleep(config.cycleDelaySeconds * 1000);
-      continue;
+    if (config.mt5TradingEnabled) {
+      // 🔴 2026-08-31 (Fase 2 multi-tenant): processa TODAS as sessoes
+      // elegiveis, SERIALMENTE (nunca em paralelo -- a conta MetaAPI
+      // compartilhada nao aguenta chamadas concorrentes, ver aviso em
+      // CLAUDE.md sobre rate-limit 429/504). Uma sessao falhando nao aborta
+      // as demais deste ciclo.
+      let sessions: Mt5Session[];
+      try {
+        sessions = await resolveMt5Sessions();
+      } catch (err) {
+        console.error(`\nErro ao resolver sessoes MT5 elegiveis no ciclo ${cycle}:`, err instanceof Error ? err.message : err);
+        console.log(`Aguardando ${config.cycleDelaySeconds}s antes de tentar o proximo ciclo...`);
+        await sleep(config.cycleDelaySeconds * 1000);
+        continue;
+      }
+      for (const session of sessions) {
+        try {
+          const stoppedThisSession = await runAgent(cycle, session);
+          calledStop = calledStop || stoppedThisSession;
+        } catch (err) {
+          console.error(
+            `\nErro no ciclo ${cycle} (sessao ${session.sessionId}):`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+    } else {
+      try {
+        calledStop = await runAgent(cycle);
+      } catch (err) {
+        // Um erro nao recuperavel num ciclo (ex: rate limit persistente,
+        // API fora do ar) nao deve derrubar o modo continuo inteiro - loga,
+        // espera, e tenta o proximo ciclo.
+        console.error(`\nErro no ciclo ${cycle}:`, err instanceof Error ? err.message : err);
+        console.log(`Aguardando ${config.cycleDelaySeconds}s antes de tentar o proximo ciclo...`);
+        await sleep(config.cycleDelaySeconds * 1000);
+        continue;
+      }
     }
 
     const ethBalance = Number(await getBalanceEth());

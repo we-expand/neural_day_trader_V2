@@ -15,18 +15,27 @@
 
 ## ▶ COMECE AQUI
 
-**2026-08-31: decisão do Cleber — Cérebro LLM Ativo vira o motor de IA
-principal e único do produto, motor mecânico (`ai-runner`) descontinuado.
-Fase 1 aplicada (só Dashboard, sem mudança de arquitetura): removido o
-rótulo "teste/isolado" do painel, painel tratado como principal.** Migração
-real (multi-tenant, LIVE do zero, deploy como serviço, migração segura de
-posições do motor antigo) é trabalho de múltiplas sessões, ainda não
-iniciado — levantamento completo do que falta e ordem de execução no
-handoff:
-[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
-**Próxima sessão começa direto na Fase 2** (multi-tenant em DEMO, ordem de
-trabalho exata já escrita) — ver
+**2026-08-31 (tarde/noite): Fase 2 (multi-tenant do Cérebro LLM Ativo em
+DEMO) implementada em base — código pronto, `tsc --noEmit` limpo, COMMIT
+AINDA NÃO FEITO (comando pronto no handoff, Cleber roda).** Confirmado via
+SQL direto no Supabase que o cron do `ai-runner` (motor mecânico) segue
+ativo em produção (não desligar sem decisão explícita). Singleton de sessão
+por processo (`neuralBridge.ts`) e 3 caches module-level em `tools.ts`
+(achado que o handoff da Fase 1 não tinha mapeado — guardrails reais de
+cotação fresca/contradição semântica/flip-attempt) convertidos pra
+`sessionId` explícito; loop principal (`index.ts`) agora varre todas as
+`ai_sessions` elegíveis e processa serialmente. Trava de PID único
+mantida de propósito (protege `ledger.json` por processo, risco que não
+mudou). Pendente antes de considerar a Fase 2 pronta: teste real com 2+
+sessões em paralelo (item 7) e decisão sobre config por sessão (item 6,
+adiada de propósito). Detalhe completo, decisões e comando de commit:
 [NEXT_SESSION.md](NEXT_SESSION.md).
+
+**2026-08-31 (decisão original): Cérebro LLM Ativo vira o motor de IA
+principal e único do produto, motor mecânico (`ai-runner`) descontinuado.**
+Fase 1 aplicada (só Dashboard/rótulo). Levantamento completo original (Fase
+1, contrato do motor mecânico, inventário de guardrails):
+[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
 
 **2026-08-30 (noite, ~19h-01h UTC): monitoramento contínuo de 5 em 5 min do
 Cérebro LLM Ativo (sessão `aa279c75...`, ~66 checagens) — 1 bug real

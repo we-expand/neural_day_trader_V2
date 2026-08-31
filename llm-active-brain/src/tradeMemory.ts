@@ -12,7 +12,10 @@ import { getClosedTradesForMemory, type Mt5ClosedTradeForMemory } from "./neural
  */
 
 const CACHE_TTL_MS = 60_000; // ciclo é de 10s -- sem cache, 6x mais query que necessário
-let cache: { block: string; fetchedAt: number } | null = null;
+// 🔴 2026-08-31 (Fase 2 multi-tenant): era `let cache` global -- corretor
+// só quando havia 1 sessão. Agora por `sessionId`, senão a memória de trades
+// de uma sessão vazaria pra outra.
+const cacheBySession = new Map<string, { block: string; fetchedAt: number }>();
 
 interface SymbolSideStats {
   symbol: string;
@@ -76,10 +79,11 @@ function formatBlock(stats: SymbolSideStats[]): string {
 }
 
 /** Devolve o bloco de memória (com cache de 60s) ou string vazia se não houver trade fechado / falhar. */
-export async function getTradeMemoryBlock(): Promise<string> {
+export async function getTradeMemoryBlock(sessionId: string): Promise<string> {
+  const cache = cacheBySession.get(sessionId);
   if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) return cache.block;
-  const trades = await getClosedTradesForMemory(30);
+  const trades = await getClosedTradesForMemory(sessionId, 30);
   const block = formatBlock(aggregate(trades));
-  cache = { block, fetchedAt: Date.now() };
+  cacheBySession.set(sessionId, { block, fetchedAt: Date.now() });
   return block;
 }

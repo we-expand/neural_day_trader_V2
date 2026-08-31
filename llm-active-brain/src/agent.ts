@@ -5,13 +5,22 @@ import type {
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { config } from "./config.js";
-import { toolDefinitions, executeTool } from "./tools.js";
+import { toolDefinitions, executeTool, type ExecuteToolSession } from "./tools.js";
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
 import { enforceMt5StopsAndTargets } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
+
+// 🔴 2026-08-31 (Fase 2 multi-tenant): antes runAgent operava sempre sobre o
+// singleton global de sessão (config.neuralUserId fixo em env). Agora recebe
+// a sessão explicitamente -- o loop principal (index.ts) decide QUAIS
+// sessões processar a cada ciclo, esta função só executa 1 sessão por vez.
+export interface Mt5Session {
+  sessionId: string;
+  userId: string;
+}
 
 const TRADING_SECTION = config.tradingEnabled
   ? `
@@ -546,9 +555,13 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
 
 // Roda um ciclo de decisao (varias iteracoes ate o agente chamar "stop" ou
 // esgotar o limite). Retorna true se o agente chamou "stop" explicitamente.
-export async function runAgent(cycle: number): Promise<boolean> {
+export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<boolean> {
+  // Modo legado (Binance/experimento ETH testnet) não tem sessão MT5 --
+  // executeTool ainda recebe algo, mas os handlers legados nunca leem sessionId/userId.
+  const toolSession: ExecuteToolSession = mt5Session ?? { sessionId: "", userId: "" };
   let userMessage: string;
   if (config.mt5TradingEnabled) {
+    if (!mt5Session) throw new Error("runAgent chamado em modo MT5 sem sessao (mt5Session ausente).");
     // 🔴 2026-08-29: trava MECANICA de stop/alvo roda ANTES do LLM decidir
     // qualquer coisa neste ciclo -- ver enforceMt5StopsAndTargets
     // (neuralBridge.ts) pro porque (o stop em texto no prompt deixou perdas
@@ -575,7 +588,7 @@ export async function runAgent(cycle: number): Promise<boolean> {
       let result: Awaited<ReturnType<typeof enforceMt5StopsAndTargets>> | undefined;
       for (let attempt = 1; attempt <= STOP_CHECK_RETRY_ATTEMPTS; attempt++) {
         try {
-          result = await enforceMt5StopsAndTargets(getMt5Quote);
+          result = await enforceMt5StopsAndTargets(mt5Session.sessionId, getMt5Quote);
           lastErr = undefined;
           break;
         } catch (err) {
@@ -624,7 +637,7 @@ export async function runAgent(cycle: number): Promise<boolean> {
     // sessao anterior), entao sem memoria e sempre melhor que ciclo abortado.
     let memoryBlock = "";
     try {
-      memoryBlock = await getTradeMemoryBlock();
+      memoryBlock = await getTradeMemoryBlock(mt5Session.sessionId);
     } catch (err) {
       console.error("[agent] falha ao montar memoria de trades (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
     }
@@ -720,7 +733,7 @@ export async function runAgent(cycle: number): Promise<boolean> {
       console.log(`  -> chamando ferramenta: ${name}(${JSON.stringify(input)})`);
       let result: unknown;
       try {
-        result = await executeTool(name, input, cycle);
+        result = await executeTool(name, input, cycle, toolSession);
       } catch (err) {
         // Uma falha numa ferramenta (ex: API externa fora do ar, chave
         // invalida) nao deve derrubar o processo inteiro - o agente deve

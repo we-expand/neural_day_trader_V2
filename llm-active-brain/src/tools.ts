@@ -42,7 +42,20 @@ export const SPREAD_WARN_PCT = 0.8;
 // simbolo no MESMO ciclo antes de aceitar um close_position manual nele --
 // forca a decisao a se basear em dado fresco e do ativo certo, nao em
 // memoria stale ou contaminacao cruzada entre simbolos.
-const lastQuotedCycleBySymbol = new Map<string, number>();
+// 🔴 2026-08-31 (Fase 2 multi-tenant): estes 3 caches eram globais por
+// simbolo -- corretos so quando o processo tinha 1 sessao. Agora cada um vira
+// um mapa aninhado por `sessionId`, pra uma sessao nunca ler/contaminar o
+// estado de outra rodando no mesmo processo.
+function perSession<K, V>(store: Map<string, Map<K, V>>, sessionId: string): Map<K, V> {
+  let inner = store.get(sessionId);
+  if (!inner) {
+    inner = new Map<K, V>();
+    store.set(sessionId, inner);
+  }
+  return inner;
+}
+
+const lastQuotedCycleBySymbolStore = new Map<string, Map<string, number>>();
 
 // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido do Cleber apos
 // BTCUSD SHORT perder $5,58): o guard de "cotacao fresca no mesmo ciclo"
@@ -59,9 +72,9 @@ const lastQuotedCycleBySymbol = new Map<string, number>();
 // reasoning vs o dado real que o motivou -- por isso nao pegou. Cache aqui
 // guarda o ultimo snapshot renderizado por get_mt5_quote por simbolo, pra
 // alimentar o validador com o dado real e ele comparar contra o texto.
-const lastQuoteSnapshotBySymbol = new Map<
+const lastQuoteSnapshotBySymbolStore = new Map<
   string,
-  { trendLabel: string | null; volumeElevated: boolean | null; macdLabel: string | null; stochasticLabel: string | null }
+  Map<string, { trendLabel: string | null; volumeElevated: boolean | null; macdLabel: string | null; stochasticLabel: string | null }>
 >();
 
 // 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas" -- 3
@@ -78,7 +91,7 @@ const lastQuoteSnapshotBySymbol = new Map<
 // metade da distancia ate o alvo (ja realizou boa parte do lucro) -- barra
 // especificamente a zona "mal se moveu" onde o motivo real e "quero
 // apostar no lado contrario", nao "a tese morreu".
-const flipAttemptBlockedThisCycle = new Map<string, number>();
+const flipAttemptBlockedThisCycleStore = new Map<string, Map<string, number>>();
 const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
@@ -405,7 +418,15 @@ export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.mt5Tradi
   ? [...commonToolDefinitions, ...legacyToolDefinitions, ...tradingToolDefinitions]
   : [...commonToolDefinitions, ...legacyToolDefinitions];
 
-export async function executeTool(name: string, input: Record<string, unknown>, cycle: number) {
+export interface ExecuteToolSession {
+  sessionId: string;
+  userId: string;
+}
+
+export async function executeTool(name: string, input: Record<string, unknown>, cycle: number, session: ExecuteToolSession) {
+  const lastQuotedCycleBySymbol = perSession(lastQuotedCycleBySymbolStore, session.sessionId);
+  const lastQuoteSnapshotBySymbol = perSession(lastQuoteSnapshotBySymbolStore, session.sessionId);
+  const flipAttemptBlockedThisCycle = perSession(flipAttemptBlockedThisCycleStore, session.sessionId);
   switch (name) {
     case "check_fictional_balance": {
       return { balance_usd: getBalanceUsd(), moeda: "USD FICTICIO - nao e dinheiro real" };
@@ -625,7 +646,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // deterministico, nunca erra. O LLM so precisa ler o numero.
       let positions;
       try {
-        positions = await listMt5OpenPositions();
+        positions = await listMt5OpenPositions(session.sessionId);
       } catch (err) {
         return { error: `Falha ao consultar posicoes abertas (rede/Supabase): ${err instanceof Error ? err.message : err}. Tente de novo antes de decidir.` };
       }
@@ -798,7 +819,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const MAX_POSITIONS_PER_SYMBOL = 1;
       let openPositions;
       try {
-        openPositions = await listMt5OpenPositions();
+        openPositions = await listMt5OpenPositions(session.sessionId);
       } catch (err) {
         // Falha fechada: sem confirmar o estado real, nao abre -- ver
         // comentario em neuralBridge.ts/listMt5OpenPositions sobre o furo
@@ -872,7 +893,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // QUALQUER fechamento com resultado negativo (SL ou AI_SIGNAL), nao so
       // stop mecanico.
       try {
-        const recentClosed = await getRecentClosedTrades(symbol, config.mt5LossStreakThreshold);
+        const recentClosed = await getRecentClosedTrades(session.sessionId, symbol, config.mt5LossStreakThreshold);
         const cooldownMs = config.mt5LossStreakCooldownMinutes * 60 * 1000;
         const isLoss = (t: Awaited<ReturnType<typeof getRecentClosedTrades>>[number]) => {
           const result = t.net_pnl ?? t.pnl;
@@ -1056,7 +1077,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // proprietaria). getMt5AccountBalance() soma initial_balance + net_pnl
       // realizado desta sessao -- o tamanho da posicao ENCOLHE se a conta
       // perdeu e CRESCE se ganhou, sem precisar reconfigurar nada.
-      const balance = await getMt5AccountBalance();
+      const balance = await getMt5AccountBalance(session.sessionId);
       const riskPct = config.mt5RiskPctPerTrade * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
       const riskUsd = balance * riskPct;
       const targetNotional = riskUsd / stopPct;
@@ -1131,6 +1152,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const stopLoss = side === "LONG" ? fillPrice * (1 - stopPct) : fillPrice * (1 + stopPct);
       const takeProfit = side === "LONG" ? fillPrice * (1 + takeProfitPct) : fillPrice * (1 - takeProfitPct);
       const tradeId = await openMt5Position({
+        sessionId: session.sessionId,
+        userId: session.userId,
         symbol,
         side: side as "LONG" | "SHORT",
         entryPrice: fillPrice,
@@ -1138,7 +1161,6 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stopLoss,
         takeProfit,
         reasoning,
-        symbolsForNewSession: MT5_ASSET_BASKET,
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
       return {
@@ -1171,7 +1193,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!tradeId) return { error: "trade_id invalido." };
       let positions;
       try {
-        positions = await listMt5OpenPositions();
+        positions = await listMt5OpenPositions(session.sessionId);
       } catch (err) {
         return { error: `Nao foi possivel confirmar a posicao ${tradeId} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO fechada -- tente de novo.` };
       }

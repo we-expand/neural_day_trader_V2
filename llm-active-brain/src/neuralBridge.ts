@@ -262,23 +262,31 @@ const MT5_TEST_DATA_REASON =
   "Cérebro LLM ativo (trilho MT5, sem Binance/cripto) operando a mesma cesta/preço/execução " +
   "do motor mecânico, em sessão isolada -- pedido do Cleber, 2026-08-29.";
 
-let mt5SessionIdPromise: Promise<string> | null = null;
+// 🔴 2026-08-31 (Fase 2 multi-tenant): era um singleton por-processo
+// (`mt5SessionIdPromise`), atrelado a um único `config.neuralUserId` fixo em
+// env -- só suportava 1 sessão por vez. Agora `sessionId` é resolvido uma vez
+// por usuário (cache por `userId`, evita re-query a cada ciclo) e passado
+// EXPLICITAMENTE por todo chamador -- nenhuma função abaixo lê mais um
+// singleton global. Isolamento entre sessões passa a ser responsabilidade de
+// quem chama (o loop principal em index.ts/agent.ts), não deste módulo.
+const mt5SessionIdCacheByUser = new Map<string, Promise<string>>();
 
-async function getOrCreateMt5Session(symbols: string[]): Promise<string> {
-  if (mt5SessionIdPromise) return mt5SessionIdPromise;
-  mt5SessionIdPromise = (async () => {
-    if (!config.neuralUserId) {
-      throw new Error("NEURAL_USER_ID ausente no .env (necessario com NEURAL_BRIDGE_ENABLED=true).");
-    }
+export async function getOrCreateMt5Session(userId: string, symbols: string[]): Promise<string> {
+  const cached = mt5SessionIdCacheByUser.get(userId);
+  if (cached) return cached;
+  const promise = (async () => {
     const sb = getClient();
 
     // Mesma regra do trilho Binance acima: NUNCA status='RUNNING' aqui (ver
     // comentário grande em getOrCreateSession) -- ficaria visível pro
-    // getActiveSession() do motor mecânico real no navegador.
+    // getActiveSession() do motor mecânico real no navegador. O motor
+    // mecânico (ai-runner) continua ativo em produção (cron confirmado
+    // 2026-08-31) -- não mudar este status sem decidir isso explicitamente
+    // com o Cleber primeiro (ver item 3 do handoff da Fase 2).
     const { data: existing, error: findError } = await sb
       .from("ai_sessions")
       .select("id")
-      .eq("user_id", config.neuralUserId)
+      .eq("user_id", userId)
       .eq("strategy_name", MT5_STRATEGY_NAME)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -289,7 +297,7 @@ async function getOrCreateMt5Session(symbols: string[]): Promise<string> {
     const { data: created, error: createError } = await sb
       .from("ai_sessions")
       .insert({
-        user_id: config.neuralUserId,
+        user_id: userId,
         strategy_name: MT5_STRATEGY_NAME,
         mode: "DEMO",
         symbols,
@@ -297,7 +305,7 @@ async function getOrCreateMt5Session(symbols: string[]): Promise<string> {
         initial_equity: 50,
         status: "PAUSED",
         config: {
-          source: "llm-active-brain (agente full tool-calling, sem gate mecanico, cesta/preco/execucao do motor mecanico)",
+          source: "llm-active-brain (motor de IA principal, agente full tool-calling, cesta/preco/execucao MT5)",
           llm_provider: config.llmProvider,
           llm_model: config.llmModel,
         },
@@ -307,10 +315,42 @@ async function getOrCreateMt5Session(symbols: string[]): Promise<string> {
     if (createError) throw createError;
     return created.id as string;
   })();
-  return mt5SessionIdPromise;
+  mt5SessionIdCacheByUser.set(userId, promise);
+  return promise;
+}
+
+export interface EligibleMt5Session {
+  id: string;
+  userId: string;
+  symbols: string[];
+}
+
+/**
+ * Lista todas as sessões do trilho MT5 elegíveis pro loop principal processar
+ * neste ciclo (Fase 2 multi-tenant, 2026-08-31). Mesmo filtro
+ * `strategy_name=LLM_ACTIVE_BRAIN_MT5` usado por `getOrCreateMt5Session`
+ * acima; `status='PAUSED'` continua sendo o valor real gravado nessas sessões
+ * (hack documentado ali pra ficar fora do alcance do motor mecânico antigo,
+ * ainda ativo em produção -- não é "sessão pausada" no sentido usual).
+ */
+export async function listEligibleMt5Sessions(): Promise<EligibleMt5Session[]> {
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("ai_sessions")
+    .select("id, user_id, symbols")
+    .eq("strategy_name", MT5_STRATEGY_NAME)
+    .eq("status", "PAUSED");
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    userId: row.user_id as string,
+    symbols: (row.symbols ?? []) as string[],
+  }));
 }
 
 export interface OpenMt5PositionParams {
+  sessionId: string;
+  userId: string;
   symbol: string;
   side: "LONG" | "SHORT";
   entryPrice: number;
@@ -321,20 +361,18 @@ export interface OpenMt5PositionParams {
   stopLoss: number;
   takeProfit: number;
   reasoning: string;
-  symbolsForNewSession: string[];
 }
 
 /** Abre uma posição virtual OPEN no trilho MT5. Retorna o id (pra poder fechar depois) ou null se falhar. Nunca lança. */
 export async function openMt5Position(params: OpenMt5PositionParams): Promise<string | null> {
   if (!config.neuralBridgeEnabled) return null;
   try {
-    const sessionId = await getOrCreateMt5Session(params.symbolsForNewSession);
     const sb = getClient();
     const { data, error } = await sb
       .from("ai_trades")
       .insert({
-        session_id: sessionId,
-        user_id: config.neuralUserId,
+        session_id: params.sessionId,
+        user_id: params.userId,
         symbol: params.symbol,
         type: params.side === "LONG" ? "BUY" : "SELL",
         side: params.side,
@@ -387,9 +425,8 @@ export interface Mt5OpenPosition {
  * 2026-08-28. Agora propaga o erro -- cada chamador decide como falhar
  * fechado (bloquear a ação) em vez de assumir "sem posição".
  */
-export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
+export async function listMt5OpenPositions(sessionId: string): Promise<Mt5OpenPosition[]> {
   if (!config.neuralBridgeEnabled) return [];
-  const sessionId = await getOrCreateMt5Session([]);
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
@@ -417,8 +454,7 @@ export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
  * (mais conservador -- não conta lucro não realizado como capital
  * disponível pra arriscar de novo).
  */
-export async function getMt5AccountBalance(): Promise<number> {
-  const sessionId = await getOrCreateMt5Session([]);
+export async function getMt5AccountBalance(sessionId: string): Promise<number> {
   const sb = getClient();
   const [{ data: session, error: sessionError }, { data: trades, error: tradesError }] = await Promise.all([
     sb.from("ai_sessions").select("initial_balance").eq("id", sessionId).single(),
@@ -457,9 +493,8 @@ export interface Mt5RecentClosedTrade {
  * (tools.ts) poder contar QUALQUER fechamento negativo como perda pra fins
  * de streak, não só stop mecânico.
  */
-export async function getRecentClosedTrades(symbol: string, limit = 5): Promise<Mt5RecentClosedTrade[]> {
+export async function getRecentClosedTrades(sessionId: string, symbol: string, limit = 5): Promise<Mt5RecentClosedTrade[]> {
   if (!config.neuralBridgeEnabled) return [];
-  const sessionId = await getOrCreateMt5Session([]);
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
@@ -493,9 +528,8 @@ export interface Mt5ClosedTradeForMemory {
  * transitória de rede é pior que abortar e o chamador decidir (aqui,
  * `tradeMemory.ts` decide cair pra "sem memória" via try/catch, não aqui).
  */
-export async function getClosedTradesForMemory(limit = 30): Promise<Mt5ClosedTradeForMemory[]> {
+export async function getClosedTradesForMemory(sessionId: string, limit = 30): Promise<Mt5ClosedTradeForMemory[]> {
   if (!config.neuralBridgeEnabled) return [];
-  const sessionId = await getOrCreateMt5Session([]);
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
@@ -627,9 +661,10 @@ async function updateStopLoss(tradeId: string, newStopLoss: number): Promise<boo
  * evitar ou atrasar o fechamento.
  */
 export async function enforceMt5StopsAndTargets(
+  sessionId: string,
   getQuote: (symbol: string) => Promise<{ price: number; bid: number; ask: number } | null>
 ): Promise<{ closed: StopEnforcementResult[]; breakevens: BreakevenMoveResult[]; trails: TrailMoveResult[] }> {
-  const positions = await listMt5OpenPositions();
+  const positions = await listMt5OpenPositions(sessionId);
   const closed: StopEnforcementResult[] = [];
   const breakevens: BreakevenMoveResult[] = [];
   const trails: TrailMoveResult[] = [];

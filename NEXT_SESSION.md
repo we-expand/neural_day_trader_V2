@@ -1,127 +1,180 @@
 # Handoff — próxima sessão
 
-> Reescrito em **2026-08-31** (linha de trabalho trocada — este arquivo é
-> handoff da sessão CORRENTE, sempre reescrito, nunca empilhado). Itens de
-> pesquisa de sessões anteriores (Trilho 2/NIM/cuOpt, cron/Pyramiding etc.)
-> não foram tocados nem abandonados — continuam rastreados na seção
-> "Pendências reais em aberto" do [CLAUDE.md](CLAUDE.md). A partir de agora
-> a prioridade nº1 do projeto é a migração abaixo; não iniciar outra linha
-> sem checar com o Cleber primeiro.
+> **Pedido do Cleber (2026-08-31, fim da sessão anterior): preparar a
+> próxima sessão pra seguir direto pra Fase 3.** Importante: Fase 3 é LIVE
+> (credencial de corretora por usuário, execução real) — a Fase 2 (base
+> multi-tenant em DEMO) está implementada mas **NÃO validada** ainda: falta
+> o commit (comando abaixo), falta o teste real com 2+ sessões em paralelo
+> (item 7), e a decisão de config por sessão (item 6) ficou em aberto. Regra
+> fixa do projeto: nunca prometer edge/estabilidade sem validação real. A
+> ordem abaixo é: (A) fechar o que falta da Fase 2 primeiro — é rápido e é a
+> única forma de saber se o multi-tenant não vaza posição entre sessões
+> antes de destravar dinheiro/corretora real na Fase 3 — depois (B) Fase 3
+> propriamente dita. Não pular direto pra B sem fechar A; se o Cleber quiser
+> pular mesmo assim, é decisão dele a confirmar no início da próxima sessão,
+> não default automático.
+
+> Reescrito em **2026-08-31** (sessão de implementação da Fase 2 — este
+> arquivo é handoff da sessão CORRENTE, sempre reescrito, nunca empilhado).
+> Itens de pesquisa de sessões anteriores (Trilho 2/NIM/cuOpt, cron/
+> Pyramiding etc.) não foram tocados nem abandonados — continuam rastreados
+> na seção "Pendências reais em aberto" do [CLAUDE.md](CLAUDE.md).
 
 ## ▶ COMECE AQUI — Fase 2: Cérebro LLM Ativo multi-tenant em DEMO
 
-### Contexto (não repetir a exploração — já foi feita)
+### O que esta sessão fez (código pronto, NENHUM commit feito — Cleber roda os comandos abaixo)
 
-2026-08-31: decisão do Cleber — o **Cérebro LLM Ativo** (`llm-active-brain/`)
-vira o motor de IA principal e único do produto; o motor mecânico
-(`ai-runner`) fica descontinuado. Fase 1 (só rótulo/UX do Dashboard) já foi
-aplicada — ver
-[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md)
-pro levantamento completo (motor mecânico, llm-active-brain, Dashboard,
-contrato de substituição). **Fase 2 = portar o llm-active-brain pra
-multi-tenant, ainda só em DEMO, sem LIVE e sem deploy como serviço** — isso
-fica pras Fases 3 e 4, não misturar escopo.
+`tsc --noEmit` limpo (`llm-active-brain/`, `strict: true`). Sem `npm run
+validate` — este subprojeto não faz parte do workspace principal, não tem
+esse script.
 
-**Antes de escrever qualquer código, ler o handoff da Fase 1 inteiro** — ele
-tem o contrato exato do motor mecânico (`TradingCycleState`/`Deps`/`Result`,
-`runTradingCycle.ts:108-221`) e o inventário de guardrails do
-llm-active-brain, não reproduzido aqui pra não duplicar.
+1. **Item 1 confirmado com SQL direto no Supabase** (`wyvdsxtcmizettljxtbg`):
+   o cron do `ai-runner` (motor mecânico) **existe de fato e está ATIVO**
+   (`jobid=5`, `* * * * *`). Não desligar sem decisão explícita — o motor
+   mecânico continua operando de verdade em produção.
 
-### O que precisa mudar, em ordem
+2. **Item 2 (trava de PID) — decisão DIFERENTE da proposta original do
+   handoff, com justificativa**: a trava de instância única por PID em
+   [index.ts](llm-active-brain/src/index.ts) foi **mantida**, não removida.
+   Motivo: ela protege contra corrupção do `ledger/actions.json`, que
+   continua sendo 1 arquivo por PROCESSO (não por sessão) — esse risco não
+   mudou com o multi-tenant. O que garante que a mesma sessão nunca é
+   processada 2x ao mesmo tempo é o loop ser **serial** (não paralelo) sobre
+   as sessões elegíveis a cada ciclo — não precisa de lock adicional por
+   sessão enquanto isso for verdade. Se algum dia o loop virar paralelo
+   (item 4 do handoff anterior cogitava isso "se precisar de paralelismo
+   limitado"), aí sim precisa de lock por `session_id`.
 
-1. **Confirmar se o cron do `ai-runner` existe de fato em produção** antes
-   de decidir como desligá-lo. Não achei `cron.schedule` aplicado nas
-   migrations do repo (só um exemplo comentado em
-   `supabase/functions/ai-runner/index.ts:895-913`) — pode ser suposição
-   desatualizada do CLAUDE.md. Checar com `list_cron_jobs`/SQL direto no
-   projeto Supabase (`wyvdsxtcmizettljxtbg`) antes de mexer.
+3. **Item 3 (singleton de sessão → parâmetro explícito) — feito em
+   `neuralBridge.ts`.** `mt5SessionIdPromise` (singleton por processo) virou
+   `mt5SessionIdCacheByUser` (`Map<userId, Promise<sessionId>>`, cache por
+   usuário, evita re-query a cada ciclo). `getOrCreateMt5Session(userId,
+   symbols)` agora exportada e recebe `userId` explícito (antes lia
+   `config.neuralUserId` global). TODAS as funções do trilho MT5
+   (`openMt5Position`, `listMt5OpenPositions`, `getMt5AccountBalance`,
+   `getRecentClosedTrades`, `getClosedTradesForMemory`,
+   `enforceMt5StopsAndTargets`) agora recebem `sessionId` como parâmetro em
+   vez de resolver o singleton internamente.
+   - **Decisão que NÃO foi tomada** (deliberadamente, é a mesma pendência já
+     flagada no handoff anterior): sessões continuam sendo criadas com
+     `status: "PAUSED"` (hack pra ficar fora do alcance do
+     `getActiveSession()` do motor mecânico, que segue ativo — ver item 1).
+     Não mudar isso sem decisão explícita do Cleber.
 
-2. **Remover a trava de instância única por PID**
-   (`llm-active-brain/src/index.ts:19,35,43,46` — `LOCK_FILE`,
-   `isProcessAlive`, mensagem de erro "Ja existe um processo..."). Ela
-   existe pra impedir 2 processos concorrentes contra a MESMA conta MT5 —
-   motivo ainda válido por conta, mas o modelo muda de "1 processo, 1
-   conta" pra "1 processo, N contas/sessões", então a trava vira: nunca
-   processar a MESMA sessão duas vezes ao mesmo tempo (lock por
-   `session_id`, não por processo inteiro).
+4. **Item 4 (loop varrendo sessões elegíveis) — feito em `index.ts`.** Nova
+   `listEligibleMt5Sessions()` em `neuralBridge.ts` (query
+   `ai_sessions` por `strategy_name='LLM_ACTIVE_BRAIN_MT5' AND
+   status='PAUSED'`). `resolveMt5Sessions()` em `index.ts` usa essa lista; se
+   vier vazia (primeira execução), cria a sessão bootstrap a partir de
+   `NEURAL_USER_ID`/env — preserva o comportamento de hoje (1 sessão) como
+   caso particular de N=1, sem quebrar o deploy atual. `runContinuous` agora,
+   em modo MT5, itera **serialmente** sobre as sessões resolvidas a cada
+   ciclo, chamando `runAgent(cycle, session)` pra cada uma — uma sessão
+   falhando não aborta as demais do mesmo ciclo (try/catch por sessão).
 
-3. **Trocar o singleton de sessão por sessão explícita, passada como
-   parâmetro.** Hoje `neuralBridge.ts:265-310`
-   (`mt5SessionIdPromise`/`getOrCreateMt5Session`) memoriza UMA sessão por
-   execução do processo, atrelada a `config.neuralUserId`
-   (`config.ts:344`, um único `NEURAL_USER_ID` fixo em env). Isso precisa
-   virar: o loop principal busca todas as `ai_sessions` elegíveis (ver
-   item 4) e cada função de `neuralBridge.ts`/`tools.ts`/
-   `reasoningValidator.ts`/`tradeMemory.ts` passa a receber `sessionId` (e
-   `userId`) explicitamente em vez de ler o singleton.
-   - Nota: as sessões do llm-active-brain hoje são criadas com
-     `status: "PAUSED"` (`neuralBridge.ts:65-89`) **de propósito**, só pra
-     escapar da busca de sessão ativa do motor mecânico antigo
-     (`getActiveSession()`, sem filtro de `strategy_name`, pega a sessão
-     `RUNNING` mais recente do usuário). Com o motor mecânico
-     descontinuado, decidir se esse hack ainda é necessário ou se dá pra
-     voltar a usar `status: "RUNNING"` normalmente + filtrar por
-     `strategy_name = 'LLM_ACTIVE_BRAIN_MT5'` (mais limpo, mais parecido
-     com o padrão que o `ai-runner` já usa pra sua própria query).
+5. **Item 5 (threading pelos guardrails) — feito.** Além do `neuralBridge.ts`
+   acima:
+   - **Achado que o handoff anterior NÃO tinha mapeado**: `tools.ts` tinha 3
+     `Map`s no nível de módulo (`lastQuotedCycleBySymbol`,
+     `lastQuoteSnapshotBySymbol`, `flipAttemptBlockedThisCycle`) —
+     guardrails reais (cotação fresca no ciclo, contradição semântica,
+     circuito de flip-attempt) que eram implicitamente "1 processo = 1
+     sessão". Convertidos pra `Map<sessionId, Map<K,V>>` via helper
+     `perSession()`; `executeTool` agora recebe um 4º parâmetro
+     `session: ExecuteToolSession` (`{sessionId, userId}`) e resolve os 3
+     mapas por sessão no início da função.
+   - `tradeMemory.ts`: `cache` (memória de trades, também module-level
+     singleton) virou `cacheBySession` (`Map<sessionId, {...}>`).
+     `getTradeMemoryBlock(sessionId)` e `getClosedTradesForMemory(sessionId,
+     limit)` agora exigem `sessionId`.
+   - `agent.ts`: `runAgent(cycle, mt5Session?)` — `mt5Session` obrigatório
+     quando `config.mt5TradingEnabled` (lança erro explícito se ausente, sem
+     fallback silencioso). `enforceMt5StopsAndTargets`,
+     `getTradeMemoryBlock`, `executeTool` todos recebem a sessão agora.
 
-4. **Fazer o loop principal (`index.ts`/`agent.ts`) varrer todas as
-   sessões elegíveis**, no padrão que `ai-runner/index.ts:796-800` já usa
-   (`ai_sessions` com `status='RUNNING' AND mode='DEMO'`), processando-as
-   **serialmente** (mesma razão documentada no `ai-runner`: a conta MetaAPI
-   compartilhada não aguenta chamadas concorrentes — ver aviso em
-   CLAUDE.md sobre rate-limit 429/504). Decidir cadência: o llm-active-brain
-   hoje faz 1 ciclo completo (LLM + tool-calling) a cada ~10s
-   (`config.ts` `cycleDelaySeconds`) — multiplicado por N sessões seriais,
-   isso pode ficar lento; medir e ajustar se precisar de paralelismo
-   limitado (nunca contra a MESMA conta MT5, mas pode haver >1 conta de
-   teste eventualmente).
+6. **Item 6 (config por sessão) — DELIBERADAMENTE NÃO FEITO**, conforme a
+   própria instrução do handoff anterior de não over-engenheirar se o
+   Cleber não pedir. Risco (`mt5RiskPctPerTrade` etc.) continua
+   processo-wide via env, igual pra todas as sessões DEMO.
 
-5. **Threadar `sessionId`/`userId` pelos guardrails existentes** —
-   reaproveitar, não reescrever: teto de 1 posição/símbolo
-   (`tools.ts:798,832`), teto de exposição por grupo correlacionado
-   (`tools.ts:844-857,1113-1122` + `assetBasket.ts:139`), cooldown de
-   perda em sequência (`tools.ts:859-891`), validador de contradição
-   semântica (`reasoningValidator.ts`), stop/trailing mecânico
-   (`neuralBridge.ts:629-751`). Todos hoje calculam exposição/posições via
-   `listMt5OpenPositions()`/`getMt5AccountBalance()` escopados pro
-   singleton — cada chamada precisa passar a sessão certa.
+### O que falta (em ordem)
 
-6. **Config por sessão, não só env global.** Risco (`mt5RiskPctPerTrade`,
-   `mt5MaxNotionalUsd`, `mt5MaxCorrelatedNotionalUsd` etc., `config.ts:165-
-   335`) é hoje processo-wide via env — avaliar se decisão de produto é
-   manter 1 config global pra todas as sessões DEMO (mais simples, ok pra
-   Fase 2) ou já puxar de `ai_user_config` (tabela que já existe desde
-   2026-08-27 pra persistir config por usuário do motor mecânico) — **não
-   over-engenheirar isso na Fase 2** se o Cleber não pedir; múltiplos
-   usuários em DEMO com o MESMO perfil de risco é aceitável pra este passo.
+1. **Cleber rodar os comandos de commit** (nenhum arquivo commitado ainda —
+   ver seção final). `tsc --noEmit` já confirmado limpo por Claude.
+2. **`reasoningValidator.ts` checado** (grep por `const`/`let` de nível de
+   módulo): sem estado global, não precisa de threading — confirmado, não
+   suposição.
+3. **Item 7 do handoff anterior (teste com 2+ sessões reais em paralelo)
+   ainda não foi feito.** Precisa: criar uma 2ª `ai_sessions` de teste real
+   (via SQL ou rodando o processo com um 2º `NEURAL_USER_ID` de teste),
+   rodar o processo, e confirmar ao vivo (log + Supabase, nunca suposição)
+   que (a) nenhuma sessão vaza posição/exposição pra outra, (b) teto de
+   grupo correlacionado é por sessão, (c) nenhuma race duplica ordem.
+4. Fora de escopo continua o mesmo da Fase 2 original (LIVE, deploy como
+   serviço real, gates que faltam, migração do motor mecânico) — ver
+   handoff completo em
+   [SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
 
-7. **Plano de teste antes de aceitar a Fase 2 como pronta**: rodar 2+
-   sessões DEMO reais em paralelo (contas/sessões de teste, nunca contra
-   saldo real) e confirmar ao vivo — via log + Supabase, nunca suposição —
-   que: (a) nenhuma sessão vaza posição/exposição pra outra, (b) o teto de
-   grupo correlacionado é calculado por sessão, não somado entre sessões
-   diferentes, (c) nenhuma race condition duplica ordem quando duas
-   sessões decidem no mesmo ciclo.
+### Comandos prontos pro Cleber rodar
 
-### Fora de escopo da Fase 2 (fica pra Fase 3/4 — não misturar)
+```bash
+cd llm-active-brain
+npx tsc --noEmit   # já confirmado limpo por Claude, reconfirmar se quiser
+cd ..
+git add llm-active-brain/src/agent.ts llm-active-brain/src/index.ts llm-active-brain/src/neuralBridge.ts llm-active-brain/src/tools.ts llm-active-brain/src/tradeMemory.ts
+git commit -m "feat(llm-active-brain): Fase 2 multi-tenant (base) — sessão explícita em vez de singleton por processo
 
-- LIVE (credencial de corretora por usuário, execução real) — hoje não
-  existe nenhuma lógica LIVE no llm-active-brain (`ai_sessions.mode`
-  hardcoded `"DEMO"` em `neuralBridge.ts:85,294`).
-- Deploy como serviço de verdade (hoje é `nohup npm start` manual na
-  máquina do Cleber, sem cron, sem Edge Function).
-- Portar os gates que faltam vs. o motor mecânico (notícias/VIX, Safe
-  Mode, Jarvis, scorecard de ativos) — decisão de risco a ser tomada
-  depois que a Fase 2 estiver validada, não bloqueia a Fase 2 em si.
-- Migração de posições abertas do motor mecânico antigo — só relevante
-  quando o motor mecânico for de fato desligado (depende do item 1 acima).
-- Remover os controles do motor mecânico em `AITrader.tsx` — só depois do
-  motor novo validado ponta a ponta.
+Threading de sessionId/userId por neuralBridge.ts/tools.ts/tradeMemory.ts/agent.ts/index.ts.
+Loop principal agora varre todas as ai_sessions elegíveis (strategy_name=LLM_ACTIVE_BRAIN_MT5,
+status=PAUSED) e processa serialmente. Trava de PID único mantida (protege ledger.json por
+processo, não por sessão). Config por sessão (item 6) e teste com 2+ sessões reais (item 7)
+ainda pendentes — ver NEXT_SESSION.md."
+```
+
+## ▶ DEPOIS — Fase 3 (LIVE: corretora real por usuário)
+
+Não iniciar sem antes fechar os itens 6/7 acima da Fase 2 (ou sem
+confirmação explícita do Cleber pra pular). Fase 3 = a sessão do
+llm-active-brain deixa de operar só DEMO simulado e passa a poder executar
+contra uma corretora real, por usuário. Nada disso existe hoje no
+llm-active-brain — `ai_sessions.mode` é hardcoded `"DEMO"`
+(`neuralBridge.ts`), não há nenhuma leitura de credencial de corretora por
+usuário no trilho MT5 (isso já existe no motor mecânico, via
+`broker_credentials` criptografado — ver seção "Arquitetura" do
+[CLAUDE.md](CLAUDE.md) — mas o llm-active-brain nunca usou esse caminho).
+
+O que precisa ser levantado/decidido (não investigado ainda nesta sessão,
+listar aqui pra não perder o fio):
+
+1. **De onde vem a credencial MT5 real por usuário.** O motor mecânico já
+   tem o padrão (`broker_credentials`, nunca no client, só a Edge Function
+   acessa) — decidir se o llm-active-brain (processo Node fora do
+   Supabase) reusa essa tabela ou precisa de um caminho próprio. Risco de
+   segurança real se copiado errado (token de corretora exposto).
+2. **`ai_sessions.mode` deixa de ser sempre `"DEMO"`** — como a sessão
+   sinaliza LIVE, e o que muda no fluxo de `openMt5Position`/
+   `closeMt5Position` quando é LIVE (hoje ambos são só `INSERT`/`UPDATE`
+   direto em `ai_trades`, sem nenhuma chamada real de execução -- LIVE
+   precisa de fato mandar a ordem pra corretora, não só registrar).
+3. **Cada guardrail da Fase 2 precisa ser reavaliado com dinheiro real em
+   jogo** — teto de exposição, cooldown, validador de contradição, todos
+   foram calibrados/testados só em DEMO. Não presumir que os mesmos
+   números/tetos servem pra LIVE sem decisão explícita do Cleber.
+4. Gates que faltam vs. o motor mecânico (notícias/VIX, Safe Mode, Jarvis,
+   scorecard de ativos) — a Fase 2 original já flagava isso como decisão de
+   risco pendente antes de qualquer LIVE, continua valendo aqui.
+5. Migração seria só relevante quando o motor mecânico for de fato
+   desligado — depende do item 1 confirmado nesta sessão (cron ativo).
 
 ### Regra fixa que continua valendo
 
 Claude nunca commita/faz push sozinho, migrations do Supabase nunca são
 aplicadas por Claude (só o SQL pronto), `npm run validate` antes de
-qualquer commit que toque o motor. Nenhum dado (preço, resultado de teste)
-pode ser fabricado — se a Fase 2 não puder ser validada com dado real
-ainda, declarar isso explicitamente em vez de inflar confiança.
+qualquer commit que toque o motor mecânico principal (não se aplica a este
+subprojeto, que não tem esse script). Nenhum dado (preço, resultado de
+teste) pode ser fabricado — se o item 7 não puder ser validado com dado
+real ainda, declarar isso explicitamente em vez de inflar confiança (não
+foi validado nesta sessão). Fase 3 mexe com corretora/dinheiro real por
+usuário — padrão de rigor mais alto que qualquer item da Fase 2, nenhuma
+decisão de segurança/credencial deve ser tomada sem confirmação explícita
+do Cleber.
