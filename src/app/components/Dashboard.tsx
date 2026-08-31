@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import { MarketScoreBoard } from './dashboard/MarketScoreBoard';
-import { LlmActiveBrainPanel } from './dashboard/LlmActiveBrainPanel';
 import { NewsAndAgenda } from './dashboard/NewsAndAgenda';
 import { VIXWidgetEnhanced } from './tools/VIXWidgetEnhanced';
 import { RiskThermometer } from './dashboard/RiskThermometer';
@@ -86,10 +85,6 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: string) => void 
           <div className="bg-zinc-950 rounded-xl overflow-hidden shadow-lg">
             <MarketScoreBoard onNavigate={onNavigate} />
           </div>
-        </div>
-
-        <div className="col-span-1 xl:col-span-12 h-auto">
-          <LlmActiveBrainPanel />
         </div>
 
         {showHeavyWidgets && (
