@@ -230,7 +230,7 @@ export interface VolumeConfirmation {
 // de força/fraqueza por trás do movimento).
 const VOLUME_RECENT_CANDLES = 3; // 15min
 const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
-const VOLUME_ELEVATED_RATIO = 1.15;
+const VOLUME_ELEVATED_RATIO = 1.05; // 2026-08-31: baixado de 1.15 a pedido do Cleber (achou restritivo demais)
 
 /**
  * 🔴 2026-08-29 (mesmo achado do Cleber): fallback quando o candle (e o
