@@ -25,8 +25,8 @@ import { checkReasoningConsistency } from "./reasoningValidator.js";
 // DOTUSD observado nesta sessao, -9,46% flutuante instantaneo, stopado logo
 // em seguida). 2,0% de teto bloqueia so o DOTUSD; o 2o pior da cesta
 // (XRPUSD, 1,47%) segue liberado, com aviso a partir de 0,8%.
-// 🔴 2026-08-31 (teste): afrouxado de 2.0 pra 10.0 pra permitir entradas livres
-export const SPREAD_BLOCK_PCT = 10.0;
+// 🔴 2026-08-31 (teste): afrouxado pra 5.0 pra permitir entradas em spreads normais de fim de semana
+export const SPREAD_BLOCK_PCT = 5.0;
 export const SPREAD_WARN_PCT = 2.0;
 
 // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, root cause confirmado
