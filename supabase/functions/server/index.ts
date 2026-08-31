@@ -4294,11 +4294,12 @@ app.post('/mt5-prices', async (c) => {
                     // Binance usa) — em dia de BTC andando de lado (variação < 0,1%), essa
                     // imprecisão já bastava pra trocar o SINAL da variação exibida (Cleber
                     // reportou +0,04% na plataforma vs -0,26% na Binance no mesmo instante).
-                    // Trocado pra velas de 5min (12x mais granular) — reduz a janela de
-                    // imprecisão de ~1h pra ~5min, não elimina (ainda é discreto, Binance é
-                    // contínuo), mas reduz bastante a chance de cruzar o zero por causa só
-                    // da granularidade da referência.
-                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '5m' : '1d'}/candles`;
+                    // Trocado pra velas de 5min (12x mais granular), depois (mesmo dia,
+                    // resíduo confirmado ao vivo) pra 1min — reduz a janela de imprecisão
+                    // de ~1h pra ~1min, não elimina (ainda é discreto, Binance é contínuo),
+                    // mas reduz bastante a chance de cruzar o zero por causa só da
+                    // granularidade da referência.
+                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '1m' : '1d'}/candles`;
                     // ✅ 2026-07-15 (4ª parte): `limit=2` funcionou pra praticamente todo
                     // ativo por meses (posição fixa `length-2` = candle de ontem fechado).
                     // Só o BTCUSD (mercado 24/7, sem a pausa diária que CFD tradicional tem)
@@ -4310,9 +4311,9 @@ app.post('/mt5-prices', async (c) => {
                     // pro que já funciona) e só faz uma 2ª tentativa com janela maior quando a
                     // primeira vier curta (<2 candles) — isolado pro caso real, sem tocar no
                     // caminho que já era correto pra todo o resto.
-                    async function fetchCandles(limit: number) {
+                    async function fetchCandles(limit: number, startTime: Date = now) {
                         const res = await fetch(
-                            `${candlesUrl}?startTime=${now.toISOString()}&limit=${limit}`,
+                            `${candlesUrl}?startTime=${startTime.toISOString()}&limit=${limit}`,
                             {
                                 headers: {
                                     'auth-token': metaapiToken,
@@ -4331,14 +4332,22 @@ app.post('/mt5-prices', async (c) => {
                     let previousCandleForDebug: any = null;
 
                     if (isCrypto24h) {
-                        // 300 velas de 5min ≈ últimas 25h — folga de 1h sobre a janela exata
-                        // de 24h pra garantir que sobre pelo menos uma vela perto o
-                        // suficiente do alvo mesmo com pequenas lacunas de dado.
-                        const rolling = await fetchCandles(300);
+                        // ✅ 2026-08-31 (2ª parte): a API de candles históricos limita o
+                        // `limit` por chamada (~1000) — 25h em velas de 1min seriam 1500,
+                        // não cabe num request só. Em vez de puxar a janela de 25h inteira
+                        // só pra achar 1 vela perto do alvo, busca direto ancorado no
+                        // horário-alvo (now-24h) com uma janela pequena ao redor — mais
+                        // barato e permite granularidade de 1min (era 5min), reduzindo
+                        // ainda mais a chance de cruzar o zero por imprecisão de janela.
+                        const target24hAgo = now.getTime() - 24 * 60 * 60 * 1000;
+                        // startTime é o fim da janela retornada (candles terminam antes
+                        // dele) — pede meia hora depois do alvo pra garantir que o alvo
+                        // caia dentro do lote de 60 velas de 1min (~1h de cobertura).
+                        const anchor = new Date(target24hAgo + 30 * 60 * 1000);
+                        const rolling = await fetchCandles(60, anchor);
 
                         if (rolling.ok && rolling.candles && rolling.candles.length >= 1) {
                             const candles = rolling.candles;
-                            const target24hAgo = now.getTime() - 24 * 60 * 60 * 1000;
 
                             let closest: any = null;
                             let closestDiffMs = Infinity;
@@ -4356,11 +4365,11 @@ app.post('/mt5-prices', async (c) => {
                             previousCandleForDebug = closest;
 
                             // Vela mais próxima de "agora - 24h" precisa estar a no máximo
-                            // 4h de distância do alvo (folga pra gap de rate-limit da conta
+                            // 1h de distância do alvo (folga pra gap de rate-limit da conta
                             // compartilhada) — senão a referência não representa de verdade
                             // a janela de 24h e é melhor não mostrar variação do que mostrar
                             // uma calculada contra hora errada.
-                            const CLOSEST_TOLERANCE_MS = 4 * 60 * 60 * 1000;
+                            const CLOSEST_TOLERANCE_MS = 60 * 60 * 1000;
                             if (closest && closestDiffMs <= CLOSEST_TOLERANCE_MS) {
                                 const referencePrice = closest.open || closest.close || 0;
                                 if (referencePrice > 0 && currentPrice > 0) {
@@ -4378,10 +4387,10 @@ app.post('/mt5-prices', async (c) => {
                                     }
                                 }
                             } else {
-                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: sem vela de 1h perto o bastante de -24h (mais próxima a ${(closestDiffMs / 3_600_000).toFixed(1)}h), change ficará 0.`);
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: sem vela de 1min perto o bastante de -24h (mais próxima a ${(closestDiffMs / 60_000).toFixed(1)}min), change ficará 0.`);
                             }
                         } else {
-                            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles 1h HTTP falhou, change ficará 0`);
+                            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles 1min HTTP falhou, change ficará 0`);
                         }
                     } else {
 
