@@ -1,0 +1,966 @@
+{
+  "summary": {
+    "total_trades_que_falharam_por_SL": 119,
+    "reversoes_resolvidas_com_candle_disponivel": 118,
+    "net_original_sozinho": -14.579539150962992,
+    "net_so_da_reversao": -9.65034396859477,
+    "net_combinado_original_mais_reversao": -24.22988311955777,
+    "reversoes_que_deram_TP": 6,
+    "reversoes_que_deram_SL": 112,
+    "reversao_ajudou_em_quantos_casos": 15,
+    "reversao_piorou_em_quantos_casos": 84
+  },
+  "detail": [
+    {
+      "id": "8503d0cf-96df-4740-8b15-e0ad731ae807",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7481491237743773,
+      "reverseNet": -0.7444361288576384,
+      "combined": -1.4925852526320158,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6d745af0-75e4-46f8-af60-e9f23d78d338",
+      "symbol": "BTCUSD",
+      "originalNet": 0.09775321814478481,
+      "reverseNet": 0,
+      "combined": 0.09775321814478481,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "9c849032-e02e-4321-b231-cd81c7f812b8",
+      "symbol": "SOLUSD",
+      "originalNet": -0.35655034653248097,
+      "reverseNet": 1.0641407030049062,
+      "combined": 0.7075903564724252,
+      "reverseReason": "TP"
+    },
+    {
+      "id": "6fb7fce6-5374-450d-9617-9b09e97ff3ea",
+      "symbol": "SOLUSD",
+      "originalNet": -0.6416371883494896,
+      "reverseNet": -0.6443936344816169,
+      "combined": -1.2860308228311066,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "9a5b0236-8170-4182-a7b2-0557c74acc31",
+      "symbol": "ETHUSD",
+      "originalNet": -0.6308363632249505,
+      "reverseNet": -0.6335005979804895,
+      "combined": -1.26433696120544,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6d70bf32-2877-44b9-ad45-9ac7fefed682",
+      "symbol": "BTCUSD",
+      "originalNet": -0.4035855009723961,
+      "reverseNet": -0.4024955300495316,
+      "combined": -0.8060810310219277,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "75e2b9a5-d952-4894-b6e7-5f2369e9f90b",
+      "symbol": "ETHUSD",
+      "originalNet": -0.5005087097559484,
+      "reverseNet": -0.5021952727030339,
+      "combined": -1.0027039824589823,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "1fb37f0c-c7cd-4d8b-bf37-42ad168b01d8",
+      "symbol": "ETHUSD",
+      "originalNet": -0.3214617422304434,
+      "reverseNet": -0.3207626765515514,
+      "combined": -0.6422244187819948,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "52067dc5-f10f-4a1a-92f3-8b6aa38396da",
+      "symbol": "BTCUSD",
+      "originalNet": -0.2582767712420086,
+      "reverseNet": -0.25872991897783926,
+      "combined": -0.5170066902198478,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ba161cf3-0a4d-4b1b-9cb9-e58017365802",
+      "symbol": "ETHUSD",
+      "originalNet": 0.5987389880848024,
+      "reverseNet": -0.5963029864408047,
+      "combined": 0.0024360016439977095,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "fda7aa6f-ac1a-4c11-85dd-0d57088bcb97",
+      "symbol": "ETHUSD",
+      "originalNet": -0.459465992924685,
+      "reverseNet": -0.46089258465888067,
+      "combined": -0.9203585775835657,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "dd49eb82-f910-40bb-8c8d-09f18432b363",
+      "symbol": "SOLUSD",
+      "originalNet": 0.48664771840669646,
+      "reverseNet": -0.4853018422545797,
+      "combined": 0.0013458761521167872,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "249a77f5-0d59-4219-afe5-630653ce91c2",
+      "symbol": "SOLUSD",
+      "originalNet": 0.4607467841801603,
+      "reverseNet": -0.45949208246507206,
+      "combined": 0.0012547017150882356,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "e2882e64-27ee-47f6-a45c-555d5fe53e00",
+      "symbol": "BTCUSD",
+      "originalNet": -0.5144064771832196,
+      "reverseNet": -0.5127674533998733,
+      "combined": -1.027173930583093,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "345374da-f594-45f7-b8b0-32d0110cdb91",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7697940490265774,
+      "reverseNet": -0.7735005896063354,
+      "combined": -1.5432946386329127,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "1792ea38-45af-4e4f-8fb7-76307ef00775",
+      "symbol": "BTCUSD",
+      "originalNet": 0.41455523086906143,
+      "reverseNet": -0.41345234176563483,
+      "combined": 0.0011028891034265964,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0d1fffb6-afa8-4b9f-901e-75f8e62f0d6c",
+      "symbol": "BTCUSD",
+      "originalNet": -0.46601659182670935,
+      "reverseNet": -0.46741999117130884,
+      "combined": -0.9334365829980182,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "2268d4ed-1e99-4dc2-ace3-2fb0fe760e43",
+      "symbol": "BTCUSD",
+      "originalNet": 0.892481319949168,
+      "reverseNet": -0.36309346627663086,
+      "combined": 0.5293878536725372,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "12b486cc-c25d-4ebf-afb4-f4c29396f239",
+      "symbol": "ETHUSD",
+      "originalNet": 0.39126966913825373,
+      "reverseNet": -0.39022083061908086,
+      "combined": 0.0010488385191728677,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "084a53bf-ef38-4e89-8a0c-ac881f642991",
+      "symbol": "SOLUSD",
+      "originalNet": -0.834067551225829,
+      "reverseNet": -0.8387835232274818,
+      "combined": -1.6728510744533107,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "37dd37fb-7000-42e9-be05-d8eabdc9cd41",
+      "symbol": "SOLUSD",
+      "originalNet": 1.1405655801978891,
+      "reverseNet": -0.43035791266190804,
+      "combined": 0.7102076675359811,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "17c9cd75-1c81-4c9a-86fb-ad8ed925a0b7",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7672586105764453,
+      "reverseNet": 1.6437384373547093,
+      "combined": 0.876479826778264,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "249349ec-7527-44ca-b41b-7f09dc6b0ed6",
+      "symbol": "ETHUSD",
+      "originalNet": 0.8235320421671737,
+      "reverseNet": -0.818922504267064,
+      "combined": 0.00460953790010965,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0a6ae4e0-e81a-4de0-a73d-fcfcd70c1484",
+      "symbol": "ETHUSD",
+      "originalNet": -1.3366643581935467,
+      "reverseNet": 0.047358580961655,
+      "combined": -1.2893057772318917,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0ac8549c-b965-4977-aa1e-f2a450dfcf0e",
+      "symbol": "ETHUSD",
+      "originalNet": 0,
+      "reverseNet": 0,
+      "combined": 0,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "93e50ed9-69f3-4685-bb84-ff3bf9951404",
+      "symbol": "ETHUSD",
+      "originalNet": -1.72144123357896,
+      "reverseNet": -1.7039003718196088,
+      "combined": -3.425341605398569,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "b8b09115-5b4d-4c23-8f43-09633d62a6b6",
+      "symbol": "SOLUSD",
+      "originalNet": -1.6204424284924792,
+      "reverseNet": -1.6048901705782288,
+      "combined": -3.225332599070708,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ddc6226b-9938-4db1-bede-49833deb7a38",
+      "symbol": "SOLUSD",
+      "originalNet": 2.7204154055020577,
+      "reverseNet": 0.487328059317984,
+      "combined": 3.207743464820042,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "4b96c759-e691-443c-a6bc-b30550351553",
+      "symbol": "ETHUSD",
+      "originalNet": -0.4672877231745042,
+      "reverseNet": -0.46878506082595245,
+      "combined": -0.9360727840004566,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "d94b2e09-66d2-4cdf-ba15-1107a3e50416",
+      "symbol": "SOLUSD",
+      "originalNet": -1.0222574995315428,
+      "reverseNet": 0,
+      "combined": -1.0222574995315428,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "60bfb521-eacd-4121-b81a-da816ea9673b",
+      "symbol": "SOLUSD",
+      "originalNet": 0.9446615737402682,
+      "reverseNet": -0.938796815532254,
+      "combined": 0.005864758208014131,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "93d3771c-2bcb-440c-b7b8-fbb0a574805b",
+      "symbol": "SOLUSD",
+      "originalNet": 4.187428571428541,
+      "reverseNet": 0,
+      "combined": 4.187428571428541,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "3efe52b7-89fe-4087-b7fe-cdff79f4d22c",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": 12.505142857142847,
+      "combined": 12.505142857142847,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "74e22eda-f86e-4a65-8b43-d49bca412d67",
+      "symbol": "SOLUSD",
+      "originalNet": -1.741775208496337,
+      "reverseNet": -1.7127875783762754,
+      "combined": -3.4545627868726125,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "cfc9846e-2770-47bf-bcbb-f553b9353e11",
+      "symbol": "ETHUSD",
+      "originalNet": 0.8391019715001949,
+      "reverseNet": 0,
+      "combined": 0.8391019715001949,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "2554425c-1874-473a-820c-d5a596b94687",
+      "symbol": "SOLUSD",
+      "originalNet": 1.0570878778562247,
+      "reverseNet": -1.0646137599194725,
+      "combined": -0.00752588206324778,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "2402f37b-6707-4791-9ebf-8066d2fbfe80",
+      "symbol": "SOLUSD",
+      "originalNet": -1.0723824983979002,
+      "reverseNet": 0,
+      "combined": -1.0723824983979002,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "54fd7216-0592-41a7-8ece-1529720f3aac",
+      "symbol": "ETHUSD",
+      "originalNet": -0.4819714285714326,
+      "reverseNet": 0,
+      "combined": -0.4819714285714326,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "3be28b7d-82ae-4294-99a6-138cac124d77",
+      "symbol": "SOLUSD",
+      "originalNet": -1.5629105481863348,
+      "reverseNet": -0.15522292362088697,
+      "combined": -1.7181334718072216,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "01ffdbe8-069f-4c6f-b25d-355d3af041fe",
+      "symbol": "SOLUSD",
+      "originalNet": -0.7731930544041007,
+      "reverseNet": -0.769211497878771,
+      "combined": -1.5424045522828718,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "3b0bfb96-d2ef-4d79-b56e-0c44d34fe05b",
+      "symbol": "ETHUSD",
+      "originalNet": -0.4177815670847485,
+      "reverseNet": -0.4165852172451515,
+      "combined": -0.8343667843299001,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "01df2454-dbae-49d0-8165-76a4744fc376",
+      "symbol": "ETHUSD",
+      "originalNet": 0.34251441447793696,
+      "reverseNet": -0.3417067921173483,
+      "combined": 0.0008076223605886779,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "b83f32b2-d3be-4b27-b723-532047fb43fe",
+      "symbol": "SOLUSD",
+      "originalNet": 0.25332816583463685,
+      "reverseNet": -0.25290055188128724,
+      "combined": 0.00042761395334961483,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "050d439c-7e51-4a33-a489-bfc2120cdf71",
+      "symbol": "SOLUSD",
+      "originalNet": -0.701972826692122,
+      "reverseNet": 0,
+      "combined": -0.701972826692122,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6a39e08b-2c9e-4b9f-ad64-dc7172503892",
+      "symbol": "ETHUSD",
+      "originalNet": -0.3366075511927556,
+      "reverseNet": 0,
+      "combined": -0.3366075511927556,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "37b42c5e-4c6c-4d69-8431-a110a940b4df",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": 1.1838406178896292,
+      "combined": 1.1838406178896292,
+      "reverseReason": "TP"
+    },
+    {
+      "id": "5129dd72-37a8-4ee4-b91a-cacb74116a8c",
+      "symbol": "ETHUSD",
+      "originalNet": 0.43034749099385405,
+      "reverseNet": -0.3724374752638944,
+      "combined": 0.05791001572995963,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "5696efa6-9661-41c1-9339-8db5a1f0b0da",
+      "symbol": "ETHUSD",
+      "originalNet": -0.4876786997635008,
+      "reverseNet": -0.4893200951658424,
+      "combined": -0.9769987949293433,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "9b048d62-9e04-45dc-8551-b789584d7173",
+      "symbol": "SOLUSD",
+      "originalNet": 3.1565714285714424,
+      "reverseNet": -0.7285472283528245,
+      "combined": 2.428024200218618,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ddcf5dbd-bedf-4411-938b-a7eddd70e903",
+      "symbol": "SOLUSD",
+      "originalNet": -0.5879432988242342,
+      "reverseNet": 3.4988257200861703,
+      "combined": 2.910882421261936,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "c5545f7e-6485-4ec0-b0fe-5a9107a9abd7",
+      "symbol": "ETHUSD",
+      "originalNet": -0.42420501002266064,
+      "reverseNet": 1.276324664128677,
+      "combined": 0.8521196541060163,
+      "reverseReason": "TP"
+    },
+    {
+      "id": "f963f166-b113-4066-b789-0cc6b451aa24",
+      "symbol": "ETHUSD",
+      "originalNet": -0.34439206815085527,
+      "reverseNet": 0,
+      "combined": -0.34439206815085527,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "fe0adc2e-3eff-4811-99b6-5b987bb7ba45",
+      "symbol": "SOLUSD",
+      "originalNet": 0.3844278686511018,
+      "reverseNet": -0.38546480517181286,
+      "combined": -0.0010369365207110737,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "160d706c-18b5-4107-8bb1-61f18d636d4d",
+      "symbol": "ETHUSD",
+      "originalNet": 0.2844413542879693,
+      "reverseNet": 0,
+      "combined": 0.2844413542879693,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "2239ecb9-36e5-4028-b9ab-478e9c002e6b",
+      "symbol": "ETHUSD",
+      "originalNet": 0.46535819657415234,
+      "reverseNet": -0.4668696595838595,
+      "combined": -0.0015114630097071702,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6ecc6f43-7164-4b10-aec3-3ea624a26e42",
+      "symbol": "ETHUSD",
+      "originalNet": 0.5531058410399146,
+      "reverseNet": -0.5552519844069621,
+      "combined": -0.0021461433670475483,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "82190a05-0b6c-4663-83b6-392d82cf03bb",
+      "symbol": "SOLUSD",
+      "originalNet": -0.9931953225786855,
+      "reverseNet": 2.959571312108914,
+      "combined": 1.9663759895302286,
+      "reverseReason": "TP"
+    },
+    {
+      "id": "65232b79-b79b-4ac2-a816-70a8117f9069",
+      "symbol": "ETHUSD",
+      "originalNet": 0.5455094976174313,
+      "reverseNet": -0.5434481463023483,
+      "combined": 0.0020613513150830043,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "02b6fc93-1916-4d2d-92fb-1f55e4c135d0",
+      "symbol": "SOLUSD",
+      "originalNet": -0.5594028957194268,
+      "reverseNet": 1.6719056567388995,
+      "combined": 1.1125027610194727,
+      "reverseReason": "TP"
+    },
+    {
+      "id": "ab09e3ed-efa4-4e09-af54-d1949ca5935c",
+      "symbol": "SOLUSD",
+      "originalNet": 0.2491052281071916,
+      "reverseNet": -0.24868974685840495,
+      "combined": 0.00041548124878665327,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "5fc7cd45-2489-42f8-b21c-48055609ba24",
+      "symbol": "ETHUSD",
+      "originalNet": 0.3493991240846753,
+      "reverseNet": -0.3485608807419852,
+      "combined": 0.0008382433426901148,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "d3ad6df6-3000-4f3c-bd88-d6caf67b315a",
+      "symbol": "SOLUSD",
+      "originalNet": 0.3347683224417679,
+      "reverseNet": -0.3339737814010887,
+      "combined": 0.0007945410406792197,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "8db21c38-ac39-4fe0-83bd-31dc7f67d193",
+      "symbol": "ETHUSD",
+      "originalNet": -0.42066849508699306,
+      "reverseNet": -0.4218832264568577,
+      "combined": -0.8425517215438507,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "2573c607-1f5a-4dac-8c40-3d77fc89a6eb",
+      "symbol": "ETHUSD",
+      "originalNet": -0.42600098510602946,
+      "reverseNet": -0.4247561957932061,
+      "combined": -0.8507571808992356,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ff6cdee2-91ae-4899-b3cf-c648381782c5",
+      "symbol": "ETHUSD",
+      "originalNet": 0.7328908323422546,
+      "reverseNet": -0.557992324782796,
+      "combined": 0.17489850755945857,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "b53a5126-9df5-4a2e-93c1-bf74e7030d83",
+      "symbol": "SOLUSD",
+      "originalNet": 0.39600190412527775,
+      "reverseNet": -0.3949012450249728,
+      "combined": 0.0011006591003049349,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6e398ccc-e1dc-4e77-82c0-74f68e73f186",
+      "symbol": "ETHUSD",
+      "originalNet": 0.043609315074327235,
+      "reverseNet": -0.04359638680124816,
+      "combined": 0.00001292827307907557,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "bae6b4fc-a6c3-4a26-bd49-c5160743ada6",
+      "symbol": "ETHUSD",
+      "originalNet": 0,
+      "reverseNet": 2.1570000000000165,
+      "combined": 2.1570000000000165,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "131c82c0-a0fd-46b4-9113-ceaf702ac2cc",
+      "symbol": "SOLUSD",
+      "originalNet": -0.7428571428571559,
+      "reverseNet": 1.275994021468344,
+      "combined": 0.5331368786111882,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "8ed9666a-1e0b-4660-bfd2-6c4b3ecf0605",
+      "symbol": "ETHUSD",
+      "originalNet": -0.642132920237018,
+      "reverseNet": -0.6393224071229855,
+      "combined": -1.2814553273600033,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "8a2013ea-9615-4150-b60d-40f6c6963d38",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": -0.5081069442769247,
+      "combined": -0.5081069442769247,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "c5b9af72-1447-476c-9fa8-caa7a260b90c",
+      "symbol": "ETHUSD",
+      "originalNet": -0.36165929719631096,
+      "reverseNet": -0.3625523445410402,
+      "combined": -0.7242116417373512,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "764d768e-a56d-43a6-a2ce-61de5a91b7ff",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": -0.5071704091885323,
+      "combined": -0.5071704091885323,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "92e4f1f7-8c64-435b-bc9a-69fb99d88b54",
+      "symbol": "SOLUSD",
+      "originalNet": -0.39408873926228694,
+      "reverseNet": 0,
+      "combined": -0.39408873926228694,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "3f07b2ed-0867-4c97-9d76-609e69b26507",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": -0.3351969311390164,
+      "combined": -0.3351969311390164,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "61548890-6719-4b8a-bd72-6182371d9ab2",
+      "symbol": "SOLUSD",
+      "originalNet": 0.19495930537148354,
+      "reverseNet": -0.19469397105002723,
+      "combined": 0.00026533432145631197,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ff05fef1-82b5-456a-8912-0c1b0e06b700",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": 0,
+      "combined": 0,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "a746c1ba-6fa3-4de4-b2a3-feec1cb4e906",
+      "symbol": "SOLUSD",
+      "originalNet": -0.607813604537327,
+      "reverseNet": 0,
+      "combined": -0.607813604537327,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "e6eb92a4-e7ea-460b-a025-bc72e67856ec",
+      "symbol": "ETHUSD",
+      "originalNet": 0.004330828517208829,
+      "reverseNet": 0,
+      "combined": 0.004330828517208829,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6c0e3254-41e2-4331-9a69-c5c1b96b1dcd",
+      "symbol": "SOLUSD",
+      "originalNet": -0.7104850113805129,
+      "reverseNet": -0.714048910561027,
+      "combined": -1.4245339219415398,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "940c9851-11c5-409c-9c79-12d341d43674",
+      "symbol": "SOLUSD",
+      "originalNet": 0.010652762788858183,
+      "reverseNet": 0,
+      "combined": 0.010652762788858183,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0371e75b-fb36-4e4c-9d40-a7e4d054b1bf",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": -0.6485878809181145,
+      "combined": -0.6485878809181145,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "8f9eb5cd-f49c-461e-8d13-c8efe2bf383c",
+      "symbol": "SOLUSD",
+      "originalNet": -0.6653766995535109,
+      "reverseNet": 0,
+      "combined": -0.6653766995535109,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "c72c9e95-7e7c-4687-8c24-4a9d9b218e52",
+      "symbol": "ETHUSD",
+      "originalNet": -0.46241624846300056,
+      "reverseNet": 0,
+      "combined": -0.46241624846300056,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "4e408a78-909e-4754-aa45-597a2fd7ec70",
+      "symbol": "ETHUSD",
+      "originalNet": 0.4074614863387524,
+      "reverseNet": 0,
+      "combined": 0.4074614863387524,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ccdfdd4c-f13e-437e-9cf8-814770520542",
+      "symbol": "SOLUSD",
+      "originalNet": -0.5361191231046177,
+      "reverseNet": 1.143227495862589,
+      "combined": 0.6071083727579712,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "faa5a4ce-4f13-4917-9262-69a83a43692a",
+      "symbol": "SOLUSD",
+      "originalNet": -0.5451191231046181,
+      "reverseNet": 1.176012139096152,
+      "combined": 0.6308930159915339,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "70f41186-5939-426d-9a95-6372916ba5aa",
+      "symbol": "ETHUSD",
+      "originalNet": 0.5229410782970491,
+      "reverseNet": -0.5207436961775569,
+      "combined": 0.002197382119492164,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "95ee4352-d30f-49e8-9f54-40687663a86a",
+      "symbol": "SOLUSD",
+      "originalNet": 0.38199999999998796,
+      "reverseNet": -0.009229403526156105,
+      "combined": 0.37277059647383187,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "337bebc4-dde8-422d-9dcd-cc36ab88438f",
+      "symbol": "ETHUSD",
+      "originalNet": -0.5434285714285579,
+      "reverseNet": -0.6397878078008026,
+      "combined": -1.1832163792293606,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "a61148ec-ee0a-47f8-b9da-827cf80859cd",
+      "symbol": "SOLUSD",
+      "originalNet": 0,
+      "reverseNet": -0.6815622586704393,
+      "combined": -0.6815622586704393,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "b0ace669-277d-4a78-8037-f16e670a0001",
+      "symbol": "ETHUSD",
+      "originalNet": 0.44763077887171154,
+      "reverseNet": -0.5182127013608228,
+      "combined": -0.07058192248911122,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "7e027752-27bb-4f97-84a3-1abff6511fb3",
+      "symbol": "SOLUSD",
+      "originalNet": 0.19975442874478602,
+      "reverseNet": -0.27766256673901657,
+      "combined": -0.07790813799423055,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "061dd405-12b1-4ed1-bd15-cc26bb68fb3a",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7329990972466716,
+      "reverseNet": -0.03622123339964791,
+      "combined": -0.7692203306463195,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "1fee5a4c-3b1c-4f8d-abb6-ab8ce183af9f",
+      "symbol": "ETHUSD",
+      "originalNet": -0.8749074783238638,
+      "reverseNet": -0.880517890467891,
+      "combined": -1.7554253687917547,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "00282d8c-963a-408a-a839-bf7c2daf34dc",
+      "symbol": "ETHUSD",
+      "originalNet": -0.9221924708704806,
+      "reverseNet": -0.9284399015954854,
+      "combined": -1.8506323724659661,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6d745c4e-c299-4951-bcf2-61768be132d5",
+      "symbol": "SOLUSD",
+      "originalNet": 0.09047689751830906,
+      "reverseNet": -0.036335926098162295,
+      "combined": 0.05414097142014677,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "a3a528e6-1aa8-458a-9534-c482fa864be6",
+      "symbol": "ETHUSD",
+      "originalNet": 0.05118434650309646,
+      "reverseNet": -0.12409939097727465,
+      "combined": -0.0729150444741782,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "d8643816-2564-4674-8e00-7a198fcb19fc",
+      "symbol": "ETHUSD",
+      "originalNet": 0.19310805936671868,
+      "reverseNet": -0.26646541879267766,
+      "combined": -0.07335735942595897,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ea3ba3ad-1b29-43ec-87c1-4045af4876c0",
+      "symbol": "ETHUSD",
+      "originalNet": 1.1052664964806556,
+      "reverseNet": -0.8158352758054986,
+      "combined": 0.2894312206751569,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "77b6c330-7568-4d8c-8e6e-b88b34ec50fa",
+      "symbol": "SOLUSD",
+      "originalNet": -0.9511404992101347,
+      "reverseNet": -0.036653402465152696,
+      "combined": -0.9877939016752874,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "942c5389-e9bc-4fce-bc3f-08e122969261",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7095881501983359,
+      "reverseNet": -0.7132653856401605,
+      "combined": -1.4228535358384964,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "f629b642-501c-4a6b-a2d7-1ee649e618c9",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7103560120540003,
+      "reverseNet": 1.9501811833913831,
+      "combined": 1.2398251713373827,
+      "reverseReason": "TP"
+    },
+    {
+      "id": "10d0623b-1c61-47d1-944b-b06e184aabf0",
+      "symbol": "ETHUSD",
+      "originalNet": -0.6041358078355753,
+      "reverseNet": -0.6062423468691074,
+      "combined": -1.2103781547046828,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "357def6d-60ac-460a-b54c-0ea7c619f3cf",
+      "symbol": "SOLUSD",
+      "originalNet": -1.0171897792342626,
+      "reverseNet": -0.02918921908959286,
+      "combined": -1.0463789983238554,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6bad4d00-293a-4d54-93ef-d770cfbb25c2",
+      "symbol": "ETHUSD",
+      "originalNet": -0.8609369695717426,
+      "reverseNet": -0.8653957697160783,
+      "combined": -1.726332739287821,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0bc7e51f-e53c-497d-9122-96ab78e19f77",
+      "symbol": "SOLUSD",
+      "originalNet": -0.029651478634936012,
+      "reverseNet": -0.6340149011567928,
+      "combined": -0.6636663797917288,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "998b28d7-bcea-45ad-938d-20f01aa83143",
+      "symbol": "ETHUSD",
+      "originalNet": -0.37008888665177697,
+      "reverseNet": -0.369199947520922,
+      "combined": -0.739288834172699,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "f4c6a879-53d0-498a-a388-f5ff13ea59fd",
+      "symbol": "SOLUSD",
+      "originalNet": -0.6854088038882419,
+      "reverseNet": -0.6811342122080092,
+      "combined": -1.366543016096251,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6066f3ed-836f-41eb-afca-e2288606856e",
+      "symbol": "SOLUSD",
+      "originalNet": 0.7347792837246447,
+      "reverseNet": -0.04302066429066239,
+      "combined": 0.6917586194339823,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0dede5c7-18ab-4243-8fc6-d45ec2deedf8",
+      "symbol": "SOLUSD",
+      "originalNet": 0.9979077986033125,
+      "reverseNet": -1.0906412746502152,
+      "combined": -0.09273347604690274,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "6f7d85af-e865-40da-979f-c2e6c826f0d9",
+      "symbol": "ETHUSD",
+      "originalNet": 0.444219386623387,
+      "reverseNet": -0.5319431787778713,
+      "combined": -0.08772379215448434,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "0318b787-2738-42f7-85bc-a0b2e96c1206",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7505961654964066,
+      "reverseNet": -0.7472224689774124,
+      "combined": -1.497818634473819,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "9a2ed065-27d0-4b36-b770-f48d0643e302",
+      "symbol": "SOLUSD",
+      "originalNet": -1.0460712475369671,
+      "reverseNet": -0.007028899398149581,
+      "combined": -1.0531001469351167,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "7ad5272c-68ff-4638-a6b3-5a45d2874411",
+      "symbol": "SOLUSD",
+      "originalNet": -0.6602298961551725,
+      "reverseNet": -0.0429072798738801,
+      "combined": -0.7031371760290526,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "a98f306e-1f5a-4d08-9032-c403eef518ca",
+      "symbol": "SOLUSD",
+      "originalNet": -0.028168759338552313,
+      "reverseNet": -0.5167910714903424,
+      "combined": -0.5449598308288948,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "4c3bb650-622a-4a80-ba07-8c3196a0f350",
+      "symbol": "SOLUSD",
+      "originalNet": -0.8201251005161225,
+      "reverseNet": -0.8266750653840353,
+      "combined": -1.6468001659001579,
+      "reverseReason": "SL"
+    },
+    {
+      "id": "ec96c4f0-6d68-4626-b5ce-d240a2246469",
+      "symbol": "SOLUSD",
+      "originalNet": -0.7626788532177428,
+      "reverseNet": null,
+      "skipped": "candles_acabaram"
+    },
+    {
+      "id": "6e304ff7-6a13-456f-ad18-473528337750",
+      "symbol": "ETHUSD",
+      "originalNet": -0.7851042201192906,
+      "reverseNet": -0.0427012691104649,
+      "combined": -0.8278054892297555,
+      "reverseReason": "SL"
+    }
+  ]
+}

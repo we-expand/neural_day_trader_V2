@@ -33,16 +33,18 @@ comprometido):
    majors).
 4. Volume tick (CFD, proxy fraco, já sinalizado como tal na spec).
 
-**Item novo, fora do escopo original — precisa confirmação explícita do
-Cleber antes de comprometer orçamento**: notícia/sentimento via NLP. A
-seção 13.1 excluiu isso explicitamente em 2026-07-26 ("exigiria fonte paga
-+ NLP, custo/complexidade não justificado"). O blueprint NVIDIA "AI Model
-Distillation for Financial Data" é especificamente sobre destilar
-notícia/texto não-estruturado em sinal de mercado — ou seja, usar essa
-ferramenta pra "dado novo" reabre essa exclusão, não é só trocar de
-ferramenta. **Decisão pendente**: manter a exclusão (testar só os 4 itens
-já aprovados) ou formalmente reabrir NLP com orçamento de fonte de notícia
-paga definido.
+5. **[REABERTO 2026-08-25, decisão explícita do Cleber]** Notícia/sentimento
+   via NLP. A seção 13.1 excluiu isso em 2026-07-26 ("exigiria fonte paga +
+   NLP, custo/complexidade não justificado") — exclusão revertida agora
+   porque o blueprint NVIDIA "AI Model Distillation for Financial Data"
+   reduz o custo de NLP (destilação via NIM/Nemotron em vez de pipeline
+   próprio). **O que ainda falta decidir, separado da reabertura em si**:
+   qual fonte de notícia alimenta a destilação. Ainda não há orçamento de
+   fonte paga de notícia comprometido — a Etapa 0 abaixo usa só o que já
+   existe sem custo adicional (calendário econômico já consumido no gate
+   de notícias/VIX do `ai-runner`); testar NLP sobre texto de notícia real
+   (Bloomberg/Reuters/newsfeed pago) é a próxima decisão de orçamento, não
+   feita ainda.
 
 ## Etapa 0 (gratuita, sem compromisso de orçamento)
 
@@ -51,11 +53,12 @@ aggTrades, Bonferroni-corrected, resultado 0/16 significativo): usar o
 Signal Discovery Agent (NIM, tier serverless gratuito) pra gerar uma lista
 priorizada de hipóteses testáveis sobre dado **já disponível sem custo
 adicional** — cross-asset correlation/regime (item 3, já temos os dados de
-preço) e calendário econômico (item 2, fonte já usada no gate de
-notícias/VIX do `ai-runner`). Só se alguma hipótese dessa etapa passar
-triagem preliminar (efeito bruto visível, antes de custo) é que se justifica
-comprometer orçamento nos itens pagos (1: order book) ou reabrir o item
-excluído (NLP).
+preço) e calendário econômico (item 2 e item 5/NLP aplicado só ao texto do
+calendário econômico que já é consumido no gate de notícias/VIX do
+`ai-runner`, sem precisar de feed pago novo ainda). Só se alguma hipótese
+dessa etapa passar triagem preliminar (efeito bruto visível, antes de
+custo) é que se justifica comprometer orçamento nos itens pagos (1: order
+book; ou NLP sobre newsfeed real além do calendário).
 
 ## Cesta e período
 

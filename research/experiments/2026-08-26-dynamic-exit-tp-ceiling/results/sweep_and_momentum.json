@@ -1,0 +1,43 @@
+{
+  "breakeven_sweep": {
+    "R_0.5": {
+      "n": 123,
+      "skipped": 43,
+      "netSum": 9.788106417460682
+    },
+    "R_0.75": {
+      "n": 123,
+      "skipped": 43,
+      "netSum": 3.33731345792948
+    },
+    "R_1": {
+      "n": 123,
+      "skipped": 43,
+      "netSum": 2.3599477053304945
+    },
+    "R_1.25": {
+      "n": 123,
+      "skipped": 43,
+      "netSum": 0.5940586605570392
+    },
+    "R_1.5": {
+      "n": 123,
+      "skipped": 43,
+      "netSum": -2.6793228499757102
+    },
+    "R_2": {
+      "n": 123,
+      "skipped": 43,
+      "netSum": -5.73365912128364
+    }
+  },
+  "tp_condicional_momentum": {
+    "n_pares": 110,
+    "net_A_teto_fixo": 3.2379794640580846,
+    "net_C_momentum_condicional": 2.230150155367329,
+    "delta": -1.0078293086907577,
+    "melhoraram": 0,
+    "pioraram": 2,
+    "iguais": 108
+  }
+}
