@@ -1076,8 +1076,46 @@ const TrendAngleOverlay: OverlayTemplate = {
   }
 };
 
+// 📝 Anotação de Texto real: overlay nativo de 1 ponto, ancorado a preço/tempo (não um
+// <div> HTML em pixel fixo). Antes ('text'/'anchored-text') criava um card HTML solto
+// (`chartTexts` state) posicionado em pixel cru da tela -- não acompanhava zoom/pan do
+// candle (ficava "flutuando" no lugar errado assim que o gráfico rolava) e não tinha
+// edição depois de criado (só apagar com duplo-clique e recriar do zero). Este overlay
+// usa `dataIndex`/`value` como os demais desenhos -- se move com o candle certo, sobrevive
+// a snapshot/restauração de timeframe (ver `userDrawingsSnapshotRef`) e é editável de novo
+// clicando nele (mesmo padrão de clique-pra-editar do `InfoLineOverlay` acima).
+const TextAnnotationOverlay: OverlayTemplate = {
+  name: 'textAnnotation',
+  totalStep: 2, // 🔧 totalStep = pontos + 1 (1 ponto -> 2)
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 1) return [];
+    const { x, y } = coordinates[0];
+    const text = typeof overlay.extendData === 'string' ? overlay.extendData : '';
+    if (!text) {
+      return [{
+        type: 'text',
+        ignoreEvent: true,
+        attrs: { x, y: y - 4, align: 'left', baseline: 'bottom', text: 'clique para escrever' },
+        styles: { color: 'rgba(148,163,184,0.7)', size: 10, backgroundColor: 'transparent' }
+      }];
+    }
+    return [{
+      type: 'text',
+      attrs: { x, y: y - 4, align: 'left', baseline: 'bottom', text },
+      styles: {
+        color: '#ffffff', size: 13, backgroundColor: 'rgba(30,41,59,0.92)',
+        paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4, borderRadius: 4
+      }
+    }];
+  }
+};
+
 const CUSTOM_DRAWING_OVERLAYS: OverlayTemplate[] = [
   InfoLineOverlay,
+  TextAnnotationOverlay,
   TrendAngleOverlay,
   PitchforkOverlay,
   RectShapeOverlay,
@@ -1674,8 +1712,6 @@ export function ChartView({
   // fechada nesse momento) e só then cria o overlay já com `points` explícitos convertidos de
   // pixel pra dado real via `chart.convertFromPixel`.
   const [pendingEmoji, setPendingEmoji] = useState<string | null>(null);
-  const [textInput, setTextInput] = useState(''); // Texto sendo digitado
-  const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null); // Posição do texto
 
   // 🆕 Editor de texto da "Linha com Informações" — clique na linha abre este input
   const [infoLineEditor, setInfoLineEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
@@ -1683,6 +1719,48 @@ export function ChartView({
   const infoLineCancelledRef = useRef(false); // 🛡️ evita o onBlur salvar de novo depois do Esc já ter cancelado
   const infoLineInputRef = useRef<HTMLInputElement>(null);
   const infoLineTextRef = useRef(''); // espelha infoLineText p/ o listener de clique-fora ler o valor mais recente
+
+  // 🔧 FIX: Anotação de Texto (botão "T" da toolbar) era um <div> HTML solto em pixel cru
+  // da tela (`chartTexts`/`textPosition` antigos) — não acompanhava zoom/pan do candle e não
+  // dava pra editar depois de criado, só apagar com duplo-clique. Agora usa o overlay nativo
+  // `textAnnotation` (registrado acima, mesmo mecanismo do `infoLine`): clique no gráfico cria
+  // o ponto ancorado a preço/tempo, este editor abre na hora pra digitar, e clicar de novo no
+  // texto já criado reabre o mesmo editor pra corrigir — edição de verdade, não só apagar.
+  const [textAnnotationEditor, setTextAnnotationEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
+  const [textAnnotationText, setTextAnnotationText] = useState('');
+  const textAnnotationCancelledRef = useRef(false);
+  const textAnnotationInputRef = useRef<HTMLInputElement>(null);
+  const textAnnotationTextRef = useRef('');
+
+  useEffect(() => {
+    if (!textAnnotationEditor) return;
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      if (textAnnotationInputRef.current && !textAnnotationInputRef.current.contains(event.target as Node)) {
+        const trimmed = textAnnotationTextRef.current.trim();
+        try {
+          if (trimmed) {
+            chartInstanceRef.current?.overrideOverlay({
+              id: textAnnotationEditor.overlayId,
+              extendData: trimmed
+            });
+          } else {
+            // Texto vazio ao clicar fora -- descarta o marcador em vez de deixar um
+            // "clique para escrever" fantasma perdido no gráfico.
+            chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+            userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+          }
+        } catch (err) {
+          console.error('[ChartView] ❌ Error saving text annotation (click outside):', err);
+        }
+        textAnnotationCancelledRef.current = true;
+        setTextAnnotationEditor(null);
+        setTextAnnotationText('');
+        setIsAddingText(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDownOutside, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
+  }, [textAnnotationEditor]);
 
   // 🔧 FIX: "só entra dando Enter" — clicar no canvas do gráfico (klinecharts previne o
   // comportamento padrão do mousedown pra permitir arrastar/desenhar), então o navegador
@@ -1711,8 +1789,6 @@ export function ChartView({
     document.addEventListener('pointerdown', handlePointerDownOutside, true);
     return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
   }, [infoLineEditor]);
-  const [chartTexts, setChartTexts] = useState<Array<{ id: string; text: string; x: number; y: number }>>([]); // Textos no gráfico
-  
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartIdRef = useRef<string>('chart-' + Math.random().toString(36).substring(7));
   const chartInstanceRef = useRef<any>(null);
@@ -7085,13 +7161,45 @@ export function ChartView({
                 paddingLeft: '0px', // 🎯 Sem padding - deixamos o yAxis size controlar
               }}
               onClick={(e) => {
-                // 🆕 MODO TEXTO: Clicar no gráfico abre input de texto
-                if (isAddingText) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const y = e.clientY - rect.top;
-                  setTextPosition({ x, y });
-                  console.log('[ChartView] 📝 Posição do texto:', { x, y });
+                // 🔧 FIX: MODO TEXTO agora cria o overlay nativo `textAnnotation` (ancorado a
+                // preço/tempo, mesmo mecanismo do emoji/demais desenhos) em vez do <div> HTML
+                // solto em pixel de tela de antes -- ver comentário completo na declaração de
+                // `textAnnotationEditor`. O editor abre na hora, no mesmo lugar do clique.
+                if (isAddingText && chartInstanceRef.current) {
+                  try {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const point = chartInstanceRef.current.convertFromPixel(
+                      [{ x, y }],
+                      { paneId: 'candle_pane' }
+                    );
+                    const resolved = Array.isArray(point) ? point[0] : point;
+                    const overlayId = chartInstanceRef.current.createOverlay({
+                      name: 'textAnnotation',
+                      groupId: USER_DRAWINGS_GROUP,
+                      points: [{ dataIndex: resolved?.dataIndex, value: resolved?.value }],
+                      extendData: '',
+                      onClick: (event: any) => {
+                        const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
+                        setTextAnnotationText(existingText);
+                        textAnnotationTextRef.current = existingText;
+                        setTextAnnotationEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
+                        return true;
+                      }
+                    });
+                    if (overlayId) {
+                      userDrawingOverlayIdsRef.current.push(overlayId);
+                      setTextAnnotationText('');
+                      textAnnotationTextRef.current = '';
+                      setTextAnnotationEditor({ overlayId, x, y });
+                    }
+                  } catch (err) {
+                    console.error('[ChartView] ❌ Error placing text annotation:', err);
+                    toast.error('Erro ao criar anotação de texto');
+                  } finally {
+                    setIsAddingText(false);
+                  }
                 }
 
                 // 🔧 FIX: emoji pendente (ver `handleEmojiSelect`) só vira overlay real AQUI —
@@ -7194,39 +7302,81 @@ export function ChartView({
               </div>
             )}
 
-            {/* 📝 INPUT DE TEXTO FLUTUANTE */}
-            {textPosition && (
+            {/* 📝 EDITOR DA ANOTAÇÃO DE TEXTO — abre ao criar uma nova ou ao clicar numa já
+                existente (overlay `textAnnotation`, ancorado a preço/tempo, ver comentário
+                completo na declaração de `textAnnotationEditor` acima). Mesmo padrão de
+                salvar-ao-sair do editor de "Linha com Informações" logo acima. */}
+            {textAnnotationEditor && (
               <div
                 className="absolute z-[80]"
-                style={{
-                  left: textPosition.x,
-                  top: textPosition.y,
-                }}
+                style={{ left: textAnnotationEditor.x, top: textAnnotationEditor.y }}
               >
                 <input
+                  ref={textAnnotationInputRef}
                   type="text"
-                  value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
+                  value={textAnnotationText}
+                  onChange={(e) => {
+                    setTextAnnotationText(e.target.value);
+                    textAnnotationTextRef.current = e.target.value;
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && textInput.trim()) {
-                      // Adicionar texto ao gráfico
-                      const newText = {
-                        id: Date.now().toString(),
-                        text: textInput,
-                        x: textPosition.x,
-                        y: textPosition.y
-                      };
-                      setChartTexts([...chartTexts, newText]);
-                      setTextInput('');
-                      setTextPosition(null);
-                      setIsAddingText(false);
-                      console.log('[ChartView] ✅ Texto adicionado:', newText);
+                    if (e.key === 'Enter') {
+                      textAnnotationCancelledRef.current = true;
+                      const trimmed = textAnnotationText.trim();
+                      try {
+                        if (trimmed) {
+                          chartInstanceRef.current?.overrideOverlay({
+                            id: textAnnotationEditor.overlayId,
+                            extendData: trimmed
+                          });
+                          toast.success('Anotação salva');
+                        } else {
+                          chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+                          userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+                        }
+                      } catch (err) {
+                        console.error('[ChartView] ❌ Error saving text annotation:', err);
+                        toast.error('Erro ao salvar anotação');
+                      }
+                      setTextAnnotationEditor(null);
+                      setTextAnnotationText('');
                     } else if (e.key === 'Escape') {
-                      // Cancelar
-                      setTextInput('');
-                      setTextPosition(null);
-                      setIsAddingText(false);
+                      textAnnotationCancelledRef.current = true;
+                      // Esc numa anotação recém-criada e ainda vazia descarta o marcador
+                      // fantasma; numa já existente, só fecha sem alterar o texto salvo.
+                      if (!textAnnotationText.trim()) {
+                        try {
+                          chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+                          userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+                        } catch (err) {
+                          console.error('[ChartView] ❌ Error discarding empty text annotation:', err);
+                        }
+                      }
+                      setTextAnnotationEditor(null);
+                      setTextAnnotationText('');
                     }
+                  }}
+                  onBlur={() => {
+                    if (textAnnotationCancelledRef.current) {
+                      textAnnotationCancelledRef.current = false;
+                      return;
+                    }
+                    const trimmed = textAnnotationText.trim();
+                    try {
+                      if (trimmed) {
+                        chartInstanceRef.current?.overrideOverlay({
+                          id: textAnnotationEditor.overlayId,
+                          extendData: trimmed
+                        });
+                      } else {
+                        chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+                        userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+                      }
+                    } catch (err) {
+                      console.error('[ChartView] ❌ Error saving text annotation on blur:', err);
+                    }
+                    setTextAnnotationEditor(null);
+                    setTextAnnotationText('');
                   }}
                   autoFocus
                   placeholder="Digite o texto..."
@@ -7234,35 +7384,6 @@ export function ChartView({
                 />
               </div>
             )}
-
-            {/* 📝 TEXTOS NO GRÁFICO */}
-            {chartTexts.map((txt) => (
-              <div
-                key={txt.id}
-                className="absolute z-[60] text-white text-sm font-medium px-2 py-1 bg-black/50 border border-white/20 rounded pointer-events-auto cursor-move select-none"
-                style={{
-                  left: txt.x,
-                  top: txt.y,
-                }}
-                draggable
-                onDragEnd={(e) => {
-                  const rect = chartContainerRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    const newX = e.clientX - rect.left;
-                    const newY = e.clientY - rect.top;
-                    setChartTexts(chartTexts.map(t => 
-                      t.id === txt.id ? { ...t, x: newX, y: newY } : t
-                    ));
-                  }
-                }}
-                onDoubleClick={() => {
-                  // Remover texto ao dar duplo clique
-                  setChartTexts(chartTexts.filter(t => t.id !== txt.id));
-                }}
-              >
-                {txt.text}
-              </div>
-            ))}
 
             {/* 🖌️ CANVAS DE DESENHO LIVRE (Modo Apresentação + Borracha) */}
             {(activeTool === 'presentation' || activeTool === 'eraser') && (
