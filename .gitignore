@@ -2,3 +2,11 @@
 .env*.local
 node_modules
 *.zip
+
+# Diretorio de outro projeto (tem .git proprio + .env de 169KB) que acabou
+# dentro deste working directory -- nunca deve ser rastreado por este repo.
+OmniRoute/
+
+# Saida gerada pelo skill graphify (knowledge graph do codebase) -- artefato
+# de ferramenta, nao codigo-fonte do projeto.
+graphify-out/

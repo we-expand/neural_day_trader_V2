@@ -2,7 +2,9 @@ node_modules/
 dist/
 .env
 .env.save
-ledger/*.json
+ledger/*.json*
 !ledger/.gitkeep
 logs/
 llm-brain.pid
+llm-brain.log
+_backup_pre_stop_fix_2026-08-29/
