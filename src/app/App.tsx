@@ -43,7 +43,6 @@ import { TraderInsights } from '@/app/components/TraderInsights';
 import { NexusVoiceAssistant } from '@/app/components/nexus/NexusVoiceAssistant';
 import { AITradingEngine } from '@/app/components/AITradingEngine';
 import { OperationLogs } from '@/app/components/admin/OperationLogs';
-import { JarvisDashboard } from '@/app/components/jarvis/JarvisDashboard';
 import { Toaster } from 'sonner';
 
 // 🚀 LAZY LOADING - Componentes pesados carregados sob demanda
@@ -297,12 +296,6 @@ function AppContent() {
         return (
           <ErrorBoundary>
             <OperationLogs />
-          </ErrorBoundary>
-        );
-      case 'jarvis':
-        return (
-          <ErrorBoundary>
-            <JarvisDashboard />
           </ErrorBoundary>
         );
       // case 'live-trading-test':

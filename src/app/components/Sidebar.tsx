@@ -1,8 +1,8 @@
 import React, { memo } from 'react';
-import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Network, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText, Cpu } from 'lucide-react';
+import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Network, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs' | 'jarvis';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs';
 
 interface SidebarProps {
   currentView: View;
@@ -195,18 +195,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               >
                 <ScrollText className="w-5 h-5 shrink-0" />
                 <span className="text-sm font-medium tracking-wide">Logs de Operações</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('jarvis' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'jarvis'
-                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-cyan-400'
-                }`}
-              >
-                <Cpu className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Jarvis</span>
               </button>
             </div>
           </div>
