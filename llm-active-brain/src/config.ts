@@ -139,17 +139,39 @@ export const config = {
   // não muda muito pra ele -- o alvo foi calibrado logo acima disso de
   // propósito, pra não forçar BTC pra baixo do menor contrato real.
   //
-  // 🔴 2026-08-29 (pedido do Cleber, mesmo dia): subido 800 -> 1200 pra
-  // "entrar com a mão um pouco mais forte, nos ativos em geral" -- aumenta o
-  // $ de exposição de toda posição nova (normal e forte) proporcionalmente
-  // em qualquer símbolo da cesta, sem mexer em stop/alvo/breakeven/trailing
-  // (só o tamanho, não a lógica de saída). mt5MaxNotionalUsd reajustado junto
-  // pra manter a mesma margem de segurança acima do "forte".
-  mt5TargetNotionalUsd: Number(process.env.MT5_TARGET_NOTIONAL_USD ?? 1200),
-  // Alavanca de "mão mais pesada": open_position aceita size:"forte", que
-  // multiplica a exposição-alvo por este fator (aplicado a QUALQUER
-  // símbolo, mantendo a equiparação entre eles).
+  // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde, perde
+  // pouco, quando ganha, ganha muito" / "não pode quebrar o caixa do
+  // usuário"): mt5TargetNotionalUsd (notional FIXO em dólar, $1200-1800)
+  // REMOVIDO -- nunca olhava o saldo real da conta. Numa conta de $50 isso
+  // era 24x-36x de alavancagem implícita; um stop de só 0,79% sobre $1200
+  // já produziu -$16,05 num único trade (quase 1/3 da conta), e o piso de
+  // lote mínimo (MIN_LOTS) sozinho já força ~$780 de notional em BTCUSD
+  // (0,01 lote * ~$78.000), incompatível com qualquer teto de risco
+  // razoável pra uma conta pequena. Sizing agora é % de risco do SALDO REAL
+  // (ver getMt5AccountBalance em neuralBridge.ts e open_position em
+  // tools.ts): notional = (saldo_atual * risco%) / distância_do_stop%.
+  // Risco default 1% do saldo em posição "normal" (≈$0,50 numa conta de
+  // $50), mt5HeavyMultiplier (abaixo) escala o risco em "forte" (1,5% ≈
+  // $0,75), nunca o notional direto. Alavanca de "mão mais pesada":
+  // open_position aceita size:"forte", que multiplica o RISCO-alvo (não
+  // mais o notional) por este fator.
   mt5HeavyMultiplier: Number(process.env.MT5_HEAVY_MULTIPLIER ?? 1.5),
+  // Risco-alvo por trade em posição "normal", como fração do saldo REAL da
+  // sessão (não do caixa total da plataforma, só desta conta/sessão MT5).
+  // 1% numa conta de $50 = ~$0,50 de perda esperada se o stop bater --
+  // cresce/encolhe automaticamente junto com o saldo real (ganhou, o
+  // próximo risco em $ é maior; perdeu, encolhe), sem precisar reconfigurar
+  // manualmente a cada patamar de conta.
+  mt5RiskPctPerTrade: Number(process.env.MT5_RISK_PCT_PER_TRADE ?? 0.01),
+  // Teto DURO de risco por trade (como fração do saldo real) -- se o lote
+  // mínimo do símbolo (MIN_LOTS/LOT_SIZE em assetBasket.ts) força um risco
+  // maior que isso mesmo no menor lote possível, open_position BLOQUEIA a
+  // entrada em vez de abrir maior "porque o piso obriga" (achado real do
+  // BTCUSD: 0,01 lote força ~$780 de notional, incompatível com risco
+  // pequeno numa conta de $50 mesmo com stop apertado). 2x o risco "forte"
+  // (1,5%) dá alguma folga pro arredondamento de MIN_LOTS sem abrir a porta
+  // pra um risco descontrolado.
+  mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.03),
   // Teto absoluto de segurança em lotes (sanity check contra valor
   // degenerado, ex: preço anormalmente baixo fazendo o cálculo explodir) --
   // não é o valor normal de operação, é só uma trava de última instância.
@@ -271,19 +293,12 @@ export const config = {
   // que isso melhora o liquido -- e correcao de mecanica de protecao de
   // lucro, nao alegacao de edge.
   mt5TrailAtrMultiplier: Number(process.env.MT5_TRAIL_ATR_MULTIPLIER ?? 0.8),
-  // 🔴 2026-08-29 (achado da auditoria, recalibrado no mesmo dia): teto
-  // ABSOLUTO de segurança (mesmo em size:"forte") -- precisa ficar
-  // folgadamente ACIMA de mt5TargetNotionalUsd * mt5HeavyMultiplier (senão
-  // o próprio "mão pesada" fica bloqueado) e acima do que MIN_LOTS de
-  // BTCUSD já produz sozinho (~$775-780) -- um valor de $60 aqui (tentativa
-  // anterior, mesmo dia) deixaria o BTCUSD incapaz de abrir QUALQUER
-  // posição, mesmo no menor lote possível. 1500 dá margem confortável acima
-  // do alvo "forte" (800*1.5=1200) e do maior valor histórico observado.
-  //
-  // 🔴 2026-08-29 (mesmo dia, junto com o aumento de mt5TargetNotionalUsd
-  // 800->1200): reajustado 1500 -> 2200 pra manter a MESMA margem
-  // proporcional acima do novo "forte" (1200*1.5=1800) -- sem isso, o
-  // próprio teto de segurança bloquearia o "mão mais forte" pedido.
+  // Teto ABSOLUTO de segurança em notional -- desde 2026-08-31 (sizing por %
+  // de risco do saldo real, ver mt5RiskPctPerTrade acima) o notional
+  // calculado normalmente fica bem abaixo disto (dezenas de dólares numa
+  // conta de $50) -- este valor é só um sanity check de última instância
+  // contra cálculo degenerado (ex: preço anormalmente baixo fazendo o lote
+  // explodir), não um alvo de operação.
   mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 2200),
   // 🔴 2026-08-29 (otimização urgente pós-perda do dia: -$119 realizados,
   // 96% concentrados em 56 trades depois do aumento de exposição/remoção do

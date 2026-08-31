@@ -287,17 +287,21 @@ open_position (LONG ou SHORT -- TAMANHO NÃO É EM LOTES, é um enum "size":
 "normal" ou "forte", ver bloco abaixo), close_position, log_thought
 (registre o PORQUE de cada decisão) e stop.
 
-**TAMANHO DA POSIÇÃO (size) É CALCULADO PELO CÓDIGO, NÃO É LOTES (2026-08-29):**
-BTCUSD, XETUSD e SOLUSD têm preços muito diferentes (~$77.000 vs ~$2.400 vs
-~$100) -- um número de lotes igual pra todos gerava exposições em dólar
-completamente diferentes (achado real: BTC concentrou quase 100% do
-resultado, SOL/XET praticamente não capturavam nada). Agora você só escolhe
-"normal" (exposição-alvo ~$${config.mt5TargetNotionalUsd}, igual pra
-qualquer símbolo) ou "forte" (${config.mt5HeavyMultiplier}x essa exposição,
-use quando a convicção no sinal for mais alta) -- o código calcula o
-número de lotes certo pra cada símbolo alcançar essa exposição. Isso vale
-igualmente pros 3 símbolos: SOL/XET agora abrem MUITO mais lotes que antes
-pra chegar na mesma exposição em dólar que o BTC, de propósito.
+**TAMANHO DA POSIÇÃO (size) É CALCULADO PELO CÓDIGO A PARTIR DO SEU RISCO
+REAL, NÃO É LOTES E NÃO É EXPOSIÇÃO FIXA (redesenhado 2026-08-31, pedido do
+Cleber -- "quando perde, perde pouco, quando ganha, ganha muito", conta não
+pode quebrar):** você escolhe só "normal" (arrisca
+~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do SALDO REAL da conta se
+o stop bater) ou "forte" (${config.mt5HeavyMultiplier}x esse risco, use
+quando a convicção no sinal for mais alta) -- o código calcula o notional e
+o número de lotes certo pra cada símbolo alcançar ESSE risco em dólar,
+dado o stop calculado pra aquele ativo naquele momento. O tamanho em dólar
+da posição ENCOLHE se a conta perdeu e CRESCE se a conta ganhou -- não é um
+valor fixo. Numa conta pequena, isso pode fazer open_position RECUSAR a
+entrada com erro explícito se o lote mínimo do ativo já forçar risco acima
+do teto tolerado (ex: BTCUSD pode ficar inoperável numa conta muito pequena)
+-- isso é intencional, não um bug seu: não force nem tente compensar, só
+opere outro ativo da cesta.
 
 **ESTRATÉGIA É SELETIVIDADE COM ALVO REAL, NÃO GIRO A QUALQUER CUSTO
 (atualizado 2026-08-30 -- a versão anterior deste parágrafo pedia "alvo
@@ -375,23 +379,20 @@ sinal real (ver princípios acima) a preencher o ciclo com entradas fracas só
 por estarem disponíveis.
 
 **CESTA ATUAL (2026-08-29, trocada a pedido do Cleber; XPTUSD removido em
-2026-08-30; SOLUSD removido em 2026-08-30 (ver bloco de REDESENHO no início
-deste prompt) e REINTRODUZIDO em 2026-08-30 a pedido do Cleber, junto de
-ADAUSD/LNKUSD/UNIUSD): 10 ativos, TODOS cripto/cross de cripto, SEM forex.**
-BTCUSD, XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN, SOLUSD, ADAUSD, LNKUSD,
+2026-08-30; SOLUSD removido em 2026-08-30, REINTRODUZIDO em 2026-08-30 e
+REMOVIDO DE NOVO em 2026-08-31 -- 2ª vez que sozinho responde pela maioria
+do prejuízo da sessão, ver assetBasket.ts): 9 ativos, TODOS cripto/cross de
+cripto, SEM forex.**
+BTCUSD, XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN, ADAUSD, LNKUSD,
 UNIUSD. Todos operam 24/7 -- nenhum tem janela de fechamento de fim de
 semana, não precisa checar "marketOpen" por causa de dia da semana. Todos os
-10 são o MESMO grupo correlacionado (princípio 3 acima). **XETUSD é o nome
+9 são o MESMO grupo correlacionado (princípio 3 acima). **XETUSD é o nome
 REAL do Ethereum nesta corretora (Infinox/MetaTrader) -- não é "ETHUSD".
 LNKUSD é o nome REAL do Chainlink -- não é "LINKUSD" (404 na corretora).**
-Use exatamente estes 10 símbolos, letra por letra; qualquer outro (incluindo
-"ETHUSD" ou "LINKUSD") é rejeitado por não estar na cesta permitida.
-**Atenção especial com SOLUSD**: foi removido antes por ter respondido
-sozinho por 57% do prejuízo de uma sessão inteira (0 vitórias em 13 trades,
-stop batendo em <1min repetidamente) -- causa nunca comprovada (suspeita de
-volatilidade de tick não capturada pelo ATR de candle 5m). Reintroduzido
-agora, mas exige o MESMO rigor de confluência que qualquer outro ativo, sem
-tratamento especial pra cima ou pra baixo.
+Use exatamente estes 9 símbolos, letra por letra; qualquer outro (incluindo
+"ETHUSD", "LINKUSD" ou "SOLUSD") é rejeitado por não estar na cesta
+permitida -- NÃO tente abrir SOLUSD mesmo que já tenha sido usado em
+ciclos anteriores desta mesma sessão.
 
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma
@@ -555,7 +556,41 @@ export async function runAgent(cycle: number): Promise<boolean> {
     // agente so fica sabendo o que ja foi fechado, nao decide se fecha.
     let stopSummary = "";
     try {
-      const { closed, breakevens, trails } = await enforceMt5StopsAndTargets(getMt5Quote);
+      // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+      // deploy): uma queda transitoria de DNS/rede (ENOTFOUND/ConnectTimeout
+      // contra o Supabase, ~30-40s, 3 ciclos seguidos) fazia
+      // enforceMt5StopsAndTargets lancar excecao e cair direto no catch
+      // abaixo -- SEM checar stop/alvo NENHUMA vez nesses ciclos. Uma posicao
+      // real (XETUSD LONG) furou o stop (2500.87) e so fechou 3 ciclos depois
+      // quando a rede voltou, com o preco ja em 2498.14 -- ~2.73 pontos de
+      // slippage real, perda maior do que o stop deveria ter permitido.
+      // Mesmo padrao de retry curto ja usado em mt5Broker.ts pra cotacao
+      // (soluco transitorio de rede, nao falha persistente) -- aqui protege
+      // o guard MAIS critico do sistema (o unico que limita perda de forma
+      // mecanica), entao vale a pena absorver o mesmo tipo de blip antes de
+      // desistir e deixar a posicao sem protecao no ciclo.
+      const STOP_CHECK_RETRY_ATTEMPTS = 3;
+      const STOP_CHECK_RETRY_DELAY_MS = 1000;
+      let lastErr: unknown;
+      let result: Awaited<ReturnType<typeof enforceMt5StopsAndTargets>> | undefined;
+      for (let attempt = 1; attempt <= STOP_CHECK_RETRY_ATTEMPTS; attempt++) {
+        try {
+          result = await enforceMt5StopsAndTargets(getMt5Quote);
+          lastErr = undefined;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < STOP_CHECK_RETRY_ATTEMPTS) {
+            console.warn(
+              `[agent] checagem de stop/alvo mecanico falhou (tentativa ${attempt}/${STOP_CHECK_RETRY_ATTEMPTS}), tentando de novo em ${STOP_CHECK_RETRY_DELAY_MS}ms:`,
+              err instanceof Error ? err.message : err
+            );
+            await sleep(STOP_CHECK_RETRY_DELAY_MS);
+          }
+        }
+      }
+      if (lastErr) throw lastErr;
+      const { closed, breakevens, trails } = result!;
       const parts: string[] = [];
       if (closed.length > 0) {
         parts.push(

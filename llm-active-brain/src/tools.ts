@@ -4,7 +4,7 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns } from "./atr.js";
 import { getPriceExtension } from "./tickHistory.js";
@@ -352,9 +352,10 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
       description:
         `Abre uma posicao virtual (DEMO, dinheiro simulado) num ativo da cesta, comprado/vendido a preco real de mercado. ` +
         `O TAMANHO EM LOTES E CALCULADO PELO CODIGO, nao por voce -- ver "size" abaixo. ` +
-        `Isso existe porque os simbolos da cesta tem precos MUITO diferentes entre si (ex: BTCUSD ~$77.000 vs XETUSD ~$2.400), ` +
-        `entao o MESMO numero de lotes gera exposicoes em dolar completamente diferentes; o codigo normaliza isso ` +
-        `automaticamente pra exposicao-alvo igual (~$${config.mt5TargetNotionalUsd}) em qualquer simbolo. ` +
+        `O codigo dimensiona cada entrada por % DE RISCO DO SALDO REAL da conta (nao um valor fixo em dolar) -- ` +
+        `"normal" arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo se o stop bater, "forte" arrisca ` +
+        `${(config.mt5RiskPctPerTrade * config.mt5HeavyMultiplier * 100).toFixed(1)}%. Numa conta pequena isso pode fazer o codigo RECUSAR ` +
+        `a entrada (erro explicito) se o lote minimo do ativo ja forcar risco acima do teto tolerado -- isso e intencional, nao um bug. ` +
         `Todos os simbolos da cesta (${MT5_ASSET_BASKET.join("/")}) sao cripto correlacionada -- ` +
         `exposicao combinada do MESMO lado nesse grupo tem teto proprio (nao e so por simbolo). ` +
         `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
@@ -371,8 +372,8 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             type: "string",
             enum: ["normal", "forte"],
             description:
-              `"normal" = exposicao-alvo padrao (~$${config.mt5TargetNotionalUsd}, igual pra qualquer simbolo). ` +
-              `"forte" = ${config.mt5HeavyMultiplier}x essa exposicao -- use quando a conviccao no sinal for mais alta, ` +
+              `"normal" = arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo real da conta se o stop bater. ` +
+              `"forte" = ${config.mt5HeavyMultiplier}x esse risco -- use quando a conviccao no sinal for mais alta, ` +
               `nao como padrao pra tudo.`,
           },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
@@ -969,33 +970,6 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `provavel cotacao obsoleta (feed pode estar travado). Posicao NAO aberta. Tente de novo em instantes ou avalie outro ativo.`,
         };
       }
-      // 🔴 2026-08-29 (achado da auditoria, redesenhado no mesmo dia a
-      // pedido do Cleber): LOT_SIZE=1 pros 3 criptos faz a exposicao em
-      // dolar escalar direto com o preco do ativo -- BTCUSD (~$77.600) gera
-      // dezenas de vezes mais exposicao que SOL/XET pro MESMO numero de
-      // lotes. Antes isso so tinha um TETO uniforme (deixava SOL/XET presos
-      // perto do minimo, sem forcar pra cima) -- agora o lote e CALCULADO
-      // pelo codigo a partir de uma exposicao-ALVO uniforme
-      // (mt5TargetNotionalUsd), nao escolhido livremente pelo LLM. SOL/XET
-      // passam a abrir MUITO mais lotes que antes pra alcancar a MESMA
-      // exposicao em $ que o BTC -- resolve o achado "SOL/XET capturam
-      // pouco $" na raiz (exposicao, nao so pontos de saida).
-      const targetNotional = config.mt5TargetNotionalUsd * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
-      let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);
-      lots = Math.max(MIN_LOTS, Math.min(lots, config.mt5SafetyMaxLots));
-      lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
-      let amountUsd = lots * LOT_SIZE[symbol] * quote.price;
-      // Teto absoluto de seguranca -- so deveria disparar em caso degenerado
-      // (preco anormal), o calculo acima ja mira dentro do alvo normalmente.
-      if (amountUsd > config.mt5MaxNotionalUsd) {
-        lots = Math.floor(config.mt5MaxNotionalUsd / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS;
-        if (lots < MIN_LOTS) {
-          return {
-            error: `Exposicao minima possivel para ${symbol} neste preco excede o teto absoluto de seguranca ($${config.mt5MaxNotionalUsd}). Posicao NAO aberta.`,
-          };
-        }
-        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
-      }
       // 🔴 2026-08-29 (achado da auditoria): antes o "stop"/"alvo" so existia
       // como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a cada
       // ciclo se fechava, e por 2x deixou a perda correr MUITO alem do alvo
@@ -1010,6 +984,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // igual pros 3 simbolos. Cai pro % fixo de seguranca
       // (mt5StopFallbackPct) so se o ATR nao vier de dado real (candle
       // simulado/indisponivel) -- nunca abre posicao sem stop.
+      //
+      // 🔴 2026-08-31: movido pra ANTES do sizing (era depois) -- o sizing por
+      // % de risco (abaixo) precisa da distancia do stop em % pra calcular o
+      // notional-alvo (notional = risco_usd / stop_pct), entao o stop
+      // precisa existir primeiro.
       let stopPct = await getAtrPercent(symbol).then((atrPct) => {
         if (atrPct == null) return null;
         const dynamicStopPct = atrPct * config.mt5StopAtrMultiplier;
@@ -1064,6 +1043,88 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // resolver -- o risco (stop) ja e o mesmo independente do volume, e o
       // R:R 1:2 ja da margem suficiente sem precisar de um ajuste extra.
       const lowVolumeAdjusted = false;
+
+      // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde,
+      // perde pouco, quando ganha, ganha muito" / "não pode quebrar o caixa
+      // do usuário"): sizing por % de RISCO DO SALDO REAL, nao mais notional
+      // fixo em dolar (mt5TargetNotionalUsd, removido -- ver config.ts pro
+      // achado completo: numa conta de $50 o notional fixo de $1200-1800 era
+      // 24x-36x de alavancagem implicita, e um stop de so 0,79% ja produziu
+      // -$16,05 num unico trade). notional-alvo = risco_usd / stop_pct --
+      // quanto mais apertado o stop, MAIOR o notional pode ser pro MESMO
+      // risco em dolar (matematica de risco fixo por trade, padrao de mesa
+      // proprietaria). getMt5AccountBalance() soma initial_balance + net_pnl
+      // realizado desta sessao -- o tamanho da posicao ENCOLHE se a conta
+      // perdeu e CRESCE se ganhou, sem precisar reconfigurar nada.
+      const balance = await getMt5AccountBalance();
+      const riskPct = config.mt5RiskPctPerTrade * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      const riskUsd = balance * riskPct;
+      const targetNotional = riskUsd / stopPct;
+      let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);
+      lots = Math.min(lots, config.mt5SafetyMaxLots);
+      lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
+      if (lots < MIN_LOTS) lots = MIN_LOTS; // nao da pra abrir posicao com lote zero -- MIN_LOTS e o menor lote executavel
+      let amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      // 🔴 2026-08-31 (mesmo achado): gate DURO -- se o incremento minimo de
+      // lote (MIN_LOTS/LOT_SIZE) ja forca um risco em $ maior que o teto
+      // absoluto tolerado por esta conta, a entrada e RECUSADA, nunca aberta
+      // maior "porque o piso obriga". Achado real e concreto que motivou
+      // isso: MIN_LOTS=0,01 e global pra todos os simbolos, mas o preco nao
+      // e -- 0,01 lote de BTCUSD (~$78.000) ja forca ~$780 de notional, que
+      // sozinho (mesmo com stop de so 0,3%) ja arrisca ~$2,34, MUITO acima
+      // de 1% de risco-alvo numa conta de $50 ($0,50). Nao existe fracionar
+      // mais o lote pra baixo disso -- a resposta correta e nao operar esse
+      // ativo nesse tamanho de conta, nao absorver o excesso de risco.
+      const actualRiskUsd = amountUsd * stopPct;
+      const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
+      if (actualRiskUsd > maxRiskUsd) {
+        return {
+          error:
+            `Risco minimo possivel para ${symbol} neste preco e lote minimo ($${actualRiskUsd.toFixed(2)}) excede o teto de risco por trade ` +
+            `desta conta ($${maxRiskUsd.toFixed(2)}, ${(config.mt5MaxRiskPctPerTrade * 100).toFixed(1)}% do saldo real de $${balance.toFixed(2)}). ` +
+            `Este ativo exige exposicao minima incompativel com o tamanho atual da conta -- posicao NAO aberta. Opere outro ativo da cesta ` +
+            `ou aguarde a conta crescer o suficiente pra suportar o lote minimo de ${symbol} dentro do teto de risco.`,
+        };
+      }
+      // Teto absoluto de seguranca em notional -- so deveria disparar em caso
+      // degenerado (preco anormal fazendo o lote explodir), o gate de risco
+      // acima ja e o limite normal de operacao.
+      if (amountUsd > config.mt5MaxNotionalUsd) {
+        lots = Math.floor(config.mt5MaxNotionalUsd / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS;
+        if (lots < MIN_LOTS) {
+          return {
+            error: `Exposicao minima possivel para ${symbol} neste preco excede o teto absoluto de seguranca ($${config.mt5MaxNotionalUsd}). Posicao NAO aberta.`,
+          };
+        }
+        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      }
+      // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+      // deploy): a checagem de teto do grupo correlacionado (acima, logo
+      // apos o teto por simbolo) so soma o que JA esta aberto -- nunca inclui
+      // a entrada que esta sendo aberta agora. Confirmado ao vivo: XETUSD
+      // SHORT ($1.212) estava abaixo do teto ($2.700), entao um SOLUSD SHORT
+      // "forte" ($1.800) passou direto (a soma ANTES da nova entrada, unica
+      // coisa checada, ainda estava sob o teto) e deixou a exposicao real em
+      // $3.012 -- so as tentativas SEGUINTES foram bloqueadas, depois do
+      // estrago feito. Segunda checagem aqui, agora com o amountUsd REAL da
+      // entrada que esta prestes a acontecer, fecha esse buraco sem remover
+      // a checagem antecipada (que ainda evita gastar a chamada de cotacao
+      // quando o grupo ja esta no teto de partida).
+      if (correlatedGroup.length > 1) {
+        const sameSideGroupExposure = openPositions
+          .filter((p) => correlatedGroup.includes(p.symbol) && p.side === side)
+          .reduce((sum, p) => sum + Number(p.quantity), 0);
+        const projectedExposure = sameSideGroupExposure + amountUsd;
+        if (projectedExposure > config.mt5MaxCorrelatedNotionalUsd) {
+          return {
+            error:
+              `Esta entrada ($${amountUsd.toFixed(0)}) levaria a exposicao ${side} combinada do grupo correlacionado ` +
+              `(${correlatedGroup.join("/")}) de $${sameSideGroupExposure.toFixed(0)} para $${projectedExposure.toFixed(0)}, ` +
+              `acima do teto ($${config.mt5MaxCorrelatedNotionalUsd}). Esses ativos andam juntos -- essa entrada sozinha ` +
+              `estouraria o limite. Posicao NAO aberta. Reduza o tamanho, feche outra posicao do grupo, ou opere o lado oposto.`,
+          };
+        }
+      }
 
       // 🔴 2026-08-29: stop/alvo calculados a partir do fillPrice (preco real
       // de preenchimento, ver acima) -- nao do mid/last tick.

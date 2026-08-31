@@ -401,6 +401,36 @@ export async function listMt5OpenPositions(): Promise<Mt5OpenPosition[]> {
   return (data ?? []) as Mt5OpenPosition[];
 }
 
+/**
+ * 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde, perde
+ * pouco, quando ganha, ganha muito" / "não pode quebrar o caixa do
+ * usuário"): saldo REAL da sessão (não constante hardcoded). Antes,
+ * `open_position` dimensionava toda posição a partir de um notional FIXO
+ * em dólar (mt5TargetNotionalUsd=$1200), sem NUNCA olhar o saldo real da
+ * conta -- numa conta de $50 isso é 24x-36x de alavancagem implícita, e um
+ * stop de 0,79% sobre $1200 já produziu uma perda real de -$16,05 num
+ * único trade (quase 1/3 da conta). Esta função devolve
+ * saldo_inicial + soma(net_pnl dos trades FECHADOS desta sessão) -- usado
+ * agora por `open_position` (tools.ts) pra dimensionar cada posição como %
+ * de risco do saldo REAL, não de um alvo fixo desconectado do caixa.
+ * Deliberadamente NÃO inclui PnL flutuante de posições ainda abertas
+ * (mais conservador -- não conta lucro não realizado como capital
+ * disponível pra arriscar de novo).
+ */
+export async function getMt5AccountBalance(): Promise<number> {
+  const sessionId = await getOrCreateMt5Session([]);
+  const sb = getClient();
+  const [{ data: session, error: sessionError }, { data: trades, error: tradesError }] = await Promise.all([
+    sb.from("ai_sessions").select("initial_balance").eq("id", sessionId).single(),
+    sb.from("ai_trades").select("net_pnl").eq("session_id", sessionId).eq("status", "CLOSED"),
+  ]);
+  if (sessionError) throw sessionError;
+  if (tradesError) throw tradesError;
+  const initialBalance = Number(session?.initial_balance ?? 50);
+  const realizedPnl = (trades ?? []).reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
+  return initialBalance + realizedPnl;
+}
+
 export interface Mt5RecentClosedTrade {
   side: "LONG" | "SHORT";
   exit_time: string;

@@ -49,10 +49,22 @@
  * Cleber -- MACD/Estocastico reais e o validador semantico contra dado real
  * (ambos adicionados nesta mesma sessao) podem mudar o comportamento, mas
  * isso NAO foi validado especificamente pra SOLUSD ainda. Monitorar de perto.
+ *
+ * 🔴 2026-08-31 (monitoramento 5min, sessão `aa279c75...`): SOLUSD removido
+ * DE NOVO -- 2ª ocorrência do MESMO padrão. Diagnóstico via SQL direto em
+ * `ai_trades` (não suposição): SOLUSD sozinho respondeu por -$48,77 de
+ * -$56,46 do PnL total da sessão (86%), em só 4 trades, 0 vitórias -- todas
+ * SHORT, todas batendo stop. MACD/Estocástico reais e validador semântico
+ * (adicionados na sessão anterior, motivo pelo qual foi reintroduzido) NÃO
+ * mudaram o padrão -- confirma que o problema não é qualidade de sinal, é
+ * estrutural pro símbolo (mesma hipótese já registrada acima: ATR de candle
+ * 5m não captura a volatilidade de tick real desta corretora pra SOLUSD).
+ * Não reintroduzir sem investigação dedicada comparando ATR-candle vs
+ * volatilidade tick-a-tick real do símbolo.
  */
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
-  "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
+  "ADAUSD", "LNKUSD", "UNIUSD",
 ];
 
 /**
