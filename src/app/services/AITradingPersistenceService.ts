@@ -275,6 +275,34 @@ class AITradingPersistenceService {
   }
 
   /**
+   * "Desligar IA" -- 🔴 2026-08-31 (pedido do Cleber, achado ao vivo):
+   * NUNCA usar endSession() aqui. endSession marca status='COMPLETED',
+   * que tira a sessão do alcance de getOrCreateMt5Session/
+   * listEligibleMt5Sessions (llm-active-brain) -- o motor para de ver
+   * QUALQUER posição dela (nem pra fechar), e no próximo ciclo cria uma
+   * sessão nova zerada em $100, orfanizando pra sempre tudo que estava
+   * aberto (bug real, confirmado: 5 posições BTCUSD presas assim, ver
+   * handoff 2026-08-31). Comportamento esperado (igual ao motor mecânico
+   * antigo): desligar só bloqueia ENTRADA nova -- posições já abertas
+   * continuam sendo monitoradas de verdade (breakeven/trailing/SL/TP) até
+   * fecharem sozinhas. status='STOPPED' é reconhecido nos dois lados
+   * (Dashboard via getActiveSession acima, motor via
+   * listEligibleMt5Sessions) sem encerrar nada.
+   */
+  async stopSession(sessionId: string): Promise<boolean> {
+    return this.updateSession(sessionId, { status: 'STOPPED' } as Partial<AISession>);
+  }
+
+  /**
+   * "Ligar IA" de novo sobre uma sessão que só estava STOPPED (não
+   * COMPLETED) -- resume a MESMA sessão (saldo/posições/histórico
+   * contínuos), em vez de criar uma nova do zero.
+   */
+  async resumeSession(sessionId: string): Promise<boolean> {
+    return this.updateSession(sessionId, { status: 'RUNNING' } as Partial<AISession>);
+  }
+
+  /**
    * Finalizar sessão
    */
   async endSession(
@@ -393,7 +421,15 @@ class AITradingPersistenceService {
   }
 
   /**
-   * Buscar sessão ativa (última sessão RUNNING)
+   * Buscar sessão ativa (última sessão RUNNING ou STOPPED).
+   *
+   * 🔴 2026-08-31 (pedido do Cleber, achado ao vivo): inclui STOPPED de
+   * propósito -- "Desligar IA" (stopSession, abaixo) não encerra mais a
+   * sessão, só bloqueia entrada nova (ver mesma mudança em
+   * llm-active-brain/src/neuralBridge.ts listEligibleMt5Sessions). Sem
+   * incluir aqui, o Dashboard parava de mostrar a sessão (e as posições
+   * ainda abertas nela) assim que a IA era desligada, mesmo com o motor
+   * ainda monitorando de verdade no servidor até elas fecharem sozinhas.
    */
   async getActiveSession(userId: string): Promise<AISession | null> {
     try {
@@ -401,7 +437,7 @@ class AITradingPersistenceService {
         .from('ai_sessions')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'RUNNING')
+        .in('status', ['RUNNING', 'STOPPED'])
         .order('started_at', { ascending: false })
         .limit(1)
         .single();

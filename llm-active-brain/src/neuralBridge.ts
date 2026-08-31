@@ -297,12 +297,16 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
     // Confirmado ao vivo: sessão b38d5862 (COMPLETED) sendo reaproveitada
     // pelo fallback bootstrap de resolveMt5Sessions() logo depois de um
     // reset. Só reaproveita se ainda estiver RUNNING de verdade.
+    // 🔴 2026-08-31 (mesmo achado do fix em listEligibleMt5Sessions): inclui
+    // STOPPED aqui também -- sem isso, um cold-start do processo bem depois
+    // de "Desligar IA" (sessão STOPPED, não RUNNING) não encontrava nada e
+    // criava uma sessão nova do zero, mesmo achado de orfanização.
     const { data: existing, error: findError } = await sb
       .from("ai_sessions")
       .select("id")
       .eq("user_id", userId)
       .eq("strategy_name", MT5_STRATEGY_NAME)
-      .eq("status", "RUNNING")
+      .in("status", ["RUNNING", "STOPPED"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -353,12 +357,16 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
  * LLM_SYMBOL_TO_UNIFIED em LlmActiveBrainPanel.tsx) -- INVERSE_ALIAS
  * traduz de volta pro nome que este motor usa.
  */
+export type TradingCadence = "CONSERVADORA" | "NORMAL" | "AGRESSIVA";
+
 export interface UserTradingConfig {
   riskPerTradePct: number | null; // ex: 2 = 2% (já em %, não fração)
   allocatedCapitalUsd: number | null;
   dailyLossLimitPct: number | null; // ex: 5 = 5%
   direction: "AUTO" | "LONG" | "SHORT";
   activeAssets: string[] | null; // símbolos literais da Infinox, já traduzidos; null = sem filtro (usa cesta inteira)
+  maxSimultaneousAssets: number | null; // teto de simbolos DISTINTOS com posicao aberta ao mesmo tempo; null = sem teto do usuario
+  cadence: TradingCadence; // frequencia de avaliacao de entrada -- ver CADENCE_CYCLE_SKIP em index.ts
 }
 
 const INVERSE_ALIAS: Record<string, string> = { BTCBNB: "BTCXBN", DOGEUSD: "DOGUSD", LINKUSD: "LNKUSD" };
@@ -376,6 +384,8 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
     dailyLossLimitPct: null,
     direction: "AUTO",
     activeAssets: null,
+    maxSimultaneousAssets: null,
+    cadence: "NORMAL",
   };
   try {
     const sb = getClient();
@@ -399,6 +409,8 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
       // cesta do usuario intersectada com a cesta real vazia (nenhum ativo em comum) =
       // sem filtro util, cai pra cesta inteira em vez de travar o motor sem nenhum ativo pra operar.
       activeAssets: intersected && intersected.length > 0 ? intersected : null,
+      maxSimultaneousAssets: typeof raw.maxAssets === "number" && raw.maxAssets > 0 ? Math.floor(raw.maxAssets) : null,
+      cadence: raw.cadence === "CONSERVADORA" || raw.cadence === "AGRESSIVA" ? raw.cadence : "NORMAL",
     };
     userConfigCache.set(userId, { value, fetchedAt: Date.now() });
     return value;
@@ -412,6 +424,7 @@ export interface EligibleMt5Session {
   id: string;
   userId: string;
   symbols: string[];
+  status: "RUNNING" | "STOPPED";
 }
 
 /**
@@ -436,11 +449,22 @@ export interface EligibleMt5Session {
  */
 export async function listEligibleMt5Sessions(): Promise<EligibleMt5Session[]> {
   const sb = getClient();
+  // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber): "Desligar IA" muda o
+  // status da sessão pra STOPPED (ver stopSession em
+  // AITradingPersistenceService.ts) -- inclui aqui de propósito, senão a
+  // sessão desaparece deste loop inteira, as posições OPEN dela ficam sem
+  // ninguém gerenciando (breakeven/trailing/SL/TP nunca mais rodam) e o
+  // próximo ciclo cria uma sessão NOVA do zero, orfanizando tudo que estava
+  // aberto (bug real, confirmado: 5 posições BTCUSD ficaram presas assim,
+  // saldo "voltou" pra $100 sem nenhuma posição ter sido fechada de
+  // verdade). RUNNING+STOPPED sempre elegíveis pro loop de MONITORAMENTO;
+  // quem decide se pode abrir posição NOVA é o open_position tool (tools.ts),
+  // que recusa quando session.status === 'STOPPED'.
   const { data, error } = await sb
     .from("ai_sessions")
-    .select("id, user_id, symbols, created_at")
+    .select("id, user_id, symbols, status, created_at")
     .eq("strategy_name", MT5_STRATEGY_NAME)
-    .eq("status", "RUNNING")
+    .in("status", ["RUNNING", "STOPPED"])
     .order("created_at", { ascending: false });
   if (error) throw error;
 
@@ -457,6 +481,7 @@ export async function listEligibleMt5Sessions(): Promise<EligibleMt5Session[]> {
     id: row.id as string,
     userId: row.user_id as string,
     symbols: (row.symbols ?? []) as string[],
+    status: row.status as "RUNNING" | "STOPPED",
   }));
 }
 

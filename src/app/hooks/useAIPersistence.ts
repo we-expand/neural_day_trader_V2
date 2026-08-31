@@ -655,6 +655,24 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     return await aiPersistence.resetLlmActiveBrainSession(user.id, resetBalanceUsd);
   }, [user]);
 
+  /**
+   * "Desligar IA" -- 🔴 2026-08-31: NUNCA limpa sessionIdRef (ao contrário de
+   * endSession) -- a sessão continua sendo A mesma, só marcada STOPPED. Isso
+   * é o que permite resumeSession() religar exatamente ela depois, e o motor
+   * (llm-active-brain) continuar monitorando as posições OPEN dela até
+   * fecharem sozinhas em vez de ficarem órfãs.
+   */
+  const stopSession = useCallback(async () => {
+    if (!sessionIdRef.current) return false;
+    return await aiPersistence.stopSession(sessionIdRef.current);
+  }, []);
+
+  /** "Ligar IA" de novo sobre a mesma sessão que só estava STOPPED. */
+  const resumeSession = useCallback(async () => {
+    if (!sessionIdRef.current) return false;
+    return await aiPersistence.resumeSession(sessionIdRef.current);
+  }, []);
+
   // ==========================================================================
   // CLEANUP
   // ==========================================================================
@@ -674,6 +692,8 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Session
     startSession,
     endSession,
+    stopSession,
+    resumeSession,
     resetLlmActiveBrainSession,
     restoreActiveSession,
     getLastCompletedSession,

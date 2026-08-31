@@ -90,6 +90,7 @@ async function resolveMt5Sessions(): Promise<Mt5Session[]> {
         sessionId: s.id,
         userId: s.userId,
         userConfig: await getUserTradingConfig(s.userId, MT5_ASSET_BASKET),
+        status: s.status,
       }))
     );
   }
@@ -102,7 +103,7 @@ async function resolveMt5Sessions(): Promise<Mt5Session[]> {
   const sessionId = await getOrCreateMt5Session(config.neuralUserId, MT5_ASSET_BASKET);
   console.log(`[DEBUG] Sessão criada: ${sessionId}`);
   const userConfig = await getUserTradingConfig(config.neuralUserId, MT5_ASSET_BASKET);
-  return [{ sessionId, userId: config.neuralUserId, userConfig }];
+  return [{ sessionId, userId: config.neuralUserId, userConfig, status: "RUNNING" }];
 }
 
 async function runSingleCycle() {

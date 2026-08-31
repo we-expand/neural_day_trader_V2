@@ -423,6 +423,7 @@ export interface ExecuteToolSession {
   sessionId: string;
   userId: string;
   userConfig?: UserTradingConfig;
+  status: "RUNNING" | "STOPPED";
 }
 
 /** Cesta efetiva desta sessao: intersecao com `activeAssets` do Setup do usuario, ou a cesta inteira se ele nao filtrou nada. */
@@ -734,6 +735,41 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     }
 
     case "open_position": {
+      // 🔴 2026-08-31 (pedido do Cleber, achado ao vivo: "Desligar IA" estava
+      // orfanizando posição aberta em vez de só parar de abrir posição nova
+      // -- comportamento esperado, igual ao motor mecânico antigo: parar
+      // bloqueia SÓ entrada nova, posições já abertas seguem monitoradas
+      // (breakeven/trailing/SL/TP) até fechar sozinhas). Session.status vem
+      // de listEligibleMt5Sessions/resolveMt5Sessions -- 'STOPPED' é setado
+      // pelo botão "Desligar IA" (stopSession em
+      // AITradingPersistenceService.ts), sem encerrar a sessão nem fechar
+      // nada à força.
+      if (session.status === "STOPPED") {
+        return {
+          error: "IA desligada pelo usuário (Setup do AI Trader) -- nenhuma posição nova é aberta enquanto estiver assim. " +
+            "Posições já abertas continuam sendo monitoradas normalmente até fechar por stop/alvo.",
+        };
+      }
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Cadencia
+      // Agressiva"): o loop de ciclos e UM SO por processo, compartilhado
+      // por todas as sessoes multi-tenant (serial, ver index.ts sobre
+      // rate-limit da conta MetaAPI compartilhada) -- nao da pra ter um
+      // intervalo entre ciclos diferente por usuario sem um scheduler por
+      // sessao, que nao existe hoje. Em vez de pular runAgent (o que
+      // deixaria a posicao aberta sem checagem de stop/breakeven/trailing
+      // naquele ciclo -- enforceMt5StopsAndTargets roda ANTES disto, sempre,
+      // todo ciclo, pra toda sessao), a cadencia so restringe AVALIACAO DE
+      // ENTRADA NOVA: usando o numero global do ciclo (determinismo, sem
+      // Map/estado por sessao), AGRESSIVA avalia todo ciclo, NORMAL 1 a
+      // cada 2, CONSERVADORA 1 a cada 4.
+      const cadence = session.userConfig?.cadence ?? "NORMAL";
+      const CADENCE_CYCLE_INTERVAL: Record<string, number> = { AGRESSIVA: 1, NORMAL: 2, CONSERVADORA: 4 };
+      const requiredEvery = CADENCE_CYCLE_INTERVAL[cadence] ?? 2;
+      if (requiredEvery > 1 && cycle % requiredEvery !== 0) {
+        return {
+          error: `Cadencia "${cadence}" do Setup do AI Trader: avaliacao de entrada nova so roda a cada ${requiredEvery} ciclos (proxima janela no ciclo ${Math.ceil(cycle / requiredEvery) * requiredEvery}). Posicoes ja abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
+        };
+      }
       const symbol = String(input.symbol || "").toUpperCase();
       const side = input.side as string;
       const sizeInput = String(input.size || "normal").toLowerCase();
@@ -932,6 +968,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         return {
           error: `Ja existe ${openInSymbol} posicao aberta em ${symbol} (teto: ${MAX_POSITIONS_PER_SYMBOL}). Feche com close_position antes de abrir outra neste simbolo.`,
         };
+      }
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Ativos Simultaneos"):
+      // teto de SIMBOLOS DISTINTOS com posicao aberta ao mesmo tempo, definido
+      // pelo usuario. So bloqueia quando o simbolo novo AINDA NAO tem posicao
+      // aberta -- reforcar um simbolo ja dentro do teto (checagem acima) segue
+      // liberado ate MAX_POSITIONS_PER_SYMBOL.
+      const maxSimultaneousAssets = session.userConfig?.maxSimultaneousAssets;
+      if (maxSimultaneousAssets != null && openInSymbol === 0) {
+        const distinctSymbolsOpen = new Set(openPositions.map((p) => p.symbol)).size;
+        if (distinctSymbolsOpen >= maxSimultaneousAssets) {
+          return {
+            error: `Teto de ativos simultaneos do usuario (${maxSimultaneousAssets}) atingido -- ja ha posicao aberta em ${distinctSymbolsOpen} simbolo(s) diferente(s). Feche alguma posicao antes de abrir em ${symbol}.`,
+          };
+        }
       }
       // 🔴 2026-08-29 (otimizacao urgente pos-perda do dia): teto de exposicao
       // do GRUPO CORRELACIONADO inteiro no mesmo lado -- ver getCorrelatedGroup
@@ -1155,7 +1205,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // proprietaria). getMt5AccountBalance() soma initial_balance + net_pnl
       // realizado desta sessao -- o tamanho da posicao ENCOLHE se a conta
       // perdeu e CRESCE se ganhou, sem precisar reconfigurar nada.
-      const balance = await getMt5AccountBalance(session.sessionId);
+      const accountBalance = await getMt5AccountBalance(session.sessionId);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Capital para IA"):
+      // se o usuario alocou um valor menor que o saldo real da conta pro
+      // motor operar, o sizing usa o valor alocado como base de risco, nunca
+      // o saldo inteiro -- allocatedCapitalUsd nunca ultrapassa o saldo real
+      // (senao a IA arriscaria dinheiro que nao esta de fato liberado pra ela).
+      const allocated = session.userConfig?.allocatedCapitalUsd;
+      const balance = allocated != null ? Math.min(allocated, accountBalance) : accountBalance;
       // 🔴 2026-08-31 (Setup do AI Trader reconectado): risco por trade (%)
       // configurado pelo usuario sobrepoe o default global do motor quando
       // presente -- ver getUserTradingConfig em neuralBridge.ts.

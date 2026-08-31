@@ -1028,7 +1028,13 @@ export function useApexLogic(
         // de mais acima (localStorage, "Always start inactive") é
         // sobrescrito aqui de propósito porque o Supabase é a fonte de
         // verdade, não o cache local.
-        setIsActive(true);
+        //
+        // 🔴 2026-08-31 (mesmo achado do stopLogic): `restoreActiveSession()`
+        // agora também pode devolver uma sessão STOPPED (getActiveSession
+        // inclui RUNNING+STOPPED, ver AITradingPersistenceService.ts) --
+        // "Desligar IA" continua parecendo desligado num reload, mesmo com
+        // as posições ainda aparecendo na tela até fecharem sozinhas.
+        setIsActive(session.status === 'RUNNING');
 
         // Sessão restaurada (não uma nova) — o "início" pro gate de perda
         // diária é quando ELA começou, não agora (senão um reload no meio
@@ -2221,6 +2227,13 @@ export function useApexLogic(
         initialEquity: portfolioRef.current.equity,
         config: configRef.current,
       });
+    } else if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
+      // 🔴 2026-08-31 (mesmo achado do stopLogic): "Desligar IA" agora só
+      // marca a sessão STOPPED (não a encerra) -- religar precisa voltar
+      // essa MESMA sessão pra RUNNING, nunca criar uma nova (senão o motor
+      // volta a operar em cima de duas sessões concorrentes, ou a sessão
+      // STOPPED anterior fica presa pra sempre com posições órfãs de novo).
+      persistenceRef.current.resumeSession();
     }
   }, [addLog, stopDrainWatcher]);
 
@@ -2229,14 +2242,27 @@ export function useApexLogic(
     // força ao parar a IA — isso cortava trades com R:R alto (ex: take-profit
     // 1:3) no preço de mercado do instante do Stop, antes de atingirem o
     // alvo, transformando o que seria "perde pouco, ganha muito" em "empata
-    // sempre". Comportamento antigo (removido): fechava tudo local com
-    // `exit_reason: 'MANUAL'` e recalculava PnL client-side. Agora: só para
-    // de abrir posição NOVA (sessão sai de RUNNING; em DEMO o `ai-runner`
-    // só abre entrada pra sessão RUNNING). As posições já abertas continuam
-    // sendo monitoradas de verdade pelo watchdog do runner até bater
-    // TP/SL/gate de risco — nada fica sem monitoramento, então a proteção
-    // original ("não deixar posição órfã") continua valendo, só que via
-    // servidor em vez de fechamento forçado no cliente.
+    // sempre". Só para de abrir posição NOVA; as posições já abertas
+    // continuam sendo monitoradas de verdade até bater TP/SL/gate de risco.
+    //
+    // 🔴 2026-08-31 (pedido do Cleber, achado ao vivo, bug real corrigido):
+    // até aqui esta função chamava `endSession()`, que marca a sessão como
+    // COMPLETED. Isso funcionava com o motor mecânico antigo (comentário
+    // removido explicava: "o watchdog do ai-runner busca por session_id
+    // direto, independente do status da sessão"), mas essa premissa morreu
+    // em 2026-08-31 quando o `ai-runner` foi desligado definitivamente e o
+    // Cérebro LLM Ativo virou motor único: ele só enxerga sessão
+    // RUNNING/STOPPED (`listEligibleMt5Sessions`), NUNCA COMPLETED. Resultado
+    // confirmado ao vivo: desligar a IA fazia a sessão sumir do motor por
+    // completo, o próximo ciclo criava uma sessão NOVA zerada em $100, e as
+    // posições abertas da sessão antiga ficavam órfãs pra sempre (5 posições
+    // BTCUSD presas assim, corrigidas manualmente nesta sessão). Trocado por
+    // `stopSession()` (status='STOPPED', não encerra nada) -- reconhecido
+    // tanto aqui (getActiveSession acima) quanto no motor
+    // (listEligibleMt5Sessions/open_position em llm-active-brain), que
+    // recusa abrir posição nova nesse status mas segue monitorando as
+    // existentes até fechar sozinhas. `startLogic` religa a MESMA sessão
+    // (resumeSession), sem criar uma nova.
     const pendingCount = activeOrders.length;
     if (pendingCount > 0) {
       addLog(`🛑 Sistema APEX Parado - ${pendingCount} posição(ões) aberta(s) seguem monitoradas pelo servidor até fechar por TP/SL. Nenhuma posição nova será aberta.`);
@@ -2244,28 +2270,11 @@ export function useApexLogic(
       addLog('🛑 Sistema APEX Parado');
     }
 
-    // 🆕 FIX 2026-08-17 (achado ao investigar "IA religada mas config antiga
-    // continua rodando"): "Desligar AI" nunca encerrava a sessão no Supabase
-    // — só zerava estado local (`setIsActive(false)`). A sessão ficava
-    // RUNNING no banco pra sempre, e o runner server-side (`ai-runner` via
-    // pg_cron) continuava operando com a config antiga indefinidamente,
-    // mesmo com a tela mostrando "desligado". Pior: como `sessionIdRef`
-    // também não era limpo, o próximo "Iniciar AI" via `startLogic` (guard
-    // `!persistenceRef.current.currentSessionId`) nunca criava sessão nova —
-    // só um reload de página resolvia (achado ao vivo nesta sessão,
-    // precisou de intervenção manual direto no banco). `endSession` já
-    // limpa `sessionIdRef.current` sozinho (useAIPersistence.ts:166), então
-    // chamar aqui resolve os dois problemas de uma vez: sessão morre de
-    // verdade no banco, e o próximo start cria uma sessão nova sem precisar
-    // recarregar a página. Encerrar a sessão aqui é seguro mesmo com
-    // posições OPEN: o watchdog do `ai-runner` busca posição `OPEN` por
-    // `session_id` direto em `ai_trades`, independente do `status` da
-    // sessão — só o handler principal (abre posição nova) olha `RUNNING`.
     const endedSessionId = configRef.current.executionMode === 'DEMO'
       ? persistenceRef.current.getSessionId()
       : null;
     if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
-      persistenceRef.current.endSession(portfolioRef.current.balance, portfolioRef.current.equity);
+      persistenceRef.current.stopSession();
     }
 
     // Continua de olho nas posições que ficaram pro watchdog fechar, já que

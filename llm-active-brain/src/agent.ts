@@ -21,6 +21,10 @@ export interface Mt5Session {
   sessionId: string;
   userId: string;
   userConfig?: UserTradingConfig;
+  // 🔴 2026-08-31: STOPPED = "Desligar IA" -- ainda monitora posições OPEN
+  // (breakeven/trailing/SL/TP), mas open_position (tools.ts) recusa abrir
+  // posição NOVA enquanto este status estiver assim.
+  status: "RUNNING" | "STOPPED";
 }
 
 const TRADING_SECTION = config.tradingEnabled
@@ -574,7 +578,7 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
 export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<boolean> {
   // Modo legado (Binance/experimento ETH testnet) não tem sessão MT5 --
   // executeTool ainda recebe algo, mas os handlers legados nunca leem sessionId/userId.
-  const toolSession: ExecuteToolSession = mt5Session ?? { sessionId: "", userId: "" };
+  const toolSession: ExecuteToolSession = mt5Session ?? { sessionId: "", userId: "", status: "RUNNING" };
   let userMessage: string;
   if (config.mt5TradingEnabled) {
     if (!mt5Session) throw new Error("runAgent chamado em modo MT5 sem sessao (mt5Session ausente).");
