@@ -59,17 +59,38 @@ function calculateAtr(candles: Candle[], period = 14): number | null {
 }
 
 const candlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
-const CANDLES_CACHE_TTL_MS = 5 * 60 * 1000; // 5min -- candle de 5m não muda de forma relevante a cada ciclo (10s)
+const CANDLES_CACHE_TTL_MS = 5 * 60 * 1000; // 5min -- teto de segurança pro maior timeframe suportado (5m); timeframes menores usam um TTL mais curto, ver CACHE_TTL_BY_TIMEFRAME abaixo
+
+// 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional"):
+// TTL do cache precisa ser <= a duracao de 1 vela do timeframe escolhido,
+// senao um timeframe curto (1m) fica lendo candle "fresco" que na verdade
+// tem ate 5min de idade (o TTL fixo antigo, calibrado so pro caso de 5m).
+const CACHE_TTL_BY_TIMEFRAME: Record<string, number> = {
+  "1m": 30 * 1000,
+  "5m": 5 * 60 * 1000,
+  "15m": 5 * 60 * 1000,
+  "1H": 5 * 60 * 1000,
+  "4H": 15 * 60 * 1000,
+};
+
+/** Timeframes suportados pelo endpoint /mt5-candles (ver timeframeMap em supabase/functions/server/index.ts) -- mesmos valores que o campo `timeframe` do Setup do AI Trader (AIConfig) já usa no frontend. */
+export const SUPPORTED_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H"] as const;
+export type SupportedTimeframe = (typeof SUPPORTED_TIMEFRAMES)[number];
 
 /**
- * Busca (com cache) as últimas velas de 5m reais do símbolo, MESMA fonte que
- * `getAtrPercent`/`getTrendInfo` usam -- extraído pra um só fetch por
- * símbolo/ciclo em vez de duplicar a chamada de rede pra cada métrica
- * derivada dela (2026-08-29, otimização urgente pós-perda do dia).
+ * Busca (com cache) as últimas velas reais do símbolo no timeframe pedido,
+ * MESMA fonte que `getAtrPercent`/`getTrendInfo` usam -- extraído pra um só
+ * fetch por símbolo/timeframe/ciclo em vez de duplicar a chamada de rede
+ * pra cada métrica derivada dela (2026-08-29, otimização urgente pós-perda
+ * do dia). 🔴 2026-08-31: timeframe agora é parâmetro (Setup do AI Trader) --
+ * default "5m" preserva o comportamento de todas as sessões que não
+ * configuraram nada.
  */
-async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
-  const cached = candlesCache.get(symbol);
-  if (cached && Date.now() - cached.fetchedAt < CANDLES_CACHE_TTL_MS) return cached.candles;
+async function fetchRecentCandles(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<Candle[] | null> {
+  const cacheKey = `${symbol}:${timeframe}`;
+  const cached = candlesCache.get(cacheKey);
+  const ttl = CACHE_TTL_BY_TIMEFRAME[timeframe] ?? CANDLES_CACHE_TTL_MS;
+  if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;
 
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`;
   try {
@@ -83,10 +104,10 @@ async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
       // XETUSD SHORT com tese fraca): limit subiu de 30 pra 60 velas. MACD
       // clássico (EMA12/26/9) precisa de aquecimento real -- com 30 velas a
       // EMA26 mal teria 4-5 velas de warm-up antes do primeiro valor
-      // usável, ficando instável logo no início da série. 60 velas de 5m
-      // (~5h de histórico) dá warm-up de verdade pras 3 EMAs sem pesar
-      // demais o fetch (mesmo endpoint, mesmo cache de 5min).
-      body: JSON.stringify({ symbol, timeframe: "5m", limit: 60 }),
+      // usável, ficando instável logo no início da série. 60 velas dá
+      // warm-up de verdade pras 3 EMAs sem pesar demais o fetch, em
+      // qualquer timeframe (mesmo endpoint).
+      body: JSON.stringify({ symbol, timeframe, limit: 60 }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
@@ -99,7 +120,7 @@ async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
     // bem acima desse mínimo, então não perdem precisão com o ajuste.
     if (!Array.isArray(candles) || candles.length < 35) return null;
 
-    candlesCache.set(symbol, { candles, fetchedAt: Date.now() });
+    candlesCache.set(cacheKey, { candles, fetchedAt: Date.now() });
     return candles;
   } catch {
     return null;
@@ -120,8 +141,11 @@ async function fetchRecentCandles(symbol: string): Promise<Candle[] | null> {
  * processo a partir de /mt5-prices, que funciona) antes do último recurso
  * (% fixo hardcoded).
  */
-export async function getAtrPercent(symbol: string): Promise<number | null> {
-  const candles = await fetchRecentCandles(symbol);
+/** Minutos por vela de cada timeframe suportado -- só pra reportar `lookbackMinutes` corretamente quando o timeframe não é o default de 5m. */
+const TIMEFRAME_MINUTES: Record<string, number> = { "1m": 1, "5m": 5, "15m": 15, "1H": 60, "4H": 240 };
+
+export async function getAtrPercent(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<number | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   if (candles) {
     const atr = calculateAtr(candles, 14);
     const lastClose = candles[candles.length - 1].close;
@@ -162,8 +186,8 @@ const TREND_FLAT_THRESHOLD_PCT = 0.15; // abaixo disso, chama de LATERAL em vez 
  * tick REAL deste processo (tickHistory.ts, alimentado por /mt5-prices, que
  * funciona) -- nunca fabrica tendência, só usa fonte diferente de dado real.
  */
-export async function getTrendInfo(symbol: string): Promise<TrendInfo | null> {
-  const candles = await fetchRecentCandles(symbol);
+export async function getTrendInfo(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<TrendInfo | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   if (candles && candles.length >= TREND_LOOKBACK_CANDLES + 1) {
     const recent = candles.slice(-TREND_LOOKBACK_CANDLES - 1);
     const startClose = recent[0].close;
@@ -172,7 +196,7 @@ export async function getTrendInfo(symbol: string): Promise<TrendInfo | null> {
       const changePct = ((endClose - startClose) / startClose) * 100;
       const label: TrendInfo["label"] =
         Math.abs(changePct) < TREND_FLAT_THRESHOLD_PCT ? "LATERAL" : changePct > 0 ? "ALTA" : "BAIXA";
-      return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: TREND_LOOKBACK_CANDLES * 5, source: "candle" };
+      return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: TREND_LOOKBACK_CANDLES * (TIMEFRAME_MINUTES[timeframe] ?? 5), source: "candle" };
     }
   }
 
@@ -214,8 +238,8 @@ const VOLUME_ELEVATED_RATIO = 1.15;
  * (tickHistory.ts) como proxy de participação. Não é volume de verdade, é
  * derivado só de preço, mas é dado real deste processo, nunca fabricado.
  */
-export async function getVolumeConfirmation(symbol: string): Promise<VolumeConfirmation | null> {
-  const candles = await fetchRecentCandles(symbol);
+export async function getVolumeConfirmation(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<VolumeConfirmation | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   if (candles && candles.length >= VOLUME_RECENT_CANDLES + VOLUME_BASELINE_CANDLES) {
     const hasVolume = !candles.some((c) => typeof c.volume !== "number" || !Number.isFinite(c.volume));
     if (hasVolume) {
@@ -261,8 +285,8 @@ const SR_NEAR_LEVEL_THRESHOLD_PCT = 0.15;
  * topo/fundo real e recente que qualquer trader discricionário olharia
  * primeiro. `null` quando não há candle real disponível -- nunca fabrica.
  */
-export async function getSupportResistance(symbol: string): Promise<SupportResistance | null> {
-  const candles = await fetchRecentCandles(symbol);
+export async function getSupportResistance(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SupportResistance | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   if (!candles || candles.length < 10) return null;
 
   const highs = candles.map((c) => c.high).filter((v) => Number.isFinite(v));
@@ -289,7 +313,7 @@ export async function getSupportResistance(symbol: string): Promise<SupportResis
     distanceToResistancePct: Number(Math.max(0, distanceToResistancePct).toFixed(3)),
     distanceToSupportPct: Number(Math.max(0, distanceToSupportPct).toFixed(3)),
     nearLevel,
-    lookbackMinutes: candles.length * 5,
+    lookbackMinutes: candles.length * (TIMEFRAME_MINUTES[timeframe] ?? 5),
   };
 }
 
@@ -340,8 +364,8 @@ function calculateEmaSeries(values: number[], period: number): number[] | null {
  * houver candle real suficiente (mínimo 35 velas, ver ajuste acima),
  * retorna `null`, MESMA disciplina do resto deste arquivo.
  */
-export async function getMacd(symbol: string): Promise<MacdResult | null> {
-  const candles = await fetchRecentCandles(symbol);
+export async function getMacd(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MacdResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   if (!candles || candles.length < MACD_SLOW_PERIOD + MACD_SIGNAL_PERIOD) return null;
 
   const closes = candles.map((c) => c.close).filter((v) => Number.isFinite(v));
@@ -429,8 +453,8 @@ function calculateSmaSeries(values: number[], period: number): number[] {
  * `fetchRecentCandles` que MACD/ATR/tendência já usam -- se não houver
  * candle real suficiente, retorna `null`, nunca fabrica indicador.
  */
-export async function getSlowStochastic(symbol: string): Promise<SlowStochasticResult | null> {
-  const candles = await fetchRecentCandles(symbol);
+export async function getSlowStochastic(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SlowStochasticResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   const minCandles = STOCH_PERIOD + STOCH_K_SMOOTHING + STOCH_D_SMOOTHING; // warm-up real pra dupla suavização
   if (!candles || candles.length < minCandles) return null;
 
@@ -547,8 +571,8 @@ const MIN_CANDLES_FOR_PATTERNS = CANDLE_PATTERN_TREND_CONTEXT_CANDLES + 3; // co
  * simples e conservadores -- prefere não detectar (falso negativo) a
  * inventar um padrão que não está lá (falso positivo).
  */
-export async function getCandlePatterns(symbol: string): Promise<CandlePatternResult | null> {
-  const candles = await fetchRecentCandles(symbol);
+export async function getCandlePatterns(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<CandlePatternResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
   if (!candles || candles.length < MIN_CANDLES_FOR_PATTERNS) return null;
 
   const n = candles.length;

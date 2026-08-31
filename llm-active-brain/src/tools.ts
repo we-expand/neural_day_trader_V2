@@ -370,8 +370,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `"normal" arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo se o stop bater, "forte" arrisca ` +
         `${(config.mt5RiskPctPerTrade * config.mt5HeavyMultiplier * 100).toFixed(1)}%. Numa conta pequena isso pode fazer o codigo RECUSAR ` +
         `a entrada (erro explicito) se o lote minimo do ativo ja forcar risco acima do teto tolerado -- isso e intencional, nao um bug. ` +
-        `Todos os simbolos da cesta (${MT5_ASSET_BASKET.join("/")}) sao cripto correlacionada -- ` +
-        `exposicao combinada do MESMO lado nesse grupo tem teto proprio (nao e so por simbolo). ` +
+        `A cesta (${MT5_ASSET_BASKET.join("/")}) mistura cripto, forex, metal, energia e indices -- simbolos do MESMO grupo ` +
+        `correlacionado (ex: as 10 criptos entre si, ou os 4 indices globais entre si) tem exposicao combinada do MESMO lado ` +
+        `com teto proprio (nao e so por simbolo, ver get_mt5_quote/log de erro pra saber o grupo de um simbolo especifico). ` +
         `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
         `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal (ver "volume") tambem e bloqueado -- ` +
         `contrarian trade e permitido, mas so com confirmacao real de participacao, nao no vacuo. ` +
@@ -585,6 +586,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         };
       }
       lastQuotedCycleBySymbol.set(symbol, cycle);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe
+      // Operacional"): todos os indicadores derivados de candle (trend/
+      // volume/S&R/MACD/estocastico/padroes) passam a calcular em cima do
+      // timeframe escolhido pelo usuario, nao mais fixo em 5m -- ver
+      // SUPPORTED_TIMEFRAMES/fetchRecentCandles em atr.ts. Default "5m"
+      // preserva o comportamento de sessoes sem essa config.
+      const timeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
       // snapshot atualizado logo abaixo, depois de trend/volume/macd/stochastic serem calculados
       // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
       // tendência de curto prazo (1h) vai junto da cotação -- achado real foi
@@ -592,12 +600,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // horas, decidindo só a partir do preço do instante, sem nenhuma noção
       // de "isso já está subindo há um tempo". null quando não dá pra
       // calcular com dado real -- nunca inventa tendência.
-      const trend = await getTrendInfo(symbol);
+      const trend = await getTrendInfo(symbol, timeframe);
       // 🔴 2026-08-29: proxy honesto de participacao/forca por tras do
       // movimento (tickVolume real da MetaAPI, ver atr.ts) -- nao e order
       // flow/book de ofertas de verdade (o sistema nao tem esse dado), mas e
       // volume real, nao fabricado. null quando indisponivel.
-      const volume = await getVolumeConfirmation(symbol);
+      const volume = await getVolumeConfirmation(symbol, timeframe);
       // 🔴 2026-08-29 (achado do Cleber: entrada LONG em XETUSD com preco ja
       // "longe das medias", Estocastico quase virando, MACD com exaustao --
       // sinais que este sistema nao tinha como enxergar). Na epoca, MACD/
@@ -617,14 +625,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // depois do fix de /mt5-candles (era 404 na MetaAPI, sempre caia em
       // SIMULATED -- ver historico de sessao). null quando candle real nao
       // disponivel, nunca fabrica nivel.
-      const supportResistance = await getSupportResistance(symbol);
+      const supportResistance = await getSupportResistance(symbol, timeframe);
       // 🔴 2026-08-30 (pedido do Cleber, XETUSD SHORT com tese fraca sem
       // checar MACD): MACD real, calculado em cima do MESMO candle oficial
       // que trend/volume/supportResistance já usam (ver atr.ts) -- antes
       // era impossível porque a corretora devolvia candle SIMULATED pra
       // esta cesta, corrigido numa sessão anterior. null quando não há
       // candle real suficiente, nunca fabrica indicador.
-      const macd = await getMacd(symbol);
+      const macd = await getMacd(symbol, timeframe);
       // 🔴 2026-08-30 (pedido do Cleber, junto do MACD -- "MACD e Estocastico
       // lento sao fundamentais"): Estocastico LENTO real (%K/%D classicos,
       // periodo 14, suavizacao 3+3), mesmo candle oficial que os outros
@@ -632,12 +640,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // de curto prazo -- complementa o MACD (momentum de tendencia) com uma
       // leitura de exaustao classica. null quando nao ha candle real
       // suficiente, nunca fabrica indicador.
-      const stochastic = await getSlowStochastic(symbol);
+      const stochastic = await getSlowStochastic(symbol, timeframe);
       // 🔴 2026-08-30 (pedido do Cleber, "10 padroes de candle mais
       // famosos"): primeira vez que o LLM recebe a FORMA da vela (corpo vs
       // pavios), nao so o fechamento -- ver getCandlePatterns em atr.ts pra
       // detalhe dos 10 padroes e criterio geometrico de cada um.
-      const candlePatterns = await getCandlePatterns(symbol);
+      const candlePatterns = await getCandlePatterns(symbol, timeframe);
       lastQuoteSnapshotBySymbol.set(symbol, {
         trendLabel: trend?.label ?? null,
         volumeElevated: volume?.elevated ?? null,
@@ -806,7 +814,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       if (!isSymbolTradable(symbol)) {
         return {
-          error: `Mercado de ${symbol} fechado agora (forex fecha sexta 22:00 UTC, abre domingo 23:00 UTC) -- posicao nao aberta. Prefira um dos criptos da cesta enquanto o forex estiver fechado.`,
+          error: `Mercado de ${symbol} fechado agora (CFDs de forex/metal/energia/indices fecham sexta 22:00 UTC, abrem domingo 23:00 UTC) -- posicao nao aberta. Prefira um dos criptos da cesta enquanto este mercado estiver fechado.`,
         };
       }
       if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
@@ -974,6 +982,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // pelo usuario. So bloqueia quando o simbolo novo AINDA NAO tem posicao
       // aberta -- reforcar um simbolo ja dentro do teto (checagem acima) segue
       // liberado ate MAX_POSITIONS_PER_SYMBOL.
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Maximo de Posicoes
+      // Abertas"): teto AGREGADO de TODAS as posicoes da sessao (qualquer
+      // simbolo), diferente do teto de ATIVOS SIMULTANEOS abaixo (que conta
+      // simbolos DISTINTOS) -- ex: 2 posicoes em BTCUSD conta 2 aqui, mas 1
+      // symbolo la.
+      const maxOpenPositionsTotal = session.userConfig?.maxOpenPositionsTotal;
+      if (maxOpenPositionsTotal != null && openPositions.length >= maxOpenPositionsTotal) {
+        return {
+          error: `Teto de posicoes abertas do usuario (${maxOpenPositionsTotal}) atingido -- ja ha ${openPositions.length} posicao(oes) aberta(s) no total. Feche alguma posicao antes de abrir em ${symbol}.`,
+        };
+      }
       const maxSimultaneousAssets = session.userConfig?.maxSimultaneousAssets;
       if (maxSimultaneousAssets != null && openInSymbol === 0) {
         const distinctSymbolsOpen = new Set(openPositions.map((p) => p.symbol)).size;
@@ -1090,10 +1109,37 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // a favor da tendencia (ou lateral, ou volume elevado mesmo contra)
       // continua liberado -- nao e proibir contrarian trade (Kotegawa fez
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
-      const [trend, volume] = await Promise.all([getTrendInfo(symbol), getVolumeConfirmation(symbol)]);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
+      const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const [trend, volume] = await Promise.all([getTrendInfo(symbol, openPositionTimeframe), getVolumeConfirmation(symbol, openPositionTimeframe)]);
       if (trend && trend.label !== "LATERAL" && volume) {
         const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
-        if (counterTrend && !volume.elevated) {
+        // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
+        // Operacao"): quando o usuario NAO escolheu nada (marketMode=null),
+        // mantem o guard existente (bloqueia contra-tendencia só sem volume
+        // confirmando). Quando escolheu explicitamente: TREND aperta (bloqueia
+        // contra-tendencia SEMPRE, mesmo com volume) e COUNTER inverte
+        // (bloqueia A FAVOR da tendencia, só libera contra-tendencia/lateral --
+        // "buscar entradas em suporte/resistencia", mesmo espirito do texto
+        // que ja existia na UI antiga).
+        const marketMode = session.userConfig?.marketMode;
+        if (marketMode === "TREND" && counterTrend) {
+          return {
+            error:
+              `Fluxo de Operacao "A Favor (Trend)" do Setup do AI Trader: ${symbol} esta em tendencia de ${trend.label} ` +
+              `(${trend.changePct > 0 ? "+" : ""}${trend.changePct}% na ultima ${trend.lookbackMinutes}min) -- ${side} aqui seria contra a tendencia, ` +
+              `bloqueado enquanto essa preferencia estiver ativa. Opere a favor da tendencia ou avalie outro ativo.`,
+          };
+        }
+        if (marketMode === "COUNTER" && !counterTrend) {
+          return {
+            error:
+              `Fluxo de Operacao "Contra (Reversal)" do Setup do AI Trader: ${symbol} esta em tendencia de ${trend.label} ` +
+              `(${trend.changePct > 0 ? "+" : ""}${trend.changePct}% na ultima ${trend.lookbackMinutes}min) -- ${side} aqui seria A FAVOR da tendencia, ` +
+              `bloqueado enquanto essa preferencia estiver ativa (busca reversao em suporte/resistencia). Opere contra a tendencia ou avalie outro ativo.`,
+          };
+        }
+        if (marketMode == null && counterTrend && !volume.elevated) {
           return {
             error:
               `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) ` +
@@ -1138,7 +1184,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // % de risco (abaixo) precisa da distancia do stop em % pra calcular o
       // notional-alvo (notional = risco_usd / stop_pct), entao o stop
       // precisa existir primeiro.
-      let stopPct = await getAtrPercent(symbol).then((atrPct) => {
+      let stopPct = await getAtrPercent(symbol, openPositionTimeframe).then((atrPct) => {
         if (atrPct == null) return null;
         const dynamicStopPct = atrPct * config.mt5StopAtrMultiplier;
         if (dynamicStopPct < config.mt5StopMinPct || dynamicStopPct > config.mt5StopMaxPct) return null;
@@ -1182,7 +1228,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // R:R 0,6:1 -- pior que aleatorio, o oposto do redesenho). Agora o
       // fallback tambem respeita o MESMO multiplicador R:R do caminho
       // dinamico -- nunca colapsa pra 1:1 por acidente so por falta de ATR.
-      let takeProfitPct = stopPct * (config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Alvo de Lucro
+      // (Range)"): POUCOS/MÉDIO/MUITOS sobrepoe o R:R (take-profit/stop)
+      // default do motor quando o usuario configurou. null (usuario nunca
+      // tocou) preserva o comportamento atual (baseline mt5TakeProfitAtrMultiplier/mt5StopAtrMultiplier).
+      const RR_BY_TARGET_POINTS: Record<string, number> = { POUCOS: 1.5, "MÉDIO": 3, MUITOS: 5 };
+      const rrMultiplier = session.userConfig?.targetPoints != null
+        ? RR_BY_TARGET_POINTS[session.userConfig.targetPoints]
+        : config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier;
+      let takeProfitPct = stopPct * rrMultiplier;
       // 🔴 2026-08-30 (mesmo achado, mesmo redesenho): o encolhimento extra de
       // alvo em dia de baixo volume (0,6x) foi REMOVIDO -- existia
       // especificamente pra servir a filosofia "giro rapido, alvo curto"
@@ -1224,6 +1278,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const targetNotional = riskUsd / stopPct;
       let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);
       lots = Math.min(lots, config.mt5SafetyMaxLots);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Lotes Maximos por
+      // Trade"): teto do usuario, quando configurado, nunca frouxo o teto de
+      // seguranca global (mt5SafetyMaxLots) -- so aperta.
+      if (session.userConfig?.maxLotsPerTrade != null) {
+        lots = Math.min(lots, session.userConfig.maxLotsPerTrade);
+      }
       lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
       if (lots < MIN_LOTS) lots = MIN_LOTS; // nao da pra abrir posicao com lote zero -- MIN_LOTS e o menor lote executavel
       let amountUsd = lots * LOT_SIZE[symbol] * quote.price;

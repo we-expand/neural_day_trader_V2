@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Bot, Brain, Play, Pause, Power, Settings, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Mic } from 'lucide-react';
+import { Bot, Brain, Play, Pause, Power, Settings, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Mic, Clock, TrendingUp, Crosshair } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
@@ -1164,6 +1164,101 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <Target className="w-4 h-4" /> Estratégia
                             </h3>
 
+                            {/* Timeframe Operacional — 2026-08-31 (pedido do Cleber, "tudo tem que
+                                funcionar"): reconectado ao motor. Todos os indicadores derivados de
+                                candle (tendência/volume/S&R/MACD/estocástico/padrões) passam a
+                                calcular no timeframe escolhido — ver SUPPORTED_TIMEFRAMES/
+                                fetchRecentCandles em atr.ts (llm-active-brain). Default 5m. */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-2">
+                                    <Clock className="w-3 h-3" /> Timeframe Operacional
+                                </label>
+                                <div className="grid grid-cols-5 gap-1.5">
+                                    {['1m', '5m', '15m', '1H', '4H'].map(tf => (
+                                        <button
+                                            key={tf}
+                                            onClick={() => setConfig(prev => ({ ...prev, timeframe: tf }))}
+                                            title={tf === '1m' ? 'Custo de corretagem consome a maior parte do movimento típico de 1 minuto — use só para teste manual, não como operação principal.' : undefined}
+                                            className={`px-1 py-1.5 rounded text-[10px] font-bold border transition-all ${
+                                                config.timeframe === tf
+                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                                                : 'bg-white/5 border-transparent text-slate-500 hover:text-white hover:bg-white/10'
+                                            }`}
+                                        >
+                                            {tf}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Estratégia — nome do preset vira diretiva de estilo no prompt do LLM
+                                Brain (agent.ts), não uma regra mecânica (o motor de blocos do motor
+                                antigo não existe neste agente, que raciocina livre). */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
+                                    {onCreateCustomStrategy && (
+                                        <button
+                                            onClick={onCreateCustomStrategy}
+                                            className="flex items-center gap-1 text-[10px] font-bold text-purple-400 hover:text-purple-300 transition-colors"
+                                            title="Desenhar uma estratégia personalizada — mesmo construtor usado no Backtest"
+                                        >
+                                            <Sliders className="w-3 h-3" /> Criar personalizada
+                                        </button>
+                                    )}
+                                </div>
+                                <select
+                                    value={config.activeStrategyId || ''}
+                                    onChange={(e) => setConfig({ ...config, activeStrategyId: e.target.value || null })}
+                                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="" disabled>Selecione uma estratégia</option>
+                                    {strategies.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}{s.isPreset ? '' : ' (personalizada)'}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Fluxo de Operação — A Favor bloqueia contra-tendência sempre; Contra
+                                inverte (só libera contra-tendência/lateral, busca reversão em
+                                suporte/resistência). Guard real em open_position (tools.ts). */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Fluxo de Operação</label>
+                                <div className="flex gap-2 p-1 bg-black rounded-lg border border-white/10">
+                                <button
+                                    onClick={() => setConfig({ ...config, marketMode: 'TREND' })}
+                                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                                    config.marketMode === 'TREND'
+                                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    A Favor (Trend)
+                                </button>
+                                <button
+                                    onClick={() => setConfig({ ...config, marketMode: 'COUNTER' })}
+                                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                                    config.marketMode === 'COUNTER'
+                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    Contra (Reversal)
+                                </button>
+                                </div>
+                                {config.marketMode === 'COUNTER' ? (
+                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
+                                        <Crosshair className="w-3 h-3" />
+                                        <span>A IA buscará entradas em <strong>Suportes e Resistências</strong> Majoritários.</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-blue-500/5 border border-blue-500/10 rounded text-[9px] text-blue-500/80">
+                                        <TrendingUp className="w-3 h-3" />
+                                        <span>A IA seguirá o fluxo de <strong>Momentum e Estrutura</strong> do mercado.</span>
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Direction */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Direção Preferencial</label>
@@ -1173,7 +1268,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     key={dir}
                                     onClick={() => setConfig({ ...config, direction: dir as Direction })}
                                     className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
-                                        config.direction === dir 
+                                        config.direction === dir
                                         ? dir === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : dir === 'SHORT' ? 'bg-red-500/20 text-red-400' : 'bg-purple-500/20 text-purple-400'
                                         : 'text-slate-500 hover:text-slate-300'
                                     }`}
@@ -1183,50 +1278,30 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 ))}
                                 </div>
                             </div>
-                            </div>
 
-                            {/* COLUMN 2: VOLUMETRIA (Contracts/Assets) */}
-                            <div className="space-y-6">
-                            <h3 className="text-xs font-bold text-blue-500 uppercase tracking-widest flex items-center gap-2">
-                                <Briefcase className="w-4 h-4" /> Gestão de Volumetria
-                            </h3>
-
-                            {/* Capital da IA — 2026-08-31 (decisão definitiva do Cleber): não é
-                                mais editável. $100 é o único valor aceito pela plataforma pro LLM
-                                Brain (via "Reinicialização Total"); um sub-alocador de capital não
-                                tem equivalente no motor novo (risco por trade já é % do saldo REAL
-                                da sessão, não de uma fatia configurável dele — ver riskPerTrade
-                                acima). Card vira só informativo. */}
-                            <div className="p-3 bg-neutral-900 border border-white/10 rounded-lg space-y-1">
-                                <label className="text-[10px] font-bold text-blue-400 uppercase flex items-center gap-2">
-                                    <Zap className="w-3 h-3" /> Capital da IA
-                                </label>
-                                <span className="text-lg font-mono font-bold text-white">${formatNumber(portfolio?.balance, 0)}</span>
-                                <p className="text-[9px] text-slate-500">Saldo real da sessão — reinicia pra $100 via "Reinicialização Total".</p>
-                            </div>
-
-                            {/* Max Simultaneous Assets */}
+                            {/* Alvo de Lucro (Range) — sobrepõe o R:R (take-profit/stop) real do
+                                motor quando configurado (RR_BY_TARGET_POINTS em tools.ts). */}
                             <div className="space-y-2">
-                                <div className="flex justify-between">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Ativos Simultâneos</label>
-                                    <span className="text-xs font-mono text-white">{config.maxAssets}</span>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Alvo de Lucro (Range)</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {['POUCOS', 'MÉDIO', 'MUITOS'].map(opt => (
+                                    <button
+                                    key={opt}
+                                    onClick={() => setConfig({ ...config, targetPoints: opt as 'MÉDIO' | 'CURTO' | 'LONGO' | 'POUCOS' | 'MUITOS' })}
+                                    className={`py-2 rounded border text-[10px] font-bold transition-colors ${
+                                        config.targetPoints === opt ? 'border-purple-500 text-purple-400 bg-purple-500/10' : 'border-white/10 text-slate-500 hover:border-white/20'
+                                    }`}
+                                    >
+                                        {opt}
+                                    </button>
+                                    ))}
                                 </div>
-                                <input 
-                                type="range" 
-                                min="1" 
-                                max="5" 
-                                step="1"
-                                value={config.maxAssets} 
-                                onChange={(e) => setConfig({ ...config, maxAssets: parseInt(e.target.value) })}
-                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                                />
-                                <p className="text-[9px] text-slate-500">Ex: Operar BTC e ETH ao mesmo tempo = 2.</p>
                             </div>
 
-                            {/* Cadência — 2026-08-31 (pedido do Cleber): frequência com que o LLM
-                                Brain avalia ENTRADA NOVA. Não afeta o monitoramento de stop/breakeven/
-                                trailing de posições já abertas, que roda todo ciclo independente disso
-                                — ver getUserTradingConfig (neuralBridge.ts) e o gate em open_position
+                            {/* Cadência — frequência com que o LLM Brain avalia ENTRADA NOVA. Não
+                                afeta o monitoramento de stop/breakeven/trailing de posições já
+                                abertas, que roda todo ciclo independente disso — ver
+                                getUserTradingConfig (neuralBridge.ts) e o gate em open_position
                                 (tools.ts) no motor. */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Cadência de Entrada</label>
@@ -1251,6 +1326,125 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         : 'Avalia entrada nova a cada 2 ciclos.'}
                                     {' '}Posições abertas continuam protegidas (stop/breakeven/trailing) em todos os ciclos.
                                 </p>
+                            </div>
+                            </div>
+
+                            {/* COLUMN 2: VOLUMETRIA (Contracts/Assets) */}
+                            <div className="space-y-6">
+                            <h3 className="text-xs font-bold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                                <Briefcase className="w-4 h-4" /> Gestão de Volumetria
+                            </h3>
+
+                            {/* Capital para IA — reconectado ao motor (allocatedCapitalUsd, usado
+                                como teto do sizing por risco quando menor que o saldo real, ver
+                                tools.ts). */}
+                            <div className="p-3 bg-neutral-900 border border-white/10 rounded-lg space-y-3">
+                                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                                    <label className="text-[10px] font-bold text-blue-400 uppercase flex items-center gap-2">
+                                        <Zap className="w-3 h-3" /> Capital para IA
+                                    </label>
+                                    <span className="text-[10px] font-mono text-slate-500">
+                                        Disponível: <span className="text-white">${formatNumber(portfolio?.balance, 0)}</span>
+                                    </span>
+                                </div>
+
+                                <div className="flex gap-2 items-center">
+                                    <div className="relative flex-1">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
+                                        <input
+                                            type="number"
+                                            value={config.allocatedCapital}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                setConfig({ ...config, allocatedCapital: val });
+                                            }}
+                                            onBlur={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                const max = portfolio?.balance || 100;
+                                                if (val > max) {
+                                                    setConfig({ ...config, allocatedCapital: max });
+                                                    toast.error(`Valor limitado ao saldo disponível: $${max}`);
+                                                } else if (val < 0) {
+                                                    setConfig({ ...config, allocatedCapital: 0 });
+                                                }
+                                            }}
+                                            className="w-full bg-black border border-white/10 rounded px-3 pl-6 py-1.5 text-sm font-mono text-white focus:border-blue-500 focus:outline-none"
+                                        />
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                                            <span className="text-[9px] text-emerald-500 bg-emerald-500/10 px-1 rounded border border-emerald-500/20 font-mono">10x LEV</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-1">
+                                    {[25, 50, 75, 100].map(pct => (
+                                        <button
+                                            key={pct}
+                                            onClick={() => {
+                                                const balance = portfolio?.balance || 100;
+                                                setConfig({ ...config, allocatedCapital: Math.floor(balance * (pct / 100)) });
+                                            }}
+                                            className="flex-1 py-1 rounded bg-white/5 hover:bg-white/10 text-[9px] font-bold text-slate-400 hover:text-white transition-colors border border-transparent hover:border-white/10"
+                                        >
+                                            {pct === 100 ? 'MAX' : `${pct}%`}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Lotes Máximos por Trade — teto real no sizing (tools.ts), nunca
+                                afrouxa o teto de segurança global, só aperta. */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Lotes Máximos por Trade</label>
+                                    <span className="text-xs font-mono text-white">{(config.maxContracts || 0).toFixed(1)}</span>
+                                </div>
+                                <input
+                                type="range"
+                                min="0.1"
+                                max="10.0"
+                                step="0.1"
+                                value={config.maxContracts}
+                                onChange={(e) => setConfig({ ...config, maxContracts: parseFloat(e.target.value) })}
+                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                />
+                                <p className="text-[9px] text-slate-500">A IA ajustará a alavancagem automaticamente para encaixar este tamanho.</p>
+                            </div>
+
+                            {/* Máximo de Posições Abertas — teto AGREGADO de todas as posições da
+                                sessão (qualquer símbolo), real em open_position (tools.ts). */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Máximo de Posições Abertas</label>
+                                    <span className="text-xs font-mono text-white">{config.maxPositions}</span>
+                                </div>
+                                <input
+                                type="range"
+                                min="1"
+                                max="10"
+                                step="1"
+                                value={config.maxPositions}
+                                onChange={(e) => setConfig({ ...config, maxPositions: parseInt(e.target.value) })}
+                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                />
+                            </div>
+
+                            {/* Max Simultaneous Assets */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Ativos Simultâneos</label>
+                                    <span className="text-xs font-mono text-white">{config.maxAssets}</span>
+                                </div>
+                                <input
+                                type="range"
+                                min="1"
+                                max="5"
+                                step="1"
+                                value={config.maxAssets}
+                                onChange={(e) => setConfig({ ...config, maxAssets: parseInt(e.target.value) })}
+                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                />
+                                <p className="text-[9px] text-slate-500">Ex: Operar BTC e ETH ao mesmo tempo = 2.</p>
                             </div>
                             </div>
 

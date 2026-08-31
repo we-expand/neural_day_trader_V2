@@ -12,6 +12,7 @@ import { getBalanceUsd } from "./economy.js";
 import { enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
+import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
 
 // 🔴 2026-08-31 (Fase 2 multi-tenant): antes runAgent operava sempre sobre o
 // singleton global de sessão (config.neuralUserId fixo em env). Agora recebe
@@ -407,21 +408,26 @@ segurança). Isso não significa abrir por abrir: prefira agir quando houver
 sinal real (ver princípios acima) a preencher o ciclo com entradas fracas só
 por estarem disponíveis.
 
-**CESTA ATUAL (2026-08-29, trocada a pedido do Cleber; XPTUSD removido em
-2026-08-30; SOLUSD removido em 2026-08-30, REINTRODUZIDO em 2026-08-30 e
-REMOVIDO DE NOVO em 2026-08-31 -- 2ª vez que sozinho responde pela maioria
-do prejuízo da sessão, ver assetBasket.ts): 9 ativos, TODOS cripto/cross de
-cripto, SEM forex.**
-BTCUSD, XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN, ADAUSD, LNKUSD,
-UNIUSD. Todos operam 24/7 -- nenhum tem janela de fechamento de fim de
-semana, não precisa checar "marketOpen" por causa de dia da semana. Todos os
-9 são o MESMO grupo correlacionado (princípio 3 acima). **XETUSD é o nome
-REAL do Ethereum nesta corretora (Infinox/MetaTrader) -- não é "ETHUSD".
-LNKUSD é o nome REAL do Chainlink -- não é "LINKUSD" (404 na corretora).**
-Use exatamente estes 9 símbolos, letra por letra; qualquer outro (incluindo
-"ETHUSD", "LINKUSD" ou "SOLUSD") é rejeitado por não estar na cesta
-permitida -- NÃO tente abrir SOLUSD mesmo que já tenha sido usado em
-ciclos anteriores desta mesma sessão.
+**CESTA ATUAL (gerada de \`assetBasket.ts\`, NUNCA copie esta lista de
+memória -- ela muda; sempre confie no valor abaixo, montado no momento em
+que este prompt foi gerado): ${MT5_ASSET_BASKET.length} ativos --
+${MT5_ASSET_BASKET.filter((s) => isSymbolTradable(s)).length === MT5_ASSET_BASKET.length ? "todos operando agora" : "alguns podem estar fechados por fim de semana, ver marketOpen em get_mt5_quote"}.**
+${MT5_ASSET_BASKET.join(", ")}.
+Cripto (BTCUSD, XETUSD, DOGUSD, DOTUSD, XRPUSD, BTCXBN, ADAUSD, LNKUSD,
+UNIUSD) opera 24/7, sem janela de fim de semana, e é UM grupo correlacionado
+só (princípio 3 acima). Os demais (EURUSD forex; XAUUSD metal; UKOUSD
+energia; GER40/SPX500/NAS100/UK100 índices) fecham no fim de semana como
+qualquer CFD -- confira sempre "marketOpen"/"stale" em get_mt5_quote antes
+de operar, nunca assuma. GER40/SPX500/NAS100/UK100 são UM grupo
+correlacionado (índices globais andam juntos em risk-on/risk-off). **XETUSD
+é o nome REAL do Ethereum nesta corretora (Infinox/MetaTrader) -- também
+aceito como "ETHUSD" (traduzido automaticamente pelo código antes de chegar
+aqui). LNKUSD é o nome REAL do Chainlink -- não é "LINKUSD" (404 na
+corretora).** Use exatamente os símbolos da lista acima, letra por letra;
+qualquer outro é rejeitado por não estar na cesta permitida -- NÃO tente
+abrir SOLUSD, COFUSD ou COCUSD (removidos/indisponíveis nesta corretora,
+ver assetBasket.ts) mesmo que já tenham sido usados em ciclos anteriores
+desta mesma sessão.
 
 Seu objetivo neste ciclo:
 1. Checar suas posições abertas (list_open_positions) e decidir se alguma
@@ -661,8 +667,17 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     } catch (err) {
       console.error("[agent] falha ao montar memoria de trades (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
     }
+    // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Estratégia"): nome
+    // do preset escolhido pelo usuário vira DIRETIVA DE ESTILO no prompt --
+    // este agente raciocina livre (não tem o motor de blocos
+    // evaluateStrategyAt do motor mecânico antigo), então isso é orientação
+    // pro julgamento do LLM, nunca uma regra mecânica aplicada por código.
+    // null (sem preset reconhecido/estratégia personalizada) não adiciona nada.
+    const strategyDirective = mt5Session.userConfig?.strategyLabel
+      ? `\n\nEstratégia preferida do usuário (Setup do AI Trader): "${mt5Session.userConfig.strategyLabel}". Priorize setups alinhados com esse estilo ao avaliar entradas, mas continue seguindo todas as regras de risco/gates mecânicos normalmente.`
+      : "";
     userMessage =
-      `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` + (memoryBlock ? `\n\n${memoryBlock}` : "");
+      `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` + (memoryBlock ? `\n\n${memoryBlock}` : "") + strategyDirective;
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();

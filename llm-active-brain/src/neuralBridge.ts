@@ -358,6 +358,26 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
  * traduz de volta pro nome que este motor usa.
  */
 export type TradingCadence = "CONSERVADORA" | "NORMAL" | "AGRESSIVA";
+export type MarketFlow = "TREND" | "COUNTER";
+export type TargetPoints = "POUCOS" | "MÉDIO" | "MUITOS";
+
+// 🔴 2026-08-31 (pedido do Cleber, "tudo tem que funcionar igual a essa
+// tela"): map id->nome dos 5 presets de PRESET_STRATEGIES
+// (src/app/data/presetStrategies.ts) -- este processo Node/tsx não importa
+// a árvore client-side (mesmo motivo do LOT_SIZE/ATR duplicados aqui), por
+// isso o nome vem hardcoded. Só usado como DIRETIVA DE ESTILO no prompt do
+// LLM (agent.ts), nunca como regra mecânica -- o motor de blocos
+// (evaluateStrategyAt) que dava significado formal a essas estratégias no
+// motor mecânico antigo não existe neste agente, que raciocina livre.
+// Estratégia customizada (id fora deste mapa, UUID) não tem nome conhecido
+// aqui -- cai em "sem diretiva", nunca inventa um nome.
+export const STRATEGY_PRESET_NAMES: Record<string, string> = {
+  "1": "Rompimento de Canal (Donchian)",
+  "2": "Cruzamento de Médias com Filtro de Regime",
+  "3": "Reversão à Média (RSI + Bollinger)",
+  "4": "Rompimento Confirmado (Volume)",
+  "5": "Momentum de Curto Prazo (Scalp)",
+};
 
 export interface UserTradingConfig {
   riskPerTradePct: number | null; // ex: 2 = 2% (já em %, não fração)
@@ -367,9 +387,20 @@ export interface UserTradingConfig {
   activeAssets: string[] | null; // símbolos literais da Infinox, já traduzidos; null = sem filtro (usa cesta inteira)
   maxSimultaneousAssets: number | null; // teto de simbolos DISTINTOS com posicao aberta ao mesmo tempo; null = sem teto do usuario
   cadence: TradingCadence; // frequencia de avaliacao de entrada -- ver CADENCE_CYCLE_SKIP em index.ts
+  timeframe: import("./atr.js").SupportedTimeframe; // timeframe operacional dos indicadores derivados de candle -- default "5m"
+  targetPoints: TargetPoints | null; // Alvo de Lucro (Range) -- override do R:R (take-profit/stop), null = default do motor
+  marketMode: MarketFlow | null; // Fluxo de Operação (A Favor/Contra) -- null = comportamento atual (guard de volume ja existente)
+  strategyLabel: string | null; // nome da estrategia preset selecionada (STRATEGY_PRESET_NAMES), null = nenhuma/personalizada sem nome conhecido
+  maxLotsPerTrade: number | null; // Lotes Maximos por Trade -- teto por posicao, null = usa mt5SafetyMaxLots global
+  maxOpenPositionsTotal: number | null; // Maximo de Posicoes Abertas -- teto agregado de TODAS as posicoes da sessao, null = sem teto do usuario
 }
 
-const INVERSE_ALIAS: Record<string, string> = { BTCBNB: "BTCXBN", DOGEUSD: "DOGUSD", LINKUSD: "LNKUSD" };
+// 🔴 2026-08-31: ETHUSD (nome unificado do app pra Ethereum, ver
+// assetDatabase.ts) -> XETUSD (nome literal do contrato Ethereum na
+// Infinox, já validado ao vivo nesta cesta) -- mesmo padrão dos 3 aliases
+// anteriores.
+const INVERSE_ALIAS: Record<string, string> = { BTCBNB: "BTCXBN", DOGEUSD: "DOGUSD", LINKUSD: "LNKUSD", ETHUSD: "XETUSD" };
+const SUPPORTED_TIMEFRAMES_SET = new Set(["1m", "5m", "15m", "1H", "4H"]);
 
 const userConfigCache = new Map<string, { value: UserTradingConfig; fetchedAt: number }>();
 const USER_CONFIG_CACHE_MS = 60_000;
@@ -386,6 +417,12 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
     activeAssets: null,
     maxSimultaneousAssets: null,
     cadence: "NORMAL",
+    timeframe: "5m",
+    targetPoints: null,
+    marketMode: null,
+    strategyLabel: null,
+    maxLotsPerTrade: null,
+    maxOpenPositionsTotal: null,
   };
   try {
     const sb = getClient();
@@ -411,6 +448,14 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
       activeAssets: intersected && intersected.length > 0 ? intersected : null,
       maxSimultaneousAssets: typeof raw.maxAssets === "number" && raw.maxAssets > 0 ? Math.floor(raw.maxAssets) : null,
       cadence: raw.cadence === "CONSERVADORA" || raw.cadence === "AGRESSIVA" ? raw.cadence : "NORMAL",
+      timeframe: typeof raw.timeframe === "string" && SUPPORTED_TIMEFRAMES_SET.has(raw.timeframe)
+        ? (raw.timeframe as import("./atr.js").SupportedTimeframe)
+        : "5m",
+      targetPoints: raw.targetPoints === "POUCOS" || raw.targetPoints === "MÉDIO" || raw.targetPoints === "MUITOS" ? raw.targetPoints : null,
+      marketMode: raw.marketMode === "TREND" || raw.marketMode === "COUNTER" ? raw.marketMode : null,
+      strategyLabel: typeof raw.activeStrategyId === "string" ? STRATEGY_PRESET_NAMES[raw.activeStrategyId] ?? null : null,
+      maxLotsPerTrade: typeof raw.maxContracts === "number" && raw.maxContracts > 0 ? raw.maxContracts : null,
+      maxOpenPositionsTotal: typeof raw.maxPositions === "number" && raw.maxPositions > 0 ? Math.floor(raw.maxPositions) : null,
     };
     userConfigCache.set(userId, { value, fetchedAt: Date.now() });
     return value;
