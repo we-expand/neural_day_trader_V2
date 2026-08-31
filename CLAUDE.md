@@ -15,6 +15,28 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-08-31, fim do dia] Setup do AI Trader — Capital da IA,
+Ativos Simultâneos e Cadência de Entrada (novo) reconectados ao LLM
+Brain.** Cleber reportou que boa parte do Setup "AVANÇADO" não era
+obedecida pela IA. `direction`/`activeAssets`/`dailyLossLimit`/
+`riskPerTrade` já eram lidos de verdade; `allocatedCapital` (Capital da
+IA) e `maxAssets` (Ativos Simultâneos) eram salvos mas nunca consumidos
+pelo motor — corrigido (`tools.ts`: sizing usa capital alocado como teto,
+`open_position` bloqueia símbolo novo acima do teto de simultâneos).
+Campo novo **Cadência de Entrada** (CONSERVADORA/NORMAL/AGRESSIVA)
+adicionado — como o loop de ciclos é global (multi-tenant, serial), ela
+não pausa o processo: restringe só a avaliação de ENTRADA NOVA a 1 a cada
+N ciclos (1/2/4), nunca o monitoramento de stop/breakeven/trailing de
+posições já abertas (roda todo ciclo, sempre). `npm run validate` 37/37,
+`tsc --noEmit` limpo nos dois lados. **Achado de processo, não de
+código**: as mudanças em `llm-active-brain/` acabaram commitadas/pushadas
+sem revisão por causa de outra sessão do Claude Code rodando em paralelo
+na mesma pasta (commit `64397d751`, mensagem sobre outro fix) — evitar
+sessões paralelas no mesmo working directory. **Pendente**: reiniciar o
+processo `llm-active-brain` pra aplicar; commit do frontend (`AITrader.tsx`
+etc.) ainda não feito, comando pronto no handoff. Detalhe completo:
+[SESSAO_2026-08-31_SETUP_IA_CAPITAL_ATIVOS_CADENCIA.md](SESSAO_2026-08-31_SETUP_IA_CAPITAL_ATIVOS_CADENCIA.md).
+
 **[RESOLVIDO 2026-08-31, fim do dia] Linha de posição piscando no gráfico +
 gatilho de breakeven do LLM Brain nunca disparava — 2 achados, commitados
 (`3a0d9efd9`).** Cleber reportou linhas de entrada/stop/alvo "piscando" no
