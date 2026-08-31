@@ -433,6 +433,26 @@ class AITradingPersistenceService {
    */
   async getActiveSession(userId: string): Promise<AISession | null> {
     try {
+      // 🔴 2026-08-31 (achado ao vivo): motor mecânico foi desligado
+      // definitivamente, mas o botão "Ligar IA" (startLogic, useApexLogic.ts)
+      // ainda cria sessões órfãs strategy_name='Apex AI' — sem preferência
+      // aqui, uma dessas sessões órfãs (mais recente por started_at) passava
+      // a mascarar a sessão real do LLM Brain (LLM_ACTIVE_BRAIN_MT5) em todo
+      // o Dashboard/AITrader/Gráfico/Header. Sempre prioriza o motor único
+      // atual quando ele tiver sessão RUNNING/STOPPED, mesmo que mais antiga.
+      const { data: llmSession, error: llmError } = await supabase
+        .from('ai_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('strategy_name', 'LLM_ACTIVE_BRAIN_MT5')
+        .in('status', ['RUNNING', 'STOPPED'])
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (llmSession) return llmSession as AISession;
+      if (llmError && llmError.code !== 'PGRST116') throw llmError;
+
       const { data, error } = await supabase
         .from('ai_sessions')
         .select('*')
