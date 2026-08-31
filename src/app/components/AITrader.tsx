@@ -1222,6 +1222,36 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 />
                                 <p className="text-[9px] text-slate-500">Ex: Operar BTC e ETH ao mesmo tempo = 2.</p>
                             </div>
+
+                            {/* Cadência — 2026-08-31 (pedido do Cleber): frequência com que o LLM
+                                Brain avalia ENTRADA NOVA. Não afeta o monitoramento de stop/breakeven/
+                                trailing de posições já abertas, que roda todo ciclo independente disso
+                                — ver getUserTradingConfig (neuralBridge.ts) e o gate em open_position
+                                (tools.ts) no motor. */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Cadência de Entrada</label>
+                                <div className="flex gap-2 p-1 bg-black rounded-lg border border-white/10">
+                                {(['CONSERVADORA', 'NORMAL', 'AGRESSIVA'] as const).map(c => (
+                                    <button
+                                    key={c}
+                                    onClick={() => setConfig({ ...config, cadence: c })}
+                                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                                        config.cadence === c
+                                        ? c === 'AGRESSIVA' ? 'bg-red-500/20 text-red-400' : c === 'CONSERVADORA' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                    >
+                                    {c === 'CONSERVADORA' ? 'CONSERVADORA' : c === 'AGRESSIVA' ? 'AGRESSIVA' : 'NORMAL'}
+                                    </button>
+                                ))}
+                                </div>
+                                <p className="text-[9px] text-slate-500">
+                                    {config.cadence === 'AGRESSIVA' ? 'Avalia entrada nova todo ciclo.'
+                                        : config.cadence === 'CONSERVADORA' ? 'Avalia entrada nova a cada 4 ciclos — mais seletiva.'
+                                        : 'Avalia entrada nova a cada 2 ciclos.'}
+                                    {' '}Posições abertas continuam protegidas (stop/breakeven/trailing) em todos os ciclos.
+                                </p>
+                            </div>
                             </div>
 
                         </div>

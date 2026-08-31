@@ -369,6 +369,7 @@ const INITIAL_STATE: ApexLogicState = {
     timeframe: '15m', // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
     newsFilter: true, // Filtro de notícias econômicas
     dailyLossLimit: 5, // Limite de perda diária (%)
+    cadence: 'NORMAL', // Cadência de entrada nova do LLM Brain (CONSERVADORA/NORMAL/AGRESSIVA)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
     activeStrategyId: '2', // Padrão: "Cruzamento de Médias com Filtro de Regime" (tendência, ADX-gated), mesma estratégia disponível no Backtest
     // 60 = um bloco de entrada perfeito somado a um cruzamento de até ~8

@@ -147,6 +147,12 @@ export interface AIConfig {
   timeframe: string; // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
   newsFilter: boolean; // Filtro de notícias econômicas
   dailyLossLimit: number; // Limite de perda diária (%)
+  // 2026-08-31: cadência de avaliação de entrada nova do LLM Brain (motor
+  // principal) — AGRESSIVA avalia todo ciclo, NORMAL 1 a cada 2 ciclos,
+  // CONSERVADORA 1 a cada 4. Lido por getUserTradingConfig em
+  // llm-active-brain/src/neuralBridge.ts. Nunca pausa monitoramento de
+  // stop/breakeven/trailing de posições já abertas, só restringe entrada nova.
+  cadence: 'CONSERVADORA' | 'NORMAL' | 'AGRESSIVA';
   metaApiToken?: string; // Token do MetaApi para integração MT5
   // Estratégia ativa (pronta ou customizada) — o motor de decisão passa a
   // rodar exatamente essa estratégia via evaluateStrategyAt, a mesma função
