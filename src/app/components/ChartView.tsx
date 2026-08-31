@@ -1663,6 +1663,17 @@ export function ChartView({
   
   // 🆕 TEXTO NO GRÁFICO - Estados para adicionar texto
   const [isAddingText, setIsAddingText] = useState(false); // Modo de adicionar texto
+  // 🔧 FIX: o overlay 'emojiMarker' era criado SEM points (totalStep:1), esperando o próximo
+  // clique pra se posicionar — mas o EmojiPicker é um <div> `position:fixed` flutuando visualmente
+  // POR CIMA do canvas do gráfico (mesma área de tela). Confirmado ao vivo: o marcador nascia
+  // grudado onde o EMOJI foi escolhido no picker (canto esquerdo), não onde o usuário clicava
+  // de fato no candle — o clique de escolher o emoji contava como o "clique de posicionamento".
+  // Fix: mesmo padrão já usado no modo Texto (`isAddingText`/`textPosition`) — guarda o emoji
+  // escolhido, espera de verdade o PRÓXIMO clique dentro do container do chart (`onClick` do
+  // `chartContainerRef`, que já ignora cliques na picker por ela ficar fora dessa árvore/mesmo
+  // fechada nesse momento) e só then cria o overlay já com `points` explícitos convertidos de
+  // pixel pra dado real via `chart.convertFromPixel`.
+  const [pendingEmoji, setPendingEmoji] = useState<string | null>(null);
   const [textInput, setTextInput] = useState(''); // Texto sendo digitado
   const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null); // Posição do texto
 
@@ -1728,6 +1739,17 @@ export function ChartView({
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
   const positionOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids das linhas de posição aberta (entrada/SL/TP) desenhadas no gráfico
+  // 🔧 FIX: troca de timeframe/símbolo faz dispose()+init() do chart (mesmo padrão documentado
+  // acima pros overlays de posição) — mas os desenhos do usuário (trendline, fibonacci, shapes,
+  // texto ancorado, emoji...) nunca tinham um mecanismo de captura/restauração equivalente.
+  // Confirmado ao vivo: desenhar uma linha de tendência e trocar de timeframe (ex: 5m→1H) apaga
+  // o desenho pra sempre, sem nenhum aviso. `userDrawingOverlayIdsRef` rastreia os ids criados
+  // pela toolbar (único jeito de enumerar depois, já que a klinecharts não expõe getOverlays()
+  // em lote — só getOverlayById por id conhecido); `userDrawingsSnapshotRef` guarda uma cópia
+  // serializável (name/points/styles/extendData/lock/visible) tirada logo antes do dispose(),
+  // recriada com createOverlay() depois que o chart novo termina de carregar o dataset.
+  const userDrawingOverlayIdsRef = useRef<string[]>([]);
+  const userDrawingsSnapshotRef = useRef<Array<{ name: string; points: any; styles: any; extendData: any; lock: boolean; visible: boolean }>>([]);
   // 🆕 Cache da estrutura de longo prazo (SMC, 1D/~5 anos) por símbolo — mesma ideia do
   // Detector de Liquidez do Dashboard: sem isso, S/R só enxerga a janela curta do gráfico
   // e nunca acha zona real acima/abaixo quando o preço está longe de qualquer extremo recente.
@@ -2478,13 +2500,15 @@ export function ChartView({
     }
   }, [selectedAsset]);
 
-  // 🆕 EFFECT: Gerenciar cursor dot no modo ponto (DESABILITADO)
+  // 🆕 EFFECT: Gerenciar cursor dot no modo ponto
+  // 🔧 FIX: estava desligado de propósito ("DESABILITADO para evitar IframeMessageAbortError")
+  // — mas o cursor já é escondido (`cursor: none`) por handleCrosshairModeChange assim que
+  // o modo Ponto é selecionado, então sem este efeito o usuário ficava sem NENHUM cursor
+  // visível (nem seta, nem bolinha). Confirmado ao vivo: hover no gráfico em modo Ponto não
+  // mostrava nada. Reativado — não usa nenhum `setState`/postMessage, só manipulação direta
+  // do DOM via listener nativo, então não é a causa plausível do IframeMessageAbortError
+  // citado (esse erro é de comunicação entre iframes/postMessage, não de mousemove local).
   useEffect(() => {
-    // 🔥 DESABILITADO para evitar IframeMessageAbortError
-    console.log('[ChartView] ⚠️ Cursor dot DESABILITADO');
-    return;
-    
-    /* CÓDIGO ORIGINAL - COMENTADO
     if (crosshairMode !== 'point' || !chartContainerRef.current) return;
 
     console.log('[ChartView] 🔵 useEffect: Criando bolinha para modo ponto');
@@ -2540,7 +2564,6 @@ export function ChartView({
       document.removeEventListener('mouseup', handleMouseUp);
       dot.remove();
     };
-    */
   }, [crosshairMode]);
 
   // 🆕 Ícones de editar ("⚙") e fechar ("✕") que aparecem na legenda do indicador, direto
@@ -3631,7 +3654,8 @@ export function ChartView({
       
       if (overlayId) {
         console.log('[ChartView] ✅ Overlay created with ID:', overlayId);
-        
+        userDrawingOverlayIdsRef.current.push(overlayId); // 🔧 FIX: rastreia pra sobreviver a troca de timeframe/símbolo
+
         // Mensagens específicas para diferentes ferramentas
         if (tool === 'point-marker') {
           // Não mostrar toast aqui porque já mostramos quando ativou o modo ponto
@@ -4043,26 +4067,22 @@ export function ChartView({
     }
   };
 
-  // 🆕 Emoji escolhido no picker → próximo clique no gráfico ancora o emoji ali
+  // 🆕 Emoji escolhido no picker → próximo clique DE VERDADE no gráfico ancora o emoji ali
+  // 🔧 FIX: antes criava o overlay na hora (sem `points`), contando com o próprio clique de
+  // escolher o emoji no picker pra completar o desenho — como o picker fica visualmente por
+  // cima do canvas, o marcador nascia grudado onde o emoji foi escolhido, não onde o usuário
+  // realmente clicava depois. Agora só guarda o emoji pendente; a criação real acontece no
+  // onClick do container do chart (ver `pendingEmoji` mais abaixo), com `points` explícitos.
   const handleEmojiSelect = (emoji: string) => {
     if (!chartInstanceRef.current) {
       toast.error('Aguarde o carregamento do gráfico');
       return;
     }
-    try {
-      chartInstanceRef.current.createOverlay({
-        name: 'emojiMarker',
-        groupId: USER_DRAWINGS_GROUP,
-        extendData: emoji
-      });
-      toast.success(`${emoji} selecionado`, {
-        description: 'Clique no gráfico para posicionar',
-        duration: 2500
-      });
-    } catch (error) {
-      console.error('[ChartView] ❌ Error creating emoji marker:', error);
-      toast.error('Erro ao criar marcador');
-    }
+    setPendingEmoji(emoji);
+    toast.success(`${emoji} selecionado`, {
+      description: 'Clique no gráfico para posicionar',
+      duration: 2500
+    });
   };
 
   // 🆕 CONTEXT TOOLBAR HANDLERS
@@ -4071,6 +4091,7 @@ export function ChartView({
 
     try {
       chartInstanceRef.current.removeOverlay(selectedDrawing.id);
+      userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== selectedDrawing.id); // 🔧 FIX: mantém o rastreamento coerente
       setShowContextToolbar(false);
       setSelectedDrawing(null);
       toast.success('Desenho removido');
@@ -4147,13 +4168,16 @@ export function ChartView({
         dataIndex: typeof p.dataIndex === 'number' ? p.dataIndex + 5 : undefined,
         value: p.value
       }));
-      chart.createOverlay({
+      const dupId = chart.createOverlay({
         name: original.name,
         groupId: USER_DRAWINGS_GROUP,
         points: shiftedPoints,
         styles: original.styles,
         extendData: original.extendData
       });
+      if (dupId) {
+        userDrawingOverlayIdsRef.current.push(dupId as string); // 🔧 FIX: rastreia pra sobreviver a troca de timeframe/símbolo
+      }
       toast.success('Desenho duplicado');
     } catch (error) {
       console.error('[ChartView] ❌ Error duplicating drawing:', error);
@@ -4218,6 +4242,8 @@ export function ChartView({
       // 🔧 FIX: remove SÓ os desenhos do usuário (groupId) — antes o removeOverlay()
       // sem argumento apagava também os overlays de sistema (linhas de S/R, sinais).
       chart.removeOverlay({ groupId: USER_DRAWINGS_GROUP });
+      userDrawingOverlayIdsRef.current = []; // 🔧 FIX: limpa o rastreamento junto — senão a próxima troca de timeframe "ressuscitava" desenhos apagados
+      userDrawingsSnapshotRef.current = [];
 
       console.log('[ChartView] ✅ All user drawings removed successfully');
     } catch (error) {
@@ -5689,6 +5715,35 @@ export function ChartView({
           // bloco aplicar o que tinha sido restaurado.
           initialRestoreDoneRef.current = true;
 
+          // 🔧 FIX: recria os desenhos do usuário capturados no snapshot antes do dispose()
+          // (ver cleanup do effect, onde `userDrawingsSnapshotRef` é preenchido). Sem isso,
+          // trendline/fibonacci/shapes/texto/emoji desenhados manualmente somem pra sempre
+          // a cada troca de timeframe/símbolo — bug real confirmado ao vivo. `points` usa
+          // `dataIndex`, que é relativo ao dataset carregado (mesmo símbolo+intervalo de
+          // candles reais, já reaplicado acima por `applyNewData`), então a posição visual
+          // é preservada corretamente.
+          if (userDrawingsSnapshotRef.current.length > 0) {
+            const restored: string[] = [];
+            userDrawingsSnapshotRef.current.forEach(saved => {
+              try {
+                const newId = chart.createOverlay({
+                  name: saved.name,
+                  groupId: USER_DRAWINGS_GROUP,
+                  points: saved.points,
+                  styles: saved.styles,
+                  extendData: saved.extendData,
+                  lock: saved.lock,
+                  visible: saved.visible
+                });
+                if (newId) restored.push(newId as string);
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao restaurar desenho do usuário:', saved.name, e);
+              }
+            });
+            userDrawingOverlayIdsRef.current = restored;
+            console.log('[ChartView] 🔄', restored.length, 'desenho(s) do usuário restaurado(s) após troca de timeframe/símbolo');
+          }
+
           // 🆕 Restaura o estado "ao vivo" da sessão (indicadores/timeframe de segundos
           // atrás, antes do usuário trocar de seção do app) — tem prioridade sobre o
           // setup favorito, por ser mais recente. Uma única vez por montagem, mesma
@@ -5941,6 +5996,32 @@ export function ChartView({
         window.removeEventListener('resize', handleResize);
         resizeObserver?.disconnect();
         clearInterval(refreshInterval); // 🔄 Limpar intervalo de refresh
+        // 🔧 FIX: captura os desenhos do usuário ANTES do dispose() (troca de símbolo/
+        // timeframe roda este cleanup antes de recriar o chart do zero) — sem isso,
+        // trendline/fibonacci/shapes/texto ancorado/emoji desenhados pelo usuário eram
+        // destruídos pra sempre a cada troca, sem nenhum aviso (confirmado ao vivo:
+        // desenhar uma linha e trocar de timeframe apagava a linha). Restauração real
+        // acontece depois que o chart novo termina de aplicar o dataset (ver bloco perto
+        // de `sessionStateAppliedRef.current = true`).
+        try {
+          if (chartInstanceRef.current) {
+            const snapshot = userDrawingOverlayIdsRef.current
+              .map(id => chartInstanceRef.current.getOverlayById(id))
+              .filter(Boolean)
+              .map((o: any) => ({
+                name: o.name,
+                points: o.points,
+                styles: o.styles,
+                extendData: o.extendData,
+                lock: !!o.lock,
+                visible: o.visible !== false
+              }));
+            userDrawingsSnapshotRef.current = snapshot;
+            console.log('[ChartView] 📸 Snapshot de', snapshot.length, 'desenho(s) do usuário antes do dispose');
+          }
+        } catch (e) {
+          console.warn('[ChartView] ⚠️ Falha ao capturar snapshot de desenhos do usuário:', e);
+        }
         try {
           dispose(chartId);
         } catch (e) {
@@ -7011,6 +7092,37 @@ export function ChartView({
                   const y = e.clientY - rect.top;
                   setTextPosition({ x, y });
                   console.log('[ChartView] 📝 Posição do texto:', { x, y });
+                }
+
+                // 🔧 FIX: emoji pendente (ver `handleEmojiSelect`) só vira overlay real AQUI —
+                // no primeiro clique de verdade dentro do container do gráfico, nunca no clique
+                // do picker. Converte pixel→dado real via `convertFromPixel` (mesma API já usada
+                // em outros pontos do arquivo) pra o marcador nascer exatamente sob o cursor.
+                if (pendingEmoji && chartInstanceRef.current) {
+                  try {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const point = chartInstanceRef.current.convertFromPixel(
+                      [{ x, y }],
+                      { paneId: 'candle_pane' }
+                    );
+                    const resolved = Array.isArray(point) ? point[0] : point;
+                    const emojiOverlayId = chartInstanceRef.current.createOverlay({
+                      name: 'emojiMarker',
+                      groupId: USER_DRAWINGS_GROUP,
+                      points: [{ dataIndex: resolved?.dataIndex, value: resolved?.value }],
+                      extendData: pendingEmoji
+                    });
+                    if (emojiOverlayId) {
+                      userDrawingOverlayIdsRef.current.push(emojiOverlayId); // 🔧 FIX: rastreia pra sobreviver a troca de timeframe/símbolo
+                    }
+                  } catch (err) {
+                    console.error('[ChartView] ❌ Error placing emoji marker:', err);
+                    toast.error('Erro ao posicionar marcador');
+                  } finally {
+                    setPendingEmoji(null);
+                  }
                 }
               }}
             >
