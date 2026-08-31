@@ -62,9 +62,27 @@
  * Não reintroduzir sem investigação dedicada comparando ATR-candle vs
  * volatilidade tick-a-tick real do símbolo.
  */
+/**
+ * 🔴 2026-08-31 (à noite, pedido explícito do Cleber): cesta ampliada além de
+ * cripto -- ele configurou ~10 ativos no Setup do AI Trader (EURUSD, XAUUSD,
+ * UKOUSD, GER40, SPX500, NAS100, COFUSD, COCUSD, UK100, além das criptos) e
+ * a interseção com a cesta fixa (só 9 criptos) reduzia a cesta REAL a um
+ * único símbolo (BTCUSD), travando o motor numa cesta muito menor do que o
+ * usuário pediu -- mesma classe de problema já documentada no CLAUDE.md
+ * ("cesta poluída"). 7 dos 9 símbolos não-cripto testados AO VIVO contra
+ * `/mt5-prices` (mesmo pipeline do motor mecânico antigo) devolveram bid/ask
+ * reais e frescos: EURUSD, XAUUSD, UKOUSD, GER40, SPX500, NAS100, UK100.
+ * COFUSD e COCUSD devolveram HTTP 404 nesta corretora/conta -- NÃO
+ * adicionados (não dá pra operar um símbolo que a corretora não reconhece;
+ * ver `research`/histórico se o Cleber quiser investigar o nome certo).
+ * `lotSize` de cada um vem de `assetDatabase.ts` (fonte JÁ CORRIGIDA do bug
+ * de PnL 20x do NAS100 em 2026-08-27 -- $1/ponto, não o E-mini $20/ponto de
+ * `infinoxContractSpecs.ts`), não de suposição.
+ */
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
   "ADAUSD", "LNKUSD", "UNIUSD",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
 ];
 
 /**
@@ -88,21 +106,40 @@ export const LOT_SIZE: Record<string, number> = {
   ADAUSD: 1,
   LNKUSD: 1,
   UNIUSD: 1,
+  // Valores REAIS de `assetDatabase.ts` (repo principal) -- mesma fonte que
+  // corrigiu o bug de PnL 20x do NAS100 (2026-08-27): CFD retail $1/ponto
+  // pra índices, não o contrato E-mini da CME. amountUsd = lots * LOT_SIZE *
+  // preço, mesma fórmula já usada pra cripto -- generaliza corretamente pra
+  // qualquer classe desde que LOT_SIZE seja o contractSize real.
+  EURUSD: 100000,
+  XAUUSD: 100,
+  UKOUSD: 1000,
+  GER40: 1,
+  SPX500: 1,
+  NAS100: 1,
+  UK100: 1,
 };
 
 export const MIN_LOTS = 0.01;
 
-// Nenhum símbolo de forex na cesta de hoje -- todos operam 24/7, sem janela
-// de fechamento de fim de semana.
-const FOREX_SYMBOLS = new Set<string>([]);
-
 /**
- * Forex (via CFD MetaAPI/Infinox) fecha no fim de semana -- mesmo horário
- * que `isCfdMarketOpen()` em `src/app/utils/marketHours.ts` (repo
- * principal). Mantido aqui mesmo com a cesta de hoje sem forex, pra não
- * precisar reintroduzir a lógica se a cesta voltar a incluir forex amanhã.
- * Fecha: Sexta 22:00 UTC. Abre: Domingo 23:00 UTC.
+ * 🔴 2026-08-31: cripto opera 24/7, mas os 7 CFDs não-cripto adicionados
+ * hoje (forex/metal/energia/índices) fecham no fim de semana como qualquer
+ * CFD via MetaAPI/Infinox -- mesmo horário que `isCfdMarketOpen()` em
+ * `src/app/utils/marketHours.ts` (repo principal). Aplicado a TODOS os
+ * não-cripto (não só forex) porque índices/metal/energia seguem
+ * aproximadamente a mesma janela de fim de semana nesta corretora -- horário
+ * exato de pregão de cada bolsa (ex: SPX500 09:30-16:00 ET) não é modelado
+ * aqui de propósito: a trava de tick obsoleto (`STALE_TICK_MS` em
+ * `mt5Broker.ts`, já validada ao vivo pro caso do XPTUSD) cobre isso de
+ * forma orientada a dado real, sem precisar fabricar uma tabela de horários
+ * por bolsa que arriscaria ficar errada/desatualizada.
  */
+const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+]);
+
+/** Fecha: Sexta 22:00 UTC. Abre: Domingo 23:00 UTC. */
 export function isForexMarketOpen(now: Date = new Date()): boolean {
   const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
   const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -114,7 +151,7 @@ export function isForexMarketOpen(now: Date = new Date()): boolean {
 }
 
 export function isSymbolTradable(symbol: string, now: Date = new Date()): boolean {
-  if (!FOREX_SYMBOLS.has(symbol)) return true; // cripto/cross: sempre
+  if (!WEEKEND_CLOSED_SYMBOLS.has(symbol)) return true; // cripto: sempre
   return isForexMarketOpen(now);
 }
 
@@ -132,8 +169,13 @@ export function isSymbolTradable(symbol: string, now: Date = new Date()): boolea
  * ADAUSD/LNKUSD/UNIUSD adicionados ao mesmo grupo (mesma lógica -- todos
  * cripto, mesmo risco correlacionado de mercado).
  */
+// 🔴 2026-08-31: GER40/SPX500/NAS100/UK100 são índices de ações de bolsas
+// diferentes, mas andam juntos em risk-on/risk-off macro global -- mesmo
+// grupo. EURUSD, XAUUSD e UKOUSD ficam isolados (só 1 símbolo cada nova
+// classe, sem outro par pra correlacionar de verdade ainda).
 const CORRELATED_GROUPS: string[][] = [
   ["BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD"],
+  ["GER40", "SPX500", "NAS100", "UK100"],
 ];
 
 export function getCorrelatedGroup(symbol: string): string[] {
