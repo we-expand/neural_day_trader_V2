@@ -15,6 +15,113 @@
 
 ## ▶ COMECE AQUI
 
+**2026-08-30 (noite, ~19h-01h UTC): monitoramento contínuo de 5 em 5 min do
+Cérebro LLM Ativo (sessão `aa279c75...`, ~66 checagens) — 1 bug real
+corrigido NO CÓDIGO, NÃO COMMITADO, NÃO APLICADO (processo não foi
+reiniciado).** Teto de exposição do grupo correlacionado (`$2.700`) estava
+furável por uma única entrada grande: a checagem só somava o que já estava
+aberto, nunca a entrada sendo aberta — confirmado ao vivo (SOLUSD SHORT
+"forte" levou exposição real a $3.012, 12% acima do teto, antes de qualquer
+bloqueio). Fix em `llm-active-brain/src/tools.ts` (segunda checagem após
+calcular `amountUsd` real da nova entrada), `tsc --noEmit` limpo. Sessão
+fechou com 32 trades, 6 vitórias (18,75%), -$56,46 líquido — amostra
+pequena, sem validade estatística. **Pendências reais**: (1) restart pra
+aplicar este fix + o fix de retry de conexão da sessão anterior (comando
+pronto no handoff); (2) commit do diff em `tools.ts`. Handoff completo,
+incluindo catálogo de achados de qualidade do modelo (validador em
+fail-open recorrente, "decisão narrada sem executar", tamanho "forte" em
+apostas de convicção fraca) e defesas confirmadas funcionando (trava de
+≥50% do caminho, cotação fresca, teto de 1 posição/símbolo, trailing
+stop):
+[SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_TETO_GRUPO_E_ACHADOS.md](SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_TETO_GRUPO_E_ACHADOS.md).
+
+**2026-08-30 (fim de tarde): monitoramento contínuo de 5 em 5 min do
+Cérebro LLM Ativo (sessão `aa279c75...`) — 3 bugs reais corrigidos,
+COMMITADOS E JÁ APLICADOS AO VIVO (processo reiniciado).** Achados via log
+ciclo a ciclo + Supabase, não suposição: (1) `reasoningValidator.ts` estava
+em fail-open sistemático — 100% das chamadas cortavam no meio do
+raciocínio do modelo (max_tokens=150 curto demais pra um modelo que pensa
+em texto livre antes do JSON), deixando passar reasoning autocontraditório
+de verdade (ex: abriu SHORT em BTCUSD com o próprio texto dizendo
+"confluência insuficiente para abrir SHORT aqui"); subido pra 600
+(`8d4ad62f8`). (2) Cooldown de perda em sequência (`mt5LossStreakThreshold=2`/
+`30min`) travava a cesta inteira por 30min de cada vez — afrouxado pra 3
+perdas/20min, a pedido do Cleber (`ef55e3516`). (3) **O mais importante**:
+trailing stop pós-breakeven usava a MESMA distância do stop de abertura
+(2,0x ATR), criando uma faixa morta onde o preço corria a favor sem o stop
+subir nada — confirmado no trade real que chegou a +$3 e fechou em -$0,19;
+multiplicador dedicado mais apertado (`mt5TrailAtrMultiplier=0,8x`) agora
+protege lucro progressivamente (`fd258d63b`). Processo reiniciado ao vivo
+a pedido explícito do Cleber ("reinicie você mesmo") — confirmado único
+(sem duplicata), sem perda de posição (XETUSD LONG que já estava aberta
+foi reconhecida corretamente pelo novo processo). **Nenhum dos 3 fixes
+promete edge** — são correção de mecânica (contradição bloqueada de
+verdade, cesta menos travada, lucro protegido de verdade), não alegação de
+melhora no líquido; precisa de amostra nova (dias, não horas) rodando com
+o código atualizado antes de avaliar efeito real. PnL da sessão no momento
+do restart: -$8,46, 21 trades, 3 vitórias (14,3%), amostra pequena sem
+validade estatística. Monitoramento desarmado a pedido do Cleber ao fim.
+Handoff completo:
+[SESSAO_2026-08-30_MONITORAMENTO_5MIN_VALIDADOR_COOLDOWN_TRAILING.md](SESSAO_2026-08-30_MONITORAMENTO_5MIN_VALIDADOR_COOLDOWN_TRAILING.md).
+
+**2026-08-30 (tarde/noite): monitoramento ao vivo do Cérebro LLM Ativo,
+sessão `aa279c75...` — validador semântico agora pega fato inventado (não
+só autocontradição), cesta expandida pra 10 ativos (+SOLUSD/ADAUSD/LNKUSD/
+UNIUSD), 10 padrões de candlestick implementados e atrelados ao Price
+Action existente, + 1 bug de alias de símbolo pego antes de causar dano
+(4 commits prontos, NENHUM aplicado ainda).** Achado real via log: BTCUSD
+SHORT perdeu $5,58 porque o reasoning afirmou "trend LOW, volume elevated"
+contradizendo o `get_mt5_quote` do MESMO ciclo (trend LATERAL, volume NÃO
+elevado) — fato inventado, não erro de leitura; `reasoningValidator.ts`
+agora recebe o snapshot real da cotação e bloqueia esse tipo específico de
+contradição. SOLUSD (removido antes por 57% do prejuízo de uma sessão,
+causa nunca comprovada) foi reintroduzido a pedido do Cleber — monitorar
+de perto. Padrões de candle (Doji/Martelo/Estrela Cadente/Engolfo/Harami/
+Estrela Manhã-Noite/Marubozu) calculados em cima do candle OHLC real,
+nunca mecânicos — mais um fator de confluência, testados ao vivo (DOJI/
+ENGOLFO_ALTA/ESTRELA_CADENTE/MARUBOZU_ALTA já detectados de verdade em
+produção). De carona: Cleber reportou "plataforma travada"/"P&L flutuante
+não funciona" — falso alarme (processo vivo, dashboard atualizando ao
+vivo, $0,00 era o valor correto por não ter posição aberta no momento),
+mas a investigação achou e corrigiu de verdade o mesmo bug de alias de
+símbolo já documentado pra BTCXBN/DOGUSD, agora pra LNKUSD (broker usa
+`LNKUSD`, catálogo unificado usa `LINKUSD`) em `LlmActiveBrainPanel.tsx`
+— pego ANTES de qualquer posição real abrir nesse símbolo. **Achado
+colateral não investigado**: painel mostra P&L Realizado (-$8,27) via
+campo `pnl` bruto, divergente do cálculo direto via `net_pnl` (-$15,20)
+no Supabase — não investigado qual é o número certo. Handoff completo:
+[SESSAO_2026-08-30_VALIDADOR_CESTA_EXPANDIDA_E_CANDLE_PATTERNS.md](SESSAO_2026-08-30_VALIDADOR_CESTA_EXPANDIDA_E_CANDLE_PATTERNS.md).
+
+**2026-08-30 (tarde): monitoramento ao vivo do Cérebro LLM Ativo — 6 bugs
+estruturais reais corrigidos + MACD/Estocástico Lento implementados
+(commits prontos, NENHUM aplicado ainda).** Rastreando o log ciclo a ciclo
+(não suposição), achados e corrigidos: stop podendo ficar menor que o
+spread (perda garantida, já commitado em `b94239f75`); `close_position` e
+depois `open_position` decidindo sem consultar cotação fresca do símbolo
+certo (um caso real: fechou um BTCUSD lucrativo citando dado do XETUSD);
+fechamento manual prematuro (posições fechadas perto do zero a zero cujo
+preço confirmadamente voltou a favor minutos depois — trava generalizada
+pra exigir ≥50% do caminho até stop/alvo antes de aceitar fechamento
+discricionário); guarda de contradição reforçada + validador semântico novo
+(`reasoningValidator.ts`, fail-open sempre). MACD e Estocástico Lento reais
+implementados por 2 subagentes em paralelo (revisados linha a linha antes
+de aplicar) — nunca fabricam indicador, só dado pro julgamento do LLM, sem
+trava mecânica nova. **Achado sem fix possível**: mesmo com dado real e
+fresco, a IA repetidamente leu o indicador de forma errada (MACD subindo
+interpretado como "esgotando", o oposto) — consistente com a pesquisa já
+documentada abaixo ("busca por edge de sinal técnico", sem resultado
+comprovado); os fixes desta sessão levantam o piso (evitam perda por erro
+estrutural), não prometem levantar o teto (acerto direcional). **Primeiro
+sinal (amostra de 1, não é prova) de que o fix funciona**: depois da trava
+de fechamento prematuro no ar, uma posição XETUSD LONG sobreviveu a 5-6
+tentativas de fechamento manual bloqueadas e bateu take-profit de verdade
+(+$13,41) — primeiro TP real confirmado da sessão. Sessão fechou (monitoramento
+desarmado a pedido do Cleber) em 17 trades, 2 vitórias, -$9,62 líquido,
+amostra mista (trades de antes e depois de cada fix, não comparável entre
+si). **Pendência real**: 6 commits prontos esperando Cleber rodar
+manualmente. Detalhe completo:
+[SESSAO_2026-08-30_MONITORAMENTO_LLM_BRAIN_TARDE_E_HARDENING.md](SESSAO_2026-08-30_MONITORAMENTO_LLM_BRAIN_TARDE_E_HARDENING.md).
+
 **2026-08-30: `/code-review ultra` no diff local (working tree) + 3 bugs reais
 corrigidos e commitados (`45d26c24b`).** Revisão multi-ângulo (xhigh effort,
 finders em agentes + verificação) sobre `OrderTicket.tsx`, `AITrader.tsx` e

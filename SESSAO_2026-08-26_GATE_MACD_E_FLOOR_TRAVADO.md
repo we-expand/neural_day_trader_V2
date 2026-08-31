@@ -1,8 +1,11 @@
 # Sessão 2026-08-26 (2ª parte): Gate real de MACD + achado do floor travado em produção
 
-> **Status**: código pronto e validado (`npm run validate` ✅), **nada
-> deployado ainda**. Precisa de: commit+push (dev), deploy do `ai-runner`,
-> e 1 UPDATE de dado em produção (SQL abaixo).
+> **Status**: ✅ Deployado (commit+push feito, migration da CHECK
+> constraint rodada no Supabase, `ai-runner` redeployado — confirmado pelo
+> Cleber em 2026-08-26). Próximo passo real: observar produção nas
+> próximas horas/dias — ver se o gate de MACD reduz o padrão de entrada
+> "infantil" e se o funil passa a considerar mais ativos da cesta (efeito
+> do item 4) sem indicar que o gate ficou frouxo demais.
 
 ## Contexto: 3 perguntas do Cleber nesta sessão
 

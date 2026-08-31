@@ -7,6 +7,71 @@
 > trabalho nova aberta em 08-21, ainda sem status de conclusão dos itens de
 > baixo**: ver bloco "▶ TAMBÉM COMECE AQUI" logo abaixo, antes de entrar nos
 > itens numerados desta seção.
+> Nota 2026-08-25: nova linha de trabalho aberta (Trilho 2 reaberto + cuOpt
+> Fase A) — vira o **primeiro** bloco "▶ TAMBÉM COMECE AQUI" abaixo, antes
+> do bloco de 08-21 (que continua pendente, não foi tocado).
+
+## ▶ TAMBÉM COMECE AQUI — linha nova aberta em 2026-08-25 (Trilho 2 reaberto via NVIDIA NIM + cuOpt Fase A)
+
+Sessão completa: [SESSAO_2026-08-25_NVIDIA_TRILHO2_CUOPT.md](SESSAO_2026-08-25_NVIDIA_TRILHO2_CUOPT.md).
+Ordem exata do que falta, na sequência certa:
+
+1. **[RESOLVIDO 2026-08-25] Incidente da chave NVIDIA confirmado resolvido.**
+   `nexus_interactions` mostra 10 respostas reais do NEXUS em produção
+   entre 22:31 e 23:42 UTC do mesmo dia, com dado real (preço, posição
+   aberta, calendário) — chave rotacionada está funcionando.
+2. **[RESOLVIDO 2026-08-25] Orçamento de newsfeed pago pro NLP: decisão do
+   Cleber é NÃO — seguir só com fonte gratuita por enquanto.** NLP do
+   Trilho 2 (hipótese de texto de evento/calendário) fica restrito ao que
+   já existe de graça (calendário econômico já usado no gate de
+   notícias/VIX do `ai-runner`). Nada de Bloomberg/Reuters/newsfeed pago
+   por ora — reabrir só se o Cleber decidir investir depois de ver
+   resultado do backtest com fonte grátis.
+3. **[RESOLVIDO 2026-08-25] Backtests reais rodados — 0/5 hipóteses
+   validadas.** 2 das 5 (correlação cross-asset, sem depender de NLP)
+   backtestadas com dado real (`scripts/backtest_correlation.ts`,
+   `DataSplit.ts`+`DeflatedSharpe.ts`+`CostModel.ts`): `CorrCrossRegime_5m_BTC`
+   é achado inválido por construção (BTCUSD/XBNUSD vêm da mesma fonte
+   Binance no pipeline do projeto — correlação degenerada ≈1.0, não
+   cross-asset real); `CorrCrossRegime_1h_XAGUSD` (prata vs. ouro, par
+   genuíno) deu líquido positivo (+4.33%, 50 trades) mas DSR 53.5% —
+   abaixo do piso de robustez exigido, não validado. As outras 3
+   (dependem de NLP sobre texto de calendário econômico) ficaram
+   **BLOQUEADAS**, não "não validadas": confirmado por código que o
+   projeto nunca arquiva histórico de calendário econômico (endpoint só
+   devolve o dia corrente), então testá-las exigiria fabricar dado —
+   proibido pela convenção do projeto. Detalhe completo:
+   [results/verdict.md](research/experiments/2026-08-25-trilho2-nim-signal-discovery/results/verdict.md).
+4. **[RESOLVIDO 2026-08-25, com achado negativo] cuOpt real não é
+   executável no ambiente atual — confirmado no código-fonte oficial da
+   NVIDIA, não só por tentativa de API.** Schema do payload LP/MILP
+   confirmado contra `docs.nvidia.com/cuopt`. `functionId` do cuOpt
+   encontrado no catálogo NVCF, mas 3 tentativas de invocação real
+   falharam (403/404 — a função é `ownedByDifferentAccount`, não invocável
+   pela chave pessoal). Indo até o código-fonte do blueprint oficial
+   `NVIDIA-AI-Blueprints/quantitative-portfolio-optimization`: confirmado
+   que cuOpt SÓ roda como pacote Python local com GPU CUDA
+   (`from cuopt.linear_programming.problem import ...`) — não existe modo
+   hospedado gratuito pra este caso de uso, mesmo no exemplo oficial da
+   própria NVIDIA. Detalhe completo:
+   [CUOPT_API_SCHEMA.md](research/experiments/2026-08-25-cuopt-portfolio-optimization/CUOPT_API_SCHEMA.md).
+   **Decisão pendente do Cleber**: pagar GPU cloud pra rodar o cuOpt real,
+   OU testar a mesma pergunta de pesquisa (alocação conjunta vs.
+   sequencial) com um solver MILP em CPU pura, sem NVIDIA — os baselines
+   sequencial/aleatório em `optimizePortfolio.ts` continuam válidos.
+5. **[RESOLVIDO 2026-08-25, achado negativo] Fase A rodada — nenhuma
+   estratégia de alocação é lucrativa, MILP não bate aleatório com
+   confiança.** cuOpt real substituído por MILP em CPU (`javascript-lp-solver`,
+   ver item 4). Dado real (9 símbolos × 1h, presets 2/4/5, split com
+   embargo): sequencial -18,98%/DSR 1,0%; aleatório -35,59%/DSR 0,1%;
+   MILP -32,85%/DSR 0,1%. As 3 fecham no vermelho — sem edge de sinal
+   individual, nenhum mecanismo de alocação cria retorno onde não há
+   base positiva pra otimizar. MILP tem retorno médio/trade ligeiramente
+   menos negativo que o aleatório, mas DSR de ambos ~0,1% (não
+   distinguível de ruído). Detalhe:
+   [verdict.md](research/experiments/2026-08-25-cuopt-portfolio-optimization/verdict.md).
+   **Fase B (integração em `runTradingCycle.ts`) NÃO entra** — critério de
+   aprovação não atingido, mesma disciplina do resto do projeto.
 
 ## ▶ TAMBÉM COMECE AQUI — linha nova aberta em 2026-08-21 (calibração de gates → scorecard de performance por ativo)
 
@@ -34,12 +99,20 @@ validação exigida): **[SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md]
 **Nada disso foi implementado ainda** — é plano/desenho, aprovado em
 conversa mas não em código.
 
-**Próximo passo concreto, na ordem do plano**: medir com dado real de
-`ai_trades` quantos trades fechados por símbolo existem hoje e há quanto
-tempo — decide se um `MIN_AMOSTRA` de 20-50 trades (proposto no plano) é
-realista já ou se falta acumular mais dado primeiro. Só depois disso
-prototipar o cálculo do multiplicador como função pura e rodar contra o
-histórico (backtest simples) antes de tocar em `runTradingCycle.ts`.
+**[REPETIDO 2026-08-26] Proxy-backtest atualizado — ainda sem benefício
+líquido, mesmo com o dobro de amostra.** 4 símbolos agora batem n≥20
+(SOLUSD, ETHUSD, XAUUSD, BTCUSD — eram 2 em 08-21). Resultado: Δ PnL
+total -0,292 (piora marginal), Δ stddev/trade -0,0% (era -0,8% em 08-21 —
+não melhorou com mais dado). Achado que se repete e piora: XAUUSD (único
+símbolo com PnL agregado positivo) continua sendo penalizado pelo
+scorecard. Detalhe:
+[SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md](SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md),
+seção "Proxy-backtest repetido em 2026-08-26". `ASSET_SCORECARD_ACTIVE`
+continua `false`. **Hipótese nova pra próxima sessão, se quiser continuar**:
+o problema pode ser a métrica em si (limite de confiança sobre PnL bruto
+pune volatilidade, não separa "ruim" de "bom mas arriscado") — considerar
+Sharpe/Sortino por símbolo em vez de PnL médio com IC, antes de só esperar
+mais dado de novo.
 
 ## ▶ COMECE AQUI — o que precisa acontecer, em ordem
 

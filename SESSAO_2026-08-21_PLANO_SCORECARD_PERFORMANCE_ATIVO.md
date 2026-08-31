@@ -257,3 +257,38 @@ lembrar se algum dia for limpar `ai_trades`.
 **Próximo passo real**: esperar 1-2 semanas de acúmulo (job já rodando
 sozinho a cada 30min), repetir o proxy-backtest com mais símbolos em
 n≥12/n≥20, e só então decidir se `ASSET_SCORECARD_ACTIVE` vira `true`.
+
+## Proxy-backtest repetido em 2026-08-26 (5 dias depois) — ainda sem benefício líquido
+
+Dado real atualizado (`ai_trades`, 259 trades qualificados, entry_time
+≥ 2026-08-03): número de símbolos com n≥20 **dobrou** (2→4: SOLUSD,
+ETHUSD, XAUUSD, BTCUSD). Script:
+[rerun_2026-08-26.ts](research/experiments/2026-08-21-asset-scorecard/rerun_2026-08-26.ts),
+dado em
+[real_trades_2026-08-26.json](research/experiments/2026-08-21-asset-scorecard/real_trades_2026-08-26.json).
+
+**Resultado, mesma disciplina do proxy original**:
+- Δ PnL total: **-0,292** (piora marginal, não melhora)
+- Δ stddev/trade: **-0,0035 (-0,0%)** — variância não cai de forma
+  perceptível (era -0,8% em 08-21; com o dobro de amostra qualificada, a
+  redução de variância ficou ainda mais próxima de zero, não melhorou)
+
+**O mesmo problema já sinalizado em 08-21 se repete e se agrava**: XAUUSD
+é o único símbolo com PnL agregado real positivo (+14,33 nos 24 trades),
+mas o scorecard **penaliza** ele (escalado cai pra +11,30, Δ -3,031) —
+o limite inferior de confiança continua negativo (-0,41) mesmo com
+resultado agregado bom, porque a volatilidade por trade (desvio ~5,3) é
+grande relativa à média. A métrica pune exatamente o símbolo que estava
+indo melhor.
+
+**Conclusão, sem enfeitar**: dobrar a amostra não mudou a resposta — o
+scorecard continua sem mostrar benefício líquido mensurável, e a direção
+do efeito (levemente pior, não melhor) se mantém igual à medição
+anterior. `ASSET_SCORECARD_ACTIVE` continua `false`. Não há evidência
+ainda de que esperar mais tempo mude esse quadro — o problema pode ser
+estrutural na fórmula (limite de confiança sobre PnL bruto penaliza
+volatilidade na mesma direção do que retorno, não separa "ruim" de
+"bom mas arriscado"), não só falta de amostra. Se repetir de novo sem
+mudança, próximo passo seria reconsiderar a métrica em si (ex: usar
+Sharpe/Sortino por símbolo em vez de PnL médio bruto com IC), não só
+esperar mais dado.

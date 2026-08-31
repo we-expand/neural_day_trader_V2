@@ -119,7 +119,55 @@ no código — não fiz isso porque é uma decisão de produto (perder a
 continuidade do histórico usado por `tradeMemory.ts`), não uma correção
 óbvia.
 
-## Processo — reiniciado 2x nesta sessão, confirmado rodando
+## Reset pra $50 limpos — pedido explícito do Cleber, feito depois do redesenho
+
+Depois do redesenho acima já estar rodando (e já ter validado ao vivo um
+trade real com R:R 1:2 correto), Cleber pediu pra zerar o dashboard em $50
+pra testar o modelo novo sem a bagagem dos -$135 da sessão antiga.
+
+**O que foi feito**:
+1. Criada sessão nova em `ai_sessions` (`id = aa279c75-1acd-49aa-9fef-a76e8ddf0b2e`,
+   `created_at = 2026-08-30 11:36:50 UTC`, `initial_balance/initial_equity = 50`,
+   `status = 'PAUSED'` — mesma convenção que o código usa, nunca `RUNNING`).
+   Isso é a session mais recente por `strategy_name = 'LLM_ACTIVE_BRAIN_MT5'`,
+   então tanto o Dashboard (`LlmActiveBrainPanel.tsx`, que consulta a sessão
+   mais recente a cada poll) quanto o processo (depois de reiniciado, ver
+   abaixo) passam a usar ela.
+2. Processo reiniciado (3ª vez nesta sessão) — necessário porque
+   `getOrCreateMt5Session` (`neuralBridge.ts`) cacheia o `session_id` em
+   memória (`mt5SessionIdPromise`) pela vida do processo; só re-consulta
+   "sessão mais recente" na inicialização. Sem restart, o processo teria
+   continuado gravando na sessão antiga mesmo com a nova já existindo no
+   banco.
+3. **Achado no meio do processo**: a sessão antiga (`e7eef768...`) tinha NÃO
+   1 mas **2 posições abertas** no momento do reset — `list_open_positions`
+   já tinha mostrado a XETUSD SHORT antes, mas o processo antigo, no seu
+   ÚLTIMO ciclo antes de eu matar o PID, ainda abriu uma segunda
+   (BTCXBN SHORT, `entry_time` 11:36:00 UTC — minutos antes da sessão nova
+   ser criada). As duas ficariam órfãs (sem monitoramento mecânico de
+   stop/alvo) depois do processo migrar de sessão, então fechei as duas
+   manualmente, a preço real (não fabricado — mesma rota `/mt5-prices` que
+   o app usa, cotação `SIMULATED=false` confirmada em ambas as chamadas):
+   - **XETUSD SHORT** (`e7e37551...`): entrada 2457,38, fechada no ASK real
+     2458,22 (fechar SHORT = comprar de volta, mesma convenção de
+     `closeMt5Position`), PnL -$0,41.
+   - **BTCXBN SHORT** (`35bf5106...`): entrada 316,893, fechada no ASK real
+     317,508, PnL -$2,33.
+   Ambas com `exit_reason = 'MANUAL'` (valor válido pela constraint do
+   banco) e o motivo do fechamento administrativo registrado em
+   `ai_reasoning` (concatenado ao reasoning original de entrada, mesmo
+   padrão de `closeMt5Position` — nunca um `UPDATE` silencioso, ver
+   convenção do `CLAUDE.md` principal sobre correção de registro
+   financeiro). Confirmado por SQL: nenhuma das duas sessões tem posição
+   `OPEN` depois disso.
+
+**Estado final**: sessão `aa279c75-1acd-49aa-9fef-a76e8ddf0b2e` é a ativa,
+$50 limpos, zero trades ainda no momento do reset, processo rodando só
+nela. A sessão antiga (`e7eef768...`, -$135/1,7% de acerto, dado do
+diagnóstico deste arquivo) fica congelada como histórico, sem mais
+atividade.
+
+## Processo — reiniciado 3x nesta sessão, confirmado rodando
 
 PID final confirmado rodando sozinho (instância única, trava de lock
 funcionando): processo `tsx src/index.ts` iniciado ~08:23 UTC de hoje, já
@@ -147,17 +195,18 @@ nota de metodologia acima) antes de qualquer conclusão.
 ## Pendências reais pra próxima sessão
 
 1. **Acompanhar o resultado sob o R:R novo** — esperar acumular uma amostra
-   real (dúzias de trades, não só alguns) antes de julgar. Query de
-   referência (ajustar pra filtrar só trades depois do restart de hoje se
-   quiser isolar a amostra nova):
+   real (dúzias de trades, não só alguns) antes de julgar. Sessão é a nova,
+   limpa desde o reset pra $50 (ver seção "Reset pra $50 limpos" acima) —
+   `session_id = 'aa279c75-1acd-49aa-9fef-a76e8ddf0b2e'`, não mais a
+   `e7eef768...` (essa fica congelada como histórico da amostra antiga, R:R
+   1:1,13). Query de referência:
    ```sql
    select count(*) filter (where status='CLOSED') as closed,
           sum(coalesce(net_pnl,pnl)) filter (where status='CLOSED') as net_pnl,
           count(*) filter (where status='CLOSED' and coalesce(net_pnl,pnl)>0) as wins,
           count(*) filter (where status='CLOSED' and exit_reason='TP') as tp_hits
    from ai_trades
-   where session_id = 'e7eef768-389b-4459-8831-40c57a32fb51'
-     and entry_time >= '2026-08-30T08:19:00Z';
+   where session_id = 'aa279c75-1acd-49aa-9fef-a76e8ddf0b2e';
    ```
 2. **Investigar a causa raiz do SOLUSD** (task já registrada como sugestão
    pro Cleber nesta sessão) antes de cogitar reintroduzir o símbolo —
