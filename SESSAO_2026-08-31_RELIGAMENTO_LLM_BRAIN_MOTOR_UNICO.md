@@ -141,8 +141,8 @@ frequência. Avisado ao Cleber, não corrigido (é escolha dele, não bug).
 - LLM Brain rodando: 1 processo (`tsx src/index.ts`), sessão
   `faff526b-7cf8-4f94-b885-8afd36ab77e2` ($100, `RUNNING`), config do Setup
   sendo lida corretamente (confirmado no log ao vivo).
-- Nenhum commit feito (regra fixa do projeto) — comandos prontos em
-  [NEXT_SESSION.md](NEXT_SESSION.md).
+- **Commit feito pelo Cleber** (`09ba45256`/`20c2f2a5e`, working tree
+  limpo) — código desta sessão já versionado.
 - Deploy já aplicado direto (não precisa repetir): secret `METAAPI_TOKEN`,
   função `server`, cron `ai-runner-tick` desativado.
 
