@@ -43,8 +43,20 @@ function requireEnv(name: string): string {
 // `ValidationError: symbol does not exist`, que sem tratamento derrubava o
 // processo inteiro (loop de crash-restart, nunca chegava a transmitir
 // preço nenhum). Mesmo gate que o frontend já usa em `getRealMarketData`.
+// ⚠️ 2026-08-31: BTCUSD passou a cotar direto da Binance em `/mt5-prices`
+// (ver supabase/functions/server/index.ts, `BINANCE_DIRECT_SYMBOL_MAP`) pra
+// bater exatamente com o site da Binance. Este relay HOJE ESTÁ DESLIGADO em
+// produção (parado e o launch agent removido em 2026-07-23, ver
+// CLAUDE_HISTORY.md — só existe o código-fonte no repo, não é a causa de
+// nenhum sintoma atual), mas se for religado no futuro ele publicaria o tick
+// do BROKER (Infinox/MetaAPI) por cima do valor Binance-preciso do polling
+// (`ensureRealtimeStreamingInitialized` em RealMarketDataService.ts aplica
+// `payload.price` direto) — exclusão preventiva de BTCUSD da assinatura de
+// streaming aqui, pra esse religamento futuro não reintroduzir a divergência
+// contra a Binance sem ninguém perceber.
 const brokerSymbolByUnified = new Map<string, string>();
 for (const asset of ALL_ASSETS) {
+  if (asset.symbol === 'BTCUSD') continue;
   if (asset.category === 'CRYPTO' && !isCryptoCfdAvailable(asset.symbol, 'infinox')) continue;
   if (isAvailableOnBroker(asset.symbol, 'infinox')) {
     brokerSymbolByUnified.set(getBrokerSymbol(asset.symbol, 'infinox'), asset.symbol);

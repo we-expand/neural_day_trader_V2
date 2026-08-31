@@ -5958,10 +5958,17 @@ export function ChartView({
     console.log(`[ChartView] 📡 Iniciando polling de preço para ${selectedSymbol}`);
 
     // Subscribe ao preço em tempo real (mesmo pipeline real usado no resto do app)
-    // Intervalo de 2s: getRealMarketData já cacheia por símbolo por 2s, então
-    // isso não gera chamada de rede nova a cada tick — só reflete o cache mais
-    // recente com mais frequência, suavizando a animação sem sobrecarregar a
-    // conta MetaAPI compartilhada (é 1 único símbolo, não um lote).
+    // Intervalo padrão de 2s (ver watchdog abaixo, calibrado em cima desse valor).
+    // ✅ 2026-08-31: BTCUSD cota direto da Binance em `/mt5-prices` (não mais
+    // via conta MetaAPI compartilhada, ver server/index.ts) — sem o motivo
+    // original de manter o intervalo largo (proteger aquela conta), então usa
+    // um polling mais curto (1,5s) só pra ele, reduzindo a defasagem visível
+    // contra a página ao vivo da Binance (Cleber reportou preço/% "muito
+    // errados" mesmo com a rota já correta — BTC se move rápido o bastante
+    // pra 2s de defasagem parecer "errado" a olho nu comparando com uma
+    // aba da Binance sempre atualizando). Resto dos símbolos mantém os 2s de
+    // sempre.
+    const priceIntervalMs = selectedSymbol === 'BTCUSD' ? 1500 : 2000;
     const unsubscribe = subscribeToSymbol(selectedSymbol, (marketData) => {
       // 🛡️ GUARDA: getFallbackOrLastKnown pode devolver isRealData:false com
       // price:0 (nunca teve dado real ainda, ou falha transitória) — sem essa
@@ -6100,7 +6107,7 @@ export function ChartView({
           console.error('[ChartView] ❌ ERROR ao processar candle:', err);
         }
       }
-    }, 2000);
+    }, priceIntervalMs);
 
     // Cleanup ao desmontar
     return () => {
