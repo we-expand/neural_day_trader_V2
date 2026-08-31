@@ -57,6 +57,7 @@
         "npm:embla-carousel-react@8.6.0",
         "npm:fancy-canvas@^2.1.0",
         "npm:input-otp@1.4.2",
+        "npm:javascript-lp-solver@^1.0.3",
         "npm:jspdf-autotable@^5.0.7",
         "npm:jspdf@4",
         "npm:klinecharts@9.8.10",

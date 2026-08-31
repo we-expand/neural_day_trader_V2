@@ -98,6 +98,7 @@
   "devDependencies": {
     "@types/node": "^22.20.0",
     "@vercel/node": "^3.2.29",
+    "javascript-lp-solver": "^1.0.3",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
