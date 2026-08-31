@@ -331,8 +331,12 @@ export const config = {
   // so um pouco menos agressiva. Sem validacao estatistica de que isso
   // melhora o resultado liquido -- e afrouxamento de frequencia, nao alegacao
   // de edge.
-  mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 3),
-  mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 20),
+  // 🔴 2026-08-31 (ajuste pós-paralisia): 3->5 (threshold) e 20->5min (cooldown).
+  // Razão: com threshold=3, apenas 3 perdas consecutivas já bloqueavam o ativo
+  // por 20min, deixando o agente paralisado. Novo: 5 perdas pra ativar bloqueio,
+  // e só 5min de espera (Fase 2: menos conservador, mais experimental).
+  mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 5),
+  mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 5),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
