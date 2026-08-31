@@ -4608,7 +4608,17 @@ export function ChartView({
     // atualiza a overlay existente no lugar via overrideOverlay (mesmo
     // padrão já usado no resto do arquivo pra desenhos do usuário).
     const currentIds = new Set(symbolOrders.map((o) => o.id));
+    // 🔴 2026-08-31: a regex só reconhecia prefixos `position_(entry|sl|tp)_`
+    // — ids de ordem PENDENTE (`pending_${id}`, criados no bloco abaixo) não
+    // batiam, então `orderId` ficava igual ao id inteiro (`pending_123`), que
+    // nunca está em `currentIds` (que só tem ids de posição aberta). Resultado:
+    // toda linha de ordem pendente era marcada "não existe mais" e
+    // removida+recriada A CADA render (a cada tick de P&L, ~1s) — o piscar
+    // intermitente reportado pelo Cleber. Ordens pendentes têm seu próprio
+    // ciclo de vida (criadas 1x, sem override — ver bloco `pending.forEach`
+    // abaixo), então não pertencem a esta checagem: ignora ids `pending_*` aqui.
     const idsToRemove = positionOverlayIdsRef.current.filter((id) => {
+      if (id.startsWith('pending_')) return false;
       const orderId = id.replace(/^position_(entry|sl|tp)_/, '');
       return !currentIds.has(orderId);
     });
@@ -4775,9 +4785,31 @@ export function ChartView({
     // Arrastável (reposiciona o gatilho) e cancelável com clique direito —
     // sem isso a ordem só podia ser criada e esperada até disparar, sem
     // nenhuma forma de ajustar ou desistir dela depois de postada.
-    pending.filter((o) => o.symbol === symbol).forEach((order) => {
+    // 🔴 2026-08-31: remove só as pendentes que saíram de verdade (cancelada/
+    // disparada) — antes este bloco recriava TODAS incondicionalmente a cada
+    // render (mesmo padrão de piscar do fix acima, só que sempre, não só
+    // quando havia posição aberta em paralelo).
+    const pendingSymbolOrders = pending.filter((o) => o.symbol === symbol);
+    const currentPendingIds = new Set(pendingSymbolOrders.map((o) => `pending_${o.id}`));
+    const pendingIdsToRemove = positionOverlayIdsRef.current.filter(
+      (id) => id.startsWith('pending_') && !currentPendingIds.has(id)
+    );
+    pendingIdsToRemove.forEach((id) => {
+      try { chart.removeOverlay(id); } catch (e) { /* ignora */ }
+    });
+    positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => !pendingIdsToRemove.includes(id));
+
+    pendingSymbolOrders.forEach((order) => {
       const isBuy = order.side === 'LONG';
       const pendingId = `pending_${order.id}`;
+      if (positionOverlayIdsRef.current.includes(pendingId)) {
+        try {
+          chart.overrideOverlay({ id: pendingId, points: [{ value: order.triggerPrice }] });
+        } catch (e) {
+          // silencioso — mesma tolerância do resto dos overlays de sistema
+        }
+        return;
+      }
       try {
         chart.createOverlay({
           name: 'positionLabelLine',
