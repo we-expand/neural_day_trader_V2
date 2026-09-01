@@ -544,22 +544,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       // 🔴 2026-08-31 (fix de paralisia por dados incompletos): antes, um
       // getMt5Quote falhado retornava erro pro agente, travando a sessão.
-      // Novo: retry 5x com backoff, e se falhar, devolve um quote VÁLIDO mas
-      // com trend/volume/etc = null (agente entende "dados indisponíveis" como
-      // "ok, trabalho com o que tenho"). Garante que o agente NUNCA fica preso
-      // esperando por um endpoint que está fora/lento/rate-limited -- pode
-      // tentar entrar mesmo com dados parciais, o stop mecânico protege o pior
-      // caso.
-      let quote = await getMt5Quote(symbol);
-      if (!quote) {
-        // Retry extra agressivo
-        for (let i = 0; i < 2; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-          quote = await getMt5Quote(symbol);
-          if (quote) break;
-        }
-      }
-      // Se AINDA não conseguiu, devolve fallback válido (não erro)
+      // Se falhar, devolve um quote VÁLIDO mas com trend/volume/etc = null
+      // (agente entende "dados indisponíveis" como "ok, trabalho com o que
+      // tenho"). Garante que o agente NUNCA fica preso esperando por um
+      // endpoint que está fora/lento/rate-limited -- pode tentar entrar
+      // mesmo com dados parciais, o stop mecânico protege o pior caso.
+      //
+      // 🔴 2026-09-01 (achado real, monitoramento ao vivo): esta camada tinha
+      // MAIS 2 retries por cima dos 3 que `mt5Broker.getQuote` já faz
+      // internamente (8s de timeout cada) -- 5 tentativas empilhadas no
+      // total. Confirmado ao vivo: um ciclo travou ~10min numa única
+      // chamada de XAUUSD enquanto a MetaAPI compartilhada estava lenta
+      // (endpoint /mt5-prices devolvendo HTTP 504 depois de ~20s por
+      // tentativa -- risco crônico já documentado no CLAUDE.md). Removido o
+      // retry duplicado: `getQuote` já é resiliente sozinho (3 tentativas),
+      // sem essa camada extra o pior caso cai de ~5 tentativas pra 3 sem
+      // perder proteção real contra falha transitória.
+      const quote = await getMt5Quote(symbol);
+      // Se não conseguiu, devolve fallback válido (não erro)
       if (!quote) {
         const lastPrice = getLastKnownPrice(symbol);
         console.warn(`[tools.ts] Cotação de ${symbol} indisponível depois de retry -- devolvendo fallback com preço ${lastPrice || "nenhum histórico"}`);
