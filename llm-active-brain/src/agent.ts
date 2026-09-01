@@ -331,9 +331,18 @@ const GENESIS_PROMPT = config.mt5TradingEnabled ? GENESIS_PROMPT_MT5 : GENESIS_P
 // Provedor de LLM configuravel (NVIDIA por padrao, Groq como alternativa -
 // ver LLM_PROVIDER no .env). Ambos expoe um endpoint compativel com a API
 // da OpenAI.
+// 🔴 2026-09-01 (achado real, monitoramento ao vivo): sem `timeout`
+// explicito, o SDK da OpenAI usa o default de 10 MINUTOS por chamada --
+// confirmado ao vivo travando o ciclo inteiro por 15min+ com o Ollama local
+// saturado (curl em localhost:11434/api/tags nao respondia, `llama-server`
+// preso processando). 90s e generoso pro pior caso real ja medido (~30-58s
+// pra uma chamada fria com o prompt completo da cesta), mas falha rapido o
+// suficiente pro ciclo seguinte tentar de novo em vez de ficar mudo por
+// minutos sem ninguem perceber.
 const client = new OpenAI({
   apiKey: config.llmApiKey,
   baseURL: config.llmBaseUrl,
+  timeout: 90_000,
 });
 
 function sleep(ms: number) {
