@@ -23,7 +23,7 @@ function requireEnv(name: string): string {
 // no mesmo dia quando a cota diaria do Groq esgotou de novo mesmo com
 // modelo menor, e Gemini -> SambaNova quando nem Cerebras (pede cartao) nem
 // Gemini (conta Google do Cleber bloqueada) deram certo - ver CONTEXT.md).
-type LlmProvider = "nvidia" | "groq" | "cerebras" | "gemini" | "sambanova";
+type LlmProvider = "nvidia" | "groq" | "cerebras" | "gemini" | "sambanova" | "ollama";
 
 const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: string; apiKeyEnv: string }> = {
   nvidia: {
@@ -74,11 +74,38 @@ const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: strin
     model: "Meta-Llama-3.3-70B-Instruct",
     apiKeyEnv: "SAMBANOVA_API_KEY",
   },
+  // 2026-09-01 (achado ao vivo): todo provedor gratuito na nuvem (NVIDIA
+  // aposentou o modelo em uso, Groq com teto de 8000 TPM + cota diaria curta
+  // demais pro modo continuo) esbarrou em algum limite real no mesmo dia --
+  // rodar local elimina cota/rate-limit por definicao (so usa CPU/GPU/RAM
+  // da propria maquina, que ja roda este processo). Ollama expoe endpoint
+  // compativel com a API da OpenAI em localhost:11434/v1, sem autenticacao
+  // de verdade (apiKeyEnv aponta pra um valor fixo no .env so pra satisfazer
+  // o SDK, o Ollama ignora). Qwen3 8B escolhido apos pesquisa (2026-09-01):
+  // suporte nativo a tool-calling, ~4.9GB em Q4_K_M (cabe nos 16GB do Mac
+  // M2 Pro que roda este processo), melhor equilibrio de raciocinio entre
+  // as opcoes testadas pra esse tamanho de RAM.
+  ollama: {
+    baseUrl: "http://localhost:11434/v1",
+    // 🔴 2026-09-01 (achado ao vivo, critico): Ollama trunca o contexto em
+    // ~2048 tokens por padrao (num_ctx), silenciosamente -- confirmado
+    // mandando o prompt real (27K caracteres, ~8400 tokens) e recebendo de
+    // volta "prompt_tokens":2050 (cortado) com o modelo raciocinando sobre
+    // fragmentos soltos do prompt, sem entender o proprio papel. NAO usar
+    // "qwen3:8b" direto -- "qwen3-trading" e um modelo customizado (Modelfile
+    // com `PARAMETER num_ctx 16384`, criado via `ollama create qwen3-trading
+    // -f Modelfile`) que processa o prompt inteiro de verdade (confirmado:
+    // 8409 prompt_tokens reais, raciocinio correto sobre tendencia/volume/
+    // MACD/estocastico, tool_call certo). Se recriar do zero em outra
+    // maquina, rodar esse `ollama create` antes de usar este provedor.
+    model: "qwen3-trading",
+    apiKeyEnv: "OLLAMA_API_KEY",
+  },
 };
 
 const llmProvider = (process.env.LLM_PROVIDER || "nvidia") as LlmProvider;
 if (!LLM_PROVIDER_DEFAULTS[llmProvider]) {
-  throw new Error(`LLM_PROVIDER invalido: "${llmProvider}". Use "nvidia", "groq", "cerebras", "gemini" ou "sambanova".`);
+  throw new Error(`LLM_PROVIDER invalido: "${llmProvider}". Use "nvidia", "groq", "cerebras", "gemini", "sambanova" ou "ollama".`);
 }
 const llmProviderDefaults = LLM_PROVIDER_DEFAULTS[llmProvider];
 

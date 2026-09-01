@@ -79,10 +79,22 @@
  * de PnL 20x do NAS100 em 2026-08-27 -- $1/ponto, não o E-mini $20/ponto de
  * `infinoxContractSpecs.ts`), não de suposição.
  */
+/**
+ * 🔴 2026-09-01 (URGENTE, abertura do mercado a vista americano): Groq
+ * confirmado inutilizável HOJE (cota diária já esgotada pelos próprios
+ * testes desta sessão, bate erro na hora mesmo com conta "resetada" por
+ * minuto). Motor rodando em Ollama local (Qwen3 8B, funciona certo, só mais
+ * lento que nuvem -- ~50-60s na 1ª chamada de um ciclo, mais rápido nas
+ * seguintes graças ao cache de contexto do próprio Ollama). Cesta mantida
+ * em 4 símbolos (cripto/forex/metal/índice, grupos NÃO correlacionados, ver
+ * princípio 3 do prompt em agent.ts) pra chegar a uma decisão mais rápido
+ * -- prioridade agora é velocidade até a 1ª entrada, não cobertura ampla.
+ * Expandir de volta pra 9 quando não houver mais pressão de tempo.
+ */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
+  "BTCUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
   "ADAUSD", "LNKUSD", "UNIUSD",
-  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+  "XAUUSD", "SPX500", "UKOUSD",
 ];
 
 /**

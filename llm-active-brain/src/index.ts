@@ -151,6 +151,13 @@ async function runContinuous() {
             `\nErro no ciclo ${cycle} (sessao ${session.sessionId}):`,
             err instanceof Error ? err.message : err
           );
+          // 2026-09-01 (achado ao vivo): faltava esta espera aqui -- uma
+          // falha persistente (413 de TPM estourado, 410 de modelo aposentado
+          // etc) fazia o loop martelar a proxima sessao/ciclo sem pausa
+          // nenhuma, queimando o teto inteiro de MAX_CYCLES em minutos em vez
+          // de horas (confirmado: 1700+ ciclos em 15s). O branch irmao (else
+          // logo abaixo, modo legado sem sessao) ja tinha essa espera.
+          await sleep(config.cycleDelaySeconds * 1000);
         }
       }
     } else {

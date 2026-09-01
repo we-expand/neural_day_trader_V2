@@ -8,3 +8,5 @@ logs/
 llm-brain.pid
 llm-brain.log
 _backup_pre_stop_fix_2026-08-29/
+llm-brain.log.old-*
+watchdog.log
