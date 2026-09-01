@@ -14,7 +14,17 @@ echo "[$(date)] Watchdog do LLM Brain iniciado (PID $$)."
 
 while true; do
   echo "[$(date)] Matando qualquer instancia antiga antes de subir..."
-  pkill -9 -f "tsx src/index.ts" 2>/dev/null || true
+  # 🔴 2026-09-01 (achado grave, ao vivo): o padrao "tsx src/index.ts" NUNCA
+  # deu match de verdade -- o processo real roda como
+  # `node --require .../tsx/dist/preflight.cjs --import .../tsx/dist/loader.mjs src/index.ts`,
+  # sem a substring literal "tsx src/index.ts" em lugar nenhum da linha de
+  # comando. Resultado: toda vez que este script (ou um restart manual) foi
+  # invocado, o "kill" nunca matava o processo anterior -- 13 instancias
+  # zumbis ficaram rodando em paralelo desde as 08:06, todas competindo pela
+  # mesma conta MT5 compartilhada e, mais tarde, pelo mesmo Ollama local,
+  # causando lentidao seria e comportamento erratico. Padrao corrigido pra
+  # bater no processo real.
+  pkill -9 -f "tsx/dist/loader.mjs src/index.ts" 2>/dev/null || true
   rm -f llm-brain.pid
   sleep 1
 

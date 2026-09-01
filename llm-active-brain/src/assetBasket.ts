@@ -80,21 +80,24 @@
  * `infinoxContractSpecs.ts`), não de suposição.
  */
 /**
- * 🔴 2026-09-01 (URGENTE, abertura do mercado a vista americano): Groq
- * confirmado inutilizável HOJE (cota diária já esgotada pelos próprios
- * testes desta sessão, bate erro na hora mesmo com conta "resetada" por
- * minuto). Motor rodando em Ollama local (Qwen3 8B, funciona certo, só mais
- * lento que nuvem -- ~50-60s na 1ª chamada de um ciclo, mais rápido nas
- * seguintes graças ao cache de contexto do próprio Ollama). Cesta mantida
- * em 4 símbolos (cripto/forex/metal/índice, grupos NÃO correlacionados, ver
- * princípio 3 do prompt em agent.ts) pra chegar a uma decisão mais rápido
- * -- prioridade agora é velocidade até a 1ª entrada, não cobertura ampla.
- * Expandir de volta pra 9 quando não houver mais pressão de tempo.
+ * 🔴 2026-09-01 (revertido -- achado real, apontado pelo Cleber): a cesta
+ * reduzida a 4 símbolos (registrada aqui mais cedo hoje pra caber no teto
+ * de tokens da Groq) ficou obsoleta assim que o motor passou a rodar em
+ * Ollama local (sem esse teto) -- e criou um problema novo: com só 4
+ * ativos, e 2 deles (BTCUSD, UKOUSD) estruturalmente bloqueados pelo piso
+ * de risco mínimo nesta conta pequena (ver erro "Risco minimo possivel..."
+ * em tools.ts -- lote mínimo de BTCUSD/UKOUSD já excede o teto de 3% de
+ * risco por trade no preço/stop de hoje, matemática confirmada correta,
+ * não é bug), sobrava pouquíssima chance de qualquer entrada abrir --
+ * zero posições em ~16h de motor ligado. Restaurado pra 9 símbolos
+ * (interseção com `activeAssets` do Setup no Supabase) -- mais ativos
+ * avaliados por ciclo = mais chance de algum passar no piso de risco E
+ * ter sinal real, exatamente como funcionava antes da redução de hoje.
  */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
+  "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
   "ADAUSD", "LNKUSD", "UNIUSD",
-  "XAUUSD", "SPX500", "UKOUSD",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
 ];
 
 /**

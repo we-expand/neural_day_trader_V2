@@ -15,6 +15,72 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-01] Motor parado desde 08-31 (NVIDIA aposentou o
+modelo) — migrado pra Ollama LOCAL, achado grave de 13 processos zumbis
+corrigido, ainda sem posição aberta com o modelo novo.** NVIDIA aposentou
+`nemotron-3-nano-30b-a3b` (EOL confirmado via API, HTTP 410) — motor
+falhava todo ciclo desde ontem e se desligou sozinho ao bater
+`MAX_CYCLES`, ~16h sem ninguém notar. Testados e descartados: Groq (teto
+de 8.000 tokens/min pra conta inteira + cota diária curta demais pro modo
+contínuo), Cerebras (chave expirada), SambaNova (agora exige cartão),
+outros modelos NVIDIA (nenhum viável pra esta conta). Solução adotada:
+**Ollama rodando local** (mesma máquina do motor, sem cota) — achado
+crítico no caminho: Ollama trunca contexto em ~2048 tokens por padrão,
+SILENCIOSAMENTE, sem nunca usar um Modelfile customizado
+(`PARAMETER num_ctx 16384`) — nunca usar nome de modelo Ollama "cru" neste
+projeto. **Achado mais grave da sessão**: 13 processos zumbis do motor
+acumulados ao longo do dia porque todo `pkill -f "tsx src/index.ts"`
+usado (inclusive dentro do `watchdog.sh`) nunca batia no processo real —
+corrigido o padrão. `watchdog.sh` novo religa o processo sozinho em
+qualquer saída (o bug do "desligou sozinho" não pode se repetir sem
+ninguém notar). Teto de risco por trade subido de 3%→6%
+(`MT5_MAX_RISK_PCT_PER_TRADE`, pedido do Cleber) pra destravar
+BTCUSD/UKOUSD nesta conta pequena — matemática auditada, não era bug.
+Prompt do sistema compactado ~30% sem perder regra nenhuma. Rodando com
+Qwen3.5 4B (trocado do 8B por velocidade), cesta de 9 ativos. **Estado ao
+parar a sessão**: 7 ciclos completos, ZERO tentativas de `open_position` —
+pode ser seletividade correta (mercado com bastante ativo sobrecomprado) ou
+modelo 4B conservador demais, precisa de mais amostra. Handoff completo com
+todos os comandos e achados:
+[SESSAO_2026-09-01_NVIDIA_APOSENTADA_OLLAMA_LOCAL_E_ZUMBIS.md](SESSAO_2026-09-01_NVIDIA_APOSENTADA_OLLAMA_LOCAL_E_ZUMBIS.md).
+
+**[RESOLVIDO 2026-08-31, noite] Menu de configuração do desenho (Mover/
+Estilo/Travar/Apagar) ficava preso no gráfico em cima do painel de
+compra/venda, atrapalhando o trade.** 1º clique num desenho (inclusive o
+clique que TERMINA de desenhar a linha) já abria o menu, fixo no
+topo-centro, sem nenhum botão de fechar visível — só sumia apagando o
+desenho. Corrigido: 1º clique só seleciona + destaca levemente (linha
+~2px mais grossa); só um 2º clique no MESMO desenho já selecionado abre o
+menu, agora perto de onde foi clicado; botão X novo fecha sem
+desselecionar; clique em espaço vazio desseleciona de verdade. Vale para
+todas as ferramentas com esse fluxo (trendline, Fibonacci, formas,
+canais...). `tsc --noEmit` sem erro novo, testado ao vivo. Achado
+colateral catalogado, não corrigido (fora de escopo): painel de compra/
+venda (`z-[220]`) pode sobrepor e capturar clique destinado ao dropdown
+de sub-ferramentas (`z-[200]`) em tela estreita — aconteceu ao vivo
+durante o teste (venda DEMO acidental de 0,01 lote BTCUSD, fechada na
+hora, sem impacto real). Commit pronto, não aplicado. Handoff completo:
+[SESSAO_2026-08-31_MENU_DESENHO_PRESO_NO_GRAFICO.md](SESSAO_2026-08-31_MENU_DESENHO_PRESO_NO_GRAFICO.md).
+
+**[RESOLVIDO 2026-08-31, noite] Auditoria completa da toolbar de desenho do
+Gráfico (`DrawingToolbar.tsx`/`ChartView.tsx`) — 4 bugs reais corrigidos,
+testados ao vivo clicando item por item.** Cleber pediu pra verificar se
+todos os itens/subitens funcionavam de verdade. Corrigidos: modo Ponto do
+crosshair não mostrava nada (efeito estava desabilitado de propósito);
+desenhos do usuário (trendline/Fibonacci/formas/texto/emoji) sumiam pra
+sempre ao trocar timeframe/símbolo (sem snapshot/restauração — o mais
+grave dos quatro); marcador de emoji nascia no lugar errado (clique de
+escolher o emoji no picker completava o desenho, não o clique real no
+gráfico); Anotação de Texto era um `<div>` HTML solto em pixel de tela,
+virou overlay nativo ancorado a preço/tempo (edição real ao clicar de
+novo, sobrevive a zoom/pan/troca de timeframe). `tsc --noEmit` sem
+nenhum erro novo (mesma contagem exata antes/depois). Gap real e honesto,
+não corrigido (fora de escopo, decisão pendente do Cleber): ~18
+ferramentas de GANN/padrões harmônicos/Elliott/Ciclos mostram "em
+desenvolvimento" em vez de desenhar algo errado. Commit pronto, não
+aplicado ainda. Handoff completo:
+[SESSAO_2026-08-31_AUDITORIA_TOOLBAR_DESENHO_GRAFICO.md](SESSAO_2026-08-31_AUDITORIA_TOOLBAR_DESENHO_GRAFICO.md).
+
 **[RESOLVIDO 2026-08-31, noite] Cesta do Cérebro LLM Ativo ampliada de 9
 criptos pra 16 símbolos (forex/metal/energia/índices) — Cleber pediu que a
 IA respeitasse TODOS os ativos configurados no Setup, não só cripto.**

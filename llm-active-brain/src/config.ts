@@ -91,14 +91,22 @@ const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: strin
     // ~2048 tokens por padrao (num_ctx), silenciosamente -- confirmado
     // mandando o prompt real (27K caracteres, ~8400 tokens) e recebendo de
     // volta "prompt_tokens":2050 (cortado) com o modelo raciocinando sobre
-    // fragmentos soltos do prompt, sem entender o proprio papel. NAO usar
-    // "qwen3:8b" direto -- "qwen3-trading" e um modelo customizado (Modelfile
-    // com `PARAMETER num_ctx 16384`, criado via `ollama create qwen3-trading
-    // -f Modelfile`) que processa o prompt inteiro de verdade (confirmado:
-    // 8409 prompt_tokens reais, raciocinio correto sobre tendencia/volume/
-    // MACD/estocastico, tool_call certo). Se recriar do zero em outra
-    // maquina, rodar esse `ollama create` antes de usar este provedor.
-    model: "qwen3-trading",
+    // fragmentos soltos do prompt, sem entender o proprio papel. NUNCA usar
+    // um nome de modelo Ollama "cru" (ex: "qwen3.5:4b") direto -- sempre um
+    // modelo customizado com `PARAMETER num_ctx 16384` (Modelfile, criado
+    // via `ollama create <nome> -f Modelfile`).
+    // 🔴 2026-09-01 (troca pedido do Cleber: mais velocidade, cesta de 9
+    // ativos precisa de ciclos mais rapidos): testado lado a lado com o
+    // mesmo prompt real (8400 tokens) -- "qwen3-trading" (8B, Modelfile
+    // dedicado) levou 58s na 1a chamada fria; "qwen35-trading" (Qwen3.5 4B,
+    // mesmo esquema de Modelfile) levou 30s, ~2x mais rapido, raciocinio e
+    // tool_call igualmente corretos no teste. Trocado pro mais rapido --
+    // qwen3-trading continua criado no Ollama local como fallback de
+    // qualidade se a velocidade deixar de ser a prioridade. Se recriar do
+    // zero: `ollama pull qwen3.5:4b` + Modelfile com `FROM qwen3.5:4b` +
+    // `PARAMETER num_ctx 16384`, depois `ollama create qwen35-trading -f
+    // Modelfile.qwen35-trading`.
+    model: "qwen35-trading",
     apiKeyEnv: "OLLAMA_API_KEY",
   },
 };
