@@ -11,7 +11,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { startAuthentication } from '@simplewebauthn/browser';
+import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { supabase } from '../../../lib/supabaseClient';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 
@@ -52,6 +52,14 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
   const [biometricSupported] = useState(
     () => typeof window !== 'undefined' && !!window.PublicKeyCredential
   );
+
+  // Prompt pós-login pra cadastrar biometria (usuário já existente, logou
+  // com senha, ainda não tem passkey cadastrada neste ou em nenhum
+  // dispositivo). Nunca bloqueia quem já tem passkey ou já dispensou.
+  const [showPasskeyPrompt, setShowPasskeyPrompt] = useState(false);
+  const [passkeyPromptLoading, setPasskeyPromptLoading] = useState(false);
+  const [pendingAuthUser, setPendingAuthUser] = useState<{ email: string; name: string } | null>(null);
+  const [pendingSessionToken, setPendingSessionToken] = useState<string | null>(null);
 
   // --- Logic Helpers ---
 
@@ -123,9 +131,10 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
           if (data.session) {
               setLoading(false);
               toast.success("Autenticado!", { description: "Entrando na plataforma..." });
-              setTimeout(() => {
-                onAuthenticated({ email, name: userName || 'Trader' });
-              }, 500);
+              await finishLoginWithPasskeyCheck(
+                data.session.access_token,
+                { email, name: userName || 'Trader' }
+              );
               return true;
           }
           return false;
@@ -197,6 +206,110 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
     } finally {
       setBiometricLoading(false);
     }
+  };
+
+  // Checagem pós-login: usuário já existente logou com senha (não com
+  // biometria) — se o dispositivo suporta WebAuthn e ele ainda não tem
+  // nenhuma passkey cadastrada, e não dispensou o convite antes, mostra o
+  // convite pra configurar antes de entrar na plataforma. Nunca bloqueia
+  // definitivamente: "Agora não" sempre libera o acesso.
+  const finishLoginWithPasskeyCheck = async (
+    accessToken: string,
+    authedUser: { email: string; name: string }
+  ) => {
+    if (!biometricSupported) {
+      onAuthenticated(authedUser);
+      return;
+    }
+    const dismissKey = `passkey_prompt_dismissed_${authedUser.email.toLowerCase()}`;
+    if (typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1') {
+      onAuthenticated(authedUser);
+      return;
+    }
+    try {
+      const res = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/credentials`, {
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          apikey: publicAnonKey,
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      const hasPasskey = res.ok && Array.isArray(body?.credentials) && body.credentials.length > 0;
+      if (!hasPasskey) {
+        setPendingAuthUser(authedUser);
+        setPendingSessionToken(accessToken);
+        setShowPasskeyPrompt(true);
+        return;
+      }
+    } catch {
+      // Falha ao checar passkeys não pode travar o login — segue normal.
+    }
+    onAuthenticated(authedUser);
+  };
+
+  const handleSetupPasskeyNow = async () => {
+    if (!pendingSessionToken || !pendingAuthUser) return;
+    setPasskeyPromptLoading(true);
+    try {
+      const optionsRes = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/register-options`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `Bearer ${pendingSessionToken}`,
+          apikey: publicAnonKey,
+        },
+      });
+      const optionsBody = await optionsRes.json();
+      if (!optionsRes.ok) throw new Error(optionsBody?.error || 'Falha ao iniciar cadastro');
+
+      const attResp = await startRegistration(optionsBody.options);
+
+      const ua = navigator.userAgent;
+      const deviceName = /iPhone|iPad/.test(ua) ? 'iPhone/iPad'
+        : /Android/.test(ua) ? 'Android'
+        : /Mac/.test(ua) ? 'Mac'
+        : /Windows/.test(ua) ? 'Windows'
+        : 'Dispositivo';
+
+      const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/register-verify`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `Bearer ${pendingSessionToken}`,
+          apikey: publicAnonKey,
+        },
+        body: JSON.stringify({ response: attResp, deviceName }),
+      });
+      const verifyBody = await verifyRes.json().catch(() => ({}));
+      if (!verifyRes.ok) throw new Error(verifyBody?.error || 'Falha ao cadastrar passkey');
+
+      toast.success("Biometria cadastrada!", { description: "Da próxima vez, entre sem senha." });
+      const authedUser = pendingAuthUser;
+      setShowPasskeyPrompt(false);
+      setPendingAuthUser(null);
+      setPendingSessionToken(null);
+      onAuthenticated(authedUser);
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        toast.error("Cadastro cancelado", { description: "Nenhuma biometria foi confirmada." });
+      } else {
+        toast.error("Não foi possível cadastrar biometria", { description: err?.message || 'Tente novamente depois em Configurações.' });
+      }
+    } finally {
+      setPasskeyPromptLoading(false);
+    }
+  };
+
+  const handleDismissPasskeyPrompt = () => {
+    if (pendingAuthUser && typeof window !== 'undefined') {
+      window.localStorage.setItem(`passkey_prompt_dismissed_${pendingAuthUser.email.toLowerCase()}`, '1');
+    }
+    const authedUser = pendingAuthUser;
+    setShowPasskeyPrompt(false);
+    setPendingAuthUser(null);
+    setPendingSessionToken(null);
+    if (authedUser) onAuthenticated(authedUser);
   };
 
   // Force Activation via Backend
@@ -739,6 +852,52 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                 {typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'Conexão HTTPS' : 'Conexão sem TLS (dev)'}
             </div>
         </footer>
+
+        {/* Convite pós-login pra cadastrar biometria (Passkey/WebAuthn) */}
+        <AnimatePresence>
+          {showPasskeyPrompt && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-md flex items-center justify-center px-6"
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={TRANSITION}
+                className={`${BLUR_BG} rounded-2xl p-8 max-w-md w-full text-center`}
+              >
+                <div className="w-14 h-14 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto mb-5">
+                  <span className="text-2xl leading-none">👆</span>
+                </div>
+                <h2 className="text-2xl font-light text-white mb-2">Ativar login por biometria?</h2>
+                <p className="text-sm text-slate-400 leading-relaxed mb-6">
+                    Use Face ID, Touch ID ou Windows Hello pra entrar sem senha da
+                    próxima vez. A biometria nunca sai do seu dispositivo — o
+                    servidor só guarda uma chave pública.
+                </p>
+
+                <button
+                  onClick={handleSetupPasskeyNow}
+                  disabled={passkeyPromptLoading}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-semibold rounded-full px-6 py-3.5 transition-colors mb-3"
+                >
+                  {passkeyPromptLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Configurar agora
+                </button>
+                <button
+                  onClick={handleDismissPasskeyPrompt}
+                  disabled={passkeyPromptLoading}
+                  className="w-full text-slate-500 hover:text-white disabled:opacity-60 text-xs uppercase tracking-widest transition-colors py-2"
+                >
+                  Agora não
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* CSS for Scan Animation */}
         <style>{`
