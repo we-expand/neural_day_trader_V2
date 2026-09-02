@@ -1140,12 +1140,57 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
         getSlowStochastic(symbol, openPositionTimeframe),
+        getMacd(symbol, openPositionTimeframe),
+        getCandlePatterns(symbol, openPositionTimeframe),
       ]);
+      // 🔴 2026-09-02 (achado do Cleber, ao vivo -- XETUSD LONG aberto num
+      // mercado LATERAL com "trend BAIXA" evidente logo depois): o proprio
+      // reasoning da entrada admitiu "entrada moderada por conviccao unica
+      // num setup nao-trend-clear" -- MACD positivo foi o UNICO fator usado,
+      // trend era LATERAL (nenhum padrao de venda existia AINDA no momento
+      // da entrada, mas tambem nenhuma confluencia real apoiava LONG).
+      // O guard de contra-tendencia acima (linha ~1149) so roda quando
+      // trend.label !== "LATERAL" -- em mercado LATERAL nao havia NENHUMA
+      // trava de confluencia, um unico indicador bastava pra abrir. Fecha
+      // esse buraco: em trend LATERAL, exige pelo menos 2 dos 4 fatores reais
+      // (MACD, Estocastico em extremo, volume elevado, padrao de candle)
+      // alinhados com o lado da entrada -- mesmo espirito da trava de
+      // contra-tendencia (nao proibe convicção baixa, proibe convicção ÚNICA
+      // sem nenhuma segunda confirmacao real).
+      if (trend && trend.label === "LATERAL") {
+        const confluenceFactors: string[] = [];
+        if (macdForConfluenceCheck) {
+          const macdAligned = (side === "LONG" && macdForConfluenceCheck.label === "ALTA") || (side === "SHORT" && macdForConfluenceCheck.label === "BAIXA");
+          if (macdAligned) confluenceFactors.push(`MACD ${macdForConfluenceCheck.label}`);
+        }
+        if (stochasticForReversalCheck) {
+          const stochAligned =
+            (side === "LONG" && stochasticForReversalCheck.label === "SOBREVENDIDO") ||
+            (side === "SHORT" && stochasticForReversalCheck.label === "SOBRECOMPRADO");
+          if (stochAligned) confluenceFactors.push(`Estocastico ${stochasticForReversalCheck.label}`);
+        }
+        if (volume?.elevated) confluenceFactors.push(`volume elevado (${volume.ratio}x)`);
+        if (candlePatternsForConfluenceCheck?.bias) {
+          const patternAligned =
+            (side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA");
+          if (patternAligned) confluenceFactors.push(`padrao de candle ${candlePatternsForConfluenceCheck.detected.join("/")} (bias ${candlePatternsForConfluenceCheck.bias})`);
+        }
+        if (confluenceFactors.length < 2) {
+          return {
+            error:
+              `${symbol} esta em tendencia LATERAL (sem direcao clara) e so ha ${confluenceFactors.length} fator real alinhado com ${side} ` +
+              `(${confluenceFactors.join(", ") || "nenhum"}). Em mercado lateral, exige-se pelo menos 2 fatores reais confirmando (MACD, Estocastico ` +
+              `em extremo, volume elevado, ou padrao de candle) antes de abrir -- conviccao unica num unico indicador nao e suficiente. ` +
+              `Posicao NAO aberta. Espere segunda confirmacao real ou avalie outro ativo.`,
+          };
+        }
+      }
       if (trend && trend.label !== "LATERAL" && volume) {
         const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
         // 🔴 2026-09-02 (pedido do Cleber): Estocastico em extremo real
