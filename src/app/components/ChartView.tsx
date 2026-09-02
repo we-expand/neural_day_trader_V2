@@ -4811,6 +4811,17 @@ export function ChartView({
   const renderPositionOverlays = (orders: TradeVisual[], symbol: string, pending: PendingOrderVisual[] = []) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
+    // 🔴 2026-09-02: chart pode existir (recém dispose()+init()) antes dos
+    // candles chegarem — `activeOrders`/`pendingOrders` mudam de referência a
+    // cada tick de preço (~1s) e podiam disparar este efeito nessa janela,
+    // desenhando a guide de entrada num gráfico ainda sem nenhuma vela
+    // (relatado ao vivo: tela mostra só a linha de entrada, sem candle, por
+    // um instante antes do gráfico real aparecer). `chartDataRef` é a mesma
+    // fonte de verdade usada em toda a atualização de preço ao vivo (linha
+    // ~6091, ~6370) — se ainda não tem candle, ainda não é hora de desenhar
+    // overlay nenhuma; o `fetchData()` já chama esta função de novo assim
+    // que os candles chegam (linha ~6113).
+    if (chartDataRef.current.length === 0) return;
 
     const symbolOrders = orders.filter((o) => o.symbol === symbol);
 
