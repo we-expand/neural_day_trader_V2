@@ -7452,32 +7452,6 @@ export function ChartView({
               }}
             >
 
-            {/* 🐛 FIX 2026-09-02: antes o gráfico ficava mudo (canvas em branco, sem
-                nenhum aviso) enquanto os candles não chegavam ou quando a busca falhava
-                de vez (rate-limit da conta MetaAPI compartilhada) — só o auto-refresh
-                silencioso de 30s podia recuperar, sem o usuário saber se estava
-                travado ou só carregando. Agora sempre mostra o que está acontecendo. */}
-            {candlesLoading && (
-              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 pointer-events-none">
-                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm text-neutral-300">Carregando candles de {selectedSymbol}...</span>
-              </div>
-            )}
-            {!candlesLoading && candlesLoadFailed && (
-              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70">
-                <span className="text-sm text-neutral-300 text-center max-w-xs">
-                  Não foi possível carregar os candles reais de {selectedSymbol} agora
-                  (provável instabilidade temporária na fonte de dados).
-                </span>
-                <button
-                  onClick={() => fetchChartDataRef.current?.()}
-                  className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
-                >
-                  Tentar de novo
-                </button>
-              </div>
-            )}
-
             {/* 📝 INPUT DE TEXTO DA LINHA COM INFORMAÇÕES — abre ao clicar numa infoLine */}
             {infoLineEditor && (
               <div
@@ -7663,6 +7637,36 @@ export function ChartView({
               </>
             )}
             </div>
+
+            {/* 🐛 FIX 2026-09-02: antes o gráfico ficava mudo (canvas em branco, sem
+                nenhum aviso) enquanto os candles não chegavam ou quando a busca falhava
+                de vez (rate-limit da conta MetaAPI compartilhada) — só o auto-refresh
+                silencioso de 30s podia recuperar, sem o usuário saber se estava
+                travado ou só carregando. Precisa ficar FORA da div que a klinecharts
+                controla diretamente (ref={chartContainerRef}) — como filho dela, a
+                klinecharts limpa/reordena o DOM por fora do React e este overlay nunca
+                chegava a aparecer de verdade (mesmo motivo já documentado acima pros
+                chips de indicador). */}
+            {candlesLoading && (
+              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 pointer-events-none">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-neutral-300">Carregando candles de {selectedSymbol}...</span>
+              </div>
+            )}
+            {!candlesLoading && candlesLoadFailed && (
+              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70">
+                <span className="text-sm text-neutral-300 text-center max-w-xs">
+                  Não foi possível carregar os candles reais de {selectedSymbol} agora
+                  (provável instabilidade temporária na fonte de dados).
+                </span>
+                <button
+                  onClick={() => fetchChartDataRef.current?.()}
+                  className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
+                >
+                  Tentar de novo
+                </button>
+              </div>
+            )}
 
             {/* ❌ Removido o box flutuante em HTML que replicava editar/remover por
                 indicador no canto direito do gráfico — duplicava os ícones "⚙"/"✕" que a
