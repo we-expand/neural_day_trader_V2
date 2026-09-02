@@ -109,7 +109,7 @@ export async function checkReasoningConsistency(params: {
         // "Confluencia insuficiente para abrir SHORT aqui" seguido do
         // open_position SHORT de verdade). A trava estava, na pratica,
         // sempre desligada. Elevado pra dar espaco pro raciocinio + JSON.
-        max_tokens: 600,
+        max_tokens: 1500,
         // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
         // deploy): confirmado repetidas vezes (5+) que so PEDIR JSON no
         // prompt nao basta -- o modelo frequentemente responde com texto
@@ -123,10 +123,14 @@ export async function checkReasoningConsistency(params: {
         response_format: { type: "json_object" },
         messages: [{ role: "user", content: buildPrompt(params) }],
       },
-      // 🔴 2026-08-30: timeout curto -- esta validacao secundaria NUNCA pode
-      // travar o ciclo principal de trading por estar instavel (fail-open
-      // sempre, ver catch abaixo).
-      { signal: AbortSignal.timeout(8000) }
+      // 🔴 2026-09-02: subido de 8s pra 25s -- confirmado ao vivo que, apos
+      // o fix de max_tokens/num_ctx do cerebro principal (mesmo dia), o
+      // Qwen3.5 local via Ollama gasta thinking antes do JSON tambem aqui;
+      // com 8s TODA chamada estourava com "Request was aborted", deixando
+      // o validador em fail-open permanente (0% de protecao real). Segue
+      // fail-open em qualquer erro (ver catch abaixo) -- so evita que o
+      // caso comum (sucesso, so lento) vire timeout artificial.
+      { signal: AbortSignal.timeout(25000) }
     );
 
     const raw = response.choices?.[0]?.message?.content?.trim() ?? "";
