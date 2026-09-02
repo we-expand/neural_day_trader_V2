@@ -4,7 +4,7 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, type UserTradingConfig } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
@@ -1520,6 +1520,36 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const tradeId = String(input.trade_id || "");
       const reasoning = String(input.reasoning || "");
       if (!tradeId) return { error: "trade_id invalido." };
+      // 🔴 2026-09-02 (achado ao vivo, 2a ocorrencia confirmada: exit_price
+      // ja alem do stop_loss registrado no fechamento manual, mesmo padrao
+      // do achado de 02/09 tarde/noite com XETUSD) -- enforceMt5StopsAndTargets
+      // so roda uma vez no INICIO de cada ciclo, mas o ciclo inteiro (varias
+      // chamadas de LLM local via Ollama, cada uma podendo levar dezenas de
+      // segundos) pode durar bem mais que isso ate chegar aqui. Resultado:
+      // o preco real ja tinha furado o stop antes do fechamento manual
+      // avaliar/executar, e a saida discricionaria (AI_SIGNAL) executava na
+      // cotacao JA PIOR que o stop, em vez do stop mecanico pegar a tempo.
+      // Re-rodar a mesma checagem (idempotente -- so fecha o que realmente
+      // ja bateu SL/TP com cotacao fresca) bem aqui, ANTES de avaliar o
+      // fechamento discricionario, fecha a posicao pelo canal mecanico
+      // correto (exit_reason='SL'/'TP', ja na mesma cotacao que seria usada
+      // de qualquer jeito) assim que ela e detectada, em vez de esperar o
+      // proximo ciclo -- reduz a janela de slippage, nao elimina.
+      try {
+        const preCheck = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
+        const mechanicalClose = preCheck.closed.find((c) => c.tradeId === tradeId);
+        if (mechanicalClose) {
+          return {
+            closed: true,
+            mechanical: true,
+            reason: mechanicalClose.reason,
+            exit_price: mechanicalClose.exitPrice,
+            note: `Posicao ja fechada mecanicamente (${mechanicalClose.reason}) ao rechecar stop/alvo com cotacao fresca antes do fechamento manual -- nao ha mais nada pra fechar aqui.`,
+          };
+        }
+      } catch (err) {
+        console.warn("[tools/close_position] falha ao rechecar stop/alvo mecanico, seguindo com fechamento manual:", err instanceof Error ? err.message : err);
+      }
       let positions;
       try {
         positions = await listMt5OpenPositions(session.sessionId);
