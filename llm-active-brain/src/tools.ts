@@ -389,8 +389,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `correlacionado (ex: as 10 criptos entre si, ou os 4 indices globais entre si) tem exposicao combinada do MESMO lado ` +
         `com teto proprio (nao e so por simbolo, ver get_mt5_quote/log de erro pra saber o grupo de um simbolo especifico). ` +
         `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
-        `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal (ver "volume") tambem e bloqueado -- ` +
-        `contrarian trade e permitido, mas so com confirmacao real de participacao, nao no vacuo. ` +
+        `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal E SEM Estocastico em ` +
+        `extremo (SOBRECOMPRADO pra SHORT, SOBREVENDIDO pra LONG, ver "stochastic") tambem e bloqueado -- ` +
+        `contrarian trade e permitido, mas so com confirmacao real (volume de participacao OU exaustao real de curto prazo), nao no vacuo. ` +
         `Tambem e bloqueado abrir com cotacao OBSOLETA (ultimo tick real da corretora com mais de 120s -- mercado fechado/feed parado) ` +
         `ou com spread bid/ask acima de ${SPREAD_BLOCK_PCT}% (custo de entrada real alto demais; a cesta tipica fica entre 0,02% e 1,5%).`,
       parameters: {
@@ -1139,13 +1140,28 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
+        getSlowStochastic(symbol, openPositionTimeframe),
       ]);
       if (trend && trend.label !== "LATERAL" && volume) {
         const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
+        // 🔴 2026-09-02 (pedido do Cleber): Estocastico em extremo real
+        // (SOBRECOMPRADO/SOBREVENDIDO) e sinal genuino de exaustao de curto
+        // prazo -- antes o gate abaixo so aceitava volume elevado como
+        // confirmacao pra contrarian trade, ignorando esse sinal por
+        // completo (achado ao vivo: BTCUSD/XETUSD/GER40 com Estocastico
+        // 91-96, tendencia de ALTA, volume normal -- SHORT de reversao
+        // ficaria bloqueado mesmo com exaustao real e clara). Agora conta
+        // como confirmacao alternativa, ao lado do volume -- ainda exige
+        // ALGUMA confirmacao real (nao remove a trava, so reconhece outro
+        // sinal legitimo de reversao).
+        const stochasticExtremeConfirmsReversal =
+          stochasticForReversalCheck != null &&
+          ((side === "SHORT" && stochasticForReversalCheck.label === "SOBRECOMPRADO") ||
+            (side === "LONG" && stochasticForReversalCheck.label === "SOBREVENDIDO"));
         // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
         // Operacao"): quando o usuario NAO escolheu nada (marketMode=null),
         // mantem o guard existente (bloqueia contra-tendencia só sem volume
@@ -1171,12 +1187,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
               `bloqueado enquanto essa preferencia estiver ativa (busca reversao em suporte/resistencia). Opere contra a tendencia ou avalie outro ativo.`,
           };
         }
-        if (marketMode == null && counterTrend && !volume.elevated) {
+        if (marketMode == null && counterTrend && !volume.elevated && !stochasticExtremeConfirmsReversal) {
           return {
             error:
-              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) ` +
-              `e o volume recente NAO esta acima do normal (razao ${volume.ratio}x) -- ${side} aqui seria ir contra o movimento sem confirmacao real de forca por tras dele. ` +
-              `Posicao NAO aberta. Espere volume elevado confirmando reversao, opere a favor da tendencia, ou avalie outro ativo.`,
+              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%), ` +
+              `o volume recente NAO esta acima do normal (razao ${volume.ratio}x) e o Estocastico ${stochasticForReversalCheck ? `NAO esta em extremo (${stochasticForReversalCheck.label})` : "nao esta disponivel"} -- ` +
+              `${side} aqui seria ir contra o movimento sem nenhuma confirmacao real de reversao. ` +
+              `Posicao NAO aberta. Espere volume elevado OU Estocastico em extremo real confirmando exaustao, opere a favor da tendencia, ou avalie outro ativo.`,
           };
         }
       }

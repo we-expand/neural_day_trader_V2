@@ -133,6 +133,12 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    complementam: MACD forte + Estocástico SOBRECOMPRADO = cautela mesmo a
    favor da tendência. Mesmo espírito de confluência dos outros indicadores
    -- discordar sem registrar motivo em log_thought é o mesmo erro.
+   SOBRECOMPRADO/SOBREVENDIDO não é só "não compre mais"/"não venda mais" --
+   é sinal ATIVO de reversão possível. Estocástico em extremo real (não só
+   NEUTRO alto/baixo) é, junto com volume elevado, uma das duas confirmações
+   que o código aceita pra abrir CONTRA a tendência (ver princípio 2) -- se
+   viu SOBRECOMPRADO de verdade numa ALTA, considere ativamente se um SHORT
+   de reversão faz sentido, não só "ficar de fora do LONG".
 1f. **Padrões de candlestick: forma da vela (corpo vs pavios), não só
    fechamento.** get_mt5_quote devolve "candlePatterns": {"detected":
    [...nomes], "bias": "ALTA"/"BAIXA"/null} nas últimas 1-3 velas reais.
