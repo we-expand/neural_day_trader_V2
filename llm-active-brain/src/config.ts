@@ -409,7 +409,24 @@ export const config = {
   // uma na lista fixa -- ela nunca cobre todas as formas possiveis do
   // modelo se contradizer em linguagem natural. Ver reasoningValidator.ts.
   // Desligavel sem custo nenhum (nao chama API nenhuma quando false).
-  mt5ReasoningValidatorEnabled: (process.env.MT5_REASONING_VALIDATOR_ENABLED ?? "true") === "true",
+  //
+  // 🔴 2026-09-02 (achado ao vivo, medido diretamente contra o servidor):
+  // com provedor "ollama" o llama-server roda com `-np 1` (1 slot, sem
+  // paralelismo real) e é o MESMO processo/modelo do ciclo principal --
+  // uma chamada de teste isolada do validador (prompt bem menor que o real)
+  // levou **73 segundos** pra responder. Mesmo com o timeout subido de 8s
+  // pra 25s mais cedo hoje, a chamada real (concorrendo pelo unico slot com
+  // o ciclo principal) continuou batendo "Request was aborted" em 100% dos
+  // casos -- ou seja, o validador nunca chega a rodar de verdade nesta
+  // configuracao, so adiciona ~25s de espera morta a cada open/close antes
+  // de cair no fail-open de sempre. Desligado por default quando o modelo
+  // do validador é o mesmo do cerebro principal (o caso comum hoje, ollama
+  // local) -- a trava por palavra-chave (NEGATION_CUES/REVERSAL_CUES em
+  // tools.ts, sincrona, sem custo de rede) continua ativa de qualquer jeito.
+  // Ligar de novo (`MT5_REASONING_VALIDATOR_ENABLED=true`) só faz sentido
+  // com um modelo de validacao DIFERENTE e mais rapido (outro provedor via
+  // MT5_REASONING_VALIDATOR_MODEL, nao o mesmo Ollama sobrecarregado).
+  mt5ReasoningValidatorEnabled: (process.env.MT5_REASONING_VALIDATOR_ENABLED ?? String(llmProvider !== "ollama")) === "true",
   // 🔴 2026-08-30: nao existe hoje, em nenhum provedor ja configurado neste
   // projeto (ver LLM_PROVIDER_DEFAULTS acima), um modelo obviamente mais
   // barato/rapido que o principal disponivel pronto pra uso -- default cai

@@ -123,14 +123,15 @@ export async function checkReasoningConsistency(params: {
         response_format: { type: "json_object" },
         messages: [{ role: "user", content: buildPrompt(params) }],
       },
-      // 🔴 2026-09-02: subido de 8s pra 25s -- confirmado ao vivo que, apos
-      // o fix de max_tokens/num_ctx do cerebro principal (mesmo dia), o
-      // Qwen3.5 local via Ollama gasta thinking antes do JSON tambem aqui;
-      // com 8s TODA chamada estourava com "Request was aborted", deixando
-      // o validador em fail-open permanente (0% de protecao real). Segue
-      // fail-open em qualquer erro (ver catch abaixo) -- so evita que o
-      // caso comum (sucesso, so lento) vire timeout artificial.
-      { signal: AbortSignal.timeout(25000) }
+      // 🔴 2026-09-02: subido de 8s pra 20s. Medido ao vivo que o Ollama
+      // local (mesmo modelo do ciclo principal, `-np 1` sem paralelismo)
+      // pode levar 70s+ pra responder um prompt bem menor que este -- por
+      // isso esta validacao agora vem DESLIGADA por default nessa config
+      // (ver mt5ReasoningValidatorEnabled em config.ts), e so roda de
+      // verdade quando um provedor/modelo mais rapido e configurado
+      // explicitamente pra ela. 20s e uma folga razoavel pra esse caso, nao
+      // uma promessa de que o Ollama local vai responder a tempo.
+      { signal: AbortSignal.timeout(20000) }
     );
 
     const raw = response.choices?.[0]?.message?.content?.trim() ?? "";
