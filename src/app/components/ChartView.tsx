@@ -1465,6 +1465,27 @@ export function ChartView({
   useEffect(() => {
     currentPriceRef.current = currentPrice;
   }, [currentPrice]);
+  // 🐛 FIX 2026-09-02 (achado do Cleber: "linhas de posição às vezes aparecem
+  // às vezes não", confirmado com print mostrando UKOUSD com posição real
+  // aberta e sem nenhuma linha nem alerta na tela): o `fetchData`/setInterval
+  // de refresh de dados (mais abaixo, dependências `[timeframe,
+  // selectedSymbol]`) fecha sobre `activeOrders`/`pendingOrders` do render em
+  // que foi criado e nunca é recriado quando essas mudam — só quando
+  // timeframe/símbolo trocam. A cada tick desse interval,
+  // `renderPositionOverlays` era chamado com esse `activeOrders` CONGELADO
+  // (podia ser `[]` de antes de qualquer posição existir), apagando as linhas
+  // desenhadas certas pelo outro efeito (reativo de verdade, mais abaixo) —
+  // dependendo de qual dos dois rodou por último, a linha aparecia ou sumia.
+  // Refs sempre atualizadas resolvem: o fetch periódico lê o valor real mais
+  // recente em vez do congelado no fechamento.
+  const activeOrdersRef = useRef<TradeVisual[]>(activeOrders);
+  useEffect(() => {
+    activeOrdersRef.current = activeOrders;
+  }, [activeOrders]);
+  const pendingOrdersRef = useRef<PendingOrderVisual[]>(pendingOrders);
+  useEffect(() => {
+    pendingOrdersRef.current = pendingOrders;
+  }, [pendingOrders]);
   const [displayedPrice, setDisplayedPrice] = useState<number | null>(null); // Preço exibido (throttled para UI)
   // 🆕 Watchdog de preço "desatualizado" -- ver comentário completo no callback de
   // subscribeToSymbol mais abaixo. Sem isso, uma falha silenciosa no pipeline de preço
@@ -5932,7 +5953,18 @@ export function ChartView({
               // sessão é justamente "como o gráfico estava segundos atrás", então o
               // viewport faz parte dele (diferente do setup favorito logo abaixo, que
               // é preferência genérica e continua sem posição fixa).
-              applyChartTemplateConfig(chart, sessionState);
+              //
+              // 🐛 FIX 2026-09-02 (achado do Cleber: gráfico abre mostrando candles de
+              // dias atrás em vez do preço atual, toda vez que entra na página ou troca
+              // de seção e volta): `anchorTimestamp`/`anchorX` guardam a posição EXATA
+              // de scroll de quando o usuário parou de olhar — se em algum momento ele
+              // rolou pro passado (pra olhar um padrão) e não voltou pro tempo real
+              // antes de trocar de seção, essa posição no passado ficava presa pra
+              // sempre, reaplicada em toda montagem futura. Decisão do Cleber: o
+              // gráfico deve sempre abrir no preço atual por padrão — indicadores/
+              // timeframe/zoom (barSpace) continuam sendo restaurados, só a âncora de
+              // scroll não.
+              applyChartTemplateConfig(chart, { ...sessionState, anchorTimestamp: null, anchorX: null });
               console.log('[ChartView] 🔄 Estado de sessão restaurado:', sessionState.indicatorIds, 'barSpace:', sessionState.barSpace);
             } catch (error) {
               console.error('[ChartView] ❌ Erro restaurando estado de sessão:', error);
@@ -5948,7 +5980,7 @@ export function ChartView({
               // Setup favorito não guarda barSpace/offsetRightDistance (é "como eu gosto
               // de ver qualquer gráfico", não uma posição fixa) — undefined preserva o
               // scroll automático já feito acima (scrollToRealTime).
-              applyChartTemplateConfig(chart, { ...favoriteSetup, barSpace: null, offsetRightDistance: null });
+              applyChartTemplateConfig(chart, { ...favoriteSetup, barSpace: null, offsetRightDistance: null, anchorTimestamp: null, anchorX: null });
               console.log('[ChartView] ⭐ Setup favorito aplicado:', favoriteSetup.indicatorIds);
             } catch (error) {
               console.error('[ChartView] ❌ Erro aplicando setup favorito:', error);
@@ -5963,7 +5995,9 @@ export function ChartView({
             const templateToApply = pendingTemplateApplyRef.current;
             pendingTemplateApplyRef.current = null;
             try {
-              applyChartTemplateConfig(chart, templateToApply);
+              // 🐛 FIX 2026-09-02: mesma decisão do estado de sessão acima — nunca
+              // restaura a âncora de scroll salva no template, só indicadores/zoom.
+              applyChartTemplateConfig(chart, { ...templateToApply, anchorTimestamp: null, anchorX: null });
               console.log('[ChartView] 📐 Template pendente aplicado após troca de timeframe');
             } catch (error) {
               console.error('[ChartView] ❌ Erro aplicando template pendente:', error);
@@ -6060,7 +6094,10 @@ export function ChartView({
           // linha sumir do gráfico até a próxima mudança em activeOrders. O
           // S/R acima já não tinha esse problema por já redesenhar aqui —
           // mesma correção, mesmo ponto (chart pronto, dados já aplicados).
-          renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+          // 🐛 2026-09-02: usa os refs (sempre atualizados), não o
+          // `activeOrders`/`pendingOrders` fechados no momento em que este
+          // fetchData foi criado (ver comentário grande em activeOrdersRef).
+          renderPositionOverlays(activeOrdersRef.current, selectedSymbol, pendingOrdersRef.current);
 
           // 🆕 Busca a estrutura de longo prazo (SMC, 1D/~5 anos) em paralelo e, quando
           // chegar, re-desenha o S/R combinando com a janela curta acima — sem isso as
@@ -8148,7 +8185,9 @@ export function ChartView({
                             setTimeframe(template.config.timeframe as Timeframe);
                           } else {
                             clearAllChartIndicators(chart);
-                            applyChartTemplateConfig(chart, template.config);
+                            // 🐛 FIX 2026-09-02: template carregado nunca restaura a âncora de
+                            // scroll salva — só indicadores/zoom. Gráfico sempre abre no preço atual.
+                            applyChartTemplateConfig(chart, { ...template.config, anchorTimestamp: null, anchorX: null });
                           }
                           setContextMenu(null);
                           toast.success(`Template "${template.name}" carregado`);
