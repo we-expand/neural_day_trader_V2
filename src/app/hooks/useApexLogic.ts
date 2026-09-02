@@ -902,16 +902,16 @@ export function useApexLogic(
             id: t.id!,
             symbol: t.symbol,
             side: t.side,
-            amount: t.quantity,
-            price: t.entry_price,
-            currentPrice: t.exit_price ?? t.entry_price,
-            currentProfit: t.net_pnl ?? t.pnl ?? 0,
+            amount: Number(t.quantity),
+            price: Number(t.entry_price),
+            currentPrice: Number(t.exit_price ?? t.entry_price),
+            currentProfit: Number(t.net_pnl ?? t.pnl ?? 0),
             closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
-            tp: t.take_profit ?? t.entry_price,
-            sl: t.stop_loss ?? t.entry_price,
-            originalSl: t.stop_loss ?? t.entry_price,
+            tp: Number(t.take_profit ?? t.entry_price),
+            sl: Number(t.stop_loss ?? t.entry_price),
+            originalSl: Number(t.stop_loss ?? t.entry_price),
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
-            ai_confidence: t.ai_confidence ?? 50,
+            ai_confidence: Number(t.ai_confidence ?? 50),
             timestamp: new Date(t.entry_time).getTime(),
             reasoning: t.ai_reasoning || '',
             indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
@@ -1049,14 +1049,14 @@ export function useApexLogic(
             id: t.id!, // id do banco vira o id local (onTradeClose cai no fallback e usa o mesmo id)
             symbol: t.symbol,
             side: t.side,
-            amount: t.quantity,
-            price: t.entry_price,
-            currentPrice: t.entry_price,
-            tp: t.take_profit ?? t.entry_price,
-            sl: t.stop_loss ?? t.entry_price,
-            originalSl: t.stop_loss ?? t.entry_price,
+            amount: Number(t.quantity),
+            price: Number(t.entry_price),
+            currentPrice: Number(t.entry_price),
+            tp: Number(t.take_profit ?? t.entry_price),
+            sl: Number(t.stop_loss ?? t.entry_price),
+            originalSl: Number(t.stop_loss ?? t.entry_price),
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
-            ai_confidence: t.ai_confidence ?? 50,
+            ai_confidence: Number(t.ai_confidence ?? 50),
             timestamp: new Date(t.entry_time).getTime(),
             reasoning: t.ai_reasoning || '',
             indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
@@ -1202,8 +1202,8 @@ export function useApexLogic(
             const newlyClosed = closed.filter(t => !existingIds.has(t.id!));
             if (newlyClosed.length === 0) return prev;
             for (const t of newlyClosed) {
-              const pnl = t.net_pnl ?? t.pnl ?? 0;
-              addLogRef.current(`${pnl >= 0 ? '✅' : '🛑'} SAÍDA ${t.side}: ${t.symbol} @ $${(t.exit_price ?? t.entry_price).toFixed(2)} — ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (fechada pelo servidor)`);
+              const pnl = Number(t.net_pnl ?? t.pnl ?? 0);
+              addLogRef.current(`${pnl >= 0 ? '✅' : '🛑'} SAÍDA ${t.side}: ${t.symbol} @ $${Number(t.exit_price ?? t.entry_price).toFixed(2)} — ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (fechada pelo servidor)`);
             }
             return [
               ...prev,
@@ -1211,16 +1211,16 @@ export function useApexLogic(
                 id: t.id!,
                 symbol: t.symbol,
                 side: t.side,
-                amount: t.quantity,
-                price: t.entry_price,
-                currentPrice: t.exit_price ?? t.entry_price,
-                currentProfit: t.net_pnl ?? t.pnl ?? 0,
+                amount: Number(t.quantity),
+                price: Number(t.entry_price),
+                currentPrice: Number(t.exit_price ?? t.entry_price),
+                currentProfit: Number(t.net_pnl ?? t.pnl ?? 0),
                 closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
-                tp: t.take_profit ?? t.entry_price,
-                sl: t.stop_loss ?? t.entry_price,
-                originalSl: t.stop_loss ?? t.entry_price,
+                tp: Number(t.take_profit ?? t.entry_price),
+                sl: Number(t.stop_loss ?? t.entry_price),
+                originalSl: Number(t.stop_loss ?? t.entry_price),
                 leverage: 1.5,
-                ai_confidence: t.ai_confidence ?? 50,
+                ai_confidence: Number(t.ai_confidence ?? 50),
                 timestamp: new Date(t.entry_time).getTime(),
                 reasoning: t.ai_reasoning || '',
                 indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
@@ -1236,24 +1236,37 @@ export function useApexLogic(
           const prevById = new Map(prev.map(o => [o.id, o]));
           for (const t of open) {
             if (!prevById.has(t.id!)) {
-              addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${t.entry_price.toFixed(2)} (aberta pelo servidor)`);
+              addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${Number(t.entry_price).toFixed(2)} (aberta pelo servidor)`);
             }
           }
           const next = open.map((t): TradeVisual => {
             const existing = prevById.get(t.id!);
+            // 🔴 FIX 2026-09-01 (achado do Cleber: linha de entrada/SL/TP nunca
+            // aparecia no gráfico pra posição real nenhuma): `entry_price`/
+            // `stop_loss`/`take_profit`/`quantity` são colunas `numeric` no
+            // Postgres — o supabase-js devolve `numeric` como STRING (preserva
+            // precisão), não como number. `order.price.toFixed()` em
+            // ChartView.tsx (renderPositionOverlays) quebrava silenciosamente
+            // nessa string (TypeError, capturado pelo try/catch mudo do
+            // desenho) — a linha nunca era criada, pra nenhum ativo, sempre que
+            // a posição vinha do servidor (LLM Brain). Trades abertos pela
+            // boleta manual do cliente nunca tiveram esse bug, por já nascerem
+            // com number literal. `Number()` aqui na origem cobre todo mundo
+            // que consome `TradeVisual` depois.
+            const stopLossNum = Number(t.stop_loss ?? t.entry_price);
             return {
               id: t.id!,
               symbol: t.symbol,
               side: t.side,
-              amount: t.quantity,
-              price: t.entry_price,
-              currentPrice: existing?.currentPrice ?? t.entry_price,
+              amount: Number(t.quantity),
+              price: Number(t.entry_price),
+              currentPrice: existing?.currentPrice ?? Number(t.entry_price),
               currentProfit: existing?.currentProfit,
-              tp: t.take_profit ?? t.entry_price,
-              sl: t.stop_loss ?? t.entry_price,
-              originalSl: existing?.originalSl ?? t.stop_loss ?? t.entry_price,
+              tp: Number(t.take_profit ?? t.entry_price),
+              sl: stopLossNum,
+              originalSl: existing?.originalSl ?? stopLossNum,
               leverage: 1.5,
-              ai_confidence: t.ai_confidence ?? 50,
+              ai_confidence: Number(t.ai_confidence ?? 50),
               timestamp: new Date(t.entry_time).getTime(),
               reasoning: t.ai_reasoning || '',
               indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
@@ -1267,7 +1280,7 @@ export function useApexLogic(
               // do servidor — subconta se o servidor mover o stop mais de uma
               // vez entre dois polls (POLL_MS), mas nunca fabrica um movimento
               // que não aconteceu, ao contrário do cálculo local antigo.
-              trailMoves: existing && t.stop_loss != null && existing.sl !== t.stop_loss
+              trailMoves: existing && t.stop_loss != null && existing.sl !== stopLossNum
                 ? (existing.trailMoves || 0) + 1
                 : (existing?.trailMoves || 0),
             };
