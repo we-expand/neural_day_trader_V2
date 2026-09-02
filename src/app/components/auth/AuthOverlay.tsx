@@ -11,8 +11,11 @@ import {
   Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { startAuthentication } from '@simplewebauthn/browser';
 import { supabase } from '../../../lib/supabaseClient';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+
+const WEBAUTHN_FUNCTIONS_BASE = `https://${projectId}.supabase.co/functions/v1/webauthn`;
 
 interface AuthOverlayProps {
   onAuthenticated: (user: any) => void;
@@ -43,6 +46,12 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
 
   // Latência real do servidor de auth (medida, não decorativa — ver measurePing abaixo)
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+
+  // Login por biometria (Passkey/WebAuthn)
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricSupported] = useState(
+    () => typeof window !== 'undefined' && !!window.PublicKeyCredential
+  );
 
   // --- Logic Helpers ---
 
@@ -132,6 +141,62 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
           });
           return false;
       }
+  };
+
+  // Login por biometria (Passkey/WebAuthn real — Face ID/Touch ID/Windows
+  // Hello do próprio dispositivo). A chave privada nunca sai do
+  // dispositivo; o servidor só verifica a assinatura contra a chave
+  // pública já cadastrada. Sem senha nenhuma nesse caminho.
+  const handleBiometricLogin = async () => {
+    if (!email) return;
+    setBiometricLoading(true);
+    setHasError(false);
+    setErrorMessage("");
+    try {
+      const optionsRes = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/authenticate-options`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email }),
+      });
+      const optionsBody = await optionsRes.json();
+      if (!optionsRes.ok) throw new Error(optionsBody?.error || 'Falha ao iniciar login biométrico');
+
+      const assertion = await startAuthentication(optionsBody.options);
+
+      const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/authenticate-verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email, response: assertion }),
+      });
+      const verifyBody = await verifyRes.json();
+      if (!verifyRes.ok || !verifyBody?.token_hash) {
+        throw new Error(verifyBody?.error || 'Biometria não reconhecida');
+      }
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: verifyBody.token_hash,
+        type: 'magiclink',
+      });
+
+      if (error || !data.session) {
+        throw new Error(error?.message || 'Falha ao criar sessão após verificação biométrica');
+      }
+
+      toast.success("Autenticado!", { description: "Entrando na plataforma..." });
+      setTimeout(() => {
+        onAuthenticated({ email, name: data.user?.user_metadata?.name || 'Trader' });
+      }, 300);
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        toast.error("Biometria cancelada", { description: "Nenhuma passkey foi confirmada." });
+      } else {
+        setHasError(true);
+        setErrorMessage("Biometria Falhou");
+        toast.error("Não foi possível entrar com biometria", { description: err?.message || 'Tente novamente ou use a senha.' });
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
   };
 
   // Force Activation via Backend
@@ -447,12 +512,28 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                              </button>
                         </div>
                         
+                        {!isSignUp && biometricSupported && (
+                            <button
+                                type="button"
+                                onClick={handleBiometricLogin}
+                                disabled={!email || biometricLoading}
+                                className="mt-6 w-full flex items-center justify-center gap-2 border border-slate-800 hover:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 hover:text-white text-sm rounded-lg py-3 transition-colors"
+                            >
+                                {biometricLoading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <span className="text-lg leading-none">👆</span>
+                                )}
+                                Entrar com biometria
+                            </button>
+                        )}
+
                         <div className="mt-8 text-center flex flex-col gap-4">
-                            <button 
+                            <button
                                 onClick={() => { setIsSignUp(!isSignUp); setHasError(false); setShowSignUpHint(false); setErrorMessage(""); }}
                                 className={`text-xs uppercase tracking-widest transition-all duration-300 ${
-                                    showSignUpHint 
-                                    ? 'text-blue-400 font-bold scale-110 animate-pulse' 
+                                    showSignUpHint
+                                    ? 'text-blue-400 font-bold scale-110 animate-pulse'
                                     : 'text-slate-500 hover:text-blue-400'
                                 }`}
                             >

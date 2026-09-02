@@ -32,6 +32,7 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { supabase } from '@/lib/supabaseClient';
 import { VoiceSettings } from '@/app/components/settings/VoiceSettings';
 import { BrokerConnections } from '@/app/components/settings/BrokerConnections';
+import { PasskeySettings } from '@/app/components/settings/PasskeySettings';
 import { AssetHealthMonitor } from '@/app/components/system/AssetHealthMonitor';
 import { MassAssetDiagnostics } from '@/app/components/system/MassAssetDiagnostics';
 import { DataSourceHealthDashboard } from '@/app/components/system/DataSourceHealthDashboard';
@@ -410,6 +411,9 @@ export function Settings() {
                   </label>
                 </div>
               </div>
+
+              {/* Login por Biometria (Passkey/WebAuthn) */}
+              <PasskeySettings />
 
               {/* Idioma & Região */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-lg">
