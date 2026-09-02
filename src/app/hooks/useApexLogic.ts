@@ -1152,8 +1152,24 @@ export function useApexLogic(
   // (agora 30s, só rede de segurança) caso a subscription caia e não
   // reconecte. Requer `ai_trades` na publication `supabase_realtime` —
   // ver supabase/migrations/20260820_add_ai_trades_to_realtime.sql.
+  // 🔴 FIX 2026-09-02 (achado do Cleber: posição BTCUSD real, aberta pelo
+  // servidor com a sessão em STOPPED — "Desligar IA" continua só
+  // monitorando/gerenciando posições, nunca as fecha à força — nunca
+  // apareceu no Dashboard): este efeito inteiro (poll + Realtime) dependia
+  // de `isActive`, o toggle LOCAL do navegador ("IA ligada" na tela), que o
+  // mount seta pra `false` sempre que a sessão está STOPPED (linha ~1038).
+  // Com a sessão STOPPED, o servidor seguiu decidindo e abriu a posição
+  // normalmente (o guard de `open_position` só bloqueia isso quando o
+  // AGENTE lê `status==='STOPPED'`, ciclo a ciclo — não trava
+  // instantaneamente no exato timestamp do stop), mas o cliente nunca mais
+  // sincronizou nada depois do mount porque este bloco simplesmente não
+  // rodava. A hidratação de mount só pega o que já existia no load; o resto
+  // fica invisível até um reload completo. Isto é dado read-only (nenhuma
+  // decisão de trade é tomada aqui), então não há razão pra depender do
+  // toggle local — só precisa haver uma sessão real (RUNNING ou STOPPED,
+  // ambas cobertas por getActiveSession/persistenceRef.getSessionId()).
   useEffect(() => {
-    if (!isActive || executionMode !== 'DEMO') return;
+    if (executionMode !== 'DEMO') return;
 
     const POLL_MS = 30_000;
     let cancelled = false;
@@ -1367,7 +1383,7 @@ export function useApexLogic(
       clearInterval(interval);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [isActive, executionMode]);
+  }, [executionMode]);
 
   // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
   // (KV store, ver /server/risk-config) sempre que o usuário logado mudar
