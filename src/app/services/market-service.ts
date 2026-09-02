@@ -282,6 +282,34 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
       volume: c.volume || 0,
     }));
 
+    // 🐛 FIX (bug real: "candles desconjuntados do preço atual"): quando a
+    // busca AO VIVO no /mt5-candles-history falha (conta MetaAPI
+    // compartilhada saturada, ver CLAUDE.md "Risco crônico conhecido"), o
+    // backend cai pro fail-open documentado e devolve só o CACHE
+    // (`ohlcv_data`) com `success: true` — sem sinalizar que aquilo é
+    // histórico velho. O cliente então desenhava esses candles antigos como
+    // se fossem o histórico atual, enquanto a linha de "último preço"
+    // (nativa da klinecharts, calculada a partir do MESMO último candle)
+    // ficava presa num valor/posição de semanas atrás — visualmente
+    // "flutuando" longe de onde os candles real deveriam estar, e sem
+    // nenhuma barra desenhada entre o cache antigo e agora. Em vez de
+    // exibir dado velho como se fosse atual (mesma disciplina de "nunca
+    // fabricar dado" do projeto), trata como falha explícita quando o
+    // último candle está mais velho que o admissível pro timeframe.
+    const lastCandle = candles[candles.length - 1];
+    const staleThresholdMs = (msPerCandle[mt5Timeframe] || 3_600_000) * 3;
+    const candleAgeMs = Date.now() - lastCandle.timestamp;
+    if (candleAgeMs > staleThresholdMs) {
+      console.warn(
+        `[MarketService] ⚠️ Candles de ${mt5Symbol}/${mt5Timeframe} desatualizados ` +
+        `(último candle de ${new Date(lastCandle.timestamp).toISOString()}, ` +
+        `${Math.round(candleAgeMs / 60_000)}min atrás) — provável fail-open do cache ` +
+        `no /mt5-candles-history (busca ao vivo falhou). Tratando como sem dado real ` +
+        `em vez de exibir histórico velho desconectado do preço atual.`
+      );
+      return [];
+    }
+
     console.log(`[MarketService] ✅ Got ${candles.length} METAAPI candles REAIS para ${symbol}`);
 
     return candles;
