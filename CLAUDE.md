@@ -15,6 +15,33 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-02] LLM Brain: trailing/breakeven soltados (saíam
+com centavos antes do alvo) + alvo por ATR agora capado por suporte/
+resistência real (todos os ativos) + achado grave não corrigido: Dashboard
+não reflete saldo real de sessão headless.** Cleber reportou sessão desde
+01/09 empatando ("o que ganha acaba perdendo", captura pouco por trade).
+Achado real via SQL direto (15 trades, sessão `1d73c50a...`): +$11,99
+líquido, 80% de acerto aparente, mas só 1/15 bateu o alvo de verdade — o
+resto era trailing (0,25R breakeven / 0,8x ATR) protegendo lucro cedo
+demais. Soltado pra 0,5R/1,6x ATR (`.env`, sem validação estatística
+ainda). Achado mais importante, veio de observação correta do Cleber: o
+alvo por ATR (4x ATR) é cego à estrutura real do preço — o EURUSD aberto
+pedia 0,71% de movimento com a resistência real a só 0,08% de distância.
+Corrigido em `open_position` (`llm-active-brain/tools.ts`/`config.ts`):
+alvo agora capado pelo suporte/resistência real (candle oficial) na
+direção do trade, pra toda a cesta — encolhe o alvo quando o nível está
+mais perto, recusa a entrada se nem isso cobrir R:R 1:1. `tsc --noEmit`
+limpo, já commitado. **Achado colateral grave, NÃO corrigido**: Dashboard
+mostrando saldo travado em $100 não era reset — `ai_portfolio_snapshots`
+só é gravado pelo NAVEGADOR (`useApexLogic.ts`), nunca pelo motor headless
+(`neuralBridge.ts`); sessão sem aba aberta nunca grava snapshot, Dashboard
+fica preso no valor inicial hardcoded. Pendente: motor gravar snapshot
+próprio, ou Dashboard cair pra fallback calculando direto de `ai_trades`.
+Também pendente: aumentar captura por trade via TAMANHO de posição
+(contratos/risco%), alavanca diferente do alvo — número fica pro Cleber
+decidir. Handoff completo:
+[SESSAO_2026-09-02_TRAILING_APERTADO_SALDO_TRAVADO_E_ALVO_CAPADO_POR_SR.md](SESSAO_2026-09-02_TRAILING_APERTADO_SALDO_TRAVADO_E_ALVO_CAPADO_POR_SR.md).
+
 **[RESOLVIDO 2026-09-02] Gráfico ficava em branco (sem candles, sem
 nenhum aviso) ao clicar numa posição aberta no Dashboard e entrar no
 Gráfico — commit pronto, não aplicado ainda.** Cleber reportou tela
