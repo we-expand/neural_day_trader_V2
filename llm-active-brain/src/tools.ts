@@ -1535,18 +1535,31 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const favorableMove = -adverseMove;
         const stopConsumedPct = stopDistance > 0 ? adverseMove / stopDistance : 0;
         const targetConsumedPct = targetDistance > 0 ? favorableMove / targetDistance : 0;
+        // 🔴 2026-09-02 (pedido do Cleber): excecao a regra dos >=50% do
+        // caminho acima -- se a posicao ja estiver em lucro REAL, alem do
+        // custo do proprio spread (nao so "positiva na tela" por um tick
+        // dentro do spread), o fechamento manual e permitido mesmo antes do
+        // alvo. Diferente do caso que gerou a regra original (fechamento
+        // NERVOSO perto do zero a zero, sem lucro nenhum capturado) -- aqui
+        // ja existe ganho real na mao, travar isso so pra forcar esperar o
+        // alvo mecanico e risco sem contrapartida quando a tese enfraquece
+        // no meio do caminho.
+        const spreadAbs = Math.abs(quote.ask - quote.bid);
+        const clearsSpread = favorableMove > spreadAbs;
         if (
           stopConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
-          targetConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE
+          targetConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
+          !clearsSpread
         ) {
           return {
             error:
               `Fechamento manual de ${position.symbol} recusado: a posicao mal se moveu (${(stopConsumedPct * 100).toFixed(0)}% do caminho ate ` +
-              `o stop, ${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo). Fechar aqui e reagir a ruido normal de mercado ou a um ` +
-              `sinal ambiguo, nao a invalidacao real da tese -- confirmado ao vivo 2x hoje (posicoes fechadas perto do zero a zero cujo preco ` +
-              `voltou a favor logo depois). Posicao NAO fechada. So aceita fechamento manual quando a posicao ja percorreu pelo menos ` +
-              `${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% do caminho ate o stop (tese realmente enfraquecendo) ou ate o alvo ` +
-              `(lucro real ja capturado) -- antes disso, deixe o stop/alvo mecanico decidir.`,
+              `o stop, ${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo) e o lucro flutuante ainda nao supera o custo do spread. ` +
+              `Fechar aqui e reagir a ruido normal de mercado ou a um sinal ambiguo, nao a invalidacao real da tese -- confirmado ao vivo 2x hoje ` +
+              `(posicoes fechadas perto do zero a zero cujo preco voltou a favor logo depois). Posicao NAO fechada. So aceita fechamento manual ` +
+              `quando a posicao ja percorreu pelo menos ${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% do caminho ate o stop ` +
+              `(tese realmente enfraquecendo), ate o alvo (lucro real ja capturado), ou ja estiver com lucro real acima do custo do spread -- antes ` +
+              `disso, deixe o stop/alvo mecanico decidir.`,
           };
         }
       }
