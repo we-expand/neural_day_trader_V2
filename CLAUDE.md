@@ -15,6 +15,29 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-01, noite] Log de operações num fuso errado (parecia
+incompleto) + linha de posição sumindo do gráfico — 2 bugs reais, ambos
+corrigidos.** Cleber alarmado ("vou sofrer auditoria de investidores"): 4
+posições reais abertas no Dashboard, log só mostrava 2 no dia. Confirmado no
+Supabase que as 4 estavam lá, dado íntegro — causa era `OperationLogs.tsx`
+agrupando por dia em UTC (Brasil é UTC-3, posições da noite caíam num grupo
+de data diferente, colapsado). Fix: agrupamento/exibição em
+`America/Sao_Paulo`, chave e rótulo sempre no mesmo fuso entre si (commit
+`94a69e781`, já aplicado). Segundo achado, mais grave: linha de entrada/SL/
+alvo não aparecia pra posição real aberta — causa raiz era o fix anterior
+do dia (`6a5dfd3c9`, restauração de sessão) ter zerado só
+`anchorTimestamp`/`anchorX` na restauração de scroll, esquecendo que
+`offsetRightDistance` também recalcula posição internamente — sessão salva
+de um momento no passado reintroduzia o scroll antigo por essa segunda
+porta, empurrando o preço real da posição pra fora da escala visível.
+Corrigido zerando `offsetRightDistance` também (`ChartView.tsx:5967`),
+confirmado ao vivo (linha de entrada/alvo voltou a aparecer com números
+batendo com `ai_trades`). Commit pronto, não aplicado ainda. Achado
+colateral não investigado a fundo: eixo de data mostrou "08-11" uma vez
+mesmo pós-fix, pode ser resquício de sessão salva antiga ou bug residual —
+reobservar se voltar a acontecer. Handoff completo:
+[SESSAO_2026-09-01_LOG_FUSO_HORARIO_E_LINHA_DE_POSICAO_SUMINDO.md](SESSAO_2026-09-01_LOG_FUSO_HORARIO_E_LINHA_DE_POSICAO_SUMINDO.md).
+
 **[EM ANDAMENTO 2026-09-01] Motor parado desde 08-31 (NVIDIA aposentou o
 modelo) — migrado pra Ollama LOCAL, achado grave de 13 processos zumbis
 corrigido, ainda sem posição aberta com o modelo novo.** NVIDIA aposentou
