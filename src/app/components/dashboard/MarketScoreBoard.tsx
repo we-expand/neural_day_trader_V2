@@ -1115,13 +1115,21 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                 {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => {
                                     const asset = getAssetBySymbol(order.symbol);
                                     const rawLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
-                                    // Arredonda pro lote real mínimo do ativo antes de somar — ver
-                                    // comentário em lotSizeConversion.ts (2026-08-20): nocional/preço puro
-                                    // pode cair abaixo do que qualquer corretora aceitaria (ex: 0.0021 de
-                                    // BTC com mínimo real 0.01), então não deve ser exibido como se fosse
-                                    // o lote de verdade.
+                                    // 🐛 FIX 2026-09-02 (regra do Cleber: a plataforma NUNCA abre posição
+                                    // abaixo do lote mínimo — já garantido no motor real,
+                                    // llm-active-brain/src/tools.ts:1289-1290, "lots = MIN_LOTS" se cair
+                                    // abaixo). Reconstruir o lote a partir do valor em dólar guardado (via
+                                    // floor puro) é só uma ESTIMATIVA de exibição — pequena variação de
+                                    // preço entre abertura e agora podia fazer essa reconstrução cair uma
+                                    // fração abaixo do mínimo real e SOMAR ZERO, subcontando o total mesmo
+                                    // a posição estando de fato no lote mínimo. Clampa pro mínimo do ativo
+                                    // em vez de zerar — nunca inventa um lote maior, só nunca finge que uma
+                                    // posição real vale zero lote.
                                     const floored = rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
-                                    return sum + (floored && !floored.error ? floored.volume : 0);
+                                    const contribution = floored && !floored.error
+                                        ? floored.volume
+                                        : (asset ? asset.minLot : 0);
+                                    return sum + contribution;
                                 }, 0).toFixed(2)} lotes total
                             </p>
                         </div>
@@ -1151,12 +1159,19 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         // Arredonda pro lote real mínimo do ativo (ver lotSizeConversion.ts,
                         // 2026-08-20) — nunca exibe fração abaixo do que a corretora aceitaria.
                         const flooredLotCheck = rawLots !== null && rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
-                        const estimatedLots = flooredLotCheck && !flooredLotCheck.error ? flooredLotCheck.volume : null;
-                        // 🆕 2026-08-20: antes, exposição abaixo do lote mínimo do ativo (ex:
-                        // $150 em BTCUSD, que exige ~$727 pra fechar 0,01 lote) caía num "—" mudo,
-                        // indistinguível de erro/dado ausente. Mostra o motivo real em vez de
-                        // esconder — nunca fabrica um número de lote que a corretora não aceitaria.
-                        const lotsBelowMinimum = !!(flooredLotCheck?.error && asset);
+                        // 🐛 FIX 2026-09-02 (regra do Cleber: a plataforma NUNCA abre posição
+                        // abaixo do lote mínimo — já garantido no motor real,
+                        // llm-active-brain/src/tools.ts:1289-1290, "lots = MIN_LOTS" se cair
+                        // abaixo). Todo trade que chega aqui JÁ foi executado com lote >= mínimo;
+                        // "floored.error" (rawLots reconstruído do $ guardado caindo abaixo do
+                        // mínimo por variação de preço entre abertura e agora) é só imprecisão da
+                        // ESTIMATIVA de exibição, nunca uma posição real inválida. Antes disso
+                        // mostrava "Abaixo do mín." — alarme falso pra uma regra que nunca foi
+                        // quebrada de verdade. Mostra o mínimo do ativo (chão real conhecido) em
+                        // vez de um aviso de violação que não aconteceu.
+                        const estimatedLots = flooredLotCheck && !flooredLotCheck.error
+                            ? flooredLotCheck.volume
+                            : (asset ? asset.minLot : null);
 
                         return (
                             <div
@@ -1227,13 +1242,6 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                         <span className="text-neutral-500">Contratos:</span>
                                         {estimatedLots !== null ? (
                                             <span className="text-white font-mono font-bold">{estimatedLots.toFixed(4)} lotes</span>
-                                        ) : lotsBelowMinimum ? (
-                                            <span
-                                                className="text-amber-400 font-mono font-bold text-right"
-                                                title={`Exposição de $${order.amount.toFixed(2)} não fecha o lote mínimo de ${order.symbol} (${asset!.minLot} lote = ~$${(asset!.minLot * asset!.lotSize * order.price).toFixed(2)})`}
-                                            >
-                                                Abaixo do mín.
-                                            </span>
                                         ) : (
                                             <span className="text-neutral-600 font-mono">—</span>
                                         )}
