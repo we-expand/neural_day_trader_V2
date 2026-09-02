@@ -416,8 +416,16 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
               `nao como padrao pra tudo.`,
           },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
+          confidence: {
+            type: "number",
+            description:
+              "Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/" +
+              "estocastico/spread/padroes de candle) e o reasoning acima -- nao e um numero mecanico, e o seu julgamento " +
+              "de o quanto os fatores reais convergem a favor desta tese. So pra registro/auditoria, nao afeta o tamanho " +
+              "calculado pelo codigo (isso e o campo 'size').",
+          },
         },
-        required: ["symbol", "side", "size", "reasoning"],
+        required: ["symbol", "side", "size", "reasoning", "confidence"],
       },
     },
   },
@@ -843,6 +851,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const side = input.side as string;
       const sizeInput = String(input.size || "normal").toLowerCase();
       const reasoning = String(input.reasoning || "");
+      const confidenceRaw = Number(input.confidence);
+      const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(100, confidenceRaw)) : null;
       const basket = effectiveBasket(session);
       if (!basket.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
@@ -1515,6 +1525,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stopLoss,
         takeProfit,
         reasoning,
+        confidence,
         sessionAtEntry: regimeAtEntry?.session ?? null,
         volumeLabelAtEntry: regimeAtEntry?.volumeLabel ?? null,
         volatilityLabelAtEntry: regimeAtEntry?.volatilityLabel ?? null,
@@ -1525,6 +1536,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         symbol,
         side,
         size: sizeInput,
+        confidence,
         entry_price: fillPrice,
         spread_pago: Number(Math.abs(quote.ask - quote.bid).toFixed(6)),
         lots,

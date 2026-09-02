@@ -543,6 +543,12 @@ export interface OpenMt5PositionParams {
   stopLoss: number;
   takeProfit: number;
   reasoning: string;
+  // 🔴 2026-09-02 (pedido do Cleber, achado real: coluna "Confiança" do log
+  // de operações sempre vazia -- ai_confidence só era gravado pelo motor
+  // mecânico antigo, aposentado em 2026-08-31. O LLM Brain agora declara a
+  // própria confiança (0-100) junto da tool-call de open_position, ver
+  // schema em tools.ts. Null quando o modelo não devolveu um número válido.
+  confidence?: number | null;
   // 🔴 2026-09-02 (pedido do Cleber): regime de mercado (sessão/volume/
   // volatilidade real) capturado no MOMENTO da decisão -- só pra permitir
   // validar estatisticamente mais tarde se dar esse contexto ao LLM ajudou
@@ -571,6 +577,7 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         stop_loss: params.stopLoss,
         take_profit: params.takeProfit,
         ai_reasoning: params.reasoning,
+        ai_confidence: params.confidence ?? null,
         entry_time: new Date().toISOString(),
         status: "OPEN",
         commission: 0,
