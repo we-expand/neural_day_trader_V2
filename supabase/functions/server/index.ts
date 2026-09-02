@@ -2,7 +2,14 @@
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+// ✅ 2026-09-02: versão fixa (era '@2' flutuante) — o deploy sem Docker
+// (bundler remoto da Supabase) passou a resolver a última 2.x publicada no
+// JSR, que hoje aponta pra um '@supabase/auth-js@2.114.0' que ainda não
+// existe no npm (só '2.114.0-canary.0'), quebrando o bundle com
+// "Could not find npm package '@supabase/auth-js' matching '2.114.0'".
+// Fixado na mesma versão já usada e comprovadamente estável em
+// kv_store_resilient.tsx, evitando depender da ponta móvel do JSR de novo.
+import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
 import { translateEvent } from './translations.ts';
 import { createInvestingEvents } from './investing-events-pt.ts';
 import { translateEconomicEvents } from './translate-events.ts';
@@ -5115,6 +5122,19 @@ app.post('/mt5-candles-history', async (c) => {
         let iterations = 0;
         const MAX_ITERATIONS = 60; // trava de segurança (não bate a corretora indefinidamente)
         const effectiveStart = cacheUsable ? liveFetchStart : requestedStart;
+        // ✅ 2026-09-02: flag de staleness — investigação em EURUSD/1H achou
+        // candle de ~3 semanas sendo servido com success:true sem aviso.
+        // Causa: uma ÚNICA falha transitória (429/504 da conta MetaAPI
+        // compartilhada, ou o timeout de 8s abaixo) na paginação fazia a
+        // rota desistir na hora e devolver só `cachedCandles`, indistinguível
+        // de uma resposta 100% ao vivo pro chamador. Agora: (1) retry com
+        // backoff curto antes de desistir de uma página — sobrevive à falha
+        // transitória em vez de capitular na 1ª; (2) se mesmo assim a busca
+        // ao vivo não progredir nada (`allCandles` continua vazio), marca
+        // `stale: true` na resposta em vez de mascarar como sucesso normal.
+        let liveFetchFailed = false;
+        const PAGE_RETRIES = 2;
+        const PAGE_RETRY_DELAYS_MS = [400, 1200];
 
         while (cursor > effectiveStart && iterations < MAX_ITERATIONS) {
             iterations++;
@@ -5125,35 +5145,47 @@ app.post('/mt5-candles-history', async (c) => {
             // timeout de rede padrão (pode passar de 1min), e isso dentro de
             // um loop sequencial de paginação empilha — mesmo problema já
             // corrigido no caminho de tick ao vivo (RealMarketDataService.ts,
-            // fetchMT5Data) em 2026-07-23, nunca aplicado aqui. Em timeout/erro
-            // no meio da paginação, devolve o que já foi acumulado (+ cache)
-            // em vez de falhar a request inteira — gráfico aparece parcial em
-            // vez de não aparecer.
-            let response: Response;
-            try {
-                response = await fetch(
-                    `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
-                    {
-                        headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' },
-                        signal: AbortSignal.timeout(8000)
+            // fetchMT5Data) em 2026-07-23, nunca aplicado aqui.
+            let response: Response | null = null;
+            let lastPageError: string | null = null;
+            for (let attempt = 0; attempt <= PAGE_RETRIES; attempt++) {
+                try {
+                    const candidate = await fetch(
+                        `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
+                        {
+                            headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' },
+                            signal: AbortSignal.timeout(8000)
+                        }
+                    );
+                    if (candidate.ok) {
+                        response = candidate;
+                        break;
                     }
-                );
-            } catch (fetchErr: any) {
-                console.warn(`[MT5 CANDLES HISTORY] ⚠️ Timeout/erro de rede na página ${iterations} (${symbol}/${mt5Timeframe}), devolvendo parcial:`, fetchErr?.message);
-                break;
+                    lastPageError = `HTTP ${candidate.status}`;
+                    // 429/502/503/504 são tipicamente transitórios (rate-limit
+                    // ou saturação momentânea da conta compartilhada) — vale
+                    // tentar de novo; outros códigos (4xx de request malformado)
+                    // não vão se resolver com retry, mas o custo de tentar é
+                    // baixo e mantém o comportamento antigo como pior caso.
+                } catch (fetchErr: any) {
+                    lastPageError = fetchErr?.message || 'network error';
+                }
+                if (attempt < PAGE_RETRIES) {
+                    await new Promise(resolve => setTimeout(resolve, PAGE_RETRY_DELAYS_MS[attempt]));
+                }
             }
 
-            if (!response.ok) {
+            if (!response) {
+                liveFetchFailed = true;
                 if (allCandles.length > 0 || cachedCandles.length > 0) {
-                    console.warn(`[MT5 CANDLES HISTORY] ⚠️ MetaAPI HTTP ${response.status} na página ${iterations} (${symbol}/${mt5Timeframe}), devolvendo parcial.`);
+                    console.warn(`[MT5 CANDLES HISTORY] ⚠️ Falha persistente (${PAGE_RETRIES + 1} tentativas) na página ${iterations} (${symbol}/${mt5Timeframe}): ${lastPageError} — devolvendo parcial/cache com stale:true.`);
                     break;
                 }
-                const errorText = await response.text();
                 return c.json({
                     success: false,
                     error: 'METAAPI_ERROR',
-                    message: `MetaAPI retornou HTTP ${response.status} — não há dado real disponível para ${symbol} nesse intervalo.`,
-                    detail: errorText
+                    message: `MetaAPI falhou após ${PAGE_RETRIES + 1} tentativas — não há dado real disponível para ${symbol} nesse intervalo.`,
+                    detail: lastPageError
                 }, 502);
             }
 
@@ -5245,9 +5277,14 @@ app.post('/mt5-candles-history', async (c) => {
             }
         }
 
+        // stale: true quando a busca ao vivo falhou persistentemente e a
+        // resposta é só o que já estava no cache (pode ter dias/semanas) —
+        // cliente deve tratar isso como aviso, não como preço/candle atual.
+        const stale = liveFetchFailed && allCandles.length === 0;
         return c.json({
             success: true,
             source: allCandles.length > 0 ? (cachedCandles.length > 0 ? 'metaapi+cache' : 'metaapi') : 'cache',
+            stale,
             symbol,
             timeframe: mt5Timeframe,
             count: formattedCandles.length,
