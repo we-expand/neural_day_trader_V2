@@ -5964,7 +5964,20 @@ export function ChartView({
               // gráfico deve sempre abrir no preço atual por padrão — indicadores/
               // timeframe/zoom (barSpace) continuam sendo restaurados, só a âncora de
               // scroll não.
-              applyChartTemplateConfig(chart, { ...sessionState, anchorTimestamp: null, anchorX: null });
+              //
+              // 🐛 FIX 2026-09-02 (2ª parte, achado nesta sessão): nular só
+              // `anchorTimestamp`/`anchorX` não bastava — `offsetRightDistance`
+              // TAMBÉM guarda posição de scroll, não só margem visual (ver comentário
+              // grande em `applyChartTemplateConfig`, onde ele recalcula
+              // `_lastBarRightSideDiffBarCount = offset / barSpace` internamente).
+              // Uma sessão salva de quando o usuário tinha rolado pro passado carrega
+              // um `offsetRightDistance` que reflete aquela posição antiga — aplicá-lo
+              // aqui reintroduzia o EXATO mesmo bug (candles de dias atrás) por uma
+              // porta que o fix acima não fechou, sobrescrevendo o scrollToRealTime()
+              // que já tinha rodado logo acima. `barSpace` (zoom) sozinho não move a
+              // posição, então continua restaurado — só a dupla que afeta posição
+              // (anchor + offset) é nulada, igual ao setup favorito já faz mais abaixo.
+              applyChartTemplateConfig(chart, { ...sessionState, anchorTimestamp: null, anchorX: null, offsetRightDistance: null });
               console.log('[ChartView] 🔄 Estado de sessão restaurado:', sessionState.indicatorIds, 'barSpace:', sessionState.barSpace);
             } catch (error) {
               console.error('[ChartView] ❌ Erro restaurando estado de sessão:', error);
