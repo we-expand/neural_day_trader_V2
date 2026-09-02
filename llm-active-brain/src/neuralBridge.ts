@@ -543,6 +543,14 @@ export interface OpenMt5PositionParams {
   stopLoss: number;
   takeProfit: number;
   reasoning: string;
+  // 🔴 2026-09-02 (pedido do Cleber): regime de mercado (sessão/volume/
+  // volatilidade real) capturado no MOMENTO da decisão -- só pra permitir
+  // validar estatisticamente mais tarde se dar esse contexto ao LLM ajudou
+  // (ver GENESIS_PROMPT_MT5 princípio 1g). Opcional -- null quando o regime
+  // não estava disponível (candle insuficiente), nunca fabricado.
+  sessionAtEntry?: string | null;
+  volumeLabelAtEntry?: string | null;
+  volatilityLabelAtEntry?: string | null;
 }
 
 /** Abre uma posição virtual OPEN no trilho MT5. Retorna o id (pra poder fechar depois) ou null se falhar. Nunca lança. */
@@ -568,6 +576,9 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         commission: 0,
         is_test_data: true,
         test_data_reason: MT5_TEST_DATA_REASON,
+        session_at_entry: params.sessionAtEntry ?? null,
+        volume_label_at_entry: params.volumeLabelAtEntry ?? null,
+        volatility_label_at_entry: params.volatilityLabelAtEntry ?? null,
       })
       .select("id")
       .single();

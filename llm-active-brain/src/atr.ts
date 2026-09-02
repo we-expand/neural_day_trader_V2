@@ -706,3 +706,61 @@ export async function getCandlePatterns(symbol: string, timeframe: SupportedTime
 
   return { detected, bias, lookbackMinutes: candles.length * 5 };
 }
+
+export interface MarketRegime {
+  /** Sessão global pelo horário UTC -- só contexto, nenhuma expectativa de volume/volatilidade fixada por sessão (cada mercado/ativo se comporta diferente). */
+  session: "ASIA" | "LONDRES" | "NY" | "ROLLOVER";
+  /** Rótulo de volume real (mesma fonte/razão de getVolumeConfirmation) -- BAIXO nao significa "sem oportunidade", é só o dado cru pro LLM cruzar com o resto. */
+  volumeLabel: "BAIXO" | "NORMAL" | "ALTO";
+  /** Rótulo de volatilidade real: ATR atual do símbolo comparado à própria janela recente (não é volatilidade absoluta entre ativos diferentes). */
+  volatilityLabel: "BAIXA" | "NORMAL" | "ALTA";
+}
+
+// 🔴 2026-09-02 (pedido do Cleber): motor tratava baixo volume como sinônimo
+// de "não operar" (gate de R:R minimo pos-SR-cap bloqueando quase toda
+// entrada num dia de mercado lateral) -- mas baixo volume pode ser tendência
+// real e limpa com pouca resistência (caso real: BTCUSD caiu forte ontem com
+// volume baixo, o motor ficou de fora). Este regime é só CONTEXTO adicional
+// pro LLM julgar (ver GENESIS_PROMPT_MT5) -- não é uma trava mecânica nova,
+// nunca decide sozinho se abre ou não posição.
+const REGIME_VOLATILITY_LOOKBACK_CANDLES = 20;
+
+function getSessionLabel(now: Date = new Date()): MarketRegime["session"] {
+  const utcHour = now.getUTCHours();
+  if (utcHour >= 21 || utcHour < 0) return "ROLLOVER"; // nunca cai aqui (0 inclusivo abaixo), mantido por clareza
+  if (utcHour < 7) return "ASIA";
+  if (utcHour < 13) return "LONDRES";
+  if (utcHour < 21) return "NY";
+  return "ROLLOVER";
+}
+
+/**
+ * Regime de mercado (sessão + volume real + volatilidade real) pro LLM
+ * cruzar com os outros fatores de confluência que já usa -- nunca fabrica
+ * dado: sem candle real suficiente, retorna `null` (mesmo padrão de
+ * getTrendInfo/getVolumeConfirmation).
+ */
+export async function getMarketRegime(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MarketRegime | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < REGIME_VOLATILITY_LOOKBACK_CANDLES + 14) return null;
+
+  const volume = await getVolumeConfirmation(symbol, timeframe);
+  if (!volume) return null;
+  const volumeLabel: MarketRegime["volumeLabel"] = volume.ratio < 0.7 ? "BAIXO" : volume.ratio > 1.3 ? "ALTO" : "NORMAL";
+
+  // ATR atual vs. a média de ATRs calculados numa janela deslizante recente do mesmo símbolo -- volatilidade relativa à própria história, não comparação entre ativos diferentes.
+  const window = candles.slice(-REGIME_VOLATILITY_LOOKBACK_CANDLES - 14);
+  const atrSeries: number[] = [];
+  for (let i = 14; i <= window.length; i++) {
+    const atr = calculateAtr(window.slice(0, i), 14);
+    if (atr != null) atrSeries.push(atr);
+  }
+  if (atrSeries.length < 2) return null;
+  const currentAtr = atrSeries[atrSeries.length - 1];
+  const avgAtr = atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length;
+  if (!(avgAtr > 0)) return null;
+  const atrRatio = currentAtr / avgAtr;
+  const volatilityLabel: MarketRegime["volatilityLabel"] = atrRatio < 0.8 ? "BAIXA" : atrRatio > 1.25 ? "ALTA" : "NORMAL";
+
+  return { session: getSessionLabel(), volumeLabel, volatilityLabel };
+}

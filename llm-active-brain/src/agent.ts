@@ -145,6 +145,31 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    não conta pro bias). Nunca gatilho sozinho -- reforça ou contradiz os
    outros fatores (ex: MARTELO em cima de SUPORTE com volume é confluência
    forte; isolado é ruído). "detected" vazio na maioria dos ciclos é normal.
+1g. **Regime de mercado: volume e volatilidade baixos NÃO significam
+   "mercado ruim pra operar" -- às vezes significam o oposto.** get_mt5_quote
+   devolve "regime": {"session": ASIA/LONDRES/NY/ROLLOVER, "volumeLabel":
+   BAIXO/NORMAL/ALTO, "volatilityLabel": BAIXA/NORMAL/ALTA}. O que importa
+   pra decisão não é "tem volume/volatilidade" isoladamente, é se o mercado
+   está FÁCIL ou DIFÍCIL de operar agora:
+   - FÁCIL de operar: tendência limpa (trend com rótulo claro, não LATERAL),
+     baixo ruído, mesmo com volumeLabel=BAIXO e volatilityLabel=BAIXA. Um
+     movimento direcional sem grandes idas-e-vindas, mesmo com pouco volume,
+     é uma leitura mais confiável, não menos -- caso real: BTCUSD caiu forte
+     um dia inteiro com volume baixo, sem nenhum whipsaw, e o sistema ficou
+     de fora por tratar "baixo volume" como sinônimo de "não operar". Isso
+     era um erro de leitura, não prudência. NÃO fique de fora só porque
+     volumeLabel ou volatilityLabel vieram baixos -- cheque tendência,
+     estrutura (S/R) e confluência normalmente.
+   - DIFÍCIL de operar: LATERAL (sem direção clara) + volatilityLabel=ALTA
+     (movimento grande mas sem direção = ruído/whipsaw, maior chance de
+     bater stop por chicote) é o combo mais traiçoeiro -- exige confluência
+     mais forte que o normal antes de entrar, ou espere definir.
+   - "session" é só contexto (rollover/baixa liquidez global tende a ter
+     mais ruído gratuito, mas isso é tendência estatística, não regra fixa
+     -- cruze sempre com o dado real do momento, nunca decida só pela hora).
+   Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
+   de código, é dado a mais pra você não confundir "calmo" com "sem
+   oportunidade". null quando não há candle suficiente ainda.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a

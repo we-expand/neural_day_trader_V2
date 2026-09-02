@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -75,7 +75,22 @@ const lastQuotedCycleBySymbolStore = new Map<string, Map<string, number>>();
 // alimentar o validador com o dado real e ele comparar contra o texto.
 const lastQuoteSnapshotBySymbolStore = new Map<
   string,
-  Map<string, { trendLabel: string | null; volumeElevated: boolean | null; macdLabel: string | null; stochasticLabel: string | null }>
+  Map<
+    string,
+    {
+      trendLabel: string | null;
+      volumeElevated: boolean | null;
+      macdLabel: string | null;
+      stochasticLabel: string | null;
+      // 🔴 2026-09-02: regime (sessão/volume/volatilidade) do momento da
+      // cotação -- reaproveitado na abertura pra gravar junto do trade (ver
+      // openMt5Position em neuralBridge.ts), permitindo validar depois se
+      // esse contexto ajudou. null quando regime não estava disponível.
+      session: string | null;
+      volumeLabel: string | null;
+      volatilityLabel: string | null;
+    }
+  >
 >();
 
 // 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas" -- 3
@@ -584,6 +599,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           macd: null,
           stochastic: null,
           candlePatterns: null,
+          regime: null,
           aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais.`
         };
       }
@@ -648,14 +664,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // pavios), nao so o fechamento -- ver getCandlePatterns em atr.ts pra
       // detalhe dos 10 padroes e criterio geometrico de cada um.
       const candlePatterns = await getCandlePatterns(symbol, timeframe);
+      // 🔴 2026-09-02 (pedido do Cleber): regime de mercado (sessão + volume
+      // real + volatilidade real vs a própria história do símbolo) -- só
+      // CONTEXTO adicional pro LLM julgar (ver GENESIS_PROMPT_MT5 em
+      // agent.ts), nunca uma trava mecânica nova. null quando não há candle
+      // real suficiente, mesma disciplina dos outros campos acima.
+      const regime = await getMarketRegime(symbol, timeframe);
       lastQuoteSnapshotBySymbol.set(symbol, {
         trendLabel: trend?.label ?? null,
         volumeElevated: volume?.elevated ?? null,
         macdLabel: macd?.label ?? null,
         stochasticLabel: stochastic?.label ?? null,
+        session: regime?.session ?? null,
+        volumeLabel: regime?.volumeLabel ?? null,
+        volatilityLabel: regime?.volatilityLabel ?? null,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -690,6 +715,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         macd,
         stochastic,
         candlePatterns,
+        regime,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }
@@ -1384,6 +1410,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // de preenchimento, ver acima) -- nao do mid/last tick.
       const stopLoss = side === "LONG" ? fillPrice * (1 - stopPct) : fillPrice * (1 + stopPct);
       const takeProfit = side === "LONG" ? fillPrice * (1 + takeProfitPct) : fillPrice * (1 - takeProfitPct);
+      const regimeAtEntry = lastQuoteSnapshotBySymbol.get(symbol);
       const tradeId = await openMt5Position({
         sessionId: session.sessionId,
         userId: session.userId,
@@ -1394,6 +1421,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stopLoss,
         takeProfit,
         reasoning,
+        sessionAtEntry: regimeAtEntry?.session ?? null,
+        volumeLabelAtEntry: regimeAtEntry?.volumeLabel ?? null,
+        volatilityLabelAtEntry: regimeAtEntry?.volatilityLabel ?? null,
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
       return {
