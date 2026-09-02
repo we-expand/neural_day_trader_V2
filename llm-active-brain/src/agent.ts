@@ -580,7 +580,23 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
 
     const response = await createChatCompletionWithRetry({
       model: config.llmModel,
-      max_tokens: 1024,
+      // 🔴 2026-09-02 (achado ao vivo, causa raiz do "motor não abre posição
+      // nunca"): 1024 tokens deixou de ser suficiente pra este modelo (qwen3.5
+      // via Ollama, "thinking" nativo ativado, sem equivalente de
+      // enable_thinking:false pra este provedor -- testado, o parametro nao
+      // tem efeito real no template do Ollama) depois que get_mt5_quote
+      // engordou (regime/candlePatterns/macd/stochastic/extension somados ao
+      // longo de varias sessoes) -- reproduzido fora de producao com o prompt
+      // real: response.usage.completion_tokens=1024, finish_reason="length",
+      // content="" e tool_calls=undefined EM TODO CICLO, mesmo com
+      // tool_choice:"required" (o campo so forca quando o modelo consegue
+      // terminar de responder). Testado com max_tokens=2048 no mesmo prompt:
+      // reasoning completo + tool_call real emitido (867-954 tokens usados).
+      // Modelfile.qwen35-trading tambem subiu de num_ctx=16384 pra 24576 pra
+      // dar folga (prompt_tokens medido ~13.8k, cabia no ceiling antigo por
+      // pouco -- qualquer cesta maior ou memoria de trades mais cheia
+      // estourava).
+      max_tokens: 2048,
       tools: toolDefinitions,
       // 🔴 2026-08-30 (redesenho pós -$135 líquido, sessão e7eef768): "auto" ->
       // "required". Achado real, confirmado em dezenas de ocorrências no log
