@@ -1591,21 +1591,76 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // no meio do caminho.
         const spreadAbs = Math.abs(quote.ask - quote.bid);
         const clearsSpread = favorableMove > spreadAbs;
+        // 🔴 2026-09-02 (pedido direto do Cleber): "inteligencia de operacao"
+        // -- se a IA ve que a tese realmente inverteu (nao ruido ambiguo),
+        // ela tem que poder cortar a perda ANTES de bater o stop cheio,
+        // tomando um prejuizo MENOR que o stop tracado, em vez de esperar
+        // passivamente o stop mecanico bater inteiro. A regra dos >=50% acima
+        // existe pra bloquear fechamento NERVOSO em ruido (confirmado ao vivo
+        // 2x: preco voltou a favor logo depois) -- a diferenca entre "ruido"
+        // e "invalidacao real" e a mesma usada no gate de confluencia de
+        // open_position (ver acima): >=2 fatores tecnicos REAIS (tendencia,
+        // MACD, Estocastico, padrao de candle) apontando CONTRA o lado da
+        // posicao, nao so o reasoning do modelo dizendo que mudou de ideia.
+        // So aplica quando a posicao esta em perda (adverseMove > 0) -- lucro
+        // ja tem o carve-out de clearsSpread acima.
+        let realInvalidationConfirmed = false;
+        let realInvalidationFactors: string[] = [];
+        if (adverseMove > 0) {
+          const timeframeForInvalidation = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+          const [trendForInvalidation, macdForInvalidation, stochasticForInvalidation, candlePatternsForInvalidation] = await Promise.all([
+            getTrendInfo(position.symbol, timeframeForInvalidation),
+            getMacd(position.symbol, timeframeForInvalidation),
+            getSlowStochastic(position.symbol, timeframeForInvalidation),
+            getCandlePatterns(position.symbol, timeframeForInvalidation),
+          ]);
+          if (trendForInvalidation) {
+            const trendAgainst =
+              (position.side === "LONG" && trendForInvalidation.label === "BAIXA") ||
+              (position.side === "SHORT" && trendForInvalidation.label === "ALTA");
+            if (trendAgainst) realInvalidationFactors.push(`tendencia ${trendForInvalidation.label}`);
+          }
+          if (macdForInvalidation) {
+            const macdAgainst =
+              (position.side === "LONG" && macdForInvalidation.label === "BAIXA") ||
+              (position.side === "SHORT" && macdForInvalidation.label === "ALTA");
+            if (macdAgainst) realInvalidationFactors.push(`MACD ${macdForInvalidation.label}`);
+          }
+          if (stochasticForInvalidation) {
+            const stochAgainst =
+              (position.side === "LONG" && stochasticForInvalidation.label === "SOBRECOMPRADO") ||
+              (position.side === "SHORT" && stochasticForInvalidation.label === "SOBREVENDIDO");
+            if (stochAgainst) realInvalidationFactors.push(`Estocastico ${stochasticForInvalidation.label}`);
+          }
+          if (candlePatternsForInvalidation?.bias) {
+            const patternAgainst =
+              (position.side === "LONG" && candlePatternsForInvalidation.bias === "BAIXA") ||
+              (position.side === "SHORT" && candlePatternsForInvalidation.bias === "ALTA");
+            if (patternAgainst) realInvalidationFactors.push(`padrao ${candlePatternsForInvalidation.detected.join("/")}`);
+          }
+          realInvalidationConfirmed = realInvalidationFactors.length >= 2;
+        }
         if (
           stopConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
           targetConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
-          !clearsSpread
+          !clearsSpread &&
+          !realInvalidationConfirmed
         ) {
           return {
             error:
               `Fechamento manual de ${position.symbol} recusado: a posicao mal se moveu (${(stopConsumedPct * 100).toFixed(0)}% do caminho ate ` +
-              `o stop, ${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo) e o lucro flutuante ainda nao supera o custo do spread. ` +
+              `o stop, ${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo), o lucro flutuante ainda nao supera o custo do spread, e nao ha ` +
+              `pelo menos 2 fatores tecnicos reais confirmando inversao contra a posicao (so ${realInvalidationFactors.length}: ${realInvalidationFactors.join(", ") || "nenhum"}). ` +
               `Fechar aqui e reagir a ruido normal de mercado ou a um sinal ambiguo, nao a invalidacao real da tese -- confirmado ao vivo 2x hoje ` +
               `(posicoes fechadas perto do zero a zero cujo preco voltou a favor logo depois). Posicao NAO fechada. So aceita fechamento manual ` +
               `quando a posicao ja percorreu pelo menos ${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% do caminho ate o stop ` +
-              `(tese realmente enfraquecendo), ate o alvo (lucro real ja capturado), ou ja estiver com lucro real acima do custo do spread -- antes ` +
+              `(tese realmente enfraquecendo), ate o alvo (lucro real ja capturado), ja estiver com lucro real acima do custo do spread, ou tiver ` +
+              `pelo menos 2 fatores tecnicos reais confirmando inversao (tendencia + MACD/Estocastico/padrao de candle contra o lado) -- antes ` +
               `disso, deixe o stop/alvo mecanico decidir.`,
           };
+        }
+        if (realInvalidationConfirmed) {
+          console.log(`[tools.ts] Corte de perda antecipado em ${position.symbol}: invalidacao tecnica real confirmada (${realInvalidationFactors.join(", ")}), prejuizo menor que o stop tracado.`);
         }
       }
       const closed = await closeMt5Position({ tradeId, exitPrice, reasoning });
