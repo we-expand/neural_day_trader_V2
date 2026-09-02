@@ -1845,7 +1845,13 @@ export function ChartView({
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
+  // 🐛 FIX 2026-09-02: assinatura das zonas atualmente desenhadas — permite pular o
+  // clear+recreate completo em renderSrOverlays quando as zonas não mudaram desde o
+  // último refresh (ver comentário grande na função, era a causa real do "pisca" das
+  // caixas de S/R a cada 30s mesmo depois do fix de updateData incremental).
+  const srOverlaySignatureRef = useRef<string>('');
   const positionOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids das linhas de posição aberta (entrada/SL/TP) desenhadas no gráfico
+  const signalOverlayIdRef = useRef<string | null>(null); // 🆕 Id do marcador de Trading Signal atual (evita acumular um novo a cada refresh de 30s)
   // 🔧 FIX: troca de timeframe/símbolo faz dispose()+init() do chart (mesmo padrão documentado
   // acima pros overlays de posição) — mas os desenhos do usuário (trendline, fibonacci, shapes,
   // texto ancorado, emoji...) nunca tinham um mecanismo de captura/restauração equivalente.
@@ -4751,6 +4757,21 @@ export function ChartView({
     const chart = chartInstanceRef.current;
     if (!chart) return;
 
+    // 🐛 FIX 2026-09-02 (achado do Cleber: "gráfico continua dando refresh sozinho,
+    // na cara do usuário" mesmo após o fix de candles incrementais do dia anterior):
+    // esta função roda a CADA fetchData, inclusive nos refreshs automáticos de 30s
+    // (chamada em fetchData, não só na 1ª carga) — e sempre removia TODOS os overlays
+    // de S/R e recriava do zero, mesmo quando as zonas detectadas eram exatamente as
+    // mesmas do ciclo anterior (o caso comum, já que Order Blocks só mudam quando um
+    // nível novo é formado/rompido). Esse clear+recreate constante é visível como um
+    // pisca das caixas/linhas de S/R a cada 30s — a causa real que sobrevivia ao fix
+    // de updateData incremental (que só resolve o reset do dataset de candles, não
+    // este overlay). Corrigido pulando o redesenho quando a assinatura das zonas
+    // (mesmos ids, mesma ordem) não mudou desde o último render.
+    const signature = !visible ? '' : zones.slice(0, MAX_SR_OVERLAYS).map(z => z.id).join('|');
+    if (signature === srOverlaySignatureRef.current) return;
+    srOverlaySignatureRef.current = signature;
+
     srOverlayIdsRef.current.forEach((id) => {
       try {
         chart.removeOverlay(id);
@@ -5595,6 +5616,11 @@ export function ChartView({
 
       console.log('[ChartView] ✅ Styles applied successfully');
       chartInstanceRef.current = chart;
+      // Nova instância de chart (troca de símbolo/timeframe) não tem overlay nenhum —
+      // força renderSrOverlays a desenhar de novo mesmo que as zonas sejam as mesmas
+      // do símbolo/timeframe anterior (assinatura por id pode colidir entre eles).
+      srOverlaySignatureRef.current = '__new_chart__';
+      signalOverlayIdRef.current = null;
 
       // 🧹 LIMPAR TODOS OS OVERLAYS (Remove bolinha preta misteriosa e qualquer overlay residual)
       chart.removeOverlay();
@@ -6202,16 +6228,31 @@ export function ChartView({
           console.log('[ChartView] 📊 Trading Signal:', signal.type, 'Strength:', signal.strength);
           
           // 🆕 ADD TRADING SIGNALS AS OVERLAYS
+          // 🐛 FIX 2026-09-02 (achado colateral do "refresh visível", nunca corrigido até
+          // agora): este bloco roda a cada fetchData, inclusive nos refreshs automáticos
+          // de 30s, e sempre criava um overlay NOVO (`signal-${Date.now()}`) sem nunca
+          // remover o anterior — o marcador ▲/▼ se acumulava indefinidamente na mesma
+          // vela ao longo do tempo. Corrigido removendo o marcador anterior antes de
+          // criar o novo.
+          if (signalOverlayIdRef.current) {
+            try {
+              chart.removeOverlay(signalOverlayIdRef.current);
+            } catch (e) {
+              // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+            }
+            signalOverlayIdRef.current = null;
+          }
           if (signal.type !== 'NEUTRAL' && signal.strength >= 50) {
             console.log('[ChartView] 🎯 Adding', signal.type, 'signal marker to chart');
-            
+
             // Create overlay at the last candle position
             const lastCandleIndex = candles.length - 1;
             const signalPrice = lastCandle.close;
-            
+
             try {
               // Create simple HTML overlay div for signal
               const overlayId = `signal-${Date.now()}`;
+              signalOverlayIdRef.current = overlayId;
               chart.createOverlay({
                 name: 'text',
                 id: overlayId,

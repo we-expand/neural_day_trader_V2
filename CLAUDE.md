@@ -15,6 +15,94 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-02, madrugada] Gráfico "dando refresh sozinho, na
+cara do usuário" persistia mesmo depois do fix de `updateData` incremental
+— 2ª causa real encontrada e corrigida (achado colateral do fix anterior,
+não testada ao vivo ainda).** Cleber reportou que o problema continuava
+depois do commit `a34f24a17` (candles incrementais). Investigação achou
+que `renderSrOverlays` (zonas de Suporte/Resistência) e o marcador de
+"Trading Signal" rodam a CADA `fetchData`, inclusive no auto-refresh de
+30s — não só na 1ª carga: `renderSrOverlays` sempre removia TODOS os
+overlays de S/R e recriava do zero (pisca visível das caixas/linhas a
+cada 30s mesmo quando as zonas eram exatamente as mesmas do ciclo
+anterior); o marcador ▲/▼ de sinal criava um overlay novo por ciclo sem
+nunca remover o anterior (achado colateral já catalogado no fix de ontem,
+agora corrigido). Fix: `renderSrOverlays` pula o redesenho quando a
+assinatura das zonas (ids) não mudou desde o último render;
+`signalOverlayIdRef` remove o marcador anterior antes de criar o novo.
+`tsc --noEmit`: 417 erros pré-existentes ("Stocks US/BR/EU/UK"), nenhum
+novo. **Não testado ao vivo** — dev server desta pasta ocupado por outra
+sessão. Commit pronto, aguardando Cleber rodar e confirmar visualmente.
+Detalhe completo:
+[SESSAO_2026-09-02_GRAFICO_REFRESH_VISIVEL_AUTO_UPDATE.md](SESSAO_2026-09-02_GRAFICO_REFRESH_VISIVEL_AUTO_UPDATE.md).
+
+**[EM ANDAMENTO 2026-09-02, tarde] Motor não abria posição desde ~11h38 —
+gate de R:R pós-SR-cap provável causa raiz (paliativo aplicado), regime de
+mercado (sessão/volume/volatilidade real) e Estocástico extremo como
+gatilho de reversão adicionados como CONTEXTO pro LLM, não trava nova.**
+Cleber reportou motor sem abrir posição desde meio-dia (não acontecia de
+manhã) — correlação temporal forte com o commit `634e88f18` (alvo capado
+por S/R real), que recusa entrada quando o espaço não cobre R:R 1:1 em
+mercado lateral (paliativo: `MT5_MIN_RR_AFTER_SR_CAP` 1.0→0.6 no `.env`,
+não commitável). Decisão de produto do Cleber: baixo volume/volatilidade
+não deve ser tratado como "não operar" — pode ser tendência limpa e fácil
+de ler; `getMarketRegime` novo (`atr.ts`) expõe isso em `get_mt5_quote`,
+novo princípio 1g no prompt ensina o LLM a julgar (commitado, ao vivo).
+Também: Estocástico em extremo (SOBRECOMPRADO/SOBREVENDIDO) agora conta
+como confirmação válida pra entrada contra a tendência, ao lado do volume
+elevado — antes era ignorado (achado do Cleber: BTCUSD/XETUSD/GER40 com
+Estocástico 91-96 e volume normal ficariam bloqueados de reversão mesmo
+com exaustão real). Código pronto/staged, **commit entregue mas ainda não
+rodado pelo Cleber**. Migration SQL de `session_at_entry`/
+`volume_label_at_entry`/`volatility_label_at_entry` em `ai_trades` pronta,
+não aplicada. Nenhuma das mudanças tem validação estatística ainda — são
+correção de mecânica/contexto de decisão, precisa de amostra de dias
+rodando antes de julgar efeito no líquido. Handoff completo:
+[SESSAO_2026-09-02_MOTOR_NAO_ABRIA_POSICAO_GATE_SR_E_REGIME_DE_MERCADO.md](SESSAO_2026-09-02_MOTOR_NAO_ABRIA_POSICAO_GATE_SR_E_REGIME_DE_MERCADO.md).
+
+**[RESOLVIDO 2026-09-02, noite] Gráfico ficava completamente mudo (sem
+candle, sem spinner, sem mensagem de erro) em timeout de MetaAPI — causa
+raiz era o overlay de loading/erro (fix de mais cedo no mesmo dia) estar
+dentro da div que a klinecharts manipula direto no DOM, nunca chegava a
+aparecer de verdade.** Cleber mandou vídeo mostrando o gráfico com preço
+no header atualizando normalmente mas nenhum candle desenhado, tela muda
+o tempo todo. Reproduzido ao vivo no dev server (não era URL de deploy
+congelada — confirmado com Cleber que era o alias `dev` certo mesmo).
+Log do console mostrou a causa real: `MarketService` dando
+`TimeoutError: signal timed out` ao buscar histórico de candles via
+MetaAPI pra SPX500/EURUSD (mesma disputa de rate-limit da conta
+compartilhada já documentada), e o retry com backoff (2s/4s/8s) + spinner
+"Carregando candles..." + erro "Tentar de novo" (commit `c0d1b0a00`,
+mesmo dia) estava disparando certinho segundo o estado React — mas o
+elemento nunca existia de verdade no DOM (confirmado com
+`MutationObserver` ao vivo). Causa: o bloco condicional do spinner/erro
+foi escrito como filho direto de `<div ref={chartContainerRef}>`, a
+mesma div que a klinecharts manipula por fora do React — o próprio
+arquivo já tinha um comentário avisando desse padrão exato pros chips de
+indicador (gera `NotFoundError: insertBefore... not a child of this
+node`), só que o spinner/erro de candles foi escrito lá dentro mesmo
+assim. Corrigido movendo o bloco pra fora, como irmão da div (mesmo
+padrão já usado pros chips). `tsc --noEmit`: 417 erros, todos
+pré-existentes ("Stocks US/BR/EU/UK"), nenhum novo. Testado ao vivo — o
+spinner agora aparece de verdade durante o timeout. **Isto NÃO corrige o
+timeout do MetaAPI em si** (rate-limit crônico da conta compartilhada,
+mitigação de cesta 16→10 ativos de mais cedo no dia — efeito ainda não
+confirmado por amostra) — só faz o usuário parar de ficar às cegas
+enquanto isso acontece. Commit pronto, aguardando Cleber rodar.
+
+**[RESOLVIDO 2026-09-02] Guias de Stop/Alvo no Gráfico mostravam "pts"
+errado pra forex (0.01 pts pra 100 pips de EURUSD) — commit pronto, não
+aplicado ainda.** Cleber notou no ticket de EURUSD que Stop e Alvo
+mostravam a mesma distância "0.01 pts" — era a diferença bruta de preço
+(`Math.abs(entry-sl)`), sem converter pro pip real do ativo. Corrigido em
+`ChartView.tsx` (~linha 4879): `riskPts`/`rewardPts` agora dividem a
+diferença de preço pelo `pointSize` real (`contractSpecs.ts`:
+`tickSize * pointValue/tickValue`) — EURUSD passa a mostrar 100 pts
+corretos; índices/cripto/metais não mudam (`pointSize=1` pra eles, já
+era o comportamento certo). Cálculo de `$` (riskUsd/rewardUsd) e R:R
+continuam usando a diferença de preço crua, intocados. `tsc --noEmit`
+sem erro novo (mesmo ruído pré-existente de "Stocks US/BR/EU/UK").
+
 **[EM ANDAMENTO 2026-09-02] LLM Brain: trailing/breakeven soltados (saíam
 com centavos antes do alvo) + alvo por ATR agora capado por suporte/
 resistência real (todos os ativos) + achado grave não corrigido: Dashboard
