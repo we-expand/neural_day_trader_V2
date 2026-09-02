@@ -472,6 +472,7 @@ import { fetchCandles } from '@/app/services/market-service';
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
+import { getContractSpec } from '@/config/contractSpecs'; // 💰 pipSize real por ativo (pts de risco/alvo)
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
 import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
@@ -4882,11 +4883,21 @@ export function ChartView({
       const units = order.amount / order.price;
       const hasSl = order.sl > 0;
       const hasTp = order.tp > 0;
-      const riskPts = hasSl ? Math.abs(order.price - order.sl) : 0;
-      const rewardPts = hasTp ? Math.abs(order.tp - order.price) : 0;
-      const riskUsd = riskPts * units;
-      const rewardUsd = rewardPts * units;
-      const rr = hasSl && hasTp && riskPts > 0 ? rewardPts / riskPts : null;
+      // Diferença bruta de preço (usada pro $ real, que não depende de convenção
+      // de "ponto") separada do "ponto" exibido na label, que precisa respeitar
+      // a definição por ativo (pipSize real do forex, não a diferença crua de
+      // preço) — ver contractSpecs.ts: pointValue/tickValue já embutem essa
+      // conversão (ex: EURUSD, tickSize=0.00001 mas 1 "ponto" cotado = 0.0001,
+      // a pedido do Cleber depois de reportar "0.01 pts" pra 100 pips de EURUSD).
+      const riskPriceDiff = hasSl ? Math.abs(order.price - order.sl) : 0;
+      const rewardPriceDiff = hasTp ? Math.abs(order.tp - order.price) : 0;
+      const contractSpec = getContractSpec(order.symbol);
+      const pointSize = contractSpec.tickSize * (contractSpec.pointValue / contractSpec.tickValue) || 1;
+      const riskPts = riskPriceDiff / pointSize;
+      const rewardPts = rewardPriceDiff / pointSize;
+      const riskUsd = riskPriceDiff * units;
+      const rewardUsd = rewardPriceDiff * units;
+      const rr = hasSl && hasTp && riskPriceDiff > 0 ? rewardPriceDiff / riskPriceDiff : null;
 
       try {
         // P&L ao vivo na própria linha da posição — reflete o preço atual do
