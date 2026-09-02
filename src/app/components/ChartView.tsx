@@ -1529,6 +1529,15 @@ export function ChartView({
   const lastRealCandleTimestampRef = useRef<number | null>(null);
   const chartUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Debounce de updateData
   const [dataSource, setDataSource] = useState<'metaapi' | 'generated' | 'loading'>('loading');
+  // 🐛 FIX 2026-09-02: quando /mt5-candles-history falha uma vez (ex: rate-limit
+  // 429/504 da conta MetaAPI compartilhada, ver "Risco crônico conhecido" no
+  // CLAUDE.md), o gráfico ficava em branco pra sempre — `dataSource` era setado
+  // mas nunca lido em nenhum lugar da UI, sem retry nem mensagem, só o próximo
+  // auto-refresh de 30s (silencioso) podia recuperar. Agora: retry com backoff
+  // dentro do próprio fetch + estado visível pro usuário nunca ver um "branco mudo".
+  const [candlesLoading, setCandlesLoading] = useState(true);
+  const [candlesLoadFailed, setCandlesLoadFailed] = useState(false);
+  const fetchChartDataRef = useRef<(() => void) | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
   // 🆕 Maximizar a tela do Gráfico — usa a Fullscreen API real do navegador (o gráfico
@@ -5664,9 +5673,21 @@ export function ChartView({
       // troca de símbolo/timeframe — ver fix logo abaixo, dentro de fetchData.
       let didCleanMysteryOverlay = false;
 
+      // 🔁 Retry com backoff (2s/4s/8s) só pra a busca de candles falhar de vez —
+      // separado do auto-refresh de 30s (que continua existindo pra atualização
+      // periódica normal, não pra recuperar de falha). Cancelado no cleanup deste
+      // effect (troca de símbolo/timeframe/unmount) via `cancelled`.
+      let cancelled = false;
+      let retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      const CANDLE_RETRY_DELAYS_MS = [2000, 4000, 8000];
+
       // Fetch real data
-      const fetchData = async () => {
-        console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe);
+      const fetchData = async (retryAttempt = 0) => {
+        console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe, 'attempt', retryAttempt);
+        if (retryAttempt === 0) {
+          setCandlesLoading(true);
+          setCandlesLoadFailed(false);
+        }
 
         try {
           // 🚀 PERF: candles e marketData (preço/variação do dia) vêm de fontes
@@ -5679,6 +5700,7 @@ export function ChartView({
             return null;
           });
           const candles = await fetchCandles(selectedSymbol, timeframe);
+          if (cancelled) return;
 
           console.log('[ChartView] 📦 Received data:', {
             candles: candles?.length || 0,
@@ -5699,10 +5721,21 @@ export function ChartView({
           }
           
           if (!candles || candles.length === 0) {
-            console.error('[ChartView] ❌ No candles received, chart will remain empty');
+            if (retryAttempt < CANDLE_RETRY_DELAYS_MS.length) {
+              const delay = CANDLE_RETRY_DELAYS_MS[retryAttempt];
+              console.warn(`[ChartView] ⚠️ Sem candles ainda, tentando de novo em ${delay}ms (tentativa ${retryAttempt + 1}/${CANDLE_RETRY_DELAYS_MS.length})`);
+              retryTimeoutId = setTimeout(() => {
+                if (!cancelled) fetchData(retryAttempt + 1);
+              }, delay);
+              return;
+            }
+            console.error('[ChartView] ❌ No candles received after retries, chart will remain empty until next auto-refresh');
             setDataSource('loading');
+            setCandlesLoading(false);
+            setCandlesLoadFailed(true);
             return;
           }
+          setCandlesLoadFailed(false);
 
           console.log('[ChartView] ✅ CHECKPOINT 1: Candles received, count:', candles.length);
           console.log('[ChartView] 📈 Processing', candles.length, 'candles');
@@ -6096,6 +6129,8 @@ export function ChartView({
           }
           
           setDataSource('metaapi');
+          setCandlesLoading(false);
+          setCandlesLoadFailed(false);
 
           // Store chart data and analyze
           setChartData(candles);
@@ -6185,9 +6220,21 @@ export function ChartView({
             name: error instanceof Error ? error.name : 'Unknown'
           });
           console.error('[ChartView] 🔍 This error is preventing the chart from loading!');
+          if (cancelled) return;
+          if (retryAttempt < CANDLE_RETRY_DELAYS_MS.length) {
+            const delay = CANDLE_RETRY_DELAYS_MS[retryAttempt];
+            console.warn(`[ChartView] ⚠️ Erro na busca, tentando de novo em ${delay}ms (tentativa ${retryAttempt + 1}/${CANDLE_RETRY_DELAYS_MS.length})`);
+            retryTimeoutId = setTimeout(() => {
+              if (!cancelled) fetchData(retryAttempt + 1);
+            }, delay);
+            return;
+          }
           setDataSource('loading');
+          setCandlesLoading(false);
+          setCandlesLoadFailed(true);
         }
       };
+      fetchChartDataRef.current = () => fetchData(0);
 
       fetchData();
       
@@ -6229,6 +6276,8 @@ export function ChartView({
         window.removeEventListener('resize', handleResize);
         resizeObserver?.disconnect();
         clearInterval(refreshInterval); // 🔄 Limpar intervalo de refresh
+        cancelled = true;
+        if (retryTimeoutId) clearTimeout(retryTimeoutId); // 🔄 Cancela retry de candle pendente
         // 🔧 FIX: captura os desenhos do usuário ANTES do dispose() (troca de símbolo/
         // timeframe roda este cleanup antes de recriar o chart do zero) — sem isso,
         // trendline/fibonacci/shapes/texto ancorado/emoji desenhados pelo usuário eram
@@ -7391,6 +7440,32 @@ export function ChartView({
                 }
               }}
             >
+
+            {/* 🐛 FIX 2026-09-02: antes o gráfico ficava mudo (canvas em branco, sem
+                nenhum aviso) enquanto os candles não chegavam ou quando a busca falhava
+                de vez (rate-limit da conta MetaAPI compartilhada) — só o auto-refresh
+                silencioso de 30s podia recuperar, sem o usuário saber se estava
+                travado ou só carregando. Agora sempre mostra o que está acontecendo. */}
+            {candlesLoading && (
+              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 pointer-events-none">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-neutral-300">Carregando candles de {selectedSymbol}...</span>
+              </div>
+            )}
+            {!candlesLoading && candlesLoadFailed && (
+              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70">
+                <span className="text-sm text-neutral-300 text-center max-w-xs">
+                  Não foi possível carregar os candles reais de {selectedSymbol} agora
+                  (provável instabilidade temporária na fonte de dados).
+                </span>
+                <button
+                  onClick={() => fetchChartDataRef.current?.()}
+                  className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
+                >
+                  Tentar de novo
+                </button>
+              </div>
+            )}
 
             {/* 📝 INPUT DE TEXTO DA LINHA COM INFORMAÇÕES — abre ao clicar numa infoLine */}
             {infoLineEditor && (
