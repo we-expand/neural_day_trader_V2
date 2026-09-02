@@ -94,10 +94,28 @@
  * avaliados por ciclo = mais chance de algum passar no piso de risco E
  * ter sinal real, exatamente como funcionava antes da redução de hoje.
  */
+/**
+ * 🔴 2026-09-02 (pedido do Cleber): reduzida de 16 pra 10 símbolos --
+ * suspeita de que o motor (ciclo de 10s, `get_mt5_quote` sem cache pra
+ * tick/preço) está disputando rate-limit da conta MetaAPI compartilhada
+ * contra o próprio Gráfico do Cleber (achado ao vivo: gráfico intermitente,
+ * preço "oscilando pra zerado", boleta recusando ordem por falta de preço
+ * confiável -- mesmo com ele sozinho numa aba, o motor headless é o
+ * segundo consumidor pesado e contínuo da mesma conta). Cortados os 6 mais
+ * recentes/menos testados: DOTUSD, ADAUSD, LNKUSD, UNIUSD (adicionados
+ * 2026-08-30) e UKOUSD/UK100 (UKOUSD já documentado como estruturalmente
+ * bloqueado pelo piso de risco mínimo nesta conta pequena, ver comentário
+ * de 2026-09-01 acima -- avaliar esse símbolo todo ciclo sem nunca poder
+ * operar era carga desperdiçada). Mantidos os 10 com maior amostra/melhor
+ * histórico: os 5 cripto validados (BTCUSD, XETUSD, DOGUSD, XRPUSD,
+ * BTCXBN) + EURUSD, XAUUSD, GER40, SPX500, NAS100. Sem validação
+ * estatística de melhora no líquido -- é mitigação de carga na API, não
+ * mudança de estratégia. Reverter se não resolver a intermitência do
+ * gráfico (não é o motivo mais provável nesse caso).
+ */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN",
-  "ADAUSD", "LNKUSD", "UNIUSD",
-  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+  "BTCUSD", "XETUSD", "DOGUSD", "XRPUSD", "BTCXBN",
+  "EURUSD", "XAUUSD", "GER40", "SPX500", "NAS100",
 ];
 
 /**
