@@ -15,6 +15,24 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-02] Gráfico ficava em branco (sem candles, sem
+nenhum aviso) ao clicar numa posição aberta no Dashboard e entrar no
+Gráfico — commit pronto, não aplicado ainda.** Cleber reportou tela
+vazia (só o painel de compra/venda aparecia) e, à parte, "gráfico
+demorando demais para entrar". Testado ao vivo contra
+`/mt5-candles-history` pra EURUSD/1H: endpoint respondendo normal, dado
+real — não era symbol/backend quebrado, era falha transitória (rate-limit
+da conta MetaAPI compartilhada, risco já documentado abaixo) sem nenhuma
+recuperação visível: `dataSource` era setado em `ChartView.tsx` mas nunca
+lido em lugar nenhum da UI — se a 1ª busca de candles falhasse, o canvas
+ficava mudo pra sempre, só o auto-refresh silencioso de 30s podia (talvez)
+recuperar. Corrigido: retry com backoff 2s/4s/8s dentro do próprio fetch
++ spinner "Carregando candles de {símbolo}..." + mensagem de erro com
+botão "Tentar de novo" quando falha de vez — nunca mais um branco mudo,
+nem dado fabricado (se não há candle real, o app diz isso explicitamente).
+`tsc --noEmit`: mesma contagem de erros pré-existentes (417, todos tipo
+`"Stocks US"/"Stocks BR"`, não relacionados). `npm run validate`: 37/37.
+
 **[RESOLVIDO 2026-09-01, noite] Log de operações num fuso errado (parecia
 incompleto) + linha de posição sumindo do gráfico — 2 bugs reais, ambos
 corrigidos.** Cleber alarmado ("vou sofrer auditoria de investidores"): 4
