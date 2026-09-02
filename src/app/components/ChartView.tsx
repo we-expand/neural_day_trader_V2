@@ -5736,7 +5736,19 @@ export function ChartView({
       const fetchData = async (retryAttempt = 0) => {
         console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe, 'attempt', retryAttempt);
         fetchInProgress = true;
-        if (retryAttempt === 0) {
+        // 🐛 FIX 2026-09-02 (3ª causa do "gráfico dando refresh sozinho"):
+        // `setCandlesLoading(true)` aqui rodava em TODA chamada de fetchData
+        // com retryAttempt=0 — inclusive o auto-refresh de 30s (que sempre
+        // chama fetchData() sem argumento, ou seja, retryAttempt=0 de novo).
+        // Isso acendia o spinner "Carregando candles..." por cima do gráfico
+        // a cada 30 segundos, mesmo em operação 100% normal sem nenhuma
+        // falha — visível como o próprio "pisca"/"refresh sozinho" relatado,
+        // independente dos dois fixes anteriores (dataset incremental +
+        // overlays de S/R), que não tocavam neste spinner. Loading visível
+        // só faz sentido na 1ª carga de verdade (ainda sem nenhum candle no
+        // chart) ou numa tentativa de RETRY depois de falha real — nunca no
+        // auto-refresh silencioso de rotina.
+        if (retryAttempt === 0 && isInitialLoadRef.current) {
           setCandlesLoading(true);
           setCandlesLoadFailed(false);
         }
