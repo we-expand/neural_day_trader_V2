@@ -91,7 +91,7 @@ function sleep(ms: number) {
 const QUOTE_RETRY_ATTEMPTS = 3;
 const QUOTE_RETRY_DELAY_MS = 500;
 
-async function fetchQuoteOnce(symbol: string): Promise<Mt5Quote | null> {
+async function fetchTicks(symbols: string[]): Promise<Map<string, Mt5PriceTick> | null> {
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-prices`;
   try {
     const res = await fetch(url, {
@@ -100,13 +100,24 @@ async function fetchQuoteOnce(symbol: string): Promise<Mt5Quote | null> {
         Authorization: `Bearer ${config.neuralSupabaseAnonKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ symbols: [symbol] }),
+      body: JSON.stringify({ symbols }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
     const result = await res.json();
-    const tick: Mt5PriceTick | null = Array.isArray(result?.prices) ? result.prices[0] : null;
-    if (!tick || !Number.isFinite(tick.price) || tick.price <= 0 || result.source === "SIMULATED") return null;
+    if (result.source === "SIMULATED" || !Array.isArray(result?.prices)) return null;
+    const bySymbol = new Map<string, Mt5PriceTick>();
+    for (const tick of result.prices as (Mt5PriceTick & { symbol?: string })[]) {
+      if (tick?.symbol) bySymbol.set(tick.symbol, tick);
+    }
+    return bySymbol;
+  } catch {
+    return null;
+  }
+}
+
+function processTick(symbol: string, tick: Mt5PriceTick | null | undefined): Mt5Quote | null {
+    if (!tick || !Number.isFinite(tick.price) || tick.price <= 0) return null;
 
     if (lastPriceBySymbol[symbol] === tick.price) {
       repeatCountBySymbol[symbol] = (repeatCountBySymbol[symbol] ?? 1) + 1;
@@ -171,12 +182,59 @@ async function fetchQuoteOnce(symbol: string): Promise<Mt5Quote | null> {
       tickAgeSeconds: tickAgeMs === null ? null : Number((tickAgeMs / 1000).toFixed(1)),
       stale,
     };
-  } catch {
-    return null;
+}
+
+// 🔴 2026-09-02 (achado real: rate-limit crônico da conta MetaAPI
+// compartilhada piorando mesmo depois de reduzir a cesta 16→10→7 -- ver
+// SESSAO_2026-09-02_RATE_LIMIT_METAAPI_BATCH_QUOTES.md): cada get_mt5_quote,
+// open_position, close_position e enforceMt5StopsAndTargets disparava sua
+// PRÓPRIA requisição a /mt5-prices com 1 símbolo só -- um ciclo de 10s com 7
+// ativos na cesta virava até 7+ requisições HTTP sequenciais separadas
+// disputando a mesma conta com o polling do Gráfico no navegador. O TTL do
+// cache compartilhado do servidor é de só 2,5s (`PRICE_CACHE_TTL_MS`), então
+// símbolos diferentes quase nunca reaproveitavam cache entre si. Agora
+// `primeQuotes` busca a cesta INTEIRA numa única requisição por ciclo (o
+// endpoint já suporta `symbols: [...]` e já teria concorrência limitada
+// internamente pra um lote só) e populated um cache local de curta duração;
+// `getQuote` lê desse cache primeiro, só cai pro fetch individual (com retry)
+// se o símbolo não foi priming ou o cache expirou -- nunca perde a proteção
+// existente, só evita repetir a mesma cotação 5-7x por ciclo.
+const QUOTE_CACHE_TTL_MS = 8_000;
+const quoteCache = new Map<string, { quote: Mt5Quote; fetchedAtMs: number }>();
+
+function cacheQuote(quote: Mt5Quote) {
+  quoteCache.set(quote.symbol, { quote, fetchedAtMs: Date.now() });
+}
+
+function getFreshCachedQuote(symbol: string): Mt5Quote | null {
+  const entry = quoteCache.get(symbol);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAtMs > QUOTE_CACHE_TTL_MS) return null;
+  return entry.quote;
+}
+
+/** Busca a cesta inteira numa única requisição e popula o cache -- chamar 1x por ciclo, antes do agente decidir. Nunca lança: falha silenciosa aqui só significa que getQuote cai pro fetch individual de sempre. */
+export async function primeQuotes(symbols: string[]): Promise<void> {
+  if (symbols.length === 0) return;
+  const ticksBySymbol = await fetchTicks(symbols);
+  if (!ticksBySymbol) return;
+  for (const symbol of symbols) {
+    const quote = processTick(symbol, ticksBySymbol.get(symbol));
+    if (quote) cacheQuote(quote);
   }
 }
 
+async function fetchQuoteOnce(symbol: string): Promise<Mt5Quote | null> {
+  const ticksBySymbol = await fetchTicks([symbol]);
+  const quote = processTick(symbol, ticksBySymbol?.get(symbol));
+  if (quote) cacheQuote(quote);
+  return quote;
+}
+
 export async function getQuote(symbol: string): Promise<Mt5Quote | null> {
+  const cached = getFreshCachedQuote(symbol);
+  if (cached) return cached;
+
   for (let attempt = 1; attempt <= QUOTE_RETRY_ATTEMPTS; attempt++) {
     const quote = await fetchQuoteOnce(symbol);
     if (quote) return quote;

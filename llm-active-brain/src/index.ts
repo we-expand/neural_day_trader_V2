@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
 import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
+import { primeQuotes } from "./mt5Broker.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -141,6 +142,14 @@ async function runContinuous() {
         await sleep(config.cycleDelaySeconds * 1000);
         continue;
       }
+      // 🔴 2026-09-02 (rate-limit crônico, ver mt5Broker.ts): busca a cesta
+      // inteira UMA VEZ por ciclo (nao mais uma requisicao HTTP separada por
+      // simbolo, por sessao, por chamada de ferramenta) -- todas as sessoes
+      // deste ciclo reaproveitam o mesmo cache de curta duracao. Falha
+      // silenciosa (nunca lanca): se der errado, cada getQuote() cai pro
+      // fetch individual de sempre, sem perder protecao nenhuma.
+      await primeQuotes(MT5_ASSET_BASKET);
+
       for (const session of sessions) {
         try {
           console.log(`[DEBUG] Session antes de runAgent:`, JSON.stringify(session));
