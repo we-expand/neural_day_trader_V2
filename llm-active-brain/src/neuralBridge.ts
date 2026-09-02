@@ -602,6 +602,63 @@ export interface Mt5OpenPosition {
   entry_time: string;
   stop_loss: number | null;
   take_profit: number | null;
+  pyramid_adds_count: number;
+}
+
+/**
+ * 🔴 2026-09-02 (pedido do Cleber -- "agente de risco interno", perder pouco
+ * e ganhar muito dentro da taxa de acerto atual): amplia uma posição JÁ
+ * vencedora (pyramiding), misturando o preço médio real de entrada e
+ * puxando o stop pra breakeven-ou-melhor no mesmo movimento -- nunca deixa
+ * o add novo reabrir risco sobre o lote original. Todos os gates (lucro
+ * real, confluência ainda válida, teto de adds, teto de risco/grupo
+ * correlacionado) ficam em tools.ts (increase_position); esta função só
+ * executa a escrita já validada. Falha fechada (false) em vez de lançar --
+ * mesmo padrão de updateStopLoss logo abaixo.
+ */
+export async function increaseMt5Position(params: {
+  tradeId: string;
+  addAmountUsd: number;
+  addFillPrice: number;
+  newStopLoss: number;
+  reasoningAppend: string;
+}): Promise<boolean> {
+  try {
+    const sb = getClient();
+    const { data: current, error: readError } = await sb
+      .from("ai_trades")
+      .select("entry_price, quantity, ai_reasoning, pyramid_adds_count")
+      .eq("id", params.tradeId)
+      .eq("status", "OPEN")
+      .single();
+    if (readError || !current) {
+      console.error("[neuralBridge/mt5] increaseMt5Position: posicao nao encontrada/OPEN:", readError?.message);
+      return false;
+    }
+    const oldQuantity = Number(current.quantity);
+    const oldEntryPrice = Number(current.entry_price);
+    const newQuantity = oldQuantity + params.addAmountUsd;
+    // Média ponderada pelo NOTIONAL (quantity = exposição em USD, ver
+    // convenção documentada em openMt5Position acima) -- não pela contagem
+    // de trades, cada add pesa pelo tamanho real que entrou.
+    const blendedEntryPrice = (oldEntryPrice * oldQuantity + params.addFillPrice * params.addAmountUsd) / newQuantity;
+    const { error: updateError } = await sb
+      .from("ai_trades")
+      .update({
+        quantity: newQuantity,
+        entry_price: blendedEntryPrice,
+        stop_loss: params.newStopLoss,
+        ai_reasoning: `${current.ai_reasoning ?? ""} || PYRAMID_ADD #${(current.pyramid_adds_count ?? 0) + 1}: ${params.reasoningAppend}`,
+        pyramid_adds_count: (current.pyramid_adds_count ?? 0) + 1,
+      })
+      .eq("id", params.tradeId)
+      .eq("status", "OPEN");
+    if (updateError) throw updateError;
+    return true;
+  } catch (err) {
+    console.error("[neuralBridge/mt5] falha ao ampliar posicao (increase_position):", err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 /**
@@ -623,7 +680,7 @@ export async function listMt5OpenPositions(sessionId: string): Promise<Mt5OpenPo
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
-    .select("id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit")
+    .select("id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count")
     .eq("session_id", sessionId)
     .eq("status", "OPEN")
     .order("entry_time", { ascending: true });

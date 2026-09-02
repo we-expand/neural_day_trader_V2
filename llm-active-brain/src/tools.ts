@@ -4,7 +4,7 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
@@ -28,6 +28,14 @@ import { checkReasoningConsistency } from "./reasoningValidator.js";
 // 🔴 2026-08-31 (teste): afrouxado pra 5.0 pra permitir entradas em spreads normais de fim de semana
 export const SPREAD_BLOCK_PCT = 5.0;
 export const SPREAD_WARN_PCT = 2.0;
+
+// 🔴 2026-09-02 (pedido do Cleber -- agente de risco interno, "perder pouco,
+// ganhar muito" dentro da mesma taxa de acerto): teto de quantas vezes UMA
+// posição pode ser ampliada (pyramiding) via increase_position. Cada add já
+// exige lucro real + confluência ainda válida (ver case increase_position),
+// mas o teto aqui é a última linha de defesa contra compounding descontrolado
+// sobre um único símbolo -- 2 adds no máximo (posição original + 2 reforços).
+export const MAX_PYRAMID_ADDS = 2;
 
 // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, root cause confirmado
 // rastreando o log ciclo a ciclo, pedido explicito do Cleber -- "perdeu
@@ -423,6 +431,30 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         properties: {
           trade_id: { type: "string", description: "Id da posicao a fechar." },
           reasoning: { type: "string", description: "Por que fechar agora (alvo atingido, invalidacao da tese, etc)." },
+        },
+        required: ["trade_id", "reasoning"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "increase_position",
+      description:
+        `AMPLIA (pyramiding) uma posicao SUA que ja esta ganhando de verdade -- "deixar o lucro correr" com o stop ` +
+        `subindo atras do preco pra travar o ganho, em vez de so esperar parado o alvo original. NAO e pra recuperar ` +
+        `posicao perdedora nem pra "dobrar a aposta" -- so funciona com lucro real ja capturado (acima do custo do ` +
+        `spread) E pelo menos 1 fator tecnico real (tendencia/MACD/Estocastico/padrao de candle) ainda alinhado com o ` +
+        `lado da posicao (sinal ainda nao esgotado). O codigo dimensiona o reforco pela MESMA formula de risco de ` +
+        `open_position (nunca maior que o risco da entrada original) e MOVE O STOP pra breakeven-ou-melhor no mesmo ` +
+        `movimento -- o lote original nunca fica exposto de novo por causa do reforco. Maximo de ${MAX_PYRAMID_ADDS} ` +
+        `reforcos por posicao. Bloqueado se a posicao nao estiver em lucro real, se faltar confluencia, ou se o teto ` +
+        `de adds/exposicao do grupo correlacionado ja tiver sido atingido.`,
+      parameters: {
+        type: "object",
+        properties: {
+          trade_id: { type: "string", description: "Id da posicao vencedora a ampliar." },
+          reasoning: { type: "string", description: "Por que o movimento a favor e real e vale reforcar agora (cite os fatores tecnicos ainda alinhados)." },
         },
         required: ["trade_id", "reasoning"],
       },
@@ -1696,6 +1728,186 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const closed = await closeMt5Position({ tradeId, exitPrice, reasoning });
       if (!closed) return { error: "Falha ao fechar a posicao (ver log do processo)." };
       return { trade_id: tradeId, exit_price: exitPrice };
+    }
+
+    // 🔴 2026-09-02 (pedido do Cleber -- "agente de risco interno": ganhar
+    // muito, perder pouco, dentro da mesma taxa de acerto). Pyramiding
+    // controlado: so amplia posicao ja em lucro REAL (acima do spread), com
+    // pelo menos 1 fator tecnico real ainda a favor (nao esgotado), nunca
+    // com exaustao real contra o proprio lado. Sizing usa a MESMA formula de
+    // risco de open_position, capado pelo notional do lote original (nunca
+    // reforça mais do que a entrada inicial), e o stop e movido pra
+    // breakeven-ou-melhor no mesmo movimento -- travando o ganho antes de
+    // aumentar exposicao, nunca reabrindo risco sobre o lote que ja ganhava.
+    case "increase_position": {
+      const tradeId = String(input.trade_id || "");
+      const reasoning = String(input.reasoning || "");
+      if (!tradeId) return { error: "trade_id invalido." };
+
+      try {
+        const preCheck = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
+        const mechanicalClose = preCheck.closed.find((c) => c.tradeId === tradeId);
+        if (mechanicalClose) {
+          return {
+            error: `Posicao ja foi fechada mecanicamente (${mechanicalClose.reason}) antes deste reforco poder ser aplicado -- nao ha mais nada pra ampliar.`,
+          };
+        }
+      } catch (err) {
+        console.warn("[tools/increase_position] falha ao rechecar stop/alvo mecanico:", err instanceof Error ? err.message : err);
+      }
+
+      let positions;
+      try {
+        positions = await listMt5OpenPositions(session.sessionId);
+      } catch (err) {
+        return { error: `Nao foi possivel confirmar a posicao ${tradeId} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Reforco NAO aplicado -- tente de novo.` };
+      }
+      const position = positions.find((p) => p.id === tradeId);
+      if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
+
+      if (position.pyramid_adds_count >= MAX_PYRAMID_ADDS) {
+        return {
+          error: `${position.symbol} ja recebeu o maximo de ${MAX_PYRAMID_ADDS} reforcos permitidos nesta posicao. Nenhum reforco adicional -- deixe o stop/alvo mecanico (ja travado a favor pelos reforcos anteriores) decidir a partir daqui.`,
+        };
+      }
+      if (position.stop_loss == null) {
+        return { error: `Posicao ${position.symbol} sem stop_loss registrado -- nao da pra calcular o risco do reforco com seguranca. Reforco NAO aplicado.` };
+      }
+      if (lastQuotedCycleBySymbol.get(position.symbol) !== cycle) {
+        return {
+          error: `Voce ainda nao chamou get_mt5_quote("${position.symbol}") NESTE ciclo -- reforcar com dado velho (ou de outro simbolo) e o mesmo erro ja catalogado pra close_position. Chame get_mt5_quote("${position.symbol}") primeiro, depois chame increase_position de novo.`,
+        };
+      }
+      const quote = await getMt5Quote(position.symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${position.symbol} -- reforco NAO aplicado.` };
+      if (quote.stale) {
+        return { error: `Cotacao de ${position.symbol} esta OBSOLETA (tick de ${quote.tickAgeSeconds}s de idade). Reforco NAO aplicado.` };
+      }
+      if (Number.isFinite(quote.spreadPct) && quote.spreadPct > SPREAD_BLOCK_PCT) {
+        return { error: `Spread de ${position.symbol} esta em ${quote.spreadPct.toFixed(2)}%, acima do teto de ${SPREAD_BLOCK_PCT}%. Reforco NAO aplicado.` };
+      }
+
+      const fillPrice = position.side === "LONG" ? quote.ask : quote.bid;
+      const spreadAbs = Math.abs(quote.ask - quote.bid);
+      const favorableMove = position.side === "LONG" ? fillPrice - position.entry_price : position.entry_price - fillPrice;
+      if (!(favorableMove > spreadAbs)) {
+        return {
+          error:
+            `Reforco de ${position.symbol} recusado: a posicao nao esta em lucro real acima do custo do spread ` +
+            `(movimento a favor: ${favorableMove.toFixed(6)}, spread: ${spreadAbs.toFixed(6)}). Reforcar aqui seria aumentar risco sem ` +
+            `ganho ja capturado -- increase_position so amplia posicao GANHANDO de verdade, nunca pra "recuperar" ou "dobrar a aposta".`,
+        };
+      }
+
+      const timeframeForIncrease = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const [trendForIncrease, macdForIncrease, stochasticForIncrease, candleForIncrease] = await Promise.all([
+        getTrendInfo(position.symbol, timeframeForIncrease),
+        getMacd(position.symbol, timeframeForIncrease),
+        getSlowStochastic(position.symbol, timeframeForIncrease),
+        getCandlePatterns(position.symbol, timeframeForIncrease),
+      ]);
+      const alignedFactors: string[] = [];
+      if (trendForIncrease) {
+        const trendAligned = (position.side === "LONG" && trendForIncrease.label === "ALTA") || (position.side === "SHORT" && trendForIncrease.label === "BAIXA");
+        if (trendAligned) alignedFactors.push(`tendencia ${trendForIncrease.label}`);
+      }
+      if (macdForIncrease) {
+        const macdAligned = (position.side === "LONG" && macdForIncrease.label === "ALTA") || (position.side === "SHORT" && macdForIncrease.label === "BAIXA");
+        if (macdAligned) alignedFactors.push(`MACD ${macdForIncrease.label}`);
+      }
+      if (candleForIncrease?.bias) {
+        const patternAligned = (position.side === "LONG" && candleForIncrease.bias === "ALTA") || (position.side === "SHORT" && candleForIncrease.bias === "BAIXA");
+        if (patternAligned) alignedFactors.push(`padrao ${candleForIncrease.detected.join("/")} (bias ${candleForIncrease.bias})`);
+      }
+      // Estocastico em extremo NO SENTIDO do proprio movimento e sinal de
+      // exaustao (nao de continuidade) -- ao contrario do gate de abertura,
+      // aqui ele NUNCA soma como fator a favor, e bloqueia o reforco se
+      // apontar exaustao contra o lado (mesmo com lucro real e outros
+      // fatores alinhados -- perseguir o topo/fundo com posicao maior e
+      // exatamente o oposto de "perder pouco, ganhar muito").
+      const exhaustionAgainst = !!(
+        stochasticForIncrease &&
+        ((position.side === "LONG" && stochasticForIncrease.label === "SOBRECOMPRADO") ||
+          (position.side === "SHORT" && stochasticForIncrease.label === "SOBREVENDIDO"))
+      );
+      if (alignedFactors.length < 1 || exhaustionAgainst) {
+        return {
+          error:
+            exhaustionAgainst
+              ? `Reforco de ${position.symbol} recusado: Estocastico em extremo (${stochasticForIncrease?.label}) sugere exaustao do proprio movimento -- reforcar aqui e perseguir o topo/fundo, nao aproveitar tendencia real. Posicao mantida como esta, sem reforco.`
+              : `Reforco de ${position.symbol} recusado: nenhum fator tecnico real (tendencia/MACD/padrao de candle) ainda alinhado com o lado ${position.side} -- o sinal pode ja ter perdido forca, mesmo com lucro flutuante. Posicao mantida como esta, sem reforco.`,
+        };
+      }
+
+      const accountBalance = await getMt5AccountBalance(session.sessionId);
+      const allocated = session.userConfig?.allocatedCapitalUsd;
+      const balance = allocated != null ? Math.min(allocated, accountBalance) : accountBalance;
+      const baseRiskPct = session.userConfig?.riskPerTradePct != null ? session.userConfig.riskPerTradePct / 100 : config.mt5RiskPctPerTrade;
+      const stopDistancePct = Math.abs(fillPrice - position.stop_loss) / fillPrice;
+      const riskUsd = balance * baseRiskPct;
+      let lots = stopDistancePct > 0 ? riskUsd / stopDistancePct / (LOT_SIZE[position.symbol] * fillPrice) : 0;
+      lots = Math.min(lots, config.mt5SafetyMaxLots);
+      if (session.userConfig?.maxLotsPerTrade != null) lots = Math.min(lots, session.userConfig.maxLotsPerTrade);
+      lots = Math.round(lots / MIN_LOTS) * MIN_LOTS;
+      if (lots < MIN_LOTS) lots = MIN_LOTS;
+      let addAmountUsd = lots * LOT_SIZE[position.symbol] * fillPrice;
+      // Teto extra de seguranca, independente do calculo de risco acima:
+      // o reforco nunca pode ser MAIOR que o lote original -- pyramiding
+      // aumenta exposicao gradualmente, nunca dobra ou mais de uma vez so.
+      if (addAmountUsd > position.quantity) {
+        addAmountUsd = position.quantity;
+      }
+      const actualRiskUsd = addAmountUsd * stopDistancePct;
+      const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
+      if (actualRiskUsd > maxRiskUsd) {
+        return {
+          error: `Risco minimo possivel para reforcar ${position.symbol} ($${actualRiskUsd.toFixed(2)}) excede o teto de risco por trade desta conta ($${maxRiskUsd.toFixed(2)}). Reforco NAO aplicado.`,
+        };
+      }
+
+      const correlatedGroup = getCorrelatedGroup(position.symbol);
+      if (correlatedGroup.length > 1) {
+        const sameSideGroupExposure = positions
+          .filter((p) => correlatedGroup.includes(p.symbol) && p.side === position.side)
+          .reduce((sum, p) => sum + Number(p.quantity), 0);
+        const projectedExposure = sameSideGroupExposure + addAmountUsd;
+        if (projectedExposure > config.mt5MaxCorrelatedNotionalUsd) {
+          return {
+            error:
+              `Reforco de ${position.symbol} ($${addAmountUsd.toFixed(0)}) levaria a exposicao ${position.side} combinada do grupo correlacionado ` +
+              `(${correlatedGroup.join("/")}) de $${sameSideGroupExposure.toFixed(0)} para $${projectedExposure.toFixed(0)}, acima do teto ` +
+              `($${config.mt5MaxCorrelatedNotionalUsd}). Reforco NAO aplicado.`,
+          };
+        }
+      }
+
+      // Trava o stop pra breakeven-ou-melhor no MESMO movimento -- o lote
+      // original nunca volta a ficar exposto por causa deste reforco.
+      // Usa o entry_price ORIGINAL (pre-blend) + o custo do proprio spread
+      // como piso de protecao real, nao so o preco cravado.
+      const newStopLoss = position.side === "LONG"
+        ? Math.max(position.stop_loss, position.entry_price + spreadAbs)
+        : Math.min(position.stop_loss, position.entry_price - spreadAbs);
+
+      const ok = await increaseMt5Position({
+        tradeId,
+        addAmountUsd,
+        addFillPrice: fillPrice,
+        newStopLoss,
+        reasoningAppend: reasoning,
+      });
+      if (!ok) return { error: "Falha ao ampliar a posicao (ver log do processo)." };
+      return {
+        trade_id: tradeId,
+        symbol: position.symbol,
+        add_amount_usd: Number(addAmountUsd.toFixed(2)),
+        add_fill_price: fillPrice,
+        new_stop_loss: newStopLoss,
+        fatores_confirmando: alignedFactors,
+        reforcos_usados: position.pyramid_adds_count + 1,
+        reforcos_maximo: MAX_PYRAMID_ADDS,
+        aviso: "Stop movido para breakeven-ou-melhor -- o lote original nao volta a ficar exposto por causa deste reforco.",
+      };
     }
 
     case "place_market_order": {
