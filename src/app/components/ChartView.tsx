@@ -5691,10 +5691,20 @@ export function ChartView({
       let cancelled = false;
       let retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
       const CANDLE_RETRY_DELAYS_MS = [2000, 4000, 8000];
+      // 🐛 FIX 2026-09-02 (parte 2): o auto-refresh de 30s chamava fetchData()
+      // sem argumento (volta pro retryAttempt=0) mesmo com um retry já em
+      // andamento -- se cada tentativa demora vários segundos pra dar timeout
+      // (MetaAPI lenta/rate-limited), o ciclo completo de 3 tentativas pode
+      // passar de 30s e o auto-refresh reseta tudo antes de exibir o erro
+      // "Tentar de novo", prendendo o usuário no spinner pra sempre durante
+      // instabilidade prolongada. Esta flag faz o auto-refresh pular um tick
+      // quando já existe um ciclo de fetch/retry em andamento.
+      let fetchInProgress = false;
 
       // Fetch real data
       const fetchData = async (retryAttempt = 0) => {
         console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe, 'attempt', retryAttempt);
+        fetchInProgress = true;
         if (retryAttempt === 0) {
           setCandlesLoading(true);
           setCandlesLoadFailed(false);
@@ -5744,6 +5754,7 @@ export function ChartView({
             setDataSource('loading');
             setCandlesLoading(false);
             setCandlesLoadFailed(true);
+            fetchInProgress = false;
             return;
           }
           setCandlesLoadFailed(false);
@@ -6142,6 +6153,7 @@ export function ChartView({
           setDataSource('metaapi');
           setCandlesLoading(false);
           setCandlesLoadFailed(false);
+          fetchInProgress = false;
 
           // Store chart data and analyze
           setChartData(candles);
@@ -6243,14 +6255,19 @@ export function ChartView({
           setDataSource('loading');
           setCandlesLoading(false);
           setCandlesLoadFailed(true);
+          fetchInProgress = false;
         }
       };
       fetchChartDataRef.current = () => fetchData(0);
 
       fetchData();
-      
+
       // 🔄 AUTO-REFRESH: Atualizar candles a cada 30 segundos
       const refreshInterval = setInterval(() => {
+        if (fetchInProgress) {
+          console.log('[ChartView] ⏭️ Auto-refresh pulado: retry de candles ainda em andamento');
+          return;
+        }
         console.log('[ChartView] 🔄 Auto-refreshing candles...');
         fetchData();
       }, 30000); // 30 segundos
