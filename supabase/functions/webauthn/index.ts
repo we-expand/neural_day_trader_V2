@@ -114,12 +114,16 @@ async function handleRegisterOptions(req: Request) {
   });
 
   await cleanupExpiredChallenges(svc);
-  await svc.from('webauthn_challenges').insert({
+  const { error: challengeErr } = await svc.from('webauthn_challenges').insert({
     user_id: user.id,
     email: user.email,
     challenge: options.challenge,
     purpose: 'register',
   });
+  if (challengeErr) {
+    console.error('[webauthn] Falha ao gravar challenge de registro:', challengeErr);
+    return json({ error: 'Falha ao iniciar cadastro — tente novamente' }, 500);
+  }
 
   return json({ options });
 }
@@ -233,12 +237,18 @@ async function handleAuthenticateOptions(req: Request) {
   });
 
   await cleanupExpiredChallenges(svc);
-  await svc.from('webauthn_challenges').insert({
+  const { error: challengeErr } = await svc.from('webauthn_challenges').insert({
     user_id: targetUser.id,
     email,
     challenge: options.challenge,
     purpose: 'authenticate',
   });
+  if (challengeErr) {
+    console.error('[webauthn] Falha ao gravar challenge de autenticação:', challengeErr);
+    // Ainda devolve as opções genéricas — não vaza se o email tem passkey,
+    // mas o authenticate-verify vai falhar de forma honesta (challenge
+    // inexistente) em vez de mascarar o erro real de gravação.
+  }
 
   return json({ options });
 }
