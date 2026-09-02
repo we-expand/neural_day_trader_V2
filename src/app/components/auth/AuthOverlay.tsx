@@ -8,7 +8,8 @@ import {
   X,
   AlertCircle,
   Zap,
-  Trash2
+  Trash2,
+  Fingerprint
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
@@ -635,7 +636,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 {biometricLoading ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
-                                    <span className="text-lg leading-none">👆</span>
+                                    <Fingerprint className="w-4 h-4" />
                                 )}
                                 Entrar com biometria
                             </button>
@@ -870,7 +871,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                 className={`${BLUR_BG} rounded-2xl p-8 max-w-md w-full text-center`}
               >
                 <div className="w-14 h-14 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto mb-5">
-                  <span className="text-2xl leading-none">👆</span>
+                  <Fingerprint className="w-7 h-7 text-blue-400" />
                 </div>
                 <h2 className="text-2xl font-light text-white mb-2">Ativar login por biometria?</h2>
                 <p className="text-sm text-slate-400 leading-relaxed mb-6">
