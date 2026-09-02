@@ -5,16 +5,25 @@ import { aiPersistence, AITrade, AIDecision, AISession } from '@/app/services/AI
 
 type Tab = 'trades' | 'decisions';
 
-function toUtcDateKey(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
+// Fuso do usuário (Brasília). Chave de agrupamento e rótulo exibido usam
+// SEMPRE o mesmo fuso entre si — nunca UTC pra uma coisa e local pra outra
+// (foi exatamente essa mistura que causou o bug de "dia errado" em
+// 2026-08-21, ver CLAUDE.md). Pedido explícito do Cleber em 2026-09-01:
+// horários do log devem bater com o relógio de Brasília, não UTC.
+const USER_TIME_ZONE = 'America/Sao_Paulo';
+
+function toLocalDateKey(iso: string): string {
+  // en-CA formata como YYYY-MM-DD, direto utilizável como chave/sort key.
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: USER_TIME_ZONE });
 }
 
 function formatDateKey(key: string): string {
-  return new Date(`${key}T00:00:00Z`).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('pt-BR', { timeZone: USER_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' }) + ' UTC';
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: USER_TIME_ZONE }) + ' (Brasília)';
 }
 
 function downloadCsv(filename: string, rows: (string | number | null | undefined)[][]) {
@@ -137,7 +146,7 @@ export function OperationLogs() {
   const tradesByDay = useMemo(() => {
     const map: Record<string, AITrade[]> = {};
     filteredTrades.forEach((t) => {
-      const key = toUtcDateKey(t.entry_time);
+      const key = toLocalDateKey(t.entry_time);
       if (!map[key]) map[key] = [];
       map[key].push(t);
     });
@@ -155,7 +164,7 @@ export function OperationLogs() {
   const exportTradesCsv = () => {
     const header = ['Data', 'Hora', 'Sessão (modo)', 'Símbolo', 'Tipo', 'Lado', 'Preço Entrada', 'Preço Saída', 'Quantidade', 'Stop Loss', 'Take Profit', 'PnL', 'PnL líquido', 'Comissão', 'Confiança IA (%)', 'Motivo saída', 'Duração (s)', 'Status', 'Raciocínio IA'];
     const rows = filteredTrades.map((t) => [
-      toUtcDateKey(t.entry_time), formatTime(t.entry_time), sessionModeById[t.session_id] || '',
+      toLocalDateKey(t.entry_time), formatTime(t.entry_time), sessionModeById[t.session_id] || '',
       t.symbol, t.type, t.side, t.entry_price, t.exit_price ?? '', t.quantity, t.stop_loss ?? '', t.take_profit ?? '',
       t.pnl ?? '', t.net_pnl ?? '', t.commission ?? '', t.ai_confidence ?? '', t.exit_reason ?? '', t.duration_seconds ?? '', t.status, t.ai_reasoning ?? '',
     ]);
@@ -165,7 +174,7 @@ export function OperationLogs() {
   const exportDecisionsCsv = () => {
     const header = ['Data', 'Hora', 'Sessão (modo)', 'Símbolo', 'Decisão', 'Confiança (%)', 'Score de Mercado', 'Executado?', 'Etapa de veto', 'Raciocínio'];
     const rows = filteredDecisions.map((d) => [
-      toUtcDateKey(d.timestamp), formatTime(d.timestamp), sessionModeById[d.session_id] || '',
+      toLocalDateKey(d.timestamp), formatTime(d.timestamp), sessionModeById[d.session_id] || '',
       d.symbol, d.decision, d.confidence ?? '', d.market_score ?? '', d.action_taken ? 'SIM' : 'NÃO', d.veto_stage ? (VETO_LABELS[d.veto_stage] || d.veto_stage) : '', d.reasoning,
     ]);
     downloadCsv(`neural-day-trader_decisoes_${startDate}_a_${endDate}.csv`, [header, ...rows]);
@@ -342,7 +351,7 @@ export function OperationLogs() {
               )}
               {filteredDecisions.map((d) => (
                 <tr key={d.id} className="border-t border-white/5 hover:bg-white/5 align-top">
-                  <td className="px-4 py-2 whitespace-nowrap">{toUtcDateKey(d.timestamp)} {formatTime(d.timestamp)}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{toLocalDateKey(d.timestamp)} {formatTime(d.timestamp)}</td>
                   <td className="px-4 py-2 font-medium">{d.symbol}</td>
                   <td className="px-4 py-2">{d.decision}</td>
                   <td className="px-4 py-2 text-right">{d.confidence}%</td>
