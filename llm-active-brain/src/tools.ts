@@ -1113,7 +1113,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume] = await Promise.all([getTrendInfo(symbol, openPositionTimeframe), getVolumeConfirmation(symbol, openPositionTimeframe)]);
+      const [trend, volume, supportResistanceForTarget] = await Promise.all([
+        getTrendInfo(symbol, openPositionTimeframe),
+        getVolumeConfirmation(symbol, openPositionTimeframe),
+        getSupportResistance(symbol, openPositionTimeframe),
+      ]);
       if (trend && trend.label !== "LATERAL" && volume) {
         const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
         // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
@@ -1239,6 +1243,32 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ? RR_BY_TARGET_POINTS[session.userConfig.targetPoints]
         : config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier;
       let takeProfitPct = stopPct * rrMultiplier;
+      // 🔴 2026-09-02 (pedido direto do Cleber): alvo por ATR e cego a
+      // estrutura real do preco -- capado aqui pela distancia real ate o
+      // proximo suporte/resistencia (candle oficial, mesma fonte que MACD/
+      // Estocastico) na direcao do trade, pra TODOS os ativos da cesta. Sem
+      // candle real suficiente (supportResistanceForTarget == null), mantem
+      // o alvo por ATR puro -- nunca fabrica nivel.
+      let takeProfitCappedBySR = false;
+      if (supportResistanceForTarget) {
+        const distanceToLevelPct =
+          (side === "LONG" ? supportResistanceForTarget.distanceToResistancePct : supportResistanceForTarget.distanceToSupportPct) / 100;
+        const srCappedTakeProfitPct = distanceToLevelPct * config.mt5SrTargetMarginPct;
+        if (srCappedTakeProfitPct < takeProfitPct) {
+          if (srCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+            const levelName = side === "LONG" ? "resistencia" : "suporte";
+            return {
+              error:
+                `${symbol}: o ${levelName} real mais proximo esta a so ${(distanceToLevelPct * 100).toFixed(3)}% de distancia -- ` +
+                `alvo (${(takeProfitPct * 100).toFixed(3)}% por ATR) exigiria romper esse nivel antes de ter qualquer chance de ser alcancado, ` +
+                `e o espaco disponivel ate la nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 acima do stop (${(stopPct * 100).toFixed(3)}%). ` +
+                `Posicao NAO aberta -- risco/retorno desfavoravel de partida. Espere o preco se afastar do nivel ou avalie outro ativo/lado.`,
+            };
+          }
+          takeProfitPct = srCappedTakeProfitPct;
+          takeProfitCappedBySR = true;
+        }
+      }
       // 🔴 2026-08-30 (mesmo achado, mesmo redesenho): o encolhimento extra de
       // alvo em dia de baixo volume (0,6x) foi REMOVIDO -- existia
       // especificamente pra servir a filosofia "giro rapido, alvo curto"
@@ -1381,11 +1411,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stop_pct: (stopPct * 100).toFixed(3) + "%",
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
         alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
+        alvo_capado_por_suporte_resistencia: takeProfitCappedBySR,
         stop_alargado_por_spread: widenedForSpread,
         aviso:
           "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado." +
           (widenedForSpread
             ? ` ATENCAO: o stop foi ALARGADO automaticamente pra ${(stopPct * 100).toFixed(3)}% (em vez do normal) porque o spread deste ativo (${quote.spreadPct.toFixed(2)}%) e alto -- um stop mais apertado bateria so pelo custo de operar, sem nenhum movimento real de preco.`
+            : "") +
+          (takeProfitCappedBySR
+            ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o suporte/resistencia real esta mais perto -- mirando logo antes do nivel, nao alem dele.`
             : ""),
       };
     }

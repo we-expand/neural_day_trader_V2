@@ -293,6 +293,26 @@ export const config = {
   // spreadPct * mt5SpreadStopSafetyMultiplier (margem REAL alem do custo de
   // ida-e-volta do spread, nao so empatar) -- ver open_position em tools.ts.
   mt5SpreadStopSafetyMultiplier: Number(process.env.MT5_SPREAD_STOP_SAFETY_MULTIPLIER ?? 1.5),
+  // 🔴 2026-09-02 (pedido direto do Cleber, achado ao vivo: alvo de 4x ATR
+  // do EURUSD aberto na sessao 1d73c50a pedia 0,71% de movimento com a
+  // resistencia real a so 0,08% de distancia -- alvo cego a estrutura real
+  // do preco, quase impossivel de alcancar sem romper o nivel primeiro).
+  // O alvo (takeProfitPct, calculado por ATR acima) agora e CAPADO pela
+  // distancia real ate o proximo suporte/resistencia (getSupportResistance
+  // em atr.ts, mesmo candle oficial que MACD/Estocastico ja usam) na
+  // direcao do trade -- nunca pede pro preco correr alem do nivel real mais
+  // proximo. Aplica pra TODOS os ativos da cesta (nao so EURUSD), sempre
+  // que houver candle real suficiente pra calcular o nivel; sem candle real
+  // (null), mantem o comportamento antigo (ATR puro), nunca fabrica nivel.
+  // Fator abaixo mira LOGO ANTES do nivel (nao em cima dele), pra ter mais
+  // chance de preencher antes de uma rejeicao/reversao no proprio nivel.
+  mt5SrTargetMarginPct: Number(process.env.MT5_SR_TARGET_MARGIN_PCT ?? 0.9),
+  // Se o teto de suporte/resistencia deixar o alvo com R:R pior que isto
+  // (nivel real perto demais pra dar espaco decente acima do stop), a
+  // entrada e RECUSADA em vez de aceitar uma aposta com risco/retorno ruim
+  // so porque "o ATR mandou entrar" -- mesmo espirito do gate de spread
+  // acima (nao abre posicao com matematica desfavoravel de partida).
+  mt5MinRrAfterSrCap: Number(process.env.MT5_MIN_RR_AFTER_SR_CAP ?? 1.0),
   // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em
   // que o dia não tem volume" -- em dia/momento de baixa participação (ver
   // getVolumeConfirmation em atr.ts, proxy real de tickVolume da MetaAPI), o
