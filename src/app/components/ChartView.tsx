@@ -5700,6 +5700,11 @@ export function ChartView({
       // instabilidade prolongada. Esta flag faz o auto-refresh pular um tick
       // quando já existe um ciclo de fetch/retry em andamento.
       let fetchInProgress = false;
+      // 🔄 Controle de dataset incremental (ver fix "refresh visível" logo abaixo,
+      // dentro de fetchData): só a 1ª carga usa applyNewData (reset completo);
+      // os refreshs de 30s seguintes usam updateData (sem reset de viewport).
+      let hasAppliedFullDatasetRef = { current: false };
+      let lastAppliedCandleTimestampRef = { current: 0 };
 
       // Fetch real data
       const fetchData = async (retryAttempt = 0) => {
@@ -5896,34 +5901,30 @@ export function ChartView({
           console.log('[ChartView] 🔍 First 3 candles (exact format):', JSON.stringify(candles.slice(0, 3), null, 2));
           console.log('[ChartView] 🔍 Last candle (exact format):', JSON.stringify(candles[candles.length - 1], null, 2));
 
-          // 🐛 FIX (bug real relatado pelo Cleber: "não persiste a posição que foi
-          // deixada no gráfico"): `applyNewData` reseta o viewport internamente
-          // (ChartStore.clear() + resetOffsetRightDistance()) a cada refresh de 30s.
-          // A tentativa anterior de contornar isso salvava/restaurava
-          // `offsetRightDistance` -- que NÃO é a posição do usuário, e cuja
-          // reescrita recalcula `_lastBarRightSideDiffBarCount = offset / barSpace`.
-          // Ou seja: o "fix" fazia exatamente o oposto do pretendido, forçando o
-          // gráfico de volta ao tempo real toda vez, a cada 30 segundos, por mais
-          // que o usuário tivesse rolado pro passado. Agora salvamos a posição real
-          // (candle na borda direita + folga em barras) e o zoom, e restauramos os
-          // dois depois que o dado novo entra.
-          let savedScroll: { anchorTimestamp: number; anchorX: number } | null = null;
-          let savedBarSpace: number | null = null;
-          if (!isInitialLoadRef.current) {
-            savedScroll = readChartScrollPosition(chart);
-            try { savedBarSpace = chart.getBarSpace(); } catch (_) {}
+          // 🐛 FIX 2026-09-02 (achado do Cleber: "o gráfico fica dando refresh
+          // sozinho, não pode ficar dando na cara do usuário"): mesmo restaurando
+          // scroll/barSpace depois, `applyNewData` sempre faz um reset completo
+          // do ChartStore (limpa e reconstrói o dataset inteiro) a cada 30s —
+          // isso é visível como um "pisca"/redesenho perceptível mesmo com a
+          // posição sendo restaurada logo em seguida, porque o reset e a
+          // restauração acontecem em passos separados, não atomicamente.
+          // `chart.updateData()` é a API da própria klinecharts feita pra
+          // atualização em tempo real (tick novo / vela em formação) — atualiza
+          // ou anexa uma vela SEM tocar em ChartStore.clear()/offset/scroll,
+          // logo sem nenhum reset visível. Só a PRIMEIRA carga (troca de
+          // símbolo/timeframe, sem dataset ainda no chart) usa `applyNewData`
+          // de verdade; todo refresh de 30s seguinte vira atualização
+          // incremental das velas novas/em formação desde o último fetch.
+          if (!hasAppliedFullDatasetRef.current) {
+            chart.applyNewData(candles);
+            console.log('[ChartView] ✅ chart.applyNewData completed (primeira carga)!');
+            hasAppliedFullDatasetRef.current = true;
+          } else {
+            const incremental = candles.filter(c => c.timestamp >= lastAppliedCandleTimestampRef.current);
+            incremental.forEach(c => chart.updateData(c));
+            console.log('[ChartView] 🔄 chart.updateData incremental:', incremental.length, 'vela(s) — sem reset de viewport');
           }
-
-          chart.applyNewData(candles);
-          console.log('[ChartView] ✅ chart.applyNewData completed!');
-
-          if (savedBarSpace !== null && savedBarSpace > 0) {
-            try { chart.setBarSpace(savedBarSpace); } catch (_) {}
-          }
-          if (savedScroll) {
-            applyChartScrollPosition(chart, savedScroll.anchorTimestamp, savedScroll.anchorX);
-            console.log('[ChartView] 🔧 Zoom e posição do usuário restaurados após refresh');
-          }
+          lastAppliedCandleTimestampRef.current = lastCandle.timestamp;
           
           // 🔍 DEBUG: Verificar se os dados foram aplicados
           try {
