@@ -5,12 +5,65 @@ import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
-import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig } from "./neuralBridge.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
-import { primeQuotes } from "./mt5Broker.js";
+import { primeQuotes, getQuote as getMt5Quote } from "./mt5Broker.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 🔴 2026-09-03 (achado do Cleber, ao vivo: candle claramente encostou no
+// nivel de stop no grafico mas a posicao continuou aberta): a trava
+// MECANICA de stop/alvo (enforceMt5StopsAndTargets) so rodava 1x por CICLO
+// INTEIRO do LLM (agent.ts, no inicio de runAgent) -- e um ciclo inclui
+// varias chamadas de ferramenta + raciocinio do modelo local (Ollama),
+// podendo levar minutos. Um pavio de candle que fura o stop e volta ANTES
+// da proxima checagem nunca era visto -- nao por o codigo comparar preco
+// errado, mas por checar preco raro demais (alem disso, cada checagem usa
+// 1 tick pontual, nunca o high/low real do periodo -- limite conhecido,
+// nao resolvido aqui). Fix: watchdog independente, rodando sozinho a cada
+// poucos segundos, DESACOPLADO do ciclo de raciocinio do LLM -- fecha a
+// posicao no instante em que o preco real (mesmo getQuote usado em todo o
+// resto do motor, cache de 8s em mt5Broker.ts) cruzar o nivel, nao quando
+// o LLM terminar de pensar. Idempotente e seguro rodar em paralelo ao
+// enforceMt5StopsAndTargets que roda no inicio de cada ciclo (closeMt5Position
+// so age em posicao ainda OPEN).
+const STOP_WATCHDOG_INTERVAL_MS = 5_000;
+let stopWatchdogSessions: Mt5Session[] = [];
+let stopWatchdogBusy = false;
+let stopWatchdogTimer: ReturnType<typeof setInterval> | undefined;
+
+async function stopWatchdogTick(): Promise<void> {
+  if (stopWatchdogBusy || stopWatchdogSessions.length === 0) return;
+  stopWatchdogBusy = true;
+  try {
+    for (const session of stopWatchdogSessions) {
+      try {
+        const result = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
+        for (const c of result.closed) {
+          console.log(
+            `[stop-watchdog] Fechamento mecanico IMEDIATO: ${c.symbol} ${c.side} (${c.reason}) ` +
+              `entrada=${c.entryPrice} saida=${c.exitPrice} (sessao ${session.sessionId})`
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[stop-watchdog] falha ao checar stop/alvo da sessao ${session.sessionId}:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+  } finally {
+    stopWatchdogBusy = false;
+  }
+}
+
+function startStopWatchdog(): void {
+  if (stopWatchdogTimer) return;
+  stopWatchdogTimer = setInterval(() => {
+    void stopWatchdogTick();
+  }, STOP_WATCHDOG_INTERVAL_MS);
 }
 
 // 🔴 2026-08-31 (Fase 2 multi-tenant): a trava de instância única por PID
@@ -150,6 +203,11 @@ async function runContinuous() {
       // fetch individual de sempre, sem perder protecao nenhuma.
       await primeQuotes(MT5_ASSET_BASKET);
 
+      // 🔴 2026-09-03: mantem o watchdog independente (acima) sempre com a
+      // lista atual de sessoes elegiveis -- ele roda no seu proprio timer,
+      // fora deste loop, entao precisa ler o estado mais recente possivel.
+      stopWatchdogSessions = sessions;
+
       for (const session of sessions) {
         try {
           console.log(`[DEBUG] Session antes de runAgent:`, JSON.stringify(session));
@@ -221,6 +279,7 @@ async function runContinuous() {
 async function main() {
   acquireSingleInstanceLock();
   await assertOnTestnet();
+  if (config.mt5TradingEnabled) startStopWatchdog();
   if (config.continuousMode) {
     await runContinuous();
   } else {
