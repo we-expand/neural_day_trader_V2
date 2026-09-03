@@ -1138,13 +1138,15 @@ export function useApexLogic(
           console.warn('[useApexLogic] Falha ao restaurar curva de equity real:', e);
         }
 
-        if (!lastSnapshot && session.initial_balance) {
-          setPortfolio(prev => ({
-            ...prev,
-            balance: session.initial_balance!,
-            equity: session.initial_equity ?? session.initial_balance!,
-          }));
-        }
+        // 🔴 REMOVIDO 2026-09-03 (achado: o log já mostrava "$103.21 recalculado
+        // de ai_trades" e a tela mesmo assim ficava em $100): este bloco
+        // rodava DEPOIS do recálculo correto acima (linha ~1095) e sobrescrevia
+        // balance/equity de volta pro `session.initial_balance` cru sempre que
+        // `!lastSnapshot` -- que é sempre verdade nesta sessão (zero snapshots
+        // desde que o ai-runner foi desligado). O bloco acima já cobre esse
+        // exato caso (sem snapshot, recalcula de ai_trades) e só deixa de
+        // atualizar em caso de erro real (preservando o estado anterior via
+        // catch) -- nunca precisa deste fallback que reintroduz o bug.
 
         console.log(`[useApexLogic] ☁️ Sessão DEMO restaurada do Supabase: ${session.id} (${openTrades.length} posições abertas)`);
       } catch (e) {
