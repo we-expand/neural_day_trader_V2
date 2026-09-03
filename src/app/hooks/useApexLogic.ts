@@ -1401,8 +1401,25 @@ export function useApexLogic(
           // só roda uma vez — sem reload, uma sessão de horas nunca via os
           // fechamentos que o `llm-active-brain` foi fazendo sozinho. Mesmo
           // recálculo aplicado aqui, a cada poll, como fonte contínua.
-          const realizedPnl = await persistenceRef.current.getSessionRealizedPnl(sessionId);
+          //
+          // 🔴 FIX 2026-09-03 (achado: saldo "alternando" entre $100 e o
+          // valor real a cada poll): `getSessionRealizedPnl` engole erro de
+          // rede internamente e devolve `0` — uma falha transitória de
+          // Supabase virava, aos olhos deste bloco, "PnL realizado é zero",
+          // sobrescrevendo o saldo certo por $100 até o próximo poll ter
+          // sucesso. Mesma causa raiz (e mesmo fix) já aplicado pra
+          // `getSessionTrades` no bloco de posições abertas, acima: consulta
+          // direta ao Supabase aqui, sem o wrapper que mascara erro, deixando
+          // a falha propagar pro `catch` deste bloco — que corretamente
+          // preserva o saldo anterior em vez de tratar erro como "zero".
+          const { data: closedTrades, error: pnlError } = await supabase
+            .from('ai_trades')
+            .select('net_pnl')
+            .eq('session_id', sessionId)
+            .eq('status', 'CLOSED');
+          if (pnlError) throw pnlError;
           if (cancelled) return;
+          const realizedPnl = (closedTrades || []).reduce((sum, t: any) => sum + (Number(t.net_pnl) || 0), 0);
           const realBalance = sessionInitialBalanceRef.current + realizedPnl;
           setPortfolio(prev => {
             if (prev.balance === realBalance) return prev;
