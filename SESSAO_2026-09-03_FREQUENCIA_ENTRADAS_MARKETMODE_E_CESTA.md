@@ -1,12 +1,51 @@
-# Sessão 2026-09-03 — Cesta trocada + frequência de entradas (marketMode)
+# Sessão 2026-09-03 — Ficha do motor, troca de cesta e frequência de entradas
 
-## Resumo rápido
+## Resumo da sessão inteira
 
-Duas mudanças nesta sessão, de natureza diferente:
+Ordem real do que aconteceu, do começo ao fim:
 
-1. **Troca de ativos na cesta** — mudança de **código**, `git commit` pendente.
+0. **Ficha completa do motor de decisão** — Cleber pediu pra entender tudo
+   que o LLM Active Brain analisa e "quantos por cento tem de peso".
+   Levantamento completo (agente dedicado lendo `agent.ts`/`tools.ts`/
+   `atr.ts`/`config.ts`/`assetBasket.ts`/`reasoningValidator.ts`/
+   `neuralBridge.ts`/`tradeMemory.ts`) publicado como artifact — ver seção 0
+   abaixo pro link e o achado central (não existe peso numérico fixo).
+1. **Troca de ativos na cesta** — mudança de **código**, `git commit`
+   **ainda pendente** (comando pronto na seção 1, Cleber ainda não rodou).
 2. **`marketMode` removido da config** — mudança de **dado no Supabase**
    (SQL direto), não precisa de commit nem de restart.
+
+---
+
+## 0. Ficha completa do motor de decisão (artifact)
+
+Achado central, resposta direta à pergunta "quanto de peso tem cada coisa":
+**o motor não usa pesos numéricos fixos** — é um agente LLM local (Ollama)
+que raciocina livremente sobre os indicadores reais a cada ciclo, sem score
+tipo "MACD vale 20%". O que tem valor numérico exato são os **gates
+mecânicos** (código) que cercam esse raciocínio — risco/trade, R:R, stop,
+breakeven, trailing, cooldown, tetos de exposição, pyramiding.
+
+Publicado como artifact (link ainda válido na sessão que gerou, não
+reproduzido aqui por completo pra não inchar o handoff — se precisar do
+conteúdo exato de novo, peço reconstrução a partir de `agent.ts`/`tools.ts`/
+`atr.ts`/`config.ts` seguindo a mesma estrutura):
+
+1. Ativos operados (10 símbolos, 2 grupos correlacionados)
+2. Indicadores calculados por ciclo (tendência, volume, extension, S/R,
+   MACD, Estocástico lento, 10 padrões de candle, regime de mercado) — cada
+   um marcado como CONTEXTO (informa o LLM) ou GATE (bloqueia código)
+3. Os 14 princípios numerados do prompt de sistema (`GENESIS_PROMPT_MT5`)
+4. Gates mecânicos com valor exato (risco 1,0%/trade normal, teto duro 3,0%,
+   stop 2,0×ATR, TP 4,0×ATR = R:R 1:2, breakeven 0,5R, trailing 0,8×ATR,
+   teto de exposição por grupo US$2.700, cooldown 5 perdas/5min, pyramiding
+   máx. 2 reforços, etc. — lista completa no artifact)
+5. Campos do Setup do usuário que influenciam o motor (cadência, timeframe,
+   marketMode, capital alocado, direção, cesta ativa...)
+6. Validador semântico — **desligado hoje** (Ollama local levou 73s pra
+   responder um teste, inviável; trava por palavra-chave continua ativa)
+7. Memória de trades passados injetada no prompt — texto factual, não
+   ML/fine-tuning, efeito ainda não validado estatisticamente
 
 ---
 
