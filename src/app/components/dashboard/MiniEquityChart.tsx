@@ -5,6 +5,14 @@ interface MiniEquityChartProps {
   // Sem histórico ainda (ex: sessão recém-iniciada), cai num fallback
   // honesto: linha reta no valor atual — nunca inventa movimento.
   data: number[];
+  // 🐛 FIX 2026-09-03: equity de referência do início do DIA/sessão (mesma
+  // base usada pelo card "Lucro AI Trader" ao lado). Sem isso, a cor
+  // verde/vermelho comparava só o primeiro x o último ponto da janela
+  // amostrada (~30min antes deste fix) — um recuo recente dentro dessa
+  // janela pintava a curva de vermelho mesmo com o dia inteiro no lucro,
+  // dando a sensação errada de perda ao usuário. Opcional: sem valor, cai
+  // de volta pro comportamento antigo (primeiro ponto da série).
+  referenceEquity?: number;
 }
 
 // Catmull-Rom -> Bezier, com reflexão nas pontas (em vez de duplicar o
@@ -58,7 +66,7 @@ function movingAverage(values: number[]): number[] {
   });
 }
 
-export function MiniEquityChart({ data }: MiniEquityChartProps) {
+export function MiniEquityChart({ data, referenceEquity }: MiniEquityChartProps) {
   const uid = useId().replace(/:/g, '');
   const equityData = data.length >= 2 ? data : data.length === 1 ? [data[0], data[0]] : [0, 0];
   const smoothedData = movingAverage(equityData);
@@ -82,7 +90,8 @@ export function MiniEquityChart({ data }: MiniEquityChartProps) {
   const areaPath = `${linePath} L ${width},${height} L 0,${height} Z`;
 
   const isFlat = data.length < 2;
-  const isUp = !isFlat && equityData[equityData.length - 1] >= equityData[0];
+  const trendBase = referenceEquity ?? equityData[0];
+  const isUp = !isFlat && equityData[equityData.length - 1] >= trendBase;
   const strokeColor = isFlat ? '#64748b' : isUp ? '#2dd4bf' : '#fb7185';
 
   return (

@@ -1092,7 +1092,10 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                     <TrendingUp className="w-3 h-3 text-cyan-400" />
                 </div>
                 <div className="relative z-10 h-12">
-                    <MiniEquityChart data={equityHistory.map(p => p.equity)} />
+                    <MiniEquityChart
+                        data={equityHistory.map(p => p.equity)}
+                        referenceEquity={config.initialBalance || 100}
+                    />
                 </div>
             </Card>
         </div>

@@ -544,8 +544,14 @@ export function useApexLogic(
   // desatualizado, em vez de deixar a tela congelada sem aviso.
   const [lastPositionSyncAt, setLastPositionSyncAt] = useState<number | null>(null);
   const lastEquitySampleAtRef = useRef<number>(0);
-  const EQUITY_SAMPLE_INTERVAL_MS = 3000; // amostra real a cada 3s (mais granularidade pra curva do Dashboard)
-  const MAX_EQUITY_POINTS = 600; // ~30min de janela (mantida, só com mais pontos por minuto)
+  // 🐛 FIX 2026-09-03 (achado do Cleber: card "Curva de Equity" do Dashboard
+  // parecia mostrar perda mesmo com o dia positivo — a janela real era só
+  // ~30min de amostragem, então qualquer recuo recente dentro desses 30min
+  // (mesmo com o dia inteiro no verde) desenhava a curva caindo e em
+  // vermelho, ao lado do card "Lucro AI Trader" que já mostra o resultado
+  // do DIA inteiro. Alargada pra cobrir a sessão inteira (~24h de amostras).
+  const EQUITY_SAMPLE_INTERVAL_MS = 20000; // amostra real a cada 20s
+  const MAX_EQUITY_POINTS = 4320; // ~24h de janela (20s x 4320 = 86400s)
 
   // === VIX CACHE CONFIG ===
   // 🔥 CORREÇÃO CRÍTICA: useRef DEPOIS de useState (Rules of Hooks)
