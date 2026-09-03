@@ -1558,16 +1558,26 @@ export function ChartView({
   // depois que o navegador com certeza já terminou a transição -- 2 `requestAnimationFrame`
   // encadeados garantem que rodamos depois do próximo ciclo completo de layout+paint.
   const forceLayoutResettleAfterFullscreenChange = () => {
+    const resettle = () => {
+      try {
+        chartInstanceRef.current?.resize();
+      } catch (_) {
+        // silencioso -- mesma tolerância do resto dos resizes no arquivo
+      }
+      window.dispatchEvent(new Event('resize'));
+    };
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          chartInstanceRef.current?.resize();
-        } catch (_) {
-          // silencioso -- mesma tolerância do resto dos resizes no arquivo
-        }
-        window.dispatchEvent(new Event('resize'));
-      });
+      requestAnimationFrame(resettle);
     });
+    // 🐛 FIX: no macOS, o Chrome/Safari anima a entrada/saída de fullscreen nativo
+    // com um slide de várias centenas de ms -- 2 requestAnimationFrame (~32ms) some
+    // MUITO antes dessa animação terminar, então o resize acima roda com o container
+    // ainda no tamanho antigo, deixando o canvas do gráfico desalinhado/cortado à
+    // direita até o próximo evento de resize (relatado: "desenquadra do lado
+    // direito" ao restaurar da tela cheia). Reforça com resizes atrasados que cobrem
+    // a duração real da animação do SO.
+    setTimeout(resettle, 350);
+    setTimeout(resettle, 700);
   };
   useEffect(() => {
     const handleFullscreenChange = () => {
