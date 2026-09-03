@@ -869,8 +869,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         };
       }
       // Limite de perda diaria (%) do Setup -- bloqueia NOVA entrada se o
-      // prejuizo realizado do dia (00:00 UTC) ja bateu o teto configurado.
-      // Nao fecha posicao existente, so impede abrir mais uma no dia ruim.
+      // prejuizo realizado do dia (00:00 America/Sao_Paulo) ja bateu o teto
+      // configurado. Nao fecha posicao existente, so impede abrir mais uma
+      // no dia ruim.
       const dailyLossLimitPct = session.userConfig?.dailyLossLimitPct;
       if (dailyLossLimitPct != null) {
         const todayNetPnl = await getTodayRealizedPnl(session.sessionId);
@@ -879,7 +880,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         if (lossPct >= dailyLossLimitPct) {
           return {
             error: `Limite de perda diaria do Setup (${dailyLossLimitPct.toFixed(1)}%) ja atingido hoje ` +
-              `(prejuizo real: ${lossPct.toFixed(2)}%). Nenhuma nova posicao ate 00:00 UTC. Posicoes ja abertas nao sao afetadas.`,
+              `(prejuizo real: ${lossPct.toFixed(2)}%). Nenhuma nova posicao ate 00:00 no fuso de Brasilia. Posicoes ja abertas nao sao afetadas.`,
           };
         }
       }

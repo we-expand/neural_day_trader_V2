@@ -725,15 +725,24 @@ export async function getMt5AccountBalance(sessionId: string): Promise<number> {
 }
 
 /**
- * PnL realizado (soma de net_pnl dos trades FECHADOS) desde 00:00 UTC de
- * hoje -- usado pelo gate de "Limite de Perda Diária" do Setup do AI
- * Trader (tools.ts, open_position). Só considera fechamentos de HOJE, não
- * o total acumulado da sessão inteira (que pode ter dias).
+ * PnL realizado (soma de net_pnl dos trades FECHADOS) desde 00:00 no fuso
+ * de Brasília (America/Sao_Paulo) de hoje -- usado pelo gate de "Limite de
+ * Perda Diária" do Setup do AI Trader (tools.ts, open_position). Só
+ * considera fechamentos de HOJE, não o total acumulado da sessão inteira
+ * (que pode ter dias).
+ *
+ * 🔴 2026-09-03 (achado real): antes usava 00:00 UTC, que corresponde a
+ * 21:00 no fuso de Brasília -- um trade fechado às 21:02 (ainda "ontem"
+ * pro usuário) já contava como perda de "hoje" em UTC, esgotando o teto
+ * diário 3h antes do fim do dia local e travando o motor pelo dia inteiro
+ * seguinte, mesmo com o mercado em alta e nenhuma perda real nesse dia.
  */
 export async function getTodayRealizedPnl(sessionId: string): Promise<number> {
   const sb = getClient();
-  const todayStartUtc = new Date();
-  todayStartUtc.setUTCHours(0, 0, 0, 0);
+  const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const todayStartSp = new Date(nowSp.getFullYear(), nowSp.getMonth(), nowSp.getDate());
+  const offsetMs = new Date().getTime() - nowSp.getTime();
+  const todayStartUtc = new Date(todayStartSp.getTime() + offsetMs);
   const { data: trades, error } = await sb
     .from("ai_trades")
     .select("net_pnl")
