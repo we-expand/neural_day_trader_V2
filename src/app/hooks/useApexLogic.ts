@@ -615,6 +615,7 @@ export function useApexLogic(
   // seguindo a convenção do schema de `ai_sessions`. Ver ExecutionCost.ts.
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; costUsd: number; reason: 'TP' | 'SL' }>>([]);
   const hasHydratedFromSupabaseRef = useRef(false);
+  const sessionInitialBalanceRef = useRef<number | null>(null);
   // Idem, mas só pra config da IA (independe de haver sessão DEMO ativa —
   // ver efeito "PERSISTÊNCIA DE CONFIG DA IA" abaixo). Dois refs: o primeiro
   // trava o efeito de fetch pra rodar uma vez só; o segundo só vira `true`
@@ -1093,6 +1094,7 @@ export function useApexLogic(
         // verdade que não depende de nenhuma aba estar aberta.
         try {
           if (session.id && session.initial_balance != null) {
+            sessionInitialBalanceRef.current = session.initial_balance;
             const realizedPnl = await persistenceRef.current.getSessionRealizedPnl(session.id);
             const realBalance = session.initial_balance + realizedPnl;
             // Sem posição aberta, equity = balance; com posição aberta, o
@@ -1372,20 +1374,41 @@ export function useApexLogic(
       // (`getSessionSnapshots`); pega só o snapshot mais recente.
       try {
         const snapshots = await persistenceRef.current.getEquityCurve(sessionId);
-        if (cancelled || snapshots.length === 0) return;
-        const latest = snapshots[snapshots.length - 1];
-        setPortfolio(prev => {
-          if (prev.balance === latest.balance && prev.equity === latest.equity) return prev;
-          return {
-            ...prev,
-            balance: latest.balance,
-            // Equity fica só de referência aqui — o PNL LOOP recalcula equity
-            // real (balance + não-realizado ao vivo) no próximo tick usando o
-            // balance recém-sincronizado.
-            equity: latest.equity,
-            currentDrawdown: latest.drawdown || 0,
-          };
-        });
+        if (cancelled) return;
+        if (snapshots.length > 0) {
+          const latest = snapshots[snapshots.length - 1];
+          setPortfolio(prev => {
+            if (prev.balance === latest.balance && prev.equity === latest.equity) return prev;
+            return {
+              ...prev,
+              balance: latest.balance,
+              // Equity fica só de referência aqui — o PNL LOOP recalcula equity
+              // real (balance + não-realizado ao vivo) no próximo tick usando o
+              // balance recém-sincronizado.
+              equity: latest.equity,
+              currentDrawdown: latest.drawdown || 0,
+            };
+          });
+        } else if (sessionInitialBalanceRef.current != null) {
+          // 🔴 FIX 2026-09-03 (achado: Dashboard preso em $100 com a aba
+          // aberta a noite inteira, sem nenhum reload): `ai_portfolio_snapshots`
+          // não recebe NENHUMA linha nova desde que o motor mecânico
+          // (`ai-runner`, único escritor desta tabela em DEMO) foi desligado
+          // definitivamente em 2026-08-31 — `snapshots` fica sempre vazio daqui
+          // pra frente, e o `return` antigo aqui fazia este poll (que roda o
+          // tempo todo, independente de reload) nunca atualizar balance/equity
+          // de novo. O recálculo de mount (linha ~1094, direto de `ai_trades`)
+          // só roda uma vez — sem reload, uma sessão de horas nunca via os
+          // fechamentos que o `llm-active-brain` foi fazendo sozinho. Mesmo
+          // recálculo aplicado aqui, a cada poll, como fonte contínua.
+          const realizedPnl = await persistenceRef.current.getSessionRealizedPnl(sessionId);
+          if (cancelled) return;
+          const realBalance = sessionInitialBalanceRef.current + realizedPnl;
+          setPortfolio(prev => {
+            if (prev.balance === realBalance) return prev;
+            return { ...prev, balance: realBalance };
+          });
+        }
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar balance do Supabase:', e);
       }
