@@ -15,6 +15,65 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-03, noite] Stop-loss do LLM Brain podia deixar de
+fechar um pavio de candle que furava e voltava rápido — checagem mecânica
+rodava só 1x por CICLO INTEIRO do LLM (minutos, dado o Ollama local),
+não continuamente. Corrigido com watchdog independente de 5s.** Cleber
+reportou ao vivo, olhando o gráfico: candle claramente encostando no nível
+de stop de BTCUSD sem a posição fechar. Auditoria no banco confirmou que o
+preço nunca foi REGISTRADO abaixo do stop nos pontos checados (não é
+"trigger não disparou apesar da condição bater") — o problema real é a
+frequência: `enforceMt5StopsAndTargets` (`neuralBridge.ts`) só rodava no
+início de cada ciclo do LLM (`agent.ts`), e um ciclo inclui várias chamadas
+de ferramenta + raciocínio do modelo local, podendo levar minutos; um pavio
+mais curto que essa janela nunca era visto. Corrigido em `index.ts` com um
+watchdog independente, a cada 5s, desacoplado do raciocínio do LLM — fecha
+a posição no instante em que o preço real cruzar o nível, não quando o LLM
+"terminar de pensar". `tsc --noEmit` limpo. **Limite conhecido, não
+resolvido nesta sessão**: a checagem ainda usa 1 tick pontual (cache de 8s
+em `mt5Broker.ts`), não o high/low real do candle — pior caso de latência
+de detecção ainda é ~5-13s, não instantâneo. Commit `d3cc03c8a`, já
+pushado pro `origin/dev` (Cleber confirmou rodar `./restart.sh` pra
+carregar).
+
+**[RESOLVIDO 2026-09-03, noite] Motor ficava mudo em dia de alta forte
+generalizada mesmo identificando reversões técnicas reais — "Fluxo de
+Operação: A Favor (Trend)" travava TODOS os SHORTs, gate de R:R pós-S/R
+travava os LONGs restantes (preço colado na resistência depois de subir).**
+Cleber estranhou (mercado agitado, muitos ativos subindo acima da média, só
+1 posição aberta). Log confirmou: `open_position` de SHORT em
+XAUUSD/NAS100/SPX500/GER40/XETUSD recusado repetidas vezes com "SHORT aqui
+seria contra a tendência, bloqueado" (`marketMode="TREND"` em
+`ai_user_config`), apesar da IA ter identificado confluência técnica real
+(Estocástico extremo, MACD divergente, padrões de exaustão) em vários
+desses ativos. Ação tomada: `UPDATE` direto no Supabase removendo
+`marketMode` do config do Cleber (volta a `null`/AUTO) — trava de qualidade
+existente (volume/estocástico extremo) continua ativa, só parou de
+bloquear contrarian de cara. Mudança de config via SQL, não código — não
+precisou de commit/deploy/restart (cache de config expira em 60s).
+
+**[RESOLVIDO 2026-09-03] Card "Curva de Equity" do Dashboard parecia mostrar
+perda (linha caindo, vermelha) mesmo com o dia positivo — commit pronto, não
+aplicado ainda.** Causa raiz: nunca foi uma curva do dia, era uma janela
+rolante de só ~30min de amostragem (`useApexLogic.ts`); um recuo recente
+dentro desses 30min pintava tudo de vermelho mesmo com "Lucro AI Trader" (o
+card ao lado, resultado do DIA inteiro) positivo. Corrigido em 2 pontos:
+janela ampliada pra ~24h; cor do `MiniEquityChart` passa a comparar contra o
+mesmo saldo inicial usado por "Lucro AI Trader" (`referenceEquity`), não
+mais só o 1º ponto da janela curta. `tsc --noEmit`: 571→572, diferença é 1
+linha repetindo gap de tipagem pré-existente (`AIConfig.initialBalance`),
+sem erro novo de fato. Não testado ao vivo ainda.
+
+**[RESOLVIDO 2026-09-03] Motor mudo o dia inteiro em dia de alta forte —
+`dailyLossLimit` resetava em meia-noite UTC (21h de Brasília), não no dia
+local, fazendo perda de "ontem à noite" travar o dia inteiro seguinte;
+corrigido pra fuso de Brasília + teto subido 5%→15% (Supabase).**
+02/09 fechou com 80% de acerto e +$7,01 líquido (15 trades), mas perdas
+concentradas grandes (-$5,52/-$2,56/-$5,62) — objetivo declarado do
+Cleber pra próxima fase: manter ≥75% de acerto, reduzir tamanho da perda
+quando perde. Handoff completo:
+[SESSAO_2026-09-03_FUSO_LIMITE_DIARIO_E_TETO_15PCT.md](SESSAO_2026-09-03_FUSO_LIMITE_DIARIO_E_TETO_15PCT.md).
+
 **[RESOLVIDO 2026-09-03] Dashboard preso em $100 mesmo com a aba aberta a
 noite inteira — 3 bugs reais em cadeia no recálculo de saldo de
 `useApexLogic.ts`, todos corrigidos e confirmados ao vivo pelo console do
