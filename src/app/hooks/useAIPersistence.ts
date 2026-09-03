@@ -628,6 +628,15 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   }, []);
 
   /**
+   * Buscar PnL realizado real da sessão (soma de `net_pnl` dos trades
+   * fechados) -- fonte de verdade pra saldo, nunca o snapshot cacheado. Ver
+   * nota em `getSessionRealizedPnl` (AITradingPersistenceService.ts).
+   */
+  const getSessionRealizedPnl = useCallback(async (sessionId: string) => {
+    return await aiPersistence.getSessionRealizedPnl(sessionId);
+  }, []);
+
+  /**
    * Buscar a última configuração da IA salva pelo usuário (persistência real,
    * sobrevive a fechar aba/trocar de navegador — ver `ai_user_config`).
    * Retorna null se o usuário nunca salvou nenhuma.
@@ -726,6 +735,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     getUserTradeHistory,
     recordHistoryReset,
     getEquityCurve,
+    getSessionRealizedPnl,
 
     // Pending orders
     onPendingOrderOpen,

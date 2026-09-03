@@ -815,6 +815,35 @@ class AITradingPersistenceService {
     }
   }
 
+  /**
+   * 🔴 FIX 2026-09-03 (achado: Dashboard mostrando saldo "resetado" em $100
+   * de manhã, sem nenhuma operação visível): `ai_portfolio_snapshots` só é
+   * gravado pelo navegador aberto (`useApexLogic.ts`), nunca pelo motor
+   * headless (`neuralBridge.ts`, `llm-active-brain/`) que segue operando a
+   * sessão a noite inteira sozinho. Sem nenhuma aba aberta, o último
+   * snapshot existente fica preso no valor gravado na CRIAÇÃO da sessão
+   * (ver `createSession` acima) -- não é ausência de snapshot, é snapshot
+   * stale, que ignora todo PnL realizado desde então. Fonte de verdade real
+   * pra saldo é sempre `ai_trades` (soma de `net_pnl` dos trades fechados),
+   * nunca o snapshot cacheado -- mesmo cálculo já usado em
+   * `resetLlmActiveBrainSession` acima.
+   */
+  async getSessionRealizedPnl(sessionId: string): Promise<number> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_trades')
+        .select('net_pnl')
+        .eq('session_id', sessionId)
+        .eq('status', 'CLOSED');
+
+      if (error) throw error;
+      return (data || []).reduce((sum, t: any) => sum + (Number(t.net_pnl) || 0), 0);
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao calcular PnL realizado da sessão:`, error);
+      return 0;
+    }
+  }
+
   // ==========================================================================
   // AI DECISIONS
   // ==========================================================================

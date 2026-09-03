@@ -1080,6 +1080,42 @@ export function useApexLogic(
           }));
         }
 
+        // 🔴 FIX 2026-09-03 (achado: Dashboard mostrando saldo "resetado" em
+        // $100 de manhã, sem nenhuma operação visível): `lastSnapshot` acima
+        // só é gravado pelo navegador aberto -- o motor headless
+        // (`llm-active-brain/`) segue operando a sessão a noite inteira
+        // sozinho sem nunca escrever um snapshot novo. O snapshot mais
+        // recente então fica preso no valor da CRIAÇÃO da sessão, ignorando
+        // todo PnL realizado desde então (não era ausência de dado, era
+        // dado stale). Sobrescreve balance/equity com o saldo real
+        // calculado direto de `ai_trades` (initial_balance + soma de
+        // net_pnl fechado) sempre que houver trade fechado -- fonte de
+        // verdade que não depende de nenhuma aba estar aberta.
+        try {
+          if (session.id && session.initial_balance != null) {
+            const realizedPnl = await persistenceRef.current.getSessionRealizedPnl(session.id);
+            const realBalance = session.initial_balance + realizedPnl;
+            // Sem posição aberta, equity = balance; com posição aberta, o
+            // próximo tick de preço (poll já existente mais abaixo no hook)
+            // recalcula equity com PnL flutuante real -- aqui só evita
+            // mostrar equity errado (herdado do snapshot stale) no instante
+            // do reload, antes do primeiro tick.
+            const realEquity = realBalance;
+            setPortfolio(prev => ({
+              ...prev,
+              balance: realBalance,
+              equity: realEquity,
+              peakEquity: Math.max(prev.peakEquity ?? realEquity, realEquity),
+              dayAnchorEquity: realEquity,
+              dayAnchorBalance: realBalance,
+              dayAnchorUtcDay: 0,
+            }));
+            console.log(`[useApexLogic] 💰 Saldo real recalculado de ai_trades (fonte de verdade, ignora snapshot stale): $${realBalance.toFixed(2)} (inicial $${session.initial_balance} + PnL realizado $${realizedPnl.toFixed(2)})`);
+          }
+        } catch (e) {
+          console.warn('[useApexLogic] Falha ao recalcular saldo real a partir de ai_trades (mantendo snapshot):', e);
+        }
+
         // Curva de equity real: reconstrói a partir dos snapshots já
         // persistidos desta sessão (nunca mock) — dá continuidade depois de
         // um reload, em vez de a curva "zerar" e mostrar 1 ponto só.
