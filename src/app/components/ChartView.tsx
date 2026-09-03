@@ -5797,6 +5797,16 @@ export function ChartView({
             setDataSource('loading');
             setCandlesLoading(false);
             setCandlesLoadFailed(true);
+            // 🐛 FIX 2026-09-03: sem isto, isInitialLoadRef.current continua `true`
+            // pra sempre (só vira `false` no caminho de SUCESSO, mais abaixo) —
+            // todo auto-refresh de 30s seguinte então recai na guarda
+            // `retryAttempt === 0 && isInitialLoadRef.current` (linha ~5751) e
+            // reacende o spinner cheio "Carregando candles..." do zero, mesmo
+            // já tendo acabado de mostrar a tela de erro "Tentar de novo" —
+            // na prática, símbolo que falha uma vez (ex: timeout crônico da
+            // MetaAPI compartilhada) nunca mais sai do ciclo spinner→erro→
+            // spinner, parecendo travado pra sempre em "demorando pra carregar".
+            isInitialLoadRef.current = false;
             fetchInProgress = false;
             return;
           }
