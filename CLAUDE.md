@@ -15,6 +15,43 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-03, noite] Gráfico "desenquadrava" do lado direito ao
+restaurar da tela cheia (macOS) — o resize forçado só esperava 2
+`requestAnimationFrame` (~32ms), insuficiente pra animação de fullscreen do
+macOS/Chrome (várias centenas de ms).** Cleber reportou via print: depois de
+maximizar e voltar, o canvas de candles ficava desalinhado/cortado à
+direita, com espaço vazio sobrando (overlay de linhas de posição, que é
+CSS/absoluto, continuava correto — só o canvas interno da klinecharts
+media o container ainda no tamanho antigo do fullscreen). Corrigido em
+`ChartView.tsx` (`forceLayoutResettleAfterFullscreenChange`, ~linha 1560):
+mantido o resize duplo-rAF existente + reforço com 2 resizes atrasados
+(350ms/700ms) cobrindo a duração real da animação do SO. `tsc --noEmit`:
+634 erros antes e depois (mesmo ruído pré-existente), nenhum novo. Commit
+pronto, não aplicado ainda.
+
+**[RESOLVIDO 2026-09-03, fim de tarde] Gráfico do NAS100 "congelava"
+(cronômetro preso em 00:00, candles não formavam) + achado estrutural mais
+grave: tela de erro/loading escondia um gráfico que JÁ estava carregado em
+QUALQUER falha transitória seguinte — Cleber: "isso não pode ficar desse
+jeito, o usuário não pode passar por isso".** 3 causas em camada: (1)
+hipótese de múltiplas abas descartada pelo Cleber (nenhuma aba aberta) --
+fix defensivo (`document.hidden`) deixado pronto mas **não commitado**;
+(2) causa real confirmada no log: o próprio motor `llm-active-brain`
+(headless) se auto-saturava na cota MetaAPI compartilhada só no NAS100
+(único símbolo com posição aberta) -- watchdog de stop (5s) com cache
+curto (8s) + até 3 retries virava rajada sob rate-limit sustentado;
+corrigido (cache 8s→12s, watchdog sem retry-cascata em
+`mt5Broker.ts`/`index.ts`), processo reiniciado; (3) o feed de TICK do
+NAS100 ficou travado de verdade no broker por 12+min (confirmado via curl
+direto), fora do nosso controle -- mas os CANDLES continuaram respondendo
+normal o tempo todo. O achado estrutural: `ChartView.tsx` cobria o
+gráfico inteiro com tela preta bloqueante em qualquer falha de refresh,
+mesmo com gráfico já carregado -- corrigido com `hasEverRenderedCandlesRef`:
+bloqueio total só na primeira carga de verdade, falha depois disso vira
+badge pequeno não-bloqueante. `tsc --noEmit` limpo nos dois lados. Commit
+`0636353a2`, já aplicado pelo Cleber. Handoff completo:
+[SESSAO_2026-09-03_GRAFICO_TRAVADO_NAS100_WATCHDOG_RATE_LIMIT.md](SESSAO_2026-09-03_GRAFICO_TRAVADO_NAS100_WATCHDOG_RATE_LIMIT.md).
+
 **[RESOLVIDO 2026-09-03, noite] Stop-loss do LLM Brain podia deixar de
 fechar um pavio de candle que furava e voltava rápido — checagem mecânica
 rodava só 1x por CICLO INTEIRO do LLM (minutos, dado o Ollama local),
@@ -62,7 +99,16 @@ janela ampliada pra ~24h; cor do `MiniEquityChart` passa a comparar contra o
 mesmo saldo inicial usado por "Lucro AI Trader" (`referenceEquity`), não
 mais só o 1º ponto da janela curta. `tsc --noEmit`: 571→572, diferença é 1
 linha repetindo gap de tipagem pré-existente (`AIConfig.initialBalance`),
-sem erro novo de fato. Não testado ao vivo ainda.
+sem erro novo de fato. **Pendente de confirmar ao vivo**: Cleber reportou a
+curva aparecendo "numa reta só" logo após o fix — 2 explicações levantadas,
+nenhuma investigada a fundo ainda: (1) real, sem posição aberta no momento
+`equity = balance` sem PnL flutuante variando, reta é o dado real; (2)
+`equityHistory` não sobrevive a reload (snapshot no Supabase morto desde
+que o `ai-runner` foi desligado, ver item de saldo travado acima) — série
+reinicia quase vazia a cada F5, ainda sem tempo suficiente acumulado pra
+mostrar variação mesmo numa janela de 24h. Se a reta persistir COM posição
+aberta e PnL variando no card ao lado, aí é bug de verdade, precisa
+investigar o loop de amostragem (`useApexLogic.ts`, `EQUITY_SAMPLE_INTERVAL_MS`).
 
 **[RESOLVIDO 2026-09-03] Motor mudo o dia inteiro em dia de alta forte —
 `dailyLossLimit` resetava em meia-noite UTC (21h de Brasília), não no dia

@@ -801,7 +801,16 @@ export function subscribeToMarketData(
   // Função para buscar dados de todos os símbolos
   const fetchAll = async () => {
     if (!isActive) return;
-    
+    // 🐛 FIX 2026-09-03: aba em background (usuário com várias abas do app
+    // abertas, ex: gráfico de NAS100 aberto em 2-3 abas ao mesmo tempo)
+    // continuava rodando este polling a todo vapor mesmo escondida —
+    // multiplicava as requisições no símbolo focado em cada aba contra a
+    // MESMA conta MetaAPI compartilhada, até estourar 429 (achado ao vivo:
+    // >30 chamadas avulsas de "NAS100" em 37s, rate-limitando só esse
+    // símbolo). Pular fetch com a aba oculta corta esse multiplicador sem
+    // remover o polling da aba realmente em uso.
+    if (typeof document !== 'undefined' && document.hidden) return;
+
     const promises = Array.from(activeSymbols).map(async (symbol) => {
       try {
         const data = await getRealMarketData(symbol);
