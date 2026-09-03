@@ -113,9 +113,19 @@
  * mudança de estratégia. Reverter se não resolver a intermitência do
  * gráfico (não é o motivo mais provável nesse caso).
  */
+/**
+ * 🔴 2026-09-03 (pedido explícito do Cleber): troca DOGUSD/XRPUSD por
+ * UKOUSD/UK100. ATENÇÃO -- UKOUSD já foi documentado em 2026-09-01 (ver
+ * comentário acima) como estruturalmente bloqueado pelo piso de risco
+ * mínimo desta conta pequena: o lote mínimo do símbolo já excede o teto de
+ * 3% de risco por trade (`mt5MaxRiskPctPerTrade`) no preço/stop de hoje --
+ * não é bug, é matemática de conta pequena. Reintroduzido mesmo assim por
+ * pedido explícito; provavelmente continua recusando entrada em
+ * `open_position` até o capital alocado aumentar ou o teto de risco subir.
+ */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "DOGUSD", "XRPUSD", "BTCXBN",
-  "EURUSD", "XAUUSD", "GER40", "SPX500", "NAS100",
+  "BTCUSD", "XETUSD", "BTCXBN",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
 ];
 
 /**
