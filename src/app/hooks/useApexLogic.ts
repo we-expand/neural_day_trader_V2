@@ -853,20 +853,14 @@ export function useApexLogic(
         if (savedConfig) {
           setAIConfig(prev => ({ ...prev, ...savedConfig }));
           console.log('[useApexLogic] ☁️ Configuração da IA restaurada do Supabase (última escolha do usuário)');
+        } else {
+          // Usuário novo, nunca salvou config — grava o default corrente
+          // como linha inicial. Só acontece 1x (não existia linha nenhuma),
+          // não é o gravador reativo problemático removido abaixo.
+          persistenceRef.current.saveUserAIConfig(aiConfig).catch((e: unknown) => {
+            console.warn('[useApexLogic] Falha ao gravar configuração inicial da IA no Supabase:', e);
+          });
         }
-        // Só libera o efeito de salvar (abaixo) depois de uma LEITURA
-        // CONFIRMADA (sucesso, mesmo que vazia) — nunca no `catch`. Achado
-        // 2026-08-30: ambiente com rede instável (CORS/403/408 recorrentes
-        // em vários serviços) fazia essa busca falhar de vez em quando; o
-        // código antigo armava o gravador de qualquer jeito no `finally`,
-        // então o valor desatualizado do localStorage (podia ter dias) era
-        // salvo de volta por cima de qualquer edição feita direto no banco
-        // — o Cleber viu isso ao vivo: um ajuste de config voltava sozinho
-        // pro valor antigo em minutos, em QUALQUER aba nova, porque cada
-        // nova aba tinha a mesma chance de falhar essa busca e regravar o
-        // localStorage antigo. Sem armar aqui, uma falha de rede só adia a
-        // sincronização pro próximo mount — nunca sobrescreve o banco às
-        // cegas.
         hasHydratedConfigFromSupabaseRef.current = true;
       } catch (e) {
         console.warn('[useApexLogic] Falha ao restaurar configuração da IA do Supabase (mantendo localStorage/default nesta sessão, sem regravar o banco):', e);
@@ -874,17 +868,18 @@ export function useApexLogic(
     })();
   }, [user]);
 
-  // Salva no Supabase a cada mudança de config feita pelo usuário na UI —
-  // não só ao criar sessão (aquilo é uma cópia pontual dentro de
-  // `ai_sessions.config`, nunca lida de volta). Ignora a primeira mudança de
-  // `aiConfig` disparada pela própria hidratação acima, senão reescreveria o
-  // banco com o valor que acabou de vir de lá.
-  useEffect(() => {
-    if (!user?.id || !hasHydratedConfigFromSupabaseRef.current) return;
-    persistenceRef.current.saveUserAIConfig(aiConfig).catch((e) => {
-      console.warn('[useApexLogic] Falha ao salvar configuração da IA no Supabase:', e);
-    });
-  }, [user, aiConfig]);
+  // 🔴 2026-09-03: REMOVIDO o efeito que salvava `aiConfig` (snapshot
+  // inteiro em memória) no Supabase a cada mudança de estado. Esse efeito
+  // era a causa real de uma edição feita direto via SQL (ex:
+  // `dailyLossLimit`) ser revertida sozinha minutos depois: qualquer aba já
+  // aberta ANTES do ajuste manual mantinha o valor velho em memória, e a
+  // próxima mudança de config feita pelo usuário NAQUELA aba — mesmo em um
+  // campo não relacionado — disparava este efeito e regravava a coluna
+  // `config` inteira por cima do ajuste manual, silenciosamente. 2ª
+  // ocorrência confirmada em 2026-09-03 (1ª em 2026-09-02, mitigada na
+  // época só "fechar todas as abas antes de editar via SQL"). Persistência
+  // de edição do usuário agora é feita campo a campo, com merge no
+  // servidor, direto em `updateAIConfig` — ver `patchUserAIConfig`.
 
   // === FASE 2: HIDRATAÇÃO A PARTIR DO SUPABASE (fonte de verdade, sobrepõe o localStorage) ===
   // localStorage acima é só um cache rápido pro primeiro paint; assim que o usuário loga,
@@ -3042,6 +3037,15 @@ export function useApexLogic(
   // === UPDATE AI CONFIG ===
   // 🔴 2026-08-25: agora persiste automaticamente a config no Supabase
   const updateAIConfig = useCallback((config: Partial<AIConfig>) => {
+    // 🔴 2026-09-03: persiste só o PATCH (campos de fato alterados nesta
+    // chamada) via merge no servidor, nunca o snapshot `aiConfig` inteiro em
+    // memória — ver `patchUserAIConfig` em AITradingPersistenceService.ts
+    // pro porquê (2ª ocorrência do bug de aba desatualizada sobrescrevendo
+    // edição feita direto via SQL).
+    persistenceRef.current?.patchUserAIConfig?.(config).catch((e: unknown) => {
+      console.warn('[useApexLogic] Falha ao aplicar patch de configuração da IA no Supabase:', e);
+    });
+
     setAIConfig(prev => {
       const newConfig = { ...prev, ...config };
 

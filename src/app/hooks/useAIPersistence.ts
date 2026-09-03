@@ -647,11 +647,21 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   }, [user]);
 
   /**
-   * Salvar (upsert) a configuração da IA do usuário.
+   * Salvar (upsert) a configuração da IA do usuário — sobrescreve a coluna
+   * inteira, ver aviso em `AITradingPersistenceService.saveUserAIConfig`.
    */
   const saveUserAIConfig = useCallback(async (config: any) => {
     if (!user?.id) return false;
     return await aiPersistence.saveUserAIConfig(user.id, config);
+  }, [user]);
+
+  /**
+   * Aplicar só os campos alterados na config da IA (merge no servidor) —
+   * ver `AITradingPersistenceService.patchUserAIConfig` pro porquê.
+   */
+  const patchUserAIConfig = useCallback(async (partialConfig: Record<string, any>) => {
+    if (!user?.id) return false;
+    return await aiPersistence.patchUserAIConfig(user.id, partialConfig);
   }, [user]);
 
   /**
@@ -746,6 +756,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // AI config
     getUserAIConfig,
     saveUserAIConfig,
+    patchUserAIConfig,
 
     // Utils
     isEnabled: options.enabled,

@@ -989,9 +989,11 @@ class AITradingPersistenceService {
   }
 
   /**
-   * Salvar (upsert) a configuração da IA do usuário — chamado a cada mudança
-   * na UI, não só ao criar sessão, pra que a última escolha real do usuário
-   * fique registrada mesmo que ele nunca chegue a religar a IA de novo.
+   * Salvar (upsert) a configuração da IA do usuário — sobrescreve a coluna
+   * `config` inteira com o que for passado. Usar só quando o snapshot em
+   * memória é conhecidamente completo e fresco (ex: logo após hidratar do
+   * próprio Supabase, pra criar a linha na 1ª vez). Pra edição incremental
+   * de campo (Setup UI), usar `patchUserAIConfig` — ver comentário lá.
    */
   async saveUserAIConfig(userId: string, config: any): Promise<boolean> {
     try {
@@ -1006,6 +1008,53 @@ class AITradingPersistenceService {
       return true;
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao salvar configuração da IA do usuário:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Aplicar só os campos alterados na configuração da IA do usuário — busca
+   * o `config` mais recente no Supabase e faz merge por cima, em vez de
+   * sobrescrever a coluna inteira com o snapshot em memória do cliente.
+   *
+   * Por quê (achado 2026-09-03, 2ª ocorrência de um bug já visto em
+   * 2026-09-02): `saveUserAIConfig` sobrescrevia a coluna inteira com
+   * `aiConfig` do estado em memória da aba, disparado por um efeito que
+   * rodava a CADA mudança de config. Uma aba aberta antes de um ajuste feito
+   * direto via SQL (ex: `dailyLossLimit` 5%→15%) continuava com o valor
+   * velho em memória; a próxima edição do usuário NAQUELA aba — mesmo em um
+   * campo totalmente diferente — regravava o objeto inteiro, revertendo o
+   * ajuste do SQL sem nenhum aviso. Corrigido fazendo merge no servidor: lê
+   * o `config` mais recente do banco e sobrepõe só os campos que o usuário
+   * de fato mudou nesta chamada (`partialConfig`), nunca o snapshot completo
+   * potencialmente desatualizado. Ainda existe uma janela de corrida
+   * pequena (leitura→escrita não é atômica), mas o campo que corrompeu
+   * (`dailyLossLimit`/`marketMode`) só é sobrescrito quando o usuário edita
+   * ESSE campo especificamente, não mais em qualquer edição não relacionada.
+   */
+  async patchUserAIConfig(userId: string, partialConfig: Record<string, any>): Promise<boolean> {
+    try {
+      const { data: existing, error: fetchError } = await supabase
+        .from('ai_user_config')
+        .select('config')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      const mergedConfig = { ...(existing?.config ?? {}), ...partialConfig };
+
+      const { error } = await supabase
+        .from('ai_user_config')
+        .upsert(
+          { user_id: userId, config: mergedConfig, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao aplicar patch de configuração da IA do usuário:`, error);
       return false;
     }
   }
