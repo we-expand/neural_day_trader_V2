@@ -15,6 +15,130 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-03] Dashboard preso em $100 mesmo com a aba aberta a
+noite inteira — 3 bugs reais em cadeia no recálculo de saldo de
+`useApexLogic.ts`, todos corrigidos e confirmados ao vivo pelo console do
+Cleber.** Causa raiz real (diferente da hipótese inicial de "sem aba
+aberta"): (1) `ai_portfolio_snapshots` não recebe nenhuma linha nova desde
+que o `ai-runner` foi desligado (2026-08-31) — o poll contínuo `reconcile()`
+lia só essa tabela morta e nunca atualizava balance de novo, com ou sem
+aba aberta; (2) o fix disso (`getSessionRealizedPnl` recalculando direto de
+`ai_trades`) tinha o mesmo bug clássico já catalogado no projeto — engolia
+erro de rede e devolvia PnL `0`, causando o saldo "alternar" entre $100 e o
+valor real a cada falha transitória de Supabase; (3) o mais sutil: mesmo
+com os dois fixes acima corretos (log confirmava "$103.21 recalculado"), um
+bloco de fallback LEGADO logo abaixo no mount rodava em seguida e
+sobrescrevia balance/equity de volta pro `initial_balance` cru sempre que
+não havia snapshot — que é sempre o caso aqui. Removido. Saldo real da
+sessão `1d73c50a...`: $103,21 (23 trades, +$3,21 líquido). Também explicado
+de carona por que a IA não abriu posição na madrugada: 1 trade (XETUSD
+SHORT, -$5,62) sozinho consumiu o `dailyLossLimit` de 5% — bloqueio correto,
+não bug, mas achado de dimensionamento (1 trade ruim pode zerar o dia)
+pendente de decisão do Cleber. Pyramiding (`increase_position`) confirmado
+100% commitado/pushado/migrado — só falta `./restart.sh`. Handoff completo:
+[SESSAO_2026-09-03_MONITORAMENTO_NOTURNO_DASHBOARD_SNAPSHOT_E_DAILYLOSSLIMIT.md](SESSAO_2026-09-03_MONITORAMENTO_NOTURNO_DASHBOARD_SNAPSHOT_E_DAILYLOSSLIMIT.md).
+
+**[RESOLVIDO 2026-09-02, noite] "Agente de risco interno" do LLM Brain —
+nova ferramenta `increase_position` (pyramiding em posição vencedora, stop
+travado em breakeven).** Perder pouco quando perde, ganhar muito quando
+ganha, sem segundo LLM (máquina não aguenta 2 Ollama locais concorrendo
+pelo slot). `increase_position` só executa com lucro real acima do spread
++ ≥1 fator técnico alinhado, bloqueia se Estocástico indicar exaustão no
+sentido do movimento, sizing capado ao lote original, máx. 2 reforços por
+posição. `tsc --noEmit`/`npm run validate` 37/37 limpos. Handoff completo:
+[SESSAO_2026-09-02_AGENTE_DE_RISCO_INTERNO_PYRAMIDING.md](SESSAO_2026-09-02_AGENTE_DE_RISCO_INTERNO_PYRAMIDING.md).
+
+**[EM ANDAMENTO 2026-09-02, noite] Monitoramento contínuo do LLM Brain: 2
+bugs reais corrigidos (commits prontos, não rodados) + causa raiz real do
+`dailyLossLimit` revertendo sozinho.** (1) Validador semântico de
+contradição estava em fail-open permanente — medido ao vivo: o Ollama
+local (`-np 1`, mesmo modelo/processo do ciclo principal) levou 73s pra
+responder um prompt de teste bem menor que o real, bem além de qualquer
+timeout razoável; desligado por default quando o modelo é o mesmo do
+cérebro principal (`reasoningValidator.ts`/`config.ts`), trava por
+palavra-chave continua ativa. (2) 2ª ocorrência confirmada de fechamento
+manual (`AI_SIGNAL`) executando com preço já pior que o `stop_loss`
+registrado (XETUSD: exit 2383,84 vs stop 2384,74) — causa: a checagem
+mecânica de stop só roda 1x no início do ciclo, mas o ciclo (várias
+chamadas de LLM local, lentas) pode durar bem mais que isso; `close_position`
+(`tools.ts`) agora rechecar a mesma trava mecânica (idempotente) antes de
+avaliar o fechamento discricionário. (3) Achado real, não corrigido (fora
+do motor): pedido pra subir `dailyLossLimit` 5%→10% reverteu sozinho em 71s
+— causa real encontrada em `useApexLogic.ts` (~linha 872): o app resalva
+`aiConfig` inteiro no Supabase a cada mudança de estado em QUALQUER aba
+aberta, então uma aba com o valor antigo em memória sobrescreve edição
+feita via SQL sem precisar nem reabrir a tela de Setup. Mitigação: fechar/
+recarregar todas as abas do app antes de editar essa tabela via SQL.
+Handoff completo:
+[SESSAO_2026-09-02_VALIDADOR_FAIL_OPEN_RECHECK_STOP_E_DAILYLOSSLIMIT.md](SESSAO_2026-09-02_VALIDADOR_FAIL_OPEN_RECHECK_STOP_E_DAILYLOSSLIMIT.md).
+
+**[RESOLVIDO 2026-09-02, noite] Motor LLM Brain ficava mudo (nunca abria
+posição) por estourar `max_tokens` no raciocínio do modelo local + migration
+pendente bloqueava toda gravação — cadeia toda funcionando de ponta a ponta
+pela 1ª vez hoje, 3 posições reais abertas.** Causa 1 (reproduzida fora de
+produção, não suposição): Qwen3.5 via Ollama gasta "thinking" nativo antes
+da tool-call; com `get_mt5_quote` mais pesado (regime/candlePatterns/MACD/
+Estocástico somados em sessões recentes), o raciocínio estourava o teto de
+1024 tokens de resposta ANTES de emitir a function-call —
+`finish_reason:"length"`, tool_calls vazio, mesmo com `tool_choice:
+"required"`. Fix: `max_tokens` 1024→2048 + `num_ctx` do modelo Ollama
+16384→24576 (commit `288e9d347`). Causa 2, achada logo depois (mais grave):
+a migration de regime de mercado da sessão anterior nunca tinha sido
+aplicada, mas o código que grava essas colunas já estava ao vivo desde
+ontem — toda entrada que passasse pelos gates ainda falhava ao gravar
+(`Could not find the 'session_at_entry' column`). Cleber rodou a migration;
+confirmado que resolveu. Também desta sessão: `dailyLossLimit` do Setup
+subido de 5%→15% (Supabase, sem código) pra não travar o dia inteiro numa
+única perda dado que `riskPerTrade` já é 5%; e fechamento manual da IA
+agora permitido antes do alvo quando o lucro já cobre o spread real
+(commit `cf20f1f5b`), sem afetar a trava original contra fechamento nervoso
+sem lucro real. 3 posições abertas ao fim (NAS100 SHORT, BTCUSD SHORT,
+XETUSD LONG) — nenhuma validação estatística ainda, precisa de amostra de
+dias com a cadeia toda destravada. Handoff completo:
+[SESSAO_2026-09-02_MOTOR_MUDO_MAX_TOKENS_MIGRATION_PENDENTE_E_ALAVANCAGEM.md](SESSAO_2026-09-02_MOTOR_MUDO_MAX_TOKENS_MIGRATION_PENDENTE_E_ALAVANCAGEM.md).
+
+**[EM ANDAMENTO 2026-09-02, tarde/noite] Login por biometria — bug real
+achado no primeiro teste ao vivo: migration `webauthn_challenges`/
+`webauthn_credentials` NUNCA tinha sido aplicada de verdade em produção
+(mesmo o handoff da noite anterior dizendo "já rodada pelo Cleber com
+sucesso"), causando "Desafio expirado ou inexistente" no cadastro.**
+Confirmado via `list_tables` do Supabase (projeto `wyvdsxtcmizettljxtbg`):
+as duas tabelas não existiam. `register-options` gravava o challenge sem
+checar erro do `insert` — falhava silenciosamente, devolvia as opções
+normais, o navegador chegava a pedir Face ID/Touch ID, e só na hora de
+verificar (`register-verify`) o erro aparecia, mascarado como "expirado".
+Corrigido: `insert` de challenge agora checa erro e devolve 500 explícito
+em vez de mascarar (commit pronto). SQL da migration entregue pro Cleber
+rodar no SQL Editor (ainda não confirmado se já rodou desta vez). De
+carona, mesmo teste também bateu no bug já catalogado de RP_ID preso ao
+alias errado — usar sempre a URL do alias `dev`
+(`neural-day-trader-v2-git-dev-cleber-coutos-projects.vercel.app`), nunca
+uma URL de deployment com hash. **Ainda não confirmado ao vivo depois do
+fix + migration aplicada.**
+
+**[RESOLVIDO 2026-09-02, noite] Login por biometria real implementado —
+WebAuthn/Passkeys (FIDO2), Face ID/Touch ID/Windows Hello do próprio
+dispositivo do usuário, chave privada nunca sai do dispositivo.** Pedido do
+Cleber por "segurança impecável" com digital — não existe forma segura de
+um servidor capturar digital diretamente, então foi implementado o padrão
+real usado por bancos e Big Tech: servidor só guarda chave pública e
+verifica assinatura. Migration nova (`webauthn_credentials`/
+`webauthn_challenges`), Edge Function `supabase/functions/webauthn/`
+(4 rotas: register-options/verify, authenticate-options/verify — login
+biométrico gera sessão Supabase real via `admin.generateLink` +
+`verifyOtp`, nunca expõe senha nem service-role key ao browser), UI de
+cadastro em Configurações → Geral (`PasskeySettings.tsx`) e botão "Entrar
+com biometria" no login (`AuthOverlay.tsx`). `tsc --noEmit` sem erro novo.
+**Todos os comandos (migration, secrets `WEBAUTHN_RP_ID`/
+`WEBAUTHN_RP_ORIGIN`, deploy da function, commit) já rodados pelo Cleber
+com sucesso.** Pendente: confirmação visual ao vivo do fluxo completo
+(cadastro→login) ainda não observada por ninguém; RP_ID preso ao domínio
+atual de preview de `dev`, precisa atualizar se o alias mudar ou quando
+produção sair de manutenção; biometria como segunda confirmação antes de
+ações sensíveis (abrir posição real) não foi implementada, fica pra
+decisão futura do Cleber. Handoff completo:
+[SESSAO_2026-09-02_LOGIN_BIOMETRIA_WEBAUTHN_PASSKEYS.md](SESSAO_2026-09-02_LOGIN_BIOMETRIA_WEBAUTHN_PASSKEYS.md).
+
 **[EM ANDAMENTO 2026-09-02, madrugada] Gráfico "dando refresh sozinho, na
 cara do usuário" persistia mesmo depois do fix de `updateData` incremental
 — 2ª causa real encontrada e corrigida (achado colateral do fix anterior,
