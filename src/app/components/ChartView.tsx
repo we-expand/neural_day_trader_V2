@@ -1844,6 +1844,19 @@ export function ChartView({
   }, [showGridOverlay]);
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
+  // 🔴 2026-09-03 (achado ao vivo, pedido explícito do Cleber: "isso não pode
+  // ficar desse jeito, o usuário não pode passar por isso"): `candlesLoading`/
+  // `candlesLoadFailed` cobriam o gráfico INTEIRO com spinner/erro em TODA
+  // falha, mesmo quando já havia um gráfico real, funcionando, na tela --
+  // uma única instabilidade transitória da conta MetaAPI compartilhada
+  // (rate-limit crônico já documentado no projeto, achado ao vivo: NAS100
+  // devolvendo 504/tick obsoleto minutos depois de outros símbolos já terem
+  // se recuperado) apagava um gráfico que o usuário já estava vendo e o
+  // prendia atrás de uma tela preta até o próximo retry ter sucesso. Este
+  // ref marca quando o símbolo/timeframe atual JÁ renderizou candles reais
+  // pelo menos uma vez -- usado abaixo pra nunca mais esconder esse gráfico
+  // atrás do overlay bloqueante, só porque um refresh seguinte falhou.
+  const hasEverRenderedCandlesRef = useRef<boolean>(false);
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
   // 🐛 FIX 2026-09-02: assinatura das zonas atualmente desenhadas — permite pular o
   // clear+recreate completo em renderSrOverlays quando as zonas não mudaram desde o
@@ -5177,6 +5190,7 @@ export function ChartView({
     // reset movido pra ANTES do `return` -- roda sempre, de verdade, a cada
     // troca de símbolo/timeframe, antes até de `fetchData()` ser chamado.
     isInitialLoadRef.current = true;
+    hasEverRenderedCandlesRef.current = false;
     // 🐛 BUG REAL irmão do acima (mesma causa, achado em 2026-08-20): troca de
     // símbolo/timeframe recria o chart do zero (dispose()+init()), então ele
     // nasce sem nenhum indicador. `sessionStateAppliedRef`/`favoriteSetupAppliedRef`
@@ -5973,7 +5987,8 @@ export function ChartView({
             console.log('[ChartView] 🔄 chart.updateData incremental:', incremental.length, 'vela(s) — sem reset de viewport');
           }
           lastAppliedCandleTimestampRef.current = lastCandle.timestamp;
-          
+          hasEverRenderedCandlesRef.current = true;
+
           // 🔍 DEBUG: Verificar se os dados foram aplicados
           try {
             const dataList = chart.getDataList();
@@ -7728,13 +7743,24 @@ export function ChartView({
                 klinecharts limpa/reordena o DOM por fora do React e este overlay nunca
                 chegava a aparecer de verdade (mesmo motivo já documentado acima pros
                 chips de indicador). */}
-            {candlesLoading && (
+            {/* 🔴 2026-09-03 (pedido explícito do Cleber: "isso não pode ficar desse
+                jeito, o usuário não pode passar por isso"): as duas telas abaixo só
+                bloqueiam o gráfico INTEIRO quando ele nunca renderizou candle
+                nenhum ainda pra este símbolo/timeframe (`!hasEverRenderedCandlesRef`)
+                -- achado ao vivo: uma instabilidade transitória da conta MetaAPI
+                compartilhada (rate-limit crônico já documentado no projeto) apagava
+                um gráfico que o usuário JÁ estava vendo, funcionando, e o prendia
+                atrás de uma tela preta até o próximo retry funcionar. Agora, se o
+                gráfico já tem dado real na tela, uma falha de refresh seguinte vira
+                só um badge pequeno e não-bloqueante (abaixo) -- o usuário nunca mais
+                perde a visão do que já carregou por causa de uma falha transitória. */}
+            {candlesLoading && !hasEverRenderedCandlesRef.current && (
               <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 pointer-events-none">
                 <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm text-neutral-300">Carregando candles de {selectedSymbol}...</span>
               </div>
             )}
-            {!candlesLoading && candlesLoadFailed && (
+            {!candlesLoading && candlesLoadFailed && !hasEverRenderedCandlesRef.current && (
               <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70">
                 <span className="text-sm text-neutral-300 text-center max-w-xs">
                   Não foi possível carregar os candles reais de {selectedSymbol} agora
@@ -7746,6 +7772,30 @@ export function ChartView({
                 >
                   Tentar de novo
                 </button>
+              </div>
+            )}
+            {/* 🆕 2026-09-03: badge pequeno, não-bloqueante — cobre o caso em que o
+                gráfico já tem candle real na tela (`hasEverRenderedCandlesRef`) e um
+                refresh SEGUINTE falhou/está em retry. Nunca esconde o gráfico já
+                carregado; só avisa e oferece reconectar manualmente. */}
+            {(candlesLoading || candlesLoadFailed) && hasEverRenderedCandlesRef.current && (
+              <div className="absolute top-3 right-3 z-[60] flex items-center gap-2 bg-black/80 border border-neutral-700 rounded-full px-3 py-1.5 shadow-lg">
+                {candlesLoading ? (
+                  <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                )}
+                <span className="text-xs text-neutral-300">
+                  {candlesLoading ? 'Reconectando...' : `Dados de ${selectedSymbol} desatualizados`}
+                </span>
+                {candlesLoadFailed && (
+                  <button
+                    onClick={() => fetchChartDataRef.current?.()}
+                    className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    Tentar de novo
+                  </button>
+                )}
               </div>
             )}
 
