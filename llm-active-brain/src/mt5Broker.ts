@@ -199,7 +199,12 @@ function processTick(symbol: string, tick: Mt5PriceTick | null | undefined): Mt5
 // `getQuote` lê desse cache primeiro, só cai pro fetch individual (com retry)
 // se o símbolo não foi priming ou o cache expirou -- nunca perde a proteção
 // existente, só evita repetir a mesma cotação 5-7x por ciclo.
-const QUOTE_CACHE_TTL_MS = 8_000;
+// 🔴 2026-09-03: subido de 8s pra 12s -- menor que 2 ticks do stop-watchdog
+// (5s cada, ver STOP_WATCHDOG_INTERVAL_MS em index.ts) fazia praticamente
+// TODO tick com posição aberta errar o cache e disparar fetch individual
+// novo, alvo fácil de virar rajada sob rate-limit (ver getQuoteSingleAttempt
+// acima). 12s garante que pelo menos 1 em cada 2 ticks reaproveita o cache.
+const QUOTE_CACHE_TTL_MS = 12_000;
 const quoteCache = new Map<string, { quote: Mt5Quote; fetchedAtMs: number }>();
 
 function cacheQuote(quote: Mt5Quote) {
@@ -241,4 +246,23 @@ export async function getQuote(symbol: string): Promise<Mt5Quote | null> {
     if (attempt < QUOTE_RETRY_ATTEMPTS) await sleep(QUOTE_RETRY_DELAY_MS * attempt);
   }
   return null;
+}
+
+// 🔴 2026-09-03 (achado ao vivo: NAS100 travando no Gráfico do cliente,
+// "só ele" -- causa raiz era o PRÓPRIO motor, não o navegador): o
+// stop-watchdog (index.ts, roda sozinho a cada 5s pra TODA posição aberta,
+// fora do ritmo lento do ciclo do LLM) chamava `getQuote` normal -- com
+// cache de 8s (mais curto que 2 ticks de 5s) e até 3 retries por chamada
+// (QUOTE_RETRY_ATTEMPTS acima), um símbolo com posição aberta virava alvo
+// de rajadas de requisição individual (não-batched) na conta MetaAPI
+// compartilhada, sempre que ela já estivesse sob rate-limit -- confirmado
+// no log real: só NAS100 (único com posição aberta na sessão) mostrando
+// "endpoint lento/rate-limited/off" repetidamente, competindo pela mesma
+// cota que o Gráfico do cliente usa pra esse mesmo símbolo. O watchdog já
+// tenta de novo sozinho no próximo tick (5s) se falhar -- não precisa
+// insistir 3x imediatamente na mesma cota já saturada, isso só piora.
+export async function getQuoteSingleAttempt(symbol: string): Promise<Mt5Quote | null> {
+  const cached = getFreshCachedQuote(symbol);
+  if (cached) return cached;
+  return fetchQuoteOnce(symbol);
 }

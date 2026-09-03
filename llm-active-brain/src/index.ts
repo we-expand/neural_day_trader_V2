@@ -7,7 +7,7 @@ import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
 import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
-import { primeQuotes, getQuote as getMt5Quote } from "./mt5Broker.js";
+import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,7 +40,7 @@ async function stopWatchdogTick(): Promise<void> {
   try {
     for (const session of stopWatchdogSessions) {
       try {
-        const result = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
+        const result = await enforceMt5StopsAndTargets(session.sessionId, getQuoteSingleAttempt);
         for (const c of result.closed) {
           console.log(
             `[stop-watchdog] Fechamento mecanico IMEDIATO: ${c.symbol} ${c.side} (${c.reason}) ` +
