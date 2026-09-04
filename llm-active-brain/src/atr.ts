@@ -752,17 +752,26 @@ export interface MarketRegime {
   /** Rótulo de volatilidade real: ATR atual do símbolo comparado à própria janela recente (não é volatilidade absoluta entre ativos diferentes). */
   volatilityLabel: "BAIXA" | "NORMAL" | "ALTA";
   /**
-   * 🔴 2026-09-04 (pedido direto do Cleber -- "o motor tem que saber quando
-   * é o pré-mercado da bolsa americana, é o que sacode os mercados e define
-   * a direção do dia"): janela de atenção redobrada em torno da abertura da
-   * NYSE. `PRE_ABERTURA` = ~60min antes até o instante da abertura,
-   * `ABERTURA` = dentro de ~15min da abertura (janela mais violenta de
-   * verdade), `null` = fora dessa janela. Só contexto pro LLM, nunca vira
+   * 🔴 2026-09-04 (pedido EXPLÍCITO do Cleber, horários fixos em Brasília,
+   * "precisa estar claro o que ela deve obedecer"): três fases da janela de
+   * maior probabilidade de movimento forte do dia, TODAS em horário de
+   * Brasília (UTC-3 fixo, sem DST desde 2019):
+   * - `PRE_MERCADO`: 09:00–09:30 Brasília -- abertura do pré-mercado.
+   * - `MOVIMENTO`: 09:30–10:00 Brasília -- "o mercado começa a se
+   *   movimentar" (é também, por coincidência de fuso nesta época do ano,
+   *   o horário-padrão de divulgação de indicadores dos EUA como NFP/CPI,
+   *   8h30 ET = 12:30 UTC = 9h30 Brasília em EDT -- ver usEconomicCalendar).
+   * - `ABERTURA`: 10:00–10:15 Brasília -- abertura do mercado à vista
+   *   americano (nota técnica: a abertura REAL da NYSE, 9h30 horário de NY,
+   *   cai em 10h30 Brasília em EDT / 11h30 em EST, não exatamente 10h00 --
+   *   usado aqui o horário exato que o Cleber definiu como o que o motor
+   *   deve obedecer, não o horário oficial da bolsa).
+   * `null` = fora dessas três janelas. Só contexto pro LLM, nunca vira
    * trava mecânica nova -- baixo volume DENTRO dessa janela não significa
-   * "sem movimento", é frequentemente o oposto (ver princípio novo no
+   * "sem movimento", é frequentemente o oposto (ver princípio no
    * GENESIS_PROMPT_MT5).
    */
-  nySessionPhase: "PRE_ABERTURA" | "ABERTURA" | null;
+  nySessionPhase: "PRE_MERCADO" | "MOVIMENTO" | "ABERTURA" | null;
 }
 
 // 🔴 2026-09-02 (pedido do Cleber): motor tratava baixo volume como sinônimo
@@ -783,28 +792,26 @@ function getSessionLabel(now: Date = new Date()): MarketRegime["session"] {
   return "ROLLOVER";
 }
 
-// 🔴 2026-09-04 (pedido do Cleber): abertura real da NYSE é 9h30 HORÁRIO DE
-// NOVA YORK -- 13:30 UTC no horário de verão americano (EDT, meados de
-// março a início de novembro -- inclui hoje, 2026-09-04) ou 14:30 UTC fora
-// do horário de verão (EST, novembro a março). Brasília NÃO tem horário de
-// verão desde 2019 (fixo UTC-3), então em UTC-3 a abertura da NYSE cai às
-// 10h30 (EDT) ou 11h30 (EST) de Brasília -- NÃO 9h30 como mencionado; 9h30
-// Brasília é só ~1h ANTES da abertura em EDT, dentro da janela de
-// PRE_ABERTURA abaixo, não a abertura em si. Sem lib de fuso-horário no
-// projeto pra detectar a troca de DST americana com precisão de minuto,
-// trata os DOIS horários possíveis (13:30 e 14:30 UTC) como "abertura",
-// erra pro lado de INCLUIR mais tempo na janela de atenção, nunca menos.
-const NY_OPEN_UTC_MINUTES_EDT = 13 * 60 + 30; // 9h30 NY (EDT) = 13:30 UTC = 10:30 Brasilia
-const NY_OPEN_UTC_MINUTES_EST = 14 * 60 + 30; // 9h30 NY (EST) = 14:30 UTC = 11:30 Brasilia
-const NY_PRE_OPEN_WINDOW_MIN = 60; // "pré-mercado" -- pedido do Cleber: fica de olho ~1h antes
-const NY_OPEN_WINDOW_MIN = 15; // janela mais violenta de verdade, logo apos abertura
+// 🔴 2026-09-04 (pedido EXPLÍCITO do Cleber -- "precisa estar claro o que
+// ela deve obedecer: 09:00h abertura do pré-mercado, 9:30h o mercado começa
+// a se movimentar, 10h abertura do mercado à vista americano"): horários
+// FIXOS em Brasília (UTC-3, sem DST desde 2019 -- conversão pra UTC é
+// sempre +3h, sem variação sazonal, ao contrário do horário oficial da
+// NYSE). Estes são os horários que o Cleber definiu como regra a obedecer,
+// não um cálculo derivado do horário oficial da bolsa (ver nota técnica no
+// comentário do campo nySessionPhase acima).
+const BRASILIA_UTC_OFFSET_HOURS = 3; // Brasília = UTC-3 sempre
+const PRE_MERCADO_START_BRASILIA_MIN = 9 * 60; // 09:00 Brasilia
+const MOVIMENTO_START_BRASILIA_MIN = 9 * 60 + 30; // 09:30 Brasilia
+const ABERTURA_START_BRASILIA_MIN = 10 * 60; // 10:00 Brasilia
+const ABERTURA_END_BRASILIA_MIN = 10 * 60 + 15; // 10:15 Brasilia -- ~15min de janela mais violenta
 
 function getNySessionPhase(now: Date = new Date()): MarketRegime["nySessionPhase"] {
-  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
-  for (const openMin of [NY_OPEN_UTC_MINUTES_EDT, NY_OPEN_UTC_MINUTES_EST]) {
-    if (nowMin >= openMin - NY_PRE_OPEN_WINDOW_MIN && nowMin < openMin) return "PRE_ABERTURA";
-    if (nowMin >= openMin && nowMin < openMin + NY_OPEN_WINDOW_MIN) return "ABERTURA";
-  }
+  const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const nowBrasiliaMin = (nowUtcMin - BRASILIA_UTC_OFFSET_HOURS * 60 + 24 * 60) % (24 * 60);
+  if (nowBrasiliaMin >= PRE_MERCADO_START_BRASILIA_MIN && nowBrasiliaMin < MOVIMENTO_START_BRASILIA_MIN) return "PRE_MERCADO";
+  if (nowBrasiliaMin >= MOVIMENTO_START_BRASILIA_MIN && nowBrasiliaMin < ABERTURA_START_BRASILIA_MIN) return "MOVIMENTO";
+  if (nowBrasiliaMin >= ABERTURA_START_BRASILIA_MIN && nowBrasiliaMin < ABERTURA_END_BRASILIA_MIN) return "ABERTURA";
   return null;
 }
 

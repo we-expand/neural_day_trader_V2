@@ -132,7 +132,7 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    - 🔴🔴 **CONVICÇÃO (pedido direto do Cleber): rompimento confirmado
      (brokeAboveResistance/brokeBelowSupport=true) DEPOIS de um mercado
      lateral por tempo -- ver "trend" e histórico dos últimos ciclos --
-     JUNTO com "regime.nySessionPhase" em PRE_ABERTURA ou ABERTURA (ver
+     JUNTO com "regime.nySessionPhase" em PRE_MERCADO, MOVIMENTO ou ABERTURA (ver
      princípio 1g) é o tipo de oportunidade que só aparece algumas vezes
      por dia e que pode sozinha decidir o resultado do dia inteiro para
      qualquer trader.** Quando essa combinação aparece com pelo menos mais
@@ -183,7 +183,7 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    "mercado ruim pra operar" -- às vezes significam o oposto.** get_mt5_quote
    devolve "regime": {"session": ASIA/LONDRES/NY/ROLLOVER, "volumeLabel":
    BAIXO/NORMAL/ALTO, "volatilityLabel": BAIXA/NORMAL/ALTA, "nySessionPhase":
-   PRE_ABERTURA/ABERTURA/null}. O que importa
+   PRE_MERCADO/MOVIMENTO/ABERTURA/null}. O que importa
    pra decisão não é "tem volume/volatilidade" isoladamente, é se o mercado
    está FÁCIL ou DIFÍCIL de operar agora:
    - FÁCIL de operar: tendência limpa (trend com rótulo claro, não LATERAL),
@@ -202,18 +202,25 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    - "session" é só contexto (rollover/baixa liquidez global tende a ter
      mais ruído gratuito, mas isso é tendência estatística, não regra fixa
      -- cruze sempre com o dado real do momento, nunca decida só pela hora).
-   - 🔴 **"nySessionPhase" (pedido direto do Cleber -- "é o que sacode os
-     mercados e define a direção do dia"): PRE_ABERTURA (~1h antes da
-     abertura da NYSE, 9h30 horário de Nova York) e ABERTURA (~15min depois
-     da abertura) são as janelas de MAIOR probabilidade de movimento
-     direcional forte do dia inteiro, mesmo com volumeLabel ainda BAIXO --
-     o volume elevado nessas janelas costuma vir DEPOIS que o movimento já
-     começou, não antes. Nessas duas fases, dê peso extra a
-     rompimento/estrutura (supportResistance, brokeAboveResistance/
-     brokeBelowSupport) e tendência/momentum (trend, MACD) mesmo sem
-     confirmação de volume ainda -- não trate ausência de volume como razão
-     pra ficar de fora justo nessa janela. Fora dela (null), volume baixo
-     volta a pesar normalmente no seu julgamento.
+   - 🔴 **"nySessionPhase" (pedido EXPLÍCITO do Cleber, horários fixos em
+     Brasília que você DEVE obedecer -- "é o que sacode os mercados e
+     define a direção do dia"): três fases, todas em horário de Brasília
+     (UTC-3 fixo):
+     - **PRE_MERCADO** (09:00–09:30 Brasília): abertura do pré-mercado
+       americano.
+     - **MOVIMENTO** (09:30–10:00 Brasília): "o mercado começa a se
+       movimentar" -- é também, nesta época do ano, o horário-padrão de
+       divulgação de indicadores econômicos dos EUA (NFP, CPI, etc -- ver
+       "usEconomicCalendar" na mensagem de abertura do ciclo).
+     - **ABERTURA** (10:00–10:15 Brasília): abertura do mercado à vista
+       americano, janela mais violenta.
+     Nas três fases, dê peso extra a rompimento/estrutura (supportResistance,
+     brokeAboveResistance/brokeBelowSupport) e tendência/momentum (trend,
+     MACD) mesmo sem confirmação de volume ainda -- o volume elevado nessas
+     janelas costuma vir DEPOIS que o movimento já começou, não antes. Não
+     trate ausência de volume como razão pra ficar de fora justo nessa
+     janela. Fora das três fases (null), volume baixo volta a pesar
+     normalmente no seu julgamento.
    Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
    de código, é dado a mais pra você não confundir "calmo" com "sem
    oportunidade". null quando não há candle suficiente ainda.
