@@ -28,7 +28,6 @@ import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/Tra
 import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecutionPanel';
 import { FullSizeExecutionPanel } from '@/app/modules/fullSizeExecutionStage/FullSizeExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
-import { RISK_PROFILES, getRiskProfile, type RiskProfileId } from '@/app/data/riskProfiles';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
@@ -49,32 +48,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const [challengeInitialBalance, setChallengeInitialBalance] = useState(0);
   
   // 🆕 MT5 Connection States
-  // 🆕 Modo Simples (perfil de risco) vs Avançado (preset/timeframe manual) — item 5 do redesenho do cérebro (2026-08-16)
-  // 🔴 FIX 2026-08-20 (achado do Cleber: "a configuração não persiste no
-  // painel"): configMode nascia sempre 'SIMPLES' — quem configurava no
-  // Avançado e saía da tela (mudar de aba, fechar/reabrir o painel, F5)
-  // voltava pro modo Simples, com nenhum card de perfil selecionado. A
-  // config real (aiConfig, em useApexLogic.ts) sempre esteve persistida
-  // certinho no localStorage/Supabase — o que "sumia" era só o ESTADO DA UI
-  // do painel, dando a impressão de que a configuração tinha se perdido.
-  // Aba lida do localStorage na primeira renderização.
-  const [configMode, setConfigMode] = useState<'SIMPLES' | 'AVANCADO'>(() => {
-    try {
-      const saved = localStorage.getItem('neural_ai_trader_config_mode');
-      return saved === 'AVANCADO' ? 'AVANCADO' : 'SIMPLES';
-    } catch {
-      return 'SIMPLES';
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('neural_ai_trader_config_mode', configMode);
-    } catch {
-      // localStorage indisponível (modo privado/quota) — só perde a lembrança da aba, sem quebrar nada.
-    }
-  }, [configMode]);
-
   const [showMT5ConfigModal, setShowMT5ConfigModal] = useState(false);
   const [mt5Login, setMt5Login] = useState('');
   const [mt5Password, setMt5Password] = useState('');
@@ -105,25 +78,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   // Use the Global Context for Logic
   const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory } = useTradingContext();
   const { strategies } = useStrategies();
-
-  // 🔴 FIX 2026-08-20 (mesmo achado do configMode acima): selectedRiskProfileId
-  // era estado local isolado, só setado dentro de applyRiskProfile — nunca
-  // reconstruído a partir da config real. Resultado: escolher "Moderado",
-  // sair da tela e voltar mostrava os 4 cards SEM NENHUM selecionado, mesmo
-  // com riskPerTrade/activeStrategyId/timeframe do Moderado intactos no
-  // aiConfig persistido. Agora é derivado da config atual a cada render —
-  // sempre reflete o que está realmente ativo, nunca "esquece". Match exige
-  // os campos que applyRiskProfile realmente escreve (preset, timeframe,
-  // risco/trade) — cesta de ativos fica de fora do match porque o usuário
-  // pode tocar em Ativos Simultâneos sem deixar de estar "no" perfil.
-  const selectedRiskProfileId = useMemo<RiskProfileId | null>(() => {
-    const match = RISK_PROFILES.find(p =>
-      p.activeStrategyId === config.activeStrategyId &&
-      p.timeframe === config.timeframe &&
-      p.riskPerTrade === config.riskPerTrade
-    );
-    return match?.id ?? null;
-  }, [config.activeStrategyId, config.timeframe, config.riskPerTrade]);
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
   useEffect(() => {
@@ -161,31 +115,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
   const handleSaveWorkspace = (name: string) => {
       saveWorkspace(name, config, { showEquityChart });
-  };
-
-  const applyRiskProfile = (profileId: RiskProfileId) => {
-    const profile = getRiskProfile(profileId);
-    setConfig(prev => ({
-      ...prev,
-      activeStrategyId: profile.activeStrategyId,
-      timeframe: profile.timeframe,
-      activeAssets: profile.activeAssets,
-      riskPerTrade: profile.riskPerTrade,
-      cooldownEnabled: true,
-      cooldownMinutes: profile.cooldownMinutes,
-      maxTradesPerDay: profile.maxTradesPerDay,
-      // 🔒 2026-08-17: escolher um perfil no modo Simples precisa GARANTIR
-      // uma config segura, não só sobrescrever os campos "óbvios". Achado
-      // real: `atrMultiplier`/`positionSizingMode` não eram tocados aqui —
-      // se o usuário tivesse passado pelo Avançado antes e deixado o
-      // multiplicador ATR alto (ex: 4.0x), o Simples herdava esse valor por
-      // baixo e ficava com o MESMO bug (nocional sempre abaixo do mínimo
-      // executável, silenciosamente) mesmo escolhendo um perfil "seguro".
-      // 1.5x = STOP_ATR_MULTIPLIER do motor (runTradingCycle.ts) — razão 1.0,
-      // sem encolher nem inflar o tamanho calculado por risco%.
-      positionSizingMode: 'ATR',
-      atrMultiplier: 1.5,
-    }));
   };
 
   const toggleAsset = (asset: string) => {
@@ -1040,118 +969,21 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         
                         {/* OLD PROFILE UI REPLACED BY WORKSPACE SELECTOR IN HEADER */}
 
-                        {/* 🆕 Toggle Simples/Avançado — item 5 do redesenho do cérebro (2026-08-16) */}
-                        <div className="flex items-center gap-2 p-1 bg-black rounded-lg border border-white/10 mb-6 w-fit">
-                            <button
-                                onClick={() => setConfigMode('SIMPLES')}
-                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
-                                    configMode === 'SIMPLES' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
-                                }`}
-                            >
-                                Simples (perfil de risco)
-                            </button>
-                            <button
-                                onClick={() => setConfigMode('AVANCADO')}
-                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
-                                    configMode === 'AVANCADO' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
-                                }`}
-                            >
-                                Avançado (manual)
-                            </button>
+                        {/* 🔴 2026-09-04 (pedido do Cleber): removido o modo "Simples" (perfil
+                            de risco pronto) — Setup fica só no manual/Avançado, sempre. Motivo:
+                            perfis prontos escondiam campos reais que o motor usa (Fluxo de
+                            Operação, Direção Preferencial etc.), e o toggle causava confusão
+                            sobre onde configurar algo que sempre existiu só no Avançado. */}
+                        <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                            <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                                <span className="font-bold">Modo manual:</span> os campos abaixo interagem entre si — uma
+                                combinação errada (ex: risco baixo + Multiplicador ATR alto) pode fazer a IA rejeitar
+                                TODO trade silenciosamente, mesmo com sinal bom. Fique de olho nos avisos que aparecem
+                                junto dos campos.
+                            </p>
                         </div>
 
-                        {configMode === 'AVANCADO' && (
-                            <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                                <p className="text-[10px] text-amber-300/90 leading-relaxed">
-                                    <span className="font-bold">Modo manual:</span> os campos abaixo interagem entre si — uma
-                                    combinação errada (ex: risco baixo + Multiplicador ATR alto) pode fazer a IA rejeitar
-                                    TODO trade silenciosamente, mesmo com sinal bom. Fique de olho nos avisos que aparecem
-                                    junto dos campos. No modo "Simples" isso não acontece — os perfis prontos já vêm calibrados.
-                                </p>
-                            </div>
-                        )}
-
-                        {configMode === 'SIMPLES' ? (
-                            <div className="mb-8 space-y-4">
-                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
-                                    <Gauge className="w-4 h-4" /> Perfil de Risco
-                                </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                                    {RISK_PROFILES.map(profile => (
-                                        <button
-                                            key={profile.id}
-                                            onClick={() => applyRiskProfile(profile.id)}
-                                            className={`text-left p-4 rounded-lg border transition-all ${
-                                                selectedRiskProfileId === profile.id
-                                                    ? profile.experimental
-                                                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
-                                                        : 'bg-purple-500/10 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                                                    : profile.experimental
-                                                        ? 'bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50'
-                                                        : 'bg-white/5 border-white/10 hover:border-white/20'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <div className="text-sm font-bold text-white">{profile.label}</div>
-                                                {profile.experimental && (
-                                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                                                        Não validado
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400 mb-3 leading-relaxed">{profile.description}</div>
-                                            <div className="space-y-1 pt-2 border-t border-white/10">
-                                                <div className="flex justify-between text-[10px]">
-                                                    <span className="text-slate-500">Atividade esperada</span>
-                                                    <span className="font-mono text-cyan-400">
-                                                        {profile.expectedTradesPerDayRange[0].toFixed(1)}–{profile.expectedTradesPerDayRange[1].toFixed(1)}/dia
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between text-[10px]">
-                                                    <span className="text-slate-500">Líq. medido/trade</span>
-                                                    <span className="font-mono text-emerald-400">
-                                                        {profile.expectedNetPercentPerTradeRange[0].toFixed(2)}–{profile.expectedNetPercentPerTradeRange[1].toFixed(2)}%
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between text-[10px]">
-                                                    <span className="text-slate-500">Timeframe</span>
-                                                    <span className="font-mono text-slate-300">{profile.timeframe}</span>
-                                                </div>
-                                                <div className="text-[10px] pt-1">
-                                                    <span className="text-slate-500">Opera: </span>
-                                                    <span className="font-mono text-slate-300">{profile.activeAssets.join(', ')}</span>
-                                                </div>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
-                                    <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                    <span>
-                                        Faixas medidas em dado histórico real (`taxa_base.json`, 2026-08-05), não promessa de retorno.
-                                        Passado não garante resultado futuro. Valor em dólar por trade depende do seu capital e do
-                                        tamanho de posição calculado — não exibido aqui de propósito até essa conta fechar. Cesta de
-                                        ativos é fixa por perfil — só os ativos com resultado líquido positivo medido nesse preset/
-                                        timeframe entram.
-                                    </span>
-                                </div>
-                                {selectedRiskProfileId === 'EXPERIMENTAL' && (
-                                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded text-[9px] text-amber-300">
-                                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                        <span>
-                                            <strong>Perfil experimental — não validado estatisticamente.</strong> O resultado positivo
-                                            vem de um único backtest histórico, sem correção por múltiplos testes (DSR) nem
-                                            walk-forward — a mesma barra que reprovou os outros presets como "edge comprovado" não foi
-                                            aplicada aqui ainda. Pode reverter no próximo dado. Use com capital que você aceita perder
-                                            testando.
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-
-                        <>
                         {/* ASSET UNIVERSE SELECTOR */}
                         <div className="mb-8">
                             <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} allocatedCapital={config.allocatedCapital} />
@@ -1245,11 +1077,26 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 >
                                     Contra (Reversal)
                                 </button>
+                                <button
+                                    onClick={() => setConfig({ ...config, marketMode: null })}
+                                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                                    config.marketMode == null
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    Automático
+                                </button>
                                 </div>
                                 {config.marketMode === 'COUNTER' ? (
                                     <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
                                         <Crosshair className="w-3 h-3" />
                                         <span>A IA buscará entradas em <strong>Suportes e Resistências</strong> Majoritários.</span>
+                                    </div>
+                                ) : config.marketMode == null ? (
+                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-emerald-500/5 border border-emerald-500/10 rounded text-[9px] text-emerald-500/80">
+                                        <Crosshair className="w-3 h-3" />
+                                        <span>A IA decide <strong>A Favor ou Contra</strong> a tendência conforme a confluência técnica de cada entrada, sem trava mecânica de direção.</span>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-blue-500/5 border border-blue-500/10 rounded text-[9px] text-blue-500/80">
@@ -1509,8 +1356,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
                             </div>
                         </div>
-                        </>
-                        )}
 
                         {/* ASSET SELECTION REMOVED - REPLACED BY ASSET UNIVERSE COMPONENT */}
 
