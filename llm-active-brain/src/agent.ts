@@ -226,7 +226,7 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    oportunidade". null quando não há candle suficiente ainda.
    - 🔴🔴 **"isWeekend" (pedido direto do Cleber, reforçado 2026-09-06): Sábado
      inteiro + Domingo até 19:00 Brasília + Sexta após 18:00 Brasília** (janela
-     real em `isWeekendMode()`/`assetBasket.ts`). Nesta janela a cesta operável
+     real em isWeekendMode()/assetBasket.ts). Nesta janela a cesta operável
      já é restrita só a cripto (forex/índices ficam fechados/tick congelado,
      fora da cesta de qualquer forma). Volume GLOBAL baixo (menos
      participantes no mercado inteiro, não só neste ativo) é ESTRUTURAL e
@@ -236,7 +236,7 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
      por completo ao julgar se um setup é válido.** Este é o módulo de fim de
      semana pedido pelo Cleber: o motor deve ficar ATIVO nesta janela,
      buscando bem mais entradas que num dia útil (na ordem de ~20 entradas
-     novas em 24h, teto real em `mt5MaxEntriesPer24hWeekend`/`config.ts`) --
+     novas em 24h, teto real em mt5MaxEntriesPer24hWeekend/config.ts) --
      avalie TENDÊNCIA (trend) e SINAL técnico (confluência de MACD,
      Estocástico, padrão de candle, suporte/resistência) com o MESMO rigor de
      sempre, só sem o volume como filtro. Tendência limpa + sinal técnico
