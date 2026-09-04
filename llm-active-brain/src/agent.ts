@@ -13,6 +13,7 @@ import { enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridg
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
+import { getUsEconomicCalendar } from "./atr.js";
 
 // 🔴 2026-08-31 (Fase 2 multi-tenant): antes runAgent operava sempre sobre o
 // singleton global de sessão (config.neuralUserId fixo em env). Agora recebe
@@ -648,8 +649,39 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     const strategyDirective = mt5Session.userConfig?.strategyLabel
       ? `\n\nEstratégia preferida do usuário (Setup do AI Trader): "${mt5Session.userConfig.strategyLabel}". Priorize setups alinhados com esse estilo ao avaliar entradas, mas continue seguindo todas as regras de risco/gates mecânicos normalmente.`
       : "";
+    // 🔴 2026-09-04 (pedido direto do Cleber -- "não precisa ficar checando
+    // de 5 em 5 minutos... se registrar os horários relevantes em sua
+    // memória, já sabe o que vai acontecer pro resto do dia, não precisa
+    // gastar token verificando de novo"): agenda econômica dada AQUI, 1x no
+    // início do ciclo -- antes ia embutida em CADA um dos ~10 get_mt5_quote
+    // do ciclo (repetia o mesmo JSON 10x, puro desperdício de token). Cache
+    // de rede continua em atr.ts (5min), isso aqui só resolve a repetição
+    // dentro do MESMO ciclo.
+    let economicCalendarBlock = "";
+    try {
+      const calendar = await getUsEconomicCalendar();
+      if (calendar && (calendar.highImpactToday.length > 0 || calendar.nextUpcoming)) {
+        const lines: string[] = [];
+        if (calendar.mostRecentRelease) {
+          const r = calendar.mostRecentRelease;
+          lines.push(`Último evento de alto impacto (USD) que já saiu: "${r.event}" às ${r.time} -- real ${r.actual}, previsto ${r.forecast}, anterior ${r.previous}.`);
+        }
+        if (calendar.nextUpcoming) {
+          const n = calendar.nextUpcoming;
+          lines.push(`Próximo evento de alto impacto (USD) que AINDA VAI sair hoje: "${n.event}" às ${n.time} (previsto ${n.forecast || "n/d"}).`);
+        }
+        if (lines.length > 0) {
+          economicCalendarBlock = `\n\nAgenda econômica americana (alto impacto, dado real):\n${lines.join("\n")}`;
+        }
+      }
+    } catch (err) {
+      console.error("[agent] falha ao buscar agenda economica (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
+    }
     userMessage =
-      `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` + (memoryBlock ? `\n\n${memoryBlock}` : "") + strategyDirective;
+      `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` +
+      (memoryBlock ? `\n\n${memoryBlock}` : "") +
+      strategyDirective +
+      economicCalendarBlock;
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();

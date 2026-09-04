@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getUsEconomicCalendar } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -368,11 +368,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `candle nao disponivel. Rompimento confirmado (brokeAboveResistance/brokeBelowSupport) merece atencao ` +
         `redobrada mesmo com pouco volume -- todo rompimento pode ser inicio de movimento grande, nao descarte so ` +
         `por falta de volume. ` +
-        `Tambem devolve "usEconomicCalendar" (agenda economica REAL americana, alto impacto, cache de 5min): ` +
-        `"highImpactToday" (lista completa do dia), "mostRecentRelease" (ultimo evento de alto impacto que ja saiu ` +
-        `nos ultimos ~90min, com actual/forecast/previous reais -- surpresa grande vs previsao costuma gerar ` +
-        `movimento maior) e "nextUpcoming" (proximo evento de alto impacto que AINDA NAO saiu -- fique atento antes, ` +
-        `nao so depois). null quando a agenda nao respondeu, nunca fabrica evento. ` +
+        `A agenda economica americana de alto impacto (evento mais recente que ja saiu com actual/forecast reais, ` +
+        `e proximo evento que ainda vai sair) ja vem na mensagem de abertura deste ciclo, nao repetida aqui -- ` +
+        `cruze com nySessionPhase e rompimento pra julgar conviccao. ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {
         type: "object",
@@ -720,13 +718,6 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // agent.ts), nunca uma trava mecânica nova. null quando não há candle
       // real suficiente, mesma disciplina dos outros campos acima.
       const regime = await getMarketRegime(symbol, timeframe);
-      // 🔴 2026-09-04 (pedido direto do Cleber -- "tudo tem que estar
-      // amarrado" à agenda econômica americana): agenda real de alto
-      // impacto (USD), cache de 5min (não muda por ciclo, evita bater no
-      // endpoint 10x por ciclo). Só CONTEXTO -- nunca trava mecânica, mesma
-      // disciplina de regime/candlePatterns. null quando a fonte real não
-      // respondeu (nunca fabrica evento).
-      const usEconomicCalendar = await getUsEconomicCalendar();
       lastQuoteSnapshotBySymbol.set(symbol, {
         trendLabel: trend?.label ?? null,
         volumeElevated: volume?.elevated ?? null,
@@ -737,7 +728,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volatilityLabel: regime?.volatilityLabel ?? null,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, usEconomicCalendar, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -773,7 +764,6 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stochastic,
         candlePatterns,
         regime,
-        usEconomicCalendar,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }
