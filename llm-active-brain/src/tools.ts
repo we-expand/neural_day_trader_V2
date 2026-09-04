@@ -1392,11 +1392,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // valor antigo de mt5StopAtrMultiplier) em vez do stopPct real --
       // assim reduzir o multiplicador do stop (mt5StopAtrMultiplier) aperta
       // so o stop de verdade, sem encolher o alvo junto. So se aplica quando
-      // ha ATR real disponivel (atrPctForStop != null); no fallback (sem
-      // ATR), o alvo continua usando o stopPct real, igual sempre foi --
-      // nao ha "referencia congelada" sem dado real de ATR pra ancorar nela.
-      const targetReferenceStopPct = atrPctForStop != null
-        ? atrPctForStop * config.mt5TargetReferenceStopAtrMultiplier
+      // ha ATR real disponivel E o stop de fato usou esse ATR real; no
+      // fallback (sem ATR OU ATR fora do range mt5StopMinPct/mt5StopMaxPct,
+      // usedFallbackStop=true), o alvo usa o stopPct real (ja e o fallback
+      // seguro), igual sempre foi -- nao ha "referencia congelada" sem dado
+      // real de ATR pra ancorar nela.
+      // 🔴 2026-09-04 (achado ao vivo, monitoramento continuo -- NAS100
+      // SHORT abriu com stop 0,300% mas alvo so 0,274%, R:R 0,91:1, pior que
+      // 1:1 mesmo com targetPoints=MEDIO pedindo 3:1): a condicao antiga
+      // testava so `atrPctForStop != null`, mas usedFallbackStop tambem vira
+      // true quando o ATR real EXISTE porem da um dynamicStopPct fora do
+      // range minimo/maximo (aqui, ATR minusculo == mt5StopMinPct
+      // acionado) -- nesse caso o stop usa o fallback seguro (0,300%,
+      // maior) mas o alvo continuava ancorado no ATR real minusculo
+      // (atrPctForStop*1.3), gerando alvo bem menor que o proprio stop
+      // fallback. Corrigido pra checar usedFallbackStop (que cobre os dois
+      // casos: ATR nulo E ATR fora do range) em vez de so atrPctForStop.
+      const targetReferenceStopPct = !usedFallbackStop
+        ? atrPctForStop! * config.mt5TargetReferenceStopAtrMultiplier
         : stopPct;
       let takeProfitPct = targetReferenceStopPct * rrMultiplier;
       // 🔴 2026-09-02 (pedido direto do Cleber): alvo por ATR e cego a
