@@ -437,6 +437,18 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
     const rawAssets = Array.isArray(raw.activeAssets) ? (raw.activeAssets as string[]) : null;
     const translatedAssets = rawAssets?.map((s) => INVERSE_ALIAS[s] ?? s) ?? null;
     const intersected = translatedAssets ? translatedAssets.filter((s) => fullBasket.includes(s)) : null;
+    // 🔴 2026-09-06 (achado real: Cleber configurou 16 criptos no Setup, só 3
+    // apareciam na cesta efetiva -- MT5_ASSET_BASKET tinha ficado desatualizado,
+    // dropando o resto em silêncio, sem log, sem erro visível). Log explícito
+    // sempre que o Setup pede mais ativos do que este motor reconhece --
+    // visibilidade automática em vez de o usuário ter que notar "poucas
+    // entradas" e alguém investigar do zero cada vez que a lista crescer.
+    if (translatedAssets && intersected && intersected.length < translatedAssets.length) {
+      const dropped = translatedAssets.filter((s) => !fullBasket.includes(s));
+      console.warn(
+        `[neuralBridge] ⚠️ Setup configurou ${translatedAssets.length} ativo(s), mas ${dropped.length} não existe(m) em MT5_ASSET_BASKET (assetBasket.ts) e foi(ram) ignorado(s) silenciosamente: ${dropped.join(", ")}. Cesta efetiva ficou menor do que o usuário pediu -- adicionar ao array se forem símbolos reais.`
+      );
+    }
 
     const value: UserTradingConfig = {
       riskPerTradePct: typeof raw.riskPerTrade === "number" && raw.riskPerTrade > 0 ? raw.riskPerTrade : null,

@@ -168,8 +168,19 @@
  * hoje não decide mais qual cesta usar -- fica pronta pra um "modo fim de
  * semana" comportamental (não de seleção de ativos) a ser desenhado depois.
  */
+// 🔴 2026-09-06 (achado real, Cleber: "não está fazendo entradas, deveria ter
+// mais"): configurou 16 criptos em `activeAssets` (Setup), mas só 3
+// (BTCUSD/XETUSD/BTCXBN) apareciam na cesta efetiva -- `getUserTradingConfig`
+// (neuralBridge.ts) intersecta `activeAssets` com ESTE array como "universo
+// possível"; os 13 altcoins abaixo já tinham `lotSize` calibrado em
+// `LOT_SIZE` logo adiante (preparado antes, nunca commitado aqui) mas
+// ficavam fora da interseção por não estarem listados aqui -- filtrados
+// silenciosamente, sem erro, sem log. Confirmados reais agora via
+// /mt5-prices (preço + candle, todos válidos) antes de adicionar.
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "BTCXBN",
+  "DOGUSD", "DOTUSD", "XRPUSD", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
+  "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
 ];
 
