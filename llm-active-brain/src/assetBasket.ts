@@ -124,19 +124,21 @@
  * `open_position` até o capital alocado aumentar ou o teto de risco subir.
  */
 /**
- * 🔴 2026-09-04 (pedido direto do Cleber, depois do upgrade de confiabilidade
- * + IPv4 dedicado na conta MetaAPI): reintroduzidos DOTUSD, ADAUSD, LNKUSD,
- * UNIUSD -- cortados em 2026-09-02 por suspeita de contenção de rate-limit
- * na conta compartilhada (ver comentário histórico acima), não por
- * performance ruim. Com a conta agora com maior confiabilidade/IP dedicado,
- * vale testar se a contenção que motivou o corte foi resolvida. Reverter se
- * o gráfico voltar a ficar intermitente (mesmo sintoma documentado em
- * 2026-09-02).
+ * 🔴 2026-09-04 (revertido no mesmo dia, pedido do Cleber): DOTUSD, ADAUSD,
+ * LNKUSD, UNIUSD foram reintroduzidos brevemente depois do upgrade de
+ * confiabilidade/IPv4 dedicado na conta MetaAPI, mas confirmado ao vivo logo
+ * em seguida que a MetaAPI tem um teto HARD de 5 requisições concorrentes de
+ * dado histórico (candle) por conta ("TooManyRequestsError... maximum of 5
+ * concurrent historical market data requests", 8 concorrentes medidas com
+ * a cesta de 14) -- mais símbolos na cesta = mais risco de estourar esse
+ * teto e cair em fallback SIMULATED, independente do upgrade de
+ * confiabilidade (que resolve outro tipo de problema, não este limite).
+ * Voltado pra 10 símbolos. Não reintroduzir sem uma estratégia real de
+ * limitar requisições concorrentes de candle (ex: fila/semáforo no cliente).
  */
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "BTCXBN",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
-  "DOTUSD", "ADAUSD", "LNKUSD", "UNIUSD",
 ];
 
 /**
