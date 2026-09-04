@@ -216,6 +216,29 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
    de código, é dado a mais pra você não confundir "calmo" com "sem
    oportunidade". null quando não há candle suficiente ainda.
+   - 🔴🔴 **"usEconomicCalendar" (pedido direto do Cleber -- "tudo tem que
+     estar amarrado" à agenda econômica americana, "ela tem que ficar
+     atenta que vai sair indicador, pra poder agir na hora certa"): agenda
+     REAL de eventos de alto impacto (USD) do dia. Confirmado ao vivo nesta
+     mesma sessão: NFP (Nonfarm Payrolls) saiu 162K contra previsão de 56K
+     -- quase 3x surpresa -- às 12:30 UTC, e o mercado (BTCUSD, GER40,
+     SPX500) reagiu com rompimento real e volume forte nos minutos
+     seguintes. Use:
+     - **"nextUpcoming"** (evento de alto impacto que AINDA VAI sair hoje):
+       fique ATENTO antes -- se está a menos de ~15-20min de sair, considere
+       reduzir convicção em entradas NOVAS contra a tendência atual (o dado
+       pode reverter tudo em segundos) e prepare-se pra interpretar o
+       "mostRecentRelease" assim que ele aparecer no próximo ciclo.
+     - **"mostRecentRelease"** (evento que JÁ saiu, com actual/forecast
+       reais): compare actual vs forecast -- uma surpresa GRANDE (muito
+       acima ou abaixo do esperado) é exatamente o tipo de gatilho que junto
+       com nySessionPhase e rompimento confirmado (brokeAboveResistance/
+       brokeBelowSupport) deve reforçar sua CONVICÇÃO pra participar do
+       movimento (ver princípio de confluência+convição em 1c
+       acima), não só observar de fora. Uma surpresa pequena (actual perto
+       do forecast) não justifica ação especial.
+     null quando a agenda não respondeu -- nunca fabrica evento, opere pelo
+     resto da confluência normalmente.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a

@@ -838,3 +838,97 @@ export async function getMarketRegime(symbol: string, timeframe: SupportedTimefr
 
   return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase() };
 }
+
+// ============================================================================
+// AGENDA ECONÔMICA (2026-09-04) -- pedido direto do Cleber: "tudo tem que
+// estar amarrado" à agenda econômica americana, porque a intensidade do
+// movimento do dia depende muito do que sai nela (achado confirmado ao vivo
+// nesta mesma sessão: NFP saiu 162K contra previsão de 56K às 12:30 UTC =
+// 09:30 Brasília, batendo EXATAMENTE no horário do rompimento que o Cleber
+// estava vendo no BTCUSD/GER40/SPX500 -- não coincidência, é a causa real).
+// Reaproveita o MESMO endpoint real (`/economic-calendar?country=US`) que o
+// motor mecânico aposentado (`ai-runner`) já usava como gate de risco (ver
+// supabase/functions/ai-runner/lib/marketContext.ts) -- aqui é só CONTEXTO
+// informativo pro LLM julgar, nunca trava mecânica nova (mesma disciplina
+// de regime/candlePatterns/etc). Nunca fabrica dado: fonte indisponível =
+// null, mesmo padrão do resto do arquivo.
+// ============================================================================
+
+export interface UsEconomicEvent {
+  time: string; // ISO
+  event: string;
+  impact: "high" | "medium" | "low";
+  actual: string;
+  forecast: string;
+  previous: string;
+}
+
+export interface UsEconomicCalendar {
+  /** Eventos de alto impacto (USD) de hoje, na ordem em que saem. */
+  highImpactToday: UsEconomicEvent[];
+  /**
+   * Evento de alto impacto mais recente que JÁ saiu (tem "actual" preenchido)
+   * nos últimos RECENT_RELEASE_WINDOW_MIN -- é o mais relevante pro momento
+   * atual, junto com se foi surpresa (actual muito diferente do forecast).
+   */
+  mostRecentRelease: UsEconomicEvent | null;
+  /** Próximo evento de alto impacto ainda não saído (sem "actual"), se houver. */
+  nextUpcoming: UsEconomicEvent | null;
+}
+
+const ECONOMIC_CALENDAR_CACHE_TTL_MS = 5 * 60 * 1000; // agenda muda pouco -- 5min de cache é seguro, evita bater no endpoint a cada ciclo
+const RECENT_RELEASE_WINDOW_MIN = 90; // ~1h30 -- movimento de reacao a evento de alto impacto tende a se estender por esse tanto
+let economicCalendarCache: { fetchedAt: number; calendar: UsEconomicCalendar | null } | null = null;
+
+/**
+ * Agenda econômica americana real, de alto impacto, pro LLM cruzar com
+ * regime.nySessionPhase e o resto da confluência técnica -- nunca decide
+ * sozinha, só contexto (ver princípio 1g/1c em agent.ts). `null` quando a
+ * fonte real não respondeu (nunca fabrica evento).
+ */
+export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null> {
+  if (economicCalendarCache && Date.now() - economicCalendarCache.fetchedAt < ECONOMIC_CALENDAR_CACHE_TTL_MS) {
+    return economicCalendarCache.calendar;
+  }
+  try {
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/economic-calendar?country=US&lang=en`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+      return null;
+    }
+    const result = (await res.json()) as { events?: Array<Record<string, unknown>> };
+    if (!Array.isArray(result.events)) {
+      economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+      return null;
+    }
+
+    const highImpactToday: UsEconomicEvent[] = result.events
+      .filter((e) => e.impact === "high")
+      .map((e) => ({
+        time: String(e.time ?? ""),
+        event: String(e.event ?? ""),
+        impact: "high" as const,
+        actual: String(e.actual ?? ""),
+        forecast: String(e.forecast ?? ""),
+        previous: String(e.previous ?? ""),
+      }))
+      .filter((e) => e.time);
+
+    const now = Date.now();
+    const released = highImpactToday.filter((e) => e.actual !== "" && now - new Date(e.time).getTime() <= RECENT_RELEASE_WINDOW_MIN * 60_000);
+    const mostRecentRelease = released.length > 0 ? released[released.length - 1] : null;
+    const upcoming = highImpactToday.filter((e) => e.actual === "" && new Date(e.time).getTime() > now);
+    const nextUpcoming = upcoming.length > 0 ? upcoming[0] : null;
+
+    const calendar: UsEconomicCalendar = { highImpactToday, mostRecentRelease, nextUpcoming };
+    economicCalendarCache = { fetchedAt: Date.now(), calendar };
+    return calendar;
+  } catch {
+    economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+    return null;
+  }
+}
