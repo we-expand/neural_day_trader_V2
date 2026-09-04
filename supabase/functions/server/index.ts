@@ -4157,6 +4157,56 @@ const priceCache = new Map<string, CachedPriceEntry>();
 const inFlightPriceFetches = new Map<string, Promise<Record<string, unknown>>>();
 const priceCacheKvKey = (symbol: string) => `mt5price_cache_${symbol}`;
 
+// 🔴 2026-09-04 (pesquisa profunda sobre rate-limit/feed travado, pedido do
+// Cleber): a MetaAPI documenta um teto HARD e explícito de "5 concurrent
+// historical market data requests" POR CONTA (nao por processo, nao muda por
+// plano pago -- confirmado contra a doc oficial: metaapi.cloud/docs/client/
+// rateLimiting/, sem qualquer tier diferenciado pra esse limite especifico).
+// `mapWithConcurrency(symbols, 8, fetchOnePrice)` logo abaixo processa ate 8
+// simbolos em paralelo, e CADA fetchOnePrice chama fetchCandles() (a funcao
+// que efetivamente bate no endpoint de historical-market-data) -- ou seja,
+// so esta rota, sozinha, ja pode disparar ate 8 requisicoes concorrentes de
+// candle, 3 ACIMA do teto real da conta inteira. Somado ao llm-active-brain
+// (processo Node separado, semaforo proprio de ate 3 requisicoes
+// concorrentes em atr.ts, MAX_CONCURRENT_CANDLE_REQUESTS) rodando ao mesmo
+// tempo contra a MESMA conta, o pico combinado passava facilmente de 10+
+// concorrentes -- explica os 429/SIMULATED cronicos documentados no
+// CLAUDE_HISTORY.md havia meses, nunca com causa raiz unificada antes.
+// Fix: semaforo local (mesmo padrao ja usado em atr.ts) especificamente em
+// torno do fetch() de historical-market-data desta rota, DESACOPLADO da
+// concorrencia de 8 usada pro fetch de tick (mais barato, outro bucket de
+// credito na MetaAPI, nao sujeito a este teto de 5). Limite de 2 aqui +
+// reducao do semaforo do llm-active-brain de 3->2 no mesmo commit deixa o
+// pior caso combinado em 4 concorrentes, com folga de 1 sob o teto real de 5
+// mesmo se ambos dispararem no mesmo instante.
+// ⚠️ Limite conhecido desta mitigacao: e um semaforo LOCAL por isolate/
+// processo, nao um limitador distribuido de verdade -- se o Supabase escalar
+// esta Edge Function pra mais de 1 isolate simultaneo sob carga alta, o
+// limite real por isolate ainda soma corretamente ate o teto entre eles no
+// caso comum, mas o pior caso teorico (varios isolates saturados ao mesmo
+// tempo) ainda pode ultrapassar 5. Fix definitivo exigiria um semaforo
+// distribuido (ex: contador em Postgres/advisory lock) compartilhado entre
+// esta Edge Function E o processo Node do llm-active-brain -- nao
+// implementado nesta sessao, ver handoff/relatorio de pesquisa.
+const MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS = 2;
+let activeHistoricalDataRequests = 0;
+const historicalDataRequestQueue: Array<() => void> = [];
+
+async function acquireHistoricalDataSlot(): Promise<void> {
+  if (activeHistoricalDataRequests < MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS) {
+    activeHistoricalDataRequests++;
+    return;
+  }
+  await new Promise<void>((resolve) => historicalDataRequestQueue.push(resolve));
+  activeHistoricalDataRequests++;
+}
+
+function releaseHistoricalDataSlot(): void {
+  activeHistoricalDataRequests--;
+  const next = historicalDataRequestQueue.shift();
+  if (next) next();
+}
+
 app.post('/mt5-prices', async (c) => {
     try {
         const { symbols, token, accountId } = await c.req.json();
@@ -4396,18 +4446,26 @@ app.post('/mt5-prices', async (c) => {
                     // primeira vier curta (<2 candles) — isolado pro caso real, sem tocar no
                     // caminho que já era correto pra todo o resto.
                     async function fetchCandles(limit: number, startTime: Date = now) {
-                        const res = await fetch(
-                            `${candlesUrl}?startTime=${startTime.toISOString()}&limit=${limit}`,
-                            {
-                                headers: {
-                                    'auth-token': metaapiToken,
-                                    'Accept': 'application/json'
+                        // Semaforo global desta Edge Function (ver comentario acima da rota)
+                        // -- so este bloco bate no endpoint de historical-market-data, que e
+                        // o sujeito ao teto real de 5 concorrentes por conta da MetaAPI.
+                        await acquireHistoricalDataSlot();
+                        try {
+                            const res = await fetch(
+                                `${candlesUrl}?startTime=${startTime.toISOString()}&limit=${limit}`,
+                                {
+                                    headers: {
+                                        'auth-token': metaapiToken,
+                                        'Accept': 'application/json'
+                                    }
                                 }
-                            }
-                        );
-                        if (!res.ok) return { ok: false, candles: null as any[] | null };
-                        const json = await res.json();
-                        return { ok: true, candles: Array.isArray(json) ? json : null };
+                            );
+                            if (!res.ok) return { ok: false, candles: null as any[] | null };
+                            const json = await res.json();
+                            return { ok: true, candles: Array.isArray(json) ? json : null };
+                        } finally {
+                            releaseHistoricalDataSlot();
+                        }
                     }
 
                     let change = 0;
@@ -4894,17 +4952,30 @@ app.post('/mt5-candles', async (c) => {
         console.log(`[MT5 CANDLES] URL: ${candlesUrl}`);
         console.log(`[MT5 CANDLES] Timeframe: ${mt5Timeframe}, Limit: ${candleLimit}`);
 
-        const response = await fetch(
-            `${candlesUrl}?startTime=${endTime.toISOString()}&limit=${Math.min(candleLimit, 1000)}`,
-            {
-                headers: {
-                    'auth-token': metaapiToken,
-                    'Accept': 'application/json'
-                },
-                signal: AbortSignal.timeout(8000)
-            }
-        );
-        
+        // 🔴 2026-09-04: mesmo semaforo global de historical-market-data usado
+        // em /mt5-prices (ver comentario acima daquela rota) -- esta rota bate
+        // no MESMO endpoint/teto de conta da MetaAPI (5 concorrentes), chamada
+        // tanto pelo llm-active-brain quanto por outros consumidores. Sem
+        // compartilhar o semaforo, as duas rotas desta MESMA Edge Function
+        // poderiam somar concorrencia acima do teto real mesmo cada uma
+        // "respeitando" o proprio limite isolado.
+        await acquireHistoricalDataSlot();
+        let response: Response;
+        try {
+            response = await fetch(
+                `${candlesUrl}?startTime=${endTime.toISOString()}&limit=${Math.min(candleLimit, 1000)}`,
+                {
+                    headers: {
+                        'auth-token': metaapiToken,
+                        'Accept': 'application/json'
+                    },
+                    signal: AbortSignal.timeout(8000)
+                }
+            );
+        } finally {
+            releaseHistoricalDataSlot();
+        }
+
         if (!response.ok) {
             const errorText = await response.text();
             console.error(`[MT5 CANDLES] ❌ HTTP ${response.status}: ${errorText}`);
@@ -5149,6 +5220,13 @@ app.post('/mt5-candles-history', async (c) => {
             let response: Response | null = null;
             let lastPageError: string | null = null;
             for (let attempt = 0; attempt <= PAGE_RETRIES; attempt++) {
+                // Mesmo semaforo global de historical-market-data de /mt5-prices e
+                // /mt5-candles (ver comentario acima da rota /mt5-prices) -- esta
+                // paginação, embora sequencial DENTRO de si mesma, ainda pode
+                // rodar ao mesmo tempo que outra chamada desta rota (2 usuários
+                // fazendo backtest) ou das outras duas rotas, contra a MESMA
+                // conta MetaAPI.
+                await acquireHistoricalDataSlot();
                 try {
                     const candidate = await fetch(
                         `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
@@ -5169,6 +5247,8 @@ app.post('/mt5-candles-history', async (c) => {
                     // baixo e mantém o comportamento antigo como pior caso.
                 } catch (fetchErr: any) {
                     lastPageError = fetchErr?.message || 'network error';
+                } finally {
+                    releaseHistoricalDataSlot();
                 }
                 if (attempt < PAGE_RETRIES) {
                     await new Promise(resolve => setTimeout(resolve, PAGE_RETRY_DELAYS_MS[attempt]));

@@ -136,9 +136,29 @@
  * Voltado pra 10 símbolos. Não reintroduzir sem uma estratégia real de
  * limitar requisições concorrentes de candle (ex: fila/semáforo no cliente).
  */
+/**
+ * 🔴 2026-09-04 (noite, pedido explicito do Cleber -- entrando no fim de
+ * semana): cesta trocada pra SO cripto (16 simbolos) -- forex/indices fecham
+ * no fim de semana (`isForexMarketOpen`/`WEEKEND_CLOSED_SYMBOLS` abaixo,
+ * confirmado ao vivo hoje: todos os 7 nao-cripto ficaram com tick congelado
+ * simultaneamente por volta de 21h40 UTC de sexta, horario batendo com o
+ * fechamento real do pregao -- nao era bug, era o mercado fechando mesmo).
+ * Operar cripto no fim de semana evita ficar com metade da cesta morta (tick
+ * obsoleto, sem chance de abrir posicao) por ~2 dias inteiros. Os 6 simbolos
+ * novos (TRXUSD, ATMUSD, XLMUSD, FILUSD, BNBUSD, AVAUSD) foram TESTADOS AO
+ * VIVO contra /mt5-prices antes de entrar aqui (bid/ask reais confirmados,
+ * mesmo padrao de validacao das cestas anteriores) -- candidatos que
+ * devolveram HTTP 404 nesta corretora (LTCUSD, BCHUSD, AVXUSD, MATUSD,
+ * POLUSD, NEAUSD, SHIUSD, PEPUSD, APTUSD) NAO foram adicionados. Lembrar:
+ * essa mudanca no array so tem efeito de verdade se `activeAssets` em
+ * `ai_user_config` (Supabase) tambem for atualizado -- `getUserTradingConfig`
+ * usa o array salvo la, com este MT5_ASSET_BASKET so como fallback (ver
+ * `tools.ts:495`).
+ */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "BTCXBN",
-  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+  "BTCUSD", "XETUSD", "BTCXBN", "DOGUSD", "DOTUSD", "XRPUSD",
+  "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
+  "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
 ];
 
 /**
@@ -162,6 +182,15 @@ export const LOT_SIZE: Record<string, number> = {
   ADAUSD: 1,
   LNKUSD: 1,
   UNIUSD: 1,
+  // 🔴 2026-09-04: mesmo padrao dos demais cripto/cross acima (lotSize=1) --
+  // sem entrada equivalente em assetDatabase.ts pra confirmar contra, mesma
+  // justificativa ja documentada pros outros altcoins desta cesta.
+  TRXUSD: 1,
+  ATMUSD: 1,
+  XLMUSD: 1,
+  FILUSD: 1,
+  BNBUSD: 1,
+  AVAUSD: 1,
   // Valores REAIS de `assetDatabase.ts` (repo principal) -- mesma fonte que
   // corrigiu o bug de PnL 20x do NAS100 (2026-08-27): CFD retail $1/ponto
   // pra índices, não o contrato E-mini da CME. amountUsd = lots * LOT_SIZE *
@@ -230,7 +259,10 @@ export function isSymbolTradable(symbol: string, now: Date = new Date()): boolea
 // grupo. EURUSD, XAUUSD e UKOUSD ficam isolados (só 1 símbolo cada nova
 // classe, sem outro par pra correlacionar de verdade ainda).
 const CORRELATED_GROUPS: string[][] = [
-  ["BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD"],
+  [
+    "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
+    "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
+  ],
   ["GER40", "SPX500", "NAS100", "UK100"],
 ];
 

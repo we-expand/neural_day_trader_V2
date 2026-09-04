@@ -120,8 +120,23 @@ async function fetchRecentCandles(symbol: string, timeframe: SupportedTimeframe 
  * usuário. Ficar em 3 deixa folga real pros consumidores do navegador em vez de
  * o motor sozinho encostar no teto e empurrar todo mundo (inclusive ele mesmo)
  * pro fallback SIMULATED.
+ *
+ * 🔴 2026-09-04 (pesquisa profunda, mesmo dia): achado que faltava nesta
+ * análise -- as rotas `/mt5-prices`/`/mt5-candles`/`/mt5-candles-history` (Edge
+ * Function compartilhada, usada por TODOS os consumidores: este processo,
+ * Dashboard, Gráfico) tinham seu PRÓPRIO ponto de concorrência sem nenhum
+ * limite alinhado a este teto (`/mt5-prices` processava até 8 símbolos em
+ * paralelo, cada um disparando sua própria chamada de candle -- 3 acima do
+ * teto de 5 SÓ NESSA ROTA, sem contar este processo). Corrigido lá com um
+ * semáforo compartilhado entre as 3 rotas, limite 2. Reduzido AQUI de 3 para
+ * 2 (3+2=5 ficava exatamente no teto, sem nenhuma folga) -- 2+2=4 deixa 1
+ * unidade de margem real para qualquer pico simultâneo das duas pontas.
+ * Mitigação ainda não é um limitador distribuído de verdade (cada lado só
+ * limita a si mesmo, não existe coordenação real entre os dois processos) --
+ * ver relatório da sessão para o próximo passo estrutural (contador/lock
+ * compartilhado via Postgres) se isto não bastar.
  */
-const MAX_CONCURRENT_CANDLE_REQUESTS = 3;
+const MAX_CONCURRENT_CANDLE_REQUESTS = 2;
 const inFlightCandleRequests = new Map<string, Promise<Candle[] | null>>();
 let activeCandleRequests = 0;
 const candleRequestQueue: Array<() => void> = [];
@@ -841,6 +856,18 @@ export interface MarketRegime {
    * GENESIS_PROMPT_MT5).
    */
   nySessionPhase: "PRE_MERCADO" | "MOVIMENTO" | "ABERTURA" | null;
+  /**
+   * 🔴 2026-09-04/05 (pedido direto do Cleber, entrando no fim de semana):
+   * fim de semana (Sábado inteiro + Domingo até 23:00 UTC, MESMA janela de
+   * `isForexMarketOpen` em assetBasket.ts) tem regime estruturalmente
+   * diferente -- volume geral mais baixo, spread tende a ser maior, e só
+   * cripto tem book líquido de verdade (forex/índices ficam com tick
+   * congelado, já excluídos da cesta via `isSymbolTradable`). Isto NÃO é
+   * trava mecânica nova -- é só CONTEXTO real (dia da semana, dado
+   * determinístico, nunca fabricado) pro LLM ponderar confluência com mais
+   * cautela nesse regime, mesmo padrão de volumeLabel/volatilityLabel acima.
+   */
+  isWeekend: boolean;
 }
 
 // 🔴 2026-09-02 (pedido do Cleber): motor tratava baixo volume como sinônimo
@@ -874,6 +901,21 @@ const PRE_MERCADO_START_BRASILIA_MIN = 9 * 60; // 09:00 Brasilia
 const MOVIMENTO_START_BRASILIA_MIN = 9 * 60 + 30; // 09:30 Brasilia
 const ABERTURA_START_BRASILIA_MIN = 10 * 60; // 10:00 Brasilia
 const ABERTURA_END_BRASILIA_MIN = 10 * 60 + 15; // 10:15 Brasilia -- ~15min de janela mais violenta
+
+// 🔴 2026-09-05: MESMA janela de `isForexMarketOpen` em assetBasket.ts
+// (Sábado inteiro + Domingo até 23:00 UTC + Sexta após 22:00 UTC) -- não
+// importa de lá pra evitar dependência circular (assetBasket.ts não importa
+// atr.ts hoje; duplicar essa checagem simples aqui é mais seguro que criar
+// um import novo só por isto). Se a janela de isForexMarketOpen mudar,
+// replicar aqui também.
+function isWeekendNow(now: Date = new Date()): boolean {
+  const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
+  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (utcDay === 6) return true;
+  if (utcDay === 0 && totalMinutes < 23 * 60) return true;
+  if (utcDay === 5 && totalMinutes >= 22 * 60) return true;
+  return false;
+}
 
 function getNySessionPhase(now: Date = new Date()): MarketRegime["nySessionPhase"] {
   const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -912,7 +954,7 @@ export async function getMarketRegime(symbol: string, timeframe: SupportedTimefr
   const atrRatio = currentAtr / avgAtr;
   const volatilityLabel: MarketRegime["volatilityLabel"] = atrRatio < 0.8 ? "BAIXA" : atrRatio > 1.25 ? "ALTA" : "NORMAL";
 
-  return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase() };
+  return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase(), isWeekend: isWeekendNow() };
 }
 
 // ============================================================================
