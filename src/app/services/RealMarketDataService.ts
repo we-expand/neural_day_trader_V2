@@ -1014,6 +1014,15 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
           // isso, um chunk pendurado numa conta MetaAPI saturada bloqueava os
           // chunks seguintes por minutos (chunks rodam em sequência, não em
           // paralelo, ver o for acima).
+          // ✅ 2026-09-04: 10s dava match quase exato com o pior caso real
+          // medido em produção pra um chunk de 40 símbolos (~10-10.3s, 5
+          // ondas de concorrência no backend) — o chunk abortava por uma
+          // margem mínima e todos os ~40 símbolos caíam no fallback Yahoo
+          // (sem cobertura do catálogo Infinox), aparecendo como "Sem dados"
+          // no Navegador de Ativos mesmo com o backend respondendo com dado
+          // real segundos depois. Subido pra 20s de folga (concorrência do
+          // backend também subiu no mesmo commit, então o caso comum deve
+          // ficar bem abaixo disso).
           const res = await fetch(MT5_PRICES_URL, {
             method: 'POST',
             headers: {
@@ -1021,7 +1030,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ symbols: chunk }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(20000),
           });
 
           const body = res.ok ? await res.json() : null;

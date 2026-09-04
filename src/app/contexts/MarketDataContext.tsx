@@ -67,6 +67,26 @@ const SYMBOL_ALIASES: Record<string, string[]> = {
   'OIL': ['OIL', 'USOIL', 'CL', 'WTI'],               // Petróleo
 };
 
+// 🔴 2026-09-04 (achado ao investigar "Navegador de Ativos sem dados",
+// Cleber suspeitou certo que afetaria o site todo): `DEFAULT_SYMBOLS` usa
+// aliases curtos de EXIBIÇÃO ('GOLD', 'OIL', 'NQ', 'DJI') que nunca foram os
+// nomes reais na Infinox — `getBatchedMT5Data`/`getBrokerSymbol` não tem
+// (nem nunca teve) entrada de override pra esses 4, então iam pro broker
+// sem tradução e voltavam HTTP 404 sempre (confirmado ao vivo nos logs da
+// Edge Function `/mt5-prices`: "NQ/DJI/GOLD/OIL: Ticker failed (404)", 100%
+// das vezes, não é intermitência). Broker real confirmado ao vivo pra cada
+// um: XAUUSD (ouro), UKOUSD (petróleo Brent — WTI/USOUSD nunca foi
+// confirmado real nesta corretora), NAS100 (Nasdaq), US30 (Dow — esse já
+// era usado como watchedSymbol também, sem bug). Traduz só na ENTRADA da
+// chamada ao broker; a UI continua consumindo `getPrice('GOLD')` etc.
+// normalmente (ver `refreshPricesFromPlatform` abaixo).
+const DISPLAY_TO_BROKER_SYMBOL: Record<string, string> = {
+  GOLD: 'XAUUSD',
+  OIL: 'UKOUSD',
+  NQ: 'NAS100',
+  DJI: 'US30',
+};
+
 // Helper: Normalizar símbolo para o padrão da UI
 const normalizeSymbol = (symbol: string): string => {
   const upper = symbol.toUpperCase();
@@ -258,11 +278,13 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
    */
   const refreshPricesFromPlatform = async () => {
     try {
-      const batched = await getBatchedMT5Data(watchedSymbols);
+      const brokerReadySymbols = watchedSymbols.map((s) => DISPLAY_TO_BROKER_SYMBOL[s.toUpperCase()] ?? s);
+      const batched = await getBatchedMT5Data(brokerReadySymbols);
 
       const pricesMap = new Map<string, ValidatedPrice>();
       for (const symbol of watchedSymbols) {
-        const data = batched[symbol.toUpperCase().replace('/', '').replace(' ', '')] ?? batched[symbol];
+        const brokerSymbol = DISPLAY_TO_BROKER_SYMBOL[symbol.toUpperCase()] ?? symbol;
+        const data = batched[brokerSymbol.toUpperCase().replace('/', '').replace(' ', '')] ?? batched[brokerSymbol];
         if (!data || !data.isRealData) continue; // sem dado real ainda — não exibir número inventado
         pricesMap.set(normalizeSymbol(symbol), {
           symbol,

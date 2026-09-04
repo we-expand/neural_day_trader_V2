@@ -4771,7 +4771,18 @@ app.post('/mt5-prices', async (c) => {
                 return fetchPromise;
         };
 
-        const results = await mapWithConcurrency(symbols, 8, fetchOnePrice);
+        // 🔴 2026-09-04 (mesmo dia, achado ao vivo depois do fix do orçamento
+        // de candle acima): a suposição de que o TICK ficava num bucket de
+        // crédito separado, não sujeito ao teto de 5 concorrentes da MetaAPI,
+        // era ERRADA -- corrigido em 2026-09-06 depois de achar ao vivo (log
+        // real da Edge Function) 161 erros "Ticker failed (429)" em ~3h30,
+        // incluindo rajadas de dezenas no mesmo milissegundo (GOLD/DJI/NQ),
+        // coincidindo com o relato do Cleber de gráfico/dashboard travando.
+        // Concorrência de 20 gera exatamente esse tipo de rajada quando um
+        // chunk grande (ex: "resto do catálogo" do InfinoxAssetsBrowser, ~200
+        // símbolos, ver commit ce9dc3e75) chega com cache frio. Baixado pra 5
+        // -- mesmo teto documentado da conta, para tick E candle.
+        const results = await mapWithConcurrency(symbols, 5, fetchOnePrice);
 
         // 🔁 2026-08-25: retry único pros símbolos que falharam na 1ª tentativa
         // (HTTP 429/504 da própria MetaAPI sob carga, não erro do nosso lado —

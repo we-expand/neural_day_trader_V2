@@ -15,6 +15,66 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-04, noite] Navegador de Ativos "sem dados" —
+1ª rodada (`16c5be1b6`, deployada) não bastou, 2ª causa real achada via log
+ao vivo do Supabase, fix novo pronto, aguardando deploy.** Cleber reportou
+dados não carregando no Navegador de Ativos (e suspeitou, corretamente, que
+afetaria o site todo). **Causa raiz #1** (corrigida em `16c5be1b6`): o
+semáforo de 3→2 vagas pro dado histórico da MetaAPI (`8cc89f4e6`, mais cedo
+no mesmo dia) resolvia o 429 crônico mas criava fila sem teto de espera —
+`acquireHistoricalDataSlotWithBudget` desacoplou o TICK (preço) do CANDLE
+(variação%, orçamento de 1,2s pela vaga, desiste sem travar o preço). Depois
+do deploy, Cleber reportou que AINDA não aparecia nada — investigação com
+`query_logs`/`get_edge_function` do Supabase (MCP) direto em produção achou
+**causa raiz #2, real e diferente**: mesmo com o candle desistindo rápido,
+um chunk de 40 símbolos com só 8 de concorrência (`mapWithConcurrency`)
+ainda levava ~10-10,3s pra terminar (confirmado nos logs ao vivo, ex. lote
+de pares forex às 23:16 UTC) — bem em cima do timeout de 10s do fetch no
+cliente, abortando o chunk por margem mínima mesmo com dado real chegando
+segundos depois. Fix: concorrência subida 8→20 (só o TICK, que não é
+limitado pelo teto de 5 da MetaAPI — o candle continua preso aos 2 do
+semáforo) + timeout do cliente 10s→20s de folga
+(`RealMarketDataService.ts`). **Achado #3, bug separado e mais antigo,
+também real**: `MarketDataContext.tsx` (usado pelo site todo pra
+Dashboard/ticker, confirmando a suspeita do Cleber) tinha 4 símbolos com
+alias de EXIBIÇÃO nunca traduzido pro nome real da corretora — GOLD/OIL/NQ/
+DJI iam pro broker sem tradução e voltavam HTTP 404 sempre (100% das vezes,
+confirmado nos logs, não é intermitência). Corrigido com
+`DISPLAY_TO_BROKER_SYMBOL` (GOLD→XAUUSD, OIL→UKOUSD, NQ→NAS100, DJI→US30,
+todos confirmados reais ao vivo nos logs) traduzindo só na entrada da
+chamada ao broker, sem mudar as chaves que a UI já consome via `getPrice()`.
+`tsc --noEmit` sem erro novo nos 3 arquivos. **Pendente**: commit + deploy
+(`supabase functions deploy server`) desta 2ª rodada, e confirmação visual
+do Cleber depois.
+
+**[EM ANDAMENTO 2026-09-04, noite] Monitoramento contínuo do LLM Brain +
+fix real de R:R + rate-limit da MetaAPI investigado a fundo + cesta de fim
+de semana (automação revertida) + abas no Navegador de Ativos.** Handoff
+completo:
+[SESSAO_2026-09-04_MONITORAMENTO_5MIN_FIX_RR_RATELIMIT_CESTA_ABAS.md](SESSAO_2026-09-04_MONITORAMENTO_5MIN_FIX_RR_RATELIMIT_CESTA_ABAS.md).
+Resumo do que muda pra próxima sessão: (1) **bug real corrigido e já
+aplicado** — alvo saía menor que o stop quando o ATR real caía pro fallback
+(commit `ef93ab898`), confirmado ao vivo (XETUSD SHORT R:R 2,35:1 pós-fix);
+(2) **rate-limit da MetaAPI** — pesquisa profunda confirmou que o teto de 5
+requisições concorrentes de dado histórico é fixo por conta (não muda com
+plano pago), causa raiz real era concorrência sem limite nas 3 rotas do
+backend, semáforo compartilhado já commitado e deployado (`8cc89f4e6`) —
+relatório completo em
+[RELATORIO_2026-09-04_INVESTIGACAO_RATE_LIMIT_METAAPI.md](RELATORIO_2026-09-04_INVESTIGACAO_RATE_LIMIT_METAAPI.md);
+(3) **cesta de ativos**: tentei automatizar a troca dia-útil/fim-de-semana
+por horário, Cleber corrigiu em tempo real — seleção de ativos é sempre
+decisão do usuário via Setup, nunca automática; revertido, `MT5_ASSET_BASKET`
+volta a ser array único. Mantida só a detecção de horário (`isWeekendMode`,
+sexta 18h→domingo 19h Brasília) como infraestrutura pura, sem decidir
+cesta — **pendente de commit** (`llm-active-brain/src/{agent,assetBasket,
+atr}.ts`, comando pronto no handoff); (4) Navegador de Ativos ganhou abas
+de categoria reais + carregamento priorizado (categoria ativa primeiro,
+resto em segundo plano) — commit `ce9dc3e75` já aplicado. **Pendente real
+mais importante**: "modo fim de semana" comportamental ainda não foi
+desenhado (só a detecção de horário existe) — Cleber disse "vamos
+desenhar" numa sessão futura, perguntar o que ele tem em mente antes de
+implementar qualquer coisa.
+
 **[EM ANDAMENTO 2026-09-05] LLM Brain — recalibração via llm-council após
 queda real de 80%→33% de acerto (02/09→04/09) + teto de frequência + fim
 de semana como contexto.** Dado real (SQL): no dia de 80% de acerto
