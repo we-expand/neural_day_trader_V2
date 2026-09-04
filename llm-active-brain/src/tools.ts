@@ -1328,12 +1328,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // % de risco (abaixo) precisa da distancia do stop em % pra calcular o
       // notional-alvo (notional = risco_usd / stop_pct), entao o stop
       // precisa existir primeiro.
-      let stopPct = await getAtrPercent(symbol, openPositionTimeframe).then((atrPct) => {
-        if (atrPct == null) return null;
-        const dynamicStopPct = atrPct * config.mt5StopAtrMultiplier;
-        if (dynamicStopPct < config.mt5StopMinPct || dynamicStopPct > config.mt5StopMaxPct) return null;
-        return dynamicStopPct;
-      });
+      // 🔴 2026-09-04: atrPct bruto guardado a parte (nao so o stopPct
+      // derivado dele) -- o calculo do alvo abaixo precisa do ATR original
+      // pra usar mt5TargetReferenceStopAtrMultiplier como referencia de
+      // risco, independente do multiplicador real do stop (mt5StopAtrMultiplier).
+      const atrPctForStop = await getAtrPercent(symbol, openPositionTimeframe);
+      let stopPct: number | null = atrPctForStop == null
+        ? null
+        : (() => {
+            const dynamicStopPct = atrPctForStop * config.mt5StopAtrMultiplier;
+            if (dynamicStopPct < config.mt5StopMinPct || dynamicStopPct > config.mt5StopMaxPct) return null;
+            return dynamicStopPct;
+          })();
       let usedFallbackStop = stopPct == null;
       if (stopPct == null) stopPct = config.mt5StopFallbackPct;
       // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, primeiros 3 trades
@@ -1379,8 +1385,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const RR_BY_TARGET_POINTS: Record<string, number> = { POUCOS: 1.5, "MÉDIO": 3, MUITOS: 5 };
       const rrMultiplier = session.userConfig?.targetPoints != null
         ? RR_BY_TARGET_POINTS[session.userConfig.targetPoints]
-        : config.mt5TakeProfitAtrMultiplier / config.mt5StopAtrMultiplier;
-      let takeProfitPct = stopPct * rrMultiplier;
+        : config.mt5TakeProfitAtrMultiplier / config.mt5TargetReferenceStopAtrMultiplier;
+      // 🔴 2026-09-04 (pedido direto do Cleber: "o alvo pode continuar do
+      // mesmo tamanho e o stop diminuir pelo menos 50%"): o alvo usa uma
+      // referencia de risco CONGELADA (mt5TargetReferenceStopAtrMultiplier,
+      // valor antigo de mt5StopAtrMultiplier) em vez do stopPct real --
+      // assim reduzir o multiplicador do stop (mt5StopAtrMultiplier) aperta
+      // so o stop de verdade, sem encolher o alvo junto. So se aplica quando
+      // ha ATR real disponivel (atrPctForStop != null); no fallback (sem
+      // ATR), o alvo continua usando o stopPct real, igual sempre foi --
+      // nao ha "referencia congelada" sem dado real de ATR pra ancorar nela.
+      const targetReferenceStopPct = atrPctForStop != null
+        ? atrPctForStop * config.mt5TargetReferenceStopAtrMultiplier
+        : stopPct;
+      let takeProfitPct = targetReferenceStopPct * rrMultiplier;
       // 🔴 2026-09-02 (pedido direto do Cleber): alvo por ATR e cego a
       // estrutura real do preco -- capado aqui pela distancia real ate o
       // proximo suporte/resistencia (candle oficial, mesma fonte que MACD/

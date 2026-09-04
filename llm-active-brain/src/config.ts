@@ -251,7 +251,28 @@ export const config = {
   // mt5StopMinPct/mt5StopMaxPct abaixo, sem risco de degenerar) -- com
   // mt5TakeProfitAtrMultiplier=4.0x inalterado, o R:R teorico da entrada sobe
   // de 1:2 pra ~1:3, e o pior caso (stop cheio) fica proporcionalmente menor.
-  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 1.3),
+  //
+  // 🔴 2026-09-04 (pedido direto do Cleber, mesmo dia, poucos ciclos depois):
+  // "o stop ainda esta grande demais... o alvo pode continuar do mesmo
+  // tamanho e o stop diminuir pelo menos 50%". Reduzido de 1.3x pra 0.65x --
+  // MAS o calculo do alvo (tools.ts, open_position) usava este MESMO
+  // multiplicador como referencia (takeProfitPct = stopPct * rrMultiplier),
+  // entao reduzir este valor sozinho encolheria o alvo na MESMA proporcao do
+  // stop -- o oposto do pedido. Corrigido junto: o alvo agora usa
+  // mt5TargetReferenceStopAtrMultiplier (congelado no valor ANTIGO, 1.3x)
+  // como referencia de risco, independente do multiplicador real do stop
+  // abaixo -- ver comentario em tools.ts. Trailing pos-breakeven usa
+  // multiplicador proprio (mt5TrailAtrMultiplier/mt5TrailAtrMultiplierWide),
+  // nao e afetado por esta mudanca.
+  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 0.65),
+  // Referencia de risco para o CALCULO DO ALVO (tools.ts) -- congelada no
+  // valor que mt5StopAtrMultiplier tinha antes do corte acima, pra reduzir o
+  // stop real sem encolher o alvo junto (mesmo espirito de rrMultiplier
+  // continuar valendo sobre um "stop de referencia" fixo, nao sobre o stop
+  // efetivamente executado). So usada quando ha ATR real disponivel -- sem
+  // ATR (fallback), o alvo continua sendo calculado sobre o stopPct real,
+  // igual sempre foi.
+  mt5TargetReferenceStopAtrMultiplier: Number(process.env.MT5_TARGET_REFERENCE_STOP_ATR_MULTIPLIER ?? 1.3),
   // 🔴 2026-08-29 (pedido do Cleber, mudança de filosofia pós-otimizações do
   // dia): 3 -> 1.5 -- VOLTA a ser gatilho de saída MECÂNICO de verdade (ver
   // enforceMt5StopsAndTargets em neuralBridge.ts), mas agora com alvo CURTO
