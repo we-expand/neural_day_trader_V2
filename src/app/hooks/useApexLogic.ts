@@ -1216,8 +1216,44 @@ export function useApexLogic(
     let cancelled = false;
 
     const reconcile = async () => {
-      const sessionId = persistenceRef.current.getSessionId();
+      let sessionId = persistenceRef.current.getSessionId();
       if (!sessionId) return;
+      // 🔴 FIX 2026-09-04 (achado ao vivo do Cleber: "se aparecer alguma
+      // posição ela tem que aparecer imediatamente no dashboard,
+      // independente de qualquer command+shift+r"): `sessionId` acima é lido
+      // de um ref que só é setado UMA VEZ, no mount (restoreActiveSession).
+      // Quando a sessão ativa muda ENQUANTO a aba já está aberta (ex: motor
+      // atinge o limite de perda diária, marca a sessão antiga COMPLETED e
+      // cria uma nova RUNNING automaticamente — aconteceu ao vivo hoje), este
+      // reconcile() continuava polling pra sempre o ID da sessão MORTA, sem
+      // nenhum trade novo aparecendo, até um reload completo (que reroda o
+      // restoreActiveSession do mount). Checagem leve aqui (só o id, não o
+      // objeto inteiro) a cada poll -- se mudou, resincroniza de verdade via
+      // restoreActiveSession() (já atualiza o ref internamente) antes de
+      // continuar o reconcile deste tick com o id CORRETO.
+      if (user?.id) {
+        try {
+          const { data: activeSessionRow } = await supabase
+            .from('ai_sessions')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('strategy_name', 'LLM_ACTIVE_BRAIN_MT5')
+            .in('status', ['RUNNING', 'STOPPED'])
+            .order('started_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (activeSessionRow?.id && activeSessionRow.id !== sessionId) {
+            console.log(`[useApexLogic] 🔄 Sessão ativa mudou (${sessionId} -> ${activeSessionRow.id}) -- resincronizando sem esperar reload.`);
+            await persistenceRef.current.restoreActiveSession();
+            sessionId = persistenceRef.current.getSessionId() ?? sessionId;
+          }
+        } catch (err) {
+          // Falha transitória nesta checagem extra nunca deve travar o
+          // reconcile normal abaixo -- só perde a chance de detectar a troca
+          // de sessão NESTE tick, tenta de novo no próximo poll.
+          console.warn('[useApexLogic] Falha ao checar troca de sessão ativa (não bloqueia reconcile):', err);
+        }
+      }
       try {
         // 🔴 FIX 2026-08-28 (achado do Cleber: posição some e reaparece do
         // Dashboard/gráfico a cada ~30s): `persistenceRef.current.getSessionTrades`
