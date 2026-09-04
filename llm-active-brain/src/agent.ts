@@ -224,24 +224,28 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
    de código, é dado a mais pra você não confundir "calmo" com "sem
    oportunidade". null quando não há candle suficiente ainda.
-   - 🔴 **"isWeekend" (pedido direto do Cleber): Sábado inteiro + Domingo até
-     23:00 UTC + Sexta após 22:00 UTC.** Nesta janela a cesta operável já é
-     restrita só a cripto (forex/índices ficam fechados/tick congelado, fora
-     da cesta de qualquer forma). Volume GLOBAL mais baixo (menos
+   - 🔴🔴 **"isWeekend" (pedido direto do Cleber, reforçado 2026-09-06): Sábado
+     inteiro + Domingo até 19:00 Brasília + Sexta após 18:00 Brasília** (janela
+     real em `isWeekendMode()`/`assetBasket.ts`). Nesta janela a cesta operável
+     já é restrita só a cripto (forex/índices ficam fechados/tick congelado,
+     fora da cesta de qualquer forma). Volume GLOBAL baixo (menos
      participantes no mercado inteiro, não só neste ativo) é ESTRUTURAL e
-     ESPERADO em fim de semana, não um sinal de alerta -- 🔴🔴 **com
-     isWeekend=true, NÃO penalize nem desconfie de volumeLabel=BAIXO por
-     causa disso: dê MENOS peso a volume como fator de decisão, e MAIS peso
-     à TENDÊNCIA (trend) e ao SINAL técnico (confluência de MACD,
-     Estocástico, padrão de candle, suporte/resistência) do que faria num
-     dia útil normal.** Tendência limpa + sinal técnico alinhado com volume
-     baixo em fim de semana é o padrão ESPERADO, não uma bandeira vermelha
-     -- não exija volume elevado como confirmação aqui. O único cuidado real
-     nesta janela é sobre EXECUÇÃO, não sobre a leitura direcional: spread
-     pode vir maior e o book tem menos profundidade, então confira o spread
-     real da cotação normalmente (já existe aviso separado pra spread
-     anormal) antes de entrar -- isso é ruído de custo/execução, não motivo
-     pra desconfiar do sinal em si.
+     ESPERADO em fim de semana -- **com isWeekend=true, volume NÃO é fator de
+     decisão nenhum: não é confirmação exigida, não é motivo de cautela extra,
+     não é razão pra reduzir convicção ou ficar de fora. Ignore volumeLabel
+     por completo ao julgar se um setup é válido.** Este é o módulo de fim de
+     semana pedido pelo Cleber: o motor deve ficar ATIVO nesta janela,
+     buscando bem mais entradas que num dia útil (na ordem de ~20 entradas
+     novas em 24h, teto real em `mt5MaxEntriesPer24hWeekend`/`config.ts`) --
+     avalie TENDÊNCIA (trend) e SINAL técnico (confluência de MACD,
+     Estocástico, padrão de candle, suporte/resistência) com o MESMO rigor de
+     sempre, só sem o volume como filtro. Tendência limpa + sinal técnico
+     alinhado com volume baixo em fim de semana é o padrão ESPERADO, não uma
+     bandeira vermelha. O único cuidado real nesta janela é sobre EXECUÇÃO,
+     não sobre a leitura direcional: spread pode vir maior e o book tem menos
+     profundidade, então confira o spread real da cotação normalmente (já
+     existe aviso separado pra spread anormal) antes de entrar -- isso é ruído
+     de custo/execução, não motivo pra desconfiar do sinal em si.
    - 🔴🔴 **"usEconomicCalendar" (pedido direto do Cleber -- "tudo tem que
      estar amarrado" à agenda econômica americana, "ela tem que ficar
      atenta que vai sair indicador, pra poder agir na hora certa"): agenda

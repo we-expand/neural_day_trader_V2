@@ -434,6 +434,15 @@ export const config = {
   // fechamento, breakeven, trailing ou realização parcial de posição já
   // aberta (mesmo espírito do daily loss limit acima).
   mt5MaxEntriesPer24h: Number(process.env.MT5_MAX_ENTRIES_PER_24H ?? 16),
+  // 🔴 2026-09-06 (pedido direto do Cleber): módulo de fim de semana --
+  // enquanto `isWeekendMode()` (assetBasket.ts) está ativo, o teto acima (16,
+  // calibrado com dado de DIA ÚTIL) é substituído por este, mais alto --
+  // Cleber quer o motor ATIVO no fim de semana, buscando ~20 entradas/24h
+  // (cesta continua 100% manual, só o teto de frequência muda). Sem dado
+  // estatístico de fim de semana ainda por trás deste número -- é o teto que
+  // ele pediu explicitamente, não uma alegação de edge. Reavaliar com
+  // amostra de fins de semana reais.
+  mt5MaxEntriesPer24hWeekend: Number(process.env.MT5_MAX_ENTRIES_PER_24H_WEEKEND ?? 24),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO

@@ -8,7 +8,7 @@ import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Po
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
-import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup } from "./assetBasket.js";
+import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
 
 // 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
@@ -864,10 +864,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (neuralBridge.ts), que propaga erro em vez de engolir (mesmo motivo
       // de getTodayRealizedPnl abaixo) -- falha transitória de rede nunca
       // vira "0 entradas", furando o teto.
+      // 🔴 2026-09-06: no módulo de fim de semana o teto de dia útil (16,
+      // calibrado com dado de dia útil) some de lugar pro teto de fim de
+      // semana (mais alto, pedido explícito do Cleber pra manter o motor
+      // ativo nesta janela) -- ver comentário em config.ts.
+      const maxEntriesPer24h = isWeekendMode() ? config.mt5MaxEntriesPer24hWeekend : config.mt5MaxEntriesPer24h;
       const entriesLast24h = await getEntriesCountLast24h(session.sessionId);
-      if (entriesLast24h >= config.mt5MaxEntriesPer24h) {
+      if (entriesLast24h >= maxEntriesPer24h) {
         return {
-          error: `Teto de frequência atingido: ${entriesLast24h}/${config.mt5MaxEntriesPer24h} entradas novas nas últimas 24h. ` +
+          error: `Teto de frequência atingido: ${entriesLast24h}/${maxEntriesPer24h} entradas novas nas últimas 24h${isWeekendMode() ? " (teto de fim de semana)" : ""}. ` +
             `Nenhuma posição nova até o teto abrir espaço de novo (janela deslizante). Posições já abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
         };
       }
