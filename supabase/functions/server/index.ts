@@ -4201,6 +4201,49 @@ async function acquireHistoricalDataSlot(): Promise<void> {
   activeHistoricalDataRequests++;
 }
 
+// 🔴 2026-09-04 (mesmo dia, achado do Cleber ao vivo no Navegador de
+// Ativos): reduzir o semáforo pra 2 (fix acima) resolveu o 429 crônico da
+// MetaAPI, mas criou uma regressão nova — com só 2 vagas pra até 8 símbolos
+// concorrentes por chunk (`mapWithConcurrency(symbols, 8, fetchOnePrice)`),
+// os símbolos que caem no fim da fila do semáforo podem esperar dezenas de
+// segundos pela vaga (fila FIFO sem teto de espera), MUITO além dos 10s de
+// timeout do fetch no cliente (`RealMarketDataService.ts`) — o chunk INTEIRO
+// aborta e todos os ~40 símbolos daquele lote caem no fallback Yahoo (que
+// não cobre o catálogo Infinox), aparecendo como "Sem dados" no Navegador de
+// Ativos. Fix: variante com orçamento de espera — se a vaga não abrir dentro
+// de `budgetMs`, desiste do candle (variação% fica 0/indisponível nesse
+// ciclo) mas o TICK (preço atual, já buscado antes, sem depender deste
+// semáforo) sempre retorna na hora. Preço aparece rápido sempre; variação%
+// pode demorar 1 ciclo de polling a mais sob concorrência alta — troca
+// deliberada (Cleber: "dados têm que entrar rapidamente assim que o usuário
+// acionar o navegador de ativos").
+async function acquireHistoricalDataSlotWithBudget(budgetMs: number): Promise<boolean> {
+  if (activeHistoricalDataRequests < MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS) {
+    activeHistoricalDataRequests++;
+    return true;
+  }
+  let settled = false;
+  return new Promise<boolean>((resolve) => {
+    const onSlotFreed = () => {
+      if (settled) {
+        // Já desistiu por timeout — não usa a vaga liberada tardiamente,
+        // só deixa livre pro próximo a pedir (sem vazar concorrência).
+        return;
+      }
+      settled = true;
+      activeHistoricalDataRequests++;
+      resolve(true);
+    };
+    historicalDataRequestQueue.push(onSlotFreed);
+    setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, budgetMs);
+  });
+}
+
 function releaseHistoricalDataSlot(): void {
   activeHistoricalDataRequests--;
   const next = historicalDataRequestQueue.shift();
@@ -4449,7 +4492,15 @@ app.post('/mt5-prices', async (c) => {
                         // Semaforo global desta Edge Function (ver comentario acima da rota)
                         // -- so este bloco bate no endpoint de historical-market-data, que e
                         // o sujeito ao teto real de 5 concorrentes por conta da MetaAPI.
-                        await acquireHistoricalDataSlot();
+                        // Orçamento de espera (não indefinido, ver comentário 2026-09-04
+                        // acima de acquireHistoricalDataSlotWithBudget): se a vaga não
+                        // liberar a tempo, desiste do candle nesse ciclo em vez de segurar
+                        // o preço (tick) inteiro na fila — o preço já foi buscado acima e
+                        // precisa voltar rápido pro Navegador de Ativos/Dashboard.
+                        const gotSlot = await acquireHistoricalDataSlotWithBudget(1200);
+                        if (!gotSlot) {
+                            return { ok: false, candles: null as any[] | null };
+                        }
                         try {
                             const res = await fetch(
                                 `${candlesUrl}?startTime=${startTime.toISOString()}&limit=${limit}`,
