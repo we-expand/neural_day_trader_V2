@@ -261,18 +261,36 @@ export async function getVolumeConfirmation(symbol: string, timeframe: Supported
 }
 
 export interface SupportResistance {
-  /** Máxima e mínima real da janela de candle recente (2,5h em velas de 5m) -- topo/fundo honesto, não projetado. */
+  /** Máxima e mínima real da janela ESTABELECIDA (exclui as últimas SR_BREAKOUT_EXCLUDE_CANDLES velas, ver comentário abaixo) -- topo/fundo honesto, não projetado. */
   resistance: number;
   support: number;
-  /** Distância % do preço atual até cada nível (sempre >= 0 -- preço nunca fica "acima" da resistência nem "abaixo" do suporte por definição de como são calculados). */
+  /**
+   * Distância % do preço atual até cada nível. PODE ser negativa -- significa
+   * que o preço já rompeu esse nível estabelecido (breakout real, não
+   * clampado pra 0). Ver brokeAboveResistance/brokeBelowSupport abaixo.
+   */
   distanceToResistancePct: number;
   distanceToSupportPct: number;
   /** true quando o preço está a menos de 0,15% de um dos dois níveis -- zona onde reação (rejeição ou rompimento) é mais provável. */
   nearLevel: "RESISTENCIA" | "SUPORTE" | null;
+  /**
+   * 🔴 2026-09-04 (pedido do Cleber -- "todo rompimento de topo pode ser o
+   * início de uma grande movimentação... pouco volume não quer dizer que não
+   * vai existir uma grande movimentação"): true quando o preço JÁ está além
+   * do topo/fundo estabelecido (rompimento em andamento). Ver uso em
+   * tools.ts open_position -- o cap de alvo por S/R é desligado nesse caso,
+   * porque o nível que seria o "teto" já foi rompido, não é mais um teto real.
+   */
+  brokeAboveResistance: boolean;
+  brokeBelowSupport: boolean;
   lookbackMinutes: number;
 }
 
 const SR_NEAR_LEVEL_THRESHOLD_PCT = 0.15;
+// 🔴 2026-09-04 (mesmo achado -- ver comentário completo abaixo): candles
+// excluídos do cálculo do nível estabelecido, pra não incluir a própria vela
+// que pode estar EM ROMPIMENTO no cálculo do "teto" que ela está rompendo.
+const SR_BREAKOUT_EXCLUDE_CANDLES = 2;
 
 /**
  * 🔴 2026-08-29 (pedido do Cleber, "fundamentos completos de price action"):
@@ -284,13 +302,30 @@ const SR_NEAR_LEVEL_THRESHOLD_PCT = 0.15;
  * fetch extra): não é zona de order block nem nível institucional, é o
  * topo/fundo real e recente que qualquer trader discricionário olharia
  * primeiro. `null` quando não há candle real disponível -- nunca fabrica.
+ *
+ * 🔴 2026-09-04 (achado real, pedido do Cleber -- "todo rompimento de topo
+ * pode ser o início de uma grande movimentação... a IA tem que estar atenta
+ * com todos os rompimentos, sobretudo com pouco volume"): a versão anterior
+ * calculava resistance/support incluindo a vela MAIS RECENTE -- ou seja, na
+ * hora exata de um rompimento real (preço fazendo a nova máxima/mínima da
+ * própria janela), `distanceToResistancePct` dava ~0% por construção
+ * (resistance = max(highs), sempre >= lastClose), e o cap de alvo por S/R em
+ * tools.ts (open_position) achatava o alvo pra quase zero -- bloqueava ou
+ * encolhia drasticamente a entrada JUSTO no momento do rompimento, o oposto
+ * do que deveria acontecer. Agora resistance/support vêm só da janela
+ * ESTABELECIDA (exclui as últimas SR_BREAKOUT_EXCLUDE_CANDLES velas) --
+ * um rompimento real aparece como distância NEGATIVA (preço já além do nível
+ * antigo) em vez de 0 travado, e brokeAboveResistance/brokeBelowSupport
+ * sinalizam isso explicitamente pro chamador não tratar o nível rompido como
+ * teto.
  */
 export async function getSupportResistance(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SupportResistance | null> {
   const candles = await fetchRecentCandles(symbol, timeframe);
-  if (!candles || candles.length < 10) return null;
+  if (!candles || candles.length < 10 + SR_BREAKOUT_EXCLUDE_CANDLES) return null;
 
-  const highs = candles.map((c) => c.high).filter((v) => Number.isFinite(v));
-  const lows = candles.map((c) => c.low).filter((v) => Number.isFinite(v));
+  const establishedCandles = candles.slice(0, candles.length - SR_BREAKOUT_EXCLUDE_CANDLES);
+  const highs = establishedCandles.map((c) => c.high).filter((v) => Number.isFinite(v));
+  const lows = establishedCandles.map((c) => c.low).filter((v) => Number.isFinite(v));
   if (highs.length === 0 || lows.length === 0) return null;
 
   const resistance = Math.max(...highs);
@@ -301,18 +336,20 @@ export async function getSupportResistance(symbol: string, timeframe: SupportedT
   const distanceToResistancePct = ((resistance - lastClose) / lastClose) * 100;
   const distanceToSupportPct = ((lastClose - support) / lastClose) * 100;
   const nearLevel: SupportResistance["nearLevel"] =
-    distanceToResistancePct <= SR_NEAR_LEVEL_THRESHOLD_PCT
+    distanceToResistancePct >= 0 && distanceToResistancePct <= SR_NEAR_LEVEL_THRESHOLD_PCT
       ? "RESISTENCIA"
-      : distanceToSupportPct <= SR_NEAR_LEVEL_THRESHOLD_PCT
+      : distanceToSupportPct >= 0 && distanceToSupportPct <= SR_NEAR_LEVEL_THRESHOLD_PCT
       ? "SUPORTE"
       : null;
 
   return {
     resistance: Number(resistance.toFixed(6)),
     support: Number(support.toFixed(6)),
-    distanceToResistancePct: Number(Math.max(0, distanceToResistancePct).toFixed(3)),
-    distanceToSupportPct: Number(Math.max(0, distanceToSupportPct).toFixed(3)),
+    distanceToResistancePct: Number(distanceToResistancePct.toFixed(3)),
+    distanceToSupportPct: Number(distanceToSupportPct.toFixed(3)),
     nearLevel,
+    brokeAboveResistance: distanceToResistancePct < 0,
+    brokeBelowSupport: distanceToSupportPct < 0,
     lookbackMinutes: candles.length * (TIMEFRAME_MINUTES[timeframe] ?? 5),
   };
 }

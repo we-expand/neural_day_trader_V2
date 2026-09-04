@@ -360,10 +360,14 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `apos reiniciar o processo (historico de tick ainda curto) -- nesse caso use "changePercent" (sempre ` +
         `preenchido) como proxy e opere pelo julgamento normal. So quando trend/volume vierem preenchidos e a ` +
         `entrada for CONTRA a tendencia SEM volume elevado, open_position bloqueia por codigo. ` +
-        `Tambem devolve "supportResistance" (maxima/minima reais das ultimas ~2,5h de candle de 5m, distancia % ` +
-        `do preco pra cada nivel, e "nearLevel" RESISTENCIA/SUPORTE/null quando o preco esta a menos de 0,15% de ` +
-        `um deles) -- topo/fundo recente de verdade, calculado do mesmo candle oficial de "trend", null quando ` +
-        `candle nao disponivel. ` +
+        `Tambem devolve "supportResistance" (maxima/minima reais da janela ESTABELECIDA de candle de 5m, ~2,5h ` +
+        `excluindo as 2 velas mais recentes, distancia % pra cada nivel -- pode ser NEGATIVA, rompimento real -- ` +
+        `"brokeAboveResistance"/"brokeBelowSupport" true quando o rompimento ja esta em andamento AGORA, e ` +
+        `"nearLevel" RESISTENCIA/SUPORTE/null quando o preco esta a menos de 0,15% de um deles sem ainda ter ` +
+        `rompido) -- topo/fundo recente de verdade, calculado do mesmo candle oficial de "trend", null quando ` +
+        `candle nao disponivel. Rompimento confirmado (brokeAboveResistance/brokeBelowSupport) merece atencao ` +
+        `redobrada mesmo com pouco volume -- todo rompimento pode ser inicio de movimento grande, nao descarte so ` +
+        `por falta de volume. ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {
         type: "object",
@@ -1381,7 +1385,27 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // candle real suficiente (supportResistanceForTarget == null), mantem
       // o alvo por ATR puro -- nunca fabrica nivel.
       let takeProfitCappedBySR = false;
-      if (supportResistanceForTarget) {
+      // 🔴 2026-09-04 (pedido direto do Cleber -- "todo rompimento de topo
+      // pode ser o inicio de uma grande movimentacao... a IA tem que estar
+      // atenta com todos os rompimentos, sobretudo com pouco volume, pouco
+      // volume nao quer dizer que nao vai existir uma grande movimentacao"):
+      // achado real -- o cap de S/R abaixo usava resistance/support
+      // calculados COM a propria vela mais recente, entao bem na hora de um
+      // rompimento real (preco fazendo a nova maxima/minima da janela) a
+      // distancia dava ~0%, capando o alvo pra quase zero e bloqueando ou
+      // encolhendo drasticamente a entrada JUSTO no momento do rompimento --
+      // o oposto do que deveria acontecer. getSupportResistance (atr.ts)
+      // agora calcula o nivel so da janela ESTABELECIDA (exclui as ultimas 2
+      // velas) e expoe brokeAboveResistance/brokeBelowSupport -- quando o
+      // rompimento e A FAVOR do lado sendo aberto, o nivel antigo ja nao e
+      // mais um teto real, entao o cap e desligado (alvo por ATR puro, sem
+      // limitar por um nivel que o proprio preco ja superou).
+      const confirmedBreakoutInTradeDirection = supportResistanceForTarget
+        ? side === "LONG"
+          ? supportResistanceForTarget.brokeAboveResistance
+          : supportResistanceForTarget.brokeBelowSupport
+        : false;
+      if (supportResistanceForTarget && !confirmedBreakoutInTradeDirection) {
         const distanceToLevelPct =
           (side === "LONG" ? supportResistanceForTarget.distanceToResistancePct : supportResistanceForTarget.distanceToSupportPct) / 100;
         const srCappedTakeProfitPct = distanceToLevelPct * config.mt5SrTargetMarginPct;

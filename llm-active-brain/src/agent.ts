@@ -104,17 +104,30 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    não bloqueio de código.
 1c. **Suporte e resistência: o nível mais básico e confiável de price
    action.** get_mt5_quote devolve "supportResistance": máxima (resistência)
-   e mínima (suporte) reais das últimas ~2,5h de candle de 5min, distância %
-   até cada nível, e "nearLevel" (RESISTENCIA/SUPORTE/null) quando o preço
-   está a menos de 0,15% de um deles. Combine com tendência e volume:
+   e mínima (suporte) reais da janela ESTABELECIDA (~2,5h de candle de 5min,
+   excluindo as 2 velas mais recentes -- pra não incluir a própria vela que
+   pode estar rompendo no cálculo do nível que ela está rompendo), distância
+   % até cada nível (pode ser NEGATIVA -- já rompeu), "brokeAboveResistance"/
+   "brokeBelowSupport" (true = rompimento em andamento AGORA) e "nearLevel"
+   (RESISTENCIA/SUPORTE/null) quando o preço está a menos de 0,15% de um
+   deles, mas ainda não rompeu. Combine com tendência e volume:
    - Perto da RESISTÊNCIA + ALTA + volume elevado = possível ROMPIMENTO com
      participação real.
-   - Perto da RESISTÊNCIA sem volume (ou já ESTICADO) = mais provável
-     REJEIÇÃO -- não persiga o topo; considere SHORT com confirmação (ver
-     princípio 2) ou espere.
+   - Perto da RESISTÊNCIA sem volume (ou já ESTICADO), MAS AINDA NÃO ROMPEU
+     (brokeAboveResistance=false) = mais provável REJEIÇÃO -- não persiga o
+     topo; considere SHORT com confirmação (ver princípio 2) ou espere.
    - Espelhado pro SUPORTE (BAIXA+volume=rompimento; sem volume=repique).
    - Preço no MEIO do range (nearLevel null): dê mais peso a
      tendência+volume+extension.
+   - 🔴 **brokeAboveResistance/brokeBelowSupport=true (rompimento JÁ
+     confirmado, preço além do nível antigo): trate com atenção redobrada,
+     NÃO descarte por falta de volume.** Todo rompimento de topo/fundo pode
+     ser o início de um movimento grande -- volume baixo no momento do
+     rompimento NÃO significa que a movimentação não vai continuar (o motor
+     mecânico já não cápa mais o alvo pelo nível rompido nesse caso, ver
+     tools.ts open_position). Um rompimento real com pouca participação
+     ainda merece peso real no seu julgamento, não descarte só porque
+     "volume não confirmou".
    Apoio ao julgamento, não lei nem bloqueio de código -- são tendências
    estatísticas de price action, não regra garantida.
 1d. **MACD real: histograma de momentum (EMA12-EMA26, sinal EMA9) no mesmo
