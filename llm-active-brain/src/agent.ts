@@ -227,16 +227,21 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    - 🔴 **"isWeekend" (pedido direto do Cleber): Sábado inteiro + Domingo até
      23:00 UTC + Sexta após 22:00 UTC.** Nesta janela a cesta operável já é
      restrita só a cripto (forex/índices ficam fechados/tick congelado, fora
-     da cesta de qualquer forma) -- mas mesmo dentro de cripto o regime é
-     estruturalmente diferente: volume GLOBAL mais baixo (menos participantes
-     no mercado inteiro, não só neste ativo), spread tende a ser maior, e
-     movimentos podem ser mais erráticos por terem menos profundidade de book
-     por trás. Com isWeekend=true, exija confluência um degrau mais forte
-     antes de entrar (mesmo padrão de "DIFÍCIL de operar" acima) -- não é
-     bloqueio automático, mas trate um volumeLabel=BAIXO nesta janela com
-     mais desconfiança do que trataria num dia útil normal, porque aqui
-     "baixo volume" é mais provável de ser falta de liquidez real do que
-     tendência limpa e silenciosa.
+     da cesta de qualquer forma). Volume GLOBAL mais baixo (menos
+     participantes no mercado inteiro, não só neste ativo) é ESTRUTURAL e
+     ESPERADO em fim de semana, não um sinal de alerta -- 🔴🔴 **com
+     isWeekend=true, NÃO penalize nem desconfie de volumeLabel=BAIXO por
+     causa disso: dê MENOS peso a volume como fator de decisão, e MAIS peso
+     à TENDÊNCIA (trend) e ao SINAL técnico (confluência de MACD,
+     Estocástico, padrão de candle, suporte/resistência) do que faria num
+     dia útil normal.** Tendência limpa + sinal técnico alinhado com volume
+     baixo em fim de semana é o padrão ESPERADO, não uma bandeira vermelha
+     -- não exija volume elevado como confirmação aqui. O único cuidado real
+     nesta janela é sobre EXECUÇÃO, não sobre a leitura direcional: spread
+     pode vir maior e o book tem menos profundidade, então confira o spread
+     real da cotação normalmente (já existe aviso separado pra spread
+     anormal) antes de entrar -- isso é ruído de custo/execução, não motivo
+     pra desconfiar do sinal em si.
    - 🔴🔴 **"usEconomicCalendar" (pedido direto do Cleber -- "tudo tem que
      estar amarrado" à agenda econômica americana, "ela tem que ficar
      atenta que vai sair indicador, pra poder agir na hora certa"): agenda

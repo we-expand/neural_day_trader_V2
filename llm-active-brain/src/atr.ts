@@ -902,18 +902,18 @@ const MOVIMENTO_START_BRASILIA_MIN = 9 * 60 + 30; // 09:30 Brasilia
 const ABERTURA_START_BRASILIA_MIN = 10 * 60; // 10:00 Brasilia
 const ABERTURA_END_BRASILIA_MIN = 10 * 60 + 15; // 10:15 Brasilia -- ~15min de janela mais violenta
 
-// 🔴 2026-09-05: MESMA janela de `isForexMarketOpen` em assetBasket.ts
-// (Sábado inteiro + Domingo até 23:00 UTC + Sexta após 22:00 UTC) -- não
-// importa de lá pra evitar dependência circular (assetBasket.ts não importa
-// atr.ts hoje; duplicar essa checagem simples aqui é mais seguro que criar
-// um import novo só por isto). Se a janela de isForexMarketOpen mudar,
-// replicar aqui também.
+// 🔴 2026-09-05: MESMA janela de `isWeekendMode` em assetBasket.ts (sexta
+// 18:00 Brasília -> domingo 19:00 Brasília, ou seja sexta >= 21:00 UTC /
+// domingo < 22:00 UTC / sábado inteiro) -- não importa de lá pra evitar
+// dependência circular (assetBasket.ts não importa atr.ts hoje; duplicar
+// essa checagem simples aqui é mais seguro que criar um import novo só por
+// isto). Se a janela de isWeekendMode mudar, replicar aqui também.
 function isWeekendNow(now: Date = new Date()): boolean {
   const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
   const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   if (utcDay === 6) return true;
-  if (utcDay === 0 && totalMinutes < 23 * 60) return true;
-  if (utcDay === 5 && totalMinutes >= 22 * 60) return true;
+  if (utcDay === 0 && totalMinutes < 22 * 60) return true;
+  if (utcDay === 5 && totalMinutes >= 21 * 60) return true;
   return false;
 }
 

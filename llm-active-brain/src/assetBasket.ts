@@ -155,10 +155,22 @@
  * usa o array salvo la, com este MT5_ASSET_BASKET so como fallback (ver
  * `tools.ts:495`).
  */
+/**
+ * 🔴 2026-09-05 (revertido no mesmo dia, pedido direto do Cleber): a troca
+ * automática por horário foi desfeita -- qual cesta operar é decisão do
+ * usuário via Setup (`activeAssets` em `ai_user_config`, ver `tools.ts:495`),
+ * nunca algo que o código deve decidir sozinho trocando o array por baixo.
+ * `MT5_ASSET_BASKET` volta a ser um array único fixo (universo POSSÍVEL de
+ * símbolos, cripto + forex/índices) -- serve só de fallback quando o usuário
+ * não configurou nada em `activeAssets`, e de referência de "todos os
+ * símbolos que o motor sabe operar" nos prompts/validações. `isWeekendMode`
+ * abaixo continua existindo (infraestrutura de detecção de horário), mas
+ * hoje não decide mais qual cesta usar -- fica pronta pra um "modo fim de
+ * semana" comportamental (não de seleção de ativos) a ser desenhado depois.
+ */
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "BTCXBN", "DOGUSD", "DOTUSD", "XRPUSD",
-  "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
-  "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
+  "BTCUSD", "XETUSD", "BTCXBN",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
 ];
 
 /**
@@ -224,15 +236,32 @@ const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
 ]);
 
-/** Fecha: Sexta 22:00 UTC. Abre: Domingo 23:00 UTC. */
-export function isForexMarketOpen(now: Date = new Date()): boolean {
+/**
+ * 🔴 2026-09-05 (janela redefinida, pedido direto do Cleber): "modo fim de
+ * semana" liga sexta 18:00 Brasília, desliga domingo 19:00 Brasília --
+ * Brasília = UTC-3 sempre (sem horário de verão), então em UTC isso é sexta
+ * >= 21:00 e domingo < 22:00. Valor anterior (sex 22:00 UTC / dom 23:00 UTC,
+ * i.e. sex 19h/dom 20h Brasília) ficava 1h depois do que o Cleber queria dos
+ * dois lados -- ajustado aqui. Esta é a MESMA janela que `isWeekendNow` em
+ * atr.ts usa (duplicada lá de propósito, sem import circular -- ver
+ * comentário lá) -- se mudar aqui, mudar lá também.
+ */
+const WEEKEND_START_UTC_MINUTES = 21 * 60; // sexta 18:00 Brasília
+const WEEKEND_END_UTC_MINUTES = 22 * 60; // domingo 19:00 Brasília
+
+export function isWeekendMode(now: Date = new Date()): boolean {
   const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
   const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
 
-  if (utcDay === 6) return false; // Sábado inteiro: fechado
-  if (utcDay === 0 && totalMinutes < 23 * 60) return false; // Domingo antes das 23:00 UTC
-  if (utcDay === 5 && totalMinutes >= 22 * 60) return false; // Sexta após 22:00 UTC
-  return true;
+  if (utcDay === 6) return true; // Sábado inteiro
+  if (utcDay === 0) return totalMinutes < WEEKEND_END_UTC_MINUTES; // Domingo antes das 19h Brasília
+  if (utcDay === 5) return totalMinutes >= WEEKEND_START_UTC_MINUTES; // Sexta a partir das 18h Brasília
+  return false;
+}
+
+/** Fecha: Sexta 18:00 Brasília. Abre: Domingo 19:00 Brasília. Inverso de isWeekendMode. */
+export function isForexMarketOpen(now: Date = new Date()): boolean {
+  return !isWeekendMode(now);
 }
 
 export function isSymbolTradable(symbol: string, now: Date = new Date()): boolean {
