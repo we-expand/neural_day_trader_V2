@@ -118,6 +118,16 @@ export const ALL_ASSETS: Asset[] = [
   // do XBN visto nesta sessão pro Binance Coin) — confirmado real via
   // /mt5-prices (~288,65), override em brokerRegistry.ts.
   { symbol: 'BTCBNB', name: 'Bitcoin (BNB)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Binance Coin' },
+  // 🔴 2026-09-06 (achado ao vivo, Cleber reportou Gráfico/Dashboard
+  // "congelado" numa posição real aberta pelo LLM Brain): o motor
+  // (llm-active-brain/src/assetBasket.ts) opera direto com o símbolo REAL da
+  // corretora 'BTCXBN' (não o alias de exibição 'BTCBNB' acima) -- é assim
+  // que fica gravado em ai_trades.symbol. Sem entrada própria pra esse
+  // símbolo exato, getAssetBySymbol('BTCXBN') retorna null e o Gráfico exibe
+  // "Ativo desconhecido: BTCXBN", preço zerado e falha ao buscar candles pra
+  // qualquer posição real nesse símbolo. Entrada própria (mesmas specs de
+  // BTCBNB acima, mesmo ativo, nome real da corretora).
+  { symbol: 'BTCXBN', name: 'Bitcoin (BNB)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Binance Coin (símbolo real da corretora)' },
   // ✅ 2026-07-16: mesmo padrão do BTCBNB — BTCETH (real 'BTCXET' na
   // Infinox, ~34,15) e BTCLTC (real 'BTCXLC', ~1437,77) não existiam no
   // catálogo. Overrides em brokerRegistry.ts.
