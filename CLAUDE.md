@@ -15,6 +15,64 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-05] LLM Brain — recalibração via llm-council após
+queda real de 80%→33% de acerto (02/09→04/09) + teto de frequência + fim
+de semana como contexto.** Dado real (SQL): no dia de 80% de acerto
+(02/09), saídas por stop (SL) eram net POSITIVAS (+$2,37 — trailing/
+breakeven protegendo lucro), mas depois de ~10 commits mudando stop/
+trailing/alvo no mesmo dia 04/09 (incl. corte de `MT5_STOP_ATR_MULTIPLIER`
+2.0x→1.3x→0.65x no mesmo dia), SL virou perda real (-$22,99 em 03/09,
+-$34,51 em 04/09). Conselho (llm-council, 5 conselheiros + revisão cruzada)
+convocado pra decidir o que fazer: consenso foi reverter o stop pro único
+valor com leitura estatística limpa (2.0x ATR, `config.ts`), manter
+intocado o gate de R:R incondicional (bugfix real, não parâmetro de
+tuning), e congelar mecânica de stop/trailing/alvo por 5 dias úteis /
+mínimo 40 trades fechados antes de qualquer novo ajuste — recomendação já
+dada uma vez antes (mesmo llm-council, 04/09) e ignorada no mesmo dia,
+por isso agora registrada aqui como regra, não só conselho verbal. Também
+implementado nesta sessão (pedido direto do Cleber, fora do escopo do
+conselho): (1) teto DURO de 16 entradas novas por janela deslizante de
+24h (`mt5MaxEntriesPer24h`, `config.ts`+`tools.ts`+`getEntriesCountLast24h`
+em `neuralBridge.ts`) — achado real do balanço de 8 dias: dias de PIOR PnL
+líquido tinham sistematicamente MAIS trades, sem a assertividade
+acompanhar; (2) `isWeekend` real (Sáb inteiro + Dom até 23:00 UTC + Sex
+após 22:00 UTC, mesma janela de `isForexMarketOpen`) adicionado a
+`MarketRegime` (`atr.ts`) e exposto como CONTEXTO pro LLM (princípio 1g em
+`agent.ts`) — fim de semana já restringia a cesta pra só cripto, mas o LLM
+não sabia que estava num regime de liquidez global mais baixa mesmo dentro
+de cripto; agora instruído a exigir confluência mais forte nessa janela.
+`tsc --noEmit` limpo (raiz + `llm-active-brain/`), `npm run validate`
+37/37. **Não mexido de propósito** (recomendação do conselho): trailing em
+estágio, realização parcial em 1R, `targetPoints` do Setup (feature
+intencional, mantida em MÉDIO). **Pendente**: rodar 5 dias/40+ trades sob
+esta configuração ANTES de qualquer novo ajuste de mecânica — não repetir
+o padrão de 04/09.
+
+**[EM ANDAMENTO 2026-09-04] LLM Brain — 2 causas reais de R:R ruim
+corrigidas + balanço de 8 dias + conselho sobre frequência.** (1)
+`targetPoints="POUCOS"` no Setup sobrepondo o R:R do código (colapsava pra
+1,5:1); corrigido pra "MÉDIO" (R:R 3:1) via SQL direto, stop intocado
+(pedido do Cleber). (2) **Bug real de código, achado depois via print do
+Cleber**: um trade real (SPX500 LONG) abriu com R:R 0,32:1 (stop 23,18pts,
+alvo só 7,33pts) mesmo DEPOIS do fix acima — o gate de R:R mínimo
+(`mt5MinRrAfterSrCap`) só rodava dentro do bloco condicional do cap de
+suporte/resistência; quando o alvo nascia pequeno por outro motivo (ATR de
+referência pequeno + stop alargado pela margem de segurança de spread, sem
+o alvo acompanhar), nada bloqueava. Corrigido com checagem final
+incondicional em `open_position` (`tools.ts`) — `tsc --noEmit` limpo,
+processo reiniciado (watchdog religou sozinho), commit pendente (comando
+pronto no handoff). Balanço real de 8 dias (420 trades, -$363,81 líquido,
+payoff invertido na maioria dos dias, os 2 piores dias em PnL foram os de
+MAIOR frequência) + conselho (llm-council) sobre "operar mais": consenso
+foi não mexer em mais nada agora, deixar R:R 3:1 rodar 3-5 dias sozinho
+antes de reavaliar. Achado real não corrigido: `increase_position`
+(pyramiding, criado 02/09 p/ "ganhar muito quando ganha") nunca disparou em
+5 dias — investigar gate de condições numa próxima sessão. "IA não abre
+posição" reportado no meio da sessão era falso alarme (rate-limit
+transitório ~90s da MetaAPI no lote de 4 símbolos, autorresolvido,
+confirmado testando os endpoints direto). Handoff completo:
+[SESSAO_2026-09-04_ALVO_CURTO_TARGETPOINTS_OVERRIDE_E_CONSELHO_LLM.md](SESSAO_2026-09-04_ALVO_CURTO_TARGETPOINTS_OVERRIDE_E_CONSELHO_LLM.md).
+
 **[RESOLVIDO 2026-09-03, noite] Gráfico "desenquadrava" do lado direito ao
 restaurar da tela cheia (macOS) — o resize forçado só esperava 2
 `requestAnimationFrame` (~32ms), insuficiente pra animação de fullscreen do

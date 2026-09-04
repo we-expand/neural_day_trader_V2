@@ -224,6 +224,19 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
    de código, é dado a mais pra você não confundir "calmo" com "sem
    oportunidade". null quando não há candle suficiente ainda.
+   - 🔴 **"isWeekend" (pedido direto do Cleber): Sábado inteiro + Domingo até
+     23:00 UTC + Sexta após 22:00 UTC.** Nesta janela a cesta operável já é
+     restrita só a cripto (forex/índices ficam fechados/tick congelado, fora
+     da cesta de qualquer forma) -- mas mesmo dentro de cripto o regime é
+     estruturalmente diferente: volume GLOBAL mais baixo (menos participantes
+     no mercado inteiro, não só neste ativo), spread tende a ser maior, e
+     movimentos podem ser mais erráticos por terem menos profundidade de book
+     por trás. Com isWeekend=true, exija confluência um degrau mais forte
+     antes de entrar (mesmo padrão de "DIFÍCIL de operar" acima) -- não é
+     bloqueio automático, mas trate um volumeLabel=BAIXO nesta janela com
+     mais desconfiança do que trataria num dia útil normal, porque aqui
+     "baixo volume" é mais provável de ser falta de liquidez real do que
+     tendência limpa e silenciosa.
    - 🔴🔴 **"usEconomicCalendar" (pedido direto do Cleber -- "tudo tem que
      estar amarrado" à agenda econômica americana, "ela tem que ficar
      atenta que vai sair indicador, pra poder agir na hora certa"): agenda

@@ -244,35 +244,35 @@ export const config = {
   // (ver mt5TakeProfitAtrMultiplier abaixo) -- MESMA convenção de R:R 1:2 que
   // o motor mecânico principal do produto já usa (CLAUDE.md, "stop sempre
   // 2×ATR").
-  // 🔴 2026-09-04 (pedido direto do Cleber, mesmo achado da sessao 02/09):
-  // stop estava largo demais relativo ao que o trailing normalmente
-  // protegia -- perda media $3,97 contra ganho medio $1,70 no mesmo dia com
-  // 78% de acerto. Reduzido de 2.0x pra 1.3x ATR (ainda dentro de
-  // mt5StopMinPct/mt5StopMaxPct abaixo, sem risco de degenerar) -- com
-  // mt5TakeProfitAtrMultiplier=4.0x inalterado, o R:R teorico da entrada sobe
-  // de 1:2 pra ~1:3, e o pior caso (stop cheio) fica proporcionalmente menor.
-  //
-  // 🔴 2026-09-04 (pedido direto do Cleber, mesmo dia, poucos ciclos depois):
-  // "o stop ainda esta grande demais... o alvo pode continuar do mesmo
-  // tamanho e o stop diminuir pelo menos 50%". Reduzido de 1.3x pra 0.65x --
-  // MAS o calculo do alvo (tools.ts, open_position) usava este MESMO
-  // multiplicador como referencia (takeProfitPct = stopPct * rrMultiplier),
-  // entao reduzir este valor sozinho encolheria o alvo na MESMA proporcao do
-  // stop -- o oposto do pedido. Corrigido junto: o alvo agora usa
-  // mt5TargetReferenceStopAtrMultiplier (congelado no valor ANTIGO, 1.3x)
-  // como referencia de risco, independente do multiplicador real do stop
-  // abaixo -- ver comentario em tools.ts. Trailing pos-breakeven usa
-  // multiplicador proprio (mt5TrailAtrMultiplier/mt5TrailAtrMultiplierWide),
-  // nao e afetado por esta mudanca.
-  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 0.65),
-  // Referencia de risco para o CALCULO DO ALVO (tools.ts) -- congelada no
-  // valor que mt5StopAtrMultiplier tinha antes do corte acima, pra reduzir o
-  // stop real sem encolher o alvo junto (mesmo espirito de rrMultiplier
-  // continuar valendo sobre um "stop de referencia" fixo, nao sobre o stop
-  // efetivamente executado). So usada quando ha ATR real disponivel -- sem
-  // ATR (fallback), o alvo continua sendo calculado sobre o stopPct real,
-  // igual sempre foi.
-  mt5TargetReferenceStopAtrMultiplier: Number(process.env.MT5_TARGET_REFERENCE_STOP_ATR_MULTIPLIER ?? 1.3),
+  // 🔴 2026-09-04 (revertido pelo conselho llm-council + achado real): os
+  // dois cortes abaixo (2.0x -> 1.3x -> 0.65x, todos no mesmo dia 04/09)
+  // coincidiram com a taxa de acerto caindo de 80% (02/09) pra 33% (04/09),
+  // com o detalhe mais grave visto via SQL: no dia de 80%, as saidas por
+  // stop (SL) tinham PnL de GRUPO POSITIVO (+$2,37 -- eram trailing/
+  // breakeven protegendo lucro, nao perda real); depois dos cortes, SL
+  // passou a ser perda real de verdade (-$22,99 em 03/09, -$34,51 em 04/09).
+  // Leitura do conselho: um stop mais apertado tem mais chance de ser
+  // atingido por RUIDO normal antes do preco "decidir" a direcao, trocando
+  // "trailing protegendo lucro" por "perda real". Alem disso, ~10 commits
+  // mexendo em stop/trailing/alvo no mesmo dia 04/09 invalidam qualquer
+  // leitura estatistica isolada sobre qual corte especifico causou o que --
+  // por isso a decisao foi reverter pro UNICO valor com leitura limpa (2.0x,
+  // dia 02/09) em vez de tentar adivinhar um meio-termo sem dado.
+  // Revertido tambem: a decoupling de mt5TargetReferenceStopAtrMultiplier
+  // (existia so pra sustentar o corte de stop sem encolher o alvo junto) --
+  // com o stop de volta a 2.0x, alvo e stop voltam a usar a MESMA referencia
+  // de ATR, sem multiplicador congelado separado.
+  // Pendente de decisao do Cleber (nao mexido nesta sessao, ver handoff):
+  // se vale testar um valor intermediario (ex: 1.5x-1.7x) DEPOIS de rodar
+  // 2.0x por 5 dias/40+ trades estavel -- nao antes.
+  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 2.0),
+  // Referencia de risco para o CALCULO DO ALVO (tools.ts) -- revertida pra
+  // ser IGUAL ao mt5StopAtrMultiplier acima (2.0x), eliminando a referencia
+  // congelada separada que só existia para sustentar o corte de stop
+  // revertido acima. So usada quando ha ATR real disponivel -- sem ATR
+  // (fallback), o alvo continua sendo calculado sobre o stopPct real, igual
+  // sempre foi.
+  mt5TargetReferenceStopAtrMultiplier: Number(process.env.MT5_TARGET_REFERENCE_STOP_ATR_MULTIPLIER ?? 2.0),
   // 🔴 2026-08-29 (pedido do Cleber, mudança de filosofia pós-otimizações do
   // dia): 3 -> 1.5 -- VOLTA a ser gatilho de saída MECÂNICO de verdade (ver
   // enforceMt5StopsAndTargets em neuralBridge.ts), mas agora com alvo CURTO
@@ -422,6 +422,18 @@ export const config = {
   // sozinho dá espaço real pra operar mais de um ativo do grupo sem permitir
   // a mesma aposta triplicada de hoje.
   mt5MaxCorrelatedNotionalUsd: Number(process.env.MT5_MAX_CORRELATED_NOTIONAL_USD ?? 2700),
+  // 🔴 2026-09-05 (pedido direto do Cleber, achado real via SQL do balanço de
+  // 8 dias em CLAUDE.md): dias de PIOR PnL líquido foram sistematicamente os
+  // de MAIOR frequência de trades (ex: 21 trades em 04/09 vs. 11 em 03/09,
+  // sem a assertividade acompanhar) -- teto DURO de entradas NOVAS numa
+  // janela deslizante de 24h, independente da "Cadência de Entrada" do Setup
+  // (que só espaça ciclos de avaliação, não limita o total). Intervalo
+  // pedido pelo Cleber foi "15-16" -- fixado no teto da faixa (16) pra dar
+  // uma margem pequena sem abrir mão do espírito do pedido (menos trades,
+  // mais assertividade). Só limita ABERTURA de posição nova -- nunca bloqueia
+  // fechamento, breakeven, trailing ou realização parcial de posição já
+  // aberta (mesmo espírito do daily loss limit acima).
+  mt5MaxEntriesPer24h: Number(process.env.MT5_MAX_ENTRIES_PER_24H ?? 16),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO

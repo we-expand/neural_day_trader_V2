@@ -4,7 +4,7 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
@@ -852,6 +852,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (requiredEvery > 1 && cycle % requiredEvery !== 0) {
         return {
           error: `Cadencia "${cadence}" do Setup do AI Trader: avaliacao de entrada nova so roda a cada ${requiredEvery} ciclos (proxima janela no ciclo ${Math.ceil(cycle / requiredEvery) * requiredEvery}). Posicoes ja abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
+        };
+      }
+      // 🔴 2026-09-05 (pedido direto do Cleber, achado real via SQL do
+      // balanço de 8 dias em CLAUDE.md): dias de MAIOR frequência de trades
+      // foram sistematicamente os de PIOR PnL líquido, sem a assertividade
+      // acompanhar (21 trades em 04/09 vs. 11 em 03/09). Teto DURO de
+      // entradas novas por janela deslizante de 24h -- independente da
+      // Cadência de Entrada acima (que só espaça CICLOS de avaliação, não
+      // limita o TOTAL de entradas). Conta via getEntriesCountLast24h
+      // (neuralBridge.ts), que propaga erro em vez de engolir (mesmo motivo
+      // de getTodayRealizedPnl abaixo) -- falha transitória de rede nunca
+      // vira "0 entradas", furando o teto.
+      const entriesLast24h = await getEntriesCountLast24h(session.sessionId);
+      if (entriesLast24h >= config.mt5MaxEntriesPer24h) {
+        return {
+          error: `Teto de frequência atingido: ${entriesLast24h}/${config.mt5MaxEntriesPer24h} entradas novas nas últimas 24h. ` +
+            `Nenhuma posição nova até o teto abrir espaço de novo (janela deslizante). Posições já abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
         };
       }
       const symbol = String(input.symbol || "").toUpperCase();

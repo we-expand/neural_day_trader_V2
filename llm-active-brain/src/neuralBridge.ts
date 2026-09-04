@@ -763,6 +763,33 @@ export async function getTodayRealizedPnl(sessionId: string): Promise<number> {
   return (trades ?? []).reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
 }
 
+/**
+ * 🔴 2026-09-05 (pedido direto do Cleber): quantidade de entradas NOVAS
+ * abertas nas últimas 24h corridas (janela deslizante, não "hoje" por
+ * fuso) -- usado por `open_position` (tools.ts) pra impor um teto de
+ * frequência (`mt5MaxEntriesPer24h`). Achado real que motivou isto: nos
+ * dias de pior PnL líquido da sessão do LLM Brain, a frequência de trades
+ * era sistematicamente MAIOR (ex: 21 trades em 04/09 vs. 11 em 03/09),
+ * sem a assertividade acompanhar -- teto explícito força qualidade sobre
+ * quantidade em vez de deixar a cadência (Setup) ser o único freio. Conta
+ * por `entry_time`, não `exit_time` (mede RITMO DE ABERTURA, independente
+ * de quanto tempo cada trade fica aberto). Propaga erro em vez de engolir
+ * (mesmo motivo de getTodayRealizedPnl/getClosedTradesForMemory acima --
+ * uma falha transitória virando "0 trades" furaria o teto, não travaria
+ * ele).
+ */
+export async function getEntriesCountLast24h(sessionId: string): Promise<number> {
+  const sb = getClient();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const { count, error } = await sb
+    .from("ai_trades")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", sessionId)
+    .gte("entry_time", since.toISOString());
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export interface Mt5RecentClosedTrade {
   side: "LONG" | "SHORT";
   exit_time: string;
