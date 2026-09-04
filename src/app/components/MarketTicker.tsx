@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react';
 import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
+import { isMarketOpen } from '@/app/utils/marketHours';
 
 interface TickerAsset {
   symbol: string;
@@ -116,7 +117,14 @@ export function MarketTicker() {
 
     const fetchTickers = async () => {
       try {
-        const data = await getBatchedMT5Data(Object.keys(symbolMap));
+        // ✅ 2026-09-03: pula símbolo com mercado fechado (fim de semana,
+        // pausa diária de manutenção, fora do pregão de ações) — rodapé é só
+        // decorativo, não precisa brigar pela cota MetaAPI compartilhada por
+        // um ativo que nem está operando. Cripto é 24/7, sempre entra.
+        const openSymbols = Object.keys(symbolMap).filter(sym => isMarketOpen(sym).isOpen);
+        if (openSymbols.length === 0) return;
+
+        const data = await getBatchedMT5Data(openSymbols);
 
         const formatted: TickerAsset[] = Object.entries(symbolMap)
           .filter(([unifiedSymbol]) => data[unifiedSymbol]?.isRealData && data[unifiedSymbol].price > 0)
@@ -139,14 +147,39 @@ export function MarketTicker() {
     };
 
     fetchTickers();
-    // 10s (ajustado a pedido do Cleber) — preço "vivo" (era 30s); getBatchedMT5Data
-    // já faz uma única chamada em lote, não empilha chamada por símbolo
-    const interval = setInterval(fetchTickers, 10000);
+    // 30s (2026-09-03: revertido de 10s) — com 47 símbolos decorativos disputando
+    // a mesma conta MetaAPI compartilhada que o watchdog de stop do LLM Brain
+    // (5s, símbolos reais em posição aberta), 10s gerava rate-limit 429 constante
+    // na corretora, zerando o Dashboard inteiro. Ticker é só visual, não precisa
+    // de 10s; watchdog de stop é quem precisa de cota disponível de verdade.
+    const interval = setInterval(fetchTickers, 30000);
     return () => clearInterval(interval);
   }, []);
 
+  // ✅ 2026-09-03: esconde do rodapé ativo com mercado fechado (fim de
+  // semana / fora do horário de operação) — reduz carga na API e evita
+  // mostrar preço "---" parado de um ativo que não está operando.
+  const symbolToUnified: Record<string, string> = {
+    BTC: 'BTCUSD', ETH: 'ETHUSD', XRP: 'XRPUSD', BNB: 'BNBUSD', SOL: 'SOLUSD',
+    ADA: 'ADAUSD', DOGE: 'DOGEUSD', AVAX: 'AVAXUSD', DOT: 'DOTUSD', POL: 'POLUSD',
+    'S&P 500': 'SPX500', NASDAQ: 'NAS100', DOW: 'US30', DAX: 'GER40',
+    FTSE: 'UK100', NIKKEI: 'JPN225', 'HANG SENG': 'HKG33',
+    'EUR/USD': 'EURUSD', 'GBP/USD': 'GBPUSD', 'USD/JPY': 'USDJPY', 'USD/CHF': 'USDCHF',
+    'AUD/USD': 'AUDUSD', 'USD/CAD': 'USDCAD', 'NZD/USD': 'NZDUSD',
+    'EUR/GBP': 'EURGBP', 'EUR/JPY': 'EURJPY', 'GBP/JPY': 'GBPJPY',
+    GOLD: 'XAUUSD', SILVER: 'XAGUSD', PLATINUM: 'XPTUSD', PALLADIUM: 'XPDUSD',
+    OIL: 'USOUSD', BRENT: 'UKOUSD', 'NAT GAS': 'XNGUSD',
+    AAPL: 'AAPL', MSFT: 'MSFT', GOOGL: 'GOOGL', AMZN: 'AMZN', NVDA: 'NVDA',
+    TSLA: 'TSLA', META: 'META', NFLX: 'NFLX', AMD: 'AMD', INTC: 'INTC',
+    WHEAT: 'WHEUSD', COFFEE: 'COFUSD', SUGAR: 'SUGUSD',
+  };
+  const visibleAssets = assets.filter(a => {
+    const unified = symbolToUnified[a.symbol];
+    return !unified || isMarketOpen(unified).isOpen;
+  });
+
   // ✅ TRIPLICAR ativos para garantir looping infinito sem espaços
-  const duplicatedAssets = [...assets, ...assets, ...assets];
+  const duplicatedAssets = [...visibleAssets, ...visibleAssets, ...visibleAssets];
 
   return (
     <div className="w-full overflow-hidden bg-black/60 border-t border-white/5 backdrop-blur-sm">
