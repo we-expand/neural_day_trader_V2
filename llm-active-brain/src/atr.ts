@@ -92,6 +92,75 @@ async function fetchRecentCandles(symbol: string, timeframe: SupportedTimeframe 
   const ttl = CACHE_TTL_BY_TIMEFRAME[timeframe] ?? CANDLES_CACHE_TTL_MS;
   if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;
 
+  // 🔴 2026-09-04: o cache acima só guarda resultado JÁ COMPLETO -- N chamadores
+  // pedindo o MESMO símbolo enquanto a primeira requisição ainda está no ar
+  // davam todos cache-miss e disparavam N requisições idênticas. Some isso ao
+  // teto HARD de 5 requisições concorrentes de dado histórico por conta da
+  // MetaAPI (medido ao vivo hoje: 8 concorrentes com cesta de 14) e o excedente
+  // volta como fallback SIMULATED -- que aqui vira `null`, e em open_position
+  // (tools.ts) vira o stop cego de mt5StopFallbackPct pra qualquer símbolo,
+  // independente da volatilidade real dele. Coalescing por chave resolve a
+  // duplicata; o semáforo abaixo segura o resto.
+  const alreadyInFlight = inFlightCandleRequests.get(cacheKey);
+  if (alreadyInFlight) return alreadyInFlight;
+
+  const request = fetchCandlesFromNetwork(symbol, timeframe, cacheKey).finally(() => {
+    inFlightCandleRequests.delete(cacheKey);
+  });
+  inFlightCandleRequests.set(cacheKey, request);
+  return request;
+}
+
+/**
+ * Teto de requisições de candle simultâneas que ESTE processo dispara.
+ *
+ * A MetaAPI limita dado histórico a 5 concorrentes POR CONTA (limite fixo, não
+ * muda com plano pago -- confirmado na documentação oficial em 2026-09-04), e a
+ * conta é COMPARTILHADA entre o motor headless e o Gráfico/Dashboard do próprio
+ * usuário. Ficar em 3 deixa folga real pros consumidores do navegador em vez de
+ * o motor sozinho encostar no teto e empurrar todo mundo (inclusive ele mesmo)
+ * pro fallback SIMULATED.
+ */
+const MAX_CONCURRENT_CANDLE_REQUESTS = 3;
+const inFlightCandleRequests = new Map<string, Promise<Candle[] | null>>();
+let activeCandleRequests = 0;
+const candleRequestQueue: Array<() => void> = [];
+
+function acquireCandleSlot(): Promise<void> {
+  if (activeCandleRequests < MAX_CONCURRENT_CANDLE_REQUESTS) {
+    activeCandleRequests++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => candleRequestQueue.push(resolve));
+}
+
+function releaseCandleSlot(): void {
+  // Transfere o slot direto pro próximo da fila (sem decrementar) -- decrementar
+  // antes de acordar o próximo abriria uma janela pra um chamador novo furar a
+  // fila pelo caminho rápido de acquireCandleSlot.
+  const next = candleRequestQueue.shift();
+  if (next) next();
+  else activeCandleRequests--;
+}
+
+async function fetchCandlesFromNetwork(
+  symbol: string,
+  timeframe: SupportedTimeframe,
+  cacheKey: string,
+): Promise<Candle[] | null> {
+  await acquireCandleSlot();
+  try {
+    return await requestCandles(symbol, timeframe, cacheKey);
+  } finally {
+    releaseCandleSlot();
+  }
+}
+
+async function requestCandles(
+  symbol: string,
+  timeframe: SupportedTimeframe,
+  cacheKey: string,
+): Promise<Candle[] | null> {
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`;
   try {
     const res = await fetch(url, {
