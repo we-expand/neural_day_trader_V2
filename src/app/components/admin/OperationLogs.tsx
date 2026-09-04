@@ -280,6 +280,9 @@ export function OperationLogs() {
           {tradesByDay.map(([day, dayTrades]) => {
             const expanded = expandedDays.has(day);
             const dayNetPnl = dayTrades.reduce((sum, t) => sum + Number(t.net_pnl ?? t.pnl ?? 0), 0);
+            const dayClosed = dayTrades.filter((t) => Number(t.net_pnl ?? t.pnl ?? 0) !== 0);
+            const dayWins = dayTrades.filter((t) => Number(t.net_pnl ?? t.pnl ?? 0) > 0);
+            const dayWinRate = dayClosed.length > 0 ? (dayWins.length / dayClosed.length) * 100 : null;
             return (
               <div key={day} className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
                 <button onClick={() => toggleDay(day)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5">
@@ -288,7 +291,12 @@ export function OperationLogs() {
                     <span className="font-medium">{formatDateKey(day)}</span>
                     <span className="text-xs text-slate-500">{dayTrades.length} operações</span>
                   </div>
-                  <span className={`text-sm font-semibold ${dayNetPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{dayNetPnl.toFixed(4)}</span>
+                  <div className="flex items-center gap-3">
+                    {dayWinRate != null && (
+                      <span className="text-xs text-slate-400">{dayWinRate.toFixed(1)}% acerto</span>
+                    )}
+                    <span className={`text-sm font-semibold ${dayNetPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{dayNetPnl.toFixed(4)}</span>
+                  </div>
                 </button>
                 {expanded && (
                   <div className="overflow-x-auto">
