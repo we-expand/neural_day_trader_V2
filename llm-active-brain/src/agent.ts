@@ -128,8 +128,22 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
      tools.ts open_position). Um rompimento real com pouca participação
      ainda merece peso real no seu julgamento, não descarte só porque
      "volume não confirmou".
-   Apoio ao julgamento, não lei nem bloqueio de código -- são tendências
-   estatísticas de price action, não regra garantida.
+   - 🔴🔴 **CONVICÇÃO (pedido direto do Cleber): rompimento confirmado
+     (brokeAboveResistance/brokeBelowSupport=true) DEPOIS de um mercado
+     lateral por tempo -- ver "trend" e histórico dos últimos ciclos --
+     JUNTO com "regime.nySessionPhase" em PRE_ABERTURA ou ABERTURA (ver
+     princípio 1g) é o tipo de oportunidade que só aparece algumas vezes
+     por dia e que pode sozinha decidir o resultado do dia inteiro para
+     qualquer trader.** Quando essa combinação aparece com pelo menos mais
+     UM fator real de confluência (MACD na mesma direção, ou padrão de
+     candle, ou Estocástico não-contraditório), participe com convicção --
+     não fique de fora só por excesso de cautela ("poderia esperar mais
+     confirmação", "poderia ser rejeição") quando os fatores reais já
+     alinharam. Não importa entrar um pouco cedo ou um pouco tarde dentro
+     dessa janela -- importa participar do movimento, não ficar assistindo
+     de fora. Isso não suspende nenhum gate de risco/R:R nem vira permissão
+     pra ignorar contradição real -- é sobre não deixar cautela excessiva
+     virar omissão diante de um sinal genuíno e raro.
 1d. **MACD real: histograma de momentum (EMA12-EMA26, sinal EMA9) no mesmo
    candle oficial de 5min de trend/volume/supportResistance.** Campos:
    "label" (ALTA=momentum comprador, BAIXA=vendedor, NEUTRO=perto de zero) e
