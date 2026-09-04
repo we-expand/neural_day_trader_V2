@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getInfinoxAssetsByCategory, INFINOX_CATEGORY_NAMES } from '@/config/infinoxAssets';
 import { getBrokerSymbol } from '@/app/config/brokerRegistry';
-import { fetchRealPricesBatch } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
+import { fetchRealPricesBatch, type BatchPriceResult } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
 import { getMarketStatus } from '@/app/utils/marketStatus';
 import { comparePricesBatch } from '@/app/utils/priceDebugger';
 import { getMinLotNotionalUsd } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
@@ -146,45 +146,79 @@ export function InfinoxAssetsBrowser({
     }
   };
 
-  // ✅ Buscar preços reais quando o modal abrir
+  // 🆕 2026-09-05 (pedido do Cleber -- "os dados estão demorando demais"):
+  // antes disso, TODA vez que o modal abria, disparava uma busca de preço
+  // pro catálogo INTEIRO (~220 ativos) de uma vez -- e essa busca bate na
+  // MESMA rota `/mt5-prices` do backend, sujeita ao teto de 5 requisições
+  // concorrentes de dado histórico por conta da MetaAPI (ver investigação
+  // de rate-limit da mesma sessão) + processamento em lotes de 40 com pausa
+  // de 500ms entre eles (RealMarketDataService.ts) -- pra 220 símbolos isso
+  // facilmente passa de 15-30s até a última categoria aparecer com preço.
+  // Corrigido em 2 partes, aproveitando as abas de categoria recém-criadas:
+  // (1) busca primeiro só os símbolos da categoria ATIVA (a que o usuário
+  // está de fato olhando -- rápido, poucas dezenas de símbolos), e só DEPOIS
+  // busca o resto do catálogo em segundo plano, sem travar a tela; (2) cache
+  // local por símbolo com TTL curto (20s) -- reabrir o modal ou trocar de
+  // aba rápido não dispara requisição nova pros símbolos já buscados
+  // recentemente nesta mesma sessão do navegador.
+  const fetchedAtRef = useRef<Map<string, number>>(new Map());
+  const LOCAL_PRICE_TTL_MS = 20_000;
+
   useEffect(() => {
     if (!isOpen) return;
 
-    const fetchPrices = async () => {
-      setIsLoadingPrices(true);
-      
-      // Buscar TODOS os ativos (catálogo real auditado, ~220)
-      const allSymbols = Object.values(allAssets).flat();
-      
-      console.log(`[InfinoxAssetsBrowser] 🔄 Buscando preços REAIS de ${allSymbols.length} ativos usando Yahoo Finance + Binance...`);
+    let cancelled = false;
 
-      // 🆕 USAR NOVO PROVEDOR DE PREÇOS REAIS (Yahoo Finance + Binance)
-      const priceData = await fetchRealPricesBatch(allSymbols);
-      
-      // Converter para formato esperado
-      const prices: Record<string, AssetData> = {};
-      let successCount = 0;
-      
-      Object.entries(priceData).forEach(([symbol, data]) => {
-        prices[symbol] = {
-          symbol,
-          price: data.price,
-          change: data.changePercent // ✅ CORRIGIDO: era changePercent24h (inexistente)
-        };
-        
-        if (data.source !== 'FALLBACK') {
-          successCount++;
-        }
+    const applyPrices = (priceData: Record<string, BatchPriceResult>) => {
+      if (cancelled) return;
+      const now = Date.now();
+      setAssetPrices((prev) => {
+        const next = { ...prev };
+        Object.entries(priceData).forEach(([symbol, data]) => {
+          next[symbol] = { symbol, price: data.price, change: data.changePercent };
+          fetchedAtRef.current.set(symbol, now);
+        });
+        return next;
       });
-      
-      setAssetPrices(prices);
-      
-      console.log(`[InfinoxAssetsBrowser] ✅ Concluído: ${successCount}/${allSymbols.length} preços reais obtidos`);
-      setIsLoadingPrices(false);
     };
 
-    fetchPrices();
-  }, [isOpen]);
+    const fetchMissing = async (symbols: string[]) => {
+      const now = Date.now();
+      const toFetch = symbols.filter((s) => {
+        const fetchedAt = fetchedAtRef.current.get(s);
+        return fetchedAt == null || now - fetchedAt >= LOCAL_PRICE_TTL_MS;
+      });
+      if (toFetch.length === 0) return;
+      const priceData = await fetchRealPricesBatch(toFetch);
+      applyPrices(priceData);
+    };
+
+    const run = async () => {
+      const allSymbols = Object.values(allAssets).flat();
+      const priorityCategoryKey = selectedCategory ?? Object.keys(allAssets)[0];
+      const prioritySymbols = priorityCategoryKey ? allAssets[priorityCategoryKey] || [] : [];
+      const restSymbols = allSymbols.filter((s) => !prioritySymbols.includes(s));
+
+      setIsLoadingPrices(true);
+      console.log(`[InfinoxAssetsBrowser] 🔄 Categoria ativa primeiro: ${prioritySymbols.length} ativos...`);
+      await fetchMissing(prioritySymbols);
+      if (cancelled) return;
+      setIsLoadingPrices(false);
+
+      // Resto do catálogo em segundo plano -- não bloqueia a tela, só
+      // preenche os cards das outras categorias conforme chega.
+      if (restSymbols.length > 0) {
+        console.log(`[InfinoxAssetsBrowser] 🔄 Resto do catálogo em segundo plano: ${restSymbols.length} ativos...`);
+        fetchMissing(restSymbols);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedCategory]);
 
   // Filtrar ativos baseado na pesquisa e categoria selecionada
   // ✅ 2026-07-16: mesmo fix do autocomplete acima — também casa pelo nome
@@ -209,6 +243,38 @@ export function InfinoxAssetsBrowser({
 
   // Calcular total de ativos
   const totalAssets = Object.values(allAssets).reduce((sum, symbols) => sum + symbols.length, 0);
+
+  // 🆕 2026-09-05 (pedido do Cleber, usabilidade): antes disso o conteúdo
+  // empilhava TODAS as categorias verticalmente numa rolagem só (~220
+  // instrumentos, 9 categorias) -- `selectedCategory` já existia como estado
+  // mas nunca era setado em lugar nenhum, então nunca filtrava nada de
+  // verdade. Vira abas reais: clicar troca de categoria sem precisar rolar
+  // por todo o resto. Com busca ativa, ignora a aba selecionada e mostra
+  // resultado em todas as categorias (mesmo comportamento de antes) -- abas
+  // só fazem sentido navegando sem buscar.
+  const categoryTabs = useMemo(
+    () =>
+      Object.keys(allAssets)
+        .filter((categoryKey) => (allAssets[categoryKey]?.length ?? 0) > 0)
+        .map((categoryKey) => ({
+          categoryKey,
+          categoryName: INFINOX_CATEGORY_NAMES[categoryKey] || categoryKey,
+          count: allAssets[categoryKey].length,
+        })),
+    [allAssets]
+  );
+
+  // Classes completas (não interpoladas) -- Tailwind JIT precisa da string
+  // literal inteira presente no código pra gerar a classe, mesmo padrão já
+  // usado no cabeçalho de categoria logo abaixo (ternário explícito, não
+  // template string com variável de cor).
+  const categoryTabActiveClass = (categoryKey: string) =>
+    categoryKey === 'CRYPTO' ? 'bg-orange-500/15 border-orange-500/40 text-orange-400' :
+    categoryKey === 'INDICES' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' :
+    categoryKey === 'FOREX' ? 'bg-green-500/15 border-green-500/40 text-green-400' :
+    categoryKey === 'COMMODITIES' ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400' :
+    categoryKey === 'STOCKS' ? 'bg-purple-500/15 border-purple-500/40 text-purple-400' :
+    'bg-emerald-500/15 border-emerald-500/40 text-emerald-400';
 
   return (
     <AnimatePresence>
@@ -332,6 +398,41 @@ export function InfinoxAssetsBrowser({
                     </div>
                   </motion.div>
                 )}
+              </div>
+            </div>
+
+            {/* ========== TABS DE CATEGORIA ========== */}
+            {/* Com busca ativa, as abas ficam desabilitadas visualmente --
+                a busca já varre todas as categorias de propósito (ver
+                filteredCategories abaixo), então escolher uma aba enquanto
+                busca não faria nada. */}
+            <div className="relative z-10 shrink-0 px-6 py-3 border-b border-white/5 overflow-x-auto">
+              <div className="flex items-center gap-2 min-w-max">
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  disabled={!!searchTerm}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    !selectedCategory
+                      ? 'bg-white/10 border-white/20 text-white'
+                      : 'bg-transparent border-white/5 text-slate-500 hover:border-white/15 hover:text-slate-300'
+                  }`}
+                >
+                  Todos <span className="text-slate-500 font-medium normal-case">({totalAssets})</span>
+                </button>
+                {categoryTabs.map((tab) => (
+                  <button
+                    key={tab.categoryKey}
+                    onClick={() => setSelectedCategory(tab.categoryKey)}
+                    disabled={!!searchTerm}
+                    className={`shrink-0 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      selectedCategory === tab.categoryKey
+                        ? categoryTabActiveClass(tab.categoryKey)
+                        : 'bg-transparent border-white/5 text-slate-500 hover:border-white/15 hover:text-slate-300'
+                    }`}
+                  >
+                    {tab.categoryName} <span className="text-slate-500 font-medium normal-case">({tab.count})</span>
+                  </button>
+                ))}
               </div>
             </div>
 
