@@ -751,6 +751,18 @@ export interface MarketRegime {
   volumeLabel: "BAIXO" | "NORMAL" | "ALTO";
   /** Rótulo de volatilidade real: ATR atual do símbolo comparado à própria janela recente (não é volatilidade absoluta entre ativos diferentes). */
   volatilityLabel: "BAIXA" | "NORMAL" | "ALTA";
+  /**
+   * 🔴 2026-09-04 (pedido direto do Cleber -- "o motor tem que saber quando
+   * é o pré-mercado da bolsa americana, é o que sacode os mercados e define
+   * a direção do dia"): janela de atenção redobrada em torno da abertura da
+   * NYSE. `PRE_ABERTURA` = ~60min antes até o instante da abertura,
+   * `ABERTURA` = dentro de ~15min da abertura (janela mais violenta de
+   * verdade), `null` = fora dessa janela. Só contexto pro LLM, nunca vira
+   * trava mecânica nova -- baixo volume DENTRO dessa janela não significa
+   * "sem movimento", é frequentemente o oposto (ver princípio novo no
+   * GENESIS_PROMPT_MT5).
+   */
+  nySessionPhase: "PRE_ABERTURA" | "ABERTURA" | null;
 }
 
 // 🔴 2026-09-02 (pedido do Cleber): motor tratava baixo volume como sinônimo
@@ -769,6 +781,31 @@ function getSessionLabel(now: Date = new Date()): MarketRegime["session"] {
   if (utcHour < 13) return "LONDRES";
   if (utcHour < 21) return "NY";
   return "ROLLOVER";
+}
+
+// 🔴 2026-09-04 (pedido do Cleber): abertura real da NYSE é 9h30 HORÁRIO DE
+// NOVA YORK -- 13:30 UTC no horário de verão americano (EDT, meados de
+// março a início de novembro -- inclui hoje, 2026-09-04) ou 14:30 UTC fora
+// do horário de verão (EST, novembro a março). Brasília NÃO tem horário de
+// verão desde 2019 (fixo UTC-3), então em UTC-3 a abertura da NYSE cai às
+// 10h30 (EDT) ou 11h30 (EST) de Brasília -- NÃO 9h30 como mencionado; 9h30
+// Brasília é só ~1h ANTES da abertura em EDT, dentro da janela de
+// PRE_ABERTURA abaixo, não a abertura em si. Sem lib de fuso-horário no
+// projeto pra detectar a troca de DST americana com precisão de minuto,
+// trata os DOIS horários possíveis (13:30 e 14:30 UTC) como "abertura",
+// erra pro lado de INCLUIR mais tempo na janela de atenção, nunca menos.
+const NY_OPEN_UTC_MINUTES_EDT = 13 * 60 + 30; // 9h30 NY (EDT) = 13:30 UTC = 10:30 Brasilia
+const NY_OPEN_UTC_MINUTES_EST = 14 * 60 + 30; // 9h30 NY (EST) = 14:30 UTC = 11:30 Brasilia
+const NY_PRE_OPEN_WINDOW_MIN = 60; // "pré-mercado" -- pedido do Cleber: fica de olho ~1h antes
+const NY_OPEN_WINDOW_MIN = 15; // janela mais violenta de verdade, logo apos abertura
+
+function getNySessionPhase(now: Date = new Date()): MarketRegime["nySessionPhase"] {
+  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  for (const openMin of [NY_OPEN_UTC_MINUTES_EDT, NY_OPEN_UTC_MINUTES_EST]) {
+    if (nowMin >= openMin - NY_PRE_OPEN_WINDOW_MIN && nowMin < openMin) return "PRE_ABERTURA";
+    if (nowMin >= openMin && nowMin < openMin + NY_OPEN_WINDOW_MIN) return "ABERTURA";
+  }
+  return null;
 }
 
 /**
@@ -799,5 +836,5 @@ export async function getMarketRegime(symbol: string, timeframe: SupportedTimefr
   const atrRatio = currentAtr / avgAtr;
   const volatilityLabel: MarketRegime["volatilityLabel"] = atrRatio < 0.8 ? "BAIXA" : atrRatio > 1.25 ? "ALTA" : "NORMAL";
 
-  return { session: getSessionLabel(), volumeLabel, volatilityLabel };
+  return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase() };
 }

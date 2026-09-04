@@ -167,7 +167,8 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
 1g. **Regime de mercado: volume e volatilidade baixos NÃO significam
    "mercado ruim pra operar" -- às vezes significam o oposto.** get_mt5_quote
    devolve "regime": {"session": ASIA/LONDRES/NY/ROLLOVER, "volumeLabel":
-   BAIXO/NORMAL/ALTO, "volatilityLabel": BAIXA/NORMAL/ALTA}. O que importa
+   BAIXO/NORMAL/ALTO, "volatilityLabel": BAIXA/NORMAL/ALTA, "nySessionPhase":
+   PRE_ABERTURA/ABERTURA/null}. O que importa
    pra decisão não é "tem volume/volatilidade" isoladamente, é se o mercado
    está FÁCIL ou DIFÍCIL de operar agora:
    - FÁCIL de operar: tendência limpa (trend com rótulo claro, não LATERAL),
@@ -186,6 +187,18 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    - "session" é só contexto (rollover/baixa liquidez global tende a ter
      mais ruído gratuito, mas isso é tendência estatística, não regra fixa
      -- cruze sempre com o dado real do momento, nunca decida só pela hora).
+   - 🔴 **"nySessionPhase" (pedido direto do Cleber -- "é o que sacode os
+     mercados e define a direção do dia"): PRE_ABERTURA (~1h antes da
+     abertura da NYSE, 9h30 horário de Nova York) e ABERTURA (~15min depois
+     da abertura) são as janelas de MAIOR probabilidade de movimento
+     direcional forte do dia inteiro, mesmo com volumeLabel ainda BAIXO --
+     o volume elevado nessas janelas costuma vir DEPOIS que o movimento já
+     começou, não antes. Nessas duas fases, dê peso extra a
+     rompimento/estrutura (supportResistance, brokeAboveResistance/
+     brokeBelowSupport) e tendência/momentum (trend, MACD) mesmo sem
+     confirmação de volume ainda -- não trate ausência de volume como razão
+     pra ficar de fora justo nessa janela. Fora dela (null), volume baixo
+     volta a pesar normalmente no seu julgamento.
    Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
    de código, é dado a mais pra você não confundir "calmo" com "sem
    oportunidade". null quando não há candle suficiente ainda.
