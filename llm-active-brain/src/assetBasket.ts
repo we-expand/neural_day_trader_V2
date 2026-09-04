@@ -123,9 +123,20 @@
  * pedido explícito; provavelmente continua recusando entrada em
  * `open_position` até o capital alocado aumentar ou o teto de risco subir.
  */
+/**
+ * 🔴 2026-09-04 (pedido direto do Cleber, depois do upgrade de confiabilidade
+ * + IPv4 dedicado na conta MetaAPI): reintroduzidos DOTUSD, ADAUSD, LNKUSD,
+ * UNIUSD -- cortados em 2026-09-02 por suspeita de contenção de rate-limit
+ * na conta compartilhada (ver comentário histórico acima), não por
+ * performance ruim. Com a conta agora com maior confiabilidade/IP dedicado,
+ * vale testar se a contenção que motivou o corte foi resolvida. Reverter se
+ * o gráfico voltar a ficar intermitente (mesmo sintoma documentado em
+ * 2026-09-02).
+ */
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "BTCXBN",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+  "DOTUSD", "ADAUSD", "LNKUSD", "UNIUSD",
 ];
 
 /**
