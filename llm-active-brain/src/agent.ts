@@ -653,7 +653,17 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       // dar folga (prompt_tokens medido ~13.8k, cabia no ceiling antigo por
       // pouco -- qualquer cesta maior ou memoria de trades mais cheia
       // estourava).
-      max_tokens: 2048,
+      //
+      // 🔴 2026-09-04 (RECORRENCIA ao vivo do mesmo bug, monitorado em tempo
+      // real com o Cleber): ciclo 1 pos-restart terminou em "Nenhuma
+      // ferramenta chamada" apos ~7min -- prompt engordou de novo (principios
+      // 1c/1g expandidos com rompimento/nySessionPhase nesta mesma sessao),
+      // o modelo passou a raciocinar sobre mais fatores e voltou a estourar
+      // o teto de saida antes do tool_call. num_ctx (24576) tem folga de
+      // sobra pro ENTRADA (prompt ~14-15k tokens) -- o gargalo e so o teto de
+      // SAIDA. Subido pra 4096 (2x o ultimo valor que funcionou, mesma folga
+      // relativa que resolveu da ultima vez), ainda bem abaixo do num_ctx.
+      max_tokens: 4096,
       tools: toolDefinitions,
       // 🔴 2026-08-30 (redesenho pós -$135 líquido, sessão e7eef768): "auto" ->
       // "required". Achado real, confirmado em dezenas de ocorrências no log
@@ -702,7 +712,15 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     const toolCalls = message.tool_calls ?? [];
 
     if (toolCalls.length === 0) {
-      console.log("Nenhuma ferramenta chamada. Encerrando o ciclo.");
+      // 🔴 2026-09-04 (achado ao vivo -- ver comentario em max_tokens acima):
+      // logar finish_reason/usage aqui e a diferenca entre "reproduzir o bug
+      // de estouro de tokens em minutos" e "adivinhar de novo por sessoes".
+      const finishReason = response.choices[0]?.finish_reason ?? "desconhecido";
+      const usage = response.usage;
+      console.log(
+        `Nenhuma ferramenta chamada. Encerrando o ciclo. finish_reason=${finishReason}` +
+          (usage ? ` prompt_tokens=${usage.prompt_tokens} completion_tokens=${usage.completion_tokens}` : " (sem usage no response)")
+      );
       break;
     }
 
