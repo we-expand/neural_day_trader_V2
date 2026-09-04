@@ -1445,6 +1445,29 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           takeProfitCappedBySR = true;
         }
       }
+      // 🔴 2026-09-04 (achado real, via print do Cleber -- SPX500 LONG abriu
+      // com stop de 23,18pts e alvo de só 7,33pts, R:R 0,32:1, o INVERSO do
+      // pedido "alvo tem que ser maior que o stop"): o gate de R:R minimo
+      // acima (mt5MinRrAfterSrCap) SO roda dentro do bloco de cap por S/R --
+      // quando o alvo pequeno vem de outra causa (referencia de ATR pequena
+      // combinada com o stop alargado pela seguranca de spread,
+      // minStopForSpread acima, que NUNCA realimenta o calculo do alvo) o
+      // gate nunca dispara e a entrada abre com risco/retorno pior que
+      // aleatorio. Este trade real confirmou o buraco: srCappedTakeProfitPct
+      // nem chegou a ser calculado pra esse caminho (alvo ja nascia pequeno
+      // antes do cap de S/R), entao a checagem condicional acima nunca via o
+      // problema. Checagem final, incondicional, cobre QUALQUER causa (S/R,
+      // spread, ATR minusculo, fallback) -- alvo sempre >= stop *
+      // mt5MinRrAfterSrCap, ou a posicao nao abre.
+      if (takeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+        return {
+          error:
+            `${symbol}: alvo calculado (${(takeProfitPct * 100).toFixed(3)}%) ficaria menor que o minimo aceitavel ` +
+            `frente ao stop real (${(stopPct * 100).toFixed(3)}%, R:R minimo exigido ${config.mt5MinRrAfterSrCap.toFixed(1)}:1) -- ` +
+            `nao e causado por suporte/resistencia proximo, e sim pelo stop ter sido alargado (seguranca de spread) sem o alvo acompanhar. ` +
+            `Posicao NAO aberta. Espere o spread normalizar ou avalie outro ativo/lado.`,
+        };
+      }
       // 🔴 2026-08-30 (mesmo achado, mesmo redesenho): o encolhimento extra de
       // alvo em dia de baixo volume (0,6x) foi REMOVIDO -- existia
       // especificamente pra servir a filosofia "giro rapido, alvo curto"
