@@ -47,6 +47,12 @@ async function stopWatchdogTick(): Promise<void> {
               `entrada=${c.entryPrice} saida=${c.exitPrice} (sessao ${session.sessionId})`
           );
         }
+        for (const p of result.partials) {
+          console.log(
+            `[stop-watchdog] Parcial de lucro realizada: ${p.symbol} ${p.side} ` +
+              `(${(p.favorableMoveR * 100).toFixed(0)}% de 1R, $${p.realizedPnl.toFixed(2)}) (sessao ${session.sessionId})`
+          );
+        }
       } catch (err) {
         console.error(
           `[stop-watchdog] falha ao checar stop/alvo da sessao ${session.sessionId}:`,

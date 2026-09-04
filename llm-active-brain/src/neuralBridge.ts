@@ -576,6 +576,11 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         quantity: params.amountUsd,
         stop_loss: params.stopLoss,
         take_profit: params.takeProfit,
+        // 🔴 2026-09-04: distância original do stop, gravada uma única vez --
+        // ver comentário completo na migration 20260904_add_original_stop_
+        // distance_to_ai_trades.sql. `stop_loss` muda com breakeven/trailing,
+        // este campo não.
+        original_stop_distance: params.stopLoss != null ? Math.abs(params.entryPrice - params.stopLoss) : null,
         ai_reasoning: params.reasoning,
         ai_confidence: params.confidence ?? null,
         entry_time: new Date().toISOString(),
@@ -610,6 +615,9 @@ export interface Mt5OpenPosition {
   stop_loss: number | null;
   take_profit: number | null;
   pyramid_adds_count: number;
+  partial_tp_taken: boolean | null;
+  original_stop_distance: number | null;
+  session_id: string;
 }
 
 /**
@@ -687,7 +695,9 @@ export async function listMt5OpenPositions(sessionId: string): Promise<Mt5OpenPo
   const sb = getClient();
   const { data, error } = await sb
     .from("ai_trades")
-    .select("id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count")
+    .select(
+      "id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count, partial_tp_taken, original_stop_distance, session_id"
+    )
     .eq("session_id", sessionId)
     .eq("status", "OPEN")
     .order("entry_time", { ascending: true });
@@ -911,6 +921,79 @@ export interface TrailMoveResult {
   newStopLoss: number;
 }
 
+export interface PartialTpResult {
+  tradeId: string;
+  symbol: string;
+  side: "LONG" | "SHORT";
+  realizedQuantity: number;
+  realizedPnl: number;
+  favorableMoveR: number;
+}
+
+/**
+ * 🔴 2026-09-04 (achado real, sessao 02/09 -- ver config.ts mt5PartialTpTriggerR):
+ * realiza uma fracao (mt5PartialTpFraction) do lucro flutuante ao atingir o
+ * gatilho de R, registrando como um trade CLOSED NOVO (nunca UPDATE
+ * silencioso no original -- mesma convencao de mirrorSell acima e da regra
+ * "corrigir registro financeiro nunca e um UPDATE silencioso" em CLAUDE.md).
+ * Reduz a quantidade do trade OPEN original e marca partial_tp_taken=true
+ * (so dispara 1x por posicao -- reforcos de pyramiding, se houver, nao geram
+ * nova parcial). Nunca lanca -- falha so registra erro, tenta de novo no
+ * proximo ciclo (partial_tp_taken so vira true se a operacao inteira suceder).
+ */
+async function realizePartialProfit(args: {
+  pos: Mt5OpenPosition;
+  price: number;
+  favorableMoveR: number;
+}): Promise<PartialTpResult | null> {
+  const { pos, price, favorableMoveR } = args;
+  try {
+    const sb = getClient();
+    const totalQty = Number(pos.quantity);
+    const realizedQty = totalQty * config.mt5PartialTpFraction;
+    const remainingQty = totalQty - realizedQty;
+    const entryPrice = Number(pos.entry_price);
+    const pnl = pos.side === "LONG" ? (price - entryPrice) * (realizedQty / entryPrice) : (entryPrice - price) * (realizedQty / entryPrice);
+    const pnlPercentage = ((price - entryPrice) / entryPrice) * 100 * (pos.side === "LONG" ? 1 : -1);
+    const nowIso = new Date().toISOString();
+
+    const { error: insertError } = await sb.from("ai_trades").insert({
+      session_id: pos.session_id,
+      user_id: config.neuralUserId,
+      symbol: pos.symbol,
+      type: pos.side === "LONG" ? "SELL" : "BUY",
+      side: pos.side,
+      entry_price: entryPrice,
+      exit_price: price,
+      quantity: realizedQty,
+      entry_time: pos.entry_time,
+      exit_time: nowIso,
+      status: "CLOSED",
+      exit_reason: "TP",
+      pnl,
+      pnl_percentage: pnlPercentage,
+      net_pnl: pnl,
+      commission: 0,
+      ai_reasoning: `Realizacao PARCIAL de lucro (${(favorableMoveR * 100).toFixed(0)}% de 1R alcancado, ${(config.mt5PartialTpFraction * 100).toFixed(0)}% da posicao) -- mecanico, nao depende de decisao do LLM neste ciclo.`,
+      is_test_data: true,
+      test_data_reason: MT5_TEST_DATA_REASON,
+    });
+    if (insertError) throw insertError;
+
+    const { error: updateError } = await sb
+      .from("ai_trades")
+      .update({ quantity: remainingQty, partial_tp_taken: true })
+      .eq("id", pos.id)
+      .eq("status", "OPEN");
+    if (updateError) throw updateError;
+
+    return { tradeId: pos.id, symbol: pos.symbol, side: pos.side, realizedQuantity: realizedQty, realizedPnl: pnl, favorableMoveR };
+  } catch (err) {
+    console.error("[neuralBridge/mt5] falha ao realizar parcial de lucro:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /**
  * Atualiza o stop_loss de uma posição OPEN pra um novo preço (breakeven ou
  * trailing). Nunca lança -- falha silenciosa (o próximo ciclo tenta de novo)
@@ -949,11 +1032,17 @@ async function updateStopLoss(tradeId: string, newStopLoss: number): Promise<boo
 export async function enforceMt5StopsAndTargets(
   sessionId: string,
   getQuote: (symbol: string) => Promise<{ price: number; bid: number; ask: number } | null>
-): Promise<{ closed: StopEnforcementResult[]; breakevens: BreakevenMoveResult[]; trails: TrailMoveResult[] }> {
+): Promise<{
+  closed: StopEnforcementResult[];
+  breakevens: BreakevenMoveResult[];
+  trails: TrailMoveResult[];
+  partials: PartialTpResult[];
+}> {
   const positions = await listMt5OpenPositions(sessionId);
   const closed: StopEnforcementResult[] = [];
   const breakevens: BreakevenMoveResult[] = [];
   const trails: TrailMoveResult[] = [];
+  const partials: PartialTpResult[] = [];
   const quoteCache = new Map<string, { price: number; bid: number; ask: number } | null>();
 
   for (const pos of positions) {
@@ -1028,6 +1117,25 @@ export async function enforceMt5StopsAndTargets(
     const favorableMove = pos.side === "LONG" ? price - pos.entry_price : pos.entry_price - price;
     if (favorableMove <= 0) continue; // so mexe no stop quando a operacao esta correndo A FAVOR
 
+    // 🔴 2026-09-04 (achado real via SQL, sessao 02/09 -- ver comentario
+    // completo em config.ts mt5PartialTpTriggerR): a distancia ORIGINAL do
+    // stop (gravada uma unica vez na abertura) e a unica referencia estavel
+    // de "1R" -- pos.stop_loss muda depois do breakeven/trailing, entao NAO
+    // pode ser usada aqui pra medir quantos R o preco ja andou. Sem essa
+    // distancia original (posicao antiga, de antes deste fix), pula parcial/
+    // trail largo -- mantem so o trailing apertado de sempre.
+    const originalStopDistance = pos.original_stop_distance;
+    if (
+      config.mt5PartialTpEnabled &&
+      !pos.partial_tp_taken &&
+      originalStopDistance != null &&
+      originalStopDistance > 0 &&
+      favorableMove >= originalStopDistance * config.mt5PartialTpTriggerR
+    ) {
+      const partialResult = await realizePartialProfit({ pos, price, favorableMoveR: favorableMove / originalStopDistance });
+      if (partialResult) partials.push(partialResult);
+    }
+
     // 🔴 2026-08-29 (pedido do Cleber): breakeven MECANICO -- assim que o
     // preco andar a favor mt5BreakevenTriggerR vezes a distancia original do
     // stop, trava o pior caso em ~$0 movendo o stop pro preco de entrada.
@@ -1057,7 +1165,14 @@ export async function enforceMt5StopsAndTargets(
     // comentario em config.ts. Usar o mesmo multiplicador do stop inicial
     // aqui criava uma faixa morta onde o preco corria a favor sem o stop
     // acompanhar nada.
-    const trailDistancePct = trailPct * config.mt5TrailAtrMultiplier;
+    // 🔴 2026-09-04: uma vez que o lucro flutuante ja passou de
+    // mt5TrailWidenTriggerR (em unidades do stop ORIGINAL, nao do atual --
+    // ver originalStopDistance acima), troca pro multiplicador largo. So
+    // relevante em trades com original_stop_distance gravado (pos-fix); sem
+    // isso, mantem sempre o multiplicador apertado de sempre.
+    const favorableMoveR = originalStopDistance != null && originalStopDistance > 0 ? favorableMove / originalStopDistance : null;
+    const useWideTrail = favorableMoveR != null && favorableMoveR >= config.mt5TrailWidenTriggerR;
+    const trailDistancePct = trailPct * (useWideTrail ? config.mt5TrailAtrMultiplierWide : config.mt5TrailAtrMultiplier);
     const candidateStop = pos.side === "LONG" ? price * (1 - trailDistancePct) : price * (1 + trailDistancePct);
     const isMoreProtective = pos.side === "LONG" ? candidateStop > pos.stop_loss : candidateStop < pos.stop_loss;
     if (!isMoreProtective) continue;
@@ -1068,5 +1183,5 @@ export async function enforceMt5StopsAndTargets(
     }
   }
 
-  return { closed, breakevens, trails };
+  return { closed, breakevens, trails, partials };
 }

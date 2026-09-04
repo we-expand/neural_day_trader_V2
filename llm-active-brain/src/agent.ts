@@ -530,7 +530,7 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
         }
       }
       if (lastErr) throw lastErr;
-      const { closed, breakevens, trails } = result!;
+      const { closed, breakevens, trails, partials } = result!;
       const parts: string[] = [];
       if (closed.length > 0) {
         parts.push(
@@ -550,6 +550,14 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
         parts.push(
           "Stops trilhados (subiram acompanhando o preco a favor): " +
             trails.map((t) => `${t.symbol} ${t.side} (${t.oldStopLoss} -> ${t.newStopLoss})`).join("; ")
+        );
+      }
+      if (partials.length > 0) {
+        parts.push(
+          "Lucro parcial realizado mecanicamente (posicao ja pagou ~1R, garantiu parte do ganho, resto continua correndo com stop mais largo): " +
+            partials
+              .map((p) => `${p.symbol} ${p.side} (${(p.favorableMoveR * 100).toFixed(0)}% de 1R, realizou $${p.realizedPnl.toFixed(2)})`)
+              .join("; ")
         );
       }
       if (parts.length > 0) {

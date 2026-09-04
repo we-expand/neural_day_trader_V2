@@ -244,7 +244,14 @@ export const config = {
   // (ver mt5TakeProfitAtrMultiplier abaixo) -- MESMA convenção de R:R 1:2 que
   // o motor mecânico principal do produto já usa (CLAUDE.md, "stop sempre
   // 2×ATR").
-  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 2.0),
+  // 🔴 2026-09-04 (pedido direto do Cleber, mesmo achado da sessao 02/09):
+  // stop estava largo demais relativo ao que o trailing normalmente
+  // protegia -- perda media $3,97 contra ganho medio $1,70 no mesmo dia com
+  // 78% de acerto. Reduzido de 2.0x pra 1.3x ATR (ainda dentro de
+  // mt5StopMinPct/mt5StopMaxPct abaixo, sem risco de degenerar) -- com
+  // mt5TakeProfitAtrMultiplier=4.0x inalterado, o R:R teorico da entrada sobe
+  // de 1:2 pra ~1:3, e o pior caso (stop cheio) fica proporcionalmente menor.
+  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 1.3),
   // 🔴 2026-08-29 (pedido do Cleber, mudança de filosofia pós-otimizações do
   // dia): 3 -> 1.5 -- VOLTA a ser gatilho de saída MECÂNICO de verdade (ver
   // enforceMt5StopsAndTargets em neuralBridge.ts), mas agora com alvo CURTO
@@ -348,6 +355,33 @@ export const config = {
   // que isso melhora o liquido -- e correcao de mecanica de protecao de
   // lucro, nao alegacao de edge.
   mt5TrailAtrMultiplier: Number(process.env.MT5_TRAIL_ATR_MULTIPLIER ?? 0.8),
+  // 🔴 2026-09-04 (achado real via SQL, sessão 02/09: 14 vitórias/4 perdas,
+  // ganho médio $1,70 vs perda média $3,97 -- assimetria errada apesar de
+  // 78% de acerto): o trail acima (mt5TrailAtrMultiplier) protege bem no
+  // início, mas continua igualmente apertado pra sempre -- em quase todo
+  // vencedor o `r_multiple_realized` (distância percorrida / distância do
+  // stop original) ficou entre 0,6 e 1,0, mesmo quando o take_profit
+  // configurado implicava R:R de 5:1 a 12:1 pro mesmo trade. O trail fechava
+  // o lucro MUITO antes de chegar perto do alvo real -- take_profit virava
+  // decorativo. A partir de mt5TrailWidenTriggerR de lucro (em unidades do
+  // stop original), passa a usar mt5TrailAtrMultiplierWide (mais largo) em
+  // vez do multiplicador apertado -- deixa o vencedor correr rumo ao alvo
+  // depois que já garantiu lucro real, só protege MAIS platô à frente, nunca
+  // afrouxa um stop já mais protetor (mesma trava de enforceMt5StopsAndTargets).
+  // Sem validação estatística de melhora no líquido ainda -- é correção de
+  // mecânica (capturar mais do R:R já configurado), não alegação de edge.
+  mt5TrailWidenTriggerR: Number(process.env.MT5_TRAIL_WIDEN_TRIGGER_R ?? 1.0),
+  mt5TrailAtrMultiplierWide: Number(process.env.MT5_TRAIL_ATR_MULTIPLIER_WIDE ?? 2.2),
+  // 🔴 2026-09-04 (mesmo achado acima): parcial de lucro real ao atingir
+  // mt5PartialTpTriggerR -- realiza mt5PartialTpFraction da posição (fecha
+  // parcial, registrado como trade CLOSED novo, nunca UPDATE silencioso no
+  // original -- ver convenção "Corrigir registro financeiro corrompido nunca
+  // é um UPDATE silencioso" em CLAUDE.md) e deixa o restante correr com o
+  // trail largo acima. Garante lucro real cedo sem sacrificar o "deixar
+  // correr" no restante. `false` desliga sem remover o mecanismo.
+  mt5PartialTpEnabled: (process.env.MT5_PARTIAL_TP_ENABLED ?? "true") === "true",
+  mt5PartialTpTriggerR: Number(process.env.MT5_PARTIAL_TP_TRIGGER_R ?? 1.0),
+  mt5PartialTpFraction: Number(process.env.MT5_PARTIAL_TP_FRACTION ?? 0.4),
   // Teto ABSOLUTO de segurança em notional -- desde 2026-08-31 (sizing por %
   // de risco do saldo real, ver mt5RiskPctPerTrade acima) o notional
   // calculado normalmente fica bem abaixo disto (dezenas de dólares numa
