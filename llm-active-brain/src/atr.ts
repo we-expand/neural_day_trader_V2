@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import { getTickTrend, getTickVolatility, getMomentumAcceleration } from "./tickHistory.js";
+import { isWeekendMode } from "./assetBasket.js";
 
 /**
  * Stop/alvo DINÂMICO por volatilidade real (2026-08-29, pedido do Cleber
@@ -554,6 +555,20 @@ const STOCH_K_SMOOTHING = 3;
 const STOCH_D_SMOOTHING = 3;
 const STOCH_OVERBOUGHT = 80;
 const STOCH_OVERSOLD = 20;
+// 🔴 2026-09-05 (pedido do Cleber -- fim de semana, cesta só cripto, mercado
+// "mais previsível/acomodado" com volume global baixo): em dia útil, extremo
+// de 80/20 é o limiar certo pra evitar sinal falso em mercado líquido e
+// ruidoso. No regime de fim de semana (isWeekendMode(), mesma janela usada
+// em todo o resto do módulo de fim de semana), o range de preço tende a ser
+// mais estreito e o movimento mais lento -- esperar 80/20 de verdade faz o
+// sinal de exaustão chegar tarde demais, depois que boa parte da reversão já
+// aconteceu. Limiar mais sensível (75/25) só nesta janela, mesmo espírito da
+// convicção extra já dada a rompimento/estrutura em nySessionPhase (1g do
+// prompt) -- não é fabricar sinal, é o MESMO cálculo real (fastK/slowK/D),
+// só com o limiar de classificação recalibrado pro range mais curto do fim
+// de semana.
+const STOCH_OVERBOUGHT_WEEKEND = 75;
+const STOCH_OVERSOLD_WEEKEND = 25;
 
 /** Media movel simples de janela `period`, retorna série completa (NaN onde não há dados suficientes). */
 function calculateSmaSeries(values: number[], period: number): number[] {
@@ -606,8 +621,10 @@ export async function getSlowStochastic(symbol: string, timeframe: SupportedTime
   const lastD = dSeries[dSeries.length - 1];
   if (!Number.isFinite(lastK) || !Number.isFinite(lastD)) return null;
 
+  const overboughtThreshold = isWeekendMode() ? STOCH_OVERBOUGHT_WEEKEND : STOCH_OVERBOUGHT;
+  const oversoldThreshold = isWeekendMode() ? STOCH_OVERSOLD_WEEKEND : STOCH_OVERSOLD;
   const label: SlowStochasticResult["label"] =
-    lastK >= STOCH_OVERBOUGHT ? "SOBRECOMPRADO" : lastK <= STOCH_OVERSOLD ? "SOBREVENDIDO" : "NEUTRO";
+    lastK >= overboughtThreshold ? "SOBRECOMPRADO" : lastK <= oversoldThreshold ? "SOBREVENDIDO" : "NEUTRO";
 
   let crossing: SlowStochasticResult["crossing"] = null;
   const prevK = validSlowK[validSlowK.length - 2];

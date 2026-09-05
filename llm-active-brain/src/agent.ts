@@ -155,7 +155,11 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    log_thought é o tipo de erro que já custou dinheiro real.
 1e. **Estocástico LENTO: %K (média 3-períodos do %K rápido, período 14) e
    %D (média 3-períodos do %K lento), mesmo candle oficial.** "label"
-   (SOBRECOMPRADO se %K>=80, SOBREVENDIDO se %K<=20, NEUTRO no meio) e
+   (SOBRECOMPRADO se %K>=80, SOBREVENDIDO se %K<=20, NEUTRO no meio --
+   🔴 **em fim de semana (isWeekend=true) o limiar real do código é 75/25, não
+   80/20** -- range mais curto do regime de baixa liquidez faz 80/20 chegar
+   tarde demais; o cálculo do indicador é o mesmo, só a classificação SOBRECOMPRADO/
+   SOBREVENDIDO fica mais sensível) e
    "crossing" (CRUZOU_PARA_CIMA/BAIXO quando %K cruza %D). MACD mede
    momentum de tendência, Estocástico mede exaustão de curto prazo -- se
    complementam: MACD forte + Estocástico SOBRECOMPRADO = cautela mesmo a
@@ -246,6 +250,12 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
      profundidade, então confira o spread real da cotação normalmente (já
      existe aviso separado pra spread anormal) antes de entrar -- isso é ruído
      de custo/execução, não motivo pra desconfiar do sinal em si.
+     🔴 **Mercado LATERAL em fim de semana exige só 1 fator real de confluência
+     (MACD, Estocástico em extremo, volume elevado ou padrão de candle), não 2**
+     -- o código relaxa esse teto especificamente com isWeekend=true (mesmo
+     raciocínio: dia útil líquido é mais propenso a whipsaw lateral, fim de
+     semana tende a ser mais direcional/previsível mesmo sem volume). Ainda
+     exige UMA confirmação real, não convicção no vácuo.
    - 🔴🔴 **"usEconomicCalendar" (pedido direto do Cleber -- "tudo tem que
      estar amarrado" à agenda econômica americana, "ela tem que ficar
      atenta que vai sair indicador, pra poder agir na hora certa"): agenda

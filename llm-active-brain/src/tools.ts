@@ -1253,13 +1253,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA");
           if (patternAligned) confluenceFactors.push(`padrao de candle ${candlePatternsForConfluenceCheck.detected.join("/")} (bias ${candlePatternsForConfluenceCheck.bias})`);
         }
-        if (confluenceFactors.length < 2) {
+        // 🔴 2026-09-05 (pedido do Cleber -- fim de semana, mercado "mais
+        // previsível/acomodado", cesta só cripto): o teto de 2 fatores foi
+        // calibrado pra dia útil, mercado líquido e mais propenso a whipsaw.
+        // No regime de fim de semana, com volume estruturalmente baixo
+        // (princípio 1g do prompt já manda ignorar volumeLabel como fator de
+        // cautela) e o filtro de Estocástico já mais sensível (75/25, ver
+        // atr.ts), 1 fator real alinhado passa a bastar em mercado LATERAL --
+        // não remove a trava (ainda exige confirmação real, não convicção no
+        // vácuo), só reconhece que o padrão "líquido e ruidoso" do dia útil
+        // não é o padrão do fim de semana.
+        const requiredConfluenceFactors = isWeekendMode() ? 1 : 2;
+        if (confluenceFactors.length < requiredConfluenceFactors) {
           return {
             error:
               `${symbol} esta em tendencia LATERAL (sem direcao clara) e so ha ${confluenceFactors.length} fator real alinhado com ${side} ` +
-              `(${confluenceFactors.join(", ") || "nenhum"}). Em mercado lateral, exige-se pelo menos 2 fatores reais confirmando (MACD, Estocastico ` +
+              `(${confluenceFactors.join(", ") || "nenhum"}). Em mercado lateral, exige-se pelo menos ${requiredConfluenceFactors} fator(es) real(is) confirmando (MACD, Estocastico ` +
               `em extremo, volume elevado, ou padrao de candle) antes de abrir -- conviccao unica num unico indicador nao e suficiente. ` +
-              `Posicao NAO aberta. Espere segunda confirmacao real ou avalie outro ativo.`,
+              `Posicao NAO aberta. Espere ${requiredConfluenceFactors > 1 ? "segunda confirmacao real" : "alguma confirmacao real"} ou avalie outro ativo.`,
           };
         }
       }
