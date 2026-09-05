@@ -129,7 +129,9 @@ export interface PortfolioState {
 
 export interface AIConfig {
   direction: 'AUTO' | 'LONG' | 'SHORT';
-  marketMode: 'TREND' | 'RANGE' | 'SCALP' | 'COUNTER';
+  // null = Automático (a IA decide a favor OU contra a tendência conforme o
+  // sinal, sem gate mecânico de direção) -- ver 'Fluxo de Operação' no Setup.
+  marketMode: 'TREND' | 'RANGE' | 'SCALP' | 'COUNTER' | null;
   targetPoints: 'MÉDIO' | 'CURTO' | 'LONGO' | 'POUCOS' | 'MUITOS';
   stopLossMode: 'DINAMICO' | 'FIXO';
   allocatedCapital: number;
