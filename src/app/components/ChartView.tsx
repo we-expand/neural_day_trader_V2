@@ -4935,12 +4935,26 @@ export function ChartView({
       // a pedido do Cleber depois de reportar "0.01 pts" pra 100 pips de EURUSD).
       const riskPriceDiff = hasSl ? Math.abs(order.price - order.sl) : 0;
       const rewardPriceDiff = hasTp ? Math.abs(order.tp - order.price) : 0;
+      // 🐛 FIX 2026-09-05 (achado do Cleber, mesmo bug do candle achatado):
+      // as labels de Entrada/Stop/Alvo abaixo usavam .toFixed(2) fixo pro
+      // PREÇO -- pra ativo de preço baixo (XLMUSD ~$0.18) isso arredondava
+      // entrada/stop/alvo pro MESMO número (0.18), fazendo a label parecer
+      // "zerada" mesmo com níveis reais e distintos por trás. Usa a mesma
+      // precisão por ativo do header/candle (getPrecisionForSymbol).
+      const labelPricePrecision = getPrecisionForSymbol(order.symbol, order.price);
       const contractSpec = getContractSpec(order.symbol);
       const pointSize = contractSpec.tickSize * (contractSpec.pointValue / contractSpec.tickValue) || 1;
       const riskPts = riskPriceDiff / pointSize;
       const rewardPts = rewardPriceDiff / pointSize;
       const riskUsd = riskPriceDiff * units;
       const rewardUsd = rewardPriceDiff * units;
+      // 🐛 FIX 2026-09-05: "pts" pra ativo cripto barato (XLMUSD, pointSize=1)
+      // é a própria diferença de preço, tipicamente < 1 -- 2 casas fixas
+      // arredondava pra "0.00" mesmo com distância real. Pra forex (pointSize
+      // = 1 pip, valores tipicamente na casa de dezenas) 2 casas continua
+      // certo -- usa mais casas só quando o valor em pontos é genuinamente
+      // pequeno.
+      const ptsPrecision = (v: number) => (Math.abs(v) > 0 && Math.abs(v) < 1 ? 4 : 2);
       const rr = hasSl && hasTp && riskPriceDiff > 0 ? rewardPriceDiff / riskPriceDiff : null;
 
       try {
@@ -4954,9 +4968,9 @@ export function ChartView({
         const pnl = order.currentProfit ?? 0;
         const pnlSign = pnl >= 0 ? '+' : '';
         const pointsSign = pointsFavorable >= 0 ? '+' : '';
-        const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(2)} pts)`;
+        const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(ptsPrecision(pointsFavorable))} pts)`;
         const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
-        const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`;
+        const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(labelPricePrecision)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`;
 
         // 🔴 2026-08-29: atualiza a overlay existente no lugar (preço +
         // texto de P&L ao vivo) em vez de remove+recria — é isto que
@@ -4995,7 +5009,7 @@ export function ChartView({
 
       if (hasSl) {
         try {
-          const slExtendData = `⛔ Stop ${order.sl.toFixed(2)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(2)} pts`;
+          const slExtendData = `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
           if (slExists) {
             chart.overrideOverlay({ id: slId, points: [{ value: order.sl }], extendData: slExtendData });
           } else {
@@ -5035,7 +5049,7 @@ export function ChartView({
 
       if (hasTp) {
         try {
-          const tpExtendData = `🎯 Alvo ${order.tp.toFixed(2)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(2)} pts`;
+          const tpExtendData = `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
           if (tpExists) {
             chart.overrideOverlay({ id: tpId, points: [{ value: order.tp }], extendData: tpExtendData });
           } else {
@@ -5110,7 +5124,7 @@ export function ChartView({
             line: { color: '#94a3b8', style: 'dashed', size: 1 },
             text: { color: '#0f172a', backgroundColor: 'rgba(148,163,184,0.9)', size: 10 },
           },
-          extendData: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}  ·  arraste pra mover · clique direito pra cancelar`,
+          extendData: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(getPrecisionForSymbol(order.symbol, order.triggerPrice))}  ·  arraste pra mover · clique direito pra cancelar`,
           onPressedMoveEnd: (event) => {
             const newPrice = event.overlay?.points?.[0]?.value;
             const price = currentPriceRef.current;
