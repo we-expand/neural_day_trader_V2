@@ -1405,9 +1405,16 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // default do motor quando o usuario configurou. null (usuario nunca
       // tocou) preserva o comportamento atual (baseline mt5TakeProfitAtrMultiplier/mt5StopAtrMultiplier).
       const RR_BY_TARGET_POINTS: Record<string, number> = { POUCOS: 1.5, "MÉDIO": 3, MUITOS: 5 };
+      // 🔴 2026-09-05: em fim de semana, usa o multiplicador de alvo dedicado
+      // (mais curto -- ver comentário em config.ts) em vez do 4.0x de dia
+      // útil. Só se aplica quando o usuário não escolheu um targetPoints
+      // manual no Setup (esse continua tendo prioridade, igual sempre foi).
+      const takeProfitAtrMultiplierForRegime = isWeekendMode()
+        ? config.mt5TakeProfitAtrMultiplierWeekend
+        : config.mt5TakeProfitAtrMultiplier;
       const rrMultiplier = session.userConfig?.targetPoints != null
         ? RR_BY_TARGET_POINTS[session.userConfig.targetPoints]
-        : config.mt5TakeProfitAtrMultiplier / config.mt5TargetReferenceStopAtrMultiplier;
+        : takeProfitAtrMultiplierForRegime / config.mt5TargetReferenceStopAtrMultiplier;
       // 🔴 2026-09-04 (pedido direto do Cleber: "o alvo pode continuar do
       // mesmo tamanho e o stop diminuir pelo menos 50%"): o alvo usa uma
       // referencia de risco CONGELADA (mt5TargetReferenceStopAtrMultiplier,

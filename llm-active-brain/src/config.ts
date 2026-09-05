@@ -301,6 +301,16 @@ export const config = {
   // pago 2x (entrada+saida) -- no desenho anterior, o spread sozinho podia
   // consumir uma fração grande demais de um alvo de 1,7% ATR.
   mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 4.0),
+  // 🔴 2026-09-05 (pedido direto do Cleber, motor rodando a noite toda de
+  // fim de semana): alvo de 4.0x ATR fica longe demais dado a liquidez
+  // global mais baixa do regime de fim de semana (mesmo isWeekend exposto
+  // como contexto pro LLM em atr.ts/agent.ts, 2026-09-05) -- ATR mais
+  // ruidoso/instavel nesse regime faz o alvo por multiplo fixo virar uma
+  // distancia desproporcional. Multiplicador dedicado, mais curto, so pra
+  // esse regime (isWeekendMode() em tools.ts) -- dia util continua 4.0x
+  // intocado, sem violar o congelamento de mecanica de stop/trailing/alvo
+  // do llm-council (ver CLAUDE.md, item do topo de 2026-09-05).
+  mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 2.5),
   // 🔴 2026-08-30 (mesmo redesenho): 0.002 -> 0.003 -- piso um pouco mais
   // largo, margem extra de segurança contra whipsaw por ruído puro em
   // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:
