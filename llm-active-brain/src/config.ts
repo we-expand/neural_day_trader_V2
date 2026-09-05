@@ -353,6 +353,24 @@ export const config = {
   // so porque "o ATR mandou entrar" -- mesmo espirito do gate de spread
   // acima (nao abre posicao com matematica desfavoravel de partida).
   mt5MinRrAfterSrCap: Number(process.env.MT5_MIN_RR_AFTER_SR_CAP ?? 1.0),
+  // 🔴 2026-09-05 (pedido direto do Cleber, achado ao vivo -- XLMUSD SHORT
+  // com stop bem além do pavio da última alta real, "o stop tem que ser da
+  // altura do candle", "o pavio do candle"): igual o alvo já era capado pela
+  // distância real até S/R (acima), o STOP por ATR também é cego à
+  // estrutura -- pode mandar a invalidação técnica bem além do topo/fundo
+  // real mais próximo (o pavio que de fato invalidaria o trade), deixando o
+  // risco maior que o necessário sem nenhum ganho de proteção real. Aqui o
+  // stop é capado pela distância até o nível oposto ao lado do trade
+  // (resistência pra SHORT, suporte pra LONG) SEMPRE que esse nível fica
+  // MAIS PERTO que o stop por ATR -- só aperta, nunca alarga (nunca deixa o
+  // stop mais arriscado do que o ATR já calculou). Fator > 1.0 mira um pouco
+  // ALÉM do pavio (não em cima dele), pra não ser pego por um wick de ruído
+  // exatamente no nível. Nunca aperta abaixo do piso de segurança do spread
+  // (minStopForSpread) nem do mínimo absoluto (mt5StopMinPct) -- ver uso em
+  // tools.ts (open_position). O alvo (takeProfitPct) não é afetado por este
+  // cap -- continua usando a referência de risco congelada (ver comentário
+  // de mt5TargetReferenceStopAtrMultiplier).
+  mt5SrStopMarginPct: Number(process.env.MT5_SR_STOP_MARGIN_PCT ?? 1.15),
   // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em
   // que o dia não tem volume" -- em dia/momento de baixa participação (ver
   // getVolumeConfirmation em atr.ts, proxy real de tickVolume da MetaAPI), o

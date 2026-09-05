@@ -1401,6 +1401,35 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         widenedForSpread = true;
         usedFallbackStop = true;
       }
+      // 🔴 2026-09-05 (pedido direto do Cleber -- "o stop tem que ser da
+      // altura do candle", "o pavio do candle"): stop por ATR é cego à
+      // estrutura real do preço, igual o alvo já era antes do fix de
+      // 2026-09-02. Capa o stop pela distância real até o nível oposto ao
+      // lado do trade (resistência pra SHORT, suporte pra LONG -- mesmo
+      // candle oficial usado por MACD/Estocástico/alvo) SÓ quando esse nível
+      // fica MAIS PERTO que o stop calculado por ATR -- nunca alarga, só
+      // aperta. Não altera usedFallbackStop nem targetReferenceStopPct: o
+      // alvo continua exatamente como já era, ancorado no ATR real
+      // congelado, sem nenhum efeito colateral deste cap.
+      let stopCappedBySR = false;
+      if (supportResistanceForTarget) {
+        const invalidationLevelBrokenThrough = side === "LONG"
+          ? supportResistanceForTarget.brokeBelowSupport
+          : supportResistanceForTarget.brokeAboveResistance;
+        const distanceToInvalidationLevelPct =
+          (side === "LONG" ? supportResistanceForTarget.distanceToSupportPct : supportResistanceForTarget.distanceToResistancePct) / 100;
+        if (!invalidationLevelBrokenThrough && distanceToInvalidationLevelPct > 0) {
+          const srCappedStopPct = Math.max(
+            distanceToInvalidationLevelPct * config.mt5SrStopMarginPct,
+            minStopForSpread,
+            config.mt5StopMinPct,
+          );
+          if (srCappedStopPct < stopPct) {
+            stopPct = srCappedStopPct;
+            stopCappedBySR = true;
+          }
+        }
+      }
       // 🔴 2026-08-30 (achado real, confirmado NO PRIMEIRO trade real depois
       // do redesenho R:R 1:2 -- BTCUSD LONG, ciclo 2 da sessao reiniciada):
       // quando o ATR real nao vem (usedFallbackStop=true), a linha antiga
@@ -1676,11 +1705,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
         alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
         alvo_capado_por_suporte_resistencia: takeProfitCappedBySR,
+        stop_capado_por_pavio_real: stopCappedBySR,
         stop_alargado_por_spread: widenedForSpread,
         aviso:
           "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado." +
           (widenedForSpread
             ? ` ATENCAO: o stop foi ALARGADO automaticamente pra ${(stopPct * 100).toFixed(3)}% (em vez do normal) porque o spread deste ativo (${quote.spreadPct.toFixed(2)}%) e alto -- um stop mais apertado bateria so pelo custo de operar, sem nenhum movimento real de preco.`
+            : "") +
+          (stopCappedBySR
+            ? ` ATENCAO: o stop foi APERTADO automaticamente pra ${(stopPct * 100).toFixed(3)}% (em vez do stop por ATR) porque o pavio real mais proximo (S/R) esta mais perto -- mirando logo alem dele, nao muito alem.`
             : "") +
           (takeProfitCappedBySR
             ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o suporte/resistencia real esta mais perto -- mirando logo antes do nivel, nao alem dele.`
