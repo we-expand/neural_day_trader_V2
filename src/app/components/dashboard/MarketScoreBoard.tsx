@@ -177,9 +177,19 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
 // visualmente via useAnimatedNumber, sem mexer no pipeline de dados. Componente
 // separado porque é usado dentro de um `.map()` (hooks não podem ser chamados
 // direto dentro do callback do map).
+// 🐛 FIX 2026-09-05 (achado do Cleber: posição de notional pequeno, ex. 1
+// lote de XLMUSD ~$0.18, mostrava PnL "+0.00" mesmo com preço já tendo
+// andado um pouco -- 2 casas fixas arredondava qualquer PnL real abaixo de
+// meio centavo pra zero, mesmo sendo um valor real e não nulo). Mais casas
+// só quando o valor é genuinamente pequeno (posição de notional baixo),
+// mesmo espírito do fix de "pts" em ChartView.tsx.
+function pnlPrecision(value: number): number {
+  return Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+}
+
 function AnimatedOrderPnl({ value, className }: { value: number; className: string }) {
   const animated = useAnimatedNumber(value);
-  return <div className={className}>{animated >= 0 ? '+' : ''}{animated.toFixed(2)}</div>;
+  return <div className={className}>{animated >= 0 ? '+' : ''}{animated.toFixed(pnlPrecision(animated))}</div>;
 }
 
 export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) => void } = {}) => {
@@ -802,9 +812,14 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
       return formatPriceByAsset(p, activeSymbol);
   };
 
+  // 🐛 FIX 2026-09-05 (mesmo achado do Cleber: PnL Total "+$0.00" numa
+  // posição de notional pequeno, ex. 1 lote XLMUSD ~$0.18): moeda em 2
+  // casas fixas arredondava qualquer P&L real abaixo de meio centavo pra
+  // zero. Mais casas só quando o valor é genuinamente pequeno.
   const formatMoney = (val: number) => {
       if (!Number.isFinite(val)) return "$0.00";
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+      const digits = Math.abs(val) > 0 && Math.abs(val) < 0.01 ? 4 : 2;
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(val);
   };
 
   const formatPnL = (val: number) => {

@@ -4955,6 +4955,11 @@ export function ChartView({
       // certo -- usa mais casas só quando o valor em pontos é genuinamente
       // pequeno.
       const ptsPrecision = (v: number) => (Math.abs(v) > 0 && Math.abs(v) < 1 ? 4 : 2);
+      // 🐛 FIX 2026-09-05: mesmo raciocínio pro "$" -- posição de notional
+      // pequeno (ex: 1 lote XLMUSD ~$0.18) tem risco/retorno real na casa de
+      // frações de centavo, 2 casas fixas arredondava pra "$0.00" mesmo
+      // sendo um valor real.
+      const usdPrecision = (v: number) => (Math.abs(v) > 0 && Math.abs(v) < 0.01 ? 4 : 2);
       const rr = hasSl && hasTp && riskPriceDiff > 0 ? rewardPriceDiff / riskPriceDiff : null;
 
       try {
@@ -4968,7 +4973,7 @@ export function ChartView({
         const pnl = order.currentProfit ?? 0;
         const pnlSign = pnl >= 0 ? '+' : '';
         const pointsSign = pointsFavorable >= 0 ? '+' : '';
-        const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(ptsPrecision(pointsFavorable))} pts)`;
+        const liveStats = ` · ${pnlSign}$${pnl.toFixed(usdPrecision(pnl))} (${pointsSign}${pointsFavorable.toFixed(ptsPrecision(pointsFavorable))} pts)`;
         const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
         const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(labelPricePrecision)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`;
 
@@ -5009,7 +5014,7 @@ export function ChartView({
 
       if (hasSl) {
         try {
-          const slExtendData = `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(2)}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
+          const slExtendData = `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
           if (slExists) {
             chart.overrideOverlay({ id: slId, points: [{ value: order.sl }], extendData: slExtendData });
           } else {
@@ -5049,7 +5054,7 @@ export function ChartView({
 
       if (hasTp) {
         try {
-          const tpExtendData = `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(2)}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
+          const tpExtendData = `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
           if (tpExists) {
             chart.overrideOverlay({ id: tpId, points: [{ value: order.tp }], extendData: tpExtendData });
           } else {

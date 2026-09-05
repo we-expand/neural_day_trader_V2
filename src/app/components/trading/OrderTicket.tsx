@@ -33,11 +33,17 @@ interface OrderTicketProps {
 // nenhuma suavização o número saltava direto de um valor pro outro -- "duro",
 // bem diferente da sensação contínua do TradingView. Interpola visualmente entre
 // os valores recebidos (ver useAnimatedNumber.ts), sem mexer no pipeline de dados.
+// 🐛 FIX 2026-09-05 (achado do Cleber: boleta de posição de notional
+// pequeno, ex. 1 lote XLMUSD ~$0.18, mostrava PnL "-0.00" mesmo com preço
+// já tendo andado -- 2 casas fixas arredondava qualquer PnL real abaixo de
+// meio centavo pra zero). Mais casas só quando o valor é genuinamente
+// pequeno, mesmo raciocínio do fix em ChartView.tsx/MarketScoreBoard.tsx.
 function AnimatedPnl({ value, className }: { value: number; className: string }) {
   const animated = useAnimatedNumber(value);
+  const precision = Math.abs(animated) > 0 && Math.abs(animated) < 0.01 ? 4 : 2;
   return (
     <span className={className}>
-      {animated >= 0 ? '+' : ''}{animated.toFixed(2)}
+      {animated >= 0 ? '+' : ''}{animated.toFixed(precision)}
     </span>
   );
 }
