@@ -198,6 +198,21 @@ export const config = {
   // próximo risco em $ é maior; perdeu, encolhe), sem precisar reconfigurar
   // manualmente a cada patamar de conta.
   mt5RiskPctPerTrade: Number(process.env.MT5_RISK_PCT_PER_TRADE ?? 0.01),
+  // 🔴 2026-09-05 (pedido direto do Cleber -- "não dá pra ganhar só
+  // $0,00025 por entrada, tem que render de $2 a $3 por entrada; ativo mais
+  // barato precisa ser mais carregado na mão"): sizing de open_position
+  // deixou de ser SÓ risco-% fixo (formula acima) e passou a mirar este
+  // retorno REAL em dólar como alvo primário -- lots = alvo_retorno_usd /
+  // (takeProfitPct * LOT_SIZE * preço). Isso carrega mais a mão
+  // automaticamente em ativos "baratos" (onde o mesmo % de movimento vale
+  // menos dólar por lote), sem precisar de tabela por símbolo. O teto de
+  // risco (mt5MaxRiskPctPerTrade abaixo) continua como LIMITE DURO por cima
+  // -- se o lote necessário pra alcançar este retorno estourar o teto de
+  // risco da conta, o código recua pro tamanho máximo que o risco permite
+  // (retorno fica menor que o alvo NESSE caso, nunca ultrapassa risco
+  // seguro). "forte" (mt5HeavyMultiplier) escala este alvo de retorno, não
+  // mais o risco direto.
+  mt5TargetRewardUsd: Number(process.env.MT5_TARGET_REWARD_USD ?? 2.5),
   // Teto DURO de risco por trade (como fração do saldo real) -- se o lote
   // mínimo do símbolo (MIN_LOTS/LOT_SIZE em assetBasket.ts) força um risco
   // maior que isso mesmo no menor lote possível, open_position BLOQUEIA a

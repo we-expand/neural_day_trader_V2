@@ -1609,22 +1609,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (senao a IA arriscaria dinheiro que nao esta de fato liberado pra ela).
       const allocated = session.userConfig?.allocatedCapitalUsd;
       const balance = allocated != null ? Math.min(allocated, accountBalance) : accountBalance;
-      // 🔴 2026-08-31 (Setup do AI Trader reconectado): risco por trade (%)
-      // configurado pelo usuario sobrepoe o default global do motor quando
-      // presente -- ver getUserTradingConfig em neuralBridge.ts.
-      const baseRiskPct = session.userConfig?.riskPerTradePct != null
-        ? session.userConfig.riskPerTradePct / 100
-        : config.mt5RiskPctPerTrade;
-      // 🔴 2026-09-05 (pedido do Cleber): alvo mais curto do fim de semana
-      // (mt5TakeProfitAtrMultiplierWeekend) encolhe o R:R -- compensa o
-      // reward$ com risco% maior na mesma janela, ver config.ts.
-      const weekendCompensatedRiskPct = isWeekendMode()
-        ? baseRiskPct * config.mt5RiskPctPerTradeWeekendMultiplier
-        : baseRiskPct;
-      const riskPct = weekendCompensatedRiskPct * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
-      const riskUsd = balance * riskPct;
-      const targetNotional = riskUsd / stopPct;
-      let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);
+      // 🔴 2026-09-05: sizing deixou de partir do risco-% configurado no Setup
+      // (session.userConfig.riskPerTradePct) -- ver mt5TargetRewardUsd abaixo.
+      // O risco-% do Setup NAO controla mais o tamanho da posicao aqui; o
+      // teto de risco global (mt5MaxRiskPctPerTrade) continua valendo como
+      // limite duro por cima, independente do que o usuario configurou como
+      // "risco por trade".
+      // 🔴 2026-09-05 (pedido direto do Cleber -- "não dá pra ganhar só
+      // $0,00025 por entrada, tem que render de $2 a $3; ativo mais barato
+      // precisa ser mais carregado na mão"): sizing agora mira retorno REAL
+      // em dólar (mt5TargetRewardUsd, ver config.ts) como alvo primário, não
+      // mais só risco-% fixo -- lots = alvo_retorno_usd / (takeProfitPct *
+      // LOT_SIZE * preço). "forte" escala este alvo de retorno.
+      const targetRewardUsd = config.mt5TargetRewardUsd * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      let lots = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
       lots = Math.min(lots, config.mt5SafetyMaxLots);
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Lotes Maximos por
       // Trade"): teto do usuario, quando configurado, nunca frouxo o teto de
@@ -1635,26 +1633,32 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
       if (lots < MIN_LOTS) lots = MIN_LOTS; // nao da pra abrir posicao com lote zero -- MIN_LOTS e o menor lote executavel
       let amountUsd = lots * LOT_SIZE[symbol] * quote.price;
-      // 🔴 2026-08-31 (mesmo achado): gate DURO -- se o incremento minimo de
-      // lote (MIN_LOTS/LOT_SIZE) ja forca um risco em $ maior que o teto
-      // absoluto tolerado por esta conta, a entrada e RECUSADA, nunca aberta
-      // maior "porque o piso obriga". Achado real e concreto que motivou
-      // isso: MIN_LOTS=0,01 e global pra todos os simbolos, mas o preco nao
-      // e -- 0,01 lote de BTCUSD (~$78.000) ja forca ~$780 de notional, que
-      // sozinho (mesmo com stop de so 0,3%) ja arrisca ~$2,34, MUITO acima
-      // de 1% de risco-alvo numa conta de $50 ($0,50). Nao existe fracionar
-      // mais o lote pra baixo disso -- a resposta correta e nao operar esse
-      // ativo nesse tamanho de conta, nao absorver o excesso de risco.
-      const actualRiskUsd = amountUsd * stopPct;
+      // 🔴 2026-09-05: o teto DURO de risco (mt5MaxRiskPctPerTrade) continua
+      // sendo o limite por cima -- se o lote necessario pra alcancar o
+      // retorno-alvo em $ estourar o risco maximo tolerado pela conta, o
+      // sizing RECUA pro maior lote que o risco ainda permite (retorno fica
+      // menor que o alvo NESSE caso -- risco seguro sempre vence retorno
+      // desejado, nunca o contrario). Preserva o gate de 2026-08-31: se nem
+      // o lote MINIMO cabe dentro do risco maximo, a entrada e recusada.
+      let actualRiskUsd = amountUsd * stopPct;
       const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
+      let rewardCappedByRisk = false;
       if (actualRiskUsd > maxRiskUsd) {
-        return {
-          error:
-            `Risco minimo possivel para ${symbol} neste preco e lote minimo ($${actualRiskUsd.toFixed(2)}) excede o teto de risco por trade ` +
-            `desta conta ($${maxRiskUsd.toFixed(2)}, ${(config.mt5MaxRiskPctPerTrade * 100).toFixed(1)}% do saldo real de $${balance.toFixed(2)}). ` +
-            `Este ativo exige exposicao minima incompativel com o tamanho atual da conta -- posicao NAO aberta. Opere outro ativo da cesta ` +
-            `ou aguarde a conta crescer o suficiente pra suportar o lote minimo de ${symbol} dentro do teto de risco.`,
-        };
+        let riskCappedLots = maxRiskUsd / stopPct / (LOT_SIZE[symbol] * quote.price);
+        riskCappedLots = Math.round(riskCappedLots / MIN_LOTS) * MIN_LOTS;
+        if (riskCappedLots < MIN_LOTS) {
+          return {
+            error:
+              `Risco minimo possivel para ${symbol} neste preco e lote minimo ($${actualRiskUsd.toFixed(2)}) excede o teto de risco por trade ` +
+              `desta conta ($${maxRiskUsd.toFixed(2)}, ${(config.mt5MaxRiskPctPerTrade * 100).toFixed(1)}% do saldo real de $${balance.toFixed(2)}). ` +
+              `Este ativo exige exposicao minima incompativel com o tamanho atual da conta -- posicao NAO aberta. Opere outro ativo da cesta ` +
+              `ou aguarde a conta crescer o suficiente pra suportar o lote minimo de ${symbol} dentro do teto de risco.`,
+          };
+        }
+        lots = riskCappedLots;
+        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+        actualRiskUsd = amountUsd * stopPct;
+        rewardCappedByRisk = true;
       }
       // Teto absoluto de seguranca em notional -- so deveria disparar em caso
       // degenerado (preco anormal fazendo o lote explodir), o gate de risco
@@ -1729,6 +1733,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         amount_usd: amountUsd,
         stop_loss: stopLoss,
         take_profit: takeProfit,
+        risco_real_usd: Number(actualRiskUsd.toFixed(2)),
+        retorno_projetado_usd: Number((amountUsd * takeProfitPct).toFixed(2)),
+        retorno_limitado_pelo_teto_de_risco: rewardCappedByRisk,
         stop_dinamico: !usedFallbackStop,
         stop_pct: (stopPct * 100).toFixed(3) + "%",
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
@@ -1750,6 +1757,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             : "") +
           (takeProfitCappedByRange
             ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o mercado esta em regime ESTREITO -- a amplitude real recente nao sustenta um alvo maior sem romper a estrutura primeiro.`
+            : "") +
+          (rewardCappedByRisk
+            ? ` ATENCAO: o lote foi REDUZIDO em relacao ao alvo de retorno de $${targetRewardUsd.toFixed(2)} porque o lote necessario pra alcanca-lo estouraria o teto de risco desta conta -- retorno projetado real ficou em $${(amountUsd * takeProfitPct).toFixed(2)}, risco seguro sempre vence retorno desejado.`
             : ""),
       };
     }
