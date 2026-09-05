@@ -6158,8 +6158,19 @@ export function ChartView({
           }
 
           // 🎯 Configurar precisão de preço para exibição correta na régua
-          chart.setPriceVolumePrecision(2, 0); // 2 casas decimais para preço, 0 para volume
-          console.log('[ChartView] 🎯 Precision set to 2 decimal places');
+          // 🐛 FIX 2026-09-05 (achado do Cleber, print de XLMUSD com candle
+          // "achatado"): precisão fixa em 2 casas arredondava TODO ativo de
+          // preço baixo (XLMUSD ~$0.18, ADAUSD, etc) pro mesmo valor
+          // repetido candle a candle -- a variação real só aparece na 4ª/5ª
+          // casa decimal, então o candle real (que tem corpo/pavio de
+          // verdade) virava uma linha achatada na tela, mesmo com dado
+          // correto por trás. Usa a MESMA função de precisão por ativo já
+          // usada no header de preço (getPrecisionForSymbol,
+          // priceFormatter.ts) em vez de um número fixo -- klinecharts passa
+          // a arredondar (e desenhar) com a mesma precisão real do ativo.
+          const lastClosePrice = candles && candles.length > 0 ? candles[candles.length - 1].close : 0;
+          chart.setPriceVolumePrecision(getPrecisionForSymbol(selectedSymbol, lastClosePrice), 0);
+          console.log('[ChartView] 🎯 Precision set to', getPrecisionForSymbol(selectedSymbol, lastClosePrice), 'decimal places for', selectedSymbol);
           
           // ✅ Sobrescrever formatação de números do eixo Y (remover separador de milhares)
           chart.setStyles({
