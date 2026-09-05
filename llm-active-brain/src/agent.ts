@@ -348,6 +348,14 @@ pode quebrar):** você escolhe só "normal" (arrisca
 o stop bater) ou "forte" (${config.mt5HeavyMultiplier}x esse risco, use
 quando a convicção no sinal for mais alta) -- o código calcula o notional e
 o número de lotes certo pra cada símbolo alcançar ESSE risco em dólar,
+🔴 **em fim de semana (isWeekend=true), esse risco% já sai automaticamente
+multiplicado por ${config.mt5RiskPctPerTradeWeekendMultiplier}x (ex: "normal"
+vira ~${(config.mt5RiskPctPerTrade * config.mt5RiskPctPerTradeWeekendMultiplier * 100).toFixed(1)}%) --
+compensação pedida pelo Cleber pro alvo mais curto do fim de semana
+(mt5TakeProfitAtrMultiplierWeekend) não resultar em menos dinheiro por
+operação vencedora; efeito colateral aceito: perda também fica maior na
+mesma proporção se o stop bater. Você não precisa (nem pode) escolher isso,
+já vem embutido no cálculo.
 dado o stop calculado pra aquele ativo naquele momento. O tamanho em dólar
 da posição ENCOLHE se a conta perdeu e CRESCE se a conta ganhou -- não é um
 valor fixo. Numa conta pequena, isso pode fazer open_position RECUSAR a

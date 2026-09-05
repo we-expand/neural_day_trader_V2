@@ -311,6 +311,18 @@ export const config = {
   // intocado, sem violar o congelamento de mecanica de stop/trailing/alvo
   // do llm-council (ver CLAUDE.md, item do topo de 2026-09-05).
   mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 2.5),
+  // 🔴 2026-09-05 (pedido direto do Cleber): o alvo mais curto do fim de
+  // semana acima (2.5x ATR em vez de 4.0x, stop continua 2.0x ATR sempre)
+  // encolhe o R:R de 1:2 pra 1:1,25 -- como o risco em $ por trade é sempre
+  // um % FIXO do saldo (mt5RiskPctPerTrade), o lucro em $ de um trade
+  // vencedor cai na mesma proporção (reward$ = R:R * risco$). Cleber pediu
+  // explicitamente pra isso não virar "menos dinheiro por operação" --
+  // compensa aumentando o risco% (e portanto o notional/lote) só no fim de
+  // semana, na proporção exata que devolve o reward$ de um trade vencedor
+  // ao mesmo patamar do dia útil: 4.0/2.5 = 1.6x. Efeito colateral aceito
+  // conscientemente (é o pedido): o risco$ de um trade perdedor TAMBÉM sobe
+  // 1.6x no fim de semana, não só o ganho -- é sizing maior, não R:R maior.
+  mt5RiskPctPerTradeWeekendMultiplier: Number(process.env.MT5_RISK_PCT_PER_TRADE_WEEKEND_MULTIPLIER ?? 1.6),
   // 🔴 2026-08-30 (mesmo redesenho): 0.002 -> 0.003 -- piso um pouco mais
   // largo, margem extra de segurança contra whipsaw por ruído puro em
   // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:

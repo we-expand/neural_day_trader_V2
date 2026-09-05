@@ -1557,7 +1557,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const baseRiskPct = session.userConfig?.riskPerTradePct != null
         ? session.userConfig.riskPerTradePct / 100
         : config.mt5RiskPctPerTrade;
-      const riskPct = baseRiskPct * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      // 🔴 2026-09-05 (pedido do Cleber): alvo mais curto do fim de semana
+      // (mt5TakeProfitAtrMultiplierWeekend) encolhe o R:R -- compensa o
+      // reward$ com risco% maior na mesma janela, ver config.ts.
+      const weekendCompensatedRiskPct = isWeekendMode()
+        ? baseRiskPct * config.mt5RiskPctPerTradeWeekendMultiplier
+        : baseRiskPct;
+      const riskPct = weekendCompensatedRiskPct * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
       const riskUsd = balance * riskPct;
       const targetNotional = riskUsd / stopPct;
       let lots = targetNotional / (LOT_SIZE[symbol] * quote.price);
@@ -1977,8 +1983,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const allocated = session.userConfig?.allocatedCapitalUsd;
       const balance = allocated != null ? Math.min(allocated, accountBalance) : accountBalance;
       const baseRiskPct = session.userConfig?.riskPerTradePct != null ? session.userConfig.riskPerTradePct / 100 : config.mt5RiskPctPerTrade;
+      // 🔴 2026-09-05: mesma compensacao de risco% do open_position (ver ali) --
+      // reforco (pyramiding) tambem deve carregar a mao no fim de semana.
+      const weekendCompensatedRiskPct = isWeekendMode()
+        ? baseRiskPct * config.mt5RiskPctPerTradeWeekendMultiplier
+        : baseRiskPct;
       const stopDistancePct = Math.abs(fillPrice - position.stop_loss) / fillPrice;
-      const riskUsd = balance * baseRiskPct;
+      const riskUsd = balance * weekendCompensatedRiskPct;
       let lots = stopDistancePct > 0 ? riskUsd / stopDistancePct / (LOT_SIZE[position.symbol] * fillPrice) : 0;
       lots = Math.min(lots, config.mt5SafetyMaxLots);
       if (session.userConfig?.maxLotsPerTrade != null) lots = Math.min(lots, session.userConfig.maxLotsPerTrade);
