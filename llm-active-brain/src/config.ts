@@ -301,28 +301,18 @@ export const config = {
   // pago 2x (entrada+saida) -- no desenho anterior, o spread sozinho podia
   // consumir uma fração grande demais de um alvo de 1,7% ATR.
   mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 4.0),
-  // 🔴 2026-09-05 (pedido direto do Cleber, motor rodando a noite toda de
-  // fim de semana): alvo de 4.0x ATR fica longe demais dado a liquidez
-  // global mais baixa do regime de fim de semana (mesmo isWeekend exposto
-  // como contexto pro LLM em atr.ts/agent.ts, 2026-09-05) -- ATR mais
-  // ruidoso/instavel nesse regime faz o alvo por multiplo fixo virar uma
-  // distancia desproporcional. Multiplicador dedicado, mais curto, so pra
-  // esse regime (isWeekendMode() em tools.ts) -- dia util continua 4.0x
-  // intocado, sem violar o congelamento de mecanica de stop/trailing/alvo
-  // do llm-council (ver CLAUDE.md, item do topo de 2026-09-05).
-  mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 2.5),
-  // 🔴 2026-09-05 (pedido direto do Cleber): o alvo mais curto do fim de
-  // semana acima (2.5x ATR em vez de 4.0x, stop continua 2.0x ATR sempre)
-  // encolhe o R:R de 1:2 pra 1:1,25 -- como o risco em $ por trade é sempre
-  // um % FIXO do saldo (mt5RiskPctPerTrade), o lucro em $ de um trade
-  // vencedor cai na mesma proporção (reward$ = R:R * risco$). Cleber pediu
-  // explicitamente pra isso não virar "menos dinheiro por operação" --
-  // compensa aumentando o risco% (e portanto o notional/lote) só no fim de
-  // semana, na proporção exata que devolve o reward$ de um trade vencedor
-  // ao mesmo patamar do dia útil: 4.0/2.5 = 1.6x. Efeito colateral aceito
-  // conscientemente (é o pedido): o risco$ de um trade perdedor TAMBÉM sobe
-  // 1.6x no fim de semana, não só o ganho -- é sizing maior, não R:R maior.
-  mt5RiskPctPerTradeWeekendMultiplier: Number(process.env.MT5_RISK_PCT_PER_TRADE_WEEKEND_MULTIPLIER ?? 1.6),
+  // 🔴 2026-09-05: alvo dedicado de fim de semana (2.5x ATR) foi testado e
+  // REVERTIDO no mesmo dia a pedido direto do Cleber -- volta a ser IGUAL ao
+  // do dia útil (4.0x ATR, mesmo R:R 1:2 sempre, stop 2.0x ATR intocado).
+  // Constante mantida (não removida) só pra não quebrar a referência em
+  // tools.ts -- default agora aponta pro mesmo valor do dia útil, sem
+  // regime especial de fim de semana pro alvo.
+  mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 4.0),
+  // 🔴 2026-09-05: revertido junto com o alvo acima -- sem alvo mais curto no
+  // fim de semana, não há R:R menor pra compensar. Multiplicador volta a 1.0
+  // (no-op). Mantido como config (não removido) só pra não quebrar a
+  // referência em tools.ts.
+  mt5RiskPctPerTradeWeekendMultiplier: Number(process.env.MT5_RISK_PCT_PER_TRADE_WEEKEND_MULTIPLIER ?? 1.0),
   // 🔴 2026-08-30 (mesmo redesenho): 0.002 -> 0.003 -- piso um pouco mais
   // largo, margem extra de segurança contra whipsaw por ruído puro em
   // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:
