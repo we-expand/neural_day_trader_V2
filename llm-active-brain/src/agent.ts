@@ -228,6 +228,34 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    Julgamento seu, como um trader humano leria o contexto -- não é bloqueio
    de código, é dado a mais pra você não confundir "calmo" com "sem
    oportunidade". null quando não há candle suficiente ainda.
+   - 🔴🔴 **"range" (pedido direto do Cleber -- "ela tem que saber se o
+     mercado está largo, se está estreito, se está dando muito dinheiro ou se
+     está dando pouco"): amplitude real (máxima-mínima) da janela recente de
+     candle oficial, comparada à média histórica do PRÓPRIO símbolo.**
+     Formato: {"pct": número, "label": "ESTREITO"/"NORMAL"/"AMPLO",
+     "lookbackMinutes": número}. Use isso ANTES de decidir tamanho de alvo e
+     convicção, não só depois:
+     - **AMPLO**: o mercado está dando espaço de verdade agora -- é seguro
+       mirar um alvo mais ambicioso e participar com mais convicção quando o
+       resto da confluência apoiar. Amplitude grande também significa que um
+       stop curto demais tem mais chance de ser pego por ruído normal da
+       faixa, não só por reversão real -- calibre expectativa de acordo.
+     - **ESTREITO**: o mercado está dando pouco espaço -- não espere (nem
+       mire) um alvo do tamanho que você miraria num dia largo. O código já
+       encolhe automaticamente o alvo por ATR pra caber dentro da amplitude
+       real observada quando não há rompimento confirmado (ver
+       "alvo_capado_por_amplitude_estreita" na resposta de open_position) --
+       isso não é motivo pra ficar de fora, é motivo pra ajustar expectativa
+       de captura por trade e favorecer giro mais rápido em vez de esperar um
+       alvo grande que a amplitude atual não sustenta. Combine com "trend": em
+       ESTREITO + LATERAL, cautela extra (mercado sem direção E sem espaço é o
+       pior cenário pra entrar); em ESTREITO + tendência limpa, ainda vale
+       operar, só com alvo dimensionado pra realidade do dia.
+     - **NORMAL**: sem ajuste especial, amplitude dentro do costume do
+       símbolo.
+     "lookbackMinutes" mostra quantos minutos de candle real sustentam essa
+     leitura -- varia com o timeframe operacional configurado. null quando
+     não há candle real suficiente, nunca fabrica amplitude.
    - 🔴🔴 **"isWeekend" (pedido direto do Cleber, reforçado 2026-09-06): Sábado
      inteiro + Domingo até 19:00 Brasília + Sexta após 18:00 Brasília** (janela
      real em isWeekendMode()/assetBasket.ts). Nesta janela a cesta operável

@@ -371,6 +371,20 @@ export const config = {
   // cap -- continua usando a referência de risco congelada (ver comentário
   // de mt5TargetReferenceStopAtrMultiplier).
   mt5SrStopMarginPct: Number(process.env.MT5_SR_STOP_MARGIN_PCT ?? 1.15),
+  // 🔴 2026-09-05 (pedido direto do Cleber, achado ao vivo -- XETUSD LONG com
+  // alvo de +11pts quando a máxima/mínima real da janela recente mal cobria
+  // ~17pts de amplitude: "ela tem que ter noção se o mercado está largo ou
+  // estreito"). getMarketRegime (atr.ts) agora expõe `range` (amplitude real
+  // recente, mesmo candle oficial, comparada à própria média histórica do
+  // símbolo -- ESTREITO/NORMAL/AMPLO). Quando o regime vem ESTREITO e não há
+  // rompimento confirmado na direção do trade, o alvo por ATR também é
+  // capado pela amplitude real observada (não só por S/R pontual) -- evita
+  // pedir pro preço percorrer mais do que ele já provou que percorre nesta
+  // janela. Fator > 1.0 dá uma folga real acima da amplitude observada (não
+  // trava o alvo exatamente no teto do range). Sem candle real suficiente
+  // pra calcular `range` (null), mantém o comportamento antigo -- nunca
+  // fabrica amplitude. Ver uso em tools.ts (open_position).
+  mt5RangeTargetMarginPct: Number(process.env.MT5_RANGE_TARGET_MARGIN_PCT ?? 1.2),
   // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em
   // que o dia não tem volume" -- em dia/momento de baixa participação (ver
   // getVolumeConfirmation em atr.ts, proxy real de tickVolume da MetaAPI), o

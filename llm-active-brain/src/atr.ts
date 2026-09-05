@@ -885,6 +885,23 @@ export interface MarketRegime {
    * cautela nesse regime, mesmo padrão de volumeLabel/volatilityLabel acima.
    */
   isWeekend: boolean;
+  /**
+   * 🔴 2026-09-05 (pedido direto do Cleber -- "ela tem que saber se o
+   * mercado está largo, se está estreito, se está dando muito dinheiro ou
+   * se está dando pouco"): amplitude real (máxima-mínima) da janela de
+   * candle oficial disponível (mesma fonte de trend/volume/S&R), comparada
+   * à MÉDIA histórica de amplitude do próprio símbolo numa janela deslizante
+   * recente (não é comparação entre ativos diferentes, é o símbolo contra a
+   * própria história -- mesmo espírito de volatilityLabel acima). `pct` é a
+   * amplitude atual como fração do preço; `lookbackMinutes` deixa claro
+   * quantos minutos de candle real sustentam essa leitura (varia com o
+   * timeframe operacional escolhido). `label`: ESTREITO = mercado dando
+   * pouco espaço de movimento agora (alvo tem que ser realista, não pedir
+   * pro preço correr mais do que ele já provou que corre); AMPLO = mercado
+   * dando espaço de verdade (alvo pode e deve ser mais ambicioso). `null`
+   * quando não há candle real suficiente -- nunca fabrica amplitude.
+   */
+  range: { pct: number; label: "ESTREITO" | "NORMAL" | "AMPLO"; lookbackMinutes: number } | null;
 }
 
 // 🔴 2026-09-02 (pedido do Cleber): motor tratava baixo volume como sinônimo
@@ -971,7 +988,32 @@ export async function getMarketRegime(symbol: string, timeframe: SupportedTimefr
   const atrRatio = currentAtr / avgAtr;
   const volatilityLabel: MarketRegime["volatilityLabel"] = atrRatio < 0.8 ? "BAIXA" : atrRatio > 1.25 ? "ALTA" : "NORMAL";
 
-  return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase(), isWeekend: isWeekendNow() };
+  // Amplitude real (máxima-mínima) numa janela deslizante do MESMO tamanho
+  // usado acima pra ATR -- mesma disciplina (símbolo contra a própria
+  // história), mas medindo o range bruto, não a volatilidade vela-a-vela
+  // (ATR pode ficar "NORMAL" mesmo num dia cujo range acumulado é bem menor
+  // que o de costume, ou vice-versa -- são leituras diferentes).
+  const rangeSeries: number[] = [];
+  for (let i = REGIME_VOLATILITY_LOOKBACK_CANDLES; i <= candles.length; i++) {
+    const slice = candles.slice(i - REGIME_VOLATILITY_LOOKBACK_CANDLES, i);
+    const hi = Math.max(...slice.map((c) => c.high));
+    const lo = Math.min(...slice.map((c) => c.low));
+    const closeRef = slice[slice.length - 1].close;
+    if (closeRef > 0) rangeSeries.push((hi - lo) / closeRef);
+  }
+  let range: MarketRegime["range"] = null;
+  if (rangeSeries.length >= 2) {
+    const currentRangePct = rangeSeries[rangeSeries.length - 1];
+    const avgRangePct = rangeSeries.reduce((a, b) => a + b, 0) / rangeSeries.length;
+    if (avgRangePct > 0) {
+      const rangeRatio = currentRangePct / avgRangePct;
+      const rangeLabel: "ESTREITO" | "NORMAL" | "AMPLO" = rangeRatio < 0.7 ? "ESTREITO" : rangeRatio > 1.3 ? "AMPLO" : "NORMAL";
+      const minutesPerCandle = TIMEFRAME_MINUTES[timeframe] ?? 5;
+      range = { pct: currentRangePct, label: rangeLabel, lookbackMinutes: REGIME_VOLATILITY_LOOKBACK_CANDLES * minutesPerCandle };
+    }
+  }
+
+  return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase(), isWeekend: isWeekendNow(), range };
 }
 
 // ============================================================================

@@ -1212,13 +1212,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
         getSlowStochastic(symbol, openPositionTimeframe),
         getMacd(symbol, openPositionTimeframe),
         getCandlePatterns(symbol, openPositionTimeframe),
+        getMarketRegime(symbol, openPositionTimeframe),
       ]);
       // 🔴 2026-09-02 (achado do Cleber, ao vivo -- XETUSD LONG aberto num
       // mercado LATERAL com "trend BAIXA" evidente logo depois): o proprio
@@ -1527,6 +1528,34 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           takeProfitCappedBySR = true;
         }
       }
+      // 🔴 2026-09-05 (pedido direto do Cleber -- "ela tem que saber se o
+      // mercado está largo ou estreito"): achado real via print (XETUSD
+      // LONG, alvo de +11pts com a máxima/mínima da janela recente mal
+      // cobrindo ~17pts de amplitude) -- o cap de S/R acima só olha o nível
+      // PONTUAL mais próximo, não a amplitude real que o próprio preço vem
+      // fazendo. Quando o regime vem ESTREITO (amplitude atual bem abaixo da
+      // média histórica do símbolo, ver getMarketRegime/atr.ts) e não há
+      // rompimento confirmado a favor do trade, o alvo por ATR também é
+      // capado pela amplitude real observada -- nunca pede pro preço correr
+      // mais do que ele já provou que corre nesta janela. Regime NORMAL/AMPLO
+      // ou sem candle suficiente (null) não sofre este cap -- só ESTREITO.
+      let takeProfitCappedByRange = false;
+      if (regimeForTarget?.range?.label === "ESTREITO" && !confirmedBreakoutInTradeDirection) {
+        const rangeCappedTakeProfitPct = regimeForTarget.range.pct * config.mt5RangeTargetMarginPct;
+        if (rangeCappedTakeProfitPct < takeProfitPct) {
+          if (rangeCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+            return {
+              error:
+                `${symbol}: mercado em regime ESTREITO -- a amplitude real dos últimos ${regimeForTarget.range.lookbackMinutes}min ` +
+                `(${(regimeForTarget.range.pct * 100).toFixed(3)}%) nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 ` +
+                `acima do stop real (${(stopPct * 100).toFixed(3)}%). Posicao NAO aberta -- alvo por ATR (${(takeProfitPct * 100).toFixed(3)}%) ` +
+                `pediria mais movimento do que o preco ja provou que faz nesta janela. Espere o range se abrir ou avalie outro ativo/lado.`,
+            };
+          }
+          takeProfitPct = rangeCappedTakeProfitPct;
+          takeProfitCappedByRange = true;
+        }
+      }
       // 🔴 2026-09-04 (achado real, via print do Cleber -- SPX500 LONG abriu
       // com stop de 23,18pts e alvo de só 7,33pts, R:R 0,32:1, o INVERSO do
       // pedido "alvo tem que ser maior que o stop"): o gate de R:R minimo
@@ -1705,6 +1734,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
         alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
         alvo_capado_por_suporte_resistencia: takeProfitCappedBySR,
+        alvo_capado_por_amplitude_estreita: takeProfitCappedByRange,
         stop_capado_por_pavio_real: stopCappedBySR,
         stop_alargado_por_spread: widenedForSpread,
         aviso:
@@ -1717,6 +1747,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             : "") +
           (takeProfitCappedBySR
             ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o suporte/resistencia real esta mais perto -- mirando logo antes do nivel, nao alem dele.`
+            : "") +
+          (takeProfitCappedByRange
+            ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o mercado esta em regime ESTREITO -- a amplitude real recente nao sustenta um alvo maior sem romper a estrutura primeiro.`
             : ""),
       };
     }
