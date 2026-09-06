@@ -748,7 +748,24 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       strategyDirective +
-      economicCalendarBlock;
+      economicCalendarBlock +
+      // 🔴 2026-09-06 (recorrencia AO VIVO, 3a vez, do mesmo bug ja catalogado
+      // em 2026-09-02 e 2026-09-04: "Nenhuma ferramenta chamada. Encerrando o
+      // ciclo. finish_reason=length" com completion_tokens bem abaixo do
+      // max_tokens -- o Qwen3.5 "pensa" em texto livre (<think>...</think>,
+      // nao contado como tool_call) antes do tool_call e o teto de saida
+      // estoura NO MEIO do pensamento, sem chamar open_position nunca, mesmo
+      // com tool_choice:"required" (so forca quando o modelo CONSEGUE
+      // terminar). O ciclo #2 observado nesta sessao chegou a narrar em
+      // log_thought a decisao de abrir 3 posicoes e nunca as abriu de fato --
+      // "decisao narrada sem executar", mesmo padrao ja visto com outros
+      // provedores. `chat_template_kwargs:{enable_thinking:false}` ja foi
+      // testado sem efeito real pro template do Ollama (comentario acima, em
+      // max_tokens). "/no_think" e um mecanismo DIFERENTE, documentado pela
+      // propria Qwen (soft-switch dentro do CONTEUDO da mensagem, nao um
+      // parametro de API) -- ainda nao testado neste projeto, tentativa nova.
+      // Mantido condicional ao Qwen local pra nao afetar outros provedores.
+      (config.llmProvider === "ollama" ? " /no_think" : "");
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();
@@ -799,7 +816,11 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       // sobra pro ENTRADA (prompt ~14-15k tokens) -- o gargalo e so o teto de
       // SAIDA. Subido pra 4096 (2x o ultimo valor que funcionou, mesma folga
       // relativa que resolveu da ultima vez), ainda bem abaixo do num_ctx.
-      max_tokens: 4096,
+      // 🔴 2026-09-06: subido 4096->6144 de carona com o fix de /no_think
+      // acima (mesma ocorrencia ao vivo) -- margem extra enquanto se confirma
+      // se o /no_think de fato elimina o "pensamento" invisivel que consome
+      // o teto. num_ctx do Modelfile (24576) tem folga de sobra.
+      max_tokens: 6144,
       tools: toolDefinitions,
       // 🔴 2026-08-30 (redesenho pós -$135 líquido, sessão e7eef768): "auto" ->
       // "required". Achado real, confirmado em dezenas de ocorrências no log
