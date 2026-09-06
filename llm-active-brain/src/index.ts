@@ -29,7 +29,7 @@ function sleep(ms: number) {
 // o LLM terminar de pensar. Idempotente e seguro rodar em paralelo ao
 // enforceMt5StopsAndTargets que roda no inicio de cada ciclo (closeMt5Position
 // so age em posicao ainda OPEN).
-const STOP_WATCHDOG_INTERVAL_MS = 5_000;
+const STOP_WATCHDOG_INTERVAL_MS = 3_000;
 let stopWatchdogSessions: Mt5Session[] = [];
 let stopWatchdogBusy = false;
 let stopWatchdogTimer: ReturnType<typeof setInterval> | undefined;
@@ -39,24 +39,42 @@ async function stopWatchdogTick(): Promise<void> {
   stopWatchdogBusy = true;
   try {
     for (const session of stopWatchdogSessions) {
-      try {
-        const result = await enforceMt5StopsAndTargets(session.sessionId, getQuoteSingleAttempt);
-        for (const c of result.closed) {
-          console.log(
-            `[stop-watchdog] Fechamento mecanico IMEDIATO: ${c.symbol} ${c.side} (${c.reason}) ` +
-              `entrada=${c.entryPrice} saida=${c.exitPrice} (sessao ${session.sessionId})`
-          );
+      // 🔴 2026-09-06 (pedido do Cleber: "ao encostar no alvo, tem que
+      // fechar a posicao"): antes, uma falha de rede transitoria (timeout
+      // de conexao com o Supabase, confirmado ao vivo: ConnectTimeoutError
+      // apos 10s) fazia esta checagem pular pro proximo tick inteiro (mais
+      // 5s de espera), empurrando a deteccao de stop/alvo bem alem da
+      // cadencia pretendida. Retry imediato (ate 2x, 1s de intervalo) DENTRO
+      // do mesmo tick antes de desistir -- cobre blips curtos sem esperar o
+      // proximo setInterval.
+      let result: Awaited<ReturnType<typeof enforceMt5StopsAndTargets>> | undefined;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          result = await enforceMt5StopsAndTargets(session.sessionId, getQuoteSingleAttempt);
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 2) await sleep(1000);
         }
-        for (const p of result.partials) {
-          console.log(
-            `[stop-watchdog] Parcial de lucro realizada: ${p.symbol} ${p.side} ` +
-              `(${(p.favorableMoveR * 100).toFixed(0)}% de 1R, $${p.realizedPnl.toFixed(2)}) (sessao ${session.sessionId})`
-          );
-        }
-      } catch (err) {
+      }
+      if (!result) {
         console.error(
-          `[stop-watchdog] falha ao checar stop/alvo da sessao ${session.sessionId}:`,
-          err instanceof Error ? err.message : err
+          `[stop-watchdog] falha ao checar stop/alvo da sessao ${session.sessionId} (3 tentativas):`,
+          lastErr instanceof Error ? lastErr.message : lastErr
+        );
+        continue;
+      }
+      for (const c of result.closed) {
+        console.log(
+          `[stop-watchdog] Fechamento mecanico IMEDIATO: ${c.symbol} ${c.side} (${c.reason}) ` +
+            `entrada=${c.entryPrice} saida=${c.exitPrice} (sessao ${session.sessionId})`
+        );
+      }
+      for (const p of result.partials) {
+        console.log(
+          `[stop-watchdog] Parcial de lucro realizada: ${p.symbol} ${p.side} ` +
+            `(${(p.favorableMoveR * 100).toFixed(0)}% de 1R, $${p.realizedPnl.toFixed(2)}) (sessao ${session.sessionId})`
         );
       }
     }

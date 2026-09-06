@@ -1212,7 +1212,12 @@ export function useApexLogic(
   useEffect(() => {
     if (executionMode !== 'DEMO') return;
 
-    const POLL_MS = 30_000;
+    // 🔴 2026-09-06 (pedido do Cleber, achado ao vivo: candle encostou no
+    // alvo/stop, o motor fechou a posicao em ~5s (stop-watchdog em
+    // index.ts), mas a linha continuou no grafico por ate 30s -- o cliente
+    // so re-sincronizava com o banco nesse intervalo). Apertado pra
+    // acompanhar a cadencia real do watchdog mecanico do motor.
+    const POLL_MS = 5_000;
     let cancelled = false;
 
     const reconcile = async () => {
