@@ -247,7 +247,14 @@ async function runContinuous() {
       }
     }
 
-    const ethBalance = Number(await getBalanceEth());
+    // Saldo ETH testnet (Base Sepolia) e do trilho Binance/economia simulada
+    // ANTIGO, morto desde que o MT5 assumiu -- so consultado fora do modo MT5.
+    // Achado real 2026-09-06: chamar isso incondicionalmente (mesmo em modo
+    // MT5, onde o valor nunca e usado) derrubava o processo inteiro sem
+    // try/catch sempre que o RPC externo da Base Sepolia ficava inacessivel
+    // (queda de internet), matando tambem o monitoramento real de stop/
+    // posicoes MT5 -- confirmado 1259 crash-loops do watchdog em ~19h.
+    const ethBalance = config.mt5TradingEnabled ? 0 : Number(await getBalanceEth());
     const usdBalance = getBalanceUsd();
 
     // 🔴 2026-08-29 (achado do Cleber): esse resumo (saldo ETH testnet/USD
