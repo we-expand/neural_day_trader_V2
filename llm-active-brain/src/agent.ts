@@ -15,6 +15,34 @@ import { getTradeMemoryBlock } from "./tradeMemory.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
 import { getUsEconomicCalendar } from "./atr.js";
 
+// 🔴 2026-09-06 (achado do Cleber, direto na tela): o painel "Logs do
+// Sistema" ficava dominado por JSON cru de cada get_mt5_quote (200+
+// caracteres por linha), afogando as poucas linhas de log_thought de
+// verdade -- na prática parecia que "não mostra o que ela está pensando",
+// quando na verdade o pensamento estava lá, só ilegível entre o ruído.
+// Resume cada chamada de ferramenta pro que um humano lendo a tela
+// realmente quer ver -- nunca inventa dado, só reformata o que a ferramenta
+// já devolveu de verdade. Ferramentas sem resumo dedicado caem no fallback
+// (JSON compacto, ainda melhor que o JSON.stringify duplo de antes).
+function summarizeToolResultForLog(name: string, input: Record<string, unknown>, result: unknown): string {
+  const r = result as Record<string, unknown> | null;
+  if (name === "get_mt5_quote" && r && !r.error) {
+    const trend = (r.trend as { label?: string } | null)?.label;
+    const macd = (r.macd as { label?: string } | null)?.label;
+    const stoch = (r.stochastic as { label?: string } | null)?.label;
+    const parts = [trend ? `tendência ${trend}` : null, macd ? `MACD ${macd}` : null, stoch ? `estocástico ${stoch}` : null].filter(Boolean);
+    return `Consultou ${r.symbol}: $${r.price}${parts.length ? " -- " + parts.join(", ") : ""}${r.aviso ? ` (${r.aviso})` : ""}`;
+  }
+  if (name === "get_mt5_quote" && r?.error) {
+    return `Consultou ${input.symbol} -- ${r.error}`;
+  }
+  if (name === "list_open_positions" && r && Array.isArray((r as { positions?: unknown[] }).positions)) {
+    const positions = (r as { positions: unknown[] }).positions;
+    return positions.length === 0 ? "Checou posições abertas -- nenhuma no momento." : `Checou posições abertas -- ${positions.length} ativa(s).`;
+  }
+  return `${name}(${JSON.stringify(input)}) -> ${JSON.stringify(result)}`;
+}
+
 // 🔴 2026-08-31 (Fase 2 multi-tenant): antes runAgent operava sempre sobre o
 // singleton global de sessão (config.neuralUserId fixo em env). Agora recebe
 // a sessão explicitamente -- o loop principal (index.ts) decide QUAIS
@@ -942,7 +970,7 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
         const message =
           name === "log_thought" && typeof input.thought === "string"
             ? input.thought
-            : `${name}(${JSON.stringify(input)}) -> ${JSON.stringify(result)}`;
+            : summarizeToolResultForLog(name, input, result);
         logBrainActivity({
           sessionId: mt5Session.sessionId,
           userId: mt5Session.userId,

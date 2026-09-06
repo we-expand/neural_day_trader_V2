@@ -15,6 +15,35 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-06] "Logs do Sistema" (tela do AI Trader) sempre vazio
+— causa raiz real, nova tabela `ai_brain_activity_log`, confirmado gravando
+ao vivo.** Causa raiz (catalogada desde 08-17, nunca corrigida até agora):
+o painel só recebia linha de um ciclo de trading que rodava NO NAVEGADOR
+— motor mecânico morto desde 08-31, LLM Brain roda como processo Node
+separado, nada nunca mais alimentava o painel. Corrigido com canal real:
+`ai_brain_activity_log` (migration aplicada pelo Cleber, RLS + Realtime),
+`llm-active-brain` grava ciclo a ciclo cada cotação consultada, ferramenta
+chamada, pensamento (`log_thought`) e decisão — nunca fabricado. Frontend
+(`useApexLogic.ts`) assina Realtime + fetch inicial, injeta no mesmo painel
+(`AITrader.tsx`, renomeado "Logs do Sistema — Atividade da IA"). `tsc
+--noEmit` limpo nos dois lados, confirmado via SQL direto que linhas reais
+já estão chegando. Pendência conhecida, não bloqueante: tabela sem limpeza
+automática ainda (cadência AGRESSIVA gera 10-30 linhas/ciclo) — considerar
+job periódico de retenção numa sessão futura.
+
+**[RESOLVIDO 2026-09-06] Tentativa de fix pro "motor não abre posição"
+(3ª recorrência do bug de estouro de teto de saída) TESTADA e REVERTIDA —
+piorou, não melhorou.** Hipótese: Qwen3.5 via Ollama "pensa" antes do
+tool-call e estoura `max_tokens` sem nunca chamar `open_position` mesmo
+narrando a decisão em `log_thought`. Testado ao vivo: `/no_think` no
+userMessage + `max_tokens` 4096→6144 — resultado real foi PIOR (modelo
+passou a inventar símbolos inexistentes, ciclo abortou por timeout de 90s
+sem nenhuma decisão). Revertido de volta ao estado anterior (que tinha
+payoff ratio 2.49 real em 6h). Lição registrada: não declarar fix bom por
+raciocínio teórico, só com prova ao vivo — bug de fundo (estouro de teto)
+continua sem solução real, próxima tentativa deveria mirar reduzir o
+tamanho do prompt/cesta por ciclo em vez de mexer em tokens/thinking.
+
 **[EM ANDAMENTO 2026-09-04, noite] Navegador de Ativos "sem dados" —
 1ª rodada (`16c5be1b6`, deployada) não bastou, 2ª causa real achada via log
 ao vivo do Supabase, fix novo pronto, aguardando deploy.** Cleber reportou
