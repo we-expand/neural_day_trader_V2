@@ -1638,6 +1638,91 @@ export function useApexLogic(
   }, []);
   useEffect(() => { addLogRef.current = addLog; }, [addLog]);
 
+  // === "LOGS DO SISTEMA" REAIS DO LLM BRAIN (2026-09-06) ===
+  // 🔴 Achado do Cleber: o painel "Logs do Sistema" (AITrader.tsx) ficava
+  // sempre vazio ("Nenhuma atividade ainda...") em modo DEMO -- causa raiz
+  // catalogada desde 2026-08-17 (ver comentário no efeito de reconciliação
+  // acima): aquele painel só recebia linha via addLog() dentro do ciclo de
+  // trading que rodava NO NAVEGADOR. Desde que o motor mecânico foi
+  // desligado e o LLM Brain (llm-active-brain/, processo Node local/
+  // servidor) virou o motor único, nenhum ciclo roda mais no navegador --
+  // o painel nunca mais recebia nada, mesmo com a IA operando de verdade.
+  // Canal real agora: `ai_brain_activity_log` (nova tabela, ver migration
+  // 20260906_add_ai_brain_activity_log.sql), gravada pelo próprio
+  // llm-active-brain a cada consulta de cotação, chamada de ferramenta,
+  // pensamento (log_thought) e decisão (open/close/increase_position) --
+  // nunca fabricado, sempre o que o modelo realmente fez. Mesmo padrão do
+  // efeito de sync de `ai_trades` acima: fetch inicial + Realtime, escopado
+  // à sessão ativa.
+  useEffect(() => {
+    if (executionMode !== 'DEMO') return;
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const typeLabel: Record<string, string> = {
+      cycle_start: '🔄',
+      thought: '🧠',
+      tool_call: '🔍',
+      decision: '✅ EXECUTION:',
+      error: '⚠️ RISK:',
+    };
+    // 🔴 O wrapper que renderiza `recentLogs` (AITrader.tsx) carimba TODA
+    // linha com `new Date().toLocaleTimeString()` no momento da renderização
+    // -- correto pra log ao vivo (a linha chega ~1s depois do evento real via
+    // Realtime), mas mentiroso pro backfill inicial (até 50 linhas antigas,
+    // carimbadas com "agora" mesmo tendo acontecido minutos atrás). Embutido
+    // aqui o horário REAL (`created_at`) de cada linha pra nunca depender só
+    // do carimbo (potencialmente falso) do wrapper -- dado honesto sempre.
+    const formatRow = (row: { type: string; symbol: string | null; message: string; created_at: string }) =>
+      `${new Date(row.created_at).toLocaleTimeString('pt-BR')} ${typeLabel[row.type] ?? 'ℹ️'} ${row.symbol ? `[${row.symbol}] ` : ''}${row.message}`;
+
+    (async () => {
+      const sessionId = persistenceRef.current.getSessionId();
+      if (!sessionId || cancelled) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('ai_brain_activity_log')
+          .select('type, symbol, message, created_at')
+          .eq('session_id', sessionId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        if (!cancelled && data && data.length > 0) {
+          // Mais antigo primeiro na hora de inserir -- cada addLog() prepende,
+          // então o resultado final fica com o mais recente no topo (mesma
+          // ordem que a assinatura Realtime abaixo vai continuar produzindo).
+          [...data].reverse().forEach((row) => addLog(formatRow(row)));
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao buscar log inicial de atividade do LLM Brain (não bloqueia a tela):', e);
+      }
+
+      if (cancelled) return;
+      channel = supabase
+        .channel(`ai-brain-activity-${sessionId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'ai_brain_activity_log', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            if (cancelled) return;
+            const row = payload.new as { type: string; symbol: string | null; message: string; created_at: string };
+            addLog(formatRow(row));
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[useApexLogic] Realtime de ai_brain_activity_log falhou:', status);
+          }
+        });
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [executionMode, addLog]);
+
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {
     const interval = setInterval(() => {

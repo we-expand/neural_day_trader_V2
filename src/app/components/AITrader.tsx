@@ -1420,7 +1420,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             {/* Logs Section */}
             <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col flex-1 min-h-[200px]">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Terminal className="w-4 h-4" /> Logs do Sistema
+                <Terminal className="w-4 h-4" /> Logs do Sistema — Atividade da IA
                 </h3>
                 <SmartScrollContainer className="flex-1 space-y-2 font-mono text-xs flex flex-col">
                 {recentLogs.length === 0 ? (

@@ -9,7 +9,7 @@ import { toolDefinitions, executeTool, MAX_PYRAMID_ADDS, type ExecuteToolSession
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
-import { enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
+import { enforceMt5StopsAndTargets, logBrainActivity, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
@@ -620,6 +620,13 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
   let userMessage: string;
   if (config.mt5TradingEnabled) {
     if (!mt5Session) throw new Error("runAgent chamado em modo MT5 sem sessao (mt5Session ausente).");
+    logBrainActivity({
+      sessionId: mt5Session.sessionId,
+      userId: mt5Session.userId,
+      cycle,
+      type: "cycle_start",
+      message: `Ciclo #${cycle} iniciado.`,
+    });
     // 🔴 2026-08-29: trava MECANICA de stop/alvo roda ANTES do LLM decidir
     // qualquer coisa neste ciclo -- ver enforceMt5StopsAndTargets
     // (neuralBridge.ts) pro porque (o stop em texto no prompt deixou perdas
@@ -744,28 +751,23 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     } catch (err) {
       console.error("[agent] falha ao buscar agenda economica (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
     }
+    // 🔴 2026-09-06: "/no_think" TESTADO ao vivo e REVERTIDO -- nao eliminou
+    // o estouro de teto (o ciclo seguinte ainda travou), e coincidiu com
+    // comportamento pior: 15+ iteracoes chamando simbolos inventados/invalidos
+    // (DOEUSD, AVBUSD, LINCUSD, BTCBXN -- nunca existiram na cesta) ate a
+    // chamada final estourar o timeout de 90s do cliente (createChatCompletionWithRetry,
+    // linha ~530) e abortar o ciclo inteiro sem NENHUMA decisao -- pior do
+    // que o finish_reason=length que tentava corrigir. Sem prova de que o
+    // "/no_think" funcione pro template deste servidor Ollama (`--no-jinja
+    // --chat-template chatml`, ver `ollama ps`/`ps aux` -- o llama-server usa
+    // um template ChatML generico, nao o Jinja nativo da Qwen3 onde o
+    // "/no_think" e documentado). Revertido; ver comentario em max_tokens
+    // acima pro historico completo da investigacao deste bug.
     userMessage =
       `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       strategyDirective +
-      economicCalendarBlock +
-      // 🔴 2026-09-06 (recorrencia AO VIVO, 3a vez, do mesmo bug ja catalogado
-      // em 2026-09-02 e 2026-09-04: "Nenhuma ferramenta chamada. Encerrando o
-      // ciclo. finish_reason=length" com completion_tokens bem abaixo do
-      // max_tokens -- o Qwen3.5 "pensa" em texto livre (<think>...</think>,
-      // nao contado como tool_call) antes do tool_call e o teto de saida
-      // estoura NO MEIO do pensamento, sem chamar open_position nunca, mesmo
-      // com tool_choice:"required" (so forca quando o modelo CONSEGUE
-      // terminar). O ciclo #2 observado nesta sessao chegou a narrar em
-      // log_thought a decisao de abrir 3 posicoes e nunca as abriu de fato --
-      // "decisao narrada sem executar", mesmo padrao ja visto com outros
-      // provedores. `chat_template_kwargs:{enable_thinking:false}` ja foi
-      // testado sem efeito real pro template do Ollama (comentario acima, em
-      // max_tokens). "/no_think" e um mecanismo DIFERENTE, documentado pela
-      // propria Qwen (soft-switch dentro do CONTEUDO da mensagem, nao um
-      // parametro de API) -- ainda nao testado neste projeto, tentativa nova.
-      // Mantido condicional ao Qwen local pra nao afetar outros provedores.
-      (config.llmProvider === "ollama" ? " /no_think" : "");
+      economicCalendarBlock;
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();
@@ -816,11 +818,14 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       // sobra pro ENTRADA (prompt ~14-15k tokens) -- o gargalo e so o teto de
       // SAIDA. Subido pra 4096 (2x o ultimo valor que funcionou, mesma folga
       // relativa que resolveu da ultima vez), ainda bem abaixo do num_ctx.
-      // 🔴 2026-09-06: subido 4096->6144 de carona com o fix de /no_think
-      // acima (mesma ocorrencia ao vivo) -- margem extra enquanto se confirma
-      // se o /no_think de fato elimina o "pensamento" invisivel que consome
-      // o teto. num_ctx do Modelfile (24576) tem folga de sobra.
-      max_tokens: 6144,
+      // 🔴 2026-09-06: subida pra 6144 TESTADA ao vivo e REVERTIDA -- o ciclo
+      // seguinte estourou o timeout de 90s do cliente (createChatCompletionWithRetry)
+      // na ultima chamada, mais tokens de saida permitidos = mais tempo de
+      // geracao no modelo local, empurrando pra alem do timeout antes disso
+      // acontecer com 4096. Sem prova de melhora, com prova concreta de
+      // regressao (ciclo inteiro abortado sem nenhuma decisao). Voltado pro
+      // ultimo valor confirmado funcionando historicamente.
+      max_tokens: 4096,
       tools: toolDefinitions,
       // 🔴 2026-08-30 (redesenho pós -$135 líquido, sessão e7eef768): "auto" ->
       // "required". Achado real, confirmado em dezenas de ocorrências no log
@@ -878,6 +883,15 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
         `Nenhuma ferramenta chamada. Encerrando o ciclo. finish_reason=${finishReason}` +
           (usage ? ` prompt_tokens=${usage.prompt_tokens} completion_tokens=${usage.completion_tokens}` : " (sem usage no response)")
       );
+      if (mt5Session) {
+        logBrainActivity({
+          sessionId: mt5Session.sessionId,
+          userId: mt5Session.userId,
+          cycle,
+          type: "error",
+          message: `Ciclo encerrado sem nenhuma decisão (finish_reason=${finishReason}${usage ? `, completion_tokens=${usage.completion_tokens}` : ""}).`,
+        });
+      }
       break;
     }
 
@@ -917,6 +931,28 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
         tool_call_id: call.id,
         content: JSON.stringify(result),
       });
+
+      // 🔴 2026-09-06: mesmo evento que ja ia pro ledger local e pro console
+      // (linhas acima), agora tambem pro Supabase -- e o que alimenta o
+      // painel "Logs do Sistema" na tela (ver neuralBridge.ts pro porque).
+      if (mt5Session) {
+        const activityType =
+          name === "log_thought" ? "thought" : ["open_position", "close_position", "increase_position"].includes(name) ? "decision" : "tool_call";
+        const symbol = typeof input.symbol === "string" ? input.symbol : undefined;
+        const message =
+          name === "log_thought" && typeof input.thought === "string"
+            ? input.thought
+            : `${name}(${JSON.stringify(input)}) -> ${JSON.stringify(result)}`;
+        logBrainActivity({
+          sessionId: mt5Session.sessionId,
+          userId: mt5Session.userId,
+          cycle,
+          type: activityType,
+          symbol,
+          message,
+          detail: { name, input, result },
+        });
+      }
 
       if (name === "stop") calledStop = true;
     }

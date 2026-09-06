@@ -1224,3 +1224,44 @@ export async function enforceMt5StopsAndTargets(
 
   return { closed, breakevens, trails, partials };
 }
+
+// 🔴 2026-09-06 (pedido do Cleber: "logs do sistema" da tela do AI Trader
+// ficava sempre vazio em modo DEMO -- achado ja catalogado desde 2026-08-17
+// em useApexLogic.ts, aquele painel so recebia linha de um ciclo que rodava
+// NO NAVEGADOR, e o motor unico hoje e este processo Node rodando local/
+// servidor). Este e o canal real: cada consulta de cotacao, chamada de
+// ferramenta, pensamento (log_thought) e decisao (open/close/increase) que o
+// agente de fato faz, gravado ciclo a ciclo -- nunca fabricado, sempre o
+// que realmente aconteceu. Fire-and-forget por design (mesma filosofia do
+// resto deste arquivo): uma falha aqui e so perda de visibilidade, nunca
+// pode derrubar ou atrasar o ciclo de decisao real.
+export type BrainActivityType = "cycle_start" | "tool_call" | "thought" | "decision" | "error";
+
+export function logBrainActivity(params: {
+  sessionId: string;
+  userId: string;
+  cycle: number;
+  type: BrainActivityType;
+  message: string;
+  symbol?: string;
+  detail?: unknown;
+}): void {
+  const sb = getClient();
+  // Teto defensivo -- alguns resultados de ferramenta (get_mt5_quote) sao
+  // JSON grandes; a UI so precisa de um resumo legivel, nao o payload inteiro.
+  const MAX_MESSAGE_LEN = 2000;
+  const message = params.message.length > MAX_MESSAGE_LEN ? params.message.slice(0, MAX_MESSAGE_LEN) + "…" : params.message;
+  sb.from("ai_brain_activity_log")
+    .insert({
+      session_id: params.sessionId,
+      user_id: params.userId,
+      cycle: params.cycle,
+      type: params.type,
+      symbol: params.symbol ?? null,
+      message,
+      detail: params.detail ?? null,
+    })
+    .then(({ error }) => {
+      if (error) console.warn("[neuralBridge] falha ao gravar ai_brain_activity_log (nao bloqueia o ciclo):", error.message);
+    });
+}
