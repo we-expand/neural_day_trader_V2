@@ -39,12 +39,16 @@ import { DataSourceHealthDashboard } from '@/app/components/system/DataSourceHea
 import { AlertSystemPanel } from '@/app/components/system/AlertSystemPanel';
 import { DecisionBrainShadowPanel } from '@/app/components/system/DecisionBrainShadowPanel';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { isPositionOpenSoundEnabled, setPositionOpenSoundEnabled, playPositionOpenSound } from '@/app/lib/positionOpenSound';
 
 export function Settings() {
   const { user } = useAuth();
-  
+
   // Estados para todas as configurações
   const [tradingNotifications, setTradingNotifications] = useState(true);
+  // Persistido em localStorage (não é preferência efêmera de tela) -- ver
+  // src/app/lib/positionOpenSound.ts, mesmo padrão dos toggles de TradingContext.
+  const [positionOpenSound, setPositionOpenSoundState] = useState(() => isPositionOpenSoundEnabled());
   const [emailNotifications, setEmailNotifications] = useState(false);
   const [performanceAlerts, setPerformanceAlerts] = useState(true);
   const [riskAlerts, setRiskAlerts] = useState(true);
@@ -404,6 +408,27 @@ export function Settings() {
                         type="checkbox"
                         checked={riskAlerts}
                         onChange={(e) => setRiskAlerts(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="flex-1">
+                      <span className="text-slate-300 text-sm font-medium">Som ao abrir posição</span>
+                      <p className="text-xs text-slate-500">Toca um som curto quando a IA abre uma operação nova</p>
+                    </div>
+                    <div className="relative ml-4">
+                      <input
+                        type="checkbox"
+                        checked={positionOpenSound}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setPositionOpenSoundState(next);
+                          setPositionOpenSoundEnabled(next);
+                          if (next) playPositionOpenSound();
+                        }}
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>

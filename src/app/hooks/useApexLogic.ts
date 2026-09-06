@@ -125,6 +125,7 @@ import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase
 import { runTradingCycle, type TradingCycleEffect } from '../services/strategy/runTradingCycle'; // Passo 2 do plano do runner (2026-08-07): módulo puro do ciclo, "um motor, dois drivers"
 import { fetchJarvisSizeMultiplier } from '../services/strategy/jarvisSizeMultiplier';
 import { supabase } from '@/lib/supabaseClient'; // Realtime de ai_trades (reconciliação de posições, 2026-08-20)
+import { playPositionOpenSound } from '@/app/lib/positionOpenSound'; // Som ao abrir posição nova (2026-09-06)
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -1676,6 +1677,21 @@ export function useApexLogic(
     const formatRow = (row: { type: string; symbol: string | null; message: string; created_at: string }) =>
       `${new Date(row.created_at).toLocaleTimeString('pt-BR')} ${typeLabel[row.type] ?? 'ℹ️'} ${row.symbol ? `[${row.symbol}] ` : ''}${row.message}`;
 
+    // 🔊 2026-09-06: som ao abrir posicao nova (pedido do Cleber) -- so
+    // decision cujo detail.name e realmente "open_position" E o resultado
+    // da ferramenta nao veio com `error` (ver tools.ts, todo bloqueio
+    // devolve `{ error: "..." }`, sucesso nunca tem essa chave). Preferencia
+    // do usuario (liga/desliga) fica em Configuracoes > Geral, persistida
+    // via localStorage -- ver src/app/lib/positionOpenSound.ts.
+    const maybePlayPositionOpenSound = (row: { type: string; detail?: unknown }) => {
+      if (row.type !== 'decision') return;
+      const detail = row.detail as { name?: string; result?: unknown } | undefined;
+      if (detail?.name !== 'open_position') return;
+      const result = detail.result as { error?: unknown } | undefined;
+      if (result && typeof result === 'object' && 'error' in result) return;
+      playPositionOpenSound();
+    };
+
     (async () => {
       const sessionId = persistenceRef.current.getSessionId();
       if (!sessionId || cancelled) return;
@@ -1706,8 +1722,9 @@ export function useApexLogic(
           { event: 'INSERT', schema: 'public', table: 'ai_brain_activity_log', filter: `session_id=eq.${sessionId}` },
           (payload) => {
             if (cancelled) return;
-            const row = payload.new as { type: string; symbol: string | null; message: string; created_at: string };
+            const row = payload.new as { type: string; symbol: string | null; message: string; created_at: string; detail?: unknown };
             addLog(formatRow(row));
+            maybePlayPositionOpenSound(row);
           }
         )
         .subscribe((status) => {
