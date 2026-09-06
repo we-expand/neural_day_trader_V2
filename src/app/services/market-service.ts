@@ -80,11 +80,27 @@ export async function fetchCandles(symbol: string, timeframe: string, limit: num
   }
 }
 
+// 🔴 2026-09-06 (achado ao vivo, DOGUSD sem candles no Gráfico): cesta do
+// LLM Brain (llm-active-brain/src/assetBasket.ts) usa nomes REAIS da
+// corretora que não seguem nenhum padrão de substring óbvio (ex: DOGUSD,
+// LNKUSD, ATMUSD, AVAUSD, XETUSD -- nenhum contém "DOGE"/"LINK"/"ATOM"/
+// "AVAX"/"ETH"), então caíam no branch 'forex' abaixo (por conterem "USD")
+// e eram roteados pra MetaAPI em vez de Binance -- MetaAPI não tinha
+// candle-history pra esses símbolos, gráfico ficava "Não foi possível
+// carregar os candles reais". Lista explícita evita depender de heurística
+// de substring pra estes.
+const KNOWN_CRYPTO_BROKER_TICKERS = new Set([
+  'DOGUSD', 'DOTUSD', 'LNKUSD', 'UNIUSD', 'TRXUSD', 'ATMUSD', 'XLMUSD', 'FILUSD', 'AVAUSD', 'XETUSD',
+]);
+
 /**
  * 🔍 Detectar tipo de ativo pelo símbolo (fallback quando mapping não existe)
  */
 function detectAssetType(symbol: string): 'crypto' | 'forex' | 'index' | 'commodity' | 'stock' {
-  if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('USDT') || 
+  if (KNOWN_CRYPTO_BROKER_TICKERS.has(symbol)) {
+    return 'crypto';
+  }
+  if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('USDT') ||
       symbol.includes('SOL') || symbol.includes('XRP') || symbol.includes('BNB')) {
     return 'crypto';
   }
@@ -116,6 +132,19 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
     'SOLUSD': 'SOLUSDT',
     'ADAUSD': 'ADAUSDT',
     'DOGUSD': 'DOGEUSDT',
+    // 🔴 2026-09-06: mesmo fix acima (KNOWN_CRYPTO_BROKER_TICKERS) -- sem
+    // entrada aqui, o request pra Binance ia com o nome cru da corretora
+    // (ex: "XETUSD"), que a Binance não reconhece (erro 400/símbolo
+    // inexistente), mesmo já roteado corretamente pra 'crypto'.
+    'DOTUSD': 'DOTUSDT',
+    'LNKUSD': 'LINKUSDT',
+    'UNIUSD': 'UNIUSDT',
+    'TRXUSD': 'TRXUSDT',
+    'ATMUSD': 'ATOMUSDT',
+    'XLMUSD': 'XLMUSDT',
+    'FILUSD': 'FILUSDT',
+    'AVAUSD': 'AVAXUSDT',
+    'XETUSD': 'ETHUSDT',
   };
   
   // Mapear timeframes para formato Binance
