@@ -33,6 +33,8 @@
  * sem CFD), reavaliar `isCfdMarketOpen()` pros índices.
  */
 
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
+
 export interface MarketStatus {
   isOpen: boolean;
   status: 'OPEN' | 'CLOSED' | 'PRE_MARKET' | 'AFTER_HOURS';
@@ -63,7 +65,20 @@ type MarketType = 'CRYPTO' | 'FOREX' | 'US_STOCKS' | 'EU_STOCKS' | 'ASIA_STOCKS'
 function detectMarketType(symbol: string): MarketType {
   const upperSymbol = symbol.toUpperCase();
 
-  // CRYPTO - terminam com USDT ou são símbolos de crypto conhecidos
+  // ✅ 2026-09-06: checar o catálogo real primeiro — mesma classe de bug já
+  // catalogada em market-service.ts (detectAssetType): heurística de "termina
+  // em USDT ou contém BTC/ETH/SOL/XRP/ADA" não reconhece o restante da cesta
+  // cripto real do LLM Brain (DOGUSD, LNKUSD, ATMUSD, AVAUSD, XLMUSD, FILUSD,
+  // BNBUSD, TRXUSD, UNIUSD, DOTUSD...) — todos batiam no ramo FOREX abaixo
+  // (6 letras contendo "USD"), fazendo o card de horário aplicar o CFD
+  // fechado de fim de semana numa cripto que opera 24/7.
+  const catalogAsset = getAssetBySymbol(upperSymbol);
+  if (catalogAsset?.category === 'CRYPTO') {
+    return 'CRYPTO';
+  }
+
+  // CRYPTO - terminam com USDT ou são símbolos de crypto conhecidos (fallback
+  // pra símbolos fora do catálogo)
   if (upperSymbol.endsWith('USDT') || ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'].some(c => upperSymbol.includes(c))) {
     return 'CRYPTO';
   }

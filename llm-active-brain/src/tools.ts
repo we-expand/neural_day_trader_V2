@@ -603,7 +603,22 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const symbol = String(input.symbol || "").toUpperCase();
       const basket = effectiveBasket(session);
       if (!basket.includes(symbol)) {
-        return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
+        // 🔴 2026-09-06 (deadlock real observado ao vivo): se a cesta do
+        // usuário mudou depois que uma posição já estava aberta num símbolo
+        // que saiu dela, o agente ficava preso pra sempre -- close_position
+        // exige get_mt5_quote("SIMBOLO") NESTE ciclo, mas esta checagem
+        // recusava cotar exatamente esse símbolo por "fora da cesta". Sem
+        // saída legítima, o ciclo inteiro era gasto tentando fechar a
+        // posição órfã, sem nunca chegar a avaliar entradas novas na cesta
+        // atual. Exceção: permitir cotar um símbolo fora da cesta SE houver
+        // posição aberta nele nesta sessão -- só destrava monitorar/fechar o
+        // que já existe, não abre porta pra abrir posição nova fora da cesta
+        // (open_position mantém o gate de cesta intocado).
+        const openPositions = await listMt5OpenPositions(session.sessionId);
+        const hasOpenPosition = openPositions.some((p) => p.symbol.toUpperCase() === symbol);
+        if (!hasOpenPosition) {
+          return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
+        }
       }
       // 🔴 2026-08-31 (fix de paralisia por dados incompletos): antes, um
       // getMt5Quote falhado retornava erro pro agente, travando a sessão.

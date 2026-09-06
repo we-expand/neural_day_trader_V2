@@ -527,6 +527,18 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
     let binanceSymbol = symbol.toUpperCase().trim();
 
     // Casos especiais conhecidos
+    // 🔴 2026-09-06: mesmo achado catalogado em market-service.ts (candles) --
+    // vários símbolos reais da cesta do LLM Brain são o nome CURTO da
+    // corretora, sem relação de substring com o par real da Binance (DOGUSD
+    // não contém "DOGE", LNKUSD não contém "LINK", ATMUSD não contém "ATOM",
+    // AVAUSD não contém "AVAX"). Sem entrada aqui, o fallback abaixo
+    // (`USD`→`USDT`) gerava um símbolo que a Binance não reconhece (ex:
+    // "DOGUSDT", 404/erro), fazendo esta função devolver o último preço
+    // conhecido (ou o de entrada) pra sempre -- reproduzido ao vivo: card de
+    // posição do Dashboard mostrando "Atual" == "Entrada" indefinidamente
+    // pra DOGUSD, e um fechamento manual usando esse mesmo preço congelado
+    // como preço de saída (PnL fabricado ~$0 quando o preço real já tinha
+    // se movido).
     const manualMapping: Record<string, string> = {
       'BTCUSD': 'BTCUSDT',
       'ETHUSD': 'ETHUSDT',
@@ -535,6 +547,15 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
       'XRPUSD': 'XRPUSDT',
       'ADAUSD': 'ADAUSDT',
       'DOTUSD': 'DOTUSDT',
+      'DOGUSD': 'DOGEUSDT',
+      'LNKUSD': 'LINKUSDT',
+      'UNIUSD': 'UNIUSDT',
+      'TRXUSD': 'TRXUSDT',
+      'ATMUSD': 'ATOMUSDT',
+      'XLMUSD': 'XLMUSDT',
+      'FILUSD': 'FILUSDT',
+      'AVAUSD': 'AVAXUSDT',
+      'XETUSD': 'ETHUSDT',
       'BTC': 'BTCUSDT',
       'ETH': 'ETHUSDT'
     };
