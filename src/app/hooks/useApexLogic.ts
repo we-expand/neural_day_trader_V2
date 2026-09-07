@@ -2505,7 +2505,7 @@ export function useApexLogic(
   }, []);
 
   // === START/STOP/PAUSE ===
-  const startLogic = useCallback(() => {
+  const startLogic = useCallback(async () => {
     console.log('[START LOGIC] 🚀 Tentando iniciar AI...');
     console.log('[START LOGIC] Safe Mode:', isSafeModeRef.current);
     stopDrainWatcher(); // nova sessão vai assumir a reconciliação normal (linha ~964)
@@ -2514,7 +2514,7 @@ export function useApexLogic(
       toast.warning('Sistema em Safe Mode. Resolva os problemas antes de continuar.');
       return;
     }
-    
+
     console.log('[START LOGIC] ✅ Iniciando sistema...');
     setIsActive(true);
     setIsPaused(false);
@@ -2523,6 +2523,27 @@ export function useApexLogic(
 
     // Fase 2: garante uma sessão DEMO no Supabase (reaproveita a restaurada no mount, se houver)
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      // 🔴 2026-09-07 (Cleber: "não existe nada em programação que podemos
+      // fazer para iniciar somente uma única sessão?" -- este era o ponto de
+      // origem da corrida: o ref local (`currentSessionId`) só é setado pelo
+      // `restoreActiveSession()` do mount, e esse `await` pode não ter
+      // resolvido ainda quando o usuário clica "Ligar IA" logo depois de
+      // abrir a aba. Sem checar o banco aqui, este branch criava uma sessão
+      // NOVA "Apex AI" mesmo já existindo uma sessão real RUNNING/STOPPED
+      // (LLM_ACTIVE_BRAIN_MT5) -- a órfã que mascarava Dashboard/Logs/
+      // Gráfico até um F5. Confere a fonte de verdade (banco) uma última vez
+      // ANTES de criar; se existir sessão real, adota/religa em vez de
+      // duplicar. Camada 2 de defesa (a 1ª é esta aqui, evita a corrida na
+      // origem; a 2ª é a migration `20260907_enforce_single_running_session_
+      // per_user.sql`, um índice único parcial em (user_id, mode) WHERE
+      // status='RUNNING' que torna IMPOSSÍVEL a duplicata mesmo se este
+      // código regredir de novo -- `createSession` trata a violação como
+      // caso normal, ver AITradingPersistenceService.ts).
+      const restored = await persistenceRef.current.restoreActiveSession();
+      if (restored && persistenceRef.current.currentSessionId) {
+        persistenceRef.current.resumeSession();
+        return;
+      }
       persistenceErrorNotifiedRef.current = false;
       sessionStartedAtRef.current = Date.now();
       persistenceRef.current.startSession({

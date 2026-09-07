@@ -222,6 +222,22 @@ class AITradingPersistenceService {
         .select()
         .single();
 
+      // 🔴 2026-09-07 (Cleber: "não existe nada em programação que podemos
+      // fazer para iniciar somente uma única sessão?" -- existe: migration
+      // 20260907_enforce_single_running_session_per_user.sql cria um índice
+      // único parcial em (user_id, mode) WHERE status='RUNNING'. Isso torna
+      // fisicamente impossível 2 sessões RUNNING do mesmo usuário/modo no
+      // banco, não importa qual bug de corrida no cliente tente criar uma
+      // 2ª (aba nova, clique duplo, F5 no timing errado). Sem tratar aqui,
+      // essa trava vira um erro genérico pro usuário toda vez que o cliente
+      // tentar recriar uma sessão que já existe -- tratado como caso
+      // NORMAL: adota a sessão RUNNING que já existe (a real) em vez de
+      // falhar, mesma semântica que getActiveSession() já usa em todo o
+      // resto do app.
+      if (error?.code === '23505') {
+        console.warn(`${this.LOG_PREFIX} ⚠️ Sessão RUNNING já existe pra este usuário/modo (trava de banco) -- adotando a existente em vez de duplicar.`);
+        return this.getActiveSession(data.user_id!);
+      }
       if (error) throw error;
 
       console.log(`${this.LOG_PREFIX} ✅ Sessão criada:`, session.id);
