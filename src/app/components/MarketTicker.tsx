@@ -71,6 +71,11 @@ export function MarketTicker() {
     { symbol: 'INTC', price: 0, change: 0 },
     
     // Commodities
+    // ✅ 2026-09-07: COPPER estava neste array desde o começo mas NUNCA tinha
+    // entrada em symbolMap/symbolToUnified abaixo -- nunca era buscado de
+    // verdade, ficava travado no price:0 inicial pra sempre (aparecia como
+    // "$---" no rodapé). Corrigido com o mesmo padrão de WHEAT/COFFEE/SUGAR
+    // (unified COPUSD -- ver brokerRegistry.ts/yahooSymbolMap).
     { symbol: 'COPPER', price: 0, change: 0 },
     { symbol: 'WHEAT', price: 0, change: 0 },
     { symbol: 'COFFEE', price: 0, change: 0 },
@@ -110,9 +115,11 @@ export function MarketTicker() {
       AAPL: 'AAPL', MSFT: 'MSFT', GOOGL: 'GOOGL', AMZN: 'AMZN', NVDA: 'NVDA',
       TSLA: 'TSLA', META: 'META', NFLX: 'NFLX', AMD: 'AMD', INTC: 'INTC',
 
-      // Agrícolas — WHEUSD/COFUSD confirmados na corretora; SUGUSD cai no
-      // fallback Yahoo real dentro de getBatchedMT5Data (não está na Infinox)
-      WHEUSD: 'WHEAT', COFUSD: 'COFFEE', SUGUSD: 'SUGAR',
+      // Agrícolas — WHEUSD/COFUSD confirmados na corretora; SUGUSD/COPUSD caem
+      // no fallback Yahoo real dentro de getBatchedMT5Data (não estão na
+      // Infinox -- ver brokerRegistry.ts). COPUSD é entrada nova (2026-09-07,
+      // COPPER nunca tinha mapeamento nenhum aqui, ficava sempre em "$---").
+      WHEUSD: 'WHEAT', COFUSD: 'COFFEE', SUGUSD: 'SUGAR', COPUSD: 'COPPER',
     };
 
     const fetchTickers = async () => {
@@ -171,7 +178,7 @@ export function MarketTicker() {
     OIL: 'USOUSD', BRENT: 'UKOUSD', 'NAT GAS': 'XNGUSD',
     AAPL: 'AAPL', MSFT: 'MSFT', GOOGL: 'GOOGL', AMZN: 'AMZN', NVDA: 'NVDA',
     TSLA: 'TSLA', META: 'META', NFLX: 'NFLX', AMD: 'AMD', INTC: 'INTC',
-    WHEAT: 'WHEUSD', COFFEE: 'COFUSD', SUGAR: 'SUGUSD',
+    WHEAT: 'WHEUSD', COFFEE: 'COFUSD', SUGAR: 'SUGUSD', COPPER: 'COPUSD',
   };
   const visibleAssets = assets.filter(a => {
     const unified = symbolToUnified[a.symbol];

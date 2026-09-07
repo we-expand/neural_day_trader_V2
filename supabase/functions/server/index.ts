@@ -6274,6 +6274,18 @@ app.get('/real/yahoo/:symbol', async (c) => {
       'COCUSD': 'CC=F',  // Cocoa
       'COFUSD': 'KC=F',  // Coffee
       'WHEUSD': 'ZW=F',  // Wheat
+      // ✅ 2026-09-07 (achado do Cleber, rodapé mostrando "$---" pra Sugar e
+      // Copper): SUGUSD já caía corretamente no Yahoo (confirmado indisponível
+      // na Infinox, ver UNAVAILABLE em brokerRegistry.ts), mas faltava aqui no
+      // mapa -- sem entrada, caía no ticker literal "SUGUSD" (`|| symbol`
+      // abaixo), que não existe no Yahoo, sempre HTTP 404. Testado direto
+      // contra a API do Yahoo antes de aplicar: SB=F (Sugar #11 futures) e
+      // HG=F (Copper futures) respondem preço real. COPUSD é símbolo novo
+      // (Copper nunca esteve no catálogo/ticker do rodapé) -- confirmado 404
+      // na Infinox também (testado via /mt5-prices), adicionado ao
+      // UNAVAILABLE de brokerRegistry.ts junto com este mapa.
+      'SUGUSD': 'SB=F',  // Sugar
+      'COPUSD': 'HG=F',  // Copper
       // Ações americanas já usam o próprio símbolo como ticker do Yahoo (AAPL,
       // MSFT, GOOGL...) — não precisam de entrada no map, caem no `|| symbol`.
     };

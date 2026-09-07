@@ -96,6 +96,12 @@ const UNAVAILABLE: Record<BrokerId, Set<string>> = {
     // Agrícolas sem contrato equivalente confirmado (Cocoa/Coffee/Wheat SÃO
     // ofertados, ver override acima — estes aqui são os que não têm nem isso)
     'CORNUSD', 'SOYUSD', 'COTUSD', 'SUGUSD',
+    // ✅ 2026-09-07 (achado do Cleber, rodapé com "$---" pra Copper): símbolo
+    // novo, nunca auditado antes (não fazia parte do catálogo/rodapé até
+    // agora) — testado direto via /mt5-prices em produção (COPPER e XCUUSD),
+    // ambos HTTP 404/indisponíveis. Vai pro fallback Yahoo (HG=F, ver
+    // yahooSymbolMap em supabase/functions/server/index.ts).
+    'COPUSD',
     // Títulos — nomenclatura de bond da Infinox não confirmada além de
     // 'USNote10Y' (achado da auditoria, sem mapeamento unificado ainda)
     'BUND10Y', 'UK10Y', 'FR10Y', 'US10Y', 'US30Y', 'US2Y',
