@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { getTickTrend, getTickVolatility, getMomentumAcceleration } from "./tickHistory.js";
 import { isWeekendMode } from "./assetBasket.js";
+import { archiveCandles } from "./neuralBridge.js";
 
 /**
  * Stop/alvo DINÂMICO por volatilidade real (2026-08-29, pedido do Cleber
@@ -206,6 +207,7 @@ async function requestCandles(
     if (!Array.isArray(candles) || candles.length < 35) return null;
 
     candlesCache.set(cacheKey, { candles, fetchedAt: Date.now() });
+    archiveCandles(symbol, timeframe, candles);
     return candles;
   } catch {
     return null;

@@ -1235,7 +1235,70 @@ export async function enforceMt5StopsAndTargets(
 // que realmente aconteceu. Fire-and-forget por design (mesma filosofia do
 // resto deste arquivo): uma falha aqui e so perda de visibilidade, nunca
 // pode derrubar ou atrasar o ciclo de decisao real.
-export type BrainActivityType = "cycle_start" | "tool_call" | "thought" | "decision" | "error";
+/**
+ * Arquiva no Supabase (`ohlcv_data`, projeto principal) as velas REAIS que o
+ * motor já buscou pra ATR/MACD/Estocástico (atr.ts:fetchRecentCandles) --
+ * nunca dispara um fetch novo, só persiste o que já chegou de resposta real
+ * da MetaAPI (2026-09-07, pedido do Cleber: construir a esteira de candle
+ * contínuo que falta pra previsão de volatilidade/ML).
+ *
+ * Por que passivo, não um poller dedicado: a MetaAPI tem teto HARD de 5
+ * requisições concorrentes de dado histórico POR CONTA, compartilhado com o
+ * Dashboard/Gráfico do próprio usuário (ver comentário de
+ * MAX_CONCURRENT_CANDLE_REQUESTS em atr.ts, achado em 2026-09-04) -- um
+ * cron novo faria exatamente o que já causou fallback SIMULATED e travas de
+ * motor documentadas várias vezes neste projeto. Piggyback em cima do fetch
+ * que já acontece tem custo de rede marginal ZERO.
+ *
+ * Limite honesto: só grava o símbolo+timeframe que o motor efetivamente
+ * consultou no ciclo (hoje, 1 timeframe por vez -- "Timeframe Operacional"
+ * do Setup, ver UserTradingConfig.timeframe). Não é histórico completo
+ * multi-timeframe, é o que o motor realmente olhou -- suficiente pra
+ * GARCH/HAR-RV de 1 granularidade por símbolo, não pra termo de volatilidade
+ * entre timeframes.
+ */
+const OHLCV_TIMEFRAME_MAP: Record<string, string> = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1H": "1h",
+  "4H": "4h",
+};
+
+export function archiveCandles(
+  symbol: string,
+  timeframe: string,
+  candles: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume?: number }>,
+): void {
+  const dbTimeframe = OHLCV_TIMEFRAME_MAP[timeframe];
+  if (!dbTimeframe || candles.length === 0) return;
+
+  let sb: SupabaseClient;
+  try {
+    sb = getClient();
+  } catch (err) {
+    console.warn("[neuralBridge] archiveCandles: cliente Supabase indisponivel, pulando (nao bloqueia o ciclo):", err);
+    return;
+  }
+  const rows = candles.map((c) => ({
+    asset_symbol: symbol,
+    timeframe: dbTimeframe,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: c.volume ?? 0,
+    timestamp: new Date(c.timestamp).toISOString(),
+  }));
+
+  sb.from("ohlcv_data")
+    .upsert(rows, { onConflict: "asset_symbol,timeframe,timestamp", ignoreDuplicates: true })
+    .then(({ error }) => {
+      if (error) console.warn("[neuralBridge] falha ao arquivar ohlcv_data (nao bloqueia o ciclo):", error.message);
+    });
+}
+
+export type BrainActivityType = "cycle_start" | "tool_call" | "thought" | "decision" | "error" | "thinking";
 
 export function logBrainActivity(params: {
   sessionId: string;
