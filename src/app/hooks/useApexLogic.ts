@@ -1659,9 +1659,11 @@ export function useApexLogic(
     if (executionMode !== 'DEMO') return;
     let cancelled = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let subscribedSessionId: string | null = null;
 
     const typeLabel: Record<string, string> = {
       cycle_start: '🔄',
+      thinking: '⏳',
       thought: '🧠',
       tool_call: '🔍',
       decision: '✅ EXECUTION:',
@@ -1692,9 +1694,27 @@ export function useApexLogic(
       playPositionOpenSound();
     };
 
-    (async () => {
-      const sessionId = persistenceRef.current.getSessionId();
-      if (!sessionId || cancelled) return;
+    // 🔴 2026-09-07 (achado do Cleber: "os logs não dizem o que está
+    // acontecendo" com o motor ativamente operando e gravando de verdade no
+    // Supabase). Causa: este efeito lia `persistenceRef.current.getSessionId()`
+    // UMA VEZ no mount e nunca mais -- se o sessionId da aba não bater com o
+    // da sessão `LLM_ACTIVE_BRAIN_MT5` que o motor realmente usa (mount que
+    // correu antes de `restoreActiveSession()` resolver, orfã `Apex AI`
+    // criada por `startLogic()` quando o ref ainda estava vazio, ou rotação
+    // de sessão por teto de perda diária), o painel ficava preso pra sempre
+    // ouvindo um session_id morto, sem nenhum jeito de se recuperar sem F5 --
+    // exatamente o mesmo bug que o `reconcile()` de trades (linha ~1224) já
+    // corrige há dias, só que nunca replicado aqui. Mesmo fix: função
+    // reutilizável que (re)faz o backfill + a assinatura Realtime pra um
+    // sessionId específico, chamada de novo sempre que a checagem de 5s
+    // abaixo detectar troca de sessão real no banco.
+    const setupForSession = async (sessionId: string) => {
+      if (cancelled || sessionId === subscribedSessionId) return;
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+      subscribedSessionId = sessionId;
 
       try {
         const { data, error } = await supabase
@@ -1714,7 +1734,7 @@ export function useApexLogic(
         console.warn('[useApexLogic] Falha ao buscar log inicial de atividade do LLM Brain (não bloqueia a tela):', e);
       }
 
-      if (cancelled) return;
+      if (cancelled || sessionId !== subscribedSessionId) return;
       channel = supabase
         .channel(`ai-brain-activity-${sessionId}`)
         .on(
@@ -1732,13 +1752,47 @@ export function useApexLogic(
             console.warn('[useApexLogic] Realtime de ai_brain_activity_log falhou:', status);
           }
         });
-    })();
+    };
+
+    const checkAndSync = async () => {
+      if (cancelled) return;
+      // Mesma fonte de verdade do `reconcile()` de trades: a sessão RUNNING/
+      // STOPPED real do motor único (LLM_ACTIVE_BRAIN_MT5), não o que a aba
+      // acha que é a sessão atual.
+      if (user?.id) {
+        try {
+          const { data: activeSessionRow } = await supabase
+            .from('ai_sessions')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('strategy_name', 'LLM_ACTIVE_BRAIN_MT5')
+            .in('status', ['RUNNING', 'STOPPED'])
+            .order('started_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (activeSessionRow?.id) {
+            await setupForSession(activeSessionRow.id);
+            return;
+          }
+        } catch (err) {
+          console.warn('[useApexLogic] Falha ao checar sessão real do LLM Brain pro painel de logs (não bloqueia):', err);
+        }
+      }
+      // Fallback: sem user.id resolvido ainda ou sem sessão LLM Brain
+      // encontrada, usa o que a aba já tem localmente (pode ser null).
+      const fallbackId = persistenceRef.current.getSessionId();
+      if (fallbackId) await setupForSession(fallbackId);
+    };
+
+    checkAndSync();
+    const syncInterval = setInterval(checkAndSync, 5_000);
 
     return () => {
       cancelled = true;
+      clearInterval(syncInterval);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [executionMode, addLog]);
+  }, [executionMode, addLog, user?.id]);
 
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {
