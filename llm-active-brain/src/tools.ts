@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -389,6 +389,12 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
         `A agenda economica americana de alto impacto (evento mais recente que ja saiu com actual/forecast reais, ` +
         `e proximo evento que ainda vai sair) ja vem na mensagem de abertura deste ciclo, nao repetida aqui -- ` +
         `cruze com nySessionPhase e rompimento pra julgar conviccao. ` +
+        `Tambem devolve "movingAverages" (EMA9/SMA20/SMA200, as tres medias moveis mais observadas pelo mercado, ` +
+        `e a distancia % do preco ate cada uma) -- preco longe demais delas tende estatisticamente a reverter em ` +
+        `direcao a elas (mean reversion). "extended":true e um SINAL DE ATENCAO (nao bloqueio mecanico): pondere ` +
+        `com mais cautela uma entrada que EXTENDA ainda mais essa distancia (ex: comprar ja esticado bem acima das ` +
+        `medias). null quando nao ha historico suficiente (SMA200 exige ~200 velas, pode nao estar disponivel pra ` +
+        `todo simbolo/timeframe). ` +
         `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
       parameters: {
         type: "object",
@@ -783,6 +789,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // agent.ts), nunca uma trava mecânica nova. null quando não há candle
       // real suficiente, mesma disciplina dos outros campos acima.
       const regime = await getMarketRegime(symbol, timeframe);
+      // 🔴 2026-09-07 (pedido direto do Cleber): EMA9/SMA20/SMA200 são as
+      // três médias mais observadas pelo mercado -- preço longe demais delas
+      // tende a reverter em direção a elas (mean reversion). Só CONTEXTO/
+      // AVISO pro LLM ponderar (Cleber foi explícito: "é um sinal de atenção
+      // e não uma regra"), nunca trava mecânica -- mesma disciplina de
+      // regime/candlePatterns acima. null quando não há histórico real
+      // suficiente (ver getMovingAverageDistance/atr.ts), nunca fabrica valor.
+      const movingAverages = await getMovingAverageDistance(symbol, timeframe);
       lastQuoteSnapshotBySymbol.set(symbol, {
         trendLabel: trend?.label ?? null,
         volumeElevated: volume?.elevated ?? null,
@@ -793,7 +807,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volatilityLabel: regime?.volatilityLabel ?? null,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -818,6 +832,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `mas um spread alto ainda encolhe a margem real de lucro ate o alvo -- prefira ativos com spread normal quando houver sinal equivalente em mais de um.`
         );
       }
+      if (movingAverages?.extended) {
+        avisos.push(
+          `ATENCAO (nao bloqueio): preco esticado longe das medias de referencia (EMA9 ${movingAverages.distancePctFromEma9 ?? "N/D"}%, ` +
+            `SMA20 ${movingAverages.distancePctFromSma20 ?? "N/D"}%, SMA200 ${movingAverages.distancePctFromSma200 ?? "N/D"}% de distancia) -- ` +
+            `estatisticamente a tendencia e reverter em direcao a elas. Nao e uma regra de bloqueio, mas pondere com mais cautela uma entrada ` +
+            `que EXTENDA ainda mais essa distancia (comprar ja esticado pra cima, vender ja esticado pra baixo).`
+        );
+      }
       return {
         ...quote,
         marketOpen: true,
@@ -829,6 +851,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stochastic,
         candlePatterns,
         regime,
+        movingAverages,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }

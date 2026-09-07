@@ -1017,6 +1017,117 @@ export async function getMarketRegime(symbol: string, timeframe: SupportedTimefr
 }
 
 // ============================================================================
+// MÉDIAS MÓVEIS DE REFERÊNCIA (2026-09-07, pedido direto do Cleber): EMA9,
+// SMA20 e SMA200 são as três médias mais observadas pelo mercado -- quando o
+// preço fica longe demais delas, a tendência estatística é reverter em
+// direção a elas (mean reversion). Isto é um SINAL DE ATENÇÃO pro LLM
+// ponderar (ex: comprar com o preço muito esticado acima das médias é
+// entrar tarde no movimento, mais vulnerável a um recuo), NUNCA uma trava
+// mecânica -- mesma disciplina de regime/candlePatterns/agenda econômica
+// acima, o Cleber foi explícito que é atenção, não regra.
+// ============================================================================
+
+export interface MovingAverageDistance {
+  /** EMA9 no timeframe operacional (mesmo candle oficial de trend/MACD/etc). */
+  ema9: number | null;
+  /** SMA20 no mesmo timeframe/candle. */
+  sma20: number | null;
+  /** SMA200 -- precisa de histórico bem maior (210 velas) que as outras métricas (60), buscado à parte com cache mais longo (mudança candle-a-candle é irrelevante numa média de 200 períodos). null quando a corretora não tem histórico suficiente -- nunca fabrica o valor. */
+  sma200: number | null;
+  /** Distância percentual do preço atual (close da última vela) até cada média, com sinal (positivo = preço acima da média). null quando a média correspondente não pôde ser calculada. */
+  distancePctFromEma9: number | null;
+  distancePctFromSma20: number | null;
+  distancePctFromSma200: number | null;
+  /** true quando a distância até QUALQUER UMA das médias disponíveis excede mt5MaExtensionAtrMultiplier vezes o ATR do símbolo -- preço estatisticamente esticado, maior chance de recuo antes de continuar. Só aviso, ver comentário do módulo acima. */
+  extended: boolean;
+}
+
+const SMA200_PERIOD = 200;
+const SMA200_FETCH_LIMIT = 210; // margem pequena acima do período pra sempre ter 200 valores fechados
+const SMA200_CACHE_TTL_MS = 30 * 60 * 1000; // 30min -- SMA200 varia muito pouco vela-a-vela, não precisa da mesma frescor que ATR/MACD/stop
+
+const longHistoryCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+
+/** Fetch dedicado de histórico longo (200+ velas), só pra SMA200 -- reaproveita o MESMO semáforo (acquireCandleSlot/releaseCandleSlot) de fetchRecentCandles pra nunca estourar o teto de 2 requisições concorrentes da conta MetaAPI compartilhada, mas com cache muito mais longo (30min) pra não competir por slot com ATR/MACD/stop no ciclo quente. */
+async function fetchLongHistoryCandles(symbol: string, timeframe: SupportedTimeframe): Promise<Candle[] | null> {
+  const cacheKey = `${symbol}:${timeframe}:long`;
+  const cached = longHistoryCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SMA200_CACHE_TTL_MS) return cached.candles;
+
+  await acquireCandleSlot();
+  try {
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, timeframe, limit: SMA200_FETCH_LIMIT }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const result = (await res.json()) as Mt5CandlesResponse;
+    if (result.source === "SIMULATED") return null;
+    const candles = result.candles;
+    if (!Array.isArray(candles) || candles.length < SMA200_PERIOD) return null;
+    longHistoryCache.set(cacheKey, { candles, fetchedAt: Date.now() });
+    return candles;
+  } catch {
+    return null;
+  } finally {
+    releaseCandleSlot();
+  }
+}
+
+const EMA9_PERIOD = 9;
+const SMA20_PERIOD = 20;
+
+export async function getMovingAverageDistance(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MovingAverageDistance | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < SMA20_PERIOD) return null;
+  const closes = candles.map((c) => c.close).filter((v) => Number.isFinite(v));
+  if (closes.length !== candles.length) return null;
+  const price = closes[closes.length - 1];
+  if (!(price > 0)) return null;
+
+  const ema9Series = calculateEmaSeries(closes, EMA9_PERIOD);
+  const ema9 = ema9Series ? ema9Series[ema9Series.length - 1] : null;
+  const sma20Series = calculateSmaSeries(closes, SMA20_PERIOD);
+  const sma20 = Number.isFinite(sma20Series[sma20Series.length - 1]) ? sma20Series[sma20Series.length - 1] : null;
+
+  let sma200: number | null = null;
+  const longCandles = await fetchLongHistoryCandles(symbol, timeframe);
+  if (longCandles) {
+    const longCloses = longCandles.map((c) => c.close).filter((v) => Number.isFinite(v));
+    if (longCloses.length === longCandles.length) {
+      const sma200Series = calculateSmaSeries(longCloses, SMA200_PERIOD);
+      const last = sma200Series[sma200Series.length - 1];
+      if (Number.isFinite(last)) sma200 = last;
+    }
+  }
+
+  const distancePctFromEma9 = ema9 != null && ema9 > 0 ? ((price - ema9) / ema9) * 100 : null;
+  const distancePctFromSma20 = sma20 != null && sma20 > 0 ? ((price - sma20) / sma20) * 100 : null;
+  const distancePctFromSma200 = sma200 != null && sma200 > 0 ? ((price - sma200) / sma200) * 100 : null;
+
+  const atrPct = await getAtrPercent(symbol, timeframe);
+  const extensionThresholdPct = atrPct != null ? atrPct * config.mt5MaExtensionAtrMultiplier * 100 : null;
+  const extended = extensionThresholdPct != null
+    ? [distancePctFromEma9, distancePctFromSma20, distancePctFromSma200].some(
+        (d) => d != null && Math.abs(d) > extensionThresholdPct,
+      )
+    : false;
+
+  return {
+    ema9: ema9 != null ? Number(ema9.toFixed(6)) : null,
+    sma20: sma20 != null ? Number(sma20.toFixed(6)) : null,
+    sma200: sma200 != null ? Number(sma200.toFixed(6)) : null,
+    distancePctFromEma9: distancePctFromEma9 != null ? Number(distancePctFromEma9.toFixed(3)) : null,
+    distancePctFromSma20: distancePctFromSma20 != null ? Number(distancePctFromSma20.toFixed(3)) : null,
+    distancePctFromSma200: distancePctFromSma200 != null ? Number(distancePctFromSma200.toFixed(3)) : null,
+    extended,
+  };
+}
+
+// ============================================================================
 // AGENDA ECONÔMICA (2026-09-04) -- pedido direto do Cleber: "tudo tem que
 // estar amarrado" à agenda econômica americana, porque a intensidade do
 // movimento do dia depende muito do que sai nela (achado confirmado ao vivo

@@ -290,6 +290,14 @@ export const config = {
   // se vale testar um valor intermediario (ex: 1.5x-1.7x) DEPOIS de rodar
   // 2.0x por 5 dias/40+ trades estavel -- nao antes.
   mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 2.0),
+  // 🔴 2026-09-07 (pedido direto do Cleber): distância (em multiplos de ATR)
+  // acima da qual o preço é considerado "esticado" longe de EMA9/SMA20/SMA200
+  // -- ver getMovingAverageDistance (atr.ts). 3.0x ATR é um limiar
+  // conservador (só marca extremos reais, não qualquer afastamento normal do
+  // dia a dia) -- é só um AVISO no get_mt5_quote pro LLM ponderar, nunca uma
+  // trava mecânica (Cleber foi explícito: "é um sinal de atenção e não uma
+  // regra").
+  mt5MaExtensionAtrMultiplier: Number(process.env.MT5_MA_EXTENSION_ATR_MULTIPLIER ?? 3.0),
   // Referencia de risco para o CALCULO DO ALVO (tools.ts) -- revertida pra
   // ser IGUAL ao mt5StopAtrMultiplier acima (2.0x), eliminando a referencia
   // congelada separada que só existia para sustentar o corte de stop
