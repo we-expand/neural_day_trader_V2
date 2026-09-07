@@ -585,10 +585,17 @@ const GENESIS_PROMPT = config.mt5TradingEnabled ? GENESIS_PROMPT_MT5 : GENESIS_P
 // pra uma chamada fria com o prompt completo da cesta), mas falha rapido o
 // suficiente pro ciclo seguinte tentar de novo em vez de ficar mudo por
 // minutos sem ninguem perceber.
+// 🔴 2026-09-07 (achado real, log ao vivo): com a cesta expandida pra 11
+// ativos mistos, 11 de 15 ciclos do dia estouraram esse teto de 90s antes
+// de terminar de consultar a cesta inteira (~5-8s por get_mt5_quote x 11
+// simbolos + raciocinio final) -- motor ficava mudo na maioria dos ciclos
+// nao por falta de sinal, so por falta de tempo. Subido pra 130s (folga
+// pra cesta grande, ainda falha rapido o bastante pro ciclo seguinte
+// tentar de novo em vez de travar minutos).
 const client = new OpenAI({
   apiKey: config.llmApiKey,
   baseURL: config.llmBaseUrl,
-  timeout: 90_000,
+  timeout: 130_000,
 });
 
 function sleep(ms: number) {
