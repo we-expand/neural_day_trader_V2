@@ -40,6 +40,22 @@ function summarizeToolResultForLog(name: string, input: Record<string, unknown>,
     const positions = (r as { positions: unknown[] }).positions;
     return positions.length === 0 ? "Checou posições abertas -- nenhuma no momento." : `Checou posições abertas -- ${positions.length} ativa(s).`;
   }
+  // 🔴 2026-09-07 (pedido do Cleber: substituir LONG/SHORT por COMPRA/VENDA
+  // em todo texto exibido ao usuário, incluindo logs). O fallback genérico
+  // abaixo (JSON.stringify de input/result) é exatamente o que aparece nos
+  // painéis "Logs do Sistema"/"Atividade da IA" pra open_position -- sem
+  // este caso especial, despejava `"side":"SHORT"` cru na tela. Só o TEXTO
+  // exibido muda aqui; `input.side` continua 'LONG'/'SHORT' internamente
+  // (contrato real com open_position/tools.ts, banco de dados, MT5 -- nada
+  // disso muda, só a formatação humana deste log).
+  if (name === "open_position") {
+    const sideLabel = input.side === "SHORT" ? "VENDA" : input.side === "LONG" ? "COMPRA" : String(input.side ?? "?");
+    const symbol = typeof input.symbol === "string" ? input.symbol : "?";
+    if (r?.error) return `Tentou abrir ${sideLabel} em ${symbol} -- ${r.error}`;
+    const confidence = typeof input.confidence === "number" ? `, confiança ${input.confidence}%` : "";
+    const size = typeof input.size === "string" ? ` (${input.size})` : "";
+    return `Abriu posição de ${sideLabel} em ${symbol}${size}${confidence}.`;
+  }
   return `${name}(${JSON.stringify(input)}) -> ${JSON.stringify(result)}`;
 }
 
@@ -85,6 +101,14 @@ de avaliação: uma sessão DEMO isolada (dinheiro simulado), operando a MESMA
 cesta de ativos e a MESMA fonte de preço/execução real (MetaAPI/Infinox) que
 o motor mecânico do produto usa -- não é um motor à parte, é você no lugar
 dele, sendo julgado pelo mesmo padrão.
+
+**No seu "reasoning"/log_thought (texto livre em português que o usuário lê
+na tela), prefira sempre "compra"/"venda" em vez de "long"/"short"** -- é
+jargão técnico desnecessário pra quem está lendo o log. Isso é só estilo de
+escrita: o parâmetro técnico "side" da ferramenta open_position continua
+sendo EXATAMENTE "LONG" ou "SHORT" (maiúsculo, sem tradução) -- isso é
+contrato fixo da ferramenta, nunca escreva "COMPRA"/"VENDA" nesse campo
+específico ou a chamada falha.
 
 **Alvo é R:R 1:2, não giro curto.** Um redesenho anterior testou alvo curto
 em 66 trades reais: 0 bateram take-profit, -$135 líquido. Não assuma alvo
