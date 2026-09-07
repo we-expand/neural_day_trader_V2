@@ -161,11 +161,24 @@ export function AIActivityMonitor() {
           .limit(30);
         if (error) throw error;
         if (!cancelled && data && data.length > 0) {
-          applyRow(data[0] as ActivityRow);
-          [...data].reverse().forEach((row) => {
-            const activity = toActivity(row as ActivityRow);
-            if (activity) setActivities((prev) => [activity, ...prev].slice(0, 20));
-          });
+          // 🔴 2026-09-07 (achado do Cleber: "estão duplicando informações
+          // de Atividade da IA") -- bug real desta mesma sessão: `data[0]`
+          // entrava 2x no feed, uma vez via `applyRow` (side-effect de
+          // "Ação Atual" que TAMBÉM empurra pro feed) e de novo no loop de
+          // backfill logo abaixo, que reprocessava o array INTEIRO
+          // (incluindo `data[0]`). Backfill monta o feed inteiro numa única
+          // chamada de `setActivities` (sem depender de `applyRow`); só a
+          // "Ação Atual"/timestamp do evento mais recente usa `data[0]`
+          // diretamente, sem tocar no feed de novo.
+          const row0 = data[0] as ActivityRow;
+          setCurrentAction(currentActionFor(row0));
+          setLastEventAt(new Date(row0.created_at));
+          const backfilled = [...data]
+            .reverse()
+            .map((row) => toActivity(row as ActivityRow))
+            .filter((a): a is AIActivity => a !== null)
+            .reverse();
+          setActivities(backfilled.slice(0, 20));
         }
       } catch (e) {
         console.warn('[AIActivityMonitor] Falha ao buscar histórico inicial (não bloqueia a tela):', e);

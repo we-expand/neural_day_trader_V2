@@ -69,14 +69,14 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   }, [compact]);
 
   // 🔴 2026-09-07 (pedido do Cleber: painel "Logs do Sistema" precisa "estar
-  // viva", com altura igual ao Neural Core Terminal e auto-rolagem real).
-  // `recentLogs` guarda o mais novo em `[0]` (addLog prepende, ver
-  // useApexLogic.ts) -- correto pro resto do app, mas invertido pro visual
-  // de terminal ao vivo esperado aqui (mesmo padrão do Neural Core Terminal
-  // em LiveLogTerminal.tsx: mais novo embaixo, tela rola sozinha pra
-  // acompanhar). Ref/efeito abaixo fazem essa rolagem automática sem mexer
-  // na ordem real do array (outros consumidores de recentLogs dependem do
-  // mais novo estar em [0]).
+  // viva" + auto-rolagem real). `recentLogs` guarda o mais novo em `[0]`
+  // (addLog prepende, ver useApexLogic.ts) -- exibido nessa MESMA ordem
+  // (mais novo no topo). 1ª tentativa desta sessão invertia a ordem
+  // (mais novo embaixo, estilo terminal) e rolava pro FIM -- Cleber corrigiu
+  // ao vivo: "os logs estão auto rolando para baixo e não para cima que é o
+  // correto". Revertido: ordem natural (mais novo em cima), rolagem
+  // automática pro TOPO a cada linha nova, pra sempre deixar o evento mais
+  // recente visível sem esconder atrás do scroll.
   const systemLogsScrollRef = useRef<HTMLDivElement>(null);
 
   // 🌐 Sincronizar status de conexão com MarketDataContext
@@ -93,7 +93,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   // acima. Roda a cada linha nova, igual ao Neural Core Terminal.
   useEffect(() => {
     if (systemLogsScrollRef.current) {
-      systemLogsScrollRef.current.scrollTop = systemLogsScrollRef.current.scrollHeight;
+      systemLogsScrollRef.current.scrollTop = 0;
     }
   }, [recentLogs]);
 
@@ -1435,10 +1435,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                  </div>
             </div>
 
-            {/* Logs Section -- altura igual ao Neural Core Terminal
-                (LiveLogTerminal.tsx, h-[600px]) + auto-rolagem real, pedido
-                do Cleber 2026-09-07 ("precisa estar viva"). */}
-            <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col h-[600px]">
+            {/* Logs Section -- cresce até preencher o resto da coluna
+                (mesma altura real da coluna da esquerda, `h-full` no pai),
+                não mais altura fixa -- pedido do Cleber 2026-09-07: "vá até
+                a linha vermelha" (a `h-[600px]` fixa sobrava vazio até lá
+                quando a coluna real era mais alta). Auto-rolagem: mais novo
+                SEMPRE no topo (mesma ordem que `recentLogs` já usa em todo o
+                resto do app -- `addLog` prepende), rolando pro TOPO a cada
+                linha nova -- não pro fim, ver useApexLogic.ts. */}
+            <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col flex-1 min-h-0">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Terminal className="w-4 h-4" /> Logs do Sistema — Atividade da IA
                 {recentLogs.length > 0 && (
@@ -1452,20 +1457,13 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                 {recentLogs.length === 0 ? (
                     <NeuralLogsEmpty />
                 ) : (
-                    // Mais novo por último (ordem cronológica, de cima pra
-                    // baixo) -- `recentLogs[0]` é o mais recente (addLog
-                    // prepende), invertido só aqui pro visual de terminal ao
-                    // vivo; a rolagem automática acompanha o fim da lista.
-                    [...recentLogs].reverse().map((log, i) => (
+                    recentLogs.map((log, i) => (
                         <div key={i} className="flex gap-2">
                             <span className={log.includes('EXECUTION') ? 'text-emerald-400' : log.includes('RISK') ? 'text-red-400' : 'text-slate-300'}>
                             {log}
                             </span>
                         </div>
                     ))
-                )}
-                {recentLogs.length > 0 && (
-                    <div className="w-2 h-4 bg-emerald-500/80 animate-pulse" />
                 )}
                 </div>
             </div>
