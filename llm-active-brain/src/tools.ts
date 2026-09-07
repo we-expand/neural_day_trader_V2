@@ -118,6 +118,22 @@ const lastQuoteSnapshotBySymbolStore = new Map<
 const flipAttemptBlockedThisCycleStore = new Map<string, Map<string, number>>();
 const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 
+// 🔴 2026-09-07 (pedido direto do Cleber, substituindo o teto de FREQUÊNCIA
+// por um teto de QUALIDADE): o campo `confidence` (0-100) já era exigido no
+// schema de `open_position` e gravado em `ai_confidence`, mas nunca era
+// USADO -- só logado. Cleber decidiu que frequência não é o objetivo do
+// produto ("pouco importa quantas entradas ela fará"), e subiu o teto de
+// MT5_MAX_ENTRIES_PER_24H de 16/24 pra 60 (ver config.ts) exatamente pra
+// tirar esse freio artificial. Em troca, pediu um filtro de ASSERTIVIDADE
+// real: só abrir posição com confiança declarada >= 65%. Isso barra a
+// entrada ANTES de qualquer checagem cara (cotação fresca, validador
+// semântico) -- barato e correto, já que confidence baixo não devia nem
+// chegar lá. Valor pedido por ele foi "65% por exemplo" -- fixado nesse
+// valor, ajustável se a amostra mostrar que está calibrado errado (nem toda
+// confiança declarada pelo modelo é bem calibrada -- ver `confidence` como
+// heurística não validada, catalogado em CLAUDE.md item 5 de pendências).
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 65;
+
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
   return Math.random() < successChance;
@@ -925,6 +941,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const reasoning = String(input.reasoning || "");
       const confidenceRaw = Number(input.confidence);
       const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(100, confidenceRaw)) : null;
+      if (confidence === null || confidence < MIN_CONFIDENCE_FOR_OPEN_POSITION) {
+        return {
+          error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
+            `(${MIN_CONFIDENCE_FOR_OPEN_POSITION}%). So abra quando a confluencia tecnica REAL justificar confianca alta -- ` +
+            `nao infle o numero so pra passar deste gate, o campo e auditado.`,
+        };
+      }
       const basket = effectiveBasket(session);
       if (!basket.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };

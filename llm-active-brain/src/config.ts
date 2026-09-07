@@ -486,13 +486,22 @@ export const config = {
   // de MAIOR frequência de trades (ex: 21 trades em 04/09 vs. 11 em 03/09,
   // sem a assertividade acompanhar) -- teto DURO de entradas NOVAS numa
   // janela deslizante de 24h, independente da "Cadência de Entrada" do Setup
-  // (que só espaça ciclos de avaliação, não limita o total). Intervalo
-  // pedido pelo Cleber foi "15-16" -- fixado no teto da faixa (16) pra dar
-  // uma margem pequena sem abrir mão do espírito do pedido (menos trades,
-  // mais assertividade). Só limita ABERTURA de posição nova -- nunca bloqueia
-  // fechamento, breakeven, trailing ou realização parcial de posição já
-  // aberta (mesmo espírito do daily loss limit acima).
-  mt5MaxEntriesPer24h: Number(process.env.MT5_MAX_ENTRIES_PER_24H ?? 16),
+  // (que só espaça ciclos de avaliação, não limita o total). Só limita
+  // ABERTURA de posição nova -- nunca bloqueia fechamento, breakeven,
+  // trailing ou realização parcial de posição já aberta (mesmo espírito do
+  // daily loss limit acima).
+  // 🔴 2026-09-07 (pedido direto do Cleber, revertendo o "15-16" de
+  // 2026-09-05 acima): o teto virou o próprio gargalo -- travava testes de
+  // mudanças recém-aplicadas (fix do gate de fechamento discricionário,
+  // FRA40 na cesta) porque o contador ainda carregava entradas de ontem
+  // (fim de semana, teto=24) contra o teto novo de dia útil (16), sem
+  // margem nenhuma pra operar. Decisão explícita do Cleber: frequência não é
+  // o objetivo do produto, assertividade é -- "pouco importa quantas
+  // entradas ela fará" contanto que ganhe. Subido bem acima do necessário
+  // (60) pra parar de ser gargalo prático nos próximos dias de teste;
+  // mantido como número finito (não removido) só como rede de segurança
+  // contra loop de código desgovernado, não como alvo de frequência.
+  mt5MaxEntriesPer24h: Number(process.env.MT5_MAX_ENTRIES_PER_24H ?? 60),
   // 🔴 2026-09-06 (pedido direto do Cleber): módulo de fim de semana --
   // enquanto `isWeekendMode()` (assetBasket.ts) está ativo, o teto acima (16,
   // calibrado com dado de DIA ÚTIL) é substituído por este, mais alto --
@@ -501,7 +510,10 @@ export const config = {
   // estatístico de fim de semana ainda por trás deste número -- é o teto que
   // ele pediu explicitamente, não uma alegação de edge. Reavaliar com
   // amostra de fins de semana reais.
-  mt5MaxEntriesPer24hWeekend: Number(process.env.MT5_MAX_ENTRIES_PER_24H_WEEKEND ?? 24),
+  // 🔴 2026-09-07: alinhado ao mesmo motivo do teto de dia útil acima (60) --
+  // mantido igual ao de dia útil pra não reabrir o mesmo gargalo quando a
+  // virada de dia útil->fim de semana acontecer com o contador ainda alto.
+  mt5MaxEntriesPer24hWeekend: Number(process.env.MT5_MAX_ENTRIES_PER_24H_WEEKEND ?? 60),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO
