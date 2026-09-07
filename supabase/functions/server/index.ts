@@ -1417,7 +1417,10 @@ app.post('/broker/execute', async (c) => {
             const prices = [];
             for (const symbol of symbols) {
                 try {
-                    const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick`, {
+                    // keepSubscription=true: mesmo fix do achado de 2026-09-07 na rota
+                    // /mt5-prices (ver comentário lá) -- sem isso a assinatura da MetaAPI
+                    // expira em 12min e o tick fica parado.
+                    const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick?keepSubscription=true`, {
                         headers: metaApiHeaders,
                     });
                     if (!res.ok) continue;
@@ -4420,7 +4423,19 @@ app.post('/mt5-prices', async (c) => {
                     }
 
                     // 1️⃣ Buscar TICKER (preço atual)
-                    const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick`;
+                    // ✅ 2026-09-07 (achado real: Cleber reportou "LLM não abre posição" —
+                    // UKOUSD/SPX500/NAS100/etc com tick de HORAS de idade mesmo sendo
+                    // consultados a cada ciclo do llm-active-brain). Causa raiz confirmada
+                    // contra a doc oficial da MetaAPI: current-tick SEM keepSubscription=true
+                    // dá uma assinatura de só 12min — sem alguém repuxando o MESMO símbolo
+                    // dentro dessa janela, a assinatura expira e o preço fica parado até a
+                    // próxima chamada "acordar" de novo (o que pode nunca acontecer de fato
+                    // pra símbolo pouco consultado, MESMO com o motor pedindo cotação a cada
+                    // ciclo -- o ciclo do LLM (minutos) já é mais lento que os 12min de folga
+                    // em situações de rede lenta/fila). keepSubscription=true mantém a
+                    // assinatura viva de forma persistente -- corretora empurra tick novo
+                    // continuamente, sem esse buraco de 12min.
+                    const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick?keepSubscription=true`;
                     const tickerRes = await fetch(tickerUrl, {
                         headers: {
                             'auth-token': metaapiToken,
