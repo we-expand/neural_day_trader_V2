@@ -241,7 +241,16 @@ export const config = {
   // pequeno numa conta de $50 mesmo com stop apertado). 2x o risco "forte"
   // (1,5%) dá alguma folga pro arredondamento de MIN_LOTS sem abrir a porta
   // pra um risco descontrolado.
-  mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.03),
+  // 🔴 2026-09-07 (pedido direto do Cleber, confirmado explicitamente "SIM"
+  // depois de eu avisar a consequência): subido de 3% pra 5% -- o alvo de
+  // captura de $4-8 (mt5TargetRewardUsd acima) estava sendo cortado com
+  // frequência pelo teto de 3% numa conta de $100 (~$3 de risco máximo,
+  // caso real: FRA40 capturou só $1,12 em vez do alvo). 5% numa conta de
+  // $100 = ~$5 de risco máximo por trade -- dá folga real pro alvo de $4-8
+  // sem exigir R:R perfeito. Contrapartida CIENTE e aceita pelo Cleber:
+  // perda máxima por trade perdedor também sobe (de ~$3 pra ~$5 numa conta
+  // de $100) -- ele já entende essa troca, não é omissão.
+  mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.05),
   // Teto absoluto de segurança em lotes (sanity check contra valor
   // degenerado, ex: preço anormalmente baixo fazendo o cálculo explodir) --
   // não é o valor normal de operação, é só uma trava de última instância.
