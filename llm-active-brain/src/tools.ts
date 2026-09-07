@@ -1959,7 +1959,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
               (position.side === "SHORT" && candlePatternsForInvalidation.bias === "ALTA");
             if (patternAgainst) realInvalidationFactors.push(`padrao ${candlePatternsForInvalidation.detected.join("/")}`);
           }
-          realInvalidationConfirmed = realInvalidationFactors.length >= 2;
+          // 🔴 2026-09-07 (achado real via SQL, sessao 6d0ada13...): dos 13
+          // fechamentos AI_SIGNAL nas ultimas 48h, 11 viraram perda (so 2
+          // ganharam, media +$0,34 -- 3x menor que a media do TP mecanico,
+          // +$1,14). A media de perda do AI_SIGNAL (-$0,48) tambem nao ficou
+          // muito menor que a do SL mecanico (-$0,74) -- o corte antecipado
+          // com so 2 fatores nao esta protegendo capital de forma relevante,
+          // so esta cortando ganhadores em potencial antes do alvo. Barra
+          // subida de 2 para 3 (de 4 fatores possiveis) pra exigir reversao
+          // tecnica de verdade, nao ruido/sinal ambiguo, antes de aceitar
+          // fechamento discricionario com posicao ainda pouco movida.
+          realInvalidationConfirmed = realInvalidationFactors.length >= 3;
         }
         if (
           stopConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&

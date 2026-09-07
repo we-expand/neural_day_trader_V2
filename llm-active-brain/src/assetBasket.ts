@@ -177,11 +177,27 @@
 // ficavam fora da interseção por não estarem listados aqui -- filtrados
 // silenciosamente, sem erro, sem log. Confirmados reais agora via
 // /mt5-prices (preço + candle, todos válidos) antes de adicionar.
+//
+// 🔴 2026-09-07 (achado real, log: "Setup configurou 14 ativo(s), mas 4 não
+// existe(m) em MT5_ASSET_BASKET": FRA40/HK50/CHINA50/JP225 ignorados todo
+// ciclo): testado ao vivo contra o broker via `getQuoteSingleAttempt` antes
+// de adicionar (nunca supor). FRA40 é real com o nome literal, mesmo grupo
+// EU_INDICES do GER40 já calibrado ($1/ponto CFD retail, fix do bug de PnL
+// 20x do NAS100) -- adicionado. HK50 e JP225 SÓ existem sob os nomes reais
+// da corretora, HKG33 e JPN225 (confirmado: "HK50"/"JP225" literais
+// devolvem NULL) -- mesmo padrão de alias já catalogado pra outros símbolos
+// neste projeto (brokerRegistry.ts). CHINA50 é real com o nome literal.
+// NÃO adicionados ainda: HKG33/JPN225/CHINA50 têm `tickValue` em HKD/JPY/CNY
+// em `infinoxContractSpecs.ts` (não confirmado como $1/ponto igual ao grupo
+// GER40/SPX500/NAS100/UK100/FRA40) -- adicionar com LOT_SIZE=1 sem validar
+// o valor real por ponto arrisca repetir o MESMO bug de PnL 20x do NAS100,
+// agora com moeda estrangeira em vez de contrato E-mini. Fica pendente até
+// confirmar o valor real por ponto desses 3 com o Cleber/corretora.
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "BTCXBN",
   "DOGUSD", "DOTUSD", "XRPUSD", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
   "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
-  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
 ];
 
 /**
@@ -226,6 +242,10 @@ export const LOT_SIZE: Record<string, number> = {
   SPX500: 1,
   NAS100: 1,
   UK100: 1,
+  // 🔴 2026-09-07: mesmo grupo EU_INDICES do GER40 (CFD retail $1/ponto,
+  // confirmado real contra o broker antes de adicionar -- ver comentário em
+  // MT5_ASSET_BASKET acima).
+  FRA40: 1,
 };
 
 export const MIN_LOTS = 0.01;
