@@ -221,7 +221,18 @@ export const config = {
   // (retorno fica menor que o alvo NESSE caso, nunca ultrapassa risco
   // seguro). "forte" (mt5HeavyMultiplier) escala este alvo de retorno, não
   // mais o risco direto.
-  mt5TargetRewardUsd: Number(process.env.MT5_TARGET_REWARD_USD ?? 2.5),
+  // 🔴 2026-09-07 (pedido direto do Cleber, reforçando o pedido de 2026-09-05
+  // acima -- "a IA tem que capturar de $3 a $5 por operação"): $2,5 default
+  // ficava abaixo do piso que ele pediu. Subido pro meio da faixa ($4) --
+  // "forte" (mt5HeavyMultiplier, 2x) mira $8. Mecanismo em si (lots = alvo/
+  // (takeProfitPct * LOT_SIZE * preço), teto duro de risco por cima) já
+  // resolve o "FRA40 15 pontos é pouco, outro ativo 15 pontos é muito" --
+  // sizing já compensa automaticamente ativos com stop/alvo apertado
+  // carregando mais lote, sem tabela por símbolo. O caso real do FRA40
+  // (captura de só $1,12) foi limitado pelo teto de risco (mt5MaxRiskPctPerTrade)
+  // numa conta pequena, não falta de lógica -- ver rewardCappedByRisk em
+  // tools.ts (aviso já reportado nesse caso).
+  mt5TargetRewardUsd: Number(process.env.MT5_TARGET_REWARD_USD ?? 4.0),
   // Teto DURO de risco por trade (como fração do saldo real) -- se o lote
   // mínimo do símbolo (MIN_LOTS/LOT_SIZE em assetBasket.ts) força um risco
   // maior que isso mesmo no menor lote possível, open_position BLOQUEIA a
