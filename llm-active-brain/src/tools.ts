@@ -128,11 +128,13 @@ const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 // real: só abrir posição com confiança declarada >= 65%. Isso barra a
 // entrada ANTES de qualquer checagem cara (cotação fresca, validador
 // semântico) -- barato e correto, já que confidence baixo não devia nem
-// chegar lá. Valor pedido por ele foi "65% por exemplo" -- fixado nesse
-// valor, ajustável se a amostra mostrar que está calibrado errado (nem toda
-// confiança declarada pelo modelo é bem calibrada -- ver `confidence` como
-// heurística não validada, catalogado em CLAUDE.md item 5 de pendências).
-const MIN_CONFIDENCE_FOR_OPEN_POSITION = 65;
+// chegar lá. Subido de 65 pra 80 no mesmo dia, a pedido do Cleber ("deixa
+// ela operar quantas vezes quiser, contanto que só acima de 80% de
+// confiança") -- ajustável se a amostra mostrar que está calibrado errado
+// (nem toda confiança declarada pelo modelo é bem calibrada -- ver
+// `confidence` como heurística não validada, catalogado em CLAUDE.md item 5
+// de pendências).
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 80;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
