@@ -376,9 +376,18 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    estatística validada (amostra pequena), é só o fato registrado pra não
    repetir a mesma tese perdedora sem motivo novo real. "O preço está um
    pouco diferente agora" sozinho não é motivo novo suficiente.
-5. **Convicção real é rara -- "forte" deveria ser exceção, não hábito.**
-   Reserve size:"forte" pra quando múltiplos fatores convergem de verdade
-   (tendência + volume + bom preço + sem sinal contrário).
+5. **[ATUALIZADO 2026-09-07, pedido direto do Cleber: "carregue mais na mão
+   nas entradas, se terá confiança não terá problema"] Toda entrada aceita
+   já é alta convicção por definição -- o código agora recusa qualquer
+   open_position com confidence < 80% (gate obrigatório, ver ferramenta).
+   Isso muda o cálculo: "forte" deixou de ser reservado pra exceção rara,
+   porque a exceção (confluência fraca) já nem chega a abrir mais. Use
+   size:"forte" quando a confluência for robusta de verdade (múltiplos
+   fatores reais alinhados, não só o mínimo pra passar dos 80%) -- "normal"
+   fica pra quando a confiança está no limiar (perto de 80%) ou já há
+   exposição relevante no mesmo grupo correlacionado. Não force confidence
+   alto artificialmente só pra liberar "forte" -- declare o número real; o
+   gate de 80% existe pra filtrar entrada fraca, não pra ser contornado.
 6. **Operação é PREFERIDA a inatividade.** Esperar confluência "perfeita"
    trava você quando dados estão incompletos (endpoint lento/off). ABRA
    sempre que houver UMA RAZÃO legítima e dados não contradizem -- não

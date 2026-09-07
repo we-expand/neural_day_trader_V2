@@ -437,17 +437,21 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             enum: ["normal", "forte"],
             description:
               `"normal" = arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo real da conta se o stop bater. ` +
-              `"forte" = ${config.mt5HeavyMultiplier}x esse risco -- use quando a conviccao no sinal for mais alta, ` +
-              `nao como padrao pra tudo.`,
+              `"forte" = ${config.mt5HeavyMultiplier}x esse risco. Toda entrada aceita ja exige confidence >= ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}% (gate obrigatorio abaixo) -- ou seja, se voce chegou ate aqui, ja e alta ` +
+              `conviccao por definicao. Prefira "forte" quando a confluencia for robusta de verdade (multiplos fatores reais ` +
+              `alinhados, nao so o minimo pra passar do gate); use "normal" quando a confianca estiver no limiar (perto de ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}%) ou quando ja houver exposicao relevante no mesmo grupo correlacionado.`,
           },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
           confidence: {
             type: "number",
             description:
-              "Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/" +
-              "estocastico/spread/padroes de candle) e o reasoning acima -- nao e um numero mecanico, e o seu julgamento " +
-              "de o quanto os fatores reais convergem a favor desta tese. So pra registro/auditoria, nao afeta o tamanho " +
-              "calculado pelo codigo (isso e o campo 'size').",
+              `Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/` +
+              `estocastico/spread/padroes de candle) e o reasoning acima -- e o seu julgamento de o quanto os fatores reais ` +
+              `convergem a favor desta tese. IMPORTANTE: abaixo de ${MIN_CONFIDENCE_FOR_OPEN_POSITION} a entrada e RECUSADA ` +
+              `pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real; se for < ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}, so nao abra a posicao.`,
           },
         },
         required: ["symbol", "side", "size", "reasoning", "confidence"],

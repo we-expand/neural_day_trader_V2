@@ -190,7 +190,16 @@ export const config = {
   // $0,75), nunca o notional direto. Alavanca de "mão mais pesada":
   // open_position aceita size:"forte", que multiplica o RISCO-alvo (não
   // mais o notional) por este fator.
-  mt5HeavyMultiplier: Number(process.env.MT5_HEAVY_MULTIPLIER ?? 1.5),
+  // 🔴 2026-09-07 (pedido direto do Cleber, mesmo dia do gate de confianca
+  // minima acima em tools.ts -- "carregue mais na mao nas entradas, se tera
+  // confianca nao tera problema"): subido de 1.5x pra 2.0x. Justificativa
+  // real: toda entrada aceita agora exige confidence>=80% (gate obrigatorio
+  // em open_position, tools.ts) -- ou seja, TODA entrada que passa ja e alta
+  // conviccao por definicao, entao "forte" deveria pesar mais quando usado.
+  // Continua limitado por baixo pelo teto duro de risco da conta
+  // (mt5MaxRiskPctPerTrade abaixo) -- nunca ultrapassa esse limite, so
+  // aproxima mais dele quando o setup justificar.
+  mt5HeavyMultiplier: Number(process.env.MT5_HEAVY_MULTIPLIER ?? 2.0),
   // Risco-alvo por trade em posição "normal", como fração do saldo REAL da
   // sessão (não do caixa total da plataforma, só desta conta/sessão MT5).
   // 1% numa conta de $50 = ~$0,50 de perda esperada se o stop bater --
