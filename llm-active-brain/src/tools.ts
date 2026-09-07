@@ -118,11 +118,14 @@ const lastQuoteSnapshotBySymbolStore = new Map<
 const flipAttemptBlockedThisCycleStore = new Map<string, Map<string, number>>();
 const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 
-// 🔴 2026-09-07, tarde: gate obrigatório de confiança mínima em
-// open_position (subiu 65->70->80 no mesmo dia) foi REVERTIDO à noite do
-// mesmo dia (ver comentário em open_position, tools.ts) a pedido do Cleber,
-// restaurando o comportamento de 02/09 -- `confidence` volta a ser só
-// registrado (ai_confidence), nunca usado pra bloquear.
+// 🔴 2026-09-07, noite (pedido direto do Cleber, confirmado que 02/09 --
+// sessão de referência de 80% de acerto -- NÃO tinha nenhum gate de
+// confiança: `confidence` era só declarada e logada, nunca bloqueava).
+// Depois de um dia inteiro de idas e voltas neste gate (65->70->80% pela
+// manhã, removido à noite, agora reintroduzido), o Cleber pediu
+// explicitamente um teto FIXO em 70% -- não é mais volátil no mesmo dia,
+// fica assim até nova decisão explícita dele.
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 70;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -431,9 +434,11 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             enum: ["normal", "forte"],
             description:
               `"normal" = arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo real da conta se o stop bater. ` +
-              `"forte" = ${config.mt5HeavyMultiplier}x esse risco. Prefira "forte" quando a confluencia for robusta de ` +
-              `verdade (multiplos fatores reais alinhados); use "normal" quando a confianca estiver no limiar ou quando ja ` +
-              `houver exposicao relevante no mesmo grupo correlacionado.`,
+              `"forte" = ${config.mt5HeavyMultiplier}x esse risco. Toda entrada aceita ja exige confidence >= ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}% (gate obrigatorio abaixo) -- ou seja, se voce chegou ate aqui, ja e alta ` +
+              `conviccao por definicao. Prefira "forte" quando a confluencia for robusta de verdade (multiplos fatores reais ` +
+              `alinhados, nao so o minimo pra passar do gate); use "normal" quando a confianca estiver no limiar (perto de ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}%) ou quando ja houver exposicao relevante no mesmo grupo correlacionado.`,
           },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
           confidence: {
@@ -441,8 +446,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             description:
               `Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/` +
               `estocastico/spread/padroes de candle) e o reasoning acima -- e o seu julgamento de o quanto os fatores reais ` +
-              `convergem a favor desta tese. Registrado (ai_confidence) pra auditoria/analise, mas nao bloqueia a entrada -- ` +
-              `declare a confianca real, o julgamento de abrir ou nao a posicao e todo seu.`,
+              `convergem a favor desta tese. IMPORTANTE: abaixo de ${MIN_CONFIDENCE_FOR_OPEN_POSITION} a entrada e RECUSADA ` +
+              `pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real; se for < ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}, so nao abra a posicao.`,
           },
         },
         required: ["symbol", "side", "size", "reasoning", "confidence"],
@@ -955,6 +961,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const reasoning = String(input.reasoning || "");
       const confidenceRaw = Number(input.confidence);
       const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(100, confidenceRaw)) : null;
+      if (confidence === null || confidence < MIN_CONFIDENCE_FOR_OPEN_POSITION) {
+        return {
+          error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
+            `(${MIN_CONFIDENCE_FOR_OPEN_POSITION}%). So abra quando a confluencia tecnica REAL justificar confianca alta -- ` +
+            `nao infle o numero so pra passar deste gate, o campo e auditado.`,
+        };
+      }
       // 🔴 2026-09-07, noite (pedido direto do Cleber, restaurando o
       // comportamento do dia 02/09 -- sessão de referência com 80% de
       // acerto): gate obrigatório de confiança mínima REMOVIDO. `confidence`
