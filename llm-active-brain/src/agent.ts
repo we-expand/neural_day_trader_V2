@@ -866,24 +866,6 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     // iteracao e cada request sozinha ja custa uma fatia relevante do limite).
     if (iteration > 1) await sleep(3000);
 
-    // 🔴 2026-09-06 (pedido do Cleber: painel "Logs do Sistema" parecia
-    // morto/"aguardando" na maior parte do tempo): a inferencia local
-    // (Ollama) leva 1-3min por iteracao, e ate aqui nada era gravado nesse
-    // intervalo -- so DEPOIS que o modelo decidia uma tool-call. Este
-    // heartbeat e gravado ANTES da chamada ao modelo, entao a lacuna que o
-    // usuario via como silencio agora mostra que o agente esta de fato
-    // pensando nesse instante -- nunca fabrica progresso, so declara que a
-    // inferencia comecou.
-    if (mt5Session) {
-      logBrainActivity({
-        sessionId: mt5Session.sessionId,
-        userId: mt5Session.userId,
-        cycle,
-        type: "thinking",
-        message: `Analisando cesta e posições abertas (iteração ${iteration})...`,
-      });
-    }
-
     const response = await createChatCompletionWithRetry({
       model: config.llmModel,
       // 🔴 2026-09-02 (achado ao vivo, causa raiz do "motor não abre posição
