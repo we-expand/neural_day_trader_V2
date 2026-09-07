@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Bot, Brain, Play, Pause, Power, Settings, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Mic, Clock, TrendingUp, Crosshair } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
@@ -16,7 +16,6 @@ import { EquityChart } from './tools/EquityChart';
 import { CurrencyConverter } from './tools/CurrencyConverter';
 import { useWorkspaces, WorkspaceSelector, Workspace } from './tools/WorkspaceManager';
 import { ResetAccountModal } from './tools/ResetAccountModal';
-import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { brokerManager } from '@/app/services/brokers/BrokerAdapter';
 import { MT5Adapter } from '@/app/services/brokers/MT5Adapter';
 import { useMarketData } from '@/app/contexts/MarketDataContext';
@@ -69,6 +68,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
      if (compact) setMode('MONITOR');
   }, [compact]);
 
+  // 🔴 2026-09-07 (pedido do Cleber: painel "Logs do Sistema" precisa "estar
+  // viva", com altura igual ao Neural Core Terminal e auto-rolagem real).
+  // `recentLogs` guarda o mais novo em `[0]` (addLog prepende, ver
+  // useApexLogic.ts) -- correto pro resto do app, mas invertido pro visual
+  // de terminal ao vivo esperado aqui (mesmo padrão do Neural Core Terminal
+  // em LiveLogTerminal.tsx: mais novo embaixo, tela rola sozinha pra
+  // acompanhar). Ref/efeito abaixo fazem essa rolagem automática sem mexer
+  // na ordem real do array (outros consumidores de recentLogs dependem do
+  // mais novo estar em [0]).
+  const systemLogsScrollRef = useRef<HTMLDivElement>(null);
+
   // 🌐 Sincronizar status de conexão com MarketDataContext
   useEffect(() => {
     setIsConnected(marketData.isConnected);
@@ -78,6 +88,14 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   // Use the Global Context for Logic
   const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory } = useTradingContext();
   const { strategies } = useStrategies();
+
+  // Auto-rolagem do painel "Logs do Sistema" -- ver comentário no useRef
+  // acima. Roda a cada linha nova, igual ao Neural Core Terminal.
+  useEffect(() => {
+    if (systemLogsScrollRef.current) {
+      systemLogsScrollRef.current.scrollTop = systemLogsScrollRef.current.scrollHeight;
+    }
+  }, [recentLogs]);
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
   useEffect(() => {
@@ -1417,25 +1435,39 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                  </div>
             </div>
 
-            {/* Logs Section */}
-            <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col flex-1 min-h-[200px]">
+            {/* Logs Section -- altura igual ao Neural Core Terminal
+                (LiveLogTerminal.tsx, h-[600px]) + auto-rolagem real, pedido
+                do Cleber 2026-09-07 ("precisa estar viva"). */}
+            <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col h-[600px]">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Terminal className="w-4 h-4" /> Logs do Sistema — Atividade da IA
+                {recentLogs.length > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" title="Recebendo atividade ao vivo" />
+                )}
                 </h3>
-                <SmartScrollContainer className="flex-1 space-y-2 font-mono text-xs flex flex-col">
+                <div
+                  ref={systemLogsScrollRef}
+                  className="flex-1 min-h-0 overflow-y-auto space-y-2 font-mono text-xs scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+                >
                 {recentLogs.length === 0 ? (
                     <NeuralLogsEmpty />
                 ) : (
-                    recentLogs.map((log, i) => (
+                    // Mais novo por último (ordem cronológica, de cima pra
+                    // baixo) -- `recentLogs[0]` é o mais recente (addLog
+                    // prepende), invertido só aqui pro visual de terminal ao
+                    // vivo; a rolagem automática acompanha o fim da lista.
+                    [...recentLogs].reverse().map((log, i) => (
                         <div key={i} className="flex gap-2">
-                            <span className="text-slate-600">[{new Date().toLocaleTimeString()}]</span>
                             <span className={log.includes('EXECUTION') ? 'text-emerald-400' : log.includes('RISK') ? 'text-red-400' : 'text-slate-300'}>
                             {log}
                             </span>
                         </div>
                     ))
                 )}
-                </SmartScrollContainer>
+                {recentLogs.length > 0 && (
+                    <div className="w-2 h-4 bg-emerald-500/80 animate-pulse" />
+                )}
+                </div>
             </div>
         </div>
         )}
