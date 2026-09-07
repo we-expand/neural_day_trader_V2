@@ -134,7 +134,7 @@ const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 // (nem toda confiança declarada pelo modelo é bem calibrada -- ver
 // `confidence` como heurística não validada, catalogado em CLAUDE.md item 5
 // de pendências).
-const MIN_CONFIDENCE_FOR_OPEN_POSITION = 80;
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 70;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
