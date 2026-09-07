@@ -483,6 +483,34 @@ export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.mt5Tradi
   ? [...commonToolDefinitions, ...legacyToolDefinitions, ...tradingToolDefinitions]
   : [...commonToolDefinitions, ...legacyToolDefinitions];
 
+// 🔴 2026-09-07 (achado ao vivo: "IA não abriu nenhuma posição em horas",
+// pedido do Cleber: "a LLM tem que respeitar o setup do usuário sempre").
+// `toolDefinitions` acima é montado 1x no load do modulo com
+// MT5_ASSET_BASKET INTEIRO (22 simbolos que o MOTOR sabe operar) hardcoded
+// nas descricoes de get_mt5_quote/open_position -- o schema que o modelo le
+// em TODA chamada da API, reforcando a cada iteracao um universo maior do
+// que o usuario realmente escolheu no Setup. O gate mecanico real
+// (`effectiveBasketFor` acima, `session.userConfig.activeAssets`) ja
+// respeitava o Setup; só o texto que o modelo LÊ não respeitava. Retorna uma
+// copia com as duas listagens da cesta global trocadas pela cesta efetiva da
+// sessao -- se a sessao nao filtrou nada (cesta efetiva = cesta global),
+// devolve o array original sem custo de clone.
+export function scopedToolDefinitions(effectiveBasket: string[]): OpenAI.Chat.ChatCompletionTool[] {
+  const isFullBasket =
+    effectiveBasket.length === MT5_ASSET_BASKET.length &&
+    effectiveBasket.every((symbol, i) => symbol === MT5_ASSET_BASKET[i]);
+  if (isFullBasket) return toolDefinitions;
+
+  const commaList = MT5_ASSET_BASKET.join(", ");
+  const slashList = MT5_ASSET_BASKET.join("/");
+  const serialized = JSON.stringify(toolDefinitions)
+    .split(commaList)
+    .join(effectiveBasket.join(", "))
+    .split(slashList)
+    .join(effectiveBasket.join("/"));
+  return JSON.parse(serialized);
+}
+
 export interface ExecuteToolSession {
   sessionId: string;
   userId: string;

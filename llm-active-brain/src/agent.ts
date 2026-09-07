@@ -5,7 +5,7 @@ import type {
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { config } from "./config.js";
-import { toolDefinitions, executeTool, MAX_PYRAMID_ADDS, type ExecuteToolSession } from "./tools.js";
+import { scopedToolDefinitions, executeTool, MAX_PYRAMID_ADDS, type ExecuteToolSession } from "./tools.js";
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
@@ -896,7 +896,7 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       // regressao (ciclo inteiro abortado sem nenhuma decisao). Voltado pro
       // ultimo valor confirmado funcionando historicamente.
       max_tokens: 4096,
-      tools: toolDefinitions,
+      tools: scopedToolDefinitions(effectiveBasket),
       // 🔴 2026-08-30 (redesenho pós -$135 líquido, sessão e7eef768): "auto" ->
       // "required". Achado real, confirmado em dezenas de ocorrências no log
       // bruto da noite de monitoramento: o modelo (Nemotron Nano) às vezes
