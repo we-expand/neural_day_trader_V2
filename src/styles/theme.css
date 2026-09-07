@@ -456,7 +456,7 @@
 }
 
 .animate-ticker-scroll {
-  animation: ticker-scroll 500s linear infinite; /* ✅ MAIS LENTO: 160s → 500s (pedido do Cleber, 2026-09-07) */
+  animation: ticker-scroll 700s linear infinite; /* ✅ MAIS LENTO: 160s → 700s (pedido do Cleber, 2026-09-07) */
 }
 
 /* Custom Scrollbar for Liquidity Detector and other components */
