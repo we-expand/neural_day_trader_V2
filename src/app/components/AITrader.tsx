@@ -752,7 +752,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                       <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Operações Abertas</span>
                       <span className="text-2xl font-bold text-white font-mono">{activeOrders.length}</span>
                       <span className="text-xs text-slate-400/60 font-mono mt-1">
-                        {activeOrders.filter(o => o.side === 'LONG').length} LONG · {activeOrders.filter(o => o.side === 'SHORT').length} SHORT
+                        {activeOrders.filter(o => o.side === 'LONG').length} COMPRA · {activeOrders.filter(o => o.side === 'SHORT').length} VENDA
                       </span>
                     </div>
 

@@ -322,7 +322,7 @@ export function BacktestConfigModal({
                       >
                         <ArrowUp className="w-5 h-5 mb-1" />
                         <span className="text-xs font-medium">Comprado</span>
-                        <span className="text-[10px] text-slate-600">Long</span>
+                        <span className="text-[10px] text-slate-600">Compra</span>
                       </button>
                       <button
                         onClick={() => setConfig({ ...config, tradeDirection: 'short' })}
@@ -334,7 +334,7 @@ export function BacktestConfigModal({
                       >
                         <ArrowDown className="w-5 h-5 mb-1" />
                         <span className="text-xs font-medium">Vendido</span>
-                        <span className="text-[10px] text-slate-600">Short</span>
+                        <span className="text-[10px] text-slate-600">Venda</span>
                       </button>
                       <button
                         onClick={() => setConfig({ ...config, tradeDirection: 'both' })}
@@ -346,7 +346,7 @@ export function BacktestConfigModal({
                       >
                         <ArrowUpDown className="w-5 h-5 mb-1" />
                         <span className="text-xs font-medium">Ambos</span>
-                        <span className="text-[10px] text-slate-600">Long & Short</span>
+                        <span className="text-[10px] text-slate-600">Compra & Venda</span>
                       </button>
                     </div>
                   </div>
