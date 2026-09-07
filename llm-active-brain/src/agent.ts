@@ -805,8 +805,32 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       `Saldo USD ficticio no inicio deste ciclo: $${usdBalance}. Comece.`;
   }
 
+  // 🔴 2026-09-07 (achado ao vivo: "IA não abriu nenhuma posição em horas").
+  // GENESIS_PROMPT_MT5 é um template estático montado 1x no load do módulo
+  // com MT5_ASSET_BASKET inteiro (22 símbolos que o MOTOR sabe operar) --
+  // mas o gate real de get_mt5_quote/open_position (tools.ts:495) valida
+  // contra `userConfig.activeAssets`, a cesta que o usuário escolheu no
+  // Setup, quase sempre um SUBCONJUNTO menor. Com a cesta do Setup bem
+  // diferente da global (ex: 10 símbolos mistos vs 22 cripto+forex), o
+  // modelo seguia a instrução "consulte TODOS os ativos da cesta" usando o
+  // texto errado, gastava a iteração inteira tentando cotar símbolos fora
+  // da cesta real (rejeitados 1 a 1) e o ciclo estourava por tempo antes de
+  // sequer chegar perto de abrir uma posição -- confirmado nos ciclos 51/52
+  // do log (`Erro no ciclo N: Request timed out`, zero chamadas a
+  // open_position). Corrigido substituindo a cesta global pela efetiva da
+  // sessão (mesma lógica de `effectiveBasketFor` em tools.ts) diretamente no
+  // prompt, sem tocar no restante do texto estático.
+  const effectiveBasket = mt5Session?.userConfig?.activeAssets ?? MT5_ASSET_BASKET;
+  const systemPromptForCycle =
+    effectiveBasket.length === MT5_ASSET_BASKET.length
+      ? GENESIS_PROMPT
+      : GENESIS_PROMPT.replace(
+          MT5_ASSET_BASKET.join(", "),
+          `${effectiveBasket.join(", ")}\n\n**ATENÇÃO: o parágrafo estático logo abaixo lista o universo completo que o MOTOR sabe operar, mas SUA cesta nesta sessão foi restringida pelo Setup do usuário à lista acima -- só esses símbolos passam no gate de get_mt5_quote/open_position. Ignore qualquer símbolo do parágrafo estático que não esteja na lista acima; tentar cotá-lo só desperdiça sua iteração/tempo de ciclo.**`,
+        );
+
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: GENESIS_PROMPT },
+    { role: "system", content: systemPromptForCycle },
     { role: "user", content: userMessage },
   ];
 
@@ -817,6 +841,24 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     // baixo do free tier do Groq (o historico + as tools crescem a cada
     // iteracao e cada request sozinha ja custa uma fatia relevante do limite).
     if (iteration > 1) await sleep(3000);
+
+    // 🔴 2026-09-06 (pedido do Cleber: painel "Logs do Sistema" parecia
+    // morto/"aguardando" na maior parte do tempo): a inferencia local
+    // (Ollama) leva 1-3min por iteracao, e ate aqui nada era gravado nesse
+    // intervalo -- so DEPOIS que o modelo decidia uma tool-call. Este
+    // heartbeat e gravado ANTES da chamada ao modelo, entao a lacuna que o
+    // usuario via como silencio agora mostra que o agente esta de fato
+    // pensando nesse instante -- nunca fabrica progresso, so declara que a
+    // inferencia comecou.
+    if (mt5Session) {
+      logBrainActivity({
+        sessionId: mt5Session.sessionId,
+        userId: mt5Session.userId,
+        cycle,
+        type: "thinking",
+        message: `Analisando cesta e posições abertas (iteração ${iteration})...`,
+      });
+    }
 
     const response = await createChatCompletionWithRetry({
       model: config.llmModel,
