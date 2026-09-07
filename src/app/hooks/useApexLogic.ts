@@ -1669,6 +1669,26 @@ export function useApexLogic(
       decision: '✅ EXECUTION:',
       error: '⚠️ RISK:',
     };
+    // 🔴 2026-09-07 (achado do Cleber via print: "EXECUTION" verde aparecia
+    // pra TENTATIVA de abrir posição que o código recusou -- ex: "Tentou
+    // abrir COMPRA em NAS100 -- ... Posicao NAO aberta"). Causa: todo evento
+    // type='decision' (open/close/increase_position, sucesso OU bloqueio)
+    // usava o mesmo rótulo fixo "✅ EXECUTION:", e AITrader.tsx colore a
+    // linha de verde só checando se o texto contém "EXECUTION" -- sem saber
+    // se a ferramenta teve sucesso. Mesma checagem que já existe em
+    // `maybePlayPositionOpenSound` (result sem chave `error` = sucesso real,
+    // ver tools.ts) reaproveitada aqui: só usa "✅ EXECUTION:" (fica verde)
+    // quando o resultado realmente virou posição; para tentativa bloqueada,
+    // usa "🚫 TENTATIVA:" (não contém a palavra "EXECUTION", fica com a cor
+    // neutra padrão em AITrader.tsx).
+    const decisionLabel = (detail: unknown): string => {
+      const d = detail as { name?: string; result?: unknown } | undefined;
+      const isPositionTool = d?.name === 'open_position' || d?.name === 'close_position' || d?.name === 'increase_position';
+      const result = d?.result as { error?: unknown } | undefined;
+      const hasError = result && typeof result === 'object' && 'error' in result;
+      if (isPositionTool && hasError) return '🚫 TENTATIVA:';
+      return typeLabel.decision;
+    };
     // 🔴 O wrapper que renderiza `recentLogs` (AITrader.tsx) carimba TODA
     // linha com `new Date().toLocaleTimeString()` no momento da renderização
     // -- correto pra log ao vivo (a linha chega ~1s depois do evento real via
@@ -1676,8 +1696,10 @@ export function useApexLogic(
     // carimbadas com "agora" mesmo tendo acontecido minutos atrás). Embutido
     // aqui o horário REAL (`created_at`) de cada linha pra nunca depender só
     // do carimbo (potencialmente falso) do wrapper -- dado honesto sempre.
-    const formatRow = (row: { type: string; symbol: string | null; message: string; created_at: string }) =>
-      `${new Date(row.created_at).toLocaleTimeString('pt-BR')} ${typeLabel[row.type] ?? 'ℹ️'} ${row.symbol ? `[${row.symbol}] ` : ''}${row.message}`;
+    const formatRow = (row: { type: string; symbol: string | null; message: string; created_at: string; detail?: unknown }) => {
+      const label = row.type === 'decision' ? decisionLabel(row.detail) : (typeLabel[row.type] ?? 'ℹ️');
+      return `${new Date(row.created_at).toLocaleTimeString('pt-BR')} ${label} ${row.symbol ? `[${row.symbol}] ` : ''}${row.message}`;
+    };
 
     // 🔊 2026-09-06: som ao abrir posicao nova (pedido do Cleber) -- so
     // decision cujo detail.name e realmente "open_position" E o resultado
@@ -1719,7 +1741,7 @@ export function useApexLogic(
       try {
         const { data, error } = await supabase
           .from('ai_brain_activity_log')
-          .select('type, symbol, message, created_at')
+          .select('type, symbol, message, created_at, detail')
           .eq('session_id', sessionId)
           .order('created_at', { ascending: false })
           .limit(50);
