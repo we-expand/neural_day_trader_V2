@@ -100,6 +100,16 @@ export function DrawingContextToolbar({
   const [thickness, setThickness] = useState(2);
   const [fontSize, setFontSize] = useState(14);
   const [textColor, setTextColor] = useState('#ffffff');
+  const [lineColor, setLineColor] = useState('#2962ff');
+
+  // 🆕 Sincroniza os controles locais (cor/espessura/fonte) com o estilo real do
+  // desenho ao selecionar um novo -- sem isso, o painel sempre mostrava os
+  // defaults (ex: sempre "2px" mesmo numa linha já configurada com 6px).
+  useEffect(() => {
+    if (selectedDrawing?.style?.color) setLineColor(selectedDrawing.style.color);
+    if (typeof selectedDrawing?.style?.lineWidth === 'number') setThickness(selectedDrawing.style.lineWidth);
+    if (typeof selectedDrawing?.style?.fontSize === 'number') setFontSize(selectedDrawing.style.fontSize);
+  }, [selectedDrawing?.id]);
 
   // Fechar menus ao clicar fora
   useEffect(() => {
@@ -161,8 +171,19 @@ export function DrawingContextToolbar({
     toast.success(`Estilo: ${style === 'solid' ? 'Sólida' : style === 'dashed' ? 'Tracejada' : 'Pontilhada'}`);
   };
 
+  const handleColorChange = (value: string) => {
+    setLineColor(value);
+    if (onStyleChange) {
+      onStyleChange({ color: value });
+    }
+  };
+
   const thicknessOptions = [1, 2, 3, 4, 5, 6, 8, 10];
   const fontSizeOptions = [10, 12, 14, 16, 18, 20, 24, 28, 32];
+  const colorPresets = [
+    '#2962ff', '#ff5252', '#00c853', '#ffab00',
+    '#e040fb', '#00e5ff', '#ffffff', '#787b86'
+  ];
 
   return (
     <div
@@ -351,32 +372,110 @@ export function DrawingContextToolbar({
         </button>
 
         {showSettingsModal && (
-          <div className="absolute top-full mt-1 left-0 bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-xl p-3 min-w-[220px] z-[110]">
-            <label className="block text-xs text-gray-400 mb-1.5">Ir para o preço</label>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                inputMode="decimal"
-                autoFocus
-                value={gotoPriceInput}
-                onChange={(e) => setGotoPriceInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleGotoPriceSubmit();
-                  if (e.key === 'Escape') setShowSettingsModal(false);
-                }}
-                placeholder="Ex: 1.0850"
-                className="flex-1 bg-[#1a1a1a] border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
-              />
-              <button
-                onClick={handleGotoPriceSubmit}
-                className="px-2.5 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
-              >
-                Ir
-              </button>
+          <div className="absolute top-full mt-1 left-0 bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-xl p-3 min-w-[240px] z-[110] space-y-3">
+            {/* Cor */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Cor</label>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {colorPresets.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => handleColorChange(c)}
+                    className={`w-5 h-5 rounded-full border transition-transform ${
+                      lineColor.toLowerCase() === c.toLowerCase()
+                        ? 'border-white scale-110'
+                        : 'border-gray-600 hover:scale-110'
+                    }`}
+                    style={{ backgroundColor: c }}
+                    title={c}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={lineColor}
+                  onChange={(e) => handleColorChange(e.target.value)}
+                  className="w-6 h-6 rounded bg-transparent border border-gray-600 cursor-pointer p-0"
+                  title="Cor customizada"
+                />
+              </div>
             </div>
-            <p className="text-[10px] text-gray-500 mt-1.5">
-              Move a linha na horizontal para este nível exato de preço.
-            </p>
+
+            {/* Espessura */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Espessura: {thickness}px</label>
+              <div className="flex items-center gap-1">
+                {thicknessOptions.map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => handleThicknessChange(size)}
+                    className={`flex-1 py-1 text-[10px] rounded transition-colors ${
+                      thickness === size
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-[#1a1a1a] text-gray-400 hover:bg-gray-700 hover:text-white'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Estilo de linha */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Estilo</label>
+              <div className="flex items-center gap-1">
+                {(['solid', 'dashed', 'dotted'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleLineStyleChange(s)}
+                    className={`flex-1 py-1.5 rounded flex items-center justify-center transition-colors ${
+                      lineStyle === s
+                        ? 'bg-blue-500'
+                        : 'bg-[#1a1a1a] hover:bg-gray-700'
+                    }`}
+                    title={s === 'solid' ? 'Sólida' : s === 'dashed' ? 'Tracejada' : 'Pontilhada'}
+                  >
+                    <div
+                      className={`w-8 h-0.5 ${
+                        s === 'solid' ? 'bg-current' :
+                        s === 'dashed' ? 'border-t-2 border-dashed border-current' :
+                        'border-t-2 border-dotted border-current'
+                      } ${lineStyle === s ? 'text-white' : 'text-gray-400'}`}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="h-px bg-gray-700" />
+
+            {/* Ir para o preço */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Ir para o preço</label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={gotoPriceInput}
+                  onChange={(e) => setGotoPriceInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleGotoPriceSubmit();
+                    if (e.key === 'Escape') setShowSettingsModal(false);
+                  }}
+                  placeholder="Ex: 1.0850"
+                  className="flex-1 bg-[#1a1a1a] border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={handleGotoPriceSubmit}
+                  className="px-2.5 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                >
+                  Ir
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1.5">
+                Move a linha na horizontal para este nível exato de preço.
+              </p>
+            </div>
           </div>
         )}
       </div>
