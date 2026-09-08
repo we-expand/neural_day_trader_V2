@@ -86,7 +86,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory, setSelectedAsset } = useTradingContext();
   const { strategies } = useStrategies();
 
   // Auto-rolagem do painel "Logs do Sistema" -- ver comentário no useRef
@@ -788,7 +788,14 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         const pnlValue = pnlValueNum.toFixed(2);
 
                         return (
-                        <div key={order.id} className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex items-center justify-between group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden">
+                        <div
+                            key={order.id}
+                            onClick={() => {
+                                setSelectedAsset(order.symbol);
+                                onNavigate?.('chart');
+                            }}
+                            title={`Ver ${order.symbol} no gráfico`}
+                            className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex items-center justify-between group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden cursor-pointer">
                             {/* Status Bar */}
                             <div className={`absolute left-0 top-0 bottom-0 w-1 ${isPositive ? 'bg-emerald-500' : 'bg-red-500'}`} />
                             
