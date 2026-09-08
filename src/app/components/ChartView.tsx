@@ -902,7 +902,7 @@ const FibCirclesOverlay: OverlayTemplate = {
     return FIB_RATIOS.map((ratio, i) => ({
       type: 'circle',
       attrs: { x: a.x, y: a.y, r: baseR * ratio },
-      styles: { style: 'stroke', borderColor: FIB_COLORS[i], borderSize: 1 }
+      styles: { style: 'stroke', borderColor: FIB_COLORS[i], borderSize: 4 }
     }));
   }
 };
@@ -925,7 +925,7 @@ const FibFanOverlay: OverlayTemplate = {
       figures.push({
         type: 'line',
         attrs: { coordinates: [a, end] },
-        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: FIB_COLORS[i + 1], dashedValue: [4, 4] }
+        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: FIB_COLORS[i + 1], size: 4, dashedValue: [4, 4] }
       });
       figures.push({
         type: 'text',
@@ -961,7 +961,7 @@ const FibArcsOverlay: OverlayTemplate = {
         endAngle: opensUp ? Math.PI * 2 : Math.PI
       },
       // 🔧 o overlay nativo 'arc' usa style/color/size (LineType), não borderColor/borderSize
-      styles: { style: 'solid', color: FIB_COLORS[i + 1], size: 1 }
+      styles: { style: 'solid', color: FIB_COLORS[i + 1], size: 4 }
     }));
   }
 };
@@ -3813,9 +3813,14 @@ export function ChartView({
       // Informações, nem a toolbar de contexto de Bloquear/Ocultar/Estilo/Duplicar/Copiar).
       // O jeito real de ouvir clique em overlay é o handler onClick por instância, atribuído
       // na própria criação (ver Overlay.onClick na tipagem da lib).
+      // 🆕 Linhas de nível do Fibonacci (overlay nativo 'fibonacciLine'/'fibonacciExtension')
+      // pedidas 4x mais grossas pelo Cleber -- default da klinecharts é line.size=1.
+      const isFibonacciNativeOverlay = overlayType === 'fibonacciLine' || overlayType === 'fibonacciExtension';
+
       const overlayId = chartInstanceRef.current.createOverlay({
         name: overlayType,
         groupId: USER_DRAWINGS_GROUP,
+        ...(isFibonacciNativeOverlay ? { styles: { line: { size: 4 } } } : {}),
         // 🆕 Modo Magnético (ver toggle no DrawingToolbar) -- weak_magnet faz os pontos
         // do desenho encaixarem no OHLC do candle mais próximo em vez de ficarem soltos
         // em qualquer coordenada crua do mouse. Suporte nativo da klinecharts.
