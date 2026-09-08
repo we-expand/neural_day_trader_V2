@@ -123,9 +123,10 @@ const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 // confiança: `confidence` era só declarada e logada, nunca bloqueava).
 // Depois de um dia inteiro de idas e voltas neste gate (65->70->80% pela
 // manhã, removido à noite, agora reintroduzido), o Cleber pediu
-// explicitamente um teto FIXO em 70% -- não é mais volátil no mesmo dia,
+// explicitamente um teto FIXO -- não é mais volátil no mesmo dia,
 // fica assim até nova decisão explícita dele.
-const MIN_CONFIDENCE_FOR_OPEN_POSITION = 70;
+// [2026-09-08] Ajustado de 70% para 75% a pedido do Cleber.
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 75;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
