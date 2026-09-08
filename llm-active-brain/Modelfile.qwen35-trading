@@ -1,2 +1,3 @@
 FROM qwen3.5:4b
 PARAMETER num_ctx 24576
+PARAMETER num_keep 12000
