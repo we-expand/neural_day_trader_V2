@@ -573,24 +573,27 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
           },
           styles: {
             style: 'solid',
-            color: overlay.styles?.line?.color || '#2962FF'
+            color: overlay.styles?.line?.color || '#2962FF',
+            // 🎯 linha base (A→B→C) 4x mais grossa, pedido do Cleber — as linhas
+            // horizontais de nível abaixo têm que ficar do MESMO tamanho dela.
+            size: 4
           }
         });
       }
-      
+
       // Se temos 3 pontos, calcular e desenhar níveis de extensão
       if (coordinates.length === 3) {
         const [pointA, pointB, pointC] = coordinates;
         const range = Math.abs(pointB.y - pointA.y);
-        
+
         // Níveis de extensão Fibonacci: 0.618, 1.0, 1.618, 2.618
         const levels = [0.618, 1.0, 1.618, 2.618];
         const direction = pointB.y > pointA.y ? 1 : -1;
-        
+
         levels.forEach((level, index) => {
           const y = pointC.y + (range * level * direction);
           const colors = ['#26a69a', '#2962FF', '#f23645', '#ff9800'];
-          
+
           figures.push({
             type: 'line',
             attrs: {
@@ -602,7 +605,9 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
             styles: {
               style: 'dashed',
               color: colors[index] || '#808080',
-              dashValue: [4, 4]
+              dashValue: [4, 4],
+              // 🎯 mesma espessura da linha base A→B→C, acima
+              size: 4
             }
           });
           
@@ -4668,8 +4673,15 @@ export function ChartView({
     const combined = [...intradayZones, ...macroZones].sort((a, b) => b.strength - a.strength);
     const deduped: SmcZone[] = [];
     combined.forEach((zone) => {
+      // 🐛 FIX: comparava sobreposição de preço contra TODAS as zonas já aceitas, sem
+      // checar o tipo — uma zona de resistência (bearish, acima do preço) podia ser
+      // descartada como "duplicata" de uma zona de suporte (bullish, abaixo do preço)
+      // mais forte cujo range (principalmente as macro de 1D/~5 anos, bem largas) por
+      // acaso se sobrepunha, mesmo os dois sendo tipos opostos e níveis reais distintos.
+      // Isso explicava zonas de venda desaparecendo por completo do gráfico. Dedup
+      // agora só compara zonas do MESMO tipo entre si.
       const isDuplicate = deduped.some(
-        (existing) => zone.priceLow <= existing.priceHigh && zone.priceHigh >= existing.priceLow
+        (existing) => existing.type === zone.type && zone.priceLow <= existing.priceHigh && zone.priceHigh >= existing.priceLow
       );
       if (!isDuplicate) deduped.push(zone);
     });
@@ -4812,8 +4824,18 @@ export function ChartView({
     if (!visible || zones.length === 0) return;
 
     // Prioriza as zonas mais FORTES (já vem ordenado/deduplicado por
-    // combineOrderBlockZones) — corta pro teto de zonas visíveis.
-    const selected = zones.slice(0, MAX_SR_OVERLAYS);
+    // combineOrderBlockZones) — corta pro teto de zonas visíveis. 🐛 FIX: um corte
+    // cego por força (zones.slice) podia devolver só resistência ou só suporte quando
+    // um lado tinha zonas sistematicamente mais fortes que o outro (comum: mercado em
+    // tendência clara) — a metade mais fraca do lado oposto nunca aparecia no gráfico,
+    // mesmo existindo e sendo real. Agora reserva metade do teto pra cada lado.
+    const resistanceZones = zones.filter((z) => z.type === 'order_block_bearish');
+    const supportZones = zones.filter((z) => z.type !== 'order_block_bearish');
+    const halfCap = Math.ceil(MAX_SR_OVERLAYS / 2);
+    const selected = [
+      ...resistanceZones.slice(0, halfCap),
+      ...supportZones.slice(0, halfCap)
+    ].slice(0, MAX_SR_OVERLAYS);
     const zoneEndTime = lastCandleTimestamp + extendMs;
 
     selected.forEach((zone) => {
@@ -4852,7 +4874,7 @@ export function ChartView({
           id: lineId,
           lock: true,
           points: [{ value: lineLevel }],
-          styles: { line: { color: borderColor, style: 'dashed', size: 1 } },
+          styles: { line: { color: borderColor, style: 'dashed', size: 4 } },
           extendData: label
         });
         srOverlayIdsRef.current.push(lineId);
