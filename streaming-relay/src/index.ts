@@ -17,6 +17,7 @@ import MetaApi, { SynchronizationListener, MetatraderSymbolPrice } from 'metaapi
 import { createClient } from '@supabase/supabase-js';
 import { ALL_ASSETS } from '../../src/app/config/assetDatabase.js';
 import { isAvailableOnBroker, isCryptoCfdAvailable, getBrokerSymbol } from '../../src/app/config/brokerRegistry.js';
+import { DEFAULT_ANALYSIS_BASKET } from '../../src/app/config/defaultBasket.js';
 
 const METAAPI_TOKEN = requireEnv('METAAPI_TOKEN');
 const METAAPI_ACCOUNT_ID = requireEnv('METAAPI_ACCOUNT_ID');
@@ -54,15 +55,33 @@ function requireEnv(name: string): string {
 // `payload.price` direto) — exclusão preventiva de BTCUSD da assinatura de
 // streaming aqui, pra esse religamento futuro não reintroduzir a divergência
 // contra a Binance sem ninguém perceber.
+// ✅ 2026-09-08: reduzido do catálogo INTEIRO (~361 símbolos, ALL_ASSETS) pra
+// só a cesta curada `DEFAULT_ANALYSIS_BASKET` (39 ativos) — achado real via
+// consulta direta à API da MetaAPI (`GET .../accounts/:id`): a conta
+// dedicada nova (bb99f865...) está com `resourceSlots: 1` e
+// `accountReplicas: []` (tier "high" sem réplica de failover). Resync de 361
+// símbolos de uma vez é pesado o bastante pra estourar a janela de
+// sincronização desse único slot sem redundância — `relay.log` mostrava
+// "resynchronized... did not finish in time" e "timed out waiting for
+// connection status" em loop, cascata que também derrubava as chamadas REST
+// de `/mt5-prices`/`/mt5-candles-history` (HTTP 504 em qualquer símbolo,
+// não só EURUSD — ele só aparecia mais no log por ser o mais consultado).
+// NÃO resolve a causa raiz (falta de réplica — decisão de custo do Cleber,
+// pendente), só reduz a carga de resync enquanto isso não é decidido. Não
+// tira nenhum ativo do ar: fora da cesta, o app cai pro polling HTTP normal
+// via `/mt5-prices` (era assim antes deste relay existir).
+const assetBySymbol = new Map(ALL_ASSETS.map((asset) => [asset.symbol, asset]));
 const brokerSymbolByUnified = new Map<string, string>();
-for (const asset of ALL_ASSETS) {
+for (const unifiedSymbol of DEFAULT_ANALYSIS_BASKET) {
+  const asset = assetBySymbol.get(unifiedSymbol);
+  if (!asset) continue;
   if (asset.symbol === 'BTCUSD') continue;
   if (asset.category === 'CRYPTO' && !isCryptoCfdAvailable(asset.symbol, 'infinox')) continue;
   if (isAvailableOnBroker(asset.symbol, 'infinox')) {
     brokerSymbolByUnified.set(getBrokerSymbol(asset.symbol, 'infinox'), asset.symbol);
   }
 }
-console.log(`[streaming-relay] 📋 ${brokerSymbolByUnified.size} símbolos disponíveis na corretora, assinando streaming.`);
+console.log(`[streaming-relay] 📋 ${brokerSymbolByUnified.size} símbolos da cesta de análise assinados pra streaming (era ${ALL_ASSETS.length} antes, catálogo inteiro).`);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   realtime: { params: { eventsPerSecond: 20 } },
