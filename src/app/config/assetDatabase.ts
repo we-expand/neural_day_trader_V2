@@ -264,7 +264,16 @@ export const ALL_ASSETS: Asset[] = [
   
   // ASIAN INDICES
   { symbol: 'JP225', name: 'Nikkei 225', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇯🇵', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 JST', description: 'Nikkei 225' },
+  // 🔴 2026-09-08: mesmo padrão do BTCXBN/DOGUSD acima -- 'JPN225' é o nome
+  // REAL da corretora Infinox (confirmado via /mt5-prices na sessão que
+  // ampliou a cesta do LLM Brain), diferente do alias de exibição 'JP225'
+  // acima. Faltava esta entrada -- Gráfico/boleta mostravam "Ativo
+  // desconhecido: JPN225", ícone/nome caindo no fallback hardcoded "Bitcoin".
+  { symbol: 'JPN225', name: 'Nikkei 225', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇯🇵', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 JST', description: 'Nikkei 225 — símbolo real da corretora' },
   { symbol: 'HK50', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng' },
+  // 🔴 2026-09-08: mesmo padrão acima -- 'HKG33' é o nome real da corretora
+  // pro Hang Seng, alias de exibição é 'HK50'.
+  { symbol: 'HKG33', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng — símbolo real da corretora' },
   { symbol: 'AUS200', name: 'ASX 200', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇦🇺', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '10:00-16:00 AEST', description: 'ASX 200' },
   { symbol: 'CHINA50', name: 'FTSE China A50', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇨🇳', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 CST', description: 'FTSE China A50' },
 

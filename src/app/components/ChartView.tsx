@@ -7345,7 +7345,7 @@ export function ChartView({
                   <ChevronDown className="w-4 h-4 text-gray-400" />
                 </div>
                 <div className="text-xs text-gray-500 text-left">
-                  {liveAssets.find(a => a.symbol === selectedSymbol)?.name || 'Bitcoin'}
+                  {liveAssets.find(a => a.symbol === selectedSymbol)?.name || selectedSymbol}
                 </div>
               </button>
             </div>
