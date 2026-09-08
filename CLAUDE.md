@@ -15,6 +15,110 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-08, à noite] Menu "Configurações" do desenho (clique
+numa trendline) estava morto de verdade — botão existia mas nenhum painel
+renderizava; agora reúne cor/espessura/estilo + "ir para o preço" (linha
+salta pra um nível exato digitado).** Causa: `showSettingsModal` era setado
+mas nunca lido em JSX nenhum. Cor nunca teve UI (só espessura/estilo já
+existiam). Detalhe completo:
+[SESSAO_2026-09-08_MENU_CONFIGURACOES_DESENHO_IR_PARA_PRECO.md](SESSAO_2026-09-08_MENU_CONFIGURACOES_DESENHO_IR_PARA_PRECO.md).
+`tsc --noEmit` limpo (417 erros pré-existentes, nenhum novo). Não testado ao
+vivo (dev local exige login). Commit pronto, aguardando Cleber rodar.
+
+**[RESOLVIDO 2026-09-08, à noite] Conexão real (LIVE) do MetaTrader desligada
+a pedido do Cleber — achado real: era a mesma conta MetaAPI do streaming de
+preço da plataforma inteira.** Cleber conectou a corretora em modo real
+(login `87026945`, `InfinoxLimited-MT5Live`) e depois pediu pra desligar,
+mantendo só DEMO — relatou que "a conexão não quer desligar". Achado: o
+`account_id` gravado em `broker_credentials` (`bb99f865-96fb-4573-98a7-
+1f32895f84f7`) é a MESMA conta MetaAPI dedicada que o `streaming-relay` usa
+pra transmitir preço em tempo real pra todos os usuários (inclusive as
+posições DEMO do LLM Brain) — o endpoint existente `DELETE /broker/credentials`
+não só apaga o registro, também chama `undeploy` na própria conta MetaAPI,
+o que derrubaria o streaming da plataforma inteira. Como Cleber pediu
+explicitamente pra não afetar as posições DEMO abertas (5 na sessão
+`e6ca2cf7...`: UKOUSD, NAS100, AUS200, EURUSD, UKOUSD), a linha foi apagada
+direto via SQL (`DELETE FROM broker_credentials WHERE user_id=...`) SEM
+chamar undeploy — conta MetaAPI continua deployada, streaming/DEMO
+intactos, só a capacidade de execução real foi removida. Confirmado que as
+5 posições OPEN continuam no banco. De carona: rotacionado o token MetaAPI
+(`METAAPI_TOKEN`) nesta mesma sessão, aplicado em `streaming-relay/.env`
+(local) e secret do Supabase (produção) — nenhuma mudança de código, nada
+a commitar.
+
+**[RESOLVIDO 2026-09-08, à noite] LLM Brain ganhou tendência de longo prazo
+(1H/~1dia) + leitura de notícias reais a cada 3h — Cleber achou a IA "cega"
+ao contexto do dia depois de ver um LONG em BTCUSD que ele leu como
+rompimento de fundo/mercado vendedor.** Investigação real via
+`ai_brain_activity_log`: a entrada (10:59 UTC, confiança 85%) não foi
+fabricação nem ignorou trava — a IA só enxergava `trend` numa janela curta
+(180min, escalada pelo timeframe operacional) e leu "pullback numa alta",
+sem noção do quadro mais amplo do dia. Dois fixes: (1) `trendLongTerm` novo
+em `atr.ts`/`tools.ts` (`getLongTermTrendInfo`, timeframe FIXO 1H, ~24
+velas) devolvido junto de `trend` em `get_mt5_quote`, com aviso explícito
+"DIVERGENCIA DE TENDENCIA" quando os dois prazos apontam pra lados opostos
+— novo princípio 1a no prompt (`agent.ts`) instrui a nunca tratar isso como
+"a favor da tendência" sem confirmação extra; (2) `news.ts` novo —
+manchetes reais (RSS Investing.com/Cointelegraph/CNBC/Money Times, MESMO
+endpoint `/news/aggregate` que o Dashboard já usa, gratuito, nunca
+fabricado) injetadas no contexto de todo ciclo, cache/registro no log de
+atividade a cada 3h (pedido explícito do Cleber), novo princípio 1h no
+prompt orientando uso como contexto qualitativo — nunca sinal mecânico
+(pesquisa anterior do projeto já fechou que notícia/calendário sozinho não
+tem edge direcional comprovado, ver seção "Cérebro de decisão" abaixo).
+`tsc --noEmit` limpo (engine + frontend). Commit pronto, aguardando Cleber
+rodar `git commit` + `./restart.sh` (dentro de `llm-active-brain/`). Sem
+validação estatística ainda — mudança de contexto/julgamento, não trava
+mecânica nova, precisa de amostra rodando pra avaliar efeito real.
+
+**[EM ANDAMENTO 2026-09-08] Gráfico não abre pra EURUSD (e todo o resto) —
+conta MetaAPI dedicada nova (bb99f865...) travada, `connectionStatus` diz
+CONNECTED mas recusa toda chamada real; código/streaming-relay descartados
+como causa via teste isolado; chamado de suporte já enviado à MetaAPI,
+aguardando resposta (SLA deles ~3h).** Cleber reportou "EURUSD não abre o
+gráfico" — investigado com log ao vivo do Supabase + log local do
+`streaming-relay` + consulta direta à API da MetaAPI. **Achado real**: não
+é bug de símbolo nenhum — TODOS os ativos MetaAPI falhando com HTTP 504
+(`/mt5-prices` e `/mt5-candles-history`), "not connected to broker yet",
+sustentado desde ~08:08 UTC (cripto via Binance direta, ex. BTCUSD, não é
+afetada). Confirmado via `GET .../accounts/bb99f865...` (API de
+provisionamento, consultada repetidas vezes): `state: DEPLOYED`,
+`connectionStatus: CONNECTED` o tempo todo, SEM flapping — mas recusa
+quase toda operação real. Achado técnico provável: conta é tier
+`reliability: "high"` mas com `resourceSlots: 1` e `accountReplicas: []`
+— sem réplica de failover. **Teste real feito depois, a pedido do
+Cleber** (suspeita de que o `streaming-relay`, religado no mesmo dia em
+que essa conta foi criada, estivesse sobrecarregando o único slot):
+`launchd` agent (`com.neuralday.streaming-relay.plist`) descarregado por
+completo, processo parado por 5+min, `/mt5-prices` retestado 5x — EURUSD/
+XAUUSD continuaram 504 o tempo todo, idêntico a com o relay ligado.
+**Descarta o streaming-relay como causa** — o problema é da conta em si,
+independente de quem a consulta (mesmo achado do log já indicava isso: o
+log do relay mostra 5h+ de streaming limpo, com 361 símbolos, antes do
+primeiro sinal de degradação às 08:05 UTC — não quebrou "na hora" de ligar
+o streaming). `launchd` agent religado depois do teste, relay de volta ao
+ar normalmente. Reduzir a cesta de streaming pra 39 símbolos
+(`0d98cbad3`) também não teve efeito na taxa de falha REST, mesma
+conclusão. **Pendente real**: chamado de suporte com a MetaAPI **já
+enviado pelo Cleber** (SLA deles costuma ser ~3h de resposta) — opções em
+aberto: esperar recuperação espontânea, reclamar do SLA dessa conta
+dedicada paga, ou pedir upgrade pra 2 `resourceSlots` (custo extra,
+decisão do Cleber). Ainda travado na última checagem (11:44 UTC).
+**Atualização (12:xx UTC)**: Cleber confirmou por print que não é só o
+Gráfico — Dashboard inteiro afetado (posições EURUSD/NAS100/AUS200 com
+"Atual" == "Entrada" travado, ticker de índices do rodapé em `$---`),
+enquanto cripto (BTCUSD via Binance direta) continua atualizando normal —
+mesma correlação já esperada (tudo MetaAPI trava, tudo não-MetaAPI
+funciona), não é achado novo, só mais uma confirmação visual. Suporte da
+MetaAPI (bot "Fin") sugeriu checar cobrança pendente em
+`app.metaapi.cloud/billing` — Cleber confirmou que **não há problema de
+pagamento**, faturamento limpo. Resposta técnica preparada (descarta
+faturamento, pede checagem de sincronização do lado deles) mas Cleber
+mandou por engano na caixa de mensagem errada do chat; reaberto no lugar
+certo depois — chamado agora está de fato registrado e aguardando resposta
+(SLA ~3h, contado a partir de agora). Nada mais acionável do nosso lado até
+a resposta chegar.
+
 **[RESOLVIDO 2026-09-08, à noite] Gráfico "Ativo desconhecido: JPN225" +
 nome/ícone mostrando Bitcoin — catálogo do frontend não tinha os nomes
 reais da corretora pra 2 dos 4 índices asiáticos recém-adicionados à
@@ -61,36 +165,40 @@ junto. `tsc --noEmit` limpo. Commit pronto, aguardando Cleber rodar
 `./restart.sh` (dentro de `llm-active-brain/`, não na raiz — script não
 existe na raiz do projeto, achado nesta sessão).
 
-**[EM ANDAMENTO 2026-09-07, noite] Cleber contratou conta MetaAPI dedicada
-pra reduzir delay de preço — `streaming-relay/` (WebSocket direto, já
-existia no repo desde 2026-07-14 mas estava DESLIGADO desde 2026-07-23)
-consertado e pronto pra religar, aguardando Cleber rodar local.** Cleber
-perguntou se dava pra tirar o delay de preço com a conta nova — achado real:
-o streaming via push já tinha sido construído e chegou a funcionar em
-produção, mas foi desligado porque rodava sem gestão (`launchd` no Mac do
-Cleber, `KeepAlive` sem teto) e entrou em loop infinito de reconexão
-("account not connected to broker yet"), martelando a conta MetaAPI
-**compartilhada** 24h/dia sozinho — causa raiz de "ativos zerados" que levou
-dias pra achar. 2 problemas reais corrigidos antes de religar: (1) o
-build nunca compilava de verdade (`tsc` dava `TS5097` no jeito que
-`brokerRegistry.ts` importa `assetDatabase.ts`) — trocado pra `esbuild`,
-testado local (typecheck limpo, bundle roda); (2) causa raiz do incidente
-de 07-23 — conexão MetaAPI agora tem timeout de 60s por tentativa e
-backoff exponencial (15s→5min) antes de sair, nunca mais reconecta sem
-teto; `launchd` ganhou `ThrottleInterval` como piso extra redundante.
-Cogitado hospedar em Fly.io (seria "sempre-ligado" de verdade, independente
-do Mac), mas exige cartão cadastrado — Cleber optou por continuar local por
-enquanto (limitação aceita: só transmite com o Mac ligado, cai pro polling
-HTTP normal se desligar, sem quebrar nada). Frontend já consome via
-`subscribeToRealtimePrice`/`turbo-main-channel` em vários componentes do
-Dashboard (`MarketScoreBoard`, `LiquidityPrediction`, etc.) desde
-2026-07-14 — só o relay em si estava desligado, nenhuma mudança de
-frontend foi necessária. **Pendente**: commit (comando já entregue),
-depois Cleber confirmar no painel da MetaAPI que a conta dedicada nova
-está "connected"/sincronizada com a corretora antes de ligar (era
-exatamente uma conta nunca sincronizada que causou o loop original), rodar
-`npm run build` + registrar no `launchd` local, e observar `relay.log`
-por `🚀 Streaming ativo pra N símbolos.` sem erro repetindo.
+**[RESOLVIDO 2026-09-08] Cleber contratou conta MetaAPI dedicada pra
+reduzir delay de preço — `streaming-relay/` (WebSocket direto) religado e
+CONFIRMADO AO VIVO, token/conta novos aplicados em produção.** Cleber
+perguntou se dava pra tirar o delay de preço com a conta nova — achado
+real: o streaming via push já tinha sido construído (2026-07-14) e chegou
+a funcionar em produção, mas foi desligado em 2026-07-23 porque rodava sem
+gestão (`launchd` no Mac do Cleber, `KeepAlive` sem teto) e entrou em loop
+infinito de reconexão ("account not connected to broker yet"), martelando
+a conta MetaAPI **compartilhada** 24h/dia sozinho — causa raiz de "ativos
+zerados" que levou dias pra achar na época. 2 problemas reais corrigidos
+antes de religar: (1) o build nunca compilava de verdade (`tsc` dava
+`TS5097` no jeito que `brokerRegistry.ts` importa `assetDatabase.ts`) —
+trocado pra `esbuild`, testado local (typecheck limpo, bundle roda); (2)
+causa raiz do incidente de 07-23 — conexão MetaAPI ganhou timeout de 60s
+por tentativa e backoff exponencial (15s→5min) antes de sair, nunca mais
+reconecta sem teto; `launchd` ganhou `ThrottleInterval` como piso extra
+redundante. Cogitado hospedar em Fly.io (seria "sempre-ligado" de verdade,
+independente do Mac), mas exige cartão cadastrado — Cleber optou por
+continuar local por enquanto (limitação aceita: só transmite com o Mac
+ligado, cai pro polling HTTP normal se desligar, sem quebrar nada).
+Frontend já consumia via `subscribeToRealtimePrice`/`turbo-main-channel`
+em vários componentes do Dashboard (`MarketScoreBoard`,
+`LiquidityPrediction`, etc.) desde 2026-07-14 — só o relay em si estava
+desligado, nenhuma mudança de frontend foi necessária. Cleber gerou um
+token novo pra conta dedicada (id `bb99f865-96fb-4573-98a7-1f32895f84f7`)
+— aplicado nos 2 lugares: `streaming-relay/.env` local (nunca commitado) e
+secret `METAAPI_TOKEN`/`METAAPI_ACCOUNT_ID` do Supabase (produção, via
+`supabase secrets set`, rodado pelo Cleber). **Confirmado ao vivo nos dois
+lados**: `relay.log` mostrou `🚀 Streaming ativo pra 361 símbolos.` sem
+loop de erro (as falhas de assinatura que aparecem, tipo `ONEUSD`/ações
+`.L`/`.PA`/`.DE`, são símbolos que não existem nessa corretora, tratadas
+normalmente, não é o bug antigo); `curl` direto em `/mt5-prices` (produção)
+confirmou cotação real de EURUSD com o token novo. Commits `9465a72d1`
+(hardening do relay) e `97b560784` (doc) já em `origin/dev`.
 
 **[RESOLVIDO 2026-09-07, noite] Cards de posição do AI Trader clicáveis +
 linhas de Fibonacci/S&R quase invisíveis (1px) + zonas de resistência
