@@ -66,6 +66,8 @@ interface DrawingContextToolbarProps {
   onCopy?: () => void;
   onHideToggle?: () => void;
   onClose?: () => void;
+  /** Move o desenho selecionado pra uma linha horizontal exatamente neste preço. */
+  onGotoPrice?: (price: number) => void;
 }
 
 export function DrawingContextToolbar({
@@ -80,16 +82,19 @@ export function DrawingContextToolbar({
   onDuplicate,
   onCopy,
   onHideToggle,
-  onClose
+  onClose,
+  onGotoPrice
 }: DrawingContextToolbarProps) {
   const [showLineStyleMenu, setShowLineStyleMenu] = useState(false);
   const [showThicknessMenu, setShowThicknessMenu] = useState(false);
   const [showFontSizeMenu, setShowFontSizeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  
+  const [gotoPriceInput, setGotoPriceInput] = useState('');
+
   const toolbarRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   const [lineStyle, setLineStyle] = useState<'solid' | 'dashed' | 'dotted'>('solid');
   const [thickness, setThickness] = useState(2);
@@ -102,15 +107,32 @@ export function DrawingContextToolbar({
       if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
         setShowMoreMenu(false);
       }
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setShowSettingsModal(false);
+      }
     };
 
-    if (showMoreMenu) {
+    if (showMoreMenu || showSettingsModal) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showMoreMenu]);
+  }, [showMoreMenu, showSettingsModal]);
 
   if (!visible) return null;
+
+  const handleGotoPriceSubmit = () => {
+    const price = Number(gotoPriceInput.replace(',', '.'));
+    if (!Number.isFinite(price) || price <= 0) {
+      toast.error('Digite um preço válido');
+      return;
+    }
+    if (onGotoPrice) {
+      onGotoPrice(price);
+      toast.success(`Linha movida para ${price}`);
+    }
+    setShowSettingsModal(false);
+    setGotoPriceInput('');
+  };
 
   const handleThicknessChange = (value: number) => {
     setThickness(value);
@@ -319,13 +341,45 @@ export function DrawingContextToolbar({
       <div className="w-px h-6 bg-gray-700 mx-1" />
 
       {/* Configurações */}
-      <button
-        onClick={() => setShowSettingsModal(!showSettingsModal)}
-        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-        title="Configurações"
-      >
-        <Settings className="w-4 h-4" />
-      </button>
+      <div className="relative" ref={settingsRef}>
+        <button
+          onClick={() => setShowSettingsModal(!showSettingsModal)}
+          className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+          title="Configurações"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+
+        {showSettingsModal && (
+          <div className="absolute top-full mt-1 left-0 bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-xl p-3 min-w-[220px] z-[110]">
+            <label className="block text-xs text-gray-400 mb-1.5">Ir para o preço</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                autoFocus
+                value={gotoPriceInput}
+                onChange={(e) => setGotoPriceInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleGotoPriceSubmit();
+                  if (e.key === 'Escape') setShowSettingsModal(false);
+                }}
+                placeholder="Ex: 1.0850"
+                className="flex-1 bg-[#1a1a1a] border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+              />
+              <button
+                onClick={handleGotoPriceSubmit}
+                className="px-2.5 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+              >
+                Ir
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1.5">
+              Move a linha na horizontal para este nível exato de preço.
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Notificações/Alertas */}
       <button

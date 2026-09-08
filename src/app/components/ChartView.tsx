@@ -4416,6 +4416,29 @@ export function ChartView({
     }
   };
 
+  const handleDrawingGotoPrice = (price: number) => {
+    if (!chartInstanceRef.current || !selectedDrawing) return;
+
+    try {
+      const chart = chartInstanceRef.current;
+      const original = chart.getOverlayById(selectedDrawing.id);
+      if (!original) {
+        toast.error('Desenho não encontrado');
+        return;
+      }
+      // Achata a linha na horizontal: todos os pontos recebem o mesmo preço,
+      // mantendo o(s) tempo/dataIndex original(is) de cada ponto.
+      const flattenedPoints = (original.points ?? []).map((p: any) => ({
+        ...p,
+        value: price
+      }));
+      chart.overrideOverlay({ id: selectedDrawing.id, points: flattenedPoints });
+    } catch (error) {
+      console.error('[ChartView] ❌ Error moving drawing to price:', error);
+      toast.error('Erro ao mover desenho para o preço');
+    }
+  };
+
   const handleDrawingDuplicate = () => {
     if (!chartInstanceRef.current || !selectedDrawing) return;
 
@@ -8696,6 +8719,7 @@ export function ChartView({
         onDuplicate={handleDrawingDuplicate}
         onCopy={handleDrawingCopy}
         onHideToggle={handleDrawingHideToggle}
+        onGotoPrice={handleDrawingGotoPrice}
         // 🔧 FIX: fechar o menu (X) só esconde o painel -- o desenho continua selecionado/
         // destacado (linha um pouco mais grossa), então o usuário pode reabrir o menu com
         // outro clique nele sem precisar selecionar de novo do zero. Clicar em espaço vazio
