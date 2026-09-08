@@ -15,6 +15,23 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-08, à noite] Gráfico "Ativo desconhecido: JPN225" +
+nome/ícone mostrando Bitcoin — catálogo do frontend não tinha os nomes
+reais da corretora pra 2 dos 4 índices asiáticos recém-adicionados à
+cesta do LLM Brain.** Cleber reportou boleta de JPN225 dizendo "Ativo
+desconhecido" e o header mostrando "Bitcoin" como nome. Causa: mesma
+classe de bug já catalogada várias vezes (BTCXBN/DOGUSD/LNKUSD) —
+`assetDatabase.ts` só tinha os aliases de exibição `JP225`/`HK50`, nunca
+os nomes reais `JPN225`/`HKG33` que o LLM Brain passou a usar na sessão
+de mais cedo hoje (`AUS200`/`CHINA50` já batiam, não precisavam de
+alias). Adicionadas as 2 entradas faltantes. De carona, achado que o
+nome do ativo no header do Gráfico (`ChartView.tsx`) caía num fallback
+**hardcoded pra "Bitcoin"** sempre que o símbolo não era reconhecido —
+corrigido pra mostrar o próprio símbolo em vez de mentir. `tsc --noEmit`:
+634 erros antes e depois (mesmo ruído pré-existente), nenhum novo.
+Commit pronto, aguardando Cleber rodar (não precisa de restart do
+`llm-active-brain`, é só frontend).
+
 **[RESOLVIDO 2026-09-08] Gate de confiança mínima ajustado 70%→75% + cesta
 do LLM Brain ampliada com AUS200/JPN225/HKG33/CHINA50 (conversão cambial
 real, não $1/ponto) — commitado, aguardando Cleber rodar `restart.sh`.**
@@ -43,6 +60,37 @@ ficado fora de `WEEKEND_CLOSED_SYMBOLS`/`CORRELATED_GROUPS` — corrigido
 junto. `tsc --noEmit` limpo. Commit pronto, aguardando Cleber rodar
 `./restart.sh` (dentro de `llm-active-brain/`, não na raiz — script não
 existe na raiz do projeto, achado nesta sessão).
+
+**[EM ANDAMENTO 2026-09-07, noite] Cleber contratou conta MetaAPI dedicada
+pra reduzir delay de preço — `streaming-relay/` (WebSocket direto, já
+existia no repo desde 2026-07-14 mas estava DESLIGADO desde 2026-07-23)
+consertado e pronto pra religar, aguardando Cleber rodar local.** Cleber
+perguntou se dava pra tirar o delay de preço com a conta nova — achado real:
+o streaming via push já tinha sido construído e chegou a funcionar em
+produção, mas foi desligado porque rodava sem gestão (`launchd` no Mac do
+Cleber, `KeepAlive` sem teto) e entrou em loop infinito de reconexão
+("account not connected to broker yet"), martelando a conta MetaAPI
+**compartilhada** 24h/dia sozinho — causa raiz de "ativos zerados" que levou
+dias pra achar. 2 problemas reais corrigidos antes de religar: (1) o
+build nunca compilava de verdade (`tsc` dava `TS5097` no jeito que
+`brokerRegistry.ts` importa `assetDatabase.ts`) — trocado pra `esbuild`,
+testado local (typecheck limpo, bundle roda); (2) causa raiz do incidente
+de 07-23 — conexão MetaAPI agora tem timeout de 60s por tentativa e
+backoff exponencial (15s→5min) antes de sair, nunca mais reconecta sem
+teto; `launchd` ganhou `ThrottleInterval` como piso extra redundante.
+Cogitado hospedar em Fly.io (seria "sempre-ligado" de verdade, independente
+do Mac), mas exige cartão cadastrado — Cleber optou por continuar local por
+enquanto (limitação aceita: só transmite com o Mac ligado, cai pro polling
+HTTP normal se desligar, sem quebrar nada). Frontend já consome via
+`subscribeToRealtimePrice`/`turbo-main-channel` em vários componentes do
+Dashboard (`MarketScoreBoard`, `LiquidityPrediction`, etc.) desde
+2026-07-14 — só o relay em si estava desligado, nenhuma mudança de
+frontend foi necessária. **Pendente**: commit (comando já entregue),
+depois Cleber confirmar no painel da MetaAPI que a conta dedicada nova
+está "connected"/sincronizada com a corretora antes de ligar (era
+exatamente uma conta nunca sincronizada que causou o loop original), rodar
+`npm run build` + registrar no `launchd` local, e observar `relay.log`
+por `🚀 Streaming ativo pra N símbolos.` sem erro repetindo.
 
 **[RESOLVIDO 2026-09-07, noite] Cards de posição do AI Trader clicáveis +
 linhas de Fibonacci/S&R quase invisíveis (1px) + zonas de resistência
