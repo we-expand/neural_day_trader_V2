@@ -15,6 +15,35 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-08] Gate de confiança mínima ajustado 70%→75% + cesta
+do LLM Brain ampliada com AUS200/JPN225/HKG33/CHINA50 (conversão cambial
+real, não $1/ponto) — commitado, aguardando Cleber rodar `restart.sh`.**
+Pedidos do Cleber nesta sessão: (1) `MIN_CONFIDENCE_FOR_OPEN_POSITION`
+(`tools.ts`) subido de 70%→75% — nota: o handoff anterior registrava 80%,
+divergência real entre doc e código, corrigida (o valor de fábrica era
+70%, fixo desde 04b051f2d); (2) Cleber pediu explicitamente cortar o stop
+de 2.0x ATR pra 0.9x — **rejeitado por mim, confirmado pelo Cleber**, ao
+lembrar do precedente já documentado (corte igual em 2026-09-04 derrubou
+acerto de 80%→33%); mantido 2.0x; (3) **achado real**: Setup configurava
+16 ativos, motor só reconhecia 12 — `HK50`/`CHINA50`/`JP225`/`AUS200`
+descartados em silêncio (`neuralBridge.ts`, log de warning já existente
+de 2026-09-06 pegou o caso). Corrigido de verdade, não só logado: os 4
+confirmados reais ao vivo contra `/mt5-prices` (nomes de corretora
+`JPN225`/`HKG33`/`AUS200`/`CHINA50`, `JP225`/`HK50` precisam de alias,
+`AUS200`/`CHINA50` já batem) — mas esses 4 têm `pointValue` real em
+moeda ESTRANGEIRA (`infinoxContractSpecs.ts`: AUS200 10 AUD, JPN225 5
+JPY, HKG33 10 HKD, CHINA50 10 CNY), então `LOT_SIZE=1` teria repetido o
+bug de PnL 20x do NAS100 (2026-08-27) por câmbio em vez de contrato
+E-mini errado. Convertido pra USD com cotação REAL AUDUSD/USDJPY/USDHKD/
+USDCNH desta mesma corretora, testada ao vivo antes de aplicar — **não é
+dinâmico/live** (câmbio pode driftar com o tempo), é aproximação muito
+melhor que $1/ponto mas fica marcado pra revisitar se o câmbio se mover
+bastante. De carona: achado que `FRA40` (adicionado em 2026-09-07) tinha
+ficado fora de `WEEKEND_CLOSED_SYMBOLS`/`CORRELATED_GROUPS` — corrigido
+junto. `tsc --noEmit` limpo. Commit pronto, aguardando Cleber rodar
+`./restart.sh` (dentro de `llm-active-brain/`, não na raiz — script não
+existe na raiz do projeto, achado nesta sessão).
+
 **[RESOLVIDO 2026-09-07, noite] Cards de posição do AI Trader clicáveis +
 linhas de Fibonacci/S&R quase invisíveis (1px) + zonas de resistência
 sumindo do gráfico por bug real de dedup — tudo commitado.** Pedidos do
