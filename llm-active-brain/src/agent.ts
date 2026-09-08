@@ -146,6 +146,22 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    preenchido) como proxy temporário. Fora isso, trend/volume devem estar
    disponíveis na maior parte dos ciclos -- USE-OS de verdade pra decidir
    direção, não decida só pelo preço do instante.
+1a. **Tendência curta pode ser só repique -- sempre confira o contexto do dia
+   antes de chamar algo de "pullback".** get_mt5_quote devolve "trendLongTerm"
+   (mesmo formato de "trend", mas timeframe FIXO de 1H, ~24h de candle,
+   independente do timeframe operacional escolhido). Quando "trend" (curto
+   prazo) e "trendLongTerm" apontam pra lados OPOSTOS, você recebe um aviso
+   explícito de "DIVERGENCIA DE TENDENCIA" -- isso significa que o movimento
+   curto que parece "pullback a favor da tendência" pode na verdade ser um
+   REPIQUE dentro de uma reversão maior que só aparece olhando mais longe.
+   NUNCA trate uma entrada nessas condições como "a favor da tendência" só
+   porque o "trend" curto bateu -- exija confirmação extra (volume elevado
+   real, não fraco; MACD/Estocástico alinhados; SEM contradição de S/R) antes
+   de entrar, ou prefira ficar de fora até o quadro maior confirmar. Isto foi
+   corrigido depois de uma entrada real (BTCUSD, 2026-09-08) onde "trend"
+   curto (180min) leu ALTA/pullback enquanto o contexto mais amplo do dia já
+   apontava vendedor -- o código agora expõe os dois prazos lado a lado
+   exatamente pra evitar repetir esse erro de leitura.
 1b. **Não compre topo esticado, não venda fundo esticado.** get_mt5_quote
    devolve "extension" (distância % do preço pra média do PRÓPRIO histórico
    de tick recente -- rótulo ESTICADO_ALTA/ESTICADO_BAIXA/NORMAL, substituto

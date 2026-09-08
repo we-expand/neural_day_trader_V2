@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance } from "./atr.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -730,6 +730,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // de "isso já está subindo há um tempo". null quando não dá pra
       // calcular com dado real -- nunca inventa tendência.
       const trend = await getTrendInfo(symbol, timeframe);
+      // 🔴 2026-09-08 (achado do Cleber: LLM leu "pullback numa alta" olhando
+      // só a janela curta de `trend` acima, sem noção do contexto mais amplo
+      // do dia -- comprou BTCUSD bem quando o quadro maior já apontava venda).
+      // Segunda leitura de tendência, timeframe FIXO 1H/~1 dia, pra separar
+      // pullback dentro de alta real de repique dentro de queda maior. Ver
+      // getLongTermTrendInfo/atr.ts.
+      const trendLongTerm = await getLongTermTrendInfo(symbol);
       // 🔴 2026-08-29: proxy honesto de participacao/forca por tras do
       // movimento (tickVolume real da MetaAPI, ver atr.ts) -- nao e order
       // flow/book de ofertas de verdade (o sistema nao tem esse dado), mas e
@@ -799,7 +806,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volatilityLabel: regime?.volatilityLabel ?? null,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -832,10 +839,26 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `que EXTENDA ainda mais essa distancia (comprar ja esticado pra cima, vender ja esticado pra baixo).`
         );
       }
+      // 🔴 2026-09-08 (achado do Cleber): quando a tendencia curta (`trend`)
+      // e a de prazo mais longo (`trendLongTerm`, ~1 dia) apontam pra lados
+      // opostos, o movimento curto e mais provavelmente um REPIQUE dentro de
+      // uma tendencia maior contraria, nao uma "pullback dentro da tendencia
+      // real" -- exatamente a leitura errada que levou a entrada LONG em
+      // BTCUSD durante o que parecia (num prazo maior) um mercado vendedor.
+      // Aviso, nao bloqueio mecanico: o LLM decide, mas agora nao fica cego
+      // ao contexto do dia.
+      if (trend?.label && trendLongTerm?.label && trend.label !== "LATERAL" && trendLongTerm.label !== "LATERAL" && trend.label !== trendLongTerm.label) {
+        avisos.push(
+          `DIVERGENCIA DE TENDENCIA: curto prazo (${trend.lookbackMinutes}min) esta ${trend.label}, mas o contexto mais amplo do dia ` +
+            `(${trendLongTerm.lookbackMinutes}min / ~1 dia) esta ${trendLongTerm.label}. O movimento curto pode ser so um REPIQUE dentro de uma ` +
+            `tendencia maior contraria, nao uma continuacao real -- pondere isso antes de tratar isto como "pullback a favor da tendencia".`
+        );
+      }
       return {
         ...quote,
         marketOpen: true,
         trend,
+        trendLongTerm,
         volume,
         extension,
         supportResistance,

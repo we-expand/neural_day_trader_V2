@@ -273,23 +273,44 @@ const TREND_FLAT_THRESHOLD_PCT = 0.15; // abaixo disso, chama de LATERAL em vez 
  * tick REAL deste processo (tickHistory.ts, alimentado por /mt5-prices, que
  * funciona) -- nunca fabrica tendência, só usa fonte diferente de dado real.
  */
-export async function getTrendInfo(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<TrendInfo | null> {
+export async function getTrendInfo(
+  symbol: string,
+  timeframe: SupportedTimeframe = "5m",
+  lookbackCandles: number = TREND_LOOKBACK_CANDLES
+): Promise<TrendInfo | null> {
   const candles = await fetchRecentCandles(symbol, timeframe);
-  if (candles && candles.length >= TREND_LOOKBACK_CANDLES + 1) {
-    const recent = candles.slice(-TREND_LOOKBACK_CANDLES - 1);
+  if (candles && candles.length >= lookbackCandles + 1) {
+    const recent = candles.slice(-lookbackCandles - 1);
     const startClose = recent[0].close;
     const endClose = recent[recent.length - 1].close;
     if (Number.isFinite(startClose) && startClose > 0 && Number.isFinite(endClose)) {
       const changePct = ((endClose - startClose) / startClose) * 100;
       const label: TrendInfo["label"] =
         Math.abs(changePct) < TREND_FLAT_THRESHOLD_PCT ? "LATERAL" : changePct > 0 ? "ALTA" : "BAIXA";
-      return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: TREND_LOOKBACK_CANDLES * (TIMEFRAME_MINUTES[timeframe] ?? 5), source: "candle" };
+      return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: lookbackCandles * (TIMEFRAME_MINUTES[timeframe] ?? 5), source: "candle" };
     }
   }
 
   const tickTrend = getTickTrend(symbol);
   if (!tickTrend) return null;
   return { changePct: tickTrend.changePct, label: tickTrend.label, lookbackMinutes: tickTrend.lookbackMinutes, source: "tick" };
+}
+
+// 🔴 2026-09-08 (achado do Cleber: LLM comprou BTCUSD lendo "pullback numa
+// alta" usando só a janela curta (1h escalada pelo timeframe operacional,
+// ex. 180min em 15m) -- sem NENHUMA noção do contexto mais amplo do dia, que
+// pode já estar em reversão/venda num timeframe maior. `trend` continua
+// existindo (curtíssimo prazo, reage rápido), mas agora vem acompanhado de
+// uma leitura de tendência mais longa (1H de vela, 24 velas = ~1 dia), pra
+// separar "pullback dentro de alta real" de "repique dentro de uma queda
+// maior que só aparece olhando mais longe". Timeframe FIXO em 1H aqui
+// (independente do timeframe operacional escolhido pelo usuário) --
+// contexto de dia inteiro não deveria mudar com o timeframe de execução.
+const TREND_LONG_TERM_TIMEFRAME: SupportedTimeframe = "1H";
+const TREND_LONG_TERM_LOOKBACK_CANDLES = 24; // 24 * 1H = ~1 dia
+
+export async function getLongTermTrendInfo(symbol: string): Promise<TrendInfo | null> {
+  return getTrendInfo(symbol, TREND_LONG_TERM_TIMEFRAME, TREND_LONG_TERM_LOOKBACK_CANDLES);
 }
 
 export interface VolumeConfirmation {
