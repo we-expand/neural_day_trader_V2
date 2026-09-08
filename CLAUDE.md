@@ -15,6 +15,163 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-07, noite] Comentário morto em `tools.ts` contradizia
+o gate de confiança ativo — corrigido, commit pendente.** Investigando "por
+que a IA não abre posição" (achado real: seletividade correta em sessão
+ASIA lateral, não bug), achado um comentário desatualizado em
+`open_position` (`llm-active-brain/src/tools.ts`, ~linha 971) dizendo que o
+gate de confiança mínima tinha sido REMOVIDO (do revert `c510c1074`), mas
+o `if` que bloqueia abaixo de 70% (`MIN_CONFIDENCE_FOR_OPEN_POSITION`,
+commit `04b051f2d`, reintroduzido no mesmo dia) continuava ativo no
+código — comentário e código se contradiziam. Corrigido só o comentário,
+comportamento intocado (gate de 70% sempre esteve ativo, nenhuma entrada
+foi bloqueada por ele até agora). `tsc --noEmit` limpo. Commit pronto,
+aguardando Cleber rodar.
+
+**[EM ANDAMENTO 2026-09-07] Monitoramento contínuo do LLM Brain — teto de
+frequência substituído por gate de confiança mínima, sizing "forte"
+dobrado, e achado real de fechamento discricionário ruim.** Pedido do
+Cleber: monitorar de 5 em 5min e evoluir a IA rumo a "perde pouco, ganha
+muito". Achados e mudanças, todas ativas no motor rodando (nenhuma
+commitada — comandos entregues, aguardando Cleber rodar):
+(1) **Achado real via SQL** (48h, sessão `6d0ada13...`): fechamentos
+discricionários da própria IA (`AI_SIGNAL`, `close_position`) eram o 2º
+maior ralo de dinheiro da sessão, quase empatado com stop-loss — 11 de 13
+viraram perda, ganho médio 3x menor que o do alvo mecânico. Fix: barra de
+invalidação técnica pra corte antecipado subida de ≥2 pra ≥3 fatores reais
+(`tools.ts`), commit `340103477` já aplicado.
+(2) **Teto de frequência (16/24 entradas-por-24h) virou o próprio
+gargalo** — travava testes de mudanças recém-aplicadas porque o contador
+ainda carregava entradas antigas contra o teto novo do dia útil, sem
+margem pra operar. Decisão explícita do Cleber, revertendo o "15-16" de
+2026-09-05: frequência não é o objetivo do produto, assertividade é.
+Substituído por um **gate de confiança mínima em `open_position`**
+(campo `confidence`, já existia no schema, nunca era usado — só logado):
+exige ≥80% (subiu de 65% no mesmo dia) antes de qualquer checagem cara.
+Teto de frequência subido pra 60 (dia útil e fim de semana), vira rede de
+segurança contra loop desgovernado, não limite prático.
+(3) **"Carregue mais na mão"** — multiplicador de `size:"forte"` subido de
+1.5x pra 2.0x (`config.ts`); prompt do agente e schema da ferramenta
+reescritos (antes diziam "forte deveria ser exceção", contradizia o gate
+novo — agora dizem que toda entrada aceita já é alta convicção por
+definição).
+(4) FRA40 adicionado à cesta (símbolo real confirmado contra o broker
+antes de adicionar) — HK50/JP225/CHINA50 ficaram de fora, só existem sob
+nomes diferentes na corretora (HKG33/JPN225) e têm `tickValue` em moeda
+estrangeira não confirmado como $1/ponto (mesma classe do bug de PnL 20x
+do NAS100) — pendente de verificação antes de adicionar.
+(5) **Achado de processo, não de código**: a sessão flipou sozinha pra
+`STOPPED` 2x no meio do dia (07:46 e ~08:00) mesmo com o motor rodando
+normalmente — Cleber confirmou que foi ele mesmo (clique acidental/aba
+desatualizada), corrigido via SQL direto cada vez.
+(6) **Painel "Logs do Sistema"/"Atividade da IA" colorizava tentativa
+bloqueada de `open_position` igual a execução real** (verde "EXECUTION"
+mesmo com "Posicao NAO aberta" na mensagem) — causa: cor dependia só de a
+string conter "EXECUTION", sem checar se a ferramenta teve sucesso. Fix
+em `useApexLogic.ts` reaproveitando a mesma checagem que já existia pro
+som de abertura (`result` sem chave `error` = sucesso real) — tentativa
+bloqueada agora usa "🚫 TENTATIVA:", não fica mais verde.
+(7) Confirmado que o mecanismo de atenção redobrada ao pré-mercado/
+abertura americana (`nySessionPhase`: PRE_MERCADO 09:00-09:30, MOVIMENTO
+09:30-10:00, ABERTURA 10:00-10:15, horário de Brasília) **já existia**
+de sessão anterior e está funcionando corretamente ao vivo — não precisou
+de mudança de código, só confirmação.
+(8) **Pedido de encolher o stop REJEITADO pelo Cleber depois de ver o
+precedente real.** Cleber viu no gráfico (FRA40 LONG aberta, stop a 24,89
+pts da entrada) e pediu proporção equivalente a uma linha de suporte que
+desenhou (~11,4 pts, ≈0,9x o multiplicador atual). Antes de aplicar,
+mostrado o achado já documentado logo abaixo neste arquivo
+(`mt5StopAtrMultiplier`, linha ~259 do `config.ts`): esse EXATO tipo de
+corte já foi testado em 2026-09-04 (2.0x→1.3x→0.65x no mesmo dia) e a
+taxa de acerto caiu de 80%→33%, com SL virando de "lucro protegido"
+(trailing/breakeven) pra perda real. Cleber decidiu **manter 2.0x**, sem
+aplicar o corte — decisão consciente, não ignorou o precedente.
+Monitoramento de 5min suspenso a pedido do Cleber ao fim da sessão.
+**Pendente**: `git commit` dos itens 1-4/6 acima (comandos prontos,
+entregues ao Cleber — eu não commito sozinho, é regra fixa do projeto, já
+errei isso uma vez nesta mesma sessão). Amostra pós-mudança (gate 80%/
+forte 2x) ainda pequena (1-2 trades fechados, 2 abertas em aberto no fim
+da sessão: FRA40 LONG e UKOUSD SHORT) — falta acumular 5+ fechados pra
+ler payoff de verdade e comparar contra o histórico pré-mudança (payoff
+1,39:1, 41% acerto, 48h).
+
+**[RESOLVIDO 2026-09-07] Heartbeat "(iteração N)" poluindo Atividade da
+IA/Logs do Sistema — removido e processo reiniciado.** Cleber pediu pra
+retirar a linha "Analisando cesta e posições abertas (iteração N)..." que
+aparecia repetida a cada loop do ciclo em ambos os painéis (mesmo canal
+`ai_brain_activity_log`). Causa: heartbeat adicionado em 2026-09-06 pra
+mostrar que a inferência local (Ollama) estava "viva" durante o 1-3min de
+espera por ciclo — virou ruído. Removido o bloco `logBrainActivity` em
+`llm-active-brain/src/agent.ts` (dentro do loop de iteração, antes da
+chamada ao modelo). Commit `054c3c104`, processo reiniciado ao vivo (PID
+78001) — confirmado sem gerar linha nova a partir do ciclo 1. **Pendente,
+não resolvido**: linhas antigas com "(iteração N)" já gravadas no banco
+continuam visíveis no histórico do painel (fix só impede novas linhas) —
+perguntei ao Cleber se quer apagar via SQL, sem resposta ainda.
+
+**[RESOLVIDO 2026-09-06] Motor LLM Brain travava indefinidamente sem abrir
+posição nenhuma — deadlock real entre 2 gates de `tools.ts` quando a cesta
+do usuário mudava com uma posição já aberta fora dela.** Cleber reportou
+"motor não abre posição"; achado ao vivo no log: havia uma posição órfã em
+DOGUSD (`activeAssets` atual não incluía mais DOGUSD) e `get_mt5_quote`
+recusava cotar qualquer símbolo fora da cesta — inclusive o da própria
+posição aberta — enquanto `close_position` exigia exatamente essa cotação
+no mesmo ciclo pra fechar. Sem saída legítima, a IA gastava o ciclo
+inteiro (confirmado: 22+min sem terminar o ciclo 1) tentando essa dança
+impossível, nunca chegando a avaliar entradas novas. Corrigido em
+`get_mt5_quote` (`llm-active-brain/src/tools.ts`): permite cotar um
+símbolo fora da cesta SE houver posição aberta nele nesta sessão
+(`open_position` mantém o gate de cesta intocado — não abre porta pra
+entrada nova fora do escolhido). Reiniciado ao vivo, confirmado resolvido:
+ciclo 1 concluiu normalmente, IA avaliou a cesta e tentou abrir BTCUSD/
+XAUUSD, bloqueada só pelo teto de frequência de 24h (gate correto,
+não-relacionado). De carona, 2 achados novos: (1) o mesmo fechamento
+manual do Cleber na posição DOGUSD órfã saiu com `exit_price` idêntico ao
+`entry_price` (PnL fabricado ~$0) — causa: `RealMarketDataService.ts`
+(pipeline de preço do Dashboard) não sabia mapear símbolos reais de nome
+curto da corretora (DOGUSD/LNKUSD/ATMUSD/AVAUSD) pro par certo da Binance,
+gerando um ticker inexistente (`DOGUSDT`) e travando "Atual" no preço de
+entrada pra sempre — mesmo mapa do fix de candles de hoje (`market-service.ts`)
+replicado aqui; (2) `marketHours.ts` mostrava "mercado fechado" pra essas
+mesmas criptos reais (aplicava horário de CFD de fim de semana numa cripto
+24/7) por classificar tipo de mercado só por heurística de texto — agora
+consulta o catálogo real (`assetDatabase.ts`) primeiro. `tsc --noEmit`/
+`npm run validate` (37/37) limpos nos 3 arquivos. Commit `87645ebd3`, não
+pushado ainda.
+
+**[RESOLVIDO 2026-09-06] Gráfico "Ativo desconhecido" + candles falhando
+pra DOGUSD/LNKUSD/ATMUSD/AVAUSD/XETUSD — catálogo do frontend só conhecia
+o alias de exibição, não o nome real da corretora usado pelo LLM Brain.**
+Mesma classe de bug já catalogada pro BTCXBN: motor opera com nome real
+(`assetBasket.ts`), catálogo (`assetDatabase.ts`) só tinha o alias
+(DOGEUSD/LINKUSD/ATOMUSD/AVAXUSD). Adicionadas as 4 entradas reais
+faltantes + roteamento de candles corrigido (`market-service.ts`:
+`detectAssetType` classificava esses tickers como forex por conterem
+"USD", mandando pra MetaAPI em vez de Binance; adicionados os pares
+Binance corretos pra cesta cripto inteira do motor). `tsc --noEmit` sem
+erro novo. Commit pronto, não aplicado ainda.
+
+**[RESOLVIDO 2026-09-06] Som ao abrir posição da IA implementado, com
+toggle em Configurações → Geral.** Pedido do Cleber. Detecta
+`decision`/`open_position` bem-sucedido via Realtime de
+`ai_brain_activity_log` (mesmo canal do item "Logs do Sistema" abaixo) e
+toca um beep curto gerado via Web Audio API (sem asset de áudio no repo).
+Preferência liga/desliga persiste em `localStorage`
+(`neural_position_open_sound_enabled`, default ligado), mesmo padrão dos
+toggles de `TradingContext.tsx`. `tsc --noEmit` sem erro novo. Commit
+pronto, não aplicado ainda.
+
+**[RESOLVIDO 2026-09-06] Cesta do LLM Brain confirmada: 15 criptos, nenhum
+forex/índice.** Checado direto em `ai_user_config` (Supabase) a pedido do
+Cleber — `activeAssets` já tinha exatamente 15 símbolos cripto (BTCUSD,
+ETHUSD, DOGEUSD, DOTUSD, XRPUSD, SOLUSD, ADAUSD, LINKUSD, UNIUSD, TRXUSD,
+ATMUSD, XLMUSD, FILUSD, BNBUSD, AVAUSD). Linhas de "tick obsoleto" de
+EURUSD/XAUUSD/GER40/SPX500/NAS100/UK100/UKOUSD vistas no log eram resíduo
+de ciclos anteriores à config atual (log acumula dias), não sinal de cesta
+poluída. De carona: processo do LLM Brain reiniciado depois de a máquina
+suspender brevemente (erro `ENOTFOUND` de DNS no log) — watchdog religou
+sozinho, ciclo novo confirmado limpo.
+
 **[RESOLVIDO 2026-09-06] "Logs do Sistema" (tela do AI Trader) sempre vazio
 — causa raiz real, nova tabela `ai_brain_activity_log`, confirmado gravando
 ao vivo.** Causa raiz (catalogada desde 08-17, nunca corrigida até agora):

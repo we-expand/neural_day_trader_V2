@@ -961,6 +961,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const reasoning = String(input.reasoning || "");
       const confidenceRaw = Number(input.confidence);
       const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(100, confidenceRaw)) : null;
+      // 🔴 2026-09-07, noite (commit 04b051f2d): gate obrigatório de
+      // confiança mínima FIXO em 70% (MIN_CONFIDENCE_FOR_OPEN_POSITION) --
+      // reintroduzido no mesmo dia depois de um revert anterior (c510c1074)
+      // ter removido o gate. `confidence` não é só registrado (ai_confidence),
+      // também bloqueia a entrada quando abaixo do mínimo.
       if (confidence === null || confidence < MIN_CONFIDENCE_FOR_OPEN_POSITION) {
         return {
           error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
@@ -968,16 +973,6 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `nao infle o numero so pra passar deste gate, o campo e auditado.`,
         };
       }
-      // 🔴 2026-09-07, noite (pedido direto do Cleber, restaurando o
-      // comportamento do dia 02/09 -- sessão de referência com 80% de
-      // acerto): gate obrigatório de confiança mínima REMOVIDO. `confidence`
-      // volta a ser só REGISTRADO (ai_confidence), nunca usado pra bloquear
-      // -- exatamente como era em 02/09, antes do gate ter sido introduzido
-      // hoje mais cedo. Justificativa do Cleber: "se a IA achar que tem
-      // confiança alta pra operar, ela que opere" -- decisão de deixar o
-      // julgamento de entrada 100% com o LLM, sem piso mecânico de
-      // confiança declarada (heurística não calibrada, nunca validada contra
-      // resultado real -- ver CLAUDE.md item 5 de pendências).
       const basket = effectiveBasket(session);
       if (!basket.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
