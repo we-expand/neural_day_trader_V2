@@ -187,17 +187,25 @@
 // da corretora, HKG33 e JPN225 (confirmado: "HK50"/"JP225" literais
 // devolvem NULL) -- mesmo padrão de alias já catalogado pra outros símbolos
 // neste projeto (brokerRegistry.ts). CHINA50 é real com o nome literal.
-// NÃO adicionados ainda: HKG33/JPN225/CHINA50 têm `tickValue` em HKD/JPY/CNY
-// em `infinoxContractSpecs.ts` (não confirmado como $1/ponto igual ao grupo
-// GER40/SPX500/NAS100/UK100/FRA40) -- adicionar com LOT_SIZE=1 sem validar
-// o valor real por ponto arrisca repetir o MESMO bug de PnL 20x do NAS100,
-// agora com moeda estrangeira em vez de contrato E-mini. Fica pendente até
-// confirmar o valor real por ponto desses 3 com o Cleber/corretora.
+// 🔴 2026-09-08 (pedido do Cleber: "o que o usuario configura tem que valer
+// 100%"): HKG33/JPN225/AUS200/CHINA50 adicionados. Os 4 confirmados reais ao
+// vivo contra /mt5-prices antes de adicionar (bid/ask reais). Diferente do
+// grupo GER40/SPX500/NAS100/UK100/FRA40 (CFD retail $1/ponto USD), estes 4
+// têm `tickValue`/`pointValue` reais em moeda ESTRANGEIRA em
+// `infinoxContractSpecs.ts` (AUS200 10 AUD, JPN225 5 JPY, HKG33 10 HKD,
+// CHINA50 10 CNY) -- LOT_SIZE=1 aqui teria repetido o MESMO bug de PnL 20x
+// do NAS100 (2026-08-27), agora por câmbio em vez de contrato E-mini errado.
+// Convertido pra USD usando a cotação AUDUSD/USDJPY/USDHKD/USDCNH REAL desta
+// mesma corretora no momento da adição (também confirmada ao vivo, ver
+// LOT_SIZE abaixo) -- não é live/dinâmico (câmbio pode driftar com o tempo),
+// é uma aproximação MUITO melhor que assumir $1/ponto direto, mas revisitar
+// periodicamente se o câmbio se mover de forma relevante.
 export const MT5_ASSET_BASKET = [
   "BTCUSD", "XETUSD", "BTCXBN",
   "DOGUSD", "DOTUSD", "XRPUSD", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
   "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
+  "AUS200", "JPN225", "HKG33", "CHINA50",
 ];
 
 /**
@@ -246,6 +254,17 @@ export const LOT_SIZE: Record<string, number> = {
   // confirmado real contra o broker antes de adicionar -- ver comentário em
   // MT5_ASSET_BASKET acima).
   FRA40: 1,
+  // 🔴 2026-09-08: pointValue real (infinoxContractSpecs.ts) convertido pra
+  // USD com a cotação REAL AUDUSD/USDJPY/USDHKD/USDCNH desta corretora,
+  // confirmada ao vivo em 2026-09-08 (ver comentário em MT5_ASSET_BASKET):
+  //   AUS200:  10 AUD/ponto * 0.72157 (AUDUSD)      = 7.2157
+  //   JPN225:   5 JPY/ponto / 153.583 (USDJPY)       = 0.03256
+  //   HKG33:   10 HKD/ponto / 7.83921 (USDHKD)       = 1.2756
+  //   CHINA50: 10 CNY/ponto / 6.709 (USDCNH)         = 1.4905
+  AUS200: 7.2157,
+  JPN225: 0.03256,
+  HKG33: 1.2756,
+  CHINA50: 1.4905,
 };
 
 export const MIN_LOTS = 0.01;
@@ -263,8 +282,14 @@ export const MIN_LOTS = 0.01;
  * forma orientada a dado real, sem precisar fabricar uma tabela de horários
  * por bolsa que arriscaria ficar errada/desatualizada.
  */
+// 🔴 2026-09-08: FRA40 estava faltando aqui (achado de carona -- tinha sido
+// adicionado ao MT5_ASSET_BASKET em 2026-09-07 mas ficou fora desta lista,
+// deixando `isSymbolTradable` tratá-lo como "sempre aberto" tipo cripto).
+// AUS200/JPN225/HKG33/CHINA50 adicionados junto (mesmo padrão: CFD via
+// MetaAPI/Infinox fecha fim de semana).
 const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
-  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
+  "AUS200", "JPN225", "HKG33", "CHINA50",
 ]);
 
 /**
@@ -323,7 +348,11 @@ const CORRELATED_GROUPS: string[][] = [
     "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
     "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
   ],
-  ["GER40", "SPX500", "NAS100", "UK100"],
+  // 🔴 2026-09-08: FRA40 (faltando, mesmo achado de carona do WEEKEND_CLOSED_
+  // SYMBOLS acima) + AUS200/JPN225/HKG33/CHINA50 (novos) entram no mesmo
+  // grupo -- todos índices de bolsa, mesmo risco correlacionado risk-on/
+  // risk-off macro global dos demais.
+  ["GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50"],
 ];
 
 export function getCorrelatedGroup(symbol: string): string[] {

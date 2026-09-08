@@ -399,7 +399,14 @@ export interface UserTradingConfig {
 // assetDatabase.ts) -> XETUSD (nome literal do contrato Ethereum na
 // Infinox, já validado ao vivo nesta cesta) -- mesmo padrão dos 3 aliases
 // anteriores.
-const INVERSE_ALIAS: Record<string, string> = { BTCBNB: "BTCXBN", DOGEUSD: "DOGUSD", LINKUSD: "LNKUSD", ETHUSD: "XETUSD" };
+// 🔴 2026-09-08: JP225/HK50 (nomes unificados do Setup, ver assetDatabase.ts)
+// -> JPN225/HKG33 (nomes literais reais da Infinox pra estes 2 índices,
+// mesmo achado já catalogado em SymbolMappingService.ts pro resto do app).
+// AUS200/CHINA50 não precisam de alias -- nome unificado já bate com o real.
+const INVERSE_ALIAS: Record<string, string> = {
+  BTCBNB: "BTCXBN", DOGEUSD: "DOGUSD", LINKUSD: "LNKUSD", ETHUSD: "XETUSD",
+  JP225: "JPN225", HK50: "HKG33",
+};
 const SUPPORTED_TIMEFRAMES_SET = new Set(["1m", "5m", "15m", "1H", "4H"]);
 
 const userConfigCache = new Map<string, { value: UserTradingConfig; fetchedAt: number }>();
