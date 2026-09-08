@@ -12,6 +12,7 @@ import { getBalanceUsd } from "./economy.js";
 import { enforceMt5StopsAndTargets, logBrainActivity, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
+import { getMarketNewsBriefing, formatNewsBlock } from "./news.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
 import { getUsEconomicCalendar } from "./atr.js";
 
@@ -95,6 +96,12 @@ houver sinal a ficar parado por cautela excessiva.
 // cérebro de decisão do Neural Day Trader sendo avaliado, não um
 // experimento educacional de carteira/economia fictícia (isso era o
 // framing do trilho Binance original, mantido só se MT5_TRADING_ENABLED=false).
+// 🔴 2026-09-08: registra no log de atividade (ai_brain_activity_log) só
+// quando o briefing de noticias for de fato NOVO (cache de 3h em news.ts) --
+// evita gravar a mesma manchete repetida em todo ciclo (podem rodar a cada
+// 10s-poucos-minutos, bem mais frequente que a atualizacao de noticia real).
+let lastLoggedNewsFetchedAt = 0;
+
 const GENESIS_PROMPT_MT5 = `
 Você é o cérebro de decisão de trading do Neural Day Trader, rodando em modo
 de avaliação: uma sessão DEMO isolada (dinheiro simulado), operando a MESMA
@@ -375,6 +382,24 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
        do forecast) não justifica ação especial.
      null quando a agenda não respondeu -- nunca fabrica evento, opere pelo
      resto da confluência normalmente.
+1h. **Notícias reais do dia (pedido direto do Cleber -- "se ela não fizer a
+   leitura e não entender o que está acontecendo no dia em termos de
+   notícias do mundo, vai operar errado"): manchetes reais (RSS de
+   Investing.com/Cointelegraph/CNBC/Money Times, nunca fabricadas), até um
+   bloco por Macro/Cripto/Forex no início de cada ciclo, atualizadas a cada
+   3h. Use pra CONTEXTUALIZAR o dia -- notícia de risco geopolítico, decisão
+   de banco central, regulação de cripto, crise/choque de mercado, etc. pode
+   explicar POR QUE um ativo está com viés claro num sentido mesmo sem
+   evento na agenda econômica formal. Isto é contexto qualitativo pra
+   julgamento, NÃO um sinal mecânico -- pesquisa anterior deste projeto já
+   mostrou que calendário/notícia sozinho não tem edge direcional
+   comprovado. Use principalmente pra: (a) explicar/validar um viés técnico
+   que os indicadores já mostram (reforça confiança quando bate), (b)
+   suspeitar de ruído/reversão contra um viés técnico fraco quando a notícia
+   aponta claramente pro lado oposto, (c) NUNCA ignorar um contexto óbvio de
+   risco sistêmico (ex: manchete de crise/choque relevante) só porque os
+   indicadores técnicos do instante parecem favoráveis. Sem manchete
+   disponível, opere pelo resto da confluência normalmente.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a
@@ -835,6 +860,32 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     } catch (err) {
       console.error("[agent] falha ao buscar agenda economica (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
     }
+    // 🔴 2026-09-08 (pedido direto do Cleber: "a IA tem que fazer leitura das
+    // noticias do dia... de 3 em 3 horas, registrar e entender"). Manchetes
+    // reais (RSS, ver news.ts), cache de 3h -- injetadas em TODO ciclo (pra
+    // nunca decidir cega ao contexto do dia), mas so REGISTRADAS no log de
+    // atividade quando o briefing for de fato novo (fetchedAt mudou), pra
+    // nao poluir o painel com a mesma manchete repetida ciclo a ciclo.
+    let newsBlock = "";
+    try {
+      const newsBriefing = await getMarketNewsBriefing();
+      if (newsBriefing) {
+        newsBlock = formatNewsBlock(newsBriefing);
+        if (newsBriefing.fetchedAt !== lastLoggedNewsFetchedAt && newsBriefing.headlines.length > 0) {
+          lastLoggedNewsFetchedAt = newsBriefing.fetchedAt;
+          logBrainActivity({
+            sessionId: mt5Session.sessionId,
+            userId: mt5Session.userId,
+            cycle,
+            type: "news",
+            message: `Leitura de noticias atualizada (${newsBriefing.headlines.length} manchetes reais).${newsBlock}`,
+            detail: { headlines: newsBriefing.headlines },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[agent] falha ao buscar noticias (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
+    }
     // 🔴 2026-09-06: "/no_think" TESTADO ao vivo e REVERTIDO -- nao eliminou
     // o estouro de teto (o ciclo seguinte ainda travou), e coincidiu com
     // comportamento pior: 15+ iteracoes chamando simbolos inventados/invalidos
@@ -851,7 +902,8 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       strategyDirective +
-      economicCalendarBlock;
+      economicCalendarBlock +
+      newsBlock;
   } else {
     const ethBalance = await getBalanceEth();
     const usdBalance = getBalanceUsd();

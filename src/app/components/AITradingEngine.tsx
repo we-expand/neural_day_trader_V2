@@ -157,6 +157,16 @@ export function AITradingEngine() {
                   >
                     Contra (Reversal)
                   </button>
+                  <button
+                    onClick={() => setConfig({ ...config, marketMode: null })}
+                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                      config.marketMode == null
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    Automático
+                  </button>
                 </div>
               </div>
 

@@ -1668,6 +1668,7 @@ export function useApexLogic(
       tool_call: '🔍',
       decision: '✅ EXECUTION:',
       error: '⚠️ RISK:',
+      news: '📰',
     };
     // 🔴 2026-09-07 (achado do Cleber via print: "EXECUTION" verde aparecia
     // pra TENTATIVA de abrir posição que o código recusou -- ex: "Tentou

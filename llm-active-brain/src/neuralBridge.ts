@@ -1305,7 +1305,7 @@ export function archiveCandles(
     });
 }
 
-export type BrainActivityType = "cycle_start" | "tool_call" | "thought" | "decision" | "error" | "thinking";
+export type BrainActivityType = "cycle_start" | "tool_call" | "thought" | "decision" | "error" | "thinking" | "news";
 
 export function logBrainActivity(params: {
   sessionId: string;
