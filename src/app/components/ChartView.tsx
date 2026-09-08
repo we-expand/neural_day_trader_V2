@@ -559,7 +559,20 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay, precision }: any) => {
     const figures: any[] = [];
-    
+
+    // 🔧 FIX: tamanho/cor eram hardcoded na figure, ignorando overlay.styles.line —
+    // isso deixava o clique direito → Estilo (handleDrawingStyleChange, que chama
+    // overrideOverlay({ styles: { line: { size, color } } })) sem nenhum efeito
+    // visual nesta ferramenta específica, mesmo funcionando pra todas as outras.
+    // Agora lê o style real do overlay (setado na criação com default 4, e depois
+    // editável pelo usuário via o mesmo menu de contexto usado nos outros desenhos)
+    // — linha base e linhas de nível sempre do MESMO tamanho, igual pedido.
+    const lineSize = overlay.styles?.line?.size ?? 4;
+    // Só força uma cor única em cima da paleta por nível quando o usuário
+    // explicitamente escolheu uma cor no Estilo — sem isso, mantém a paleta
+    // padrão (cada nível com sua cor, convenção visual do Fibonacci).
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
+
     if (coordinates.length >= 2) {
       // Desenhar linha entre os pontos
       for (let i = 0; i < coordinates.length - 1; i++) {
@@ -573,10 +586,8 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
           },
           styles: {
             style: 'solid',
-            color: overlay.styles?.line?.color || '#2962FF',
-            // 🎯 linha base (A→B→C) 4x mais grossa, pedido do Cleber — as linhas
-            // horizontais de nível abaixo têm que ficar do MESMO tamanho dela.
-            size: 4
+            color: colorOverride || '#2962FF',
+            size: lineSize
           }
         });
       }
@@ -593,6 +604,7 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
         levels.forEach((level, index) => {
           const y = pointC.y + (range * level * direction);
           const colors = ['#26a69a', '#2962FF', '#f23645', '#ff9800'];
+          const levelColor = colorOverride || colors[index] || '#808080';
 
           figures.push({
             type: 'line',
@@ -604,13 +616,13 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
             },
             styles: {
               style: 'dashed',
-              color: colors[index] || '#808080',
+              color: levelColor,
               dashValue: [4, 4],
               // 🎯 mesma espessura da linha base A→B→C, acima
-              size: 4
+              size: lineSize
             }
           });
-          
+
           // Label com o nível
           figures.push({
             type: 'text',
@@ -620,14 +632,14 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
               text: `${(level * 100).toFixed(1)}%`
             },
             styles: {
-              color: colors[index] || '#808080',
+              color: levelColor,
               size: 12
             }
           });
         });
       }
     }
-    
+
     return figures;
   }
 };
@@ -900,14 +912,18 @@ const FibCirclesOverlay: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates }: any) => {
+  createPointFigures: ({ coordinates, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
     const baseR = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+    // 🔧 FIX: mesmo ajuste do fibonacciExtension acima — espessura/cor lidas do
+    // overlay.styles (editável via clique direito → Estilo), não hardcoded.
+    const borderSize = overlay.styles?.line?.size ?? 4;
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
     return FIB_RATIOS.map((ratio, i) => ({
       type: 'circle',
       attrs: { x: a.x, y: a.y, r: baseR * ratio },
-      styles: { style: 'stroke', borderColor: FIB_COLORS[i], borderSize: 4 }
+      styles: { style: 'stroke', borderColor: colorOverride || FIB_COLORS[i], borderSize }
     }));
   }
 };
@@ -920,22 +936,27 @@ const FibFanOverlay: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates, bounding }: any) => {
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
     const figures: any[] = [];
+    // 🔧 FIX: mesmo ajuste do fibonacciExtension acima — espessura/cor lidas do
+    // overlay.styles (editável via clique direito → Estilo), não hardcoded.
+    const lineSize = overlay.styles?.line?.size ?? 4;
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
     [0.382, 0.5, 0.618, 1].forEach((ratio, i) => {
       const target = { x: b.x, y: a.y + (b.y - a.y) * ratio };
       const end = extendLineRight(a, target, bounding.width);
+      const levelColor = colorOverride || FIB_COLORS[i + 1];
       figures.push({
         type: 'line',
         attrs: { coordinates: [a, end] },
-        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: FIB_COLORS[i + 1], size: 4, dashedValue: [4, 4] }
+        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: levelColor, size: lineSize, dashedValue: [4, 4] }
       });
       figures.push({
         type: 'text',
         attrs: { x: end.x - 4, y: end.y, align: 'right', baseline: 'bottom', text: `${(ratio * 100).toFixed(1)}%` },
-        styles: { color: FIB_COLORS[i + 1], size: 10, backgroundColor: 'transparent' }
+        styles: { color: levelColor, size: 10, backgroundColor: 'transparent' }
       });
     });
     return figures;
@@ -950,12 +971,16 @@ const FibArcsOverlay: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates }: any) => {
+  createPointFigures: ({ coordinates, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
     const baseR = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
     // arco abre pro lado de onde veio o movimento (acima se b está abaixo de a, e vice-versa)
     const opensUp = b.y >= a.y;
+    // 🔧 FIX: mesmo ajuste do fibonacciExtension acima — espessura/cor lidas do
+    // overlay.styles (editável via clique direito → Estilo), não hardcoded.
+    const lineSize = overlay.styles?.line?.size ?? 4;
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
     return [0.382, 0.5, 0.618, 1].map((ratio, i) => ({
       type: 'arc',
       attrs: {
@@ -966,7 +991,7 @@ const FibArcsOverlay: OverlayTemplate = {
         endAngle: opensUp ? Math.PI * 2 : Math.PI
       },
       // 🔧 o overlay nativo 'arc' usa style/color/size (LineType), não borderColor/borderSize
-      styles: { style: 'solid', color: FIB_COLORS[i + 1], size: 4 }
+      styles: { style: 'solid', color: colorOverride || FIB_COLORS[i + 1], size: lineSize }
     }));
   }
 };
