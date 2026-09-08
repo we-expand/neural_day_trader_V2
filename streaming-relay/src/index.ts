@@ -101,19 +101,41 @@ class RelaySynchronizationListener extends SynchronizationListener {
   }
 }
 
+// ⚠️ CORRIGIDO 2026-09-07 (causa raiz do incidente de 2026-07-23): a conta
+// nunca chegava a sincronizar de verdade ("not connected to broker yet") e
+// `waitConnected`/`waitSynchronized` do SDK retry internamente SEM TETO —
+// combinado com `launchd`/`KeepAlive` reiniciando o processo a cada crash,
+// isso martelou a conta MetaAPI compartilhada 24h/dia por dias, sozinho,
+// sem nenhum usuário envolvido. Agora cada tentativa de conectar tem
+// timeout próprio (`CONNECT_TIMEOUT_MS`) e, se falhar, o processo espera um
+// backoff crescente (`BACKOFF_BASE_MS` dobrando até `BACKOFF_MAX_MS`) ANTES
+// de sair — mesmo que o orquestrador (Fly.io) reinicie na hora, não dá pra
+// tentar de novo mais rápido que esse piso. Nunca reintroduzir um loop sem
+// teto de tentativa nem sem backoff mínimo antes de sair.
+const CONNECT_TIMEOUT_MS = 60_000;
+const BACKOFF_BASE_MS = 15_000;
+const BACKOFF_MAX_MS = 5 * 60_000;
+
+function withTimeoutOuter<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timeout: ${label}`)), ms)),
+  ]);
+}
+
 async function main() {
   await relayChannel.subscribe();
   console.log('[streaming-relay] ✅ Conectado ao canal Supabase Realtime (turbo-main-channel).');
 
   const api = new MetaApi(METAAPI_TOKEN);
   const account = await api.metatraderAccountApi.getAccount(METAAPI_ACCOUNT_ID);
-  await account.waitConnected();
+  await withTimeoutOuter(account.waitConnected(), CONNECT_TIMEOUT_MS, 'account.waitConnected');
 
   const connection = account.getStreamingConnection();
   connection.addSynchronizationListener(new RelaySynchronizationListener());
 
   await connection.connect();
-  await connection.waitSynchronized();
+  await withTimeoutOuter(connection.waitSynchronized(), CONNECT_TIMEOUT_MS, 'connection.waitSynchronized');
   console.log('[streaming-relay] ✅ Conexão de streaming MetaAPI sincronizada.');
 
   // ⚠️ CORRIGIDO 2026-07-14: o seed do previousClose (candle D1) rodava
@@ -166,7 +188,20 @@ async function main() {
   })();
 }
 
-main().catch((error) => {
-  console.error('[streaming-relay] ❌ Erro fatal, encerrando (Fly.io reinicia automaticamente):', error);
-  process.exit(1);
-});
+let consecutiveFailures = 0;
+
+function scheduleRestart() {
+  consecutiveFailures += 1;
+  const backoffMs = Math.min(BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1), BACKOFF_MAX_MS);
+  console.error(`[streaming-relay] ⏳ Falha #${consecutiveFailures} — aguardando ${Math.round(backoffMs / 1000)}s antes de sair (Fly.io reinicia depois disso). Nunca reduzir este piso sem entender o incidente de 2026-07-23.`);
+  setTimeout(() => process.exit(1), backoffMs);
+}
+
+main()
+  .then(() => {
+    consecutiveFailures = 0;
+  })
+  .catch((error) => {
+    console.error('[streaming-relay] ❌ Erro fatal:', error instanceof Error ? error.message : error);
+    scheduleRestart();
+  });

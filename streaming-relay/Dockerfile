@@ -23,4 +23,4 @@ COPY --from=build /app/streaming-relay/dist ./dist
 COPY --from=build /app/streaming-relay/node_modules ./node_modules
 COPY streaming-relay/package.json ./
 
-CMD ["node", "dist/streaming-relay/src/index.js"]
+CMD ["node", "dist/index.js"]

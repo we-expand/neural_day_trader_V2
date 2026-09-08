@@ -2,11 +2,12 @@
   "name": "neural-day-trader-streaming-relay",
   "version": "1.0.0",
   "private": true,
-  "main": "dist/streaming-relay/src/index.js",
+  "main": "dist/index.js",
   "description": "Serviço sempre-ligado: assina o streaming da MetaAPI (conta de plataforma) e repassa preço em tempo real pro canal Supabase Realtime já usado pelo frontend (turbo-main-channel / price-update). Token MetaAPI nunca sai deste processo.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/streaming-relay/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.js --external:metaapi.cloud-sdk --external:@supabase/supabase-js",
+    "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "metaapi.cloud-sdk": "^29.3.3"
   },
   "devDependencies": {
+    "esbuild": "^0.23.1",
     "typescript": "^5.5.4",
     "tsx": "^4.16.2",
     "@types/node": "^22.10.2"
