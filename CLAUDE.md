@@ -71,7 +71,18 @@ rodar `git commit` + `./restart.sh` (dentro de `llm-active-brain/`). Sem
 validação estatística ainda — mudança de contexto/julgamento, não trava
 mecânica nova, precisa de amostra rodando pra avaliar efeito real.
 
-**[EM ANDAMENTO 2026-09-08] Gráfico não abre pra EURUSD (e todo o resto) —
+**[RESOLVIDO 2026-09-08, ~16:44 UTC] Gráfico não abria pra EURUSD (e todo o
+resto) — conta MetaAPI voltou a responder sozinha, sem ação nossa.**
+Confirmado ao vivo: `/mt5-prices` (mesmo endpoint, auth anon) devolveu preço
+real e fresco pra EURUSD (1,16208), XAUUSD (4393,65) e NAS100 (29563,49) às
+16:44 UTC — HTTP 200 com dado, não mais 504. Não sabemos a causa exata do
+lado da MetaAPI (recuperação espontânea antes da resposta do chamado de
+suporte, aberto ~11h antes) — não fizemos nenhuma mudança de código/infra
+nesta janela. Se o Cleber ainda ver Dashboard/Gráfico travado, é cache do
+navegador — recarregar a página resolve. Detalhe original do travamento
+abaixo, mantido por contexto:
+
+**[HISTÓRICO 2026-09-08] Gráfico não abria pra EURUSD (e todo o resto) —
 conta MetaAPI dedicada nova (bb99f865...) travada, `connectionStatus` diz
 CONNECTED mas recusa toda chamada real; código/streaming-relay descartados
 como causa via teste isolado; chamado de suporte já enviado à MetaAPI,
