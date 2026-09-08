@@ -15,6 +15,35 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-07, noite] Cards de posição do AI Trader clicáveis +
+linhas de Fibonacci/S&R quase invisíveis (1px) + zonas de resistência
+sumindo do gráfico por bug real de dedup — tudo commitado.** Pedidos do
+Cleber nesta sessão: (1) cards de posição na tela AI Trader (`AITrader.tsx`)
+agora clicáveis, `setSelectedAsset` + `onNavigate('chart')`, mesmo padrão já
+usado no Dashboard (`MarketScoreBoard.tsx`); (2) linhas de Fibonacci
+(retração/extensão/círculos/leque/arcos, `ChartView.tsx`) estavam com
+`size:1`, quase invisíveis — subidas pra 4px; achado no caminho: o overlay
+customizado `fibonacciExtension` (e os outros 3 customizados) tinham
+espessura/cor HARDCODED direto na figure, ignorando `overlay.styles` por
+completo — o menu de clique direito → Estilo (que já funciona pra todo o
+resto do gráfico) não tinha nenhum efeito nessas 4 ferramentas. Corrigido
+pra ler `overlay.styles.line.size/color` de verdade (default de fábrica
+continua 4px, mas agora configurável pelo mesmo menu de Estilo, como pedido
+explicitamente pelo Cleber — "é lá que será feito o setup da ferramenta");
+(3) **bug real achado à parte**: zonas de resistência (Order Blocks
+bearish) sumiam do gráfico por completo, só as de suporte apareciam —
+causa em `combineOrderBlockZones`: o dedup comparava sobreposição de preço
+contra QUALQUER zona já aceita sem checar o TIPO, então uma zona de
+resistência podia ser descartada como "duplicata" de uma zona de suporte
+mais forte cujo range (principalmente as macro de 1D/~5 anos, bem largas)
+por acaso se sobrepunha, mesmo sendo tipos opostos e níveis reais
+distintos — corrigido pra só comparar zonas do mesmo tipo entre si, e a
+seleção final das zonas visíveis (`renderSrOverlays`) balanceada pra
+reservar metade do teto pra cada lado (antes cortava só pelas N mais
+fortes no total, podendo devolver só um lado quando um tipo dominava em
+força). `tsc --noEmit`: 417 erros antes e depois (mesmo ruído
+pré-existente), nenhum novo. 3 commits já aplicados.
+
 **[RESOLVIDO 2026-09-07, noite] Comentário morto em `tools.ts` contradizia
 o gate de confiança ativo — corrigido, commit pendente.** Investigando "por
 que a IA não abre posição" (achado real: seletividade correta em sessão
