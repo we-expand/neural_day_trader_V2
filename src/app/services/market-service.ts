@@ -302,6 +302,24 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
       return [];
     }
 
+    // 🐛 FIX 2026-09-08 (cronômetro do timeframe travado em 00:00 pro CHINA50):
+    // o backend já detecta rate-limit persistente (HTTP 429 na paginação da
+    // MetaAPI, confirmado ao vivo no log) e sinaliza `stale: true` explicitamente
+    // na resposta
+    // (ver `index.ts`, rota /mt5-candles-history), mas esse campo nunca era
+    // lido aqui — só a heurística de idade abaixo. Como o cache devolvido
+    // sob rate-limit ainda podia cair dentro da janela "recente o
+    // suficiente" daquela heurística, o cliente aceitava o mesmo candle
+    // congelado a cada refresh de 30s: a âncora do cronômetro
+    // (`lastRealCandleTimestampRef`) nunca avançava e o contador travava em
+    // 00:00 pra sempre, mesmo com o backend já sabendo que aquele dado
+    // estava obsoleto. Tratar `stale: true` igual a "sem candle real" —
+    // mesma disciplina de nunca fabricar/aceitar dado velho como atual.
+    if (result.stale === true) {
+      console.warn(`[MarketService] ⚠️ /mt5-candles-history devolveu stale:true para ${mt5Symbol} (rate-limit persistente na MetaAPI) — tratando como sem dado real.`);
+      return [];
+    }
+
     const candles: CandleData[] = result.candles.map((c: any) => ({
       timestamp: c.timestamp,
       open: c.open,
