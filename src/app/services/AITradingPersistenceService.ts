@@ -80,6 +80,11 @@ export interface AITrade {
   // parcial) desse grupo no servidor.
   pyramid_group_id?: string | null;
   pyramid_layer?: number | null;
+  // 🔴 2026-09-09: id REAL da posição na MetaAPI — só preenchido quando o
+  // trade foi executado de verdade na corretora (boleta manual em LIVE, ver
+  // OrderTicket.tsx), nunca em trade simulado (DEMO). Mesma convenção já
+  // usada em ai_trades pelo llm-active-brain (broker_position_id).
+  broker_position_id?: string | null;
 }
 
 /**

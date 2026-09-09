@@ -68,6 +68,9 @@ interface TradeData {
   // via resolveDbTradeId) do trade raiz, nunca o id local do React.
   pyramidGroupId?: string | null;
   pyramidLayer?: number | null;
+  // 🔴 2026-09-09: id REAL da posição na MetaAPI (boleta manual em LIVE) —
+  // null em trade simulado (DEMO). Ver AITradingPersistenceService.ts.
+  brokerPositionId?: string | null;
 }
 
 interface PortfolioData {
@@ -256,6 +259,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         commission: 0, // Será calculado ao fechar
         pyramid_group_id: trade.pyramidGroupId ?? null,
         pyramid_layer: trade.pyramidLayer ?? null,
+        broker_position_id: trade.brokerPositionId ?? null,
       };
 
       const tradeId = await aiPersistence.saveTrade(tradeData);

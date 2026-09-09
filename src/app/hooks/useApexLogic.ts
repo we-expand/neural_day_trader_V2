@@ -2509,6 +2509,17 @@ export function useApexLogic(
 
         // Update portfolio after setState
         setPortfolio(prev => {
+           // 🔴 2026-09-09 (achado ao vivo do Cleber: saldo real da MetaAPI
+           // "pisca e volta pro $100 sozinho"): este loop roda a cada 1s e
+           // recalcula balance/equity a partir do PnL SIMULADO de
+           // `activeOrders` (só trades gravados em `ai_trades`) -- sem
+           // nenhuma noção de que existe conta REAL conectada. Quando há
+           // broker conectado, `reconcile()` (5s) já mantém balance/equity
+           // REAIS via `getAccountInfo()` -- este loop, rodando 5x mais
+           // rápido, sobrescrevia esse valor de volta pro cálculo simulado a
+           // cada tick. Guard: com broker conectado, este loop NUNCA mexe em
+           // balance/equity -- só quem faz isso é `reconcile()`.
+           if (brokerConnectedCacheRef.current.connected) return prev;
            const { realizedPnL, totalUnrealizedPnL, totalExposure } = pnlLoopRef.current;
            const newBalance = prev.balance + realizedPnL;
            const newEquity = newBalance + totalUnrealizedPnL;
@@ -2910,6 +2921,79 @@ export function useApexLogic(
         pyramidLayer: newTrade.pyramidLayer ?? null,
       });
     }
+
+    return { success: true, tradeId: newTrade.id };
+  }, [addLog]);
+
+  // 🔴 2026-09-09 (achado ao vivo do Cleber: posição real aberta pela boleta
+  // manual em LIVE nunca aparecia no Gráfico): `createMarketBuyOrder`/
+  // `createMarketSellOrder` (OrderTicket.tsx, ramo LIVE) só gravavam em
+  // `broker_order_executions` (ledger de auditoria/parceiros), nunca em
+  // `ai_trades` — o Gráfico/Dashboard só leem posição aberta de
+  // `activeOrders`, que só é populado a partir de `ai_trades`. Espelha
+  // `openManualPosition` acima, mas grava no banco SEMPRE (não só em DEMO)
+  // e carrega `broker_position_id` (id real da MetaAPI), mesma convenção já
+  // usada pelo llm-active-brain.
+  const recordLiveManualPosition = useCallback((params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    brokerPositionId: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): { success: boolean; error?: string; tradeId?: string } => {
+    const asset = getAssetBySymbol(params.symbol);
+    if (!asset) return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
+    const amountUsd = params.volume * asset.lotSize * params.entryPrice;
+
+    if (!persistenceRef.current.currentSessionId) {
+      sessionStartedAtRef.current = Date.now();
+      persistenceRef.current.startSession({
+        strategyName: 'Ordem Manual (LIVE)',
+        symbols: [params.symbol],
+        timeframe: configRef.current.timeframe || '15m',
+        initialBalance: portfolioRef.current.balance,
+        initialEquity: portfolioRef.current.equity,
+        config: configRef.current,
+      });
+    }
+
+    const newTrade: TradeVisual = {
+      id: `manual-live-${Date.now()}-${Math.random()}`,
+      symbol: params.symbol,
+      side: params.side,
+      amount: amountUsd,
+      price: params.entryPrice,
+      currentPrice: params.entryPrice,
+      tp: params.takeProfit ?? 0,
+      sl: params.stopLoss ?? 0,
+      originalSl: params.stopLoss ?? 0,
+      leverage: asset.leverage || 1,
+      ai_confidence: 100,
+      timestamp: Date.now(),
+      reasoning: 'Ordem manual do usuário (LIVE)',
+      indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+    };
+
+    setActiveOrders(prev => [...prev, newTrade]);
+    addLog(`✅ ORDEM REAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s) (LIVE)`);
+
+    persistenceRef.current.onTradeOpen({
+      id: newTrade.id,
+      symbol: newTrade.symbol,
+      side: newTrade.side,
+      amount: newTrade.amount,
+      price: newTrade.price,
+      tp: newTrade.tp,
+      sl: newTrade.sl,
+      leverage: newTrade.leverage,
+      ai_confidence: newTrade.ai_confidence,
+      timestamp: newTrade.timestamp,
+      reasoning: newTrade.reasoning,
+      indicators: newTrade.indicators,
+      brokerPositionId: params.brokerPositionId,
+    });
 
     return { success: true, tradeId: newTrade.id };
   }, [addLog]);
@@ -3603,6 +3687,7 @@ export function useApexLogic(
     resetLogic,
     forceCloseAll,
     openManualPosition,
+    recordLiveManualPosition,
     closeManualPosition,
     pendingOrders,
     openManualPendingOrder,

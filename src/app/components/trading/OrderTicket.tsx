@@ -71,7 +71,7 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, openManualPosition, openManualPendingOrder, closeManualPosition, setSelectedAsset } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setSelectedAsset } = useTradingContext();
 
   const asset = useMemo(() => getAssetBySymbol(symbol), [symbol]);
   const contractSpec = useMemo(() => getContractSpec(symbol), [symbol]);
@@ -331,6 +331,27 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           const result = side === 'BUY' ? await createMarketBuyOrder(params) : await createMarketSellOrder(params);
           if (result.success) {
             toast.success(`${side === 'BUY' ? 'Compra' : 'Venda'} executada`, { description: `${symbol} · ${volume} lote(s) na corretora` });
+            // 🔴 2026-09-09 (achado ao vivo do Cleber: posição real não
+            // aparecia no Gráfico): antes, ordem LIVE só ficava no ledger de
+            // auditoria (`broker_order_executions`), nunca em `ai_trades` —
+            // Gráfico/Dashboard só desenham posição a partir de `ai_trades`.
+            // Grava aqui também, com o id real da posição, pra aparecer
+            // automaticamente. Preço de preenchimento real quando a
+            // corretora devolve (`result.price`); sem isso, aproxima pelo
+            // último preço cotado (mesmo usado pra montar a ordem).
+            if (result.positionId) {
+              recordLiveManualPosition({
+                symbol,
+                side: side === 'BUY' ? 'LONG' : 'SHORT',
+                volume,
+                entryPrice: result.price ?? currentPrice,
+                brokerPositionId: result.positionId,
+                stopLoss: slSet ? slNum : undefined,
+                takeProfit: tpSet ? tpNum : undefined,
+              });
+            } else {
+              console.warn('[OrderTicket] Ordem LIVE executada mas sem positionId na resposta — não vai aparecer no Gráfico automaticamente.', result);
+            }
             resetOptionalFields();
           } else {
             toast.error('Ordem recusada pela corretora', { description: result.error || result.message });
