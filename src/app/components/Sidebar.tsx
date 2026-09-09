@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Network, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText } from 'lucide-react';
+import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, ShoppingBag, Users, Network, Layers, BarChart3, Scale, Rocket, Brain, Beaker, Mic, ScrollText} from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
 type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs' | 'jarvis';
@@ -102,18 +102,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               </button>
 
               <button
-                onClick={() => handleViewChange('strategy')}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'strategy'
-                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-cyan-300'
-                }`}
-              >
-                <Compass className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Estratégia</span>
-              </button>
-
-              <button
                 onClick={() => handleViewChange('competitive-analysis')}
                 className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
                   currentView === 'competitive-analysis'
@@ -147,42 +135,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               >
                 <Rocket className="w-5 h-5 shrink-0" />
                 <span className="text-sm font-medium tracking-wide">Estratégia Lançamento</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('trader-insights' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'trader-insights'
-                    ? 'bg-pink-500/10 text-pink-400 border-pink-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-pink-400'
-                }`}
-              >
-                <MessageSquare className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Insights Traders</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('quantum-analysis' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'quantum-analysis'
-                    ? 'bg-gray-500/10 text-gray-400 border-gray-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-gray-400'
-                }`}
-              >
-                <Brain className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Análise Quântica</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('live-trading-test' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'live-trading-test'
-                    ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-red-400'
-                }`}
-              >
-                <Zap className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Trading ao Vivo</span>
               </button>
 
               <button
