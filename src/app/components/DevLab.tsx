@@ -11,7 +11,7 @@ import {
   Code2, Paintbrush, Zap, TrendingUp, Sparkles, Bug, Lightbulb,
   Check, Trash2, RotateCcw, X, Plus, Beaker, Megaphone,
   CircleDollarSign, Brain, ExternalLink, Search, RefreshCw, Microscope,
-  Wand2, Loader2,
+  Wand2, Loader2, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/app/contexts/AuthContext';
 import {
@@ -32,6 +32,7 @@ const CATEGORY_ICONS: Record<Category, React.ComponentType<any>> = {
   GROWTH_MARKETING: Megaphone,
   MONETIZATION: CircleDollarSign,
   AI_BRAIN: Brain,
+  SECURITY: ShieldAlert,
 };
 
 const CategoryIcon = ({ category }: { category: Category }) => {
@@ -96,8 +97,11 @@ export default function DevLab({ embedded = false }: DevLabProps) {
   const [aiFocus, setAiFocus] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [fillingAllCategories, setFillingAllCategories] = useState(false);
+  const [fillProgress, setFillProgress] = useState<{ done: number; total: number; label: string } | null>(null);
 
   const PAGE_SIZE = 20;
+  const ALL_CATEGORIES = Object.keys(CATEGORY_CONFIG) as Category[];
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -125,7 +129,11 @@ export default function DevLab({ embedded = false }: DevLabProps) {
   const filtered = useMemo(() => {
     if (viewMode === 'research') return [];
     if (viewMode === 'ai_suggestions') {
-      return suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status !== 'trash');
+      return suggestions.filter((s) => {
+        if (s.source_type !== 'AI_SUGGESTION' || s.status === 'trash') return false;
+        if (selectedCategory !== 'ALL' && s.category !== selectedCategory) return false;
+        return true;
+      });
     }
     return suggestions.filter((s) => {
       if (s.status !== viewMode) return false;
@@ -156,6 +164,36 @@ export default function DevLab({ embedded = false }: DevLabProps) {
       setAiFocus('');
     }
     setGeneratingAi(false);
+  };
+
+  /**
+   * Pedido do Cleber: manter até 20 sugestões de IA ATIVAS em CADA categoria.
+   * Roda sequencialmente (não em paralelo) pra não estourar rate-limit do
+   * provedor de LLM — cada categoria pede só o que falta pra chegar em 20,
+   * nunca gera de novo o que já está cheio.
+   */
+  const handleFillAllCategories = async () => {
+    setFillingAllCategories(true);
+    setAiError(null);
+    const categoriesToFill = ALL_CATEGORIES.filter((cat) => {
+      const current = suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status === 'active' && s.category === cat).length;
+      return current < 20;
+    });
+
+    for (let i = 0; i < categoriesToFill.length; i++) {
+      const cat = categoriesToFill[i];
+      const current = suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status === 'active' && s.category === cat).length;
+      const needed = 20 - current;
+      setFillProgress({ done: i, total: categoriesToFill.length, label: CATEGORY_CONFIG[cat].label });
+      const result = await devLabService.generateAiSuggestions(undefined, needed, cat);
+      if ('error' in result) {
+        setAiError(`Falhou em "${CATEGORY_CONFIG[cat].label}": ${result.error}`);
+        break;
+      }
+      setSuggestions((prev) => [...result.suggestions, ...prev]);
+    }
+    setFillProgress(null);
+    setFillingAllCategories(false);
   };
 
   const handleStatus = async (id: string, status: SuggestionStatus) => {
@@ -238,18 +276,32 @@ export default function DevLab({ embedded = false }: DevLabProps) {
               />
               <button
                 onClick={handleGenerateAi}
-                disabled={generatingAi}
+                disabled={generatingAi || fillingAllCategories}
                 className="flex items-center gap-2 text-sm bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 font-semibold"
               >
                 {generatingAi ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                {generatingAi ? 'Gerando...' : 'Gerar sugestões com IA'}
+                {generatingAi ? 'Gerando...' : 'Gerar 20 sugestões'}
+              </button>
+              <button
+                onClick={handleFillAllCategories}
+                disabled={fillingAllCategories || generatingAi}
+                title="Gera sugestões até cada categoria ter 20 ativas (pula categorias que já estão cheias)"
+                className="flex items-center gap-2 text-sm bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 rounded-lg px-4 py-2 font-semibold"
+              >
+                {fillingAllCategories ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {fillingAllCategories ? 'Preenchendo...' : 'Preencher 20 por categoria'}
               </button>
             </div>
+            {fillProgress && (
+              <p className="text-xs text-indigo-300">
+                Categoria {fillProgress.done + 1} de {fillProgress.total}: {fillProgress.label}...
+              </p>
+            )}
             {aiError && <p className="text-xs text-red-400">{aiError}</p>}
           </div>
         )}
 
-        {viewMode !== 'research' && viewMode !== 'ai_suggestions' && (
+        {viewMode !== 'research' && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <button
               onClick={() => setSelectedCategory('ALL')}

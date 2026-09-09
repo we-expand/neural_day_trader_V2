@@ -41,7 +41,22 @@ automática: concluir uma sugestão de IA (`source_type='AI_SUGGESTION'`)
 dispara sozinho a geração de 1 sugestão nova pra repor (nunca ao só
 descartar/reabrir, pra não gastar chamada de LLM à toa) — Edge Function
 ganhou parâmetro `count` opcional (1-10, default 5) pra suportar tanto a
-geração manual em lote quanto essa reposição de 1.
+geração manual em lote quanto essa reposição de 1. **Complemento 2, mesma sessão**: categoria nova
+"Segurança" (`SECURITY`) no Dev Lab (pedido explícito do Cleber, a
+mensagem original tinha sido cortada em "Securit...") — nova migration
+`20260909_add_security_category_dev_lab.sql`; e botão "Preencher 20 por
+categoria" na aba Sugestões da IA — roda sequencialmente por TODAS as
+categorias (inclusive a nova Segurança), pedindo só o que falta pra cada
+uma chegar em 20 ativas (pula categoria já cheia), Edge Function ganhou
+`category` fixo no body que força a categoria da linha inserida (nunca
+confia no que o modelo devolveu nesse campo quando é chamada com
+categoria alvo). **Importante, decisão consciente**: isto vale só pra
+"Sugestões da IA" (opinião do modelo, sem exigir fonte) — a aba "Pesquisas
+de concorrente" (`AI_RESEARCH`) exige evidência real (URL/citação de
+concorrente de verdade) por disciplina do projeto (nunca fabricar dado);
+não gerei 20/categoria ali por não ter feito pesquisa real categoria a
+categoria nesta sessão — se quiser isso, é um trabalho de pesquisa (usar
+WebSearch/WebFetch de verdade por categoria), não geração em lote.
 
 **[EM ANDAMENTO 2026-09-09] Limpeza de itens de menu não usados + telemetria
 real de sessão (IP/geolocalização/dispositivo/presença) implementada,

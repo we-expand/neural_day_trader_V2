@@ -25,8 +25,21 @@ const CORS_HEADERS = {
 
 const ALLOWED_CATEGORIES = [
   'TECH', 'DESIGN_UX', 'FEATURE', 'COMPETITION', 'INNOVATION',
-  'BUG', 'OPTIMIZATION', 'GROWTH_MARKETING', 'MONETIZATION', 'AI_BRAIN',
+  'BUG', 'OPTIMIZATION', 'GROWTH_MARKETING', 'MONETIZATION', 'AI_BRAIN', 'SECURITY',
 ] as const;
+const CATEGORY_LABELS: Record<(typeof ALLOWED_CATEGORIES)[number], string> = {
+  TECH: 'Tecnologia (arquitetura, infra, código)',
+  DESIGN_UX: 'Design & UX',
+  FEATURE: 'Feature nova de produto',
+  COMPETITION: 'Competitividade frente a concorrentes',
+  INNOVATION: 'Inovação (ideia fora da caixa)',
+  BUG: 'Bug Fix (defeito real a corrigir)',
+  OPTIMIZATION: 'Otimização de performance/custo',
+  GROWTH_MARKETING: 'Growth & Marketing',
+  MONETIZATION: 'Monetização / Pricing',
+  AI_BRAIN: 'Cérebro de IA / P&D Quant (o motor de trading)',
+  SECURITY: 'Segurança (hardening, auditoria, criptografia, LGPD, controle de acesso)',
+};
 const ALLOWED_IMPACT = ['HIGH', 'MEDIUM', 'LOW'] as const;
 const ALLOWED_EFFORT = ['HIGH', 'MEDIUM', 'LOW'] as const;
 
@@ -42,7 +55,7 @@ não tiver certeza, formule a sugestão como hipótese a validar, não como fato
 Responda APENAS com um array JSON válido, sem markdown, sem texto fora do array, no formato:
 [{"title": "string curto", "description": "2-4 frases explicando o que fazer e por quê", \
 "reasoning": "1-2 frases de racional/risco", "category": "uma de TECH|DESIGN_UX|FEATURE|\
-COMPETITION|INNOVATION|BUG|OPTIMIZATION|GROWTH_MARKETING|MONETIZATION|AI_BRAIN", \
+COMPETITION|INNOVATION|BUG|OPTIMIZATION|GROWTH_MARKETING|MONETIZATION|AI_BRAIN|SECURITY", \
 "impact": "HIGH|MEDIUM|LOW", "effort": "HIGH|MEDIUM|LOW"}]`;
 
 Deno.serve(async (req: Request) => {
@@ -72,9 +85,17 @@ Deno.serve(async (req: Request) => {
     const focus = typeof body?.focus === 'string' ? body.focus.trim().slice(0, 500) : '';
     const rawCount = Number(body?.count);
     const count = Number.isFinite(rawCount) ? Math.min(20, Math.max(1, Math.round(rawCount))) : 20;
-    const userMessage = focus
-      ? `Gere ${count} sugestõe(s) nova(s), priorizando este foco pedido pelo usuário: "${focus}".`
-      : `Gere ${count} sugestõe(s) nova(s) cobrindo áreas variadas da plataforma (não repita o mesmo tema).`;
+    const fixedCategory = ALLOWED_CATEGORIES.includes(body?.category) ? (body.category as (typeof ALLOWED_CATEGORIES)[number]) : null;
+
+    let userMessage: string;
+    if (fixedCategory) {
+      userMessage = `Gere ${count} sugestõe(s) nova(s) TODAS na categoria "${CATEGORY_LABELS[fixedCategory]}" — não fuja dessa categoria em nenhuma delas.`;
+      if (focus) userMessage += ` Foco adicional pedido pelo usuário: "${focus}".`;
+    } else {
+      userMessage = focus
+        ? `Gere ${count} sugestõe(s) nova(s), priorizando este foco pedido pelo usuário: "${focus}".`
+        : `Gere ${count} sugestõe(s) nova(s) cobrindo áreas variadas da plataforma (não repita o mesmo tema).`;
+    }
 
     // ~180 tokens por sugestão em JSON (título+descrição+racional) — 20
     // sugestões precisam de bem mais que o teto antigo de 2000, que cortava
@@ -101,7 +122,10 @@ Deno.serve(async (req: Request) => {
         title: String(item.title).slice(0, 200),
         description: String(item.description).slice(0, 2000),
         full_analysis: typeof item.reasoning === 'string' ? item.reasoning.slice(0, 2000) : null,
-        category: ALLOWED_CATEGORIES.includes(item.category) ? item.category : 'INNOVATION',
+        // Categoria fixa (pedida explicitamente pelo chamador) sempre vence
+        // o que o modelo devolveu — evita mismatch quando o preenchimento
+        // em lote por categoria pede "só Segurança" e o modelo erra a mão.
+        category: fixedCategory ?? (ALLOWED_CATEGORIES.includes(item.category) ? item.category : 'INNOVATION'),
         impact: ALLOWED_IMPACT.includes(item.impact) ? item.impact : 'MEDIUM',
         effort: ALLOWED_EFFORT.includes(item.effort) ? item.effort : 'MEDIUM',
         status: 'active',

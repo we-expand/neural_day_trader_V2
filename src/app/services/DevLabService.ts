@@ -16,7 +16,8 @@ export type Category =
   | 'OPTIMIZATION'
   | 'GROWTH_MARKETING'
   | 'MONETIZATION'
-  | 'AI_BRAIN';
+  | 'AI_BRAIN'
+  | 'SECURITY';
 
 export type Impact = 'HIGH' | 'MEDIUM' | 'LOW';
 export type Effort = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -67,6 +68,7 @@ export const CATEGORY_CONFIG: Record<Category, { label: string; color: string }>
   GROWTH_MARKETING: { label: 'Growth & Marketing', color: 'text-cyan-400' },
   MONETIZATION: { label: 'Monetização / Pricing', color: 'text-amber-400' },
   AI_BRAIN: { label: 'Cérebro de IA / P&D Quant', color: 'text-indigo-400' },
+  SECURITY: { label: 'Segurança', color: 'text-rose-500' },
 };
 
 export const IMPACT_CONFIG: Record<Impact, { label: string; bgColor: string; textColor: string; borderColor: string }> = {
@@ -145,7 +147,7 @@ class DevLabService {
    * source_type 'AI_SUGGESTION', nunca apresentada como fato de concorrente
    * comprovado (isso é a aba separada "Pesquisas de concorrente").
    */
-  async generateAiSuggestions(focus?: string, count?: number): Promise<{ suggestions: Suggestion[] } | { error: string }> {
+  async generateAiSuggestions(focus?: string, count?: number, category?: Category): Promise<{ suggestions: Suggestion[] } | { error: string }> {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
@@ -154,6 +156,7 @@ class DevLabService {
       const body: Record<string, unknown> = {};
       if (focus) body.focus = focus;
       if (count) body.count = count;
+      if (category) body.category = category;
 
       const { data, error } = await supabase.functions.invoke('dev-lab-ai-suggestions', {
         body,
