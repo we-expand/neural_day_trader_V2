@@ -98,6 +98,19 @@ const lastQuoteSnapshotBySymbolStore = new Map<
       session: string | null;
       volumeLabel: string | null;
       volatilityLabel: string | null;
+      // 🔴 2026-09-09 (fix de governanca, llm-council -- achado real:
+      // indicators_snapshot em ai_trades ficava NULL em 100% dos trades,
+      // impossivel calibrar/auditar qualquer filtro de entrada depois do
+      // fato). Campos abaixo sao TODOS derivados do MESMO calculo que
+      // get_mt5_quote ja faz nesta chamada (nunca fabricados so pra
+      // preencher a coluna) -- persistidos em ai_trades.indicators_snapshot
+      // na abertura da posicao (ver openMt5Position/neuralBridge.ts).
+      trendLongTermLabel: string | null;
+      priceExtensionPct: number | null;
+      candlePatternLabels: string[] | null;
+      movingAveragesExtended: boolean | null;
+      spreadPct: number | null;
+      priceAtQuote: number | null;
     }
   >
 >();
@@ -805,6 +818,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         session: regime?.session ?? null,
         volumeLabel: regime?.volumeLabel ?? null,
         volatilityLabel: regime?.volatilityLabel ?? null,
+        trendLongTermLabel: trendLongTerm?.label ?? null,
+        priceExtensionPct: extension?.distancePct ?? null,
+        candlePatternLabels: candlePatterns?.detected ?? null,
+        movingAveragesExtended: movingAverages?.extended ?? null,
+        spreadPct: Number.isFinite(quote.spreadPct) ? quote.spreadPct : null,
+        priceAtQuote: quote.price ?? null,
       });
       if (!isSymbolTradable(symbol)) {
         return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
@@ -1883,6 +1902,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volumeLabelAtEntry: regimeAtEntry?.volumeLabel ?? null,
         volatilityLabelAtEntry: regimeAtEntry?.volatilityLabel ?? null,
         brokerPositionId,
+        // 🔴 2026-09-09 (fix de governanca, llm-council): mesmo objeto
+        // regimeAtEntry ja lido acima, so que persistido inteiro em
+        // ai_trades.indicators_snapshot -- ver comentario em
+        // neuralBridge.ts. `as unknown as Record<string, unknown>` porque o
+        // tipo do cache e um objeto TS concreto, nao um Record generico.
+        indicatorsSnapshot: regimeAtEntry ? (regimeAtEntry as unknown as Record<string, unknown>) : null,
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
       return {

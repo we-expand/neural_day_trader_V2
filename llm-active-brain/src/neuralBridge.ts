@@ -579,6 +579,16 @@ export interface OpenMt5PositionParams {
   // 🔴 2026-09-08: id REAL da posição na MetaAPI -- só preenchido quando a
   // ordem foi executada de verdade (ver liveExecution.ts), null em DEMO.
   brokerPositionId?: string | null;
+  // 🔴 2026-09-09 (fix de governanca, llm-council -- achado real: coluna
+  // indicators_snapshot ficava NULL em 100% dos trades, impossivel
+  // calibrar/auditar filtro de entrada depois do fato, ex: "confianca
+  // declarada bate com o dado tecnico real?"). Objeto JSON com o MESMO
+  // dado que get_mt5_quote ja calculou pra este simbolo neste ciclo (ver
+  // lastQuoteSnapshotBySymbol em tools.ts) -- nunca fabricado so pra
+  // preencher a coluna, null quando get_mt5_quote nao foi chamado pra
+  // este simbolo neste ciclo (nao deveria acontecer, open_position exige
+  // isso, mas nunca bloqueia a abertura por falta deste dado).
+  indicatorsSnapshot?: Record<string, unknown> | null;
 }
 
 /** Abre uma posição virtual OPEN no trilho MT5. Retorna o id (pra poder fechar depois) ou null se falhar. Nunca lança. */
@@ -614,6 +624,7 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         volume_label_at_entry: params.volumeLabelAtEntry ?? null,
         volatility_label_at_entry: params.volatilityLabelAtEntry ?? null,
         broker_position_id: params.brokerPositionId ?? null,
+        indicators_snapshot: params.indicatorsSnapshot ?? null,
       })
       .select("id")
       .single();
