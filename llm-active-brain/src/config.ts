@@ -696,3 +696,45 @@ if (config.tradingEnabled) {
     throw new Error("MAX_ORDER_USD nao pode ser maior que MAX_LIVE_BUDGET_USD.");
   }
 }
+
+// 🔴 2026-09-09 (fix de governanca, llm-council): achado real -- o .env
+// (nao versionado no git) sobrepunha silenciosamente os parametros de
+// risco/stop documentados como decisao vigente no CLAUDE.md, e ficou
+// divergente por DIAS sem ninguem notar (stop 1.0x ATR em vez de 2.0x,
+// risco maximo por trade 9% em vez dos 3% que o Cleber decidiu em
+// 2026-09-07) -- a sessao de 2026-09-08/09 rodou inteira sob o valor
+// errado. Este e o MESMO padrao que ja causou o colapso de acerto
+// 80%->33% em 2026-09-04 (stop cortado sem registrar/reverter). Em vez de
+// confiar em ninguem lembrar de revisar o .env manualmente, o processo
+// agora AVISA EM VOZ ALTA no log a cada boot sempre que um parametro desta
+// lista estiver sobreposto por variavel de ambiente -- nao bloqueia o
+// boot (pode ser um teste deliberado e documentado), mas torna a
+// divergencia impossivel de passar em silencio de novo.
+const GOVERNANCE_CRITICAL_ENV_PARAMS: Array<{ envVar: string; canonical: string; motivo: string }> = [
+  { envVar: "MT5_STOP_ATR_MULTIPLIER", canonical: "2.0", motivo: "decisao do llm-council 2026-09-04/05, ver CLAUDE.md" },
+  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.03", motivo: "decisao do Cleber 2026-09-07 a noite, ver CLAUDE.md" },
+  { envVar: "MT5_TAKE_PROFIT_ATR_MULTIPLIER", canonical: "4.0", motivo: "R:R 1:2 pareado com stop 2.0x ATR, ver CLAUDE.md" },
+  { envVar: "MT5_STOP_MIN_PCT", canonical: "0.003", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+  { envVar: "MT5_STOP_MAX_PCT", canonical: "0.02", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+  { envVar: "MT5_STOP_FALLBACK_PCT", canonical: "0.005", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+];
+
+const governanceDivergences = GOVERNANCE_CRITICAL_ENV_PARAMS.filter(
+  (p) => process.env[p.envVar] !== undefined && process.env[p.envVar] !== p.canonical
+);
+if (governanceDivergences.length > 0) {
+  console.warn(
+    "\n🔴🔴🔴 AVISO DE GOVERNANCA -- .env esta sobrepondo parametro(s) de risco/stop " +
+      "considerados decisao vigente do projeto. Isto e EXATAMENTE o padrao que ja " +
+      "causou colapso de acerto (80%->33% em 2026-09-04). Confirme que isto e um " +
+      "teste deliberado e documentado, NAO um residuo esquecido de sessao anterior:\n"
+  );
+  for (const d of governanceDivergences) {
+    console.warn(
+      `   - ${d.envVar}=${process.env[d.envVar]} (valor vigente esperado: ${d.canonical} -- ${d.motivo})`
+    );
+  }
+  console.warn(
+    "   Se isto NAO for intencional, remova a linha do .env e reinicie o processo.\n"
+  );
+}
