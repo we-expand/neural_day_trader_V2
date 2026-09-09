@@ -1829,8 +1829,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // ligada, envia a ordem de verdade na Infinox ANTES de gravar o trade
       // -- fail-closed: qualquer falha aborta a abertura, nunca grava um
       // trade "OPEN" que nao existe de verdade na corretora.
-      if (isLiveExecutionActive()) {
-        const liveAccount = await getLiveAccountInfo();
+      if (await isLiveExecutionActive(session.userId)) {
+        const liveAccount = await getLiveAccountInfo(session.userId);
         if (!liveAccount) {
           return { error: "Execucao real ligada mas nao foi possivel confirmar saldo real da conta (MetaAPI) -- posicao NAO aberta." };
         }
@@ -1848,7 +1848,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           );
           return { error: "Teto de perda absoluta em dolar excedido -- circuit breaker acionado, posicao NAO aberta." };
         }
-        const liveResult = await executeLiveMarketOrder({
+        const liveResult = await executeLiveMarketOrder(session.userId, {
           side: side as "LONG" | "SHORT",
           symbol,
           volume: lots,
@@ -2120,11 +2120,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 🔴 2026-09-08 (execucao REAL): fecha a posicao de verdade na
       // corretora ANTES de gravar o fechamento -- fail-closed, nunca marca
       // "CLOSED" no banco sem confirmar que fechou de verdade na Infinox.
-      if (isLiveExecutionActive()) {
-        if (!position.broker_position_id) {
-          return { error: "Execucao real ligada mas esta posicao nao tem broker_position_id (nao foi aberta em modo LIVE) -- posicao NAO fechada por seguranca." };
-        }
-        const liveClose = await executeLiveClose(position.broker_position_id);
+      // So tenta fechamento real se ESTA posicao especifica foi ABERTA em
+      // modo LIVE (tem broker_position_id) -- uma posicao DEMO aberta antes
+      // de conectar o broker continua fechando como simulada normalmente,
+      // mesmo que o usuario ja tenha conectado a conta real depois.
+      if (position.broker_position_id) {
+        const liveClose = await executeLiveClose(session.userId, position.broker_position_id);
         if (!liveClose.success || !Number.isFinite(liveClose.exitPrice)) {
           return { error: `Fechamento real falhou: ${liveClose.error ?? "erro desconhecido"}. Posicao NAO fechada.` };
         }
@@ -2155,7 +2156,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // bug de reconciliacao alto demais pra este primeiro trilho de execucao
       // real. Bloqueado explicitamente em LIVE; open_position/close_position
       // continuam disponiveis normalmente.
-      if (isLiveExecutionActive()) {
+      if (await isLiveExecutionActive(session.userId)) {
         return { error: "increase_position (pyramiding) nao esta disponivel em execucao real ainda -- use open_position/close_position." };
       }
 

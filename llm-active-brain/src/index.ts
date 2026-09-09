@@ -5,7 +5,7 @@ import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
-import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions } from "./neuralBridge.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, type Mt5OpenPosition } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
@@ -106,31 +106,37 @@ let liveReconcileTimer: ReturnType<typeof setInterval> | undefined;
 let liveReconcileSessions: Mt5Session[] = [];
 
 async function liveReconcileTick(): Promise<void> {
-  if (liveReconcileBusy || !isLiveExecutionActive() || liveReconcileSessions.length === 0) return;
+  if (liveReconcileBusy || liveReconcileSessions.length === 0) return;
   liveReconcileBusy = true;
   try {
-    const [expectedBySession, realPositions] = await Promise.all([
-      Promise.all(liveReconcileSessions.map((s) => listMt5OpenPositions(s.sessionId))),
-      getLivePositions().catch((err) => {
-        tripLiveCircuitBreaker(`Falha ao buscar posicoes reais pra reconciliacao: ${err instanceof Error ? err.message : err}`);
-        return null;
-      }),
-    ]);
-    if (realPositions === null) return;
+    for (const session of liveReconcileSessions) {
+      if (!(await isLiveExecutionActive(session.userId))) continue; // este usuario esta em DEMO agora -- nada pra reconciliar.
+      let expected: Mt5OpenPosition[];
+      let real: Awaited<ReturnType<typeof getLivePositions>>;
+      try {
+        [expected, real] = await Promise.all([
+          listMt5OpenPositions(session.sessionId),
+          getLivePositions(session.userId),
+        ]);
+      } catch (err) {
+        tripLiveCircuitBreaker(
+          `Falha ao buscar posicoes (reais ou esperadas) pra reconciliacao (sessao ${session.sessionId}): ${err instanceof Error ? err.message : err}`
+        );
+        continue;
+      }
 
-    const expectedLiveIds = new Set(
-      expectedBySession.flat().map((p) => p.broker_position_id).filter((id): id is string => Boolean(id))
-    );
-    const realIds = new Set(realPositions.map((p) => p.id));
+      const expectedLiveIds = new Set(expected.map((p) => p.broker_position_id).filter((id): id is string => Boolean(id)));
+      const realIds = new Set(real.map((p) => p.id));
 
-    const missingOnBroker = [...expectedLiveIds].filter((id) => !realIds.has(id));
-    const unexpectedOnBroker = [...realIds].filter((id) => !expectedLiveIds.has(id));
+      const missingOnBroker = [...expectedLiveIds].filter((id) => !realIds.has(id));
+      const unexpectedOnBroker = [...realIds].filter((id) => !expectedLiveIds.has(id));
 
-    if (missingOnBroker.length > 0 || unexpectedOnBroker.length > 0) {
-      tripLiveCircuitBreaker(
-        `Reconciliacao divergente -- motor espera posicoes reais [${missingOnBroker.join(",")}] que nao estao mais na corretora, ` +
-          `e/ou a corretora tem posicoes [${unexpectedOnBroker.join(",")}] que o motor nao reconhece.`
-      );
+      if (missingOnBroker.length > 0 || unexpectedOnBroker.length > 0) {
+        tripLiveCircuitBreaker(
+          `Reconciliacao divergente (sessao ${session.sessionId}) -- motor espera posicoes reais [${missingOnBroker.join(",")}] que nao estao mais ` +
+            `na corretora, e/ou a corretora tem posicoes [${unexpectedOnBroker.join(",")}] que o motor nao reconhece.`
+        );
+      }
     }
   } finally {
     liveReconcileBusy = false;
@@ -367,9 +373,12 @@ async function main() {
   await assertOnTestnet();
   if (config.mt5TradingEnabled) startStopWatchdog();
   if (config.mt5LiveExecutionEnabled) {
+    // Kill-switch mestre ligado -- a partir daqui, QUALQUER usuario que
+    // conectar broker_credentials pela UI passa a operar com dinheiro real
+    // no proximo ciclo, sem precisar de novo restart (ver liveExecution.ts).
     startLiveReconcileWatchdog();
     console.warn(
-      "[live] ⚠️ MT5_LIVE_EXECUTION_ENABLED=true -- este processo pode enviar ordens REAIS com dinheiro de verdade na Infinox."
+      "[live] ⚠️ MT5_LIVE_EXECUTION_ENABLED=true -- usuarios com broker conectado podem ter ordens REAIS enviadas com dinheiro de verdade na Infinox."
     );
   }
   if (config.continuousMode) {

@@ -6,9 +6,49 @@ import { toast } from 'sonner';
 
 export const FinancialHUD = memo(function FinancialHUD() {
   const { user } = useAuth();
-  const { portfolio, activeOrders, houseStats } = useTradingContext(); 
+  const { portfolio, activeOrders, houseStats, updatePortfolioFromMT5 } = useTradingContext();
   const [loading, setLoading] = useState(false);
   const [mathUpgradeActive, setMathUpgradeActive] = useState(false);
+
+  // 🔴 2026-09-08 (pedido explícito do Cleber: "ao clicar em conectar conta
+  // live, espero que entre meu saldo real na plataforma no lugar dos 100
+  // dólares"): até aqui, `portfolio.balance/equity` (exibidos aqui e em todo
+  // lugar que monta este componente, inclusive o Dashboard) só vinha do
+  // saldo SIMULADO (ai_portfolio_snapshots/ai_trades) — o mesmo padrão de
+  // sync já existia isolado dentro de AITrader.tsx (só rodava se aquela tela
+  // estivesse montada). Replicado aqui pra valer em qualquer tela que mostre
+  // o HUD financeiro. Quando NÃO há broker conectado, não faz nada — o
+  // portfolio simulado calculado em useApexLogic.ts continua sendo a fonte,
+  // sem regressão pra quem só usa DEMO. Poll a cada 15s (mesmo espírito do
+  // watchdog de reconciliação do llm-active-brain) pra refletir saldo real
+  // que muda por fora (ordem executada pelo motor).
+  useEffect(() => {
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    const syncRealBalanceIfConnected = async () => {
+      try {
+        const { getBrokerCredentialsStatus, getAccountInfo } = await import('../../services/BrokerClient');
+        const status = await getBrokerCredentialsStatus();
+        if (cancelled || !status.configured) return;
+        const accountInfo = await getAccountInfo();
+        if (cancelled || !accountInfo) return;
+        updatePortfolioFromMT5({
+          balance: accountInfo.balance,
+          equity: accountInfo.equity || accountInfo.balance,
+        });
+      } catch (error) {
+        console.error('[FinancialHUD] Erro ao sincronizar saldo real da corretora:', error);
+      }
+    };
+
+    syncRealBalanceIfConnected();
+    intervalId = setInterval(syncRealBalanceIfConnected, 15000);
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [updatePortfolioFromMT5]);
   
   // Real-time PnL Calculation State - usando useMemo para evitar recalcular
   const startBalance = useMemo(() => 
