@@ -1236,13 +1236,19 @@ app.delete('/broker/credentials', async (c) => {
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
         const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
 
-        // Derruba a conta na MetaAPI antes de apagar a credencial, pra não deixá-la
-        // hospedada (e sendo cobrada) órfã sem ninguém pra desligar depois.
-        const existing = await loadDecryptedBrokerCredentials(authenticatedUserId);
-        if (existing) {
-            await undeployBrokerAccount(existing.token, existing.accountId);
-        }
-
+        // 🔴 2026-09-08/09 (achado real, grave): esta conta MetaAPI é a MESMA
+        // conta dedicada que o streaming-relay usa pra transmitir preço em
+        // tempo real pra TODA a plataforma (não é uma conta exclusiva deste
+        // usuário) — chamar `undeploy` aqui, como este endpoint sempre fez,
+        // derrubaria o streaming de preço de todos os usuários só porque UM
+        // usuário clicou em "desconectar". Foi por isso que a desconexão da
+        // conta LIVE em 2026-09-08 precisou ser feita via SQL direto (sem
+        // passar por este endpoint) — a suposição original do comentário
+        // removido ("conta exclusiva, sem ninguém pra desligar depois") não
+        // vale pra esta plataforma. NUNCA fazer undeploy aqui — só remove a
+        // credencial. Uma conta que fica deployed sem uso não quebra nada
+        // (ensureAccountDeployed é idempotente), só o streaming-relay
+        // continua precisando dela de qualquer forma.
         const { error } = await supabaseAdmin
             .from('broker_credentials')
             .delete()

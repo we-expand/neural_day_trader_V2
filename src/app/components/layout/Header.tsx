@@ -1,8 +1,10 @@
-import React from 'react';
-import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { BrokerConnectionStatus } from '../BrokerConnectionStatus';
+import { getBrokerCredentialsStatus, deleteBrokerCredentials } from '../../services/BrokerClient';
 
 interface HeaderProps {
   currentView: string;
@@ -12,15 +14,56 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user }) => {
-  // 🔴 2026-09-09 (achado ao vivo do Cleber: badge mostrava "DEMO" mesmo com
-  // corretora conectada e ordem real já executando): `config.executionMode`
-  // é `aiConfig.executionMode`, um campo separado e desatualizado -- quem de
-  // fato rege se a boleta manda ordem real é o `executionMode` de nível
-  // superior do contexto (`logic.executionMode` em useApexLogic.ts), o mesmo
-  // que `OrderTicket.tsx` já usa pra decidir DEMO vs LIVE de verdade.
-  const { executionMode } = useTradingContext();
+  // 🔴 2026-09-09 (achado ao vivo do Cleber: badge ainda mostrava "DEMO" com
+  // corretora conectada, e não dava pra desconectar clicando nele): nem
+  // `aiConfig.executionMode` nem `logic.executionMode` (2 campos SEPARADOS e
+  // desatualizados entre si -- primeiro achado desta sessão) refletem de
+  // verdade se há corretora conectada. A fonte de verdade real é a linha em
+  // `broker_credentials` (mesma que o llm-active-brain já usa pra decidir
+  // DEMO vs LIVE dinamicamente) -- checada aqui direto, sem depender de
+  // nenhum dos dois campos de config antigos.
+  const { setExecutionMode } = useTradingContext();
   const { fullName, profile, avatarUrl } = useUserProfile();
-  const isLive = executionMode === 'LIVE';
+  const [isLive, setIsLive] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkConnected = async () => {
+      try {
+        const status = await getBrokerCredentialsStatus();
+        if (!cancelled) setIsLive(!!status.configured);
+      } catch {
+        // falha transitória -- mantém o último estado conhecido.
+      }
+    };
+    checkConnected();
+    const interval = setInterval(checkConnected, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleDisconnect = async () => {
+    if (disconnecting) return;
+    if (!window.confirm('Desconectar a conta real da corretora? Nenhuma posição já aberta será fechada — só a capacidade de enviar ordem nova é removida.')) return;
+    setDisconnecting(true);
+    try {
+      const result = await deleteBrokerCredentials();
+      if (result.success) {
+        setIsLive(false);
+        setExecutionMode('DEMO');
+        toast.success('Desconectado da corretora', { description: 'Voltando pro modo DEMO.' });
+      } else {
+        toast.error('Falha ao desconectar', { description: 'Tente de novo em alguns segundos.' });
+      }
+    } catch (error) {
+      toast.error('Falha ao desconectar', { description: error instanceof Error ? error.message : 'Erro desconhecido' });
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   const getViewTitle = (view: string) => {
     switch (view) {
@@ -44,15 +87,20 @@ export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, 
     <header id="app-header" className="min-h-[4rem] h-auto py-2 border-b border-white/5 bg-black/50 backdrop-blur-md px-4 md:px-6 flex flex-wrap md:flex-nowrap items-center justify-between sticky top-0 z-40 gap-y-2">
       {/* Left: Mode Badge only — no view title duplicating sidebar */}
       <div className="flex items-center gap-4 shrink-0">
-        {/* Execution Mode Badge */}
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
-            isLive 
-            ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
-            : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+        {/* Execution Mode Badge -- clicável só quando LIVE, pra desconectar */}
+        <button
+          type="button"
+          onClick={isLive ? handleDisconnect : undefined}
+          disabled={!isLive || disconnecting}
+          title={isLive ? 'Clique pra desconectar da corretora real' : undefined}
+          className={`flex items-center gap-2 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+            isLive
+            ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 cursor-pointer'
+            : 'bg-amber-500/10 border border-amber-500/30 text-amber-400 cursor-default'
         }`}>
-            {isLive ? <AlertTriangle className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
-            {isLive ? 'LIVE' : 'DEMO'}
-        </div>
+            {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : isLive ? <AlertTriangle className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+            {disconnecting ? 'Desconectando...' : isLive ? 'LIVE' : 'DEMO'}
+        </button>
       </div>
       
       {/* Right: Actions & Profile */}
