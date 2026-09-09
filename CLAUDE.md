@@ -15,6 +15,57 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-09] Dev Lab ganhou seção nova "Sugestões da IA para
+Desenvolvimento" — ambiente onde a IA propõe melhorias pra própria
+plataforma, distinto da aba de pesquisa de concorrente evidenciada.**
+Pedido do Cleber (Dev Lab já existe no menu Sistema). Nova aba no
+`DevLab.tsx` com botão "Gerar sugestões com IA" (campo de foco opcional) —
+chama Edge Function nova `dev-lab-ai-suggestions` (LLM, mesmos 3
+provedores/secrets do NEXUS: `LLM_PROVIDER`/`NVIDIA_API_KEY`/etc, sem
+tool-use, só pede um JSON de sugestões), grava em `dev_lab_suggestions` com
+`source_type='AI_SUGGESTION'` — tipo NOVO, deliberadamente separado de
+`AI_RESEARCH` (que exige evidência real de concorrente): aqui é opinião do
+modelo sobre o produto, nunca apresentada como fato comprovado, sem
+`evidence`/`competitor_url`. `tsc --noEmit` sem erro novo, `deno check`
+limpo na function nova. **Pendente**: migration
+`20260909_add_ai_suggestion_source_type.sql` (adiciona `AI_SUGGESTION` ao
+CHECK de `source_type`) — Cleber rodar no SQL Editor; deploy da function
+(`supabase functions deploy dev-lab-ai-suggestions --no-verify-jwt` não é
+necessário, ela já valida JWT do usuário internamente — usar
+`supabase functions deploy dev-lab-ai-suggestions`); `git commit`. Não
+testado ao vivo ainda (depende da migration + deploy).
+
+**[EM ANDAMENTO 2026-09-09] Limpeza de itens de menu não usados + telemetria
+real de sessão (IP/geolocalização/dispositivo/presença) implementada,
+ligada a Termos de Uso reais (antes não existia nenhum) — código pronto,
+`tsc --noEmit` limpo, mas deploy da Edge Function `server` bloqueado pelo
+classificador de segurança do Claude Code (ação em infraestrutura
+compartilhada), aguardando Cleber rodar `supabase functions deploy
+server`.** De carona: bug corrigido em `UserDataDashboard.tsx` (mandava
+anon key pública em vez de JWT de admin real pra `/user-data`). Detalhe
+completo, incluindo a decisão de base legal (Termos de Uso, sem banner de
+opt-in separado) e geolocalização resolvida no servidor (nunca exposta a
+terceiro pelo navegador):
+[SESSAO_2026-09-09_MENU_LIMPEZA_TELEMETRIA_LGPD.md](SESSAO_2026-09-09_MENU_LIMPEZA_TELEMETRIA_LGPD.md).
+
+**[RESOLVIDO 2026-09-09] LLM Brain ficou o dia inteiro sem evoluir o
+capital da conta real — `llm-council` convocado, achado de governança
+grave corrigido: `.env` sobrepunha stop/risco vigentes (1.0x ATR/9% em
+vez de 2.0x/3% decididos) há dias sem ninguém notar, mesmo padrão que já
+derrubou acerto 80%→33% em 04/09.** Diagnóstico real via SQL (61 trades):
+81% das entradas nunca chegam a 1R, gate de confiança invertido
+(confiança alta = resultado PIOR), `indicators_snapshot` NULL em 100%
+dos trades. Consenso do conselho: não buscar edge novo, não apertar
+seletividade ainda (amostra contaminada pela divergência de parâmetro) —
+corrigir governança primeiro, rodar fixo 5 dias/40+ trades depois. Meta
+de $10/dia sobre $100 (~1000%/mês) é matematicamente insustentável,
+unânime entre os 5 conselheiros — é decisão de capital-base do Cleber,
+não parâmetro de engenharia. 2 fixes aplicados e commitados: `.env`
+revertido + aviso automático de governança no boot (`bdef0327c`);
+`indicators_snapshot` deixa de ser NULL, passa a gravar o mesmo dado real
+que `get_mt5_quote` já calcula (`c73c6b63e`). Detalhe completo:
+[SESSAO_2026-09-09_LLM_COUNCIL_GOVERNANCA_ENV_E_SNAPSHOT.md](SESSAO_2026-09-09_LLM_COUNCIL_GOVERNANCA_ENV_E_SNAPSHOT.md).
+
 **[RESOLVIDO 2026-09-09] Primeiro teste de execução REAL (LIVE) na Infinox
 com $22 — trilho novo construído do zero, terminou em Stop Out (saldo real
 foi a $0) depois de um erro de operação (4 posições opostas abertas na

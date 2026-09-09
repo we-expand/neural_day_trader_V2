@@ -11,6 +11,7 @@ import {
   Code2, Paintbrush, Zap, TrendingUp, Sparkles, Bug, Lightbulb,
   Check, Trash2, RotateCcw, X, Plus, Beaker, Megaphone,
   CircleDollarSign, Brain, ExternalLink, Search, RefreshCw, Microscope,
+  Wand2, Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/app/contexts/AuthContext';
 import {
@@ -18,7 +19,7 @@ import {
   CATEGORY_CONFIG, IMPACT_CONFIG, EFFORT_CONFIG,
 } from '@/app/services/DevLabService';
 
-type ViewMode = 'active' | 'completed' | 'trash' | 'research';
+type ViewMode = 'active' | 'completed' | 'trash' | 'research' | 'ai_suggestions';
 
 const CATEGORY_ICONS: Record<Category, React.ComponentType<any>> = {
   TECH: Code2,
@@ -65,6 +66,13 @@ const SourceBadge = ({ suggestion }: { suggestion: Suggestion }) => {
       </span>
     );
   }
+  if (suggestion.source_type === 'AI_SUGGESTION') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+        <Wand2 className="w-3 h-3" /> Sugestão da IA
+      </span>
+    );
+  }
   return (
     <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-500 border border-white/10">
       Manual
@@ -84,6 +92,9 @@ export default function DevLab({ embedded = false }: DevLabProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('active');
   const [selectedCategory, setSelectedCategory] = useState<Category | 'ALL'>('ALL');
   const [showNewModal, setShowNewModal] = useState(false);
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiFocus, setAiFocus] = useState('');
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -104,17 +115,34 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     completed: suggestions.filter((s) => s.status === 'completed').length,
     trash: suggestions.filter((s) => s.status === 'trash').length,
     aiResearch: suggestions.filter((s) => s.source_type === 'AI_RESEARCH').length,
+    aiSuggestion: suggestions.filter((s) => s.source_type === 'AI_SUGGESTION').length,
     total: suggestions.length,
   }), [suggestions]);
 
   const filtered = useMemo(() => {
     if (viewMode === 'research') return [];
+    if (viewMode === 'ai_suggestions') {
+      return suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status !== 'trash');
+    }
     return suggestions.filter((s) => {
       if (s.status !== viewMode) return false;
       if (selectedCategory !== 'ALL' && s.category !== selectedCategory) return false;
       return true;
     });
   }, [suggestions, viewMode, selectedCategory]);
+
+  const handleGenerateAi = async () => {
+    setGeneratingAi(true);
+    setAiError(null);
+    const result = await devLabService.generateAiSuggestions(aiFocus.trim() || undefined);
+    if ('error' in result) {
+      setAiError(result.error);
+    } else {
+      setSuggestions((prev) => [...result.suggestions, ...prev]);
+      setAiFocus('');
+    }
+    setGeneratingAi(false);
+  };
 
   const handleStatus = async (id: string, status: SuggestionStatus) => {
     setSuggestions((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
@@ -142,11 +170,12 @@ export default function DevLab({ embedded = false }: DevLabProps) {
         </p>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           <StatCard label="Ativas" value={stats.active} color="text-white" />
           <StatCard label="Concluídas" value={stats.completed} color="text-emerald-400" />
           <StatCard label="Lixeira" value={stats.trash} color="text-slate-500" />
           <StatCard label="De pesquisa real" value={stats.aiResearch} color="text-cyan-400" />
+          <StatCard label="Da IA" value={stats.aiSuggestion} color="text-indigo-400" />
           <StatCard label="Total" value={stats.total} color="text-white" />
         </div>
 
@@ -156,6 +185,7 @@ export default function DevLab({ embedded = false }: DevLabProps) {
           <TabButton label={`Concluídas (${stats.completed})`} active={viewMode === 'completed'} onClick={() => setViewMode('completed')} />
           <TabButton label={`Lixeira (${stats.trash})`} active={viewMode === 'trash'} onClick={() => setViewMode('trash')} />
           <TabButton label={`Pesquisas de concorrente (${researchRuns.length})`} active={viewMode === 'research'} onClick={() => setViewMode('research')} icon={Search} />
+          <TabButton label={`Sugestões da IA (${stats.aiSuggestion})`} active={viewMode === 'ai_suggestions'} onClick={() => setViewMode('ai_suggestions')} icon={Wand2} />
           <div className="flex-1" />
           <button onClick={load} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white px-3 py-2 mb-1">
             <RefreshCw className="w-4 h-4" /> Atualizar
@@ -165,7 +195,34 @@ export default function DevLab({ embedded = false }: DevLabProps) {
           </button>
         </div>
 
-        {viewMode !== 'research' && (
+        {viewMode === 'ai_suggestions' && (
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 space-y-3">
+            <p className="text-sm text-slate-400">
+              A IA analisa o produto e propõe melhorias — é opinião do modelo, não pesquisa evidenciada de
+              concorrente (isso fica na aba "Pesquisas de concorrente"). Toda sugestão nasce como <span className="text-white font-medium">Ativa</span>,
+              revise e descarte o que não fizer sentido.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={aiFocus}
+                onChange={(e) => setAiFocus(e.target.value)}
+                placeholder="Foco opcional (ex: monetização, UX do gráfico, cérebro de trading)..."
+                className="flex-1 min-w-[240px] bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <button
+                onClick={handleGenerateAi}
+                disabled={generatingAi}
+                className="flex items-center gap-2 text-sm bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 font-semibold"
+              >
+                {generatingAi ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                {generatingAi ? 'Gerando...' : 'Gerar sugestões com IA'}
+              </button>
+            </div>
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+          </div>
+        )}
+
+        {viewMode !== 'research' && viewMode !== 'ai_suggestions' && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <button
               onClick={() => setSelectedCategory('ALL')}
@@ -216,13 +273,13 @@ export default function DevLab({ embedded = false }: DevLabProps) {
                   <EffortBadge effort={s.effort} />
                 </div>
                 <div className="flex items-center gap-2 pt-2 border-t border-white/5 mt-auto">
-                  {viewMode === 'active' && (
+                  {(viewMode === 'active' || (viewMode === 'ai_suggestions' && s.status === 'active')) && (
                     <>
                       <ActionButton icon={Check} label="Concluir" onClick={() => handleStatus(s.id, 'completed')} color="text-emerald-400 hover:bg-emerald-500/10" />
                       <ActionButton icon={Trash2} label="Descartar" onClick={() => handleStatus(s.id, 'trash')} color="text-red-400 hover:bg-red-500/10" />
                     </>
                   )}
-                  {viewMode === 'completed' && (
+                  {(viewMode === 'completed' || (viewMode === 'ai_suggestions' && s.status === 'completed')) && (
                     <ActionButton icon={RotateCcw} label="Reabrir" onClick={() => handleStatus(s.id, 'active')} color="text-slate-400 hover:bg-white/10" />
                   )}
                   {viewMode === 'trash' && (

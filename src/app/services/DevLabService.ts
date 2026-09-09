@@ -21,7 +21,7 @@ export type Category =
 export type Impact = 'HIGH' | 'MEDIUM' | 'LOW';
 export type Effort = 'HIGH' | 'MEDIUM' | 'LOW';
 export type SuggestionStatus = 'active' | 'completed' | 'trash';
-export type SourceType = 'MANUAL' | 'AI_RESEARCH';
+export type SourceType = 'MANUAL' | 'AI_RESEARCH' | 'AI_SUGGESTION';
 
 export interface Suggestion {
   id: string;
@@ -136,6 +136,31 @@ class DevLabService {
     } catch (error) {
       console.error(`${LOG_PREFIX} Erro ao apagar sugestão:`, error);
       return false;
+    }
+  }
+
+  /**
+   * Pede à IA que gere novas sugestões de melhoria da plataforma (Edge
+   * Function `dev-lab-ai-suggestions`) — opinião do modelo, marcada como
+   * source_type 'AI_SUGGESTION', nunca apresentada como fato de concorrente
+   * comprovado (isso é a aba separada "Pesquisas de concorrente").
+   */
+  async generateAiSuggestions(focus?: string): Promise<{ suggestions: Suggestion[] } | { error: string }> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) return { error: 'Sessão expirada — faça login novamente.' };
+
+      const { data, error } = await supabase.functions.invoke('dev-lab-ai-suggestions', {
+        body: focus ? { focus } : {},
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (error) throw error;
+      if (data?.error) return { error: data.error as string };
+      return { suggestions: (data?.suggestions || []) as Suggestion[] };
+    } catch (error: any) {
+      console.error(`${LOG_PREFIX} Erro ao gerar sugestões da IA:`, error);
+      return { error: error?.message ?? 'Falha ao gerar sugestões da IA.' };
     }
   }
 
