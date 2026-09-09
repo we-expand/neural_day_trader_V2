@@ -71,7 +71,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const focus = typeof body?.focus === 'string' ? body.focus.trim().slice(0, 500) : '';
     const rawCount = Number(body?.count);
-    const count = Number.isFinite(rawCount) ? Math.min(10, Math.max(1, Math.round(rawCount))) : 5;
+    const count = Number.isFinite(rawCount) ? Math.min(20, Math.max(1, Math.round(rawCount))) : 20;
     const userMessage = focus
       ? `Gere ${count} sugestõe(s) nova(s), priorizando este foco pedido pelo usuário: "${focus}".`
       : `Gere ${count} sugestõe(s) nova(s) cobrindo áreas variadas da plataforma (não repita o mesmo tema).`;
