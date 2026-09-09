@@ -89,6 +89,10 @@ export interface TradeVisual {
   // `pyramidLayer` = 1 pra posição original, 2+ pras entradas adicionadas.
   pyramidGroupId?: string;
   pyramidLayer?: number;
+  // 🔴 2026-09-09: id REAL da posição na MetaAPI — presente só quando esta
+  // posição foi executada de verdade na corretora (LIVE), null/undefined em
+  // trade simulado (DEMO). Usado pra fechamento real pela boleta.
+  brokerPositionId?: string | null;
   leverage: number;
   ai_confidence: number;
   timestamp: number;

@@ -1368,6 +1368,7 @@ export function useApexLogic(
               tp: Number(t.take_profit ?? t.entry_price),
               sl: stopLossNum,
               originalSl: existing?.originalSl ?? stopLossNum,
+              brokerPositionId: t.broker_position_id ?? null,
               leverage: 1.5,
               ai_confidence: Number(t.ai_confidence ?? 50),
               timestamp: new Date(t.entry_time).getTime(),
@@ -2974,6 +2975,7 @@ export function useApexLogic(
       timestamp: Date.now(),
       reasoning: 'Ordem manual do usuário (LIVE)',
       indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+      brokerPositionId: params.brokerPositionId,
     };
 
     setActiveOrders(prev => [...prev, newTrade]);
@@ -3405,6 +3407,42 @@ export function useApexLogic(
     addLog(`✅ Posição manual fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
   }, [addLog]);
 
+  // 🔴 2026-09-09 (pedido explícito do Cleber: "consigo controlar fechamento
+  // pela boleta do gráfico?"): fecha uma posição REAL na corretora
+  // (`closePosition` real via /broker/execute) — fail-closed, só marca
+  // CLOSED no banco DEPOIS de confirmar que fechou de verdade na MetaAPI,
+  // nunca antes (mesma disciplina do liveExecution.ts do llm-active-brain).
+  const closeLiveManualPosition = useCallback(async (tradeId: string): Promise<{ success: boolean; error?: string }> => {
+    const order = activeOrdersRef.current.find(o => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada.' };
+    if (!order.brokerPositionId) return { success: false, error: 'Esta posição não tem id real da corretora (não é LIVE).' };
+
+    const { closePosition, getPositions } = await import('../services/BrokerClient');
+
+    // A resposta de fechamento não traz sempre um preço de saída pronto —
+    // busca o preço atual da posição ANTES de fechar (aproximação real mais
+    // próxima do preço de saída de fato); sem isso, nunca fabrica preço, só
+    // usa o último preço conhecido localmente como último recurso.
+    let exitPrice = order.currentPrice ?? order.price;
+    try {
+      const positions = await getPositions();
+      const target = positions.find((p: any) => String(p.id) === order.brokerPositionId);
+      if (target && Number.isFinite(target.currentPrice)) exitPrice = target.currentPrice;
+    } catch {
+      // mantém a aproximação acima.
+    }
+
+    const result = await closePosition(order.brokerPositionId);
+    if (!result.success) return { success: false, error: result.error || result.message || 'Falha ao fechar na corretora.' };
+
+    const tradePnL = calculateEngineConsistentPnL(order.price, exitPrice, order.side, order.amount);
+    persistenceRef.current.onTradeClose(order.id, exitPrice, tradePnL, 0, 'MANUAL');
+    setOrderHistory(prev => [...prev, { ...order, currentPrice: exitPrice, currentProfit: tradePnL, closedAt: Date.now() }]);
+    setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
+    addLog(`✅ Posição REAL fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
+    return { success: true };
+  }, [addLog]);
+
   // === UPDATE AI CONFIG ===
   // 🔴 2026-08-25: agora persiste automaticamente a config no Supabase
   const updateAIConfig = useCallback((config: Partial<AIConfig>) => {
@@ -3689,6 +3727,7 @@ export function useApexLogic(
     openManualPosition,
     recordLiveManualPosition,
     closeManualPosition,
+    closeLiveManualPosition,
     pendingOrders,
     openManualPendingOrder,
     cancelManualPendingOrder,

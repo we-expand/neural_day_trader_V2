@@ -71,19 +71,21 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setSelectedAsset } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, closeLiveManualPosition, setSelectedAsset } = useTradingContext();
+  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
 
   const asset = useMemo(() => getAssetBySymbol(symbol), [symbol]);
   const contractSpec = useMemo(() => getContractSpec(symbol), [symbol]);
 
-  // Posições DEMO abertas neste símbolo — closeManualPosition só existe pro
-  // caminho DEMO (posição virtual local). Em LIVE a boleta abre via
-  // BrokerClient direto (createMarketBuyOrder/SellOrder) sem passar por
-  // `activeOrders`, então não tem posição pra fechar por aqui ainda — os
-  // módulos de execução automática (Estágios 2-4) são o caminho LIVE real.
+  // 🔴 2026-09-09 (pedido explícito do Cleber: fechar posição real pela
+  // boleta): posições deste símbolo, DEMO ou LIVE — `activeOrders` já é
+  // sincronizado a partir de `ai_trades` pra ambos os modos (ver
+  // `recordLiveManualPosition`/reconcile() em useApexLogic.ts). Fechamento
+  // real usa `closeLiveManualPosition` (chama a corretora de verdade);
+  // fechamento DEMO continua em `closeManualPosition` (simulado).
   const symbolPositions = useMemo(
-    () => (executionMode === 'DEMO' ? activeOrders.filter((o) => o.symbol === symbol) : []),
-    [activeOrders, symbol, executionMode],
+    () => activeOrders.filter((o) => o.symbol === symbol),
+    [activeOrders, symbol],
   );
 
   // 🛡️ Posições abertas em OUTRO símbolo — a linha/overlay de posição só pode
@@ -96,16 +98,29 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   // alerta garante que o usuário nunca perde essa visibilidade, não importa
   // em qual símbolo o gráfico esteja.
   const otherSymbolPositionsBySymbol = useMemo(() => {
-    if (executionMode !== 'DEMO') return [] as { symbol: string; count: number }[];
     const bySymbol = new Map<string, number>();
     for (const o of activeOrders) {
       if (o.symbol === symbol) continue;
       bySymbol.set(o.symbol, (bySymbol.get(o.symbol) || 0) + 1);
     }
     return Array.from(bySymbol.entries()).map(([sym, count]) => ({ symbol: sym, count }));
-  }, [activeOrders, symbol, executionMode]);
+  }, [activeOrders, symbol]);
 
-  function handleClosePosition(tradeId: string) {
+  async function handleClosePosition(tradeId: string, brokerPositionId?: string | null) {
+    if (brokerPositionId) {
+      setClosingTradeId(tradeId);
+      try {
+        const result = await closeLiveManualPosition(tradeId);
+        if (result.success) {
+          toast.success('Posição real fechada', { description: `${symbol} na corretora` });
+        } else {
+          toast.error('Falha ao fechar na corretora', { description: result.error });
+        }
+      } finally {
+        setClosingTradeId(null);
+      }
+      return;
+    }
     if (currentPrice == null) return;
     closeManualPosition(tradeId, currentPrice);
     toast.success('Posição fechada', { description: `${symbol} @ ${formatPrice(currentPrice, symbol)}` });
@@ -518,11 +533,11 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
               </div>
               <button
                 type="button"
-                onClick={() => handleClosePosition(pos.id)}
-                disabled={currentPrice == null}
+                onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}
+                disabled={(currentPrice == null && !pos.brokerPositionId) || closingTradeId === pos.id}
                 className="text-[9px] font-bold px-2 py-1 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Fechar
+                {closingTradeId === pos.id ? 'Fechando...' : 'Fechar'}
               </button>
             </div>
           );
@@ -694,11 +709,11 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleClosePosition(pos.id)}
-                    disabled={currentPrice == null}
+                    onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}
+                    disabled={(currentPrice == null && !pos.brokerPositionId) || closingTradeId === pos.id}
                     className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
-                    Fechar posição
+                    {closingTradeId === pos.id ? 'Fechando...' : 'Fechar posição'}
                   </button>
                 </div>
               );
