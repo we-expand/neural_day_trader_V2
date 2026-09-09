@@ -6,7 +6,7 @@
  * Admin (aba "devlab").
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Code2, Paintbrush, Zap, TrendingUp, Sparkles, Bug, Lightbulb,
   Check, Trash2, RotateCcw, X, Plus, Beaker, Megaphone,
@@ -195,6 +195,19 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     setFillProgress(null);
     setFillingAllCategories(false);
   };
+
+  // Pedido do Cleber (2026-09-09): não é mais um botão que precisa de clique —
+  // ao entrar no Dev Lab, cada categoria já deve chegar em 20 sugestões de IA
+  // sozinha, sem ação manual. Roda uma única vez por sessão (ref guard, não
+  // a cada re-load automático de status/conclusão), depois disso vira no-op
+  // porque `categoriesToFill` já filtra quem já está em 20.
+  const autoFillTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (loading || !user?.id || autoFillTriggeredRef.current) return;
+    autoFillTriggeredRef.current = true;
+    handleFillAllCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user?.id]);
 
   const handleStatus = async (id: string, status: SuggestionStatus) => {
     const target = suggestions.find((s) => s.id === id);
