@@ -42,16 +42,28 @@ export function UserIntelligence() {
               return;
           }
 
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/list-users`, {
-             method: 'GET',
-             headers: {
-                 'Authorization': `Bearer ${accessToken}`,
-                 'Content-Type': 'application/json'
-             }
-          });
+          const [usersResponse, telemetryResponse] = await Promise.all([
+              fetch(`https://${projectId}.supabase.co/functions/v1/server/list-users`, {
+                  method: 'GET',
+                  headers: {
+                      'Authorization': `Bearer ${accessToken}`,
+                      'Content-Type': 'application/json'
+                  }
+              }),
+              // 🆕 2026-09-09: telemetria real (IP/geolocalização/dispositivo/presença)
+              // -- ver /telemetry/users em supabase/functions/server/index.ts. Busca
+              // em paralelo, sem bloquear a lista de usuários se falhar.
+              fetch(`https://${projectId}.supabase.co/functions/v1/server/telemetry/users`, {
+                  method: 'GET',
+                  headers: {
+                      'Authorization': `Bearer ${accessToken}`,
+                      'Content-Type': 'application/json'
+                  }
+              }).catch(() => null),
+          ]);
 
-          if (!response.ok) {
-              if (response.status === 403) {
+          if (!usersResponse.ok) {
+              if (usersResponse.status === 403) {
                   toast.error('Acesso restrito a administradores');
               } else {
                   console.warn('Falha ao carregar usuários do servidor');
@@ -60,8 +72,18 @@ export function UserIntelligence() {
               return;
           }
 
-          const data = await response.json();
+          const data = await usersResponse.json();
           if (data.error) throw new Error(data.error);
+
+          let telemetryByUserId = new Map<string, any>();
+          if (telemetryResponse && telemetryResponse.ok) {
+              const telemetryData = await telemetryResponse.json().catch(() => null);
+              if (telemetryData?.telemetry) {
+                  telemetryByUserId = new Map(
+                      telemetryData.telemetry.map((t: any) => [t.userId, t])
+                  );
+              }
+          }
 
           if (data.users) {
               // 🚨 FIX (auditoria 2026-08-03): removido TODO campo fabricado que
@@ -70,19 +92,24 @@ export function UserIntelligence() {
               // já vinham null da Fase 0 mas ainda eram exibidos como se fossem
               // "0/100"/"$NaNk"). Só campos que a rota realmente devolve, direto do
               // Supabase Auth -- nada inventado.
-              const formatted = data.users.map((u: any) => ({
-                  id: u.id,
-                  name: u.user_metadata?.name || u.email?.split('@')[0] || 'Sem nome',
-                  email: u.email,
-                  createdAt: u.created_at,
-                  lastSignInAt: u.last_sign_in_at,
-                  emailConfirmedAt: u.email_confirmed_at,
-                  // "everLoggedIn" -- só sabemos SE já logou alguma vez, não se está
-                  // online AGORA. Não existe telemetria de sessão/presença ligada
-                  // hoje (ver UserTracker.tsx, componente pronto mas não montado em
-                  // lugar nenhum da aplicação) -- não fabricar "online em tempo real".
-                  everLoggedIn: !!u.last_sign_in_at,
-              }));
+              const formatted = data.users.map((u: any) => {
+                  const telemetry = telemetryByUserId.get(u.id) || null;
+                  return {
+                      id: u.id,
+                      name: u.user_metadata?.name || u.email?.split('@')[0] || 'Sem nome',
+                      email: u.email,
+                      createdAt: u.created_at,
+                      lastSignInAt: u.last_sign_in_at,
+                      emailConfirmedAt: u.email_confirmed_at,
+                      // "everLoggedIn" -- só sabemos SE já logou alguma vez, não se está
+                      // online AGORA sem telemetria (ver "isOnline" abaixo, agora real).
+                      everLoggedIn: !!u.last_sign_in_at,
+                      // 🆕 2026-09-09: real, vindo de /telemetry/users -- null quando o
+                      // usuário nunca abriu o app desde que o tracker foi ligado.
+                      telemetry,
+                      isOnline: !!telemetry?.isOnline,
+                  };
+              });
               setUsers(formatted);
           }
       } catch (e: any) {
@@ -131,7 +158,15 @@ export function UserIntelligence() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="mb-1">
-                         <h2 className="text-2xl font-bold text-white tracking-tight">{selectedUser.name}</h2>
+                         <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                            {selectedUser.name}
+                            {selectedUser.isOnline && (
+                              <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2 py-0.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                Online agora
+                              </span>
+                            )}
+                         </h2>
                          <div className="flex items-center gap-2 text-cyan-400/80 text-sm font-mono">
                             <Shield className="w-3 h-3" />
                             <span>ID: {selectedUser.id.substring(0,8).toUpperCase()}</span>
@@ -183,19 +218,75 @@ export function UserIntelligence() {
                          </div>
                       </div>
 
-                      {/* Estado vazio honesto -- IP, geolocalização, dispositivo e
-                          presença online em tempo real NÃO estão instrumentados hoje.
-                          Existe um componente pronto (UserTracker.tsx) e uma rota no
-                          Edge Function (/telemetry/track) mas nenhum dos dois está
-                          ligado em produção -- ligar isso é uma decisão de produto
-                          separada (implicação de LGPD, precisa alinhar com a tela
-                          "Dados de Usuários (LGPD)"), não fingir que já existe. */}
-                      <div className="p-4 bg-slate-900/20 border border-dashed border-slate-700 rounded-lg text-center space-y-1">
-                         <Globe className="w-5 h-5 text-slate-600 mx-auto" />
-                         <p className="text-xs text-slate-500">
-                            IP, localização, dispositivo e presença online em tempo real ainda não são coletados por este sistema.
-                         </p>
-                      </div>
+                      {/* 🆕 2026-09-09: telemetria real, ligada via UserTracker.tsx +
+                          /telemetry/track. IP e geolocalização são resolvidos no
+                          servidor (nunca expostos a terceiro pelo browser); base legal
+                          é o aceite dos Termos de Uso no cadastro (sem banner de
+                          opt-in separado, decisão do Cleber). Estado vazio honesto
+                          quando o usuário ainda não gerou nenhum heartbeat (nunca
+                          abriu o app desde que o tracker foi ligado). */}
+                      {selectedUser.telemetry ? (
+                        <div className="space-y-3">
+                           <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded border border-slate-800">
+                              <div className="flex items-center gap-3">
+                                 <Globe className="w-4 h-4 text-slate-500" />
+                                 <div>
+                                    <p className="text-xs text-slate-500">IP</p>
+                                    <p className="text-sm text-white font-mono">{selectedUser.telemetry.ip || '—'}</p>
+                                 </div>
+                              </div>
+                              <div className="text-right">
+                                 <p className="text-xs text-slate-500">Localização aproximada</p>
+                                 <p className="text-sm text-white">
+                                    {[selectedUser.telemetry.city, selectedUser.telemetry.region, selectedUser.telemetry.country]
+                                      .filter(Boolean).join(', ') || 'Não resolvida'}
+                                 </p>
+                              </div>
+                           </div>
+
+                           {selectedUser.telemetry.isp && (
+                             <div className="flex items-center gap-3 p-3 bg-slate-900/30 rounded border border-slate-800">
+                                <Wifi className="w-4 h-4 text-slate-500" />
+                                <div>
+                                   <p className="text-xs text-slate-500">Provedor de rede</p>
+                                   <p className="text-sm text-white">{selectedUser.telemetry.isp}</p>
+                                </div>
+                             </div>
+                           )}
+
+                           <div className="p-3 bg-slate-900/30 rounded border border-slate-800 space-y-1">
+                              <p className="text-xs text-slate-500">Dispositivo</p>
+                              <p className="text-sm text-white">
+                                 {selectedUser.telemetry.device?.os || 'SO desconhecido'} · {selectedUser.telemetry.device?.screen || '—'} · {selectedUser.telemetry.device?.language || '—'}
+                              </p>
+                              {selectedUser.telemetry.device?.browser && (
+                                <p className="text-xs text-slate-500 font-mono break-all">{selectedUser.telemetry.device.browser}</p>
+                              )}
+                           </div>
+
+                           <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded border border-slate-800">
+                              <div className="flex items-center gap-3">
+                                 <Activity className="w-4 h-4 text-slate-500" />
+                                 <div>
+                                    <p className="text-xs text-slate-500">Última atividade registrada</p>
+                                    <p className="text-sm text-white">
+                                       {selectedUser.telemetry.lastSeenAt ? new Date(selectedUser.telemetry.lastSeenAt).toLocaleString('pt-BR') : '—'}
+                                    </p>
+                                 </div>
+                              </div>
+                              <Badge className={selectedUser.isOnline ? "bg-emerald-500/10 text-emerald-400 border-none" : "bg-slate-500/10 text-slate-400 border-none"}>
+                                 {selectedUser.isOnline ? 'Online agora' : 'Offline'}
+                              </Badge>
+                           </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-slate-900/20 border border-dashed border-slate-700 rounded-lg text-center space-y-1">
+                           <Globe className="w-5 h-5 text-slate-600 mx-auto" />
+                           <p className="text-xs text-slate-500">
+                              Este usuário ainda não gerou nenhum registro de telemetria (não abriu o app desde que a coleta foi ligada).
+                           </p>
+                        </div>
+                      )}
                    </div>
                 </ScrollArea>
              </div>
@@ -206,11 +297,11 @@ export function UserIntelligence() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Inteligência de Usuários</h2>
-          {/* 🚨 FIX (auditoria 2026-08-03): a promessa "monitoramento em tempo real de
-              identidades e status de rede" não correspondia a NENHUM dado real -- não
-              existe telemetria de IP/dispositivo/presença online ligada hoje. Texto
-              honesto sobre o que a tela realmente mostra. */}
-          <p className="text-slate-400">Base real de usuários (Supabase Auth) — sem telemetria de rede/dispositivo ligada ainda.</p>
+          {/* 🆕 2026-09-09: telemetria (IP/geolocalização/dispositivo/presença) agora
+              é real e está ligada (UserTracker.tsx + /telemetry/track), amparada nos
+              Termos de Uso aceitos no cadastro. "Online agora" = heartbeat nos
+              últimos 5min, não um contador de sessão persistente/websocket. */}
+          <p className="text-slate-400">Base real de usuários (Supabase Auth) — com telemetria de IP/localização/dispositivo/presença.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={fetchUsers} disabled={loading} className="border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800">
@@ -221,7 +312,7 @@ export function UserIntelligence() {
       </div>
 
       {/* KPI Cards -- só métricas reais, calculadas a partir do que a rota devolve */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-slate-900/50 border-slate-800">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-slate-400">Total de Usuários</CardTitle>
@@ -254,6 +345,21 @@ export function UserIntelligence() {
                  {users.filter(u => u.emailConfirmedAt).length}
             </div>
             <p className="text-xs text-slate-500">de {users.length} cadastrados</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-slate-400">Online agora</CardTitle>
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+            </span>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-white">
+                 {users.filter(u => u.isOnline).length}
+            </div>
+            <p className="text-xs text-slate-500">Heartbeat de telemetria nos últimos 5min</p>
           </CardContent>
         </Card>
       </div>
@@ -307,16 +413,24 @@ export function UserIntelligence() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        user.everLoggedIn
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                      }
-                    >
-                      {user.everLoggedIn ? 'Já logou' : 'Nunca logou'}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={
+                          user.everLoggedIn
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                        }
+                      >
+                        {user.everLoggedIn ? 'Já logou' : 'Nunca logou'}
+                      </Badge>
+                      {user.isOnline && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-emerald-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Online
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 text-slate-300">

@@ -1979,6 +1979,200 @@ app.get("/user-data/export/csv", async (c) => {
 
 // ==================== END USER DATA ROUTES ====================
 
+// ==================== TELEMETRY ROUTES (IP / Geolocalização / Dispositivo / Presença) ====================
+// Implementa o que estava pendente desde a auditoria 2026-08-03 (UserTracker.tsx
+// pronto mas nunca ligado): base legal é o aceite dos Termos de Uso no cadastro
+// (decisão do Cleber, 2026-09-09), sem banner de opt-in separado. Geolocalização
+// é resolvida AQUI no servidor (nunca no browser) -- o IP do usuário nunca é
+// enviado a um terceiro a partir do client, só server-to-server.
+const TELEMETRY_ACTION = 'telemetry_heartbeat';
+const TELEMETRY_ONLINE_WINDOW_MS = 5 * 60 * 1000; // "online agora" = heartbeat nos últimos 5min
+
+function getRealClientIp(c: any): string | null {
+    // Supabase Edge Functions rodam atrás de proxy -- x-forwarded-for é a fonte
+    // real, nunca confiar em IP que o client mandar no body.
+    const xff = c.req.header('x-forwarded-for');
+    if (xff) return xff.split(',')[0].trim();
+    const cfConnectingIp = c.req.header('cf-connecting-ip');
+    if (cfConnectingIp) return cfConnectingIp.trim();
+    const realIp = c.req.header('x-real-ip');
+    if (realIp) return realIp.trim();
+    return null;
+}
+
+// Registra um heartbeat de telemetria (chamado pelo UserTracker.tsx a cada
+// visita/periodicamente enquanto o usuário está com o app aberto)
+app.post("/telemetry/track", async (c) => {
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const authHeader = c.req.header('Authorization') || '';
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+        if (!token || !supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: 'Não autenticado' }, 401);
+        }
+
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Nunca confiar em user_id/email vindos do body -- sempre resolver a
+        // partir do JWT real da sessão.
+        const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+        const authUser = userData?.user;
+        if (userError || !authUser) {
+            return c.json({ error: 'Sessão inválida' }, 401);
+        }
+
+        const body = await c.req.json().catch(() => ({}));
+        const device = body?.device || {};
+
+        const ip = getRealClientIp(c);
+        const userAgentHeader = c.req.header('user-agent') || device.browser || null;
+
+        // Geolocalização por IP, resolvida no servidor (best-effort -- se falhar,
+        // grava o resto mesmo assim, nunca bloqueia por causa de um terceiro fora
+        // do nosso controle).
+        let geo: { city?: string; region?: string; country?: string; isp?: string } = {};
+        if (ip) {
+            try {
+                const geoResp = await fetch(`https://ipapi.co/${ip}/json/`, {
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (geoResp.ok) {
+                    const geoData = await geoResp.json();
+                    if (!geoData.error) {
+                        geo = {
+                            city: geoData.city,
+                            region: geoData.region,
+                            country: geoData.country_name,
+                            isp: geoData.org,
+                        };
+                    }
+                }
+            } catch (geoErr) {
+                console.warn('[TELEMETRY] Falha ao resolver geolocalização (não bloqueia):', geoErr);
+            }
+        }
+
+        const { error: insertError } = await supabaseAdmin.from('user_activity').insert({
+            user_id: authUser.id,
+            action: TELEMETRY_ACTION,
+            ip_address: ip,
+            user_agent: userAgentHeader,
+            metadata: {
+                email: authUser.email,
+                ip,
+                ...geo,
+                device: {
+                    os: device.os || null,
+                    browser: device.browser || null,
+                    screen: device.screen || null,
+                    connection: device.connection || null,
+                    language: device.language || null,
+                },
+            },
+        });
+
+        if (insertError) {
+            console.error('[TELEMETRY] Erro ao gravar heartbeat:', insertError);
+            return c.json({ error: insertError.message }, 500);
+        }
+
+        return c.json({ success: true });
+    } catch (e: any) {
+        console.error('[TELEMETRY] Erro inesperado:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// Lista o último heartbeat de telemetria de cada usuário (Admin only) --
+// usado pelo dossiê em Inteligência de Usuários e pela tela LGPD.
+app.get("/telemetry/users", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: "Configuração incompleta." }, 500);
+        }
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Pega os heartbeats mais recentes (teto pra não escanear a tabela
+        // inteira) e reduz pro último de cada usuário no lado do servidor.
+        const { data: rows, error } = await supabaseAdmin
+            .from('user_activity')
+            .select('user_id, ip_address, user_agent, metadata, created_at')
+            .eq('action', TELEMETRY_ACTION)
+            .order('created_at', { ascending: false })
+            .limit(5000);
+
+        if (error) return c.json({ error: error.message }, 500);
+
+        const latestByUser = new Map<string, any>();
+        for (const row of rows || []) {
+            if (!latestByUser.has(row.user_id)) {
+                latestByUser.set(row.user_id, row);
+            }
+        }
+
+        const now = Date.now();
+        const telemetry = Array.from(latestByUser.values()).map((row: any) => {
+            const lastSeenAt = row.created_at;
+            const isOnline = lastSeenAt ? (now - new Date(lastSeenAt).getTime()) < TELEMETRY_ONLINE_WINDOW_MS : false;
+            return {
+                userId: row.user_id,
+                email: row.metadata?.email || null,
+                ip: row.ip_address || row.metadata?.ip || null,
+                city: row.metadata?.city || null,
+                region: row.metadata?.region || null,
+                country: row.metadata?.country || null,
+                isp: row.metadata?.isp || null,
+                device: row.metadata?.device || null,
+                userAgent: row.user_agent || null,
+                lastSeenAt,
+                isOnline,
+            };
+        });
+
+        return c.json({ telemetry });
+    } catch (e: any) {
+        console.error('[TELEMETRY] Erro ao listar:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// Apaga todo o histórico de telemetria de um usuário (Admin only, LGPD --
+// direito de exclusão, mesma disciplina das rotas /user-data).
+app.delete("/telemetry/:userId", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: "Configuração incompleta." }, 500);
+        }
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const userId = c.req.param('userId');
+
+        const { error } = await supabaseAdmin
+            .from('user_activity')
+            .delete()
+            .eq('user_id', userId)
+            .eq('action', TELEMETRY_ACTION);
+
+        if (error) return c.json({ error: error.message }, 500);
+
+        return c.json({ success: true, message: 'Telemetria do usuário removida (LGPD)' });
+    } catch (e: any) {
+        console.error('[TELEMETRY] Erro ao apagar:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// ==================== END TELEMETRY ROUTES ====================
+
 // 🔧 DEBUG: Ver estrutura RAW dos eventos
 app.get("/debug-raw-events", async (c) => {
     try {

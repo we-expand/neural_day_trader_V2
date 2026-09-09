@@ -6,6 +6,7 @@ import {
   FileText, Lock, Calendar, Hash, Home, Map
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { LegalDocumentModal } from '@/app/components/legal/LegalDocumentModal';
 
 interface UserData {
   // Dados Pessoais
@@ -53,6 +54,7 @@ interface ExpandedOnboardingProps {
 
 export function ExpandedOnboarding({ onComplete, onSkip }: ExpandedOnboardingProps) {
   const [step, setStep] = useState(1);
+  const [openLegalDoc, setOpenLegalDoc] = useState<'terms' | 'privacy' | null>(null);
   const [formData, setFormData] = useState<UserData>({
     fullName: '',
     dateOfBirth: '',
@@ -703,9 +705,13 @@ export function ExpandedOnboarding({ onComplete, onSkip }: ExpandedOnboardingPro
                         </span>
                         <p className="text-xs text-slate-500 mt-1">
                           Li e concordo com os{' '}
-                          <a href="#" className="text-emerald-400 hover:underline">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); setOpenLegalDoc('terms'); }}
+                            className="text-emerald-400 hover:underline"
+                          >
                             Termos de Uso
-                          </a>{' '}
+                          </button>{' '}
                           da plataforma.
                         </p>
                       </div>
@@ -724,9 +730,13 @@ export function ExpandedOnboarding({ onComplete, onSkip }: ExpandedOnboardingPro
                         </span>
                         <p className="text-xs text-slate-500 mt-1">
                           Concordo com a{' '}
-                          <a href="#" className="text-emerald-400 hover:underline">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); setOpenLegalDoc('privacy'); }}
+                            className="text-emerald-400 hover:underline"
+                          >
                             Política de Privacidade
-                          </a>{' '}
+                          </button>{' '}
                           e tratamento dos meus dados pessoais.
                         </p>
                       </div>
@@ -817,6 +827,10 @@ export function ExpandedOnboarding({ onComplete, onSkip }: ExpandedOnboardingPro
           </button>
         </div>
       </motion.div>
+
+      {openLegalDoc && (
+        <LegalDocumentModal kind={openLegalDoc} onClose={() => setOpenLegalDoc(null)} />
+      )}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import { CompetitiveAnalysis } from '@/app/components/CompetitiveAnalysis';
 import { LandingPage } from '@/app/components/landing/LandingPage';
 import { AuthOverlay } from '@/app/components/auth/AuthOverlay';
 import { PasskeySetupPrompt } from '@/app/components/auth/PasskeySetupPrompt';
+import { UserTracker } from '@/app/components/admin/UserTracker';
 import { MarketTicker } from '@/app/components/MarketTicker';
 // import { LiveTradingTest } from '@/app/components/LiveTradingTest';
 import { QuantumAnalysis } from '@/app/components/quantum/QuantumAnalysis';
@@ -362,6 +363,12 @@ function AppContent() {
               aqui, com o usuário já autenticado, porque o AuthOverlay é
               desmontado assim que a sessão aparece (ver comentário acima). */}
           <PasskeySetupPrompt />
+
+          {/* Telemetria de sessão (IP/geolocalização/dispositivo/presença) --
+              base legal: Termos de Uso aceitos no cadastro. Ver
+              supabase/functions/server/index.ts (/telemetry/*) e
+              UserIntelligence.tsx / UserDataDashboard.tsx (onde é exibida). */}
+          <UserTracker />
 
           {/* 🔥 BANNER DE ALERTA DE CACHE - DESATIVADO */}
           {/* <CacheWarningBanner /> */}
