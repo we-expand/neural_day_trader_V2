@@ -12,9 +12,15 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user }) => {
-  const { config } = useTradingContext();
+  // 🔴 2026-09-09 (achado ao vivo do Cleber: badge mostrava "DEMO" mesmo com
+  // corretora conectada e ordem real já executando): `config.executionMode`
+  // é `aiConfig.executionMode`, um campo separado e desatualizado -- quem de
+  // fato rege se a boleta manda ordem real é o `executionMode` de nível
+  // superior do contexto (`logic.executionMode` em useApexLogic.ts), o mesmo
+  // que `OrderTicket.tsx` já usa pra decidir DEMO vs LIVE de verdade.
+  const { executionMode } = useTradingContext();
   const { fullName, profile, avatarUrl } = useUserProfile();
-  const isLive = config.executionMode === 'LIVE';
+  const isLive = executionMode === 'LIVE';
 
   const getViewTitle = (view: string) => {
     switch (view) {

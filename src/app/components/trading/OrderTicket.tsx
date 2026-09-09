@@ -522,6 +522,12 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
 
         {symbolPositions.map((pos) => {
           const pnl = pos.currentProfit ?? 0;
+          // 🔴 2026-09-09 (pedido do Cleber): número de contratos/lotes de
+          // cada posição na lista — `amount` grava exposição em DÓLAR
+          // (convenção do banco, ver openMt5Position/neuralBridge.ts), não
+          // lote — reconverte pela mesma fórmula usada pra montar a ordem
+          // (amountUsd = volume * lotSize * preço).
+          const lots = asset ? pos.amount / (asset.lotSize * pos.price) : null;
           return (
             <div key={pos.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-white/5 bg-white/[0.02]">
               <div className="flex items-center gap-1.5">
@@ -529,6 +535,9 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                   {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">@ {formatPrice(pos.price, symbol)}</span>
+                {lots != null && (
+                  <span className="text-[9px] text-slate-500 font-mono">· {lots.toFixed(2)} lote(s)</span>
+                )}
                 <AnimatedPnl value={pnl} className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
               </div>
               <button
@@ -698,6 +707,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           <div className="mb-3 space-y-1.5 relative z-10">
             {symbolPositions.map((pos) => {
               const pnl = pos.currentProfit ?? 0;
+              const lots = asset ? pos.amount / (asset.lotSize * pos.price) : null;
               return (
                 <div key={pos.id} className="flex items-center justify-between gap-2 bg-black/30 rounded-lg p-2.5 border border-white/5">
                   <div className="flex items-center gap-2">
@@ -705,6 +715,9 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                       {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">@ {formatPrice(pos.price, symbol)}</span>
+                    {lots != null && (
+                      <span className="text-[10px] text-slate-400 font-mono">· {lots.toFixed(2)} lote(s)</span>
+                    )}
                     <AnimatedPnl value={pnl} className={`text-xs font-bold font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                   <button
