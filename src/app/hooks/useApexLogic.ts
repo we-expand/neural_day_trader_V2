@@ -623,6 +623,10 @@ export function useApexLogic(
   const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; costUsd: number; reason: 'TP' | 'SL' }>>([]);
   const hasHydratedFromSupabaseRef = useRef(false);
   const sessionInitialBalanceRef = useRef<number | null>(null);
+  // 🔴 2026-09-08: cache leve de "usuário tem broker real conectado?" pro
+  // reconcile() abaixo decidir entre saldo REAL (MetaAPI) e saldo simulado
+  // -- ver comentário completo no uso.
+  const brokerConnectedCacheRef = useRef<{ connected: boolean; checkedAtMs: number }>({ connected: false, checkedAtMs: 0 });
   // Idem, mas só pra config da IA (independe de haver sessão DEMO ativa —
   // ver efeito "PERSISTÊNCIA DE CONFIG DA IA" abaixo). Dois refs: o primeiro
   // trava o efeito de fetch pra rodar uma vez só; o segundo só vira `true`
@@ -1408,6 +1412,48 @@ export function useApexLogic(
         });
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
+      }
+
+      // 🔴 2026-09-08 (pedido explícito do Cleber: "ao clicar em conectar
+      // conta live, espero que entre meu saldo real na plataforma no lugar
+      // dos 100 dólares"): quando o usuário tem broker REAL conectado
+      // (broker_credentials, checado via getBrokerCredentialsStatus), o
+      // saldo/equity exibidos vêm da MetaAPI de verdade (getAccountInfo),
+      // não do cálculo simulado abaixo — union deliberada: mesmo bloco de
+      // reconciliação de 5s, pra não competir com ele (uma tentativa
+      // anterior, um poller separado em FinancialHUD.tsx, perdia a corrida
+      // contra este e ficava sempre voltando pro simulado). Cache de 20s no
+      // "está conectado?" (checagem leve, sem custo de MetaAPI) pra não
+      // bater no banco a cada 5s; falha transitória de getAccountInfo aqui
+      // PRESERVA o saldo real anterior (não cai pro simulado por engano).
+      const now = Date.now();
+      if (now - brokerConnectedCacheRef.current.checkedAtMs > 20_000) {
+        try {
+          const { getBrokerCredentialsStatus } = await import('../services/BrokerClient');
+          const status = await getBrokerCredentialsStatus();
+          brokerConnectedCacheRef.current = { connected: !!status.configured, checkedAtMs: now };
+        } catch {
+          // Falha ao checar -- mantém o último estado conhecido (fail-closed
+          // só significa "não muda de opinião sem confirmação").
+        }
+      }
+      if (brokerConnectedCacheRef.current.connected) {
+        try {
+          const { getAccountInfo } = await import('../services/BrokerClient');
+          const accountInfo = await getAccountInfo();
+          if (cancelled) return;
+          if (accountInfo) {
+            setPortfolio(prev => {
+              const equity = accountInfo.equity ?? accountInfo.balance;
+              if (prev.balance === accountInfo.balance && prev.equity === equity) return prev;
+              return { ...prev, balance: accountInfo.balance, equity };
+            });
+          }
+        } catch (e) {
+          console.warn('[useApexLogic] Falha ao sincronizar saldo real da MetaAPI (mantendo último valor conhecido):', e);
+        }
+        if (!cancelled) setLastPositionSyncAt(Date.now());
+        return;
       }
 
       // 🆕 2026-08-18: junto com a perda de autoridade de fechamento do
