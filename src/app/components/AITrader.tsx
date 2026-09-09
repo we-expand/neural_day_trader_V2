@@ -86,7 +86,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory, setSelectedAsset } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, isLiveConnected, isDisconnectingLive, disconnectLive, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory, setSelectedAsset } = useTradingContext();
   const { strategies } = useStrategies();
 
   // Auto-rolagem do painel "Logs do Sistema" -- ver comentário no useRef
@@ -486,7 +486,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             </button> 
 
             {/* 🚀 AI RECOVERY CHALLENGE */}
-            {executionMode === 'LIVE' && isConnected && (
+            {isLiveConnected && isConnected && (
               <button
                 onClick={() => setShowRecoveryChallenge(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-purple-500 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg shadow-purple-500/50"
@@ -513,11 +513,20 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             />
 
             {/* 🚨 LIVE MODE TOGGLE - Movido para o lado direito */}
+            {/* 🔴 2026-09-09 (achado do Cleber: corretora já conectada em LIVE
+                e o botão continuava dizendo "MODO DEMO"): `executionMode`
+                (acima) é campo legado que nada mais seta pra 'LIVE' no client
+                desde que a execução real virou dinâmica por usuário
+                (ver liveExecution.ts) -- passou a checar `isLiveConnected`
+                (fonte real: broker_credentials, TradingContext), mesma que o
+                badge do Header já usa. Clique quando LIVE desconecta de
+                verdade (`disconnectLive`, NÃO reseta a sessão DEMO -- ela
+                já estava carregada em segundo plano o tempo todo). */}
             <button
               onClick={() => {
-                if (executionMode === 'DEMO') {
+                if (!isLiveConnected) {
                   // Único caminho real de ativação: MT5ConfigPanel (credenciais +
-                  // handleSave já seta executionMode=LIVE). O modal de checklist
+                  // handleSave grava em broker_credentials). O modal de checklist
                   // separado (LiveModeConfirmation) foi removido em 2026-07-27 —
                   // era um segundo caminho para o mesmo estado, que não pedia
                   // credencial nenhuma e só habilitava quando já havia conexão
@@ -525,22 +534,22 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                   // tinha ativado o modo real sozinho, sem checklist).
                   setShowMT5ConfigModal(true);
                 } else {
-                  // Desativar modo LIVE e resetar para DEMO — único caminho,
-                  // compartilhado com o botão ⇄ do Header (ver TradingContext).
-                  switchToDemoMode();
+                  if (!window.confirm('Desconectar a conta real da corretora? Nenhuma posição já aberta será fechada — só a capacidade de enviar ordem nova é removida.')) return;
+                  disconnectLive();
                 }
               }}
+              disabled={isDisconnectingLive}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all font-bold ${
-                executionMode === 'LIVE'
+                isLiveConnected
                   ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 text-white shadow-lg shadow-red-500/50 animate-pulse'
                   : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-gray-500'
               }`}
-              title={executionMode === 'LIVE' ? 'Clique para voltar ao modo DEMO' : 'Clique para ativar negociação real'}
+              title={isLiveConnected ? 'Clique para desconectar e voltar ao modo DEMO' : 'Clique para ativar negociação real'}
             >
-              {executionMode === 'LIVE' ? (
+              {isLiveConnected ? (
                 <>
                   <div className="w-2 h-2 bg-red-300 rounded-full animate-pulse"></div>
-                  <span className="text-xs uppercase tracking-wider">🔴 MODO REAL</span>
+                  <span className="text-xs uppercase tracking-wider">{isDisconnectingLive ? 'Desconectando...' : '🔴 MODO LIVE'}</span>
                 </>
               ) : (
                 <>
@@ -583,7 +592,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                 MetaAPI, não de um default local). Em LIVE, sair do Safe Mode continua
                 possível pelo botão "Sair" do próprio card de risco (disableSafeMode),
                 que não mexe em saldo. */}
-            {executionMode === 'DEMO' && (
+            {!isLiveConnected && (
               <button
                 onClick={() => setShowResetModal(true)}
                 className="p-3 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-all"
@@ -598,7 +607,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
       )}
 
       {/* Fase 6, estágio 1 (LIVE + somente alerta) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
+      {!compact && isLiveConnected && (
         <div className="mb-4">
           <LiveAlertPanel
             alerts={liveAlerts}
@@ -609,7 +618,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
       )}
 
       {/* Fase 6, estágio 2 (LIVE + confirmação manual por trade) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
+      {!compact && isLiveConnected && (
         <div className="mb-4">
           <TradeConfirmationPanel
             pending={pendingTradeConfirmations}
@@ -623,7 +632,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
       )}
 
       {/* Fase 6, estágio 3 (LIVE + execução automática, lote mínimo travado) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
+      {!compact && isLiveConnected && (
         <div className="mb-4">
           <AutoExecutionPanel
             history={autoExecutionHistory}
@@ -634,7 +643,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
       )}
 
       {/* Fase 6, estágio 4 (LIVE + execução automática, TAMANHO REAL) — exige Estágio 3 ligado — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
+      {!compact && isLiveConnected && (
         <div className="mb-4">
           <FullSizeExecutionPanel
             history={fullSizeExecutionHistory}
@@ -675,7 +684,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                   <span className="text-white font-semibold">{activeOrders.length}</span> / {config.maxPositions} posições
                 </div>
                 <div className="text-slate-400">
-                  Modo: <span className="text-white font-semibold">{executionMode}</span>
+                  Modo: <span className="text-white font-semibold">{isLiveConnected ? 'LIVE' : 'DEMO'}</span>
                 </div>
               </div>
             </div>

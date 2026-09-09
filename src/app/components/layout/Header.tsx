@@ -1,10 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { BrokerConnectionStatus } from '../BrokerConnectionStatus';
-import { getBrokerCredentialsStatus, deleteBrokerCredentials } from '../../services/BrokerClient';
 
 interface HeaderProps {
   currentView: string;
@@ -14,55 +12,19 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user }) => {
-  // 🔴 2026-09-09 (achado ao vivo do Cleber: badge ainda mostrava "DEMO" com
-  // corretora conectada, e não dava pra desconectar clicando nele): nem
-  // `aiConfig.executionMode` nem `logic.executionMode` (2 campos SEPARADOS e
-  // desatualizados entre si -- primeiro achado desta sessão) refletem de
-  // verdade se há corretora conectada. A fonte de verdade real é a linha em
-  // `broker_credentials` (mesma que o llm-active-brain já usa pra decidir
-  // DEMO vs LIVE dinamicamente) -- checada aqui direto, sem depender de
-  // nenhum dos dois campos de config antigos.
-  const { setExecutionMode } = useTradingContext();
+  // 🔴 2026-09-09: `isLiveConnected`/`disconnectLive` centralizados no
+  // TradingContext (fonte de verdade real: `broker_credentials`, mesma que
+  // o llm-active-brain usa) -- usado também pelo toggle do AITrader.tsx,
+  // pra não duplicar polling nem ter 2 lógicas de desconexão divergentes.
+  const { isLiveConnected, isDisconnectingLive, disconnectLive } = useTradingContext();
   const { fullName, profile, avatarUrl } = useUserProfile();
-  const [isLive, setIsLive] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const checkConnected = async () => {
-      try {
-        const status = await getBrokerCredentialsStatus();
-        if (!cancelled) setIsLive(!!status.configured);
-      } catch {
-        // falha transitória -- mantém o último estado conhecido.
-      }
-    };
-    checkConnected();
-    const interval = setInterval(checkConnected, 10000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+  const isLive = isLiveConnected;
+  const disconnecting = isDisconnectingLive;
 
   const handleDisconnect = async () => {
-    if (disconnecting) return;
+    if (isDisconnectingLive) return;
     if (!window.confirm('Desconectar a conta real da corretora? Nenhuma posição já aberta será fechada — só a capacidade de enviar ordem nova é removida.')) return;
-    setDisconnecting(true);
-    try {
-      const result = await deleteBrokerCredentials();
-      if (result.success) {
-        setIsLive(false);
-        setExecutionMode('DEMO');
-        toast.success('Desconectado da corretora', { description: 'Voltando pro modo DEMO.' });
-      } else {
-        toast.error('Falha ao desconectar', { description: 'Tente de novo em alguns segundos.' });
-      }
-    } catch (error) {
-      toast.error('Falha ao desconectar', { description: error instanceof Error ? error.message : 'Erro desconhecido' });
-    } finally {
-      setDisconnecting(false);
-    }
+    await disconnectLive();
   };
 
   const getViewTitle = (view: string) => {

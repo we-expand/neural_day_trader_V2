@@ -12,6 +12,7 @@ import {
 } from '../modules/tradeConfirmationStage/useTradeConfirmationStage';
 import { useAutoExecutionStage, AutoExecutedTrade } from '../modules/autoExecutionStage/useAutoExecutionStage';
 import { useFullSizeExecutionStage, FullSizeExecutedTrade } from '../modules/fullSizeExecutionStage/useFullSizeExecutionStage';
+import { getBrokerCredentialsStatus, deleteBrokerCredentials } from '../services/BrokerClient';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -88,6 +89,16 @@ interface TradingContextType {
   syncPositionsFromMT5: (positions: any[]) => void;
   setExecutionMode: React.Dispatch<React.SetStateAction<'DEMO' | 'LIVE'>>;
   switchToDemoMode: () => void;
+
+  // 🔴 2026-09-09: fonte de verdade REAL de conexão com corretora — vem de
+  // `broker_credentials` (mesma tabela que o backend/llm-active-brain usam
+  // pra decidir DEMO vs LIVE dinamicamente), não do `executionMode` acima
+  // (campo legado que ninguém mais seta pra 'LIVE' no client desde que a
+  // execução real virou dinâmica por usuário — ver liveExecution.ts). Único
+  // lugar que faz esse polling; Header/AITrader consomem daqui.
+  isLiveConnected: boolean;
+  isDisconnectingLive: boolean;
+  disconnectLive: () => Promise<void>;
 
   // Legacy compatibility (mapped to useApexLogic functions)
   status: 'idle' | 'running';
@@ -383,6 +394,63 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
       description: 'Voltou para negociação simulada | Saldo resetado: $100'
     });
   }, [logic.setExecutionMode, logic.resetLogic]);
+
+  // 🔴 2026-09-09 (pedido do Cleber): badge/botão "MODO DEMO" continuava
+  // aparecendo com a corretora já conectada em LIVE porque `executionMode`
+  // (acima) é campo legado que nada mais seta pra 'LIVE' no client -- checa
+  // direto `broker_credentials`, mesma fonte que o Header já usava sozinho
+  // (agora centralizado aqui pra não duplicar polling/lógica divergente).
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [isDisconnectingLive, setIsDisconnectingLive] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkConnected = async () => {
+      try {
+        const status = await getBrokerCredentialsStatus();
+        if (!cancelled) setIsLiveConnected(!!status.configured);
+      } catch {
+        // falha transitória -- mantém o último estado conhecido.
+      }
+    };
+    checkConnected();
+    const interval = setInterval(checkConnected, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Desconectar da corretora real NÃO é o mesmo que `switchToDemoMode` acima:
+  // aquele reseta a sessão DEMO pra $100 (semântica de "começar do zero",
+  // usada pelo botão de reset explícito). Aqui a sessão DEMO nunca foi
+  // desmontada -- ficou hidratada em segundo plano o tempo todo (ver
+  // hidratação em useApexLogic, roda sempre que executionMode==='DEMO', que
+  // é o valor que esse campo sempre teve desde que a execução real virou
+  // dinâmica). Desconectar só remove a credencial e deixa a sessão DEMO já
+  // carregada (saldo/posições) aparecer -- pedido explícito do Cleber pra
+  // não "entrar numa tela de demo zerada".
+  const disconnectLive = useCallback(async () => {
+    if (isDisconnectingLive) return;
+    setIsDisconnectingLive(true);
+    try {
+      const result = await deleteBrokerCredentials();
+      if (result.success) {
+        setIsLiveConnected(false);
+        logic.setExecutionMode('DEMO');
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('neural_execution_mode', 'DEMO');
+        }
+        toast.success('Desconectado da corretora', { description: 'Voltando pro modo DEMO — sessão anterior mantida.' });
+      } else {
+        toast.error('Falha ao desconectar', { description: 'Tente de novo em alguns segundos.' });
+      }
+    } catch (error) {
+      toast.error('Falha ao desconectar', { description: error instanceof Error ? error.message : 'Erro desconhecido' });
+    } finally {
+      setIsDisconnectingLive(false);
+    }
+  }, [isDisconnectingLive, logic.setExecutionMode]);
   
   const panicClose = useCallback(async () => {
     logic.forceCloseAll();
@@ -465,6 +533,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     syncPositionsFromMT5: logic.syncPositionsFromMT5,
     setExecutionMode: logic.setExecutionMode,
     switchToDemoMode,
+    isLiveConnected,
+    isDisconnectingLive,
+    disconnectLive,
 
     // Legacy compatibility
     status: logic.isActive ? 'running' : 'idle',
@@ -549,6 +620,9 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.syncPositionsFromMT5,
     logic.setExecutionMode,
     switchToDemoMode,
+    isLiveConnected,
+    isDisconnectingLive,
+    disconnectLive,
     toggleAI,
     setConfig,
     setRiskProfile,
