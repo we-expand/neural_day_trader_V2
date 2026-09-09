@@ -76,7 +76,11 @@ Deno.serve(async (req: Request) => {
       ? `Gere ${count} sugestõe(s) nova(s), priorizando este foco pedido pelo usuário: "${focus}".`
       : `Gere ${count} sugestõe(s) nova(s) cobrindo áreas variadas da plataforma (não repita o mesmo tema).`;
 
-    const raw = await completeText({ system: SYSTEM_PROMPT, userMessage, maxTokens: 2000 });
+    // ~180 tokens por sugestão em JSON (título+descrição+racional) — 20
+    // sugestões precisam de bem mais que o teto antigo de 2000, que cortava
+    // o array no meio e quebrava o parse.
+    const maxTokens = Math.min(8000, 500 + count * 300);
+    const raw = await completeText({ system: SYSTEM_PROMPT, userMessage, maxTokens });
 
     let parsed: unknown;
     try {

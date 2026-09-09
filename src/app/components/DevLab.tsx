@@ -179,11 +179,13 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     await devLabService.permanentDelete(id);
   };
 
-  const wrapperClass = embedded ? 'w-full h-full' : 'min-h-screen bg-black text-white';
+  // Largura alinhada ao Dashboard (w-full, sem centralizar/limitar) — pedido
+  // do Cleber pra toda a área "Sistema" ter a mesma largura em toda página.
+  const wrapperClass = embedded ? 'w-full h-full' : 'w-full h-full overflow-y-auto bg-black text-white custom-scrollbar';
 
   return (
     <div className={wrapperClass}>
-      <div className={embedded ? 'p-6' : 'max-w-7xl mx-auto p-8'}>
+      <div className={embedded ? 'p-6' : 'w-full p-4'}>
         {!embedded && (
           <div className="flex items-center gap-3 mb-2">
             <Beaker className="w-7 h-7 text-indigo-400" />

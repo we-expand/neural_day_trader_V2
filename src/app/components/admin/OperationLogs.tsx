@@ -181,7 +181,7 @@ export function OperationLogs() {
   };
 
   return (
-    <div className="w-full p-4 text-white">
+    <div className="w-full h-full p-4 overflow-y-auto bg-black text-white custom-scrollbar">
       <div className="flex items-center gap-3 mb-2">
         <ScrollText className="w-7 h-7 text-emerald-400" />
         <h1 className="text-2xl font-bold">Logs de Operações — Auditoria</h1>
