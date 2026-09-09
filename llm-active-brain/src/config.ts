@@ -250,7 +250,16 @@ export const config = {
   // com mais frequência pelo teto de 3% (ver rewardCappedByRisk em
   // tools.ts, caso real do FRA40 que capturou só $1,12) -- perda máxima por
   // trade também volta a ficar mais contida (~3% do saldo, não ~5%).
-  mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.03),
+  // 🔴 2026-09-09: subido 3% -> 6% a pedido explicito do Cleber, PRA TESTE
+  // (valor reduzido de 8% pra 6% no mesmo dia, ainda como teste, nao decisao
+  // definitiva) -- ciente do precedente de governanca do mesmo dia (override
+  // de 9% nao registrado causou dias de divergencia silenciosa). Desta vez o
+  // valor é a decisão formal (não residuo esquecido) -- default do código
+  // atualizado direto, e a lista GOVERNANCE_CRITICAL_ENV_PARAMS abaixo
+  // reflete o novo canônico pra não gerar alarme falso. Efeito real: perda
+  // máxima por trade perdedor sobe pra ~6% do saldo (numa conta de $100, até
+  // ~$6 por trade).
+  mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.06),
   // Teto absoluto de segurança em lotes (sanity check contra valor
   // degenerado, ex: preço anormalmente baixo fazendo o cálculo explodir) --
   // não é o valor normal de operação, é só uma trava de última instância.
@@ -712,7 +721,7 @@ if (config.tradingEnabled) {
 // divergencia impossivel de passar em silencio de novo.
 const GOVERNANCE_CRITICAL_ENV_PARAMS: Array<{ envVar: string; canonical: string; motivo: string }> = [
   { envVar: "MT5_STOP_ATR_MULTIPLIER", canonical: "2.0", motivo: "decisao do llm-council 2026-09-04/05, ver CLAUDE.md" },
-  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.03", motivo: "decisao do Cleber 2026-09-07 a noite, ver CLAUDE.md" },
+  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.06", motivo: "decisao do Cleber 2026-09-09 (teste), ver CLAUDE.md" },
   { envVar: "MT5_TAKE_PROFIT_ATR_MULTIPLIER", canonical: "4.0", motivo: "R:R 1:2 pareado com stop 2.0x ATR, ver CLAUDE.md" },
   { envVar: "MT5_STOP_MIN_PCT", canonical: "0.003", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
   { envVar: "MT5_STOP_MAX_PCT", canonical: "0.02", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },

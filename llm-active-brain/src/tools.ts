@@ -140,7 +140,13 @@ const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 // explicitamente um teto FIXO -- não é mais volátil no mesmo dia,
 // fica assim até nova decisão explícita dele.
 // [2026-09-08] Ajustado de 70% para 75% a pedido do Cleber.
-const MIN_CONFIDENCE_FOR_OPEN_POSITION = 75;
+// 2026-09-09 (decisao explicita do Cleber, ciente do precedente de
+// governanca do mesmo dia): subido de 75 -> 80. Objetivo declarado: treinar
+// a IA pra operar com taxa de acerto na faixa 70-80%, aceitando menos
+// entradas por dia em troca de mais seletividade. Sem validacao estatistica
+// ainda -- precisa de amostra rodando sob este gate antes de julgar efeito
+// real na taxa de acerto.
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 80;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
