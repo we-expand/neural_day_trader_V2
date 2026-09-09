@@ -576,6 +576,9 @@ export interface OpenMt5PositionParams {
   sessionAtEntry?: string | null;
   volumeLabelAtEntry?: string | null;
   volatilityLabelAtEntry?: string | null;
+  // 🔴 2026-09-08: id REAL da posição na MetaAPI -- só preenchido quando a
+  // ordem foi executada de verdade (ver liveExecution.ts), null em DEMO.
+  brokerPositionId?: string | null;
 }
 
 /** Abre uma posição virtual OPEN no trilho MT5. Retorna o id (pra poder fechar depois) ou null se falhar. Nunca lança. */
@@ -610,6 +613,7 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         session_at_entry: params.sessionAtEntry ?? null,
         volume_label_at_entry: params.volumeLabelAtEntry ?? null,
         volatility_label_at_entry: params.volatilityLabelAtEntry ?? null,
+        broker_position_id: params.brokerPositionId ?? null,
       })
       .select("id")
       .single();
@@ -637,6 +641,10 @@ export interface Mt5OpenPosition {
   partial_tp_taken: boolean | null;
   original_stop_distance: number | null;
   session_id: string;
+  // 🔴 2026-09-08: null em DEMO -- só preenchido em posição executada de
+  // verdade (ver liveExecution.ts). close_position usa isso pra saber qual
+  // posição REAL fechar na corretora.
+  broker_position_id: string | null;
 }
 
 /**
@@ -715,7 +723,7 @@ export async function listMt5OpenPositions(sessionId: string): Promise<Mt5OpenPo
   const { data, error } = await sb
     .from("ai_trades")
     .select(
-      "id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count, partial_tp_taken, original_stop_distance, session_id"
+      "id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count, partial_tp_taken, original_stop_distance, session_id, broker_position_id"
     )
     .eq("session_id", sessionId)
     .eq("status", "OPEN")

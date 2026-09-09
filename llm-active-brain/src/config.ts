@@ -620,7 +620,31 @@ export const config = {
   // mesma chave/endpoint ja configurados. Trocar via env var assim que um
   // modelo mais leve for confirmado disponivel no provedor em uso.
   mt5ReasoningValidatorModel: process.env.MT5_REASONING_VALIDATOR_MODEL || process.env.LLM_MODEL || llmProviderDefaults.model,
+  // 🔴 2026-09-08 (pedido direto do Cleber, após aviso de risco do llm-council
+  // rodado nesta sessão -- ver CLAUDE.md): chave MESTRA da execução REAL na
+  // Infinox via MetaAPI (ver liveExecution.ts). Default FALSE de propósito --
+  // nunca liga sozinho, mesmo com broker_credentials conectado. Só true
+  // depois do Cleber revisar o código e decidir explicitamente (não é
+  // decisão que o código deva tomar sozinho).
+  mt5LiveExecutionEnabled: process.env.MT5_LIVE_EXECUTION_ENABLED === "true",
+  // Teto de perda em DÓLAR ABSOLUTO, não %, pro modo LIVE -- 3% de $22 (~$0,66,
+  // ver mt5MaxRiskPctPerTrade acima) é ruído estatístico demais pro próprio
+  // sistema perceber um bug de sizing/execução antes do capital pequeno já era.
+  // Checado em open_position (tools.ts) contra o saldo REAL da MetaAPI antes
+  // de qualquer ordem real nova -- acima disso, circuit breaker.
+  mt5LiveAbsoluteLossLimitUsd: Number(process.env.MT5_LIVE_ABSOLUTE_LOSS_LIMIT_USD ?? 3),
 };
+
+if (config.mt5LiveExecutionEnabled) {
+  if (!config.neuralBridgeEnabled || !config.neuralSupabaseUrl || !config.neuralSupabaseAnonKey || !config.neuralSupabaseServiceRoleKey || !config.neuralUserId) {
+    throw new Error(
+      "MT5_LIVE_EXECUTION_ENABLED=true exige NEURAL_BRIDGE_ENABLED=true e todas as NEURAL_SUPABASE_*/NEURAL_USER_ID preenchidas -- execucao real precisa da mesma ponte de sessao."
+    );
+  }
+  if (!Number.isFinite(config.mt5LiveAbsoluteLossLimitUsd) || config.mt5LiveAbsoluteLossLimitUsd <= 0) {
+    throw new Error("MT5_LIVE_ABSOLUTE_LOSS_LIMIT_USD precisa ser um numero positivo quando a execucao real esta ligada.");
+  }
+}
 
 if (!Number.isFinite(config.maxIterations) || config.maxIterations <= 0) {
   throw new Error("MAX_ITERATIONS precisa ser um numero positivo.");

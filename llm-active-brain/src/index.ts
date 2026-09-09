@@ -5,9 +5,10 @@ import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
-import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets } from "./neuralBridge.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
+import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -88,6 +89,59 @@ function startStopWatchdog(): void {
   stopWatchdogTimer = setInterval(() => {
     void stopWatchdogTick();
   }, STOP_WATCHDOG_INTERVAL_MS);
+}
+
+// 🔴 2026-09-08 (execucao REAL, salvaguarda minima pedida pelo llm-council
+// rodado nesta sessao -- ver CLAUDE.md/liveExecution.ts): a cada ciclo,
+// compara o que o motor ACHA que tem aberto (ai_trades com
+// broker_position_id, ou seja, aberto em modo LIVE) contra o que a
+// corretora REALMENTE tem aberto agora (getPositions). Qualquer divergencia
+// (posicao que o motor acha aberta mas sumiu da corretora, ou vice-versa)
+// significa que o estado interno nao bate mais com a realidade -- aciona o
+// circuit breaker (desliga execucao real ate restart manual) em vez de
+// continuar operando as cegas.
+const LIVE_RECONCILE_INTERVAL_MS = 15_000;
+let liveReconcileBusy = false;
+let liveReconcileTimer: ReturnType<typeof setInterval> | undefined;
+let liveReconcileSessions: Mt5Session[] = [];
+
+async function liveReconcileTick(): Promise<void> {
+  if (liveReconcileBusy || !isLiveExecutionActive() || liveReconcileSessions.length === 0) return;
+  liveReconcileBusy = true;
+  try {
+    const [expectedBySession, realPositions] = await Promise.all([
+      Promise.all(liveReconcileSessions.map((s) => listMt5OpenPositions(s.sessionId))),
+      getLivePositions().catch((err) => {
+        tripLiveCircuitBreaker(`Falha ao buscar posicoes reais pra reconciliacao: ${err instanceof Error ? err.message : err}`);
+        return null;
+      }),
+    ]);
+    if (realPositions === null) return;
+
+    const expectedLiveIds = new Set(
+      expectedBySession.flat().map((p) => p.broker_position_id).filter((id): id is string => Boolean(id))
+    );
+    const realIds = new Set(realPositions.map((p) => p.id));
+
+    const missingOnBroker = [...expectedLiveIds].filter((id) => !realIds.has(id));
+    const unexpectedOnBroker = [...realIds].filter((id) => !expectedLiveIds.has(id));
+
+    if (missingOnBroker.length > 0 || unexpectedOnBroker.length > 0) {
+      tripLiveCircuitBreaker(
+        `Reconciliacao divergente -- motor espera posicoes reais [${missingOnBroker.join(",")}] que nao estao mais na corretora, ` +
+          `e/ou a corretora tem posicoes [${unexpectedOnBroker.join(",")}] que o motor nao reconhece.`
+      );
+    }
+  } finally {
+    liveReconcileBusy = false;
+  }
+}
+
+function startLiveReconcileWatchdog(): void {
+  if (liveReconcileTimer) return;
+  liveReconcileTimer = setInterval(() => {
+    void liveReconcileTick();
+  }, LIVE_RECONCILE_INTERVAL_MS);
 }
 
 // 🔴 2026-08-31 (Fase 2 multi-tenant): a trava de instância única por PID
@@ -231,6 +285,7 @@ async function runContinuous() {
       // lista atual de sessoes elegiveis -- ele roda no seu proprio timer,
       // fora deste loop, entao precisa ler o estado mais recente possivel.
       stopWatchdogSessions = sessions;
+      liveReconcileSessions = sessions;
 
       for (const session of sessions) {
         try {
@@ -311,6 +366,12 @@ async function main() {
   acquireSingleInstanceLock();
   await assertOnTestnet();
   if (config.mt5TradingEnabled) startStopWatchdog();
+  if (config.mt5LiveExecutionEnabled) {
+    startLiveReconcileWatchdog();
+    console.warn(
+      "[live] ⚠️ MT5_LIVE_EXECUTION_ENABLED=true -- este processo pode enviar ordens REAIS com dinheiro de verdade na Infinox."
+    );
+  }
   if (config.continuousMode) {
     await runContinuous();
   } else {

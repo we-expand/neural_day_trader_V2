@@ -10,6 +10,7 @@ import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmatio
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
+import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 // 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
 // Medicao REAL da cesta inteira, 6 chamadas seguidas a /mt5-prices em ~50s
@@ -1817,15 +1818,62 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 
       // 🔴 2026-08-29: stop/alvo calculados a partir do fillPrice (preco real
       // de preenchimento, ver acima) -- nao do mid/last tick.
-      const stopLoss = side === "LONG" ? fillPrice * (1 - stopPct) : fillPrice * (1 + stopPct);
-      const takeProfit = side === "LONG" ? fillPrice * (1 + takeProfitPct) : fillPrice * (1 - takeProfitPct);
+      let stopLoss = side === "LONG" ? fillPrice * (1 - stopPct) : fillPrice * (1 + stopPct);
+      let takeProfit = side === "LONG" ? fillPrice * (1 + takeProfitPct) : fillPrice * (1 - takeProfitPct);
+      let realFillPrice = fillPrice;
+      let brokerPositionId: string | null = null;
+      // 🔴 2026-09-08 (execucao REAL, pedido explicito do Cleber apos aviso
+      // de risco do llm-council -- ver CLAUDE.md/liveExecution.ts): TODOS os
+      // gates acima (risco, R:R, spread, confluencia, teto de correlacao) ja
+      // aprovaram esta entrada. So a partir daqui, se a execucao real estiver
+      // ligada, envia a ordem de verdade na Infinox ANTES de gravar o trade
+      // -- fail-closed: qualquer falha aborta a abertura, nunca grava um
+      // trade "OPEN" que nao existe de verdade na corretora.
+      if (isLiveExecutionActive()) {
+        const liveAccount = await getLiveAccountInfo();
+        if (!liveAccount) {
+          return { error: "Execucao real ligada mas nao foi possivel confirmar saldo real da conta (MetaAPI) -- posicao NAO aberta." };
+        }
+        if (liveAccount.balance <= 0) {
+          tripLiveCircuitBreaker(`Saldo real da conta <= 0 ($${liveAccount.balance}) -- nao ha capital pra operar.`);
+          return { error: "Saldo real da conta <= 0 -- circuit breaker acionado, posicao NAO aberta." };
+        }
+        // Teto de perda ABSOLUTO em dolar (nao %, ver mt5LiveAbsoluteLossLimitUsd
+        // em config.ts) -- 3% de $22 e ruido demais pro proprio sistema notar
+        // um bug antes do capital pequeno acabar.
+        const initialLiveBalance = liveAccount.balance; // aproximacao: saldo atual como piso de referencia deste ciclo.
+        if (initialLiveBalance - liveAccount.equity > config.mt5LiveAbsoluteLossLimitUsd) {
+          tripLiveCircuitBreaker(
+            `Drawdown flutuante ($${(initialLiveBalance - liveAccount.equity).toFixed(2)}) excede o teto absoluto de $${config.mt5LiveAbsoluteLossLimitUsd} -- posicao NOVA bloqueada.`
+          );
+          return { error: "Teto de perda absoluta em dolar excedido -- circuit breaker acionado, posicao NAO aberta." };
+        }
+        const liveResult = await executeLiveMarketOrder({
+          side: side as "LONG" | "SHORT",
+          symbol,
+          volume: lots,
+          stopLoss,
+          takeProfit,
+          comment: `NDT LLM Brain ${side}`,
+        });
+        if (!liveResult.success || !liveResult.fillPrice || !liveResult.brokerPositionId) {
+          return { error: `Execucao real falhou: ${liveResult.error ?? "erro desconhecido"}. Posicao NAO aberta.` };
+        }
+        // Preco de preenchimento REAL pode diferir levemente do cotado (slippage
+        // real) -- recalcula stop/alvo em cima do preco real, mesma logica de
+        // sempre, pra manter a distancia % pretendida em vez do preco fixo antigo.
+        realFillPrice = liveResult.fillPrice;
+        stopLoss = side === "LONG" ? realFillPrice * (1 - stopPct) : realFillPrice * (1 + stopPct);
+        takeProfit = side === "LONG" ? realFillPrice * (1 + takeProfitPct) : realFillPrice * (1 - takeProfitPct);
+        brokerPositionId = liveResult.brokerPositionId;
+      }
       const regimeAtEntry = lastQuoteSnapshotBySymbol.get(symbol);
       const tradeId = await openMt5Position({
         sessionId: session.sessionId,
         userId: session.userId,
         symbol,
         side: side as "LONG" | "SHORT",
-        entryPrice: fillPrice,
+        entryPrice: realFillPrice,
         amountUsd,
         stopLoss,
         takeProfit,
@@ -1834,6 +1882,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         sessionAtEntry: regimeAtEntry?.session ?? null,
         volumeLabelAtEntry: regimeAtEntry?.volumeLabel ?? null,
         volatilityLabelAtEntry: regimeAtEntry?.volatilityLabel ?? null,
+        brokerPositionId,
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
       return {
@@ -1842,7 +1891,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         side,
         size: sizeInput,
         confidence,
-        entry_price: fillPrice,
+        entry_price: realFillPrice,
+        live_execution: brokerPositionId != null,
         spread_pago: Number(Math.abs(quote.ask - quote.bid).toFixed(6)),
         lots,
         amount_usd: amountUsd,
@@ -2066,9 +2116,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           console.log(`[tools.ts] Corte de perda antecipado em ${position.symbol}: invalidacao tecnica real confirmada (${realInvalidationFactors.join(", ")}), prejuizo menor que o stop tracado.`);
         }
       }
-      const closed = await closeMt5Position({ tradeId, exitPrice, reasoning });
+      let realExitPrice = exitPrice;
+      // 🔴 2026-09-08 (execucao REAL): fecha a posicao de verdade na
+      // corretora ANTES de gravar o fechamento -- fail-closed, nunca marca
+      // "CLOSED" no banco sem confirmar que fechou de verdade na Infinox.
+      if (isLiveExecutionActive()) {
+        if (!position.broker_position_id) {
+          return { error: "Execucao real ligada mas esta posicao nao tem broker_position_id (nao foi aberta em modo LIVE) -- posicao NAO fechada por seguranca." };
+        }
+        const liveClose = await executeLiveClose(position.broker_position_id);
+        if (!liveClose.success || !Number.isFinite(liveClose.exitPrice)) {
+          return { error: `Fechamento real falhou: ${liveClose.error ?? "erro desconhecido"}. Posicao NAO fechada.` };
+        }
+        realExitPrice = liveClose.exitPrice as number;
+      }
+      const closed = await closeMt5Position({ tradeId, exitPrice: realExitPrice, reasoning });
       if (!closed) return { error: "Falha ao fechar a posicao (ver log do processo)." };
-      return { trade_id: tradeId, exit_price: exitPrice };
+      return { trade_id: tradeId, exit_price: realExitPrice };
     }
 
     // 🔴 2026-09-02 (pedido do Cleber -- "agente de risco interno": ganhar
@@ -2084,6 +2148,16 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const tradeId = String(input.trade_id || "");
       const reasoning = String(input.reasoning || "");
       if (!tradeId) return { error: "trade_id invalido." };
+      // 🔴 2026-09-08 (execucao REAL, escopo reduzido de proposito): pyramiding
+      // real exigiria enviar uma 2a ordem de mercado E fazer a media de preco/
+      // stop bater com o que a corretora realmente tem (2 posicoes ou 1
+      // posicao ampliada, dependendo do modo de netting da conta) -- risco de
+      // bug de reconciliacao alto demais pra este primeiro trilho de execucao
+      // real. Bloqueado explicitamente em LIVE; open_position/close_position
+      // continuam disponiveis normalmente.
+      if (isLiveExecutionActive()) {
+        return { error: "increase_position (pyramiding) nao esta disponivel em execucao real ainda -- use open_position/close_position." };
+      }
 
       try {
         const preCheck = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
