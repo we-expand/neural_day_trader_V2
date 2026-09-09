@@ -121,14 +121,6 @@ export function AdminDashboard({ onExit }: AdminDashboardProps) {
             isExpanded={isSidebarOpen} 
             onClick={() => setActiveTab('userdata')} 
           />
-          <SidebarItem
-            icon={Bot}
-            label="Crawler Monitor" 
-            isActive={activeTab === 'crawler'} 
-            isExpanded={isSidebarOpen} 
-            onClick={() => setActiveTab('crawler')} 
-          />
-          
           <div className={`my-4 border-t border-white/5 ${!isSidebarOpen && 'hidden'}`}>
              <span className="text-[10px] uppercase text-slate-600 font-bold tracking-widest px-4 py-2 block">Módulos</span>
           </div>
