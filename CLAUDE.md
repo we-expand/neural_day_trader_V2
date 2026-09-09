@@ -33,7 +33,15 @@ CHECK de `source_type`) — Cleber rodar no SQL Editor; deploy da function
 (`supabase functions deploy dev-lab-ai-suggestions --no-verify-jwt` não é
 necessário, ela já valida JWT do usuário internamente — usar
 `supabase functions deploy dev-lab-ai-suggestions`); `git commit`. Não
-testado ao vivo ainda (depende da migration + deploy).
+testado ao vivo ainda (depende da migration + deploy). **Complemento na
+mesma sessão**: paginação de 20 sugestões por página em toda seção do Dev
+Lab (Ativas/Concluídas/Lixeira/Sugestões da IA — reseta pra página 1 ao
+trocar de aba/categoria) + fila de "Sugestões da IA" com reposição
+automática: concluir uma sugestão de IA (`source_type='AI_SUGGESTION'`)
+dispara sozinho a geração de 1 sugestão nova pra repor (nunca ao só
+descartar/reabrir, pra não gastar chamada de LLM à toa) — Edge Function
+ganhou parâmetro `count` opcional (1-10, default 5) pra suportar tanto a
+geração manual em lote quanto essa reposição de 1.
 
 **[EM ANDAMENTO 2026-09-09] Limpeza de itens de menu não usados + telemetria
 real de sessão (IP/geolocalização/dispositivo/presença) implementada,

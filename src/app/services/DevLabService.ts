@@ -145,14 +145,18 @@ class DevLabService {
    * source_type 'AI_SUGGESTION', nunca apresentada como fato de concorrente
    * comprovado (isso é a aba separada "Pesquisas de concorrente").
    */
-  async generateAiSuggestions(focus?: string): Promise<{ suggestions: Suggestion[] } | { error: string }> {
+  async generateAiSuggestions(focus?: string, count?: number): Promise<{ suggestions: Suggestion[] } | { error: string }> {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       if (!token) return { error: 'Sessão expirada — faça login novamente.' };
 
+      const body: Record<string, unknown> = {};
+      if (focus) body.focus = focus;
+      if (count) body.count = count;
+
       const { data, error } = await supabase.functions.invoke('dev-lab-ai-suggestions', {
-        body: focus ? { focus } : {},
+        body,
         headers: { Authorization: `Bearer ${token}` },
       });
       if (error) throw error;

@@ -95,6 +95,9 @@ export default function DevLab({ embedded = false }: DevLabProps) {
   const [generatingAi, setGeneratingAi] = useState(false);
   const [aiFocus, setAiFocus] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const PAGE_SIZE = 20;
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -131,6 +134,17 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     });
   }, [suggestions, viewMode, selectedCategory]);
 
+  // Reseta pra página 1 sempre que a seção ou o filtro de categoria muda —
+  // senão o usuário pode ficar preso numa página vazia (ex: tinha 3 páginas
+  // em "Ativas", troca pra "Concluídas" que só tem 1).
+  useEffect(() => { setPage(1); }, [viewMode, selectedCategory]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  );
+
   const handleGenerateAi = async () => {
     setGeneratingAi(true);
     setAiError(null);
@@ -145,8 +159,19 @@ export default function DevLab({ embedded = false }: DevLabProps) {
   };
 
   const handleStatus = async (id: string, status: SuggestionStatus) => {
+    const target = suggestions.find((s) => s.id === id);
     setSuggestions((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
     await devLabService.updateStatus(id, status);
+
+    // Pedido do Cleber: a fila de "Sugestões da IA" se repõe sozinha — só
+    // entra uma sugestão nova no lugar quando a atual é concluída (nunca ao
+    // simplesmente descartar/reabrir), pra não gastar chamada de LLM à toa.
+    if (status === 'completed' && target?.source_type === 'AI_SUGGESTION') {
+      const result = await devLabService.generateAiSuggestions(undefined, 1);
+      if ('suggestions' in result) {
+        setSuggestions((prev) => [...result.suggestions, ...prev]);
+      }
+    }
   };
 
   const handleDeletePermanent = async (id: string) => {
@@ -249,7 +274,7 @@ export default function DevLab({ embedded = false }: DevLabProps) {
             {filtered.length === 0 && (
               <p className="text-slate-500 text-sm col-span-full">Nada aqui ainda.</p>
             )}
-            {filtered.map((s) => (
+            {paginated.map((s) => (
               <div key={s.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -291,6 +316,26 @@ export default function DevLab({ embedded = false }: DevLabProps) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {!loading && viewMode !== 'research' && filtered.length > PAGE_SIZE && (
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="text-sm px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-slate-500">Página {page} de {totalPages} — {filtered.length} sugestões</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="text-sm px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Próxima
+            </button>
           </div>
         )}
 

@@ -70,9 +70,11 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     const focus = typeof body?.focus === 'string' ? body.focus.trim().slice(0, 500) : '';
+    const rawCount = Number(body?.count);
+    const count = Number.isFinite(rawCount) ? Math.min(10, Math.max(1, Math.round(rawCount))) : 5;
     const userMessage = focus
-      ? `Gere 5 sugestões novas, priorizando este foco pedido pelo usuário: "${focus}".`
-      : 'Gere 5 sugestões novas cobrindo áreas variadas da plataforma (não repita o mesmo tema nas 5).';
+      ? `Gere ${count} sugestõe(s) nova(s), priorizando este foco pedido pelo usuário: "${focus}".`
+      : `Gere ${count} sugestõe(s) nova(s) cobrindo áreas variadas da plataforma (não repita o mesmo tema).`;
 
     const raw = await completeText({ system: SYSTEM_PROMPT, userMessage, maxTokens: 2000 });
 
@@ -89,7 +91,7 @@ Deno.serve(async (req: Request) => {
 
     const rows = parsed
       .filter((item: any) => item && typeof item.title === 'string' && typeof item.description === 'string')
-      .slice(0, 8)
+      .slice(0, count)
       .map((item: any) => ({
         user_id: userId,
         title: String(item.title).slice(0, 200),
