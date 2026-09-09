@@ -15,6 +15,31 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-09] Primeiro teste de execução REAL (LIVE) na Infinox
+com $22 — trilho novo construído do zero, terminou em Stop Out (saldo real
+foi a $0) depois de um erro de operação (4 posições opostas abertas na
+mesma conta pequena), e um bug real grave corrigido: o banco não
+sincronizava sozinho quando a corretora fechava posição por fora da
+plataforma.** Antes do código, `llm-council` rodado sobre a decisão —
+veredito contra, Cleber seguiu mesmo assim, ciente do risco. Construído:
+`liveExecution.ts` (novo, execução real dinâmica por usuário — conectar/
+desconectar pela UI liga/desliga sem restart), boleta manual passou a
+gravar ordem real em `ai_trades` (antes só ia pro ledger de auditoria,
+nunca aparecia no Gráfico), card de Margem/Margem Líquida no Dashboard,
+badge DEMO/LIVE do Header corrigido pra ler a fonte de verdade real e
+virou clicável (desconecta). Achado mais grave: `DELETE /broker/credentials`
+sempre chamava `undeploy` numa conta que é COMPARTILHADA (serve streaming
+de preço pra toda a plataforma) — corrigido, precisou de deploy manual da
+Edge Function (já feito). Achado do incidente: o circuit breaker de
+segurança também cegava a reconciliação que deveria detectar Stop Out
+sozinha — corrigido, reconciliação agora roda sempre, fecha posição
+sumida da corretora automaticamente. Detalhe completo, incluindo lista de
+7 bugs de UI corrigidos no caminho:
+[SESSAO_2026-09-09_EXECUCAO_REAL_LIVE_METAAPI_STOP_OUT.md](SESSAO_2026-09-09_EXECUCAO_REAL_LIVE_METAAPI_STOP_OUT.md).
+**Pendente real**: decidir sizing mínimo seguro pra próximo teste (capital
+tão pequeno não sobrevive nem a um erro básico de operação); item de zoom
+do gráfico não segurando ficou parcialmente investigado, não fechado.
+
 **[RESOLVIDO 2026-09-08, à noite] Menu "Configurações" do desenho (clique
 numa trendline) estava morto de verdade — botão existia mas nenhum painel
 renderizava; agora reúne cor/espessura/estilo + "ir para o preço" (linha
