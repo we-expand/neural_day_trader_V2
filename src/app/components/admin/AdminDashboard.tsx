@@ -121,22 +121,8 @@ export function AdminDashboard({ onExit }: AdminDashboardProps) {
             isExpanded={isSidebarOpen} 
             onClick={() => setActiveTab('userdata')} 
           />
-          <SidebarItem 
-            icon={Beaker} 
-            label="Laboratório Neural" 
-            isActive={activeTab === 'devlab'} 
-            isExpanded={isSidebarOpen} 
-            onClick={() => setActiveTab('devlab')} 
-          />
-          <SidebarItem 
-            icon={Shield} 
-            label="Arquitetura Defensiva" 
-            isActive={activeTab === 'defensive'} 
-            isExpanded={isSidebarOpen} 
-            onClick={() => setActiveTab('defensive')} 
-          />
-          <SidebarItem 
-            icon={Bot} 
+          <SidebarItem
+            icon={Bot}
             label="Crawler Monitor" 
             isActive={activeTab === 'crawler'} 
             isExpanded={isSidebarOpen} 
