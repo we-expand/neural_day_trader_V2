@@ -129,6 +129,13 @@ export interface PortfolioState {
   dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity/dayAnchorBalance se referem
   maxDrawdownReached?: number; // pior drawdown já atingido (só métrica/histórico,
                                // NUNCA usado como gate — o gate usa currentDrawdown)
+  // 🔴 2026-09-09 (pedido do Cleber, comparando com o terminal MT5): margem
+  // REAL da conta MetaAPI — só preenchido quando há broker conectado (ver
+  // reconcile() em useApexLogic.ts); undefined em DEMO (sem margem real pra
+  // mostrar, nunca fabricada).
+  margin?: number;
+  freeMargin?: number;
+  marginLevel?: number;
 }
 
 export interface AIConfig {

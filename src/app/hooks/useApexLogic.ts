@@ -1446,8 +1446,21 @@ export function useApexLogic(
           if (accountInfo) {
             setPortfolio(prev => {
               const equity = accountInfo.equity ?? accountInfo.balance;
-              if (prev.balance === accountInfo.balance && prev.equity === equity) return prev;
-              return { ...prev, balance: accountInfo.balance, equity };
+              if (
+                prev.balance === accountInfo.balance &&
+                prev.equity === equity &&
+                prev.margin === accountInfo.margin &&
+                prev.freeMargin === accountInfo.freeMargin &&
+                prev.marginLevel === accountInfo.marginLevel
+              ) return prev;
+              return {
+                ...prev,
+                balance: accountInfo.balance,
+                equity,
+                margin: accountInfo.margin,
+                freeMargin: accountInfo.freeMargin,
+                marginLevel: accountInfo.marginLevel,
+              };
             });
           }
         } catch (e) {

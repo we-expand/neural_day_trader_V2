@@ -25,6 +25,9 @@ export interface DirectAccountInfo {
   freeMargin: number;
   leverage: number;
   currency: string;
+  // 🔴 2026-09-09: campo real já devolvido pela MetaAPI (account-information),
+  // só não estava tipado aqui ainda — usado pro card de margem no Dashboard.
+  marginLevel?: number;
 }
 
 export interface TradeResult {

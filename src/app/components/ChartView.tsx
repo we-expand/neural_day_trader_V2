@@ -4987,6 +4987,33 @@ export function ChartView({
     });
     positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => !idsToRemove.includes(id));
 
+    // 🔴 2026-09-09 (pedido explícito do Cleber: 2 posições reais no MESMO
+    // preço de entrada faziam as linhas ficarem exatamente uma em cima da
+    // outra, escondendo uma delas por completo): agrupa por preço de
+    // entrada idêntico e desloca visualmente cada linha extra por um
+    // pequeno número de "pontos" do próprio ativo (nunca muda o preço real
+    // mostrado no texto da label, só a POSIÇÃO da linha na tela) — a
+    // primeira do grupo fica exatamente no preço real, as demais alternam
+    // acima/abaixo (+1, -1, +2, -2 "nudges"). Grupos de tamanho 1 (o caso
+    // normal, sem colisão) nunca são deslocados.
+    const entryPriceGroups = new Map<string, string[]>();
+    symbolOrders.forEach((o) => {
+      const key = o.price.toFixed(6);
+      const list = entryPriceGroups.get(key);
+      if (list) list.push(o.id);
+      else entryPriceGroups.set(key, [o.id]);
+    });
+    const priceNudgeStepByOrderId = new Map<string, number>();
+    entryPriceGroups.forEach((ids) => {
+      if (ids.length <= 1) return;
+      ids.forEach((id, idx) => {
+        if (idx === 0) return; // primeira fica no preço real, sem deslocar
+        const magnitude = Math.ceil(idx / 2);
+        const sign = idx % 2 === 1 ? 1 : -1;
+        priceNudgeStepByOrderId.set(id, magnitude * sign);
+      });
+    });
+
     symbolOrders.forEach((order) => {
       const isLong = order.side === 'LONG';
       const entryId = `position_entry_${order.id}`;
@@ -5000,8 +5027,18 @@ export function ChartView({
       // pra P&L ao vivo): amount é o valor em dólar da posição, amount/preço
       // dá as "unidades" que convertem distância de preço em dólar.
       const units = order.amount / order.price;
-      const hasSl = order.sl > 0;
-      const hasTp = order.tp > 0;
+      // 🔴 2026-09-09 (achado ao vivo do Cleber: linha "Alvo" desenhada em
+      // cima da própria Entrada, sempre "+$0.00 · 0.00 pts", tampando a
+      // linha de Entrada com P&L ao vivo): `sl`/`tp` em useApexLogic.ts
+      // (reconcile()) caem pro próprio `entry_price` quando a posição não
+      // tem stop/alvo real definido (ex: posição aberta direto no MT5, sem
+      // SL/TP, depois só registrada aqui) — não é ausência (0/null), é o
+      // MESMO valor da entrada. `> 0` sozinho não pega esse caso porque o
+      // preço de entrada também é > 0. Comparar contra `order.price` fecha
+      // o buraco sem mudar o comportamento normal (stop/alvo real nunca
+      // bate exatamente com o preço de entrada).
+      const hasSl = order.sl > 0 && order.sl !== order.price;
+      const hasTp = order.tp > 0 && order.tp !== order.price;
       // Diferença bruta de preço (usada pro $ real, que não depende de convenção
       // de "ponto") separada do "ponto" exibido na label, que precisa respeitar
       // a definição por ativo (pipSize real do forex, não a diferença crua de
@@ -5019,6 +5056,13 @@ export function ChartView({
       const labelPricePrecision = getPrecisionForSymbol(order.symbol, order.price);
       const contractSpec = getContractSpec(order.symbol);
       const pointSize = contractSpec.tickSize * (contractSpec.pointValue / contractSpec.tickValue) || 1;
+      // Deslocamento visual (ver grupo de preços idênticos acima) — 3 "pontos"
+      // do próprio ativo por nudge, o suficiente pra separar as linhas na
+      // tela sem afastar visualmente demais do preço real. Só afeta ONDE a
+      // linha é desenhada (`points`), nunca o preço mostrado no texto da
+      // label (que sempre usa order.price/sl/tp reais).
+      const priceNudge = (priceNudgeStepByOrderId.get(order.id) ?? 0) * pointSize * 3;
+      const displayEntryPrice = order.price + priceNudge;
       const riskPts = riskPriceDiff / pointSize;
       const rewardPts = rewardPriceDiff / pointSize;
       const riskUsd = riskPriceDiff * units;
@@ -5057,12 +5101,12 @@ export function ChartView({
         // elimina o piscar a cada tick, já que o `points`/`extendData` mudam
         // sem a linha sumir do gráfico entre um frame e outro.
         if (entryExists) {
-          chart.overrideOverlay({ id: entryId, points: [{ value: order.price }], extendData: entryExtendData });
+          chart.overrideOverlay({ id: entryId, points: [{ value: displayEntryPrice }], extendData: entryExtendData });
         } else {
           chart.createOverlay({
             name: 'positionLabelLine',
             id: entryId,
-            points: [{ value: order.price }],
+            points: [{ value: displayEntryPrice }],
             styles: {
               line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
               text: {
@@ -5090,13 +5134,14 @@ export function ChartView({
       if (hasSl) {
         try {
           const slExtendData = `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
+          const displaySlPrice = order.sl + priceNudge;
           if (slExists) {
-            chart.overrideOverlay({ id: slId, points: [{ value: order.sl }], extendData: slExtendData });
+            chart.overrideOverlay({ id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
           } else {
             chart.createOverlay({
               name: 'positionLabelLine',
               id: slId,
-              points: [{ value: order.sl }],
+              points: [{ value: displaySlPrice }],
               styles: {
                 line: { color: '#ef4444', style: 'dashed', size: 1 },
                 text: {
@@ -5130,13 +5175,14 @@ export function ChartView({
       if (hasTp) {
         try {
           const tpExtendData = `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
+          const displayTpPrice = order.tp + priceNudge;
           if (tpExists) {
-            chart.overrideOverlay({ id: tpId, points: [{ value: order.tp }], extendData: tpExtendData });
+            chart.overrideOverlay({ id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
           } else {
             chart.createOverlay({
               name: 'positionLabelLine',
               id: tpId,
-              points: [{ value: order.tp }],
+              points: [{ value: displayTpPrice }],
               styles: {
                 line: { color: '#22c55e', style: 'dashed', size: 1 },
                 text: {
