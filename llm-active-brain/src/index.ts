@@ -31,6 +31,17 @@ function sleep(ms: number) {
 // enforceMt5StopsAndTargets que roda no inicio de cada ciclo (closeMt5Position
 // so age em posicao ainda OPEN).
 const STOP_WATCHDOG_INTERVAL_MS = 3_000;
+// 🔴 2026-09-09 (achado real via log + llm-council: overshoot de stop de
+// ~115 pontos em BTCUSD, ver comentario em mt5Broker.ts/getQuoteSingleAttempt):
+// o watchdog rodava a cada 3s mas aceitava cotacao com ate 12s de idade (TTL
+// do cache compartilhado com o caminho de raciocinio do LLM) -- podia ficar
+// ate 4x mais "cego" do que o proprio intervalo de checagem sugere. Agora
+// exige cotacao com no maximo este teto (um pouco acima do intervalo, pra
+// nao forcar fetch novo em toda unica tick por 1ms de atraso). Sempre
+// atendido via prime EM LOTE (ver stopWatchdogTick abaixo) -- nunca fetch
+// individual por simbolo com posicao aberta, pra nao reintroduzir o
+// incidente de rate-limit que forcou o TTL geral a subir pra 12s.
+const STOP_WATCHDOG_MAX_QUOTE_AGE_MS = 4_000;
 let stopWatchdogSessions: Mt5Session[] = [];
 let stopWatchdogBusy = false;
 let stopWatchdogTimer: ReturnType<typeof setInterval> | undefined;
@@ -48,11 +59,26 @@ async function stopWatchdogTick(): Promise<void> {
       // cadencia pretendida. Retry imediato (ate 2x, 1s de intervalo) DENTRO
       // do mesmo tick antes de desistir -- cobre blips curtos sem esperar o
       // proximo setInterval.
+      // 🔴 2026-09-09 (achado do llm-council na revisao do fix acima: com
+      // ate 5 posicoes simultaneas nesta sessao -- ja documentado ao vivo --
+      // baixar o teto de idade do watchdog pra 4s SEM batchar reintroduziria
+      // o mesmo incidente que forcou o TTL a subir pra 12s em 2026-09-03
+      // (NAS100 sozinho, 1 simbolo so, ja saturou a conta compartilhada com
+      // fetch individual). Prime em lote (1 requisicao HTTP pra N simbolos,
+      // mesma infraestrutura que primeQuotes ja usa 1x por ciclo do LLM)
+      // ANTES de checar stop/alvo -- o teto de 4s passa a ser atendido pelo
+      // cache recem-preenchido na maioria das vezes, sem virar N fetches
+      // individuais por tick.
       let result: Awaited<ReturnType<typeof enforceMt5StopsAndTargets>> | undefined;
       let lastErr: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          result = await enforceMt5StopsAndTargets(session.sessionId, getQuoteSingleAttempt);
+          const openPositions = await listMt5OpenPositions(session.sessionId);
+          const symbols = Array.from(new Set(openPositions.map((p) => p.symbol)));
+          if (symbols.length > 0) await primeQuotes(symbols);
+          result = await enforceMt5StopsAndTargets(session.sessionId, (symbol) =>
+            getQuoteSingleAttempt(symbol, STOP_WATCHDOG_MAX_QUOTE_AGE_MS)
+          );
           break;
         } catch (err) {
           lastErr = err;

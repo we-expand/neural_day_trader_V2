@@ -211,10 +211,10 @@ function cacheQuote(quote: Mt5Quote) {
   quoteCache.set(quote.symbol, { quote, fetchedAtMs: Date.now() });
 }
 
-function getFreshCachedQuote(symbol: string): Mt5Quote | null {
+function getFreshCachedQuote(symbol: string, maxAgeMs: number = QUOTE_CACHE_TTL_MS): Mt5Quote | null {
   const entry = quoteCache.get(symbol);
   if (!entry) return null;
-  if (Date.now() - entry.fetchedAtMs > QUOTE_CACHE_TTL_MS) return null;
+  if (Date.now() - entry.fetchedAtMs > maxAgeMs) return null;
   return entry.quote;
 }
 
@@ -261,8 +261,31 @@ export async function getQuote(symbol: string): Promise<Mt5Quote | null> {
 // cota que o Gráfico do cliente usa pra esse mesmo símbolo. O watchdog já
 // tenta de novo sozinho no próximo tick (5s) se falhar -- não precisa
 // insistir 3x imediatamente na mesma cota já saturada, isso só piora.
-export async function getQuoteSingleAttempt(symbol: string): Promise<Mt5Quote | null> {
-  const cached = getFreshCachedQuote(symbol);
+// 🔴 2026-09-09 (achado real via log + llm-council: overshoot de stop de
+// ~115 pontos num BTCUSD, saida 78760.19 vs stop 78875.65, perda $5,12 vs
+// risco orcado de $2 -- ver SESSAO_2026-09-09_LLM_COUNCIL...md): o watchdog
+// roda a cada 3s (STOP_WATCHDOG_INTERVAL_MS em index.ts) mas lia do MESMO
+// `quoteCache` compartilhado com o caminho de raciocinio do LLM, cujo TTL
+// foi subido pra 12s (ver QUOTE_CACHE_TTL_MS acima) por um motivo real
+// (rate-limit da MetaAPI). Resultado: o watchdog podia ficar ate ~12s
+// "cego" reaproveitando o mesmo tick, em vez dos ~3s pretendidos pelo
+// proprio design (comentario de 2026-09-03 acima ja dizia "roda a cada
+// poucos segundos, DESACOPLADO" -- na pratica nao estava desacoplado do
+// TTL do caminho de raciocinio). Confirmado no log real que o overshoot
+// coincidiu com um episodio de degradacao do feed (AUS200 preso no mesmo
+// preco 3x seguidas, ciclo do LLM expirando por timeout) -- exatamente a
+// janela em que esse cache de 12s mais atrasa a deteccao. Fix: watchdog
+// agora exige cotacao com no maximo `maxAgeMs` (default = intervalo real
+// do watchdog, nao mais o TTL de 12s do caminho de raciocinio) -- cai pro
+// fetch individual de sempre (ja com retry/backoff existente) se o cache
+// estiver mais velho que isso. Nao muda multiplicador/distancia de stop
+// (fora do erro categorico ja catalogado de 04/09) -- so aperta o quao
+// velha uma cotacao pode ser antes do watchdog agir sobre ela.
+export async function getQuoteSingleAttempt(
+  symbol: string,
+  maxAgeMs: number = QUOTE_CACHE_TTL_MS
+): Promise<Mt5Quote | null> {
+  const cached = getFreshCachedQuote(symbol, maxAgeMs);
   if (cached) return cached;
   return fetchQuoteOnce(symbol);
 }
