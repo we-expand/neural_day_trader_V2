@@ -5,7 +5,7 @@ import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
-import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, type Mt5OpenPosition } from "./neuralBridge.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, closeMt5Position, type Mt5OpenPosition } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
@@ -105,36 +105,89 @@ let liveReconcileBusy = false;
 let liveReconcileTimer: ReturnType<typeof setInterval> | undefined;
 let liveReconcileSessions: Mt5Session[] = [];
 
+// 🔴 2026-09-09 (achado ao vivo, grave: Stop Out real da corretora --
+// margem esgotada -- fechou as 4 posicoes reais, mas o banco continuou
+// mostrando todas como OPEN ate alguem notar e corrigir na mao via SQL):
+// a versao anterior desta funcao SAIA CEDO (`continue`) sempre que
+// `isLiveExecutionActive` fosse false -- e o circuit breaker (que essa
+// mesma checagem consulta) tinha acabado de disparar por um 504
+// TRANSITORIO da MetaAPI, minutos ANTES do stop out de verdade acontecer.
+// Resultado: o unico mecanismo que poderia ter detectado e fechado a
+// posicao automaticamente ficou cego bem na hora que mais importava --
+// o circuit breaker (que so deveria impedir ORDEM NOVA) tambem desligava
+// a RECONCILIACAO (que so le e sincroniza, nunca abre nada). Agora
+// reconciliacao roda SEMPRE que o usuario tem posicoes reais esperadas
+// (`expected`), independente do circuit breaker -- e quando uma posicao
+// esperada sumiu da corretora (fechada por Stop Out, ou manualmente no
+// proprio MT5, fora da nossa plataforma), fecha ela de verdade no banco
+// usando o ultimo preco real conhecido (cache de tick, nunca fabricado).
 async function liveReconcileTick(): Promise<void> {
   if (liveReconcileBusy || liveReconcileSessions.length === 0) return;
   liveReconcileBusy = true;
   try {
     for (const session of liveReconcileSessions) {
-      if (!(await isLiveExecutionActive(session.userId))) continue; // este usuario esta em DEMO agora -- nada pra reconciliar.
       let expected: Mt5OpenPosition[];
+      try {
+        expected = await listMt5OpenPositions(session.sessionId);
+      } catch (err) {
+        console.error(`[live-reconcile] Falha ao listar posicoes esperadas (sessao ${session.sessionId}):`, err instanceof Error ? err.message : err);
+        continue;
+      }
+      const expectedLive = expected.filter((p): p is Mt5OpenPosition & { broker_position_id: string } => Boolean(p.broker_position_id));
+      if (expectedLive.length === 0) continue; // nada real aberto pra este usuario -- nada pra reconciliar.
+
       let real: Awaited<ReturnType<typeof getLivePositions>>;
       try {
-        [expected, real] = await Promise.all([
-          listMt5OpenPositions(session.sessionId),
-          getLivePositions(session.userId),
-        ]);
+        real = await getLivePositions(session.userId);
       } catch (err) {
+        // Falha de LEITURA (ex: 504 transitorio) -- nao sabemos o estado real,
+        // entao NAO fechamos nada por seguranca (fail-closed pra fechamento
+        // tambem: melhor continuar achando que esta aberto do que fechar
+        // errado). O circuit breaker aqui e apropriado -- protege ORDEM NOVA
+        // enquanto o estado real e desconhecido.
         tripLiveCircuitBreaker(
-          `Falha ao buscar posicoes (reais ou esperadas) pra reconciliacao (sessao ${session.sessionId}): ${err instanceof Error ? err.message : err}`
+          `Falha ao buscar posicoes reais pra reconciliacao (sessao ${session.sessionId}): ${err instanceof Error ? err.message : err}`
         );
         continue;
       }
 
-      const expectedLiveIds = new Set(expected.map((p) => p.broker_position_id).filter((id): id is string => Boolean(id)));
       const realIds = new Set(real.map((p) => p.id));
+      const missingOnBroker = expectedLive.filter((p) => !realIds.has(p.broker_position_id));
+      const unexpectedOnBroker = real.filter((p) => !expectedLive.some((e) => e.broker_position_id === p.id));
 
-      const missingOnBroker = [...expectedLiveIds].filter((id) => !realIds.has(id));
-      const unexpectedOnBroker = [...realIds].filter((id) => !expectedLiveIds.has(id));
+      for (const trade of missingOnBroker) {
+        // Ultimo preco real conhecido (cache de tick, ver mt5Broker.ts) --
+        // nunca fabrica preco; se nem isso existir, usa o proprio preco de
+        // entrada (aproximacao honesta, resultado ~0, melhor que travar).
+        let exitPrice = trade.entry_price;
+        try {
+          const quote = await getQuoteSingleAttempt(trade.symbol);
+          if (quote) exitPrice = quote.price;
+        } catch {
+          // mantem a aproximacao acima.
+        }
+        const closed = await closeMt5Position({
+          tradeId: trade.id,
+          exitPrice,
+          reasoning:
+            `FECHADA automaticamente pela reconciliacao -- posicao real (${trade.broker_position_id}) nao existe mais na corretora ` +
+            `(provavel Stop Out por margem esgotada, ou fechamento manual direto no MT5, fora da plataforma). Preco de saida = ultimo tick real ` +
+            `conhecido no momento da deteccao, nao o preco exato do fechamento na corretora (MetaAPI nao expoe historico de deals nesta integracao).`,
+          exitReason: "SL",
+        });
+        if (closed) {
+          console.warn(`[live-reconcile] 🔴 Posicao real ${trade.broker_position_id} (${trade.symbol}) sumiu da corretora -- fechada no banco (Stop Out/externo).`);
+        } else {
+          console.error(`[live-reconcile] Falha ao fechar no banco a posicao ${trade.broker_position_id} (${trade.symbol}) que sumiu da corretora.`);
+        }
+      }
 
-      if (missingOnBroker.length > 0 || unexpectedOnBroker.length > 0) {
+      if (unexpectedOnBroker.length > 0) {
+        // Corretora tem posicao real que o motor nao reconhece -- isso SIM
+        // e perigoso pra ORDEM NOVA (estado real diverge do que o motor
+        // pensa que existe), trava a execucao ate alguem olhar.
         tripLiveCircuitBreaker(
-          `Reconciliacao divergente (sessao ${session.sessionId}) -- motor espera posicoes reais [${missingOnBroker.join(",")}] que nao estao mais ` +
-            `na corretora, e/ou a corretora tem posicoes [${unexpectedOnBroker.join(",")}] que o motor nao reconhece.`
+          `Corretora tem posicoes reais [${unexpectedOnBroker.map((p) => p.id).join(",")}] que o motor nao reconhece (sessao ${session.sessionId}).`
         );
       }
     }
