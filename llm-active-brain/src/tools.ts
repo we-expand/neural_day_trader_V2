@@ -2221,11 +2221,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           // fechamento discricionario com posicao ainda pouco movida.
           realInvalidationConfirmed = realInvalidationFactors.length >= 3;
         }
+        // 🔴 2026-09-10 (achado real ao vivo, HKG33): cotacao OBSOLETA e um
+        // motivo de seguranca valido pra fechar cedo, diferente de "ruido
+        // normal" -- o stop mecanico (enforceMt5StopsAndTargets) tambem usa
+        // essa mesma cotacao velha, entao a posicao fica sujeita a risco de
+        // gap quando o feed voltar, sem chance de o LLM provar 2+ fatores
+        // tecnicos frescos (a cotacao esta congelada, os indicadores tambem
+        // estao). Bloquear o fechamento aqui so forcava a IA a ficar exposta
+        // a dado que ela mesma sabia ser nao-confiavel.
         if (
           stopConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
           targetConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
           !clearsSpread &&
-          !realInvalidationConfirmed
+          !realInvalidationConfirmed &&
+          !quote.stale
         ) {
           return {
             error:
@@ -2434,9 +2443,27 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // original nunca volta a ficar exposto por causa deste reforco.
       // Usa o entry_price ORIGINAL (pre-blend) + o custo do proprio spread
       // como piso de protecao real, nao so o preco cravado.
-      const newStopLoss = position.side === "LONG"
+      const rawCandidateStop = position.side === "LONG"
         ? Math.max(position.stop_loss, position.entry_price + spreadAbs)
         : Math.min(position.stop_loss, position.entry_price - spreadAbs);
+      // 🔴 2026-09-10 (achado real ao vivo, UKOUSD): o candidato acima usa o
+      // entry ORIGINAL, mas o preco medio ponderado da posicao (calculado
+      // depois, em increaseMt5Position/neuralBridge.ts) pode ficar ABAIXO
+      // dele quando o reforco preenche a um preco pior (comum: reforcar em
+      // alta numa LONG ja favoravel) -- um stop LONG acima do proprio custo
+      // medio da posicao combinada trava PERDA GARANTIDA, nao breakeven.
+      // Caso real: entry original 101.839, reforco preencheu a 102.033,
+      // stop calculado (so com o original) ficou em 101.954 -- ACIMA do
+      // preco medio ponderado real (101.936). Fechou por stop segundos
+      // depois com prejuizo liquido nas duas pernas somadas. Fix: replica
+      // aqui a mesma media ponderada por notional que increaseMt5Position
+      // vai gravar, e nunca deixa o stop passar do lado errado dela (nunca
+      // afrouxa o stop ja travado por um reforco anterior).
+      const blendedEntryPreview = (position.entry_price * position.quantity + fillPrice * addAmountUsd) / (position.quantity + addAmountUsd);
+      const safeCap = position.side === "LONG" ? blendedEntryPreview - spreadAbs : blendedEntryPreview + spreadAbs;
+      const newStopLoss = position.side === "LONG"
+        ? Math.min(rawCandidateStop, Math.max(safeCap, position.stop_loss))
+        : Math.max(rawCandidateStop, Math.min(safeCap, position.stop_loss));
 
       const ok = await increaseMt5Position({
         tradeId,
