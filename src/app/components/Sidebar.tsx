@@ -17,7 +17,7 @@ const menuItems = [
   { id: 'chart' as View, label: 'Gráfico', icon: LineChart },
   { id: 'ai-trader' as View, label: 'AI Trader', icon: Bot },
   { id: 'ai-voice' as View, label: 'AI Trader Voice', icon: Mic },
-  { id: 'innovation' as View, label: 'IA Preditiva', icon: Sparkles },
+  { id: 'innovation' as View, label: 'Inteligência de Mercado', icon: Sparkles },
   { id: 'performance' as View, label: 'Performance', icon: TrendingUp },
   { id: 'store' as View, label: 'Marketplace', icon: ShoppingBag },
   { id: 'partners' as View, label: 'Parceiros IB', icon: Network },

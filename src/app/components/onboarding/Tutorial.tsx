@@ -48,7 +48,7 @@ export function Tutorial() {
         <div className="space-y-2 font-sans">
           <h3 className="text-base font-bold text-emerald-400">Navegação Principal</h3>
           <p className="text-slate-300 text-sm">
-            Acesse todas as ferramentas aqui: Carteira, IA Preditiva, Social Trading e Configurações do sistema.
+            Acesse todas as ferramentas aqui: Carteira, Inteligência de Mercado, Social Trading e Configurações do sistema.
           </p>
         </div>
       ),

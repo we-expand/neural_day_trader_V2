@@ -38,6 +38,9 @@ import { MarketScoreEngine, describeMicrostructure, type MarketScoreResult } fro
 import { useVoiceCoordinator } from '@/app/contexts/VoiceCoordinatorContext';
 import { backtestDataService, resolveBinanceTicker, type Timeframe } from '@/app/services/BacktestDataService';
 import { InfinoxAssetsBrowser } from '@/app/components/dashboard/InfinoxAssetsBrowser';
+import { VolatilityForecastCard } from '@/app/components/innovation/VolatilityForecastCard';
+import { MarketRegimeCard } from '@/app/components/innovation/MarketRegimeCard';
+import { TechnicalZonesCard } from '@/app/components/innovation/TechnicalZonesCard';
 
 // 🔥 USAR TODOS OS 300+ ATIVOS DO BANCO DE DADOS
 const ASSETS = ALL_ASSETS;
@@ -428,10 +431,10 @@ export const LiquidityPrediction = () => {
         </div>
         <div className="flex-1">
           <h1 className="text-3xl font-bold tracking-tight text-white uppercase flex items-center gap-3">
-            IA Preditiva & Order Flow
+            Inteligência de Mercado
           </h1>
           <p className="text-slate-400 mt-1 tracking-wide font-light">
-            Detector de Liquidez Institucional e Análise de Fluxo de Ordens em Tempo Real
+            Volatilidade, Regime de Mercado e Zonas Técnicas em Tempo Real — sobre dado real, nunca previsão de direção
           </p>
         </div>
         
@@ -790,6 +793,19 @@ export const LiquidityPrediction = () => {
                 </div>
              </div>
              
+             {/* 🧠 Previsão de Volatilidade (EWMA) — funcionalidade #1 do roadmap
+                 "Inteligência de Mercado" (veredito llm-council, 2026-09-09).
+                 Substitui o antigo painel "Força Relativa (7D)" desativado. */}
+             <VolatilityForecastCard asset={selectedAsset} timeframe={timeframe} speak={speak} />
+
+             {/* 🧭 Regime de Mercado — funcionalidade #2 do roadmap "Inteligência
+                 de Mercado". Reaproveita scoreResult já calculado pela página. */}
+             <MarketRegimeCard asset={selectedAsset} scoreResult={scoreResult} speak={speak} />
+
+             {/* 📍 Zonas Técnicas de Interesse — funcionalidade #3 do roadmap.
+                 Motor SMC real (Order Blocks/FVG/Pools), nunca "liquidez real". */}
+             <TechnicalZonesCard asset={selectedAsset} timeframe={timeframe} currentPrice={livePrice} />
+
              {/* ⚠️ FORÇA RELATIVA DESATIVADA (2026-07-29 auditoria Fase 0) */}
              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
                 <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4 flex items-center gap-2">
