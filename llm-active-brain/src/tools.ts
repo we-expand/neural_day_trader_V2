@@ -888,11 +888,16 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         );
       }
       if (movingAverages?.extended) {
+        // 🔴 2026-09-10 (achado real, motor mudo desde ontem a noite): texto
+        // didatico completo repetido por SIMBOLO em toda cesta estourava o
+        // contexto do modelo local (finish_reason=length em 100% dos ciclos
+        // apos o motor SMC/HMM engordar get_mt5_quote) -- a explicacao ja
+        // esta ensinada uma vez no principio 1b do prompt (agent.ts), aqui
+        // so precisa da leitura factual por simbolo, nao do texto didatico
+        // de novo a cada um dos ~13 ativos da cesta.
         avisos.push(
-          `ATENCAO (nao bloqueio): preco esticado longe das medias de referencia (EMA9 ${movingAverages.distancePctFromEma9 ?? "N/D"}%, ` +
-            `SMA20 ${movingAverages.distancePctFromSma20 ?? "N/D"}%, SMA200 ${movingAverages.distancePctFromSma200 ?? "N/D"}% de distancia) -- ` +
-            `estatisticamente a tendencia e reverter em direcao a elas. Nao e uma regra de bloqueio, mas pondere com mais cautela uma entrada ` +
-            `que EXTENDA ainda mais essa distancia (comprar ja esticado pra cima, vender ja esticado pra baixo).`
+          `PRECO ESTICADO (EMA9 ${movingAverages.distancePctFromEma9 ?? "N/D"}%, SMA20 ${movingAverages.distancePctFromSma20 ?? "N/D"}%, ` +
+            `SMA200 ${movingAverages.distancePctFromSma200 ?? "N/D"}% de distancia) -- ver principio 1b.`
         );
       }
       // 🔴 2026-09-08 (achado do Cleber): quando a tendencia curta (`trend`)
@@ -904,10 +909,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // Aviso, nao bloqueio mecanico: o LLM decide, mas agora nao fica cego
       // ao contexto do dia.
       if (trend?.label && trendLongTerm?.label && trend.label !== "LATERAL" && trendLongTerm.label !== "LATERAL" && trend.label !== trendLongTerm.label) {
+        // 🔴 2026-09-10: texto didatico ja ensinado uma vez no prompt (secao
+        // "DIVERGENCIA DE TENDENCIA", ~linha 161 de agent.ts) -- ver comentario
+        // do fix acima (mesma causa: estouro de contexto por repeticao).
         avisos.push(
-          `DIVERGENCIA DE TENDENCIA: curto prazo (${trend.lookbackMinutes}min) esta ${trend.label}, mas o contexto mais amplo do dia ` +
-            `(${trendLongTerm.lookbackMinutes}min / ~1 dia) esta ${trendLongTerm.label}. O movimento curto pode ser so um REPIQUE dentro de uma ` +
-            `tendencia maior contraria, nao uma continuacao real -- pondere isso antes de tratar isto como "pullback a favor da tendencia".`
+          `DIVERGENCIA DE TENDENCIA: curto prazo (${trend.lookbackMinutes}min) ${trend.label}, dia (${trendLongTerm.lookbackMinutes}min) ${trendLongTerm.label}.`
         );
       }
       // 🔴 2026-09-09: HMM classificando CONSOLIDACAO com confianca real alta
@@ -915,19 +921,31 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // rompimento/cruzamento de medias tende a ser whipsaw nesse regime.
       // Aviso sempre (contexto); bloqueio mecanico so roda dentro de
       // open_position quando HMM_REGIME_GATE_ACTIVE=true (ver blockIfHmmConsolidation).
+      // 🔴 2026-09-10: texto didatico completo (o que CONSOLIDACAO_BAIXA_VOL/
+      // TENDENCIA_CLARA significam, o que fazer a respeito) ja ensinado uma
+      // vez no principio 1j do prompt (agent.ts) -- repetir por SIMBOLO em
+      // toda a cesta (ate 13 ativos) estava estourando o contexto do modelo
+      // local a cada ciclo (finish_reason=length, 100% dos ciclos desde a
+      // noite de 2026-09-09 apos o motor SMC/HMM engordar get_mt5_quote).
+      // Aqui so o dado factual por simbolo -- a interpretacao ja esta na
+      // memoria do modelo via prompt.
       if (hmmRegime?.regime === HMM_STATE_CONSOLIDATION && hmmRegime.confidence >= 0.65) {
         avisos.push(
-          `REGIME HMM: mercado classificado como CONSOLIDACAO_BAIXA_VOL (confianca ${(hmmRegime.confidence * 100).toFixed(0)}%, amostra de ` +
-            `${hmmRegime.sampleSize} candles) -- retorno medio perto de zero e volatilidade baixa. Setup de ROMPIMENTO ou CRUZAMENTO DE MEDIAS tende a ` +
-            `ser whipsaw (falso rompimento que reverte) neste regime -- exija confluencia bem mais forte, ou prefira estrategia de reversao dentro do range.`
+          `REGIME HMM: CONSOLIDACAO_BAIXA_VOL (confianca ${(hmmRegime.confidence * 100).toFixed(0)}%) -- ver principio 1j.`
         );
       } else if (hmmRegime?.regime === HMM_STATE_TREND && hmmRegime.confidence >= 0.65) {
         avisos.push(
-          `REGIME HMM: mercado classificado como TENDENCIA_CLARA (${hmmRegime.direction ?? "direcao indefinida"}, confianca ` +
-            `${(hmmRegime.confidence * 100).toFixed(0)}%) -- estatisticamente favorece setup de continuacao/rompimento a favor dessa direcao, ` +
-            `nao reversao contra ela sem confluencia extra.`
+          `REGIME HMM: TENDENCIA_CLARA ${hmmRegime.direction ?? "direcao indefinida"} (confianca ${(hmmRegime.confidence * 100).toFixed(0)}%) -- ver principio 1j.`
         );
       }
+      // 🔴 2026-09-10: devolver so regime/confidence/direction/sampleSize --
+      // stateProbabilities/logLikelihood/converged sao diagnostico interno
+      // do treino do HMM, nao usados pelo prompt (principio 1j so cita
+      // regime/confidence/direction) e pesavam no contexto do modelo local
+      // (mesma causa raiz do fix acima).
+      const hmmRegimeSlim = hmmRegime
+        ? { regime: hmmRegime.regime, confidence: hmmRegime.confidence, direction: hmmRegime.direction, sampleSize: hmmRegime.sampleSize }
+        : null;
       return {
         ...quote,
         marketOpen: true,
@@ -942,7 +960,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         regime,
         movingAverages,
         smcZones,
-        hmmRegime,
+        hmmRegime: hmmRegimeSlim,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }
