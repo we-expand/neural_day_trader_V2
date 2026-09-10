@@ -6,7 +6,8 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime } from "./atr.js";
+import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
@@ -471,6 +472,16 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
               `pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real; se for < ` +
               `${MIN_CONFIDENCE_FOR_OPEN_POSITION}, so nao abra a posicao.`,
           },
+          setupType: {
+            type: "string",
+            enum: ["ROMPIMENTO", "CRUZAMENTO_MEDIAS", "REVERSAO", "OUTRO"],
+            description:
+              `Opcional -- que TIPO de setup esta entrada representa. "ROMPIMENTO" (breakout de faixa/nivel) e ` +
+              `"CRUZAMENTO_MEDIAS" (cruzamento de EMA/SMA) sao setups de CONTINUACAO, historicamente fracos quando o mercado ` +
+              `esta em CONSOLIDACAO_BAIXA_VOL (ver "hmmRegime" em get_mt5_quote -- classificador de regime, HMM). "REVERSAO" ` +
+              `(esperar o preco bater extremo e voltar dentro do range) e o oposto, mais adequado a esse regime. Declarar ` +
+              `honestamente ajuda o codigo a avaliar coerencia entre o setup e o regime atual${config.hmmRegimeGateActive ? " (BLOQUEIO MECANICO ATIVO nesta sessao -- ver aviso em get_mt5_quote)" : ""}.`,
+          },
         },
         required: ["symbol", "side", "size", "reasoning", "confidence"],
       },
@@ -731,6 +742,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           stochastic: null,
           candlePatterns: null,
           regime: null,
+          hmmRegime: null,
           aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais.`
         };
       }
@@ -808,6 +820,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // agent.ts), nunca uma trava mecânica nova. null quando não há candle
       // real suficiente, mesma disciplina dos outros campos acima.
       const regime = await getMarketRegime(symbol, timeframe);
+      // 🔴 2026-09-09 (pedido direto do Cleber -- "nosso motor utilizará
+      // essas tecnologias pra ajudar na tomada de decisões", veredito do
+      // llm-council): zonas técnicas SMC reais (Order Blocks/Fair Value
+      // Gaps/Liquidity Pools) mais próximas do preço atual, portadas do
+      // motor que já roda no ChartView (ver smc.ts). SÓ CONTEXTO adicional
+      // -- o cap de R:R em open_position continua usando supportResistance
+      // (pivot simples), este campo nunca vira gatilho mecânico novo. null
+      // quando não há candle real suficiente, nunca fabrica zona.
+      const smcZones = await getSmcZonesSummary(symbol, timeframe);
+      // 🔴 2026-09-09 (pedido direto do Cleber -- "Classificador de Regime de
+      // Mercado", principal trava de segurança contra aplicar lógica de
+      // tendência num mercado consolidado): classificação HMM não-supervisionada
+      // (ver hmmRegime.ts pro detalhe técnico completo). SÓ CONTEXTO adicional
+      // por padrão (mesma disciplina de regime/smcZones acima) -- o bloqueio
+      // mecânico opcional em open_position só ativa com HMM_REGIME_GATE_ACTIVE=true
+      // (default false, sem amostra real ainda validando a classificação).
+      // null quando não há candle real suficiente, nunca fabrica regime.
+      const hmmRegime = await getHmmMarketRegime(symbol, timeframe);
       // 🔴 2026-09-07 (pedido direto do Cleber): EMA9/SMA20/SMA200 são as
       // três médias mais observadas pelo mercado -- preço longe demais delas
       // tende a reverter em direção a elas (mean reversion). Só CONTEXTO/
@@ -832,7 +862,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         priceAtQuote: quote.price ?? null,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, smcZones, hmmRegime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -880,6 +910,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `tendencia maior contraria, nao uma continuacao real -- pondere isso antes de tratar isto como "pullback a favor da tendencia".`
         );
       }
+      // 🔴 2026-09-09: HMM classificando CONSOLIDACAO com confianca real alta
+      // (>=65%) e o principal caso pratico do pedido do Cleber -- setup de
+      // rompimento/cruzamento de medias tende a ser whipsaw nesse regime.
+      // Aviso sempre (contexto); bloqueio mecanico so roda dentro de
+      // open_position quando HMM_REGIME_GATE_ACTIVE=true (ver blockIfHmmConsolidation).
+      if (hmmRegime?.regime === HMM_STATE_CONSOLIDATION && hmmRegime.confidence >= 0.65) {
+        avisos.push(
+          `REGIME HMM: mercado classificado como CONSOLIDACAO_BAIXA_VOL (confianca ${(hmmRegime.confidence * 100).toFixed(0)}%, amostra de ` +
+            `${hmmRegime.sampleSize} candles) -- retorno medio perto de zero e volatilidade baixa. Setup de ROMPIMENTO ou CRUZAMENTO DE MEDIAS tende a ` +
+            `ser whipsaw (falso rompimento que reverte) neste regime -- exija confluencia bem mais forte, ou prefira estrategia de reversao dentro do range.`
+        );
+      } else if (hmmRegime?.regime === HMM_STATE_TREND && hmmRegime.confidence >= 0.65) {
+        avisos.push(
+          `REGIME HMM: mercado classificado como TENDENCIA_CLARA (${hmmRegime.direction ?? "direcao indefinida"}, confianca ` +
+            `${(hmmRegime.confidence * 100).toFixed(0)}%) -- estatisticamente favorece setup de continuacao/rompimento a favor dessa direcao, ` +
+            `nao reversao contra ela sem confluencia extra.`
+        );
+      }
       return {
         ...quote,
         marketOpen: true,
@@ -893,6 +941,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         candlePatterns,
         regime,
         movingAverages,
+        smcZones,
+        hmmRegime,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
     }
@@ -1009,6 +1059,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const side = input.side as string;
       const sizeInput = String(input.size || "normal").toLowerCase();
       const reasoning = String(input.reasoning || "");
+      const setupType = input.setupType ? String(input.setupType).toUpperCase() : null;
       const confidenceRaw = Number(input.confidence);
       const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(100, confidenceRaw)) : null;
       // 🔴 2026-09-07, noite (commit 04b051f2d): gate obrigatório de
@@ -1353,7 +1404,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
@@ -1361,7 +1412,35 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         getMacd(symbol, openPositionTimeframe),
         getCandlePatterns(symbol, openPositionTimeframe),
         getMarketRegime(symbol, openPositionTimeframe),
+        getHmmMarketRegime(symbol, openPositionTimeframe),
       ]);
+      // 🔴 2026-09-09 (pedido direto do Cleber -- Classificador de Regime de
+      // Mercado via HMM como "principal trava de seguranca do Motor de
+      // Decisao"): bloqueio MECANICO opcional, DESLIGADO por padrao
+      // (HMM_REGIME_GATE_ACTIVE=false, mesmo padrao de ASSET_SCORECARD_ACTIVE
+      // ja usado neste projeto) -- sem amostra real ainda validando que a
+      // classificacao HMM (treinada com no maximo ~60 candles por chamada,
+      // ver limitacao declarada em hmmRegime.ts) bate com o que se observa de
+      // verdade no grafico, uma trava mecanica nova ligada sem essa validacao
+      // repetiria o padrao ja catalogado neste projeto de "mudanca sem dado
+      // por tras piorando o resultado". Quando ligado: recusa ROMPIMENTO/
+      // CRUZAMENTO_MEDIAS (setups de CONTINUACAO) durante CONSOLIDACAO_BAIXA_VOL
+      // com confianca real >= HMM_REGIME_GATE_MIN_CONFIDENCE -- nunca bloqueia
+      // REVERSAO/OUTRO nem quando setupType nao foi declarado (campo opcional).
+      if (
+        config.hmmRegimeGateActive &&
+        hmmRegimeForGate?.regime === HMM_STATE_CONSOLIDATION &&
+        hmmRegimeForGate.confidence >= config.hmmRegimeGateMinConfidence &&
+        (setupType === "ROMPIMENTO" || setupType === "CRUZAMENTO_MEDIAS")
+      ) {
+        return {
+          error:
+            `BLOQUEADO pelo Classificador de Regime de Mercado (HMM): ${symbol} esta em CONSOLIDACAO_BAIXA_VOL com ` +
+            `${(hmmRegimeForGate.confidence * 100).toFixed(0)}% de confianca (amostra de ${hmmRegimeForGate.sampleSize} candles) -- ` +
+            `setup "${setupType}" e de CONTINUACAO, historicamente fraco (whipsaw) nesse regime. Espere o regime mudar pra ` +
+            `TENDENCIA_CLARA, ou reavalie como REVERSAO (setupType) se a tese for operar dentro do range.`,
+        };
+      }
       // 🔴 2026-09-02 (achado do Cleber, ao vivo -- XETUSD LONG aberto num
       // mercado LATERAL com "trend BAIXA" evidente logo depois): o proprio
       // reasoning da entrada admitiu "entrada moderada por conviccao unica

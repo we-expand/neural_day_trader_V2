@@ -585,6 +585,16 @@ export const config = {
   // e só 5min de espera (Fase 2: menos conservador, mais experimental).
   mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 5),
   mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 5),
+  // 🔴 2026-09-09 (pedido direto do Cleber -- Classificador de Regime de
+  // Mercado via HMM). SÓ CONTEXTO por padrão (hmmRegime em get_mt5_quote,
+  // sempre ativo, nunca desligável -- é dado real, não trava). Bloqueio
+  // MECÂNICO opcional (recusa setupType ROMPIMENTO/CRUZAMENTO_MEDIAS durante
+  // CONSOLIDACAO_BAIXA_VOL, ver open_position em tools.ts) fica DESLIGADO até
+  // haver amostra real validando a classificação -- mesmo padrão de
+  // ASSET_SCORECARD_ACTIVE já usado neste projeto (infra pronta, efeito
+  // desligado até o dado justificar ligar).
+  hmmRegimeGateActive: process.env.HMM_REGIME_GATE_ACTIVE === "true",
+  hmmRegimeGateMinConfidence: Number(process.env.HMM_REGIME_GATE_MIN_CONFIDENCE ?? 0.65),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger

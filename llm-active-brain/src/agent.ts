@@ -400,6 +400,55 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    risco sistêmico (ex: manchete de crise/choque relevante) só porque os
    indicadores técnicos do instante parecem favoráveis. Sem manchete
    disponível, opere pelo resto da confluência normalmente.
+1i. **Zonas técnicas SMC (pedido direto do Cleber, 2026-09-09 -- "nosso
+   motor utilizará essas tecnologias pra ajudar na tomada de decisões"):**
+   get_mt5_quote devolve "smcZones": {"nearestZones": [...até 4 zonas mais
+   próximas do preço atual, cada uma com "type" (order_block_bullish/
+   bearish, fvg_bullish/bearish, liquidity_pool_buyside/sellside),
+   "priceLow"/"priceHigh", "strength" (0-100), "distancePct" (distância do
+   preço atual até o meio da zona, sinal + acima/- abaixo)], "lastStructureEvent":
+   {"kind": BOS/CHoCH, "direction": bullish/bearish} ou null}. Motor
+   determinístico sobre candle real (mesmo que já desenha zonas no
+   Gráfico) -- reconhecimento de padrão técnico de reação histórica de
+   preço, **NÃO é order book real** (esta corretora CFD não expõe
+   profundidade L2/L3, nunca trate como fluxo de ordens institucional de
+   verdade). Use como CAMADA ADICIONAL de contexto sobre "supportResistance"
+   (princípio 1c) -- zona próxima com "strength" alta reforça a leitura de
+   suporte/resistência já feita; "lastStructureEvent"=CHoCH na direção
+   oposta à sua tese é sinal de possível mudança de caráter recente, pondere
+   com mais cautela. **NUNCA vira gatilho mecânico sozinho** -- o cap de
+   R:R em open_position continua usando só "supportResistance" (pivot
+   simples), "smcZones" é só mais um fator de confluência pro seu
+   julgamento, igual candlePatterns/MACD/Estocástico acima. "nearestZones"
+   vazio é normal (nem todo ciclo tem zona real próxima).
+1j. **Classificador de Regime de Mercado -- HMM (pedido direto do Cleber,
+   2026-09-09, "principal trava de segurança do Motor de Decisão"):**
+   get_mt5_quote devolve "hmmRegime": {"regime": TENDENCIA_CLARA/
+   CONSOLIDACAO_BAIXA_VOL/CHOQUE_DE_VOLATILIDADE, "confidence" (0-1),
+   "direction" (ALTA/BAIXA, só em TENDENCIA_CLARA), "sampleSize"} ou null.
+   Modelo estatístico não-supervisionado (Hidden Markov Model, 3 estados
+   ocultos treinados sobre retorno/volatilidade/amplitude reais do próprio
+   símbolo) -- ele NÃO SABE o que é "tendência" ou "consolidação" por regra,
+   aprendeu a distinção sozinho a partir do comportamento estatístico
+   recente. Premissa por trás disto: a maior causa de perda é aplicar
+   lógica de TENDÊNCIA (rompimento, cruzamento de médias) num mercado
+   CONSOLIDADO, ou o oposto. Use como CONTEXTO de alta prioridade: em
+   CONSOLIDACAO_BAIXA_VOL com confidence alta, um setup de rompimento/
+   cruzamento de médias tem histórico de reverter (whipsaw) -- prefira
+   reversão dentro do range, ou exija confluência bem mais forte antes de
+   apostar em continuação. Em TENDENCIA_CLARA, o oposto: reversão contra a
+   "direction" reportada exige confirmação extra, continuação a favor dela
+   é o cenário estatisticamente mais favorecido. CHOQUE_DE_VOLATILIDADE
+   (notícia, liquidação em cascata, gap) não tem direção confiável nenhuma
+   -- trate como sinal de CAUTELA em qualquer lado, spread/slippage tende a
+   estar pior que o normal. "confidence" baixa (perto de 33%, chance de
+   3 estados) significa que o modelo não está confiante em nenhum regime
+   específico agora -- não force uma leitura que o próprio modelo não tem.
+   Ao declarar "setupType" em open_position (ROMPIMENTO/CRUZAMENTO_MEDIAS/
+   REVERSAO/OUTRO, campo opcional), seja honesto -- ajuda o código a avaliar
+   coerência entre o setup e o regime, e pode virar bloqueio mecânico se o
+   Cleber ativar essa trava depois de validar a classificação com amostra
+   real. "hmmRegime" null é normal (candle real insuficiente no momento).
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a
@@ -633,10 +682,18 @@ const GENESIS_PROMPT = config.mt5TradingEnabled ? GENESIS_PROMPT_MT5 : GENESIS_P
 // nao por falta de sinal, so por falta de tempo. Subido pra 130s (folga
 // pra cesta grande, ainda falha rapido o bastante pro ciclo seguinte
 // tentar de novo em vez de travar minutos).
+// 🔴 2026-09-09 (achado real, log ao vivo): com a cesta em 12 ativos e a
+// conta MetaAPI compartilhada falhando cotacao de varios simbolos ao mesmo
+// tempo (cada falha = 3 tentativas x ~8s = ate 24s so de fallback por
+// simbolo), 7 dos ultimos 12 ciclos estouraram os 130s antes do modelo
+// terminar de consultar a cesta inteira e decidir -- zero open_position
+// desde o ciclo 2. Subido pra 240s (folga pro pior caso de varios simbolos
+// falhando ao mesmo tempo), ainda falha rapido o bastante pro ciclo
+// seguinte tentar de novo.
 const client = new OpenAI({
   apiKey: config.llmApiKey,
   baseURL: config.llmBaseUrl,
-  timeout: 130_000,
+  timeout: 240_000,
 });
 
 function sleep(ms: number) {

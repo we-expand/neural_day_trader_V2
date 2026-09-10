@@ -1,4 +1,6 @@
 import { config } from "./config.js";
+import { analyzeSmc, type SmcZoneType } from "./smc.js";
+import { classifyRegimeHmm, type HmmRegimeResult } from "./hmmRegime.js";
 import { getTickTrend, getTickVolatility, getMomentumAcceleration } from "./tickHistory.js";
 import { isWeekendMode } from "./assetBasket.js";
 import { archiveCandles } from "./neuralBridge.js";
@@ -1242,4 +1244,79 @@ export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null
     economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
     return null;
   }
+}
+
+// ============================================================================
+// ZONAS TÉCNICAS SMC (2026-09-09, pedido direto do Cleber -- "nosso motor
+// utilizará essas tecnologias pra ajudar na tomada de decisões"): Order
+// Blocks/Fair Value Gaps/Liquidity Pools do motor SMC determinístico (ver
+// `smc.ts`, portado do frontend onde já roda em produção há semanas). Igual
+// a `getSupportResistance`/`getMarketRegime` -- SÓ CONTEXTO adicional pro
+// LLM cruzar com o resto (veredito do llm-council 2026-09-09: nunca vira
+// gatilho mecânico novo de entrada/saída, o S/R simples que já existia
+// continua sendo o que cap a R:R em open_position). `null` sem candle real
+// suficiente -- nunca fabrica zona.
+// ============================================================================
+
+export interface SmcZoneSummaryItem {
+  type: SmcZoneType;
+  priceLow: number;
+  priceHigh: number;
+  strength: number;
+  mitigated: boolean;
+  distancePct: number; // distância do preço atual até o meio da zona, com sinal (+ acima, - abaixo)
+}
+
+export interface SmcZonesSummary {
+  nearestZones: SmcZoneSummaryItem[];
+  lastStructureEvent: { kind: "BOS" | "CHoCH"; direction: "bullish" | "bearish" } | null;
+}
+
+const SMC_MAX_ZONES_IN_SUMMARY = 4;
+
+export async function getSmcZonesSummary(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SmcZonesSummary | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < 10) return null;
+
+  const lastClose = candles[candles.length - 1].close;
+  if (!(lastClose > 0)) return null;
+
+  const analysis = analyzeSmc(candles, symbol, timeframe);
+  const allZones = [...analysis.orderBlocks, ...analysis.fairValueGaps, ...analysis.liquidityPools].filter((z) => !z.mitigated);
+
+  const withDistance: SmcZoneSummaryItem[] = allZones.map((z) => {
+    const mid = (z.priceHigh + z.priceLow) / 2;
+    return {
+      type: z.type,
+      priceLow: z.priceLow,
+      priceHigh: z.priceHigh,
+      strength: z.strength,
+      mitigated: z.mitigated,
+      distancePct: ((mid - lastClose) / lastClose) * 100,
+    };
+  });
+
+  withDistance.sort((a, b) => Math.abs(a.distancePct) - Math.abs(b.distancePct));
+  const nearestZones = withDistance.slice(0, SMC_MAX_ZONES_IN_SUMMARY);
+
+  const lastStructureEvent = analysis.lastStructureEvent
+    ? { kind: analysis.lastStructureEvent.kind, direction: analysis.lastStructureEvent.direction }
+    : null;
+
+  return { nearestZones, lastStructureEvent };
+}
+
+/**
+ * 🔴 2026-09-09 (pedido direto do Cleber -- "Classificador de Regime de
+ * Mercado" via Hidden Markov Model, principal trava de segurança contra
+ * aplicar lógica de tendência num mercado consolidado ou vice-versa). Ver
+ * `hmmRegime.ts` pra explicação técnica completa do modelo -- aqui só busca
+ * o candle real (mesma fonte/cache de trend/volume/MACD acima) e delega a
+ * classificação pra função pura `classifyRegimeHmm`. `null` quando não há
+ * candle real suficiente, mesma disciplina de todo indicador neste arquivo.
+ */
+export async function getHmmMarketRegime(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<HmmRegimeResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles) return null;
+  return classifyRegimeHmm(candles);
 }
