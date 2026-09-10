@@ -656,6 +656,15 @@ export interface Mt5OpenPosition {
   // verdade (ver liveExecution.ts). close_position usa isso pra saber qual
   // posição REAL fechar na corretora.
   broker_position_id: string | null;
+  // 🔴 2026-09-10 (pedido do Cleber -- medir se a IA "está entrando pro
+  // lado certo", nao so o resultado final): maior lucro flutuante (em USD)
+  // ja atingido por este trade, atualizado a cada 3s pelo stop-watchdog
+  // (enforceMt5StopsAndTargets abaixo) -- INDEPENDENTE do resultado final.
+  // Antes desta coluna nao havia como saber, pra um trade fechado no
+  // prejuizo, se ele chegou a ficar positivo em algum momento (analise
+  // manual via log de texto, imprecisa e nao escalavel). null = trade
+  // nunca teve PnL positivo registrado.
+  mfe_usd: number | null;
 }
 
 /**
@@ -734,7 +743,7 @@ export async function listMt5OpenPositions(sessionId: string): Promise<Mt5OpenPo
   const { data, error } = await sb
     .from("ai_trades")
     .select(
-      "id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count, partial_tp_taken, original_stop_distance, session_id, broker_position_id"
+      "id, symbol, side, entry_price, quantity, entry_time, stop_loss, take_profit, pyramid_adds_count, partial_tp_taken, original_stop_distance, session_id, broker_position_id, mfe_usd"
     )
     .eq("session_id", sessionId)
     .eq("status", "OPEN")
@@ -1128,6 +1137,24 @@ export async function enforceMt5StopsAndTargets(
     // PnL flutuante -- uma posicao recem-aberta ja mostra -spread ate o
     // preco andar o suficiente pra cobrir esse custo, igual corretora real.
     const price = pos.side === "LONG" ? quote.bid : quote.ask;
+    // 🔴 2026-09-10 (pedido do Cleber -- medir se a IA esta lendo a direcao
+    // certa na entrada, nao so o resultado final): atualiza o maior lucro
+    // flutuante (MFE) ja visto por este trade. Roda aqui porque esta funcao
+    // e chamada pelo stop-watchdog a cada 3s (index.ts) -- amostragem bem
+    // mais fina que o ciclo do LLM (minutos), da o dado real pra responder
+    // "quantos trades nunca chegaram a ficar positivos" sem depender de
+    // vasculhar log de texto. So escreve quando ha uma NOVA maxima (evita
+    // UPDATE a cada 3s pra posicoes paradas ou perdendo).
+    const floatingPnlUsd = pos.side === "LONG"
+      ? (price - pos.entry_price) * (pos.quantity / pos.entry_price)
+      : (pos.entry_price - price) * (pos.quantity / pos.entry_price);
+    if (floatingPnlUsd > (pos.mfe_usd ?? 0)) {
+      const sbMfe = getClient();
+      sbMfe.from("ai_trades").update({ mfe_usd: floatingPnlUsd }).eq("id", pos.id).eq("status", "OPEN")
+        .then(({ error }) => {
+          if (error) console.warn(`[neuralBridge/mt5] falha ao gravar mfe_usd de ${pos.symbol}:`, error.message);
+        });
+    }
     // 🔴 2026-08-29 (mudança de filosofia, pedido do Cleber): take_profit
     // VOLTA a ser gatilho de saída mecânico. O motivo de ter sido desligado
     // antes (capava todo vencedor em 2R, anulando o trailing numa tendência
