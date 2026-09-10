@@ -81,6 +81,40 @@ RACIOCINIO: "${params.reasoning}"${snapshotBlock}
 Responda APENAS com um JSON valido, sem nenhum texto antes ou depois: {"contradiction": true ou false, "why": "motivo em 1 frase curta, so se contradiction=true, senao string vazia"}`;
 }
 
+// 🔴 2026-09-10 (achado real ao vivo, XETUSD LONG -$2,83): a camada de LLM
+// abaixo (checkReasoningConsistency) fica DESLIGADA a noite inteira quando
+// o provedor e Ollama (mt5ReasoningValidatorEnabled = llmProvider !== "ollama",
+// ver config.ts) -- reusar o mesmo Ollama sobrecarregado pra validar dobra
+// o tempo de cada ciclo, entao foi desligado de proposito em 2026-08-30.
+// Resultado: a trava semantica nunca rodou nesta sessao. Caso real que
+// vazou: reasoning de abertura disse "Tendencia ALTA (shortterm e longterm
+// AMBOS BAIXA)" -- contradicao na PROPRIA frase -- e ainda abriu LONG
+// contra a leitura real de get_mt5_quote (trendLabel=BAIXA) do mesmo ciclo.
+// Este check e DETERMINISTICO (so regex + comparacao de string, zero
+// chamada de LLM) -- roda SEMPRE, independente de provedor/custo, e cobre
+// exatamente essa classe de erro (rotulo de tendencia que o texto afirma
+// vs o dado real que get_mt5_quote devolveu no mesmo ciclo). Nao substitui
+// a camada de LLM acima (que cobre contradicoes mais sutis de linguagem
+// natural) -- e uma rede de seguranca adicional, mais estreita mas sempre
+// ativa.
+function checkDeterministicTrendMismatch(reasoning: string, realSnapshot?: QuoteSnapshot): ConsistencyCheck {
+  if (!realSnapshot?.trendLabel) return { consistent: true };
+  const real = realSnapshot.trendLabel.toUpperCase();
+  if (real !== "ALTA" && real !== "BAIXA" && real !== "LATERAL") return { consistent: true };
+
+  const match = reasoning.match(/tend[êe]ncia\s*[:\-]?\s*(alta|baixa|lateral)/i);
+  if (!match) return { consistent: true };
+  const stated = match[1].toUpperCase();
+  if (stated === real) return { consistent: true };
+
+  return {
+    consistent: false,
+    note:
+      `raciocinio afirma tendencia ${stated}, mas o dado real do get_mt5_quote deste ciclo diz tendencia=${real} ` +
+      `(checagem deterministica, sem chamada de LLM)`,
+  };
+}
+
 export async function checkReasoningConsistency(params: {
   actionKind: "open_position" | "close_position";
   symbol: string;
@@ -88,6 +122,9 @@ export async function checkReasoningConsistency(params: {
   reasoning: string;
   realSnapshot?: QuoteSnapshot;
 }): Promise<ConsistencyCheck> {
+  const deterministicCheck = checkDeterministicTrendMismatch(params.reasoning, params.realSnapshot);
+  if (!deterministicCheck.consistent) return deterministicCheck;
+
   if (!config.mt5ReasoningValidatorEnabled) {
     return { consistent: true };
   }
