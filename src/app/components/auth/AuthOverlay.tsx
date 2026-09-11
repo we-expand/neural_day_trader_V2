@@ -405,7 +405,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                 <span className="text-xs font-medium tracking-[0.2em] text-slate-400 uppercase">Neural Day Trader</span>
             </div>
             {step > 0 && (
-                <button onClick={() => setStep(0)} className="text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-widest">
+                <button type="button" onClick={() => setStep(0)} className="text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-widest">
                     Cancelar
                 </button>
             )}
@@ -501,10 +501,11 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                         </div>
 
                         <div className="mt-12 flex justify-between items-center">
-                             <button onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
+                             <button type="button" onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
                                 <ChevronLeft className="w-6 h-6" />
                              </button>
-                             <button 
+                             <button
+                                type="button"
                                 onClick={handleNext}
                                 disabled={!email}
                                 className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 ${email ? 'bg-white text-black scale-100' : 'bg-slate-900 text-slate-700 scale-90'}`}
@@ -512,7 +513,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 <ArrowRight className="w-5 h-5" />
                              </button>
                         </div>
-                        
+
                         {!isSignUp && biometricSupported && (
                             <button
                                 type="button"
@@ -531,6 +532,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
 
                         <div className="mt-8 text-center flex flex-col gap-4">
                             <button
+                                type="button"
                                 onClick={() => { setIsSignUp(!isSignUp); setHasError(false); setShowSignUpHint(false); setErrorMessage(""); }}
                                 className={`text-xs uppercase tracking-widest transition-all duration-300 ${
                                     showSignUpHint
@@ -583,10 +585,11 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                         </div>
 
                         <div className="mt-12 flex justify-between items-center">
-                             <button onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
+                             <button type="button" onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
                                 <ChevronLeft className="w-6 h-6" />
                              </button>
-                             <button 
+                             <button
+                                type="button"
                                 onClick={handleNext}
                                 disabled={!userName}
                                 className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 ${userName ? 'bg-white text-black scale-100' : 'bg-slate-900 text-slate-700 scale-90'}`}
@@ -594,9 +597,10 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 <ArrowRight className="w-5 h-5" />
                              </button>
                         </div>
-                        
+
                         <div className="mt-8 text-center flex flex-col gap-4">
-                            <button 
+                            <button
+                                type="button"
                                 onClick={() => { setIsSignUp(!isSignUp); setHasError(false); setShowSignUpHint(false); setErrorMessage(""); }}
                                 className={`text-xs uppercase tracking-widest transition-all duration-300 ${
                                     showSignUpHint 
@@ -674,10 +678,11 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                         </div>
 
                         <div className="mt-12 flex justify-between items-center">
-                             <button onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
+                             <button type="button" onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
                                 <ChevronLeft className="w-6 h-6" />
                              </button>
-                             <button 
+                             <button
+                                type="button"
                                 onClick={submitAuth}
                                 disabled={loading || !password}
                                 className={`px-6 py-3 rounded-full flex items-center gap-3 transition-all duration-500 ${password ? 'bg-white text-black' : 'bg-slate-900 text-slate-700'}`}
@@ -699,7 +704,8 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 
                                 {/* Option A: DELETE ACCOUNT (If password forgotten or stuck) */}
                                 {errorMessage === "Senha Incorreta" && (
-                                    <button 
+                                    <button
+                                        type="button"
                                         onClick={handleDeleteUser}
                                         disabled={deleting}
                                         className="text-[10px] text-red-500 hover:text-red-400 uppercase tracking-widest transition-colors flex items-center justify-center gap-2 mx-auto font-bold border border-red-500/20 px-4 py-2 rounded-full hover:bg-red-500/10"
@@ -711,7 +717,8 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
 
                                 {/* Option B: Force Activation (if stuck pending) */}
                                 {errorMessage === "Conta Pendente" && (
-                                    <button 
+                                    <button
+                                        type="button"
                                         onClick={handleForceActivation}
                                         disabled={activating || !password}
                                         className="text-[10px] text-amber-500 hover:text-amber-400 uppercase tracking-widest transition-colors flex items-center justify-center gap-2 animate-pulse font-bold mx-auto border border-amber-500/20 px-4 py-2 rounded-full"
