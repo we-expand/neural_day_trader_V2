@@ -1898,7 +1898,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // mais só risco-% fixo -- lots = alvo_retorno_usd / (takeProfitPct *
       // LOT_SIZE * preço). "forte" escala este alvo de retorno.
       const targetRewardUsd = config.mt5TargetRewardUsd * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
-      let lots = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
+      const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
+      let lots = rawLotsPreCap;
       lots = Math.min(lots, config.mt5SafetyMaxLots);
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Lotes Maximos por
       // Trade"): teto do usuario, quando configurado, nunca frouxo o teto de
@@ -1909,6 +1910,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
       if (lots < MIN_LOTS) lots = MIN_LOTS; // nao da pra abrir posicao com lote zero -- MIN_LOTS e o menor lote executavel
       let amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      // 🔴 2026-09-11 (diagnostico temporario, pedido do Cleber -- LNKUSD
+      // abriu 1 lote/$11,69 quando a formula deveria mirar ~$4 de retorno,
+      // ~20 lotes; nenhum dos gates conhecidos (risco/seguranca/grupo)
+      // bateu com o numero real no primeiro trade investigado): loga os
+      // insumos brutos da formula ANTES de qualquer cap, pra pegar a causa
+      // real no proximo trade em vez de continuar adivinhando por leitura
+      // estatica de codigo. Remover depois de confirmar a causa.
+      console.log(
+        `[SIZING DEBUG] ${symbol}: targetRewardUsd=${targetRewardUsd} takeProfitPct=${takeProfitPct} ` +
+          `LOT_SIZE=${LOT_SIZE[symbol]} quote.price=${quote.price} rawLotsPreCap=${rawLotsPreCap} ` +
+          `lotsAfterSafetyMax=${Math.min(rawLotsPreCap, config.mt5SafetyMaxLots)} ` +
+          `maxLotsPerTrade=${session.userConfig?.maxLotsPerTrade ?? "null"} lotsFinal=${lots} amountUsd=${amountUsd}`
+      );
       // 🔴 2026-09-05: o teto DURO de risco (mt5MaxRiskPctPerTrade) continua
       // sendo o limite por cima -- se o lote necessario pra alcancar o
       // retorno-alvo em $ estourar o risco maximo tolerado pela conta, o
