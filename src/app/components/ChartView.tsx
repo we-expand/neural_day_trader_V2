@@ -8801,6 +8801,15 @@ export function ChartView({
             setIsReplayMode(false);
             forceFullReloadAfterReplayRef.current = true;
             fetchChartDataRef.current?.();
+            // 🔧 FIX: fechar o Replay (barra de 50px no rodapé) deixava o
+            // container <main> (flex-1 overflow-auto, App.tsx) scrollado pra
+            // baixo — a barra empurrava o conteúdo, o scroll ficava preso
+            // nessa posição mesmo depois da barra sumir, jogando o header
+            // (símbolo/preço) pra fora da tela por cima. O ativo selecionado
+            // nunca mudou de verdade (confirmado no DOM), só ficava invisível.
+            requestAnimationFrame(() => {
+              chartContainerRef.current?.closest('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+            });
           }}
           onCandleChange={(candle) => {
             // Ativar modo replay na primeira vez
