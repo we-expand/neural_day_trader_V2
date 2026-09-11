@@ -15,6 +15,50 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-11] Mobile (iPhone SE/Galaxy S20, 360-375px) estava
+"todo desalinhado" — sidebar fixa de 320px sempre visível era a causa raiz,
+virou drawer; 3 overflows do ChartView corrigidos. Commit rodado pelo
+Cleber.** Sidebar (`Sidebar.tsx`) tinha `w-80` fixo sem breakpoint nem
+hambúrguer — sobrava <60px pra todo o resto do app nessas larguras. Agora
+esconde por padrão em `<md` e abre via botão hambúrguer novo no
+`Header.tsx` (estado em `App.tsx`). De carona no `ChartView.tsx`: modal de
+busca de ativo (era `980px` fixo, virou `calc(100vw-1.5rem)`), barra de
+timeframes (ganhou `overflow-x-auto`) e menu de contexto (cálculo de
+posição `window.innerWidth - 380` ficava negativo em telas de 360px,
+cortando o menu). `tsc --noEmit` sem erro novo nos arquivos tocados.
+**Pendente**: testar visualmente em 375px/360px (dev local exige login,
+não deu pra confirmar por navegador nesta sessão).
+
+**[EM ANDAMENTO 2026-09-11] Stop de fim de semana do LLM Brain isolado do
+stop de dia útil (1.5x ATR vs 2.0x) — pedido do Cleber, NÃO reabre o corte
+global de 2026-09-04 que derrubou acerto 80%→33%.** Novo
+`mt5StopAtrMultiplierWeekend` (`config.ts`) usado só quando
+`isWeekendMode()`; alvo de fim de semana passa a usar esse mesmo
+multiplicador como referência de risco (alvo encolhe junto, R:R fim de
+semana ~1,67:1). Stop de dia útil continua 2.0x, intocado. `tsc --noEmit`
++ `npm run validate` (37/37) limpos. **Pendente**: `git commit`+push+
+`./restart.sh` (dentro de `llm-active-brain/`); sem validação estatística
+ainda, precisa de amostra de fim de semana rodando.
+
+**[EM ANDAMENTO 2026-09-11] Card "Risco da Conta" do Dashboard — 2 fixes em
+sequência: (1) parava de esconder o drawdown real quando passava do teto,
+(2) base do cálculo trocada de pico de equity móvel pra capital alocado no
+Setup.** Cleber viu "RISCO ALTO" com patrimônio de $54 e achou estranho.
+Achado 1: `Math.min(drawdownReal, teto)` em `MarketScoreBoard.tsx` travava
+o número exibido no valor do teto (sempre "35.00%/35.00%"), escondendo que
+o drawdown real (contra `portfolio.currentDrawdown`, ancorado em pico de
+equity/abertura do dia) já estava ~46% acima do teto — confirmado via SQL
+direto no Supabase, não era bug de exibição isolado, a conta realmente
+estava em drawdown alto CONTRA aquela âncora. Cleber então pediu
+explicitamente: teto de 35% deve ser sobre o **capital alocado no Setup**
+(`allocatedCapital`), não sobre um pico que se move sozinho — implementado,
+`realDrawdownPercent` agora é queda real em $ desde `allocatedCapital`
+como % desse mesmo valor, fixo até o usuário mudar manualmente. Com o
+capital alocado real do Cleber (~$57,49) o drawdown cai pra ~6%, deve virar
+"SEGURO" pós-deploy. `tsc --noEmit`/`npm run validate` (37/37) limpos.
+**Pendente**: `git commit`+push do 2º fix (comando entregue); confirmar
+visualmente o selo mudando pra SEGURO depois do deploy.
+
 **[EM ANDAMENTO 2026-09-11, noite] ACHADO GRAVE: `MT5_LIVE_EXECUTION_ENABLED=false`
 o dia inteiro — nenhum trade de hoje (BTCUSD/LNKUSD/UKOUSD/SPX500...) foi
 ordem real na corretora, apesar do Cleber acreditar que era dinheiro real.**
