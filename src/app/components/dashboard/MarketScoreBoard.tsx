@@ -840,16 +840,29 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
   // (pico real de drawdown desde o início da sessão, persistido) contra o
   // limite real configurado, e reflete o Safe Mode quando ativo.
   const maxDrawdownLimit = config.maxDrawdown && config.maxDrawdown > 0 ? config.maxDrawdown : 15;
-  const realDrawdownPercent = portfolio?.currentDrawdown || 0;
-  // 🔴 2026-09-11 (pedido do Cleber): `Math.min(realDrawdownPercent,
-  // maxDrawdownLimit)` travava o numerador exibido no valor do teto assim
-  // que o drawdown real o ultrapassava -- a tela sempre mostrava "35.00% /
-  // 35.00%" mesmo quando o drawdown real já estava bem acima disso (ex:
-  // 50%, 80%), escondendo a gravidade real da perda. Agora exibe o
-  // drawdown real (só limitado a 100%, sanidade de exibição, nunca mais
-  // travado no teto configurado) -- `riskRatio` continua podendo passar de
-  // 1 quando o drawdown real excede o teto, o que já classifica
-  // corretamente como RISCO ALTO abaixo.
+  // 🔴 2026-09-11 (pedido do Cleber): drawdown do card "Risco da Conta" media
+  // a queda contra um pico/âncora de equity MÓVEL (portfolio.currentDrawdown,
+  // baseado em peakEquity ou equity de abertura do dia -- ver
+  // useApexLogic.ts) -- em vez do capital que o usuário de fato alocou pra
+  // IA (allocatedCapital, definido no Setup). Isso fazia o % de risco não
+  // refletir de forma estável "quanto da minha entrada eu já perdi": um
+  // teto de 35% deve significar 35% ABAIXO do capital que o usuário alocou,
+  // não 35% abaixo de um pico de equity que muda a cada novo topo. Agora
+  // calcula direto: queda real em $ desde o capital alocado, como % desse
+  // mesmo capital alocado -- fixo até o usuário mudar o valor manualmente
+  // no Setup, nunca recalculado sozinho pelo pico de equity.
+  const allocatedCapital = config.allocatedCapital && config.allocatedCapital > 0
+    ? config.allocatedCapital
+    : 100;
+  const currentEquity = portfolio?.equity ?? allocatedCapital;
+  const realDrawdownPercent = currentEquity < allocatedCapital
+    ? ((allocatedCapital - currentEquity) / allocatedCapital) * 100
+    : 0;
+  // Math.min(realDrawdownPercent, maxDrawdownLimit) travava o numerador no
+  // valor do teto assim que era ultrapassado (ex: sempre "35.00%/35.00%",
+  // escondendo o quanto pior a perda real estava) -- exibe o valor real,
+  // só limitado a 100% por sanidade. `riskRatio` pode passar de 1 quando o
+  // drawdown real excede o teto, o que já classifica RISCO ALTO abaixo.
   const riskPercent = Math.min(realDrawdownPercent, 100);
   const riskRatio = maxDrawdownLimit > 0 ? riskPercent / maxDrawdownLimit : 0;
 
