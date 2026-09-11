@@ -154,15 +154,19 @@ export function MarketTicker() {
     };
 
     fetchTickers();
-    // 120s (2026-09-07: subido de 30s — pedido do Cleber, achado ao vivo: 13
-    // símbolos sozinhos levaram ~16s pra responder num pico de lentidão da
-    // conta MetaAPI compartilhada; lote de 47 a cada 30s mantinha pressão
-    // constante nessa mesma cota, empurrando parte dos símbolos pro timeout
-    // de 20s do cliente e travando em "$---". Ticker é só decorativo, não
-    // precisa de refresh rápido; watchdog de stop do LLM Brain (5s) é quem
-    // precisa de cota disponível de verdade, esse continua intocado.
-    const interval = setInterval(fetchTickers, 120000);
-    return () => clearInterval(interval);
+    // 🔴 2026-09-11 (pedido explícito do Cleber, mitigação temporária pra
+    // investigar a instabilidade recorrente da MetaAPI/feed): polling
+    // periódico DESLIGADO -- busca 1x no mount e para. Motivo: este rodapé
+    // é o maior consumidor único de cota da conta MetaAPI compartilhada
+    // fora do próprio motor (30-47 símbolos por ciclo, era a cada 120s);
+    // é decorativo, não crítico, então é o primeiro candidato a cortar
+    // enquanto tentamos isolar se a causa do 504/"Failed to subscribe" é
+    // pressão de chamada ou outra coisa (rede local, lado do broker). Se
+    // a instabilidade sumir com isso desligado, é sinal real; se persistir
+    // igual, descarta esta hipótese. Reverter (religar o `setInterval`
+    // abaixo) só depois de decisão consciente, não por default.
+    // const interval = setInterval(fetchTickers, 120000);
+    // return () => clearInterval(interval);
   }, []);
 
   // ✅ 2026-09-03: esconde do rodapé ativo com mercado fechado (fim de
