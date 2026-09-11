@@ -6140,11 +6140,27 @@ export function ChartView({
           // símbolo/timeframe, sem dataset ainda no chart) usa `applyNewData`
           // de verdade; todo refresh de 30s seguinte vira atualização
           // incremental das velas novas/em formação desde o último fetch.
-          if (!hasAppliedFullDatasetRef.current || forceFullReloadAfterReplayRef.current) {
+          const isFullResetAfterReplay = forceFullReloadAfterReplayRef.current;
+          if (!hasAppliedFullDatasetRef.current || isFullResetAfterReplay) {
             chart.applyNewData(candles);
             console.log('[ChartView] ✅ chart.applyNewData completed (primeira carga)!');
             hasAppliedFullDatasetRef.current = true;
             forceFullReloadAfterReplayRef.current = false;
+            // 🔧 FIX: ao sair do Replay, o `offsetRightDistance`/scroll ficava
+            // preso no valor que o replay tinha ancorado (candle esticado à
+            // esquerda, ver fix acima) — `scrollToRealTime()` só rodava na
+            // PRIMEIRA carga (`isInitialLoadRef`), nunca neste reset. O
+            // dataset real (ex: ETHUSD) era aplicado corretamente, mas a
+            // viewport continuava na posição/escala do replay (ex: faixa de
+            // preço do BTCUSD), causando eixo de preço deformado por alguns
+            // segundos até um tick de preço ao vivo forçar recálculo sozinho.
+            if (isFullResetAfterReplay) {
+              try {
+                chart.scrollToRealTime();
+              } catch (e) {
+                try { chart.scrollToDataIndex(candles.length - 1); } catch (e2) { /* não crítico */ }
+              }
+            }
           } else {
             const incremental = candles.filter(c => c.timestamp >= lastAppliedCandleTimestampRef.current);
             incremental.forEach(c => chart.updateData(c));
