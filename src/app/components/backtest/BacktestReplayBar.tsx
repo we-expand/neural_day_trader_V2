@@ -254,7 +254,7 @@ export function BacktestReplayBar({ onClose, onCandleChange, onCandlesUpdate }: 
 
               {/* Progress */}
               <span className="text-xs text-slate-500 tabular-nums min-w-[50px] text-right">
-                {replay.currentIndex + 1}/{replay.totalCandles}
+                {replay.currentIndex + 1}/{replay.allCandles.length}
               </span>
             </div>
           </>

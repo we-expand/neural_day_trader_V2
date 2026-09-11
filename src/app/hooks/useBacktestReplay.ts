@@ -59,14 +59,27 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
+  // 🔧 FIX "bug ao iniciar": replay começava em currentIndex=0 sem nenhum
+  // candle de contexto — `onCandlesUpdate` (ChartView.tsx) manda
+  // allCandles.slice(0, currentIndex+1) pro klinecharts, que com 1 candle só
+  // estica ele pra preencher o painel inteiro (barra vertical gigante, sem
+  // parecer um candlestick de verdade). Buscamos candles de aquecimento
+  // ANTES do dia selecionado (dado real já ocorrido, nunca futuro — não é
+  // look-ahead) só pra exibir contexto; o replay em si sempre começa e avança
+  // a partir de `startIndexRef` (o 1º candle do dia escolhido).
+  const startIndexRef = useRef<number>(0);
 
   // Candle atual
   const currentCandle = allCandles[currentIndex] || null;
 
-  // Cálculos derivados
+  // Cálculos derivados — sempre relativos ao início real do replay
+  // (startIndexRef), não ao início do array (que carrega aquecimento antes).
   const totalCandles = allCandles.length;
-  const progress = totalCandles > 0 ? (currentIndex / totalCandles) * 100 : 0;
-  
+  const replayLength = Math.max(1, totalCandles - startIndexRef.current);
+  const progress = totalCandles > 0
+    ? ((currentIndex - startIndexRef.current) / replayLength) * 100
+    : 0;
+
   // Tempo (baseado no timeframe)
   const getTimeInSeconds = (index: number): number => {
     const msPerCandle: Record<Timeframe, number> = {
@@ -80,8 +93,8 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
     return index * msPerCandle[timeframe];
   };
 
-  const elapsedTime = getTimeInSeconds(currentIndex);
-  const totalTime = getTimeInSeconds(totalCandles);
+  const elapsedTime = getTimeInSeconds(currentIndex - startIndexRef.current);
+  const totalTime = getTimeInSeconds(replayLength);
 
   /**
    * Inicia o replay
@@ -103,15 +116,26 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
+      // Aquecimento: busca candles de ANTES do dia selecionado (dado real já
+      // ocorrido) só pra o gráfico ter contexto visual no 1º candle do
+      // replay — nunca dado futuro, não afeta o range que será "revelado".
+      const msPerCandle: Record<Timeframe, number> = {
+        '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000,
+        '1h': 3_600_000, '4h': 4 * 3_600_000, '1d': 86_400_000,
+      };
+      const WARMUP_CANDLES = 60;
+      const warmupStart = new Date(startOfDay.getTime() - WARMUP_CANDLES * msPerCandle[tf]);
+
       console.log('[BACKTEST_REPLAY] 📊 Buscando dados:', {
         symbol: sym,
+        warmupStart: warmupStart.toISOString(),
         start: startOfDay.toISOString(),
         end: endOfDay.toISOString()
       });
 
       const result = await backtestDataService.fetchHistoricalData(
         sym,
-        startOfDay,
+        warmupStart,
         endOfDay,
         tf
       );
@@ -126,8 +150,15 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
         lastTime: new Date(result.endTime).toISOString()
       });
 
+      // Índice real de início do replay: 1º candle >= 00:00 do dia
+      // selecionado. Tudo antes disso é só contexto/aquecimento.
+      const startOfDayMs = startOfDay.getTime();
+      let startIndex = result.candles.findIndex(c => c.time >= startOfDayMs);
+      if (startIndex === -1) startIndex = result.candles.length - 1;
+
       setAllCandles(result.candles);
-      setCurrentIndex(0);
+      startIndexRef.current = startIndex;
+      setCurrentIndex(startIndex);
       setState('paused');
       startTimeRef.current = Date.now();
 
@@ -152,6 +183,7 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
     setState('idle');
     setAllCandles([]);
     setCurrentIndex(0);
+    startIndexRef.current = 0;
     setError(null);
   }, []);
 
@@ -214,7 +246,7 @@ export function useBacktestReplay(): UseBacktestReplayReturn {
    */
   const reset = useCallback(() => {
     console.log('[BACKTEST_REPLAY] 🔄 Reset para início');
-    setCurrentIndex(0);
+    setCurrentIndex(startIndexRef.current);
     setState('paused');
   }, []);
 
