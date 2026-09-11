@@ -85,6 +85,13 @@ export interface AITrade {
   // OrderTicket.tsx), nunca em trade simulado (DEMO). Mesma convenção já
   // usada em ai_trades pelo llm-active-brain (broker_position_id).
   broker_position_id?: string | null;
+  // 🔴 2026-09-11: booleano EXPLÍCITO real vs simulado (migration
+  // 20260911_add_is_live_execution_to_ai_trades.sql), nunca mais inferir só
+  // por broker_position_id ser nulo ou não. Usado pra filtrar o que aparece
+  // no Dashboard quando o usuário está conectado a corretora real (ver
+  // useApexLogic.ts) -- uma entrada simulada da IA nunca deve se misturar
+  // com dinheiro de verdade na tela.
+  is_live_execution?: boolean;
 }
 
 /**

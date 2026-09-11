@@ -1078,8 +1078,12 @@ export function useApexLogic(
           sessionStartedAtRef.current = new Date(session.created_at).getTime();
         }
 
-        if (openTrades.length > 0) {
-          setActiveOrders(openTrades.map((t): TradeVisual => ({
+        // 🔴 2026-09-11: mesmo filtro do reconcile() abaixo -- em LIVE, só
+        // posição REAL (is_live_execution=true) entra no Dashboard, nunca
+        // uma tentativa simulada da IA misturada com dinheiro de verdade.
+        const visibleOpenTrades = openTrades.filter(t => !isBrokerConnectedNow || t.is_live_execution === true);
+        if (visibleOpenTrades.length > 0) {
+          setActiveOrders(visibleOpenTrades.map((t): TradeVisual => ({
             id: t.id!, // id do banco vira o id local (onTradeClose cai no fallback e usa o mesmo id)
             symbol: t.symbol,
             side: t.side,
@@ -1317,7 +1321,19 @@ export function useApexLogic(
         if (tradesError) throw tradesError;
         if (cancelled) return;
         const trades = (tradesData || []) as AITrade[];
-        const open = trades.filter(t => t.status === 'OPEN');
+        // 🔴 2026-09-11 (achado do Cleber: "não está computando com o dinheiro
+        // de verdade" -- Dashboard misturava posição SIMULADA da IA (ex.
+        // BNBUSD, nunca enviada à corretora) junto das posições REAIS na
+        // mesma lista/Patrimônio/Risco da Conta, sem nenhuma distinção,
+        // confirmado comparando com o terminal MetaTrader real). Quando o
+        // usuário tem broker conectado (LIVE), só posições com
+        // `is_live_execution=true` (ordem de fato enviada à corretora,
+        // coluna nova de hoje) entram no Dashboard -- uma tentativa da IA que
+        // caiu no fallback simulado (ex: circuit breaker travado) não deve
+        // aparecer misturada com dinheiro real. Em DEMO (sem broker
+        // conectado) nada muda, todo trade já é simulado por definição.
+        const isLiveConnected = brokerConnectedCacheRef.current.connected;
+        const open = trades.filter(t => t.status === 'OPEN' && (!isLiveConnected || t.is_live_execution === true));
 
         // 🔴 FIX 2026-08-27 (achado do Cleber: "operação de NAS100 sumiu do
         // Dash como se nunca tivesse existido"): este `reconcile()` sempre só
