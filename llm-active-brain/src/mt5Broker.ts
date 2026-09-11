@@ -281,11 +281,30 @@ export async function getQuote(symbol: string): Promise<Mt5Quote | null> {
 // estiver mais velho que isso. Nao muda multiplicador/distancia de stop
 // (fora do erro categorico ja catalogado de 04/09) -- so aperta o quao
 // velha uma cotacao pode ser antes do watchdog agir sobre ela.
+// 🔴 2026-09-11 (achado ao vivo, pedido do Cleber -- "não encostou no
+// estoque, não parou a operação, vai ficar subindo pra sempre"): LNKUSD
+// SHORT (stop 11.822) correu ate 11.932 sem fechar -- confirmado no log que
+// o simbolo ficou "rate-limited/off" repetidamente exatamente nessa janela,
+// e getQuoteSingleAttempt (1 unica tentativa, sem retry) devolvia null toda
+// vez -- enforceMt5StopsAndTargets so faz `continue` num quote null (nunca
+// lanca), entao o watchdog nunca teve dado pra agir E nunca deixou rastro
+// nenhum no log (silencio total, nao e erro/excecao). Antes, essa unica
+// tentativa existia de proposito pra nao insistir numa cota ja saturada
+// (ver comentario de 2026-09-03 acima) -- mas isso protegia contra rajada,
+// nao contra "nunca tenta uma 2a vez". Agora tenta 1x mais, com um pequeno
+// atraso, ANTES de desistir -- ainda muito mais leve que o retry de 3x do
+// getQuote() normal (usado no caminho de raciocinio, nao safety-critical),
+// mas cobre o blip mais comum sem reintroduzir rajada.
+const WATCHDOG_QUOTE_RETRY_DELAY_MS = 400;
+
 export async function getQuoteSingleAttempt(
   symbol: string,
   maxAgeMs: number = QUOTE_CACHE_TTL_MS
 ): Promise<Mt5Quote | null> {
   const cached = getFreshCachedQuote(symbol, maxAgeMs);
   if (cached) return cached;
+  const first = await fetchQuoteOnce(symbol);
+  if (first) return first;
+  await sleep(WATCHDOG_QUOTE_RETRY_DELAY_MS);
   return fetchQuoteOnce(symbol);
 }

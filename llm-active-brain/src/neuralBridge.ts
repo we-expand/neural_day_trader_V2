@@ -1149,7 +1149,21 @@ export async function enforceMt5StopsAndTargets(
       quoteCache.set(pos.symbol, await getQuote(pos.symbol));
     }
     const quote = quoteCache.get(pos.symbol);
-    if (!quote) continue; // sem preco real agora -- nao decide no escuro, tenta de novo no proximo ciclo
+    // 🔴 2026-09-11 (achado ao vivo: LNKUSD correu ~110 pontos alem do stop
+    // sem fechar, feed rate-limited a janela inteira -- ver comentario em
+    // getQuoteSingleAttempt/mt5Broker.ts): antes este `continue` era
+    // silencioso -- nenhum rastro no log distinguia "sem quote" de "tudo
+    // normal, nada pra fechar". Warn aqui torna essa lacuna de protecao
+    // VISIVEL (grep "SEM PROTECAO" no log), mesmo sem poder fabricar um
+    // preco que nao existe -- nao decide no escuro, so para de esconder que
+    // esta no escuro.
+    if (!quote) {
+      console.warn(
+        `[neuralBridge/mt5] ⚠️ SEM PROTECAO MECANICA neste tick: ${pos.symbol} (posicao ${pos.id}) sem cotacao real disponivel ` +
+          `(feed indisponivel/rate-limited) -- stop/alvo NAO puderam ser checados agora. Tenta de novo no proximo tick do watchdog.`
+      );
+      continue; // sem preco real agora -- nao decide no escuro, tenta de novo no proximo ciclo
+    }
 
     // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao contemplando o
     // spread" / "so comeca a computar lucro depois de pagar o spread"): o
