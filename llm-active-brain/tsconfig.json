@@ -7,7 +7,15 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    // 🔴 2026-09-11: commissionModel.ts importa (relativo) TradeSizing.ts e
+    // CostModel.ts do app principal, fora de `include` -- ambos com extensão
+    // `.ts` explícita (convenção ESM/tsx do resto do arquivo). Sem isso,
+    // `tsc --noEmit` reprova com TS5097 mesmo o `tsx` já rodando limpo em
+    // runtime (verificado). Este projeto nunca compila via `tsc` (só `tsx`
+    // direto, ver package.json) -- `noEmit` já era o comportamento real.
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["src", "scripts"]
 }

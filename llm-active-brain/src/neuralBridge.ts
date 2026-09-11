@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
 import { getAtrPercent } from "./atr.js";
+import { estimateCommissionUsd } from "./commissionModel.js";
 
 /**
  * Ponte pro Neural Day Trader (2026-08-28): espelha cada ordem real de
@@ -947,7 +948,7 @@ export async function closeMt5Position(params: {
     const sb = getClient();
     const { data: trade, error: fetchError } = await sb
       .from("ai_trades")
-      .select("entry_price, side, quantity, ai_reasoning")
+      .select("entry_price, side, quantity, ai_reasoning, symbol")
       .eq("id", params.tradeId)
       .eq("status", "OPEN")
       .maybeSingle();
@@ -959,6 +960,11 @@ export async function closeMt5Position(params: {
     const entryPrice = Number(trade.entry_price);
     const amountUsd = Number(trade.quantity);
     const side = trade.side as "LONG" | "SHORT";
+    // 🔴 2026-09-11 (pedido do Cleber: comissão real cobrada de todo usuário,
+    // ver commissionModel.ts): custo round-trip calculado no fechamento
+    // (única vez que temos entrada+saída confirmadas), nunca no `openMt5Position`
+    // -- antes ficava hardcoded em 0 aqui pra sempre.
+    const commissionUsd = estimateCommissionUsd(trade.symbol, amountUsd, entryPrice);
     // 🔴 2026-08-30 (achado do Agente 1, handoff em CLAUDE.md/SESSAO_2026-08-29
     // _CANDLE_REAL_E_PRICE_ACTION.md "Parte B"): o UPDATE abaixo sobrescrevia
     // ai_reasoning com só o motivo da SAIDA, apagando pra sempre o motivo da
@@ -981,7 +987,8 @@ export async function closeMt5Position(params: {
         exit_reason: params.exitReason ?? "AI_SIGNAL",
         pnl,
         pnl_percentage: pnlPercentage,
-        net_pnl: pnl,
+        commission: commissionUsd,
+        net_pnl: pnl - commissionUsd,
         ai_reasoning: `${entryReasoning} || SAIDA: ${params.reasoning}`,
       })
       .eq("id", params.tradeId);
@@ -1053,6 +1060,7 @@ async function realizePartialProfit(args: {
     const pnl = pos.side === "LONG" ? (price - entryPrice) * (realizedQty / entryPrice) : (entryPrice - price) * (realizedQty / entryPrice);
     const pnlPercentage = ((price - entryPrice) / entryPrice) * 100 * (pos.side === "LONG" ? 1 : -1);
     const nowIso = new Date().toISOString();
+    const commissionUsd = estimateCommissionUsd(pos.symbol, realizedQty, entryPrice);
 
     const { error: insertError } = await sb.from("ai_trades").insert({
       session_id: pos.session_id,
@@ -1069,8 +1077,8 @@ async function realizePartialProfit(args: {
       exit_reason: "TP",
       pnl,
       pnl_percentage: pnlPercentage,
-      net_pnl: pnl,
-      commission: 0,
+      net_pnl: pnl - commissionUsd,
+      commission: commissionUsd,
       ai_reasoning: `Realizacao PARCIAL de lucro (${(favorableMoveR * 100).toFixed(0)}% de 1R alcancado, ${(config.mt5PartialTpFraction * 100).toFixed(0)}% da posicao) -- mecanico, nao depende de decisao do LLM neste ciclo.`,
       is_test_data: true,
       test_data_reason: MT5_TEST_DATA_REASON,

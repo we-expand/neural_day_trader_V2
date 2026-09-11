@@ -1841,6 +1841,76 @@ app.post("/user-data", async (c) => {
     }
 });
 
+// 🔴 2026-09-11 (pedido do Cleber: "todo usuário tem que pagar comissão,
+// computada e gerenciada pelo sistema, visível na Tesouraria Global"):
+// agregado REAL de comissão de execução em `ai_trades.commission`, servidor
+// (service role, nunca RLS de usuário comum -- é dado de TODOS os usuários,
+// não só o do admin logado). Cálculo real feito no motor
+// (llm-active-brain/src/commissionModel.ts), esta rota só soma o que já foi
+// gravado -- nunca fabrica número aqui. `commission=0` legítimo (trade
+// fechado antes do fix, ou LIVE, cuja cobrança real ainda não existe) conta
+// normalmente na soma -- não é escondido nem extrapolado.
+app.get("/admin/commission-summary", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
+
+        const { data, error } = await supabaseAdmin
+            .from('ai_trades')
+            .select('commission, net_pnl, pnl, broker_position_id, entry_time')
+            .eq('status', 'CLOSED')
+            .not('commission', 'is', null);
+
+        if (error) {
+            console.error('[ADMIN] Erro ao agregar comissão:', error);
+            return c.json({ error: 'Erro ao consultar ai_trades' }, 500);
+        }
+
+        const rows = data ?? [];
+        // broker_position_id preenchido = execução REAL confirmada na MetaAPI
+        // (ver liveExecution.ts); null = DEMO/simulado. Único jeito confiável
+        // de separar os dois hoje -- não existe coluna dedicada.
+        const demoRows = rows.filter((r) => !r.broker_position_id);
+        const liveRows = rows.filter((r) => !!r.broker_position_id);
+        const sum = (arr: typeof rows, field: 'commission' | 'net_pnl' | 'pnl') =>
+            arr.reduce((acc, r) => acc + (Number(r[field]) || 0), 0);
+
+        const now = Date.now();
+        const last30d = rows.filter((r) => r.entry_time && now - new Date(r.entry_time).getTime() <= 30 * 24 * 60 * 60 * 1000);
+
+        return c.json({
+            totalClosedTrades: rows.length,
+            demo: {
+                trades: demoRows.length,
+                totalCommissionUsd: sum(demoRows, 'commission'),
+                totalNetPnlUsd: sum(demoRows, 'net_pnl'),
+                totalGrossPnlUsd: sum(demoRows, 'pnl'),
+            },
+            live: {
+                trades: liveRows.length,
+                totalCommissionUsd: sum(liveRows, 'commission'),
+                totalNetPnlUsd: sum(liveRows, 'net_pnl'),
+                totalGrossPnlUsd: sum(liveRows, 'pnl'),
+                // Cobrança de comissão REAL em LIVE ainda não implementada
+                // (decisão de mecanismo de cobrança pendente, fora do escopo
+                // desta rodada) -- este número existe pra deixar isso visível
+                // no admin, não pra esconder que ainda é 0.
+                note: 'Cobrança de comissão em execução LIVE ainda não implementada -- número real, mas ainda zerado por falta de mecanismo de coleta.',
+            },
+            last30Days: {
+                trades: last30d.length,
+                totalCommissionUsd: sum(last30d, 'commission'),
+            },
+        });
+    } catch (e: any) {
+        console.error('[ADMIN] Erro em /admin/commission-summary:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
 // Get All User Data (Admin)
 app.get("/user-data", async (c) => {
     const adminCheck = await requireAdmin(c);
