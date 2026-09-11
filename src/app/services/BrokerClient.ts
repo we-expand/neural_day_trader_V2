@@ -114,13 +114,20 @@ export async function saveBrokerCredentials(
   return invokeBroker('credentials', { method: 'POST', body: { token, accountId, mt5Login, mt5Server } });
 }
 
+// 🔴 2026-09-11 (achado: saldo LIVE "oscilando" entre o real e o $100 do DEMO):
+// esta função engolia QUALQUER erro transitório (rede, instabilidade da
+// MetaAPI já documentada neste projeto) e devolvia `{configured: false}` —
+// indistinguível de "usuário nunca conectou corretora". Os 2 chamadores
+// (useApexLogic.ts reconcile() e TradingContext.tsx checkConnected()) já
+// tinham lógica pra MANTER o último estado conhecido numa falha transitória
+// (comentários "falha transitória -- mantém o último estado"), mas essa
+// lógica nunca disparava porque o erro nunca chegava até eles — sempre virava
+// um `configured: false` "de sucesso". Cada poll de 10-20s que batesse numa
+// falha transitória derrubava `isLiveConnected`/`brokerConnectedCacheRef` pra
+// false, fazendo o Dashboard cair pro cálculo de saldo simulado (DEMO) até o
+// próximo poll ter sucesso. Deixa o erro propagar — quem chama já sabe tratar.
 export async function getBrokerCredentialsStatus(): Promise<BrokerCredentialsStatus> {
-  try {
-    return await invokeBroker('credentials/status', { method: 'GET' });
-  } catch (error) {
-    console.error('[BrokerClient] Erro ao checar status das credenciais:', error);
-    return { configured: false };
-  }
+  return await invokeBroker('credentials/status', { method: 'GET' });
 }
 
 export async function deleteBrokerCredentials(): Promise<{ success: boolean }> {
