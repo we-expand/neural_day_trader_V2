@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2 } from 'lucide-react';
+import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2, Menu } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { BrokerConnectionStatus } from '../BrokerConnectionStatus';
@@ -9,9 +9,10 @@ interface HeaderProps {
   isAdmin?: boolean;
   onLogout?: () => void;
   user?: { name: string; email: string; role: string } | null;
+  onOpenMobileMenu?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user }) => {
+export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onOpenMobileMenu }) => {
   // 🔴 2026-09-09: `isLiveConnected`/`disconnectLive` centralizados no
   // TradingContext (fonte de verdade real: `broker_credentials`, mesma que
   // o llm-active-brain usa) -- usado também pelo toggle do AITrader.tsx,
@@ -47,8 +48,18 @@ export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, 
 
   return (
     <header id="app-header" className="min-h-[4rem] h-auto py-2 border-b border-white/5 bg-black/50 backdrop-blur-md px-4 md:px-6 flex flex-wrap md:flex-nowrap items-center justify-between sticky top-0 z-40 gap-y-2">
-      {/* Left: Mode Badge only — no view title duplicating sidebar */}
-      <div className="flex items-center gap-4 shrink-0">
+      {/* Left: hambúrguer (só mobile) + Mode Badge — no view title duplicating sidebar */}
+      <div className="flex items-center gap-3 shrink-0">
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="md:hidden p-2 -ml-1 text-slate-300 hover:text-white rounded-lg hover:bg-white/5"
+            aria-label="Abrir menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
         {/* Execution Mode Badge -- clicável só quando LIVE, pra desconectar */}
         <button
           type="button"

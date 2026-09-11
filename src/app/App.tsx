@@ -175,6 +175,7 @@ type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' 
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   const [language, setLanguage] = useState<Language>('pt');
@@ -192,6 +193,7 @@ function AppContent() {
   // ✅ STABLE handleViewChange — no currentView in deps (prevents cascade re-renders)
   const handleViewChange = useCallback((newView: View) => {
     setCurrentView(newView);
+    setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []); // ← empty deps = stable reference forever
 
@@ -373,14 +375,22 @@ function AppContent() {
           {/* 🔥 BANNER DE ALERTA DE CACHE - DESATIVADO */}
           {/* <CacheWarningBanner /> */}
 
-          <Sidebar currentView={currentView} onViewChange={handleViewChange} isAdmin={isAdmin} onLogout={handleLogout} />
-          
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <Sidebar
+            currentView={currentView}
+            onViewChange={handleViewChange}
+            isAdmin={isAdmin}
+            onLogout={handleLogout}
+            isOpenOnMobile={isMobileMenuOpen}
+            onCloseMobile={() => setIsMobileMenuOpen(false)}
+          />
+
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             <Header
               currentView={currentView}
               isAdmin={isAdmin}
               onLogout={handleLogout}
               user={user}
+              onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             />
             
             <main className="flex-1 overflow-auto">

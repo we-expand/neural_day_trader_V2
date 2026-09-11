@@ -7413,7 +7413,7 @@ export function ChartView({
           />
           
           {/* Modal estilo TradingView */}
-          <div ref={assetListRef} className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[980px] h-[680px] border border-gray-700 bg-[#131722] flex flex-col rounded-lg shadow-2xl z-[100]">
+          <div ref={assetListRef} className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-1.5rem)] max-w-[980px] h-[calc(100vh-4rem)] max-h-[680px] border border-gray-700 bg-[#131722] flex flex-col rounded-lg shadow-2xl z-[100]">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <h2 className="text-lg font-semibold text-white">Pesquisa de Símbolo</h2>
@@ -7614,8 +7614,8 @@ export function ChartView({
         </div>
 
         {/* Timeframes Bar */}
-        <div 
-          className="h-12 border-b border-gray-800 px-6 flex items-center gap-4 bg-[#0a0a0a]"
+        <div
+          className="h-12 border-b border-gray-800 px-3 md:px-6 flex items-center gap-4 bg-[#0a0a0a] overflow-x-auto overflow-y-hidden"
         >
           <div 
             className="flex items-center gap-2"
@@ -8530,13 +8530,17 @@ export function ChartView({
         // clicado; se ainda assim não couber tudo, o próprio menu ganha scroll interno
         // (nunca mais fica invisível, na pior das hipóteses rola dentro dele mesmo).
         const openUpward = contextMenu.y > window.innerHeight / 2;
-        const left = Math.min(contextMenu.x, window.innerWidth - 380);
+        // Em telas estreitas (< ~380px de sobra) o menu não cabe do jeito fixo --
+        // clampa em 8px da borda em vez de deixar `left` negativo (cortava o menu
+        // à esquerda em telas de 360-375px, ex. Galaxy S20/iPhone SE).
+        const menuWidth = Math.min(360, window.innerWidth - 16);
+        const left = Math.max(8, Math.min(contextMenu.x, window.innerWidth - menuWidth - 8));
         const menuStyle: React.CSSProperties = openUpward
-          ? { left, bottom: window.innerHeight - contextMenu.y, maxHeight: contextMenu.y - 8 }
-          : { left, top: contextMenu.y, maxHeight: window.innerHeight - contextMenu.y - 8 };
+          ? { left, bottom: window.innerHeight - contextMenu.y, maxHeight: contextMenu.y - 8, width: menuWidth }
+          : { left, top: contextMenu.y, maxHeight: window.innerHeight - contextMenu.y - 8, width: menuWidth };
         return (
         <div
-          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] min-w-[360px] overflow-y-auto"
+          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] overflow-y-auto"
           style={menuStyle}
         >
           {/* Redefinir visão do gráfico */}

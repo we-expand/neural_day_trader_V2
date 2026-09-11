@@ -9,6 +9,8 @@ interface SidebarProps {
   onViewChange: (view: View) => void;
   isAdmin?: boolean;
   onLogout?: () => void;
+  isOpenOnMobile?: boolean;
+  onCloseMobile?: () => void;
 }
 
 const menuItems = [
@@ -24,13 +26,29 @@ const menuItems = [
   { id: 'settings' as View, label: 'Configurações', icon: Settings },
 ];
 
-export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmin, onLogout }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmin, onLogout, isOpenOnMobile, onCloseMobile }: SidebarProps) {
   const handleViewChange = (view: View) => {
     onViewChange(view);
+    onCloseMobile?.();
   };
 
   return (
-    <aside id="app-sidebar" className="w-80 bg-black border-r border-white/5 flex flex-col h-screen font-sans">
+    <>
+      {/* Overlay escuro atrás do drawer, só em mobile (< md) quando aberto */}
+      {isOpenOnMobile && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={onCloseMobile}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        id="app-sidebar"
+        className={`w-80 max-w-[85vw] bg-black border-r border-white/5 flex flex-col h-screen font-sans
+          fixed inset-y-0 left-0 z-50 transition-transform duration-200
+          ${isOpenOnMobile ? 'translate-x-0' : '-translate-x-full'}
+          md:relative md:translate-x-0 md:z-auto`}
+      >
       {/* ✅ LOGO — só ícone SVG, sem texto lateral */}
       <div
         className="px-6 py-6 border-b border-white/5 flex justify-center cursor-pointer hover:bg-white/[0.03] transition-colors"
@@ -164,6 +182,7 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
           </div>
         )}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 });
