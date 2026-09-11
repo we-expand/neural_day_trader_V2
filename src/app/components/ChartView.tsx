@@ -6142,25 +6142,34 @@ export function ChartView({
           // incremental das velas novas/em formação desde o último fetch.
           const isFullResetAfterReplay = forceFullReloadAfterReplayRef.current;
           if (!hasAppliedFullDatasetRef.current || isFullResetAfterReplay) {
-            chart.applyNewData(candles);
+            // 🐛 FIX CRÍTICO: `chart.applyNewData()` é ASSÍNCRONO por dentro
+            // (`chartStore.addData(...).then()` — confirmado lendo o código-fonte
+            // da klinecharts, node_modules/klinecharts/dist/index.esm.js). Um
+            // `scrollToRealTime()`/`setOffsetRightDistance()` chamado logo em
+            // seguida, de forma síncrona, rodava ANTES da promise terminar — e
+            // era sobrescrito/ignorado quando ela de fato resolvia (o reset de
+            // scroll da própria klinecharts vence por rodar depois). Isso
+            // explica por que os fixes anteriores (ancorar candle à esquerda,
+            // scrollToRealTime pós-Replay) pareciam não ter efeito nenhum.
+            // Correção: usar o parâmetro `callback` do applyNewData, que só
+            // dispara de verdade depois que os dados terminaram de ser
+            // aplicados internamente.
+            chart.applyNewData(candles, undefined, () => {
+              if (isFullResetAfterReplay) {
+                // Sair do Replay: devolve a viewport pro comportamento normal
+                // (candle mais recente perto da borda direita, dado real) —
+                // sem isso o eixo de preço ficava deformado por alguns
+                // segundos, preso na faixa do ativo do replay.
+                try {
+                  chart.scrollToRealTime();
+                } catch (e) {
+                  try { chart.scrollToDataIndex(candles.length - 1); } catch (e2) { /* não crítico */ }
+                }
+              }
+            });
             console.log('[ChartView] ✅ chart.applyNewData completed (primeira carga)!');
             hasAppliedFullDatasetRef.current = true;
             forceFullReloadAfterReplayRef.current = false;
-            // 🔧 FIX: ao sair do Replay, o `offsetRightDistance`/scroll ficava
-            // preso no valor que o replay tinha ancorado (candle esticado à
-            // esquerda, ver fix acima) — `scrollToRealTime()` só rodava na
-            // PRIMEIRA carga (`isInitialLoadRef`), nunca neste reset. O
-            // dataset real (ex: ETHUSD) era aplicado corretamente, mas a
-            // viewport continuava na posição/escala do replay (ex: faixa de
-            // preço do BTCUSD), causando eixo de preço deformado por alguns
-            // segundos até um tick de preço ao vivo forçar recálculo sozinho.
-            if (isFullResetAfterReplay) {
-              try {
-                chart.scrollToRealTime();
-              } catch (e) {
-                try { chart.scrollToDataIndex(candles.length - 1); } catch (e2) { /* não crítico */ }
-              }
-            }
           } else {
             const incremental = candles.filter(c => c.timestamp >= lastAppliedCandleTimestampRef.current);
             incremental.forEach(c => chart.updateData(c));
@@ -8852,34 +8861,46 @@ export function ChartView({
             // `timestamp`, não `time` (formato do BacktestDataService).
             const chart = chartInstanceRef.current;
             if (!chart || candles.length === 0) return;
-            chart.applyNewData(candles.map(c => ({
+            const mapped = candles.map(c => ({
               timestamp: c.time,
               open: c.open,
               high: c.high,
               low: c.low,
               close: c.close,
               volume: c.volume,
-            })));
-            // 🔧 FIX: `applyNewData` sempre reseta o scroll pro comportamento
-            // padrão da klinecharts (candle mais recente colado na borda
-            // DIREITA) — com poucos candles isso amontoa tudo à direita,
-            // deixando o lado esquerdo vazio. Cleber pediu que o replay
-            // comece do lado ESQUERDO da tela, com espaço à direita pra
-            // acompanhar os candles surgindo — igual ferramenta de replay de
-            // corretora de verdade. Empurra o offset da direita até o candle
-            // mais recente ficar perto da borda esquerda; assim que os
-            // candles já reais preenchem a tela inteira, o offset padrão
-            // (pequeno) volta a valer sozinho, sem mais precisar deste ajuste.
-            try {
-              const containerWidth = chartContainerRef.current?.clientWidth || 0;
-              const barSpace = chart.getBarSpace();
-              const usedWidth = candles.length * (typeof barSpace === 'number' ? barSpace : 8);
-              if (containerWidth > 0 && usedWidth < containerWidth) {
-                chart.setOffsetRightDistance(containerWidth - usedWidth);
+            }));
+            // 🐛 FIX CRÍTICO: `chart.applyNewData()` é ASSÍNCRONO por dentro
+            // (confirmado lendo node_modules/klinecharts/dist/index.esm.js —
+            // `chartStore.addData(...).then()`). Ajustar offsetRightDistance
+            // de forma SÍNCRONA logo depois (como estava antes) rodava ANTES
+            // da promise terminar e era sobrescrito pelo reset de scroll
+            // interno da própria klinecharts quando ela de fato resolvia —
+            // por isso o fix anterior não tinha efeito visível nenhum, mesmo
+            // com a lógica certa. Usa o `callback` (3º parâmetro), que só
+            // dispara depois que os dados terminaram de ser aplicados.
+            chart.applyNewData(mapped, undefined, () => {
+              // `applyNewData` reseta o scroll pro comportamento padrão da
+              // klinecharts (candle mais recente colado na borda DIREITA) —
+              // com poucos candles isso amontoa tudo à direita, deixando o
+              // lado esquerdo vazio. Cleber pediu que o replay comece do
+              // lado ESQUERDO da tela, com espaço à direita pra acompanhar
+              // os candles surgindo — igual ferramenta de replay de
+              // corretora de verdade. Empurra o offset da direita até o
+              // candle mais recente ficar perto da borda esquerda; assim que
+              // os candles já reais preenchem a tela inteira, o offset
+              // padrão (pequeno) volta a valer sozinho, sem mais precisar
+              // deste ajuste.
+              try {
+                const containerWidth = chartContainerRef.current?.clientWidth || 0;
+                const barSpace = chart.getBarSpace();
+                const usedWidth = mapped.length * (typeof barSpace === 'number' ? barSpace : 8);
+                if (containerWidth > 0 && usedWidth < containerWidth) {
+                  chart.setOffsetRightDistance(containerWidth - usedWidth);
+                }
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao ancorar replay à esquerda:', e);
               }
-            } catch (e) {
-              console.warn('[ChartView] ⚠️ Falha ao ancorar replay à esquerda:', e);
-            }
+            });
           }}
         />
       )}
