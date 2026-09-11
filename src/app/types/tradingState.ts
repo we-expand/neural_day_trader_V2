@@ -73,6 +73,16 @@ export interface TradeVisual {
   closedAt?: number; // Timestamp when the trade was closed
   tp: number;
   sl: number;
+  // 🔴 2026-09-11: `sl`/`tp` caem pro próprio `entry_price` (ver useApexLogic.ts)
+  // quando a posição não tem stop/alvo real definido — mas o MESMO valor
+  // também acontece de propósito quando o breakeven move o stop pra cima da
+  // entrada (proteção real, não ausência de stop). ChartView.tsx usava
+  // `sl !== price` pra inferir "sem stop", escondendo por engano a linha do
+  // stop de breakeven. Estes 2 flags carregam a origem real (stop_loss/
+  // take_profit != null no banco) pra decidir se desenha sem precisar
+  // adivinhar pelo valor numérico.
+  slIsReal?: boolean;
+  tpIsReal?: boolean;
   // Distância original de SL na entrada (nunca sobrescrita depois, ao contrário
   // de `sl`, que o loop de P&L reescreve a cada tick em modo DINAMICO). Ver
   // bug do SL Dinâmico fantasma (2026-08-03): usar `sl` para recalcular a

@@ -1650,6 +1650,16 @@ export function ChartView({
   // real a fazer `applyNewData` (reset total) em vez de `updateData`
   // incremental (que ia misturar candle de replay com candle ao vivo).
   const forceFullReloadAfterReplayRef = useRef(false);
+  // 🐛 FIX "não aparece gráfico nenhum, fica piscando o candle" no Replay:
+  // `onCandlesUpdate` disparava a CADA candle revelado (1x/segundo ou mais
+  // rápido, conforme a velocidade) mandando `applyNewData` de novo — que é
+  // um reset completo (assíncrono) da klinecharts. Chamar isso em sequência
+  // rápida empilhava resets concorrentes, cada um interrompendo o anterior
+  // antes de terminar de pintar — o candle "piscava" e o gráfico nunca
+  // chegava a ficar estável na tela. Rastreia quantos candles do replay já
+  // foram aplicados como dataset inicial pra, a partir da 2ª chamada, usar
+  // `updateData` (1 candle, sem reset) em vez de `applyNewData` de novo.
+  const replayAppliedCountRef = useRef(0);
 
   // Entrada vinda de fora (ex: botão "Criar personalizada" na tela de IA) — abre
   // o construtor direto, sem passar pela tela de config de backtest.
@@ -5050,8 +5060,21 @@ export function ChartView({
       // preço de entrada também é > 0. Comparar contra `order.price` fecha
       // o buraco sem mudar o comportamento normal (stop/alvo real nunca
       // bate exatamente com o preço de entrada).
-      const hasSl = order.sl > 0 && order.sl !== order.price;
-      const hasTp = order.tp > 0 && order.tp !== order.price;
+      // 🔴 2026-09-11 (achado do Cleber: stop de breakeven — movido de
+      // propósito pra cima da entrada pra travar risco zero, ver
+      // neuralBridge.ts `alreadyAtBreakeven` — ficava invisível, indistinguível
+      // de "sem stop"): antes, `sl !== order.price` era a única forma de
+      // inferir "sem stop real" (posições sem SL/TP caem pro próprio
+      // entry_price em useApexLogic.ts), mas o MESMO valor acontece de
+      // propósito no breakeven — as duas situações têm o preço idêntico e
+      // eram indistinguíveis só pelo número. `slIsReal`/`tpIsReal` (populados
+      // na origem, a partir de `stop_loss`/`take_profit != null` no banco)
+      // carregam a diferença real; mantém o fallback antigo só pra
+      // `TradeVisual` que por algum motivo não passou pelos pontos de
+      // mapeamento atualizados (nunca deveria acontecer, mas evita regressão
+      // silenciosa se algum caminho for esquecido).
+      const hasSl = order.sl > 0 && (order.slIsReal ?? order.sl !== order.price);
+      const hasTp = order.tp > 0 && (order.tpIsReal ?? order.tp !== order.price);
       // Diferença bruta de preço (usada pro $ real, que não depende de convenção
       // de "ponto") separada do "ponto" exibido na label, que precisa respeitar
       // a definição por ativo (pipSize real do forex, não a diferença crua de
@@ -5076,6 +5099,13 @@ export function ChartView({
       // label (que sempre usa order.price/sl/tp reais).
       const priceNudge = (priceNudgeStepByOrderId.get(order.id) ?? 0) * pointSize * 3;
       const displayEntryPrice = order.price + priceNudge;
+      // Quando o stop foi movido pra cima da própria entrada (breakeven, ver
+      // comentário de 2026-09-11 acima), a linha nasceria exatamente
+      // sobreposta à de Entrada — desloca um pouco (mesma técnica de "nudge"
+      // usada pras entradas duplicadas) só pra enxergar as duas linhas, sem
+      // nunca mudar o preço real mostrado no texto da label.
+      const isBreakevenStop = hasSl && order.sl === order.price;
+      const breakevenNudge = isBreakevenStop ? pointSize * 4 * (isLong ? -1 : 1) : 0;
       const riskPts = riskPriceDiff / pointSize;
       const rewardPts = rewardPriceDiff / pointSize;
       const riskUsd = riskPriceDiff * units;
@@ -5146,8 +5176,15 @@ export function ChartView({
 
       if (hasSl) {
         try {
-          const slExtendData = `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
-          const displaySlPrice = order.sl + priceNudge;
+          // 🔴 2026-09-11 (pedido do Cleber: "preciso visualizar que o stop
+          // está ali"): breakeven (stop == entrada) tinha risco $0/0 pts — dado
+          // real, mas o rótulo antigo ("⛔ Stop ... −$0.00 · 0.00 pts") não
+          // deixava claro que é PROTEÇÃO ativa, parecia erro/ausência de
+          // dado. Label dedicado só pra este caso.
+          const slExtendData = isBreakevenStop
+            ? `🔒 Stop no Breakeven ${order.sl.toFixed(labelPricePrecision)}  ·  risco travado em $0,00`
+            : `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
+          const displaySlPrice = order.sl + priceNudge + breakevenNudge;
           if (slExists) {
             chart.overrideOverlay({ id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
           } else {
@@ -5156,11 +5193,11 @@ export function ChartView({
               id: slId,
               points: [{ value: displaySlPrice }],
               styles: {
-                line: { color: '#ef4444', style: 'dashed', size: 1 },
+                line: { color: isBreakevenStop ? '#f59e0b' : '#ef4444', style: 'dashed', size: isBreakevenStop ? 1.5 : 1 },
                 text: {
                   color: '#ffffff',
-                  backgroundColor: 'rgba(239,68,68,0.85)',
-                  borderColor: '#dc2626',
+                  backgroundColor: isBreakevenStop ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.85)',
+                  borderColor: isBreakevenStop ? '#d97706' : '#dc2626',
                   borderSize: 1,
                   borderRadius: 3,
                   paddingLeft: 5,
@@ -8825,6 +8862,7 @@ export function ChartView({
             setShowBacktestReplay(false);
             setIsReplayMode(false);
             forceFullReloadAfterReplayRef.current = true;
+            replayAppliedCountRef.current = 0;
             fetchChartDataRef.current?.();
             // 🔧 FIX: fechar o Replay (barra de 50px no rodapé) deixava o
             // container <main> (flex-1 overflow-auto, App.tsx) scrollado pra
@@ -8852,6 +8890,10 @@ export function ChartView({
               // Efeito de "piscada"
               setTimeout(() => setIsReplayMode(false), 1500);
               toast.success('🎬 Modo Replay ativado!');
+              // Nova sessão de replay começando (Start clicado) — força o
+              // próximo onCandlesUpdate a fazer um reset completo (applyNewData),
+              // nunca update incremental em cima do dataset da sessão anterior.
+              replayAppliedCountRef.current = 0;
             }
             console.log('[ChartView] 🎬 Replay candle:', candle);
           }}
@@ -8869,6 +8911,25 @@ export function ChartView({
               close: c.close,
               volume: c.volume,
             }));
+
+            // 🐛 FIX "não aparece gráfico nenhum, fica piscando o candle": este
+            // callback dispara a CADA candle revelado pelo replay (1x/segundo
+            // ou mais rápido conforme a velocidade escolhida). Chamar
+            // `applyNewData` (reset completo, assíncrono) a cada tick empilhava
+            // resets concorrentes — um interrompendo o anterior antes de
+            // terminar de pintar, o candle nunca ficava estável na tela. A
+            // partir da 2ª chamada da mesma sessão, usa `updateData` (só o(s)
+            // candle(s) novo(s), sem reset) — mesmo padrão já usado pro
+            // auto-refresh de dado ao vivo (ver comentário acima, "não pode
+            // ficar dando na cara do usuário").
+            if (replayAppliedCountRef.current > 0 && mapped.length >= replayAppliedCountRef.current) {
+              const newOnes = mapped.slice(replayAppliedCountRef.current - 1);
+              newOnes.forEach(c => chart.updateData(c));
+              replayAppliedCountRef.current = mapped.length;
+              return;
+            }
+
+            // 1ª chamada da sessão (ou seek pra trás) — reset completo de verdade.
             // 🐛 FIX CRÍTICO: `chart.applyNewData()` é ASSÍNCRONO por dentro
             // (confirmado lendo node_modules/klinecharts/dist/index.esm.js —
             // `chartStore.addData(...).then()`). Ajustar offsetRightDistance
@@ -8901,6 +8962,7 @@ export function ChartView({
                 console.warn('[ChartView] ⚠️ Falha ao ancorar replay à esquerda:', e);
               }
             });
+            replayAppliedCountRef.current = mapped.length;
           }}
         />
       )}
