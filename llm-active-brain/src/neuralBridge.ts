@@ -269,12 +269,29 @@ const MT5_TEST_DATA_REASON =
 // EXPLICITAMENTE por todo chamador -- nenhuma função abaixo lê mais um
 // singleton global. Isolamento entre sessões passa a ser responsabilidade de
 // quem chama (o loop principal em index.ts/agent.ts), não deste módulo.
-const mt5SessionIdCacheByUser = new Map<string, Promise<string>>();
+//
+// 🔴 2026-09-11 (achado do Cleber: painel "Atividade da IA" preso em
+// "Aguardando..." pra sempre depois de um clique em "Reinicialização
+// Total"): o cache acima era uma Promise ETERNA -- resolvida 1x na vida do
+// processo e nunca reconsultada. "Reinicialização Total" encerra a sessão
+// atual e cria uma sessão NOVA no banco (ver AITradingPersistenceService.
+// resetLlmActiveBrainSession), mas o processo já rodando continuava preso
+// no session_id antigo pra sempre -- motor seguia operando (e gravando
+// trade novo!) numa sessão que nenhum painel mostra mais, enquanto
+// Dashboard/Atividade da IA ficavam lendo a sessão nova, genuinamente
+// vazia. Corrigido com TTL curto: revalida no banco a cada
+// MT5_SESSION_REVALIDATE_MS (a cada ciclo, na prática) -- se aparecer uma
+// sessão mais nova (RUNNING/STOPPED) pro mesmo usuário/estratégia, migra
+// sozinho e loga o troca, sem exigir restart manual.
+const MT5_SESSION_REVALIDATE_MS = 30_000;
+const mt5SessionIdCacheByUser = new Map<string, { sessionId: string; resolvedAt: number }>();
 
 export async function getOrCreateMt5Session(userId: string, symbols: string[]): Promise<string> {
   const cached = mt5SessionIdCacheByUser.get(userId);
-  if (cached) return cached;
-  const promise = (async () => {
+  if (cached && Date.now() - cached.resolvedAt < MT5_SESSION_REVALIDATE_MS) {
+    return cached.sessionId;
+  }
+  const resolved = await (async () => {
     const sb = getClient();
 
     // 🔴 2026-08-31 (decisão definitiva do Cleber): motor mecânico (ai-runner)
@@ -340,8 +357,14 @@ export async function getOrCreateMt5Session(userId: string, symbols: string[]): 
     if (createError) throw createError;
     return created.id as string;
   })();
-  mt5SessionIdCacheByUser.set(userId, promise);
-  return promise;
+  if (cached && cached.sessionId !== resolved) {
+    console.warn(
+      `[neuralBridge] ⚠️ Sessao MT5 do usuario ${userId} mudou de ${cached.sessionId} para ${resolved} ` +
+        `(provavel "Reinicializacao Total" via UI) -- motor passa a operar na sessao nova a partir de agora.`
+    );
+  }
+  mt5SessionIdCacheByUser.set(userId, { sessionId: resolved, resolvedAt: Date.now() });
+  return resolved;
 }
 
 /**
