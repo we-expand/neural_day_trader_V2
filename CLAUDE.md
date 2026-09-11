@@ -15,6 +15,14 @@
 
 ## ▶ COMECE AQUI
 
+**[RESOLVIDO 2026-09-09→11] Overshoot de stop no LLM Brain (BTCUSD fechou
+115 pontos além do stop, watchdog lia cotação de até 12s) corrigido via
+llm-council (2 rodadas) — validado ao vivo em 2026-09-11: overshoot caiu
+pra 0,2%-16% do risco (era ~250%), sem aumento de rate-limit da MetaAPI.
+UKOUSD/SOLUSD ficam na cesta por decisão do Cleber (não mexer por
+enquanto). Detalhe:
+[SESSAO_2026-09-09_CONSELHO_LLM_PAYOFF_INVERTIDO_E_WATCHDOG_OVERSHOOT.md](SESSAO_2026-09-09_CONSELHO_LLM_PAYOFF_INVERTIDO_E_WATCHDOG_OVERSHOOT.md).
+
 **[EM ANDAMENTO 2026-09-09] Dev Lab ganhou seção nova "Sugestões da IA para
 Desenvolvimento" — ambiente onde a IA propõe melhorias pra própria
 plataforma, distinto da aba de pesquisa de concorrente evidenciada.**
