@@ -894,6 +894,33 @@ export function useApexLogic(
     hasHydratedFromSupabaseRef.current = true;
 
     (async () => {
+      // 🔴 FIX 2026-09-11 (achado do Cleber: "abre no saldo demo", saldo
+      // LIVE "oscilando" com o do DEMO): este efeito roda 1x por mount e
+      // hidrata o portfolio a partir da SESSÃO DEMO (lastCompleted/
+      // ai_trades), sem NUNCA checar se o usuário tem corretora real
+      // conectada — o guard `executionMode !== 'DEMO'` acima é morto (client
+      // não seta mais 'LIVE' nesse campo desde que a execução real ficou
+      // dinâmica, ver TradingContext.tsx). Corrida real: este bloco (async,
+      // várias chamadas em sequência) podia terminar DEPOIS do primeiro tick
+      // do reconcile() de 5s já ter carregado o saldo real da MetaAPI,
+      // sobrescrevendo de volta pro valor DEMO — dava exatamente esse efeito
+      // de "abre/some real, cai pro demo". Checa 1x aqui (mesma fonte de
+      // verdade do reconcile(), `broker_credentials`) e pula toda escrita de
+      // balance/equity abaixo se houver corretora real conectada — a sessão
+      // DEMO continua hidratando em segundo plano (orderHistory/activeOrders),
+      // só o saldo exibido é que não pode vir daqui quando é LIVE.
+      let isBrokerConnectedNow = false;
+      try {
+        const { getBrokerCredentialsStatus } = await import('../services/BrokerClient');
+        const status = await getBrokerCredentialsStatus();
+        isBrokerConnectedNow = !!status.configured;
+      } catch {
+        // Falha ao checar -- assume não conectado (mesmo default de sempre
+        // desta hidratação DEMO); o reconcile() de 5s é quem tem a lógica
+        // real de preservar estado numa falha transitória, não este efeito
+        // que só roda 1x.
+      }
+
       // 🔴 FIX 2026-08-03 (achado do Cleber: "histórico só mostra as últimas
       // 3 ordens"): `orderHistory` nunca era hidratado do Supabase — só
       // acumulava trades fechados durante a aba/sessão de navegador atual
@@ -1006,7 +1033,7 @@ export function useApexLogic(
           // herdar o saldo final da última encerrada, não recomeçar do zero.
           try {
             const lastCompleted = await persistenceRef.current.getLastCompletedSession('DEMO');
-            if (lastCompleted?.final_balance != null) {
+            if (lastCompleted?.final_balance != null && !isBrokerConnectedNow) {
               setPortfolio(prev => ({
                 ...prev,
                 balance: lastCompleted.final_balance!,
@@ -1072,7 +1099,7 @@ export function useApexLogic(
           })));
         }
 
-        if (lastSnapshot) {
+        if (lastSnapshot && !isBrokerConnectedNow) {
           setPortfolio(prev => ({
             ...prev,
             balance: lastSnapshot.balance,
@@ -1111,7 +1138,7 @@ export function useApexLogic(
             // mostrar equity errado (herdado do snapshot stale) no instante
             // do reload, antes do primeiro tick.
             const realEquity = realBalance;
-            setPortfolio(prev => ({
+            if (!isBrokerConnectedNow) setPortfolio(prev => ({
               ...prev,
               balance: realBalance,
               equity: realEquity,
@@ -1120,7 +1147,11 @@ export function useApexLogic(
               dayAnchorBalance: realBalance,
               dayAnchorUtcDay: 0,
             }));
-            console.log(`[useApexLogic] 💰 Saldo real recalculado de ai_trades (fonte de verdade, ignora snapshot stale): $${realBalance.toFixed(2)} (inicial $${session.initial_balance} + PnL realizado $${realizedPnl.toFixed(2)})`);
+            if (!isBrokerConnectedNow) {
+              console.log(`[useApexLogic] 💰 Saldo DEMO recalculado de ai_trades (fonte de verdade, ignora snapshot stale): $${realBalance.toFixed(2)} (inicial $${session.initial_balance} + PnL realizado $${realizedPnl.toFixed(2)})`);
+            } else {
+              console.log('[useApexLogic] 💰 Corretora real conectada -- pulando hidratação de saldo DEMO (reconcile() de 5s cuida do saldo real via MetaAPI).');
+            }
           }
         } catch (e) {
           console.warn('[useApexLogic] Falha ao recalcular saldo real a partir de ai_trades (mantendo snapshot):', e);
