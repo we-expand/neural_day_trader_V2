@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Bot, Brain, Play, Pause, Power, Settings, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Mic, Clock, TrendingUp, Crosshair } from 'lucide-react';
+import { Bot, Brain, Play, Pause, Power, Settings, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Mic, Clock, TrendingUp, Crosshair, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
@@ -40,6 +40,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const [showConverter, setShowConverter] = useState(false);
   const [showEquityChart, setShowEquityChart] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); // ✅ NEW: Premium Reset Modal
+  // 🔴 2026-09-11 (pedido do Cleber: os 4 painéis de Estágio LIVE ocupavam a
+  // tela inteira o tempo todo, sem nunca recolher). Recolhido por padrão --
+  // some do caminho visual mas continua acessível num clique.
+  const [showExecutionStages, setShowExecutionStages] = useState(false);
   const [showRecoveryChallenge, setShowRecoveryChallenge] = useState(false); // 🚀 NEW: AI Recovery Challenge
   const [challengeActive, setChallengeActive] = useState(false); // 🚀 Challenge em andamento
   const [challengeStartTime, setChallengeStartTime] = useState<Date | null>(null);
@@ -606,51 +610,50 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
       </div>
       )}
 
-      {/* Fase 6, estágio 1 (LIVE + somente alerta) — ver AI_BRAIN_SPEC.md seção 9.1 */}
+      {/* Fase 6 (LIVE + escada de autonomia de execução, estágios 1-4) — ver
+          AI_BRAIN_SPEC.md seção 9.1. Recolhido por padrão (pedido do Cleber,
+          2026-09-11: ocupava a tela inteira em LIVE, sem nunca sumir). */}
       {!compact && isLiveConnected && (
         <div className="mb-4">
-          <LiveAlertPanel
-            alerts={liveAlerts}
-            enabled={liveAlertStageEnabled}
-            onToggle={setLiveAlertStageEnabled}
-          />
-        </div>
-      )}
+          <button
+            onClick={() => setShowExecutionStages(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-black/30 border border-red-900/40 rounded-xl text-sm text-gray-300 hover:bg-black/50 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-400" />
+              Execução automática LIVE (avançado) — Estágios 1-4
+            </span>
+            {showExecutionStages ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
 
-      {/* Fase 6, estágio 2 (LIVE + confirmação manual por trade) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && isLiveConnected && (
-        <div className="mb-4">
-          <TradeConfirmationPanel
-            pending={pendingTradeConfirmations}
-            history={tradeConfirmationHistory}
-            enabled={tradeConfirmationStageEnabled}
-            onToggle={setTradeConfirmationStageEnabled}
-            onApprove={approveTradeConfirmation}
-            onReject={rejectTradeConfirmation}
-          />
-        </div>
-      )}
-
-      {/* Fase 6, estágio 3 (LIVE + execução automática, lote mínimo travado) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && isLiveConnected && (
-        <div className="mb-4">
-          <AutoExecutionPanel
-            history={autoExecutionHistory}
-            enabled={autoExecutionStageEnabled}
-            onToggle={setAutoExecutionStageEnabled}
-          />
-        </div>
-      )}
-
-      {/* Fase 6, estágio 4 (LIVE + execução automática, TAMANHO REAL) — exige Estágio 3 ligado — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && isLiveConnected && (
-        <div className="mb-4">
-          <FullSizeExecutionPanel
-            history={fullSizeExecutionHistory}
-            enabled={fullSizeExecutionStageEnabled}
-            stage3Enabled={autoExecutionStageEnabled}
-            onToggle={setFullSizeExecutionStageEnabled}
-          />
+          {showExecutionStages && (
+            <div className="mt-3 space-y-4">
+              <LiveAlertPanel
+                alerts={liveAlerts}
+                enabled={liveAlertStageEnabled}
+                onToggle={setLiveAlertStageEnabled}
+              />
+              <TradeConfirmationPanel
+                pending={pendingTradeConfirmations}
+                history={tradeConfirmationHistory}
+                enabled={tradeConfirmationStageEnabled}
+                onToggle={setTradeConfirmationStageEnabled}
+                onApprove={approveTradeConfirmation}
+                onReject={rejectTradeConfirmation}
+              />
+              <AutoExecutionPanel
+                history={autoExecutionHistory}
+                enabled={autoExecutionStageEnabled}
+                onToggle={setAutoExecutionStageEnabled}
+              />
+              <FullSizeExecutionPanel
+                history={fullSizeExecutionHistory}
+                enabled={fullSizeExecutionStageEnabled}
+                stage3Enabled={autoExecutionStageEnabled}
+                onToggle={setFullSizeExecutionStageEnabled}
+              />
+            </div>
+          )}
         </div>
       )}
 
