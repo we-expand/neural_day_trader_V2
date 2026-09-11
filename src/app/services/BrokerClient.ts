@@ -164,6 +164,22 @@ export async function getPositions(): Promise<any[]> {
   }
 }
 
+// 🔴 2026-09-11: variantes que NÃO engolem erro de rede/MetaAPI -- usadas pelo
+// polling de reconciliação LIVE (useApexLogic.ts). `getPositions()`/
+// `getAccountInfo()` acima devolvem []/null tanto pra "sem posição real"
+// quanto pra falha transitória, indistinguíveis pra quem chama -- mesmo bug
+// já catalogado no caminho DEMO (reconcile() de ai_trades) que apagava a
+// posição da tela numa falha de rede até o próximo poll ter sucesso.
+export async function getPositionsOrThrow(): Promise<any[]> {
+  const result = await invokeBroker('execute', { body: { action: 'getPositions' } });
+  return result.positions || [];
+}
+
+export async function getAccountInfoOrThrow(): Promise<DirectAccountInfo | null> {
+  const result = await invokeBroker('execute', { body: { action: 'getAccountInfo' } });
+  return result.accountInfo || null;
+}
+
 export async function createMarketBuyOrder(params: OrderParams): Promise<TradeResult> {
   try {
     return await invokeBroker('execute', { body: { action: 'createMarketBuyOrder', ...params } });

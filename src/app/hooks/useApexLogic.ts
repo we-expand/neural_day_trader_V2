@@ -3746,6 +3746,48 @@ export function useApexLogic(
     addLog(`📊 Sincronizado ${convertedOrders.length} posições do MT5`);
   }, [addLog]);
 
+  // === RECONCILIAÇÃO CONTÍNUA EM LIVE (2026-09-11) ===
+  // 🔴 Achado do Cleber: posição real aberta no MT5 não aparecia no Dashboard.
+  // Causa raiz: `syncPositionsFromMT5`/`updatePortfolioFromMT5` só eram
+  // chamados UMA VEZ, no clique de "Conectar corretora" (AITrader.tsx) --
+  // depois disso nada mais lia a MetaAPI de novo em modo LIVE. Uma posição
+  // aberta direto no MT5 (fora do app) ou já existente antes da sincronização
+  // inicial nunca aparecia até desconectar/reconectar. Em DEMO já existe um
+  // polling equivalente pra `ai_trades` (reconcile(), 5s, linha ~1250) --
+  // este espelha o mesmo padrão pra LIVE, mas lendo direto da MetaAPI real.
+  // Usa as variantes `OrThrow` (não engolem erro de rede) pra não confundir
+  // falha transitória com "0 posições" e apagar a tela à toa -- mesmo bug já
+  // catalogado no caminho DEMO. Só leitura: nunca fecha/decide nada aqui.
+  useEffect(() => {
+    if (executionMode !== 'LIVE' || !isConnectedToMT5) return;
+    let cancelled = false;
+    const POLL_MS = 5_000;
+
+    const pollLivePositions = async () => {
+      try {
+        const { getPositionsOrThrow, getAccountInfoOrThrow } = await import('../services/BrokerClient');
+        const [positions, accountInfo] = await Promise.all([
+          getPositionsOrThrow(),
+          getAccountInfoOrThrow(),
+        ]);
+        if (cancelled) return;
+        syncPositionsFromMT5(positions);
+        if (accountInfo) {
+          updatePortfolioFromMT5({
+            balance: accountInfo.balance,
+            equity: accountInfo.equity ?? accountInfo.balance,
+          });
+        }
+      } catch (err) {
+        console.warn('[useApexLogic] Falha ao reconciliar posições LIVE (mantendo último estado):', err);
+      }
+    };
+
+    pollLivePositions();
+    const interval = setInterval(pollLivePositions, POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [executionMode, isConnectedToMT5, syncPositionsFromMT5, updatePortfolioFromMT5]);
+
   return {
     // State
     isActive,
