@@ -384,6 +384,26 @@ class AITradingPersistenceService {
       if (findError) throw findError;
 
       if (existing?.id) {
+        // 🔴 2026-09-11 (achado do Cleber: 3 posições reais somem do
+        // Dashboard ao resetar): encerrar a sessão antiga sem checar
+        // posições OPEN a torna invisível pra `getActiveSession()` (só
+        // mostra RUNNING/STOPPED), mesmo com as posições continuando reais
+        // no banco -- mesma classe de bug de "sessão órfã" já catalogada
+        // várias vezes neste projeto. Uma posição aberta precisa continuar
+        // visível e sendo gerida (stop/alvo) até fechar sozinha; reset não
+        // pode apagar isso da tela nem trocar a sessão que o motor
+        // (`llm-active-brain`) está de fato operando.
+        const { data: openTrades, error: openError } = await supabase
+          .from('ai_trades')
+          .select('id')
+          .eq('session_id', existing.id)
+          .eq('status', 'OPEN');
+        if (openError) throw openError;
+        if ((openTrades || []).length > 0) {
+          console.warn(`${this.LOG_PREFIX} ⚠️ Reset do LLM Active Brain abortado: sessão ${existing.id} tem ${openTrades!.length} posição(ões) aberta(s). Elas precisam fechar sozinhas antes do reset -- nenhuma sessão nova foi criada.`);
+          return false;
+        }
+
         // Fecha a sessão antiga com o saldo real (initial_balance + soma de
         // net_pnl dos trades fechados) -- nunca sobrescreve, só encerra.
         const { data: trades, error: tradesError } = await supabase
