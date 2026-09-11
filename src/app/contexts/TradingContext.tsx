@@ -421,6 +421,51 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
+  // === RECONCILIAÇÃO CONTÍNUA DE POSIÇÕES/SALDO REAIS (2026-09-11) ===
+  // 🔴 Achado do Cleber: posição real aberta no MT5 não aparecia no Dashboard,
+  // mesmo depois de uma 1ª tentativa de fix (removida de useApexLogic.ts) que
+  // checava `logic.executionMode === 'LIVE'` -- campo legado que, pelo
+  // comentário logo acima (linha ~398), NADA no client mais seta pra 'LIVE'
+  // (confirmado: nenhuma chamada a `setExecutionMode('LIVE')` existe no
+  // repo). O sinal real de "corretora conectada" é `isLiveConnected`, aqui
+  // mesmo, lido de `broker_credentials`. `syncPositionsFromMT5`/
+  // `updatePortfolioFromMT5` (useApexLogic) só eram chamados uma vez, no
+  // clique de "Conectar corretora" (AITrader.tsx) -- uma posição aberta
+  // direto no MT5 (fora do app) ou já existente antes dessa sincronização
+  // inicial nunca aparecia até desconectar/reconectar. Usa as variantes
+  // `OrThrow` (não engolem erro de rede) pra não confundir falha transitória
+  // com "0 posições" e apagar a tela à toa. Só leitura -- nunca fecha/decide
+  // nada aqui.
+  useEffect(() => {
+    if (!isLiveConnected) return;
+    let cancelled = false;
+    const POLL_MS = 5_000;
+
+    const pollLivePositions = async () => {
+      try {
+        const { getPositionsOrThrow, getAccountInfoOrThrow } = await import('../services/BrokerClient');
+        const [positions, accountInfo] = await Promise.all([
+          getPositionsOrThrow(),
+          getAccountInfoOrThrow(),
+        ]);
+        if (cancelled) return;
+        logic.syncPositionsFromMT5(positions);
+        if (accountInfo) {
+          logic.updatePortfolioFromMT5({
+            balance: accountInfo.balance,
+            equity: accountInfo.equity ?? accountInfo.balance,
+          });
+        }
+      } catch (err) {
+        console.warn('[TradingContext] Falha ao reconciliar posições LIVE (mantendo último estado):', err);
+      }
+    };
+
+    pollLivePositions();
+    const poll = setInterval(pollLivePositions, POLL_MS);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [isLiveConnected, logic.syncPositionsFromMT5, logic.updatePortfolioFromMT5]);
+
   // Desconectar da corretora real NÃO é o mesmo que `switchToDemoMode` acima:
   // aquele reseta a sessão DEMO pra $100 (semântica de "começar do zero",
   // usada pelo botão de reset explícito). Aqui a sessão DEMO nunca foi

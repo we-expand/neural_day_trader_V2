@@ -884,7 +884,12 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 ${formatNumber(portfolio?.equity, 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </p>
                             <p className="text-xs text-slate-500 mt-2 font-mono flex items-center gap-2">
-                                {marketData.isConnected ? (
+                                {/* 🔴 2026-09-11: checava `marketData.isConnected` (WebSocket direto
+                                    antigo, Fase pré-1, token nunca mais fica no client -- praticamente
+                                    nunca fica true na arquitetura atual) em vez do sinal real de
+                                    corretora conectada (`isLiveConnected`, broker_credentials) -- por
+                                    isso sempre mostrava "DEMO" mesmo com LIVE conectado de verdade. */}
+                                {isLiveConnected ? (
                                     <><span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span> SALDO REAL MT5</>
                                 ) : status === 'running' ? (
                                     <><span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span> EM EXECUÇÃO (DEMO)</>
