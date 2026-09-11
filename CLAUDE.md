@@ -43,6 +43,30 @@ sem o rodapé consumindo cota. Handoff completo:
 **Pendente**: `git push origin dev` do commit do `MarketTicker.tsx` (comando
 entregue); observar estabilidade; só depois decidir religar execução real.
 
+**[EM ANDAMENTO 2026-09-11, noite] Complemento ao achado acima: 2ª camada
+separada também impedia execução real — motor mecânico legado (não a LLM)
+estava plugado no toggle "Estágios 1-4" de execução automática LIVE do
+navegador, corrigido; cesta reduzida 11→6 ativos como mitigação de
+rate-limit.** Monitoramento contínuo pedido pelo Cleber durante o teste com
+dinheiro real achou que `forwardLiveDecision` (`TradingContext.tsx`)
+recebia decisão do `runTradingCycle.ts` (motor mecânico client-side antigo,
+`useStrategies()`, nada de IA) e não da LLM (`llm-active-brain`, que só
+decide na sessão DEMO, nunca tem `broker_position_id`) — corrigido e já
+commitado/pushado (`eaa3ad154`, `origin/dev`): decisão do motor legado é
+ignorada em modo LIVE agora. De carona, parado o log de saldo repetindo a
+cada 5s no painel "Atividade da IA" (mesmo commit). Depois, cotações vindo
+majoritariamente `stale:true` (rate-limit já catalogado abaixo) levou
+Cleber a reduzir a cesta do Setup de 11 pra 6 ativos
+(`BTCUSD/SPX500/NAS100/ETHUSD/GER40/XAUUSD`) como mitigação enquanto
+aguarda resposta do suporte MetaAPI — confirmado que o motor relê a config
+a cada ciclo sozinho, sem precisar de restart. **Pendente**: reconfirmar se
+a cesta menor realmente melhorou a taxa de cotação fresca (verificação
+ficou em andamento quando a sessão foi encerrada); desenhar com cuidado a
+ponte real LLM→execução (trades da LLM continuam 100% simulados hoje,
+nunca chamam `/broker/execute` — Cleber quer essa ponte construída, mas é
+trabalho grande, ainda não iniciado). Handoff completo:
+[SESSAO_2026-09-11_MONITORAMENTO_LIVE_MOTOR_ERRADO_NA_EXECUCAO_E_RATE_LIMIT.md](SESSAO_2026-09-11_MONITORAMENTO_LIVE_MOTOR_ERRADO_NA_EXECUCAO_E_RATE_LIMIT.md).
+
 **[EM ANDAMENTO 2026-09-11, tarde] Conta MetaAPI dedicada (Londres)
 desconectando — réplica em `backup-new-york` adicionada como tentativa de
 mitigação, mas efeito real AINDA NÃO COMPROVADO — achado que enfraquece a
