@@ -5116,6 +5116,22 @@ export function ChartView({
       // ativo). Sempre um deslocamento puramente visual — a label continua
       // mostrando o preço real do stop, nunca o deslocado.
       const breakevenNudge = isBreakevenStop ? order.price * 0.0006 * (isLong ? -1 : 1) : 0;
+      // 🔴 2026-09-11 (pedido do Cleber, achado ao vivo por vídeo: 2 linhas
+      // verdes tracejadas coladas, sem forma de saber se são a mesma coisa
+      // ou 2 níveis diferentes): o breakeven acima só resolve Stop-em-cima-
+      // da-Entrada — o mesmo problema acontece quando o Alvo (verde, mesma
+      // cor da linha de preço atual quando o dia está positivo) ou o Stop
+      // ficam colados na LINHA DE PREÇO ATUAL (`priceMark.last` nativo da
+      // klinecharts, também tracejada) — indistinguíveis a olho nu, mesmo
+      // sendo 2 níveis reais diferentes (ex: alvo raso, quase batendo).
+      // `livePrice` é o mesmo tick usado no P&L ao vivo da linha de Entrada
+      // logo abaixo — hoisted aqui pra ficar disponível nos blocos de SL/TP.
+      const livePrice = order.currentPrice ?? order.price;
+      const nearPriceThreshold = order.price * 0.0006; // mesmo limiar do breakeven acima
+      const isSlNearLivePrice = hasSl && !isBreakevenStop && Math.abs(order.sl - livePrice) < nearPriceThreshold;
+      const isTpNearLivePrice = hasTp && Math.abs(order.tp - livePrice) < nearPriceThreshold;
+      const slLivePriceNudge = isSlNearLivePrice ? order.price * 0.0006 * (isLong ? -1 : 1) : 0;
+      const tpLivePriceNudge = isTpNearLivePrice ? order.price * 0.0006 * (isLong ? 1 : -1) : 0;
       const riskPts = riskPriceDiff / pointSize;
       const rewardPts = rewardPriceDiff / pointSize;
       const riskUsd = riskPriceDiff * units;
@@ -5140,7 +5156,8 @@ export function ChartView({
         // useApexLogic.ts) e o P&L em dólar já calculado lá (currentProfit).
         // Pontos = distância favorável ao lado da posição (positivo quando o
         // preço se move a favor, negativo contra), não a diferença bruta.
-        const livePrice = order.currentPrice ?? order.price;
+        // (`livePrice` hoisted acima, também usado pelo nudge de SL/TP perto
+        // da linha de preço atual)
         const pointsFavorable = isLong ? livePrice - order.price : order.price - livePrice;
         const pnl = order.currentProfit ?? 0;
         const pnlSign = pnl >= 0 ? '+' : '';
@@ -5197,10 +5214,17 @@ export function ChartView({
           // real, mas o rótulo antigo ("⛔ Stop ... −$0.00 · 0.00 pts") não
           // deixava claro que é PROTEÇÃO ativa, parecia erro/ausência de
           // dado. Label dedicado só pra este caso.
+          // 🔴 2026-09-11 (pedido do Cleber, achado por vídeo: 2 linhas
+          // verdes/vermelhas tracejadas coladas na linha de preço atual,
+          // sem forma de saber se eram o mesmo nível ou 2 diferentes) — igual
+          // ao breakeven acima, mas pra proximidade com o preço AO VIVO em
+          // vez da entrada.
           const slExtendData = isBreakevenStop
             ? `🔒 Stop no Breakeven ${order.sl.toFixed(labelPricePrecision)}  ·  risco travado em $0,00`
+            : isSlNearLivePrice
+            ? `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts  ·  📍 colado no preço atual`
             : `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
-          const displaySlPrice = order.sl + priceNudge + breakevenNudge;
+          const displaySlPrice = order.sl + priceNudge + breakevenNudge + slLivePriceNudge;
           if (slExists) {
             chart.overrideOverlay({ id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
           } else {
@@ -5209,7 +5233,7 @@ export function ChartView({
               id: slId,
               points: [{ value: displaySlPrice }],
               styles: {
-                line: { color: isBreakevenStop ? '#f59e0b' : '#ef4444', style: 'dashed', size: isBreakevenStop ? 1.5 : 1 },
+                line: { color: isBreakevenStop ? '#f59e0b' : '#ef4444', style: 'dashed', size: (isBreakevenStop || isSlNearLivePrice) ? 1.5 : 1 },
                 text: {
                   color: '#ffffff',
                   backgroundColor: isBreakevenStop ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.85)',
@@ -5240,8 +5264,14 @@ export function ChartView({
 
       if (hasTp) {
         try {
-          const tpExtendData = `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
-          const displayTpPrice = order.tp + priceNudge;
+          // 🔴 2026-09-11: mesmo nudge/aviso do Stop acima, pro Alvo — a
+          // linha de preço atual (klinecharts nativa, `priceMark.last`) fica
+          // VERDE tracejada quando o dia está positivo, exatamente a mesma
+          // cor/estilo da linha de Alvo — coladas ficavam indistinguíveis.
+          const tpExtendData = isTpNearLivePrice
+            ? `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts  ·  📍 colado no preço atual`
+            : `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
+          const displayTpPrice = order.tp + priceNudge + tpLivePriceNudge;
           if (tpExists) {
             chart.overrideOverlay({ id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
           } else {
@@ -5250,7 +5280,7 @@ export function ChartView({
               id: tpId,
               points: [{ value: displayTpPrice }],
               styles: {
-                line: { color: '#22c55e', style: 'dashed', size: 1 },
+                line: { color: '#22c55e', style: 'dashed', size: isTpNearLivePrice ? 1.5 : 1 },
                 text: {
                   color: '#ffffff',
                   backgroundColor: 'rgba(34,197,94,0.85)',
