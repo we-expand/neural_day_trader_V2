@@ -841,7 +841,16 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
   // limite real configurado, e reflete o Safe Mode quando ativo.
   const maxDrawdownLimit = config.maxDrawdown && config.maxDrawdown > 0 ? config.maxDrawdown : 15;
   const realDrawdownPercent = portfolio?.currentDrawdown || 0;
-  const riskPercent = Math.min(realDrawdownPercent, maxDrawdownLimit);
+  // 🔴 2026-09-11 (pedido do Cleber): `Math.min(realDrawdownPercent,
+  // maxDrawdownLimit)` travava o numerador exibido no valor do teto assim
+  // que o drawdown real o ultrapassava -- a tela sempre mostrava "35.00% /
+  // 35.00%" mesmo quando o drawdown real já estava bem acima disso (ex:
+  // 50%, 80%), escondendo a gravidade real da perda. Agora exibe o
+  // drawdown real (só limitado a 100%, sanidade de exibição, nunca mais
+  // travado no teto configurado) -- `riskRatio` continua podendo passar de
+  // 1 quando o drawdown real excede o teto, o que já classifica
+  // corretamente como RISCO ALTO abaixo.
+  const riskPercent = Math.min(realDrawdownPercent, 100);
   const riskRatio = maxDrawdownLimit > 0 ? riskPercent / maxDrawdownLimit : 0;
 
   return (
