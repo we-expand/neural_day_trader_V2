@@ -301,11 +301,15 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
         });
         if (res.ok) {
             const account = await res.json();
-            const region = account?.region || (Array.isArray(account?.regions) ? account.regions[0] : null);
+            const regions: string[] = Array.isArray(account?.regions) ? account.regions : [];
+            // 2026-09-11 (pedido do Cleber): a conta ganhou réplica em new-york — preferir
+            // essa região quando disponível, em vez do `region` primário (hoje "london",
+            // que já causou stale/rate-limit documentado várias vezes neste projeto).
+            const region = regions.includes('new-york') ? 'new-york' : (account?.region || regions[0] || null);
             if (region) {
                 const base = `https://mt-client-api-v1.${region}.agiliumtrade.ai`;
                 metaApiRegionCache.set(accountId, base);
-                console.log(`[METAAPI] 🌍 Região detectada para conta ${accountId}: ${region}`);
+                console.log(`[METAAPI] 🌍 Região selecionada para conta ${accountId}: ${region} (disponíveis: ${regions.join(',') || account?.region || 'desconhecido'})`);
                 return base;
             }
         }
@@ -335,7 +339,10 @@ async function getMetaApiMarketDataApiBase(token: string, accountId: string): Pr
         });
         if (res.ok) {
             const account = await res.json();
-            const region = account?.region || (Array.isArray(account?.regions) ? account.regions[0] : null);
+            const regions: string[] = Array.isArray(account?.regions) ? account.regions : [];
+            // Mesma preferência por new-york do client-api acima — mantém as duas APIs
+            // (tick/execução e candles) na mesma região da conta.
+            const region = regions.includes('new-york') ? 'new-york' : (account?.region || regions[0] || null);
             if (region) {
                 const base = `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
                 metaApiRegionCache.set(`md:${accountId}`, base);
