@@ -3702,49 +3702,71 @@ export function useApexLogic(
   }, [addLog]);
 
   // === SYNC POSITIONS FROM MT5 ===
+  // 🔴 2026-09-11 (achado do Cleber ao vivo: posição "piscando", entrando e
+  // sumindo do Dashboard): esta função fazia `setActiveOrders(convertedOrders)`
+  // -- um REPLACE total -- toda vez que chamada. Desde que o polling contínuo
+  // de LIVE foi ligado (TradingContext.tsx, a cada 5s), ela passou a competir
+  // com o reconcile() de `ai_trades` (também a cada 5s, roda pra QUALQUER
+  // sessão do llm-active-brain, LIVE ou DEMO -- ver comentário em
+  // useApexLogic.ts sobre `executionMode` nunca virar 'LIVE'): o mesmo
+  // posição real (aberta pelo llm-active-brain, MESMA conta MetaAPI) nasce
+  // com um `id` diferente em cada caminho (uuid do `ai_trades` vs `mt5-<id
+  // da corretora>`) -- cada tick de um caminho apagava/recriava a linha do
+  // outro, causando o piscar. Corrigido pra MERGE em vez de replace: nunca
+  // cria uma entrada `mt5-*` pra um símbolo que já está representado por uma
+  // entrada de `ai_trades` (id sem esse prefixo) -- só preenche o que
+  // realmente não está sendo rastreado por `ai_trades` (ex: posição aberta
+  // manualmente direto no MetaTrader, fora do app).
   const syncPositionsFromMT5 = useCallback((positions: any[]) => {
-    console.log('[syncPositionsFromMT5] 🎯 SINCRONIZANDO', positions.length, 'POSIÇÕES');
-    
-    const convertedOrders: TradeVisual[] = positions.map((pos: any) => {
-      const side: 'LONG' | 'SHORT' = pos.type === 'POSITION_TYPE_BUY' ? 'LONG' : 'SHORT';
-      const profit = pos.profit || 0;
-      
-      console.log('[syncPositionsFromMT5] 📍 Convertendo:', {
-        symbol: pos.symbol,
-        side,
-        openPrice: pos.openPrice,
-        currentPrice: pos.currentPrice,
-        volume: pos.volume,
-        profit
+    setActiveOrders(prev => {
+      const symbolsTrackedElsewhere = new Set(
+        prev.filter(o => !o.id.startsWith('mt5-')).map(o => o.symbol)
+      );
+      const incomingBySymbol = new Map(positions.map((pos: any) => [pos.symbol, pos]));
+
+      // Mantém entradas não-mt5 intocadas; descarta entradas mt5-* cujo
+      // símbolo não existe mais na lista real da corretora (posição fechada).
+      const kept = prev.filter(o => !o.id.startsWith('mt5-') || incomingBySymbol.has(o.symbol));
+
+      const newOnes: TradeVisual[] = positions
+        .filter((pos: any) => !symbolsTrackedElsewhere.has(pos.symbol) && !kept.some(o => o.id === `mt5-${pos.id}`))
+        .map((pos: any) => {
+          const side: 'LONG' | 'SHORT' = pos.type === 'POSITION_TYPE_BUY' ? 'LONG' : 'SHORT';
+          const profit = pos.profit || 0;
+          return {
+            id: `mt5-${pos.id || Math.random()}`,
+            symbol: pos.symbol,
+            side,
+            amount: pos.volume * 100,
+            price: pos.openPrice,
+            currentPrice: pos.currentPrice,
+            currentProfit: profit,
+            tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
+            sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+            originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+            leverage: pos.leverage || 1,
+            ai_confidence: 75,
+            timestamp: pos.time || Date.now(),
+            reasoning: `MT5 Import - ${side} @ ${pos.openPrice}`,
+            indicators: {
+              rsi: 50,
+              macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
+              trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
+            },
+          };
+        });
+
+      // Atualiza preço/lucro corrente das mt5-* já existentes (sem trocar id).
+      const updatedKept = kept.map(o => {
+        if (!o.id.startsWith('mt5-')) return o;
+        const pos = incomingBySymbol.get(o.symbol);
+        if (!pos) return o;
+        return { ...o, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
       });
-      
-      return {
-        id: `mt5-${pos.id || Math.random()}`,
-        symbol: pos.symbol,
-        side,
-        amount: pos.volume * 100, // Volume em lotes convertido para capital estimado
-        price: pos.openPrice,
-        currentPrice: pos.currentPrice,
-        currentProfit: profit,
-        tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
-        sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
-        originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
-        leverage: pos.leverage || 1,
-        ai_confidence: 75, // Posição já aberta
-        timestamp: pos.time || Date.now(),
-        reasoning: `MT5 Import - ${side} @ ${pos.openPrice}`,
-        indicators: {
-          rsi: 50,
-          macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-          trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-        },
-      };
+
+      return [...updatedKept, ...newOnes];
     });
-    
-    setActiveOrders(convertedOrders);
-    console.log('[syncPositionsFromMT5] ✅', convertedOrders.length, 'posições sincronizadas!');
-    addLog(`📊 Sincronizado ${convertedOrders.length} posições do MT5`);
-  }, [addLog]);
+  }, []);
 
   // === RECONCILIAÇÃO CONTÍNUA EM LIVE ===
   // 🔴 2026-09-11: a 1ª versão deste polling (removida) checava
