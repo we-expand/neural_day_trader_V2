@@ -3672,6 +3672,12 @@ export function useApexLogic(
   }, [addLog]);
 
   // === UPDATE PORTFOLIO (for MT5 sync with equity) ===
+  // 🔴 2026-09-11 (achado do Cleber ao vivo: "Atividade da IA" inundado de
+  // linhas repetidas "Portfolio MT5: Balance..."): este poll roda a cada 5s
+  // (TradingContext.tsx) e antes logava incondicionalmente, mesmo sem
+  // mudança nenhuma de saldo/equity -- afogava o raciocínio real da LLM no
+  // mesmo feed. Agora só loga quando balance/equity mudam de verdade.
+  const lastLoggedPortfolioRef = useRef<{ balance: number; equity: number } | null>(null);
   const updatePortfolioFromMT5 = useCallback((data: { balance: number; equity: number }) => {
     console.log('[updatePortfolioFromMT5] 🎯 CHAMADA RECEBIDA:', data);
     console.log('[updatePortfolioFromMT5] 📊 Portfolio ANTES:', {
@@ -3679,7 +3685,7 @@ export function useApexLogic(
       equity: portfolioRef.current?.equity,
       initialBalance: portfolioRef.current?.initialBalance
     });
-    
+
     setPortfolio(prev => {
       const updated = {
         ...prev,
@@ -3696,9 +3702,14 @@ export function useApexLogic(
       console.log('[updatePortfolioFromMT5] ✅ Portfolio ATUALIZADO:', updated);
       return updated;
     });
-    
-    const floatingPnL = data.equity - data.balance;
-    addLog(`💰 Portfolio MT5: Balance $${data.balance.toFixed(2)} | Equity $${data.equity.toFixed(2)} | PnL ${floatingPnL >= 0 ? '+' : ''}$${floatingPnL.toFixed(2)}`);
+
+    const last = lastLoggedPortfolioRef.current;
+    const changed = !last || Math.abs(last.balance - data.balance) >= 0.01 || Math.abs(last.equity - data.equity) >= 0.01;
+    if (changed) {
+      lastLoggedPortfolioRef.current = { balance: data.balance, equity: data.equity };
+      const floatingPnL = data.equity - data.balance;
+      addLog(`💰 Portfolio MT5: Balance $${data.balance.toFixed(2)} | Equity $${data.equity.toFixed(2)} | PnL ${floatingPnL >= 0 ? '+' : ''}$${floatingPnL.toFixed(2)}`);
+    }
   }, [addLog]);
 
   // === SYNC POSITIONS FROM MT5 ===

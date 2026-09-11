@@ -222,21 +222,17 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   const autoExecutionStageEnabledRef = useRef(false);
   const fullSizeExecutionStageEnabledRef = useRef(false);
   const executionModeRef = useRef<'DEMO' | 'LIVE'>('DEMO');
+  // 🔴 2026-09-11 (achado ao vivo, Cleber testando dinheiro real): esta
+  // função é alimentada pelo `runTradingCycle` (motor mecânico ANTIGO,
+  // rodando no navegador a cada 5s via useApexLogic.ts) -- não pela LLM
+  // (`llm-active-brain`, processo Node separado, que hoje só decide dentro
+  // da sessão DEMO). Ou seja: os Estágios 1-4 de execução LIVE estavam
+  // conectados ao motor errado, nunca à LLM. Até a ponte real LLM→execução
+  // LIVE ser desenhada e implementada, nenhuma decisão do motor mecânico
+  // pode virar ordem real -- decisão de segurança, não flag de produto.
   const forwardLiveDecision = useCallback((decision: TradeVisual) => {
-    if (executionModeRef.current !== 'LIVE') {
-      liveDecisionHandlerRef.current(decision);
-      return;
-    }
-    if (autoExecutionStageEnabledRef.current && fullSizeExecutionStageEnabledRef.current) {
-      fullSizeExecutionHandlerRef.current(decision);
-      return;
-    }
-    if (autoExecutionStageEnabledRef.current) {
-      autoExecutionHandlerRef.current(decision);
-      return;
-    }
-    if (tradeConfirmationStageEnabledRef.current) {
-      confirmationStageHandlerRef.current(decision);
+    if (executionModeRef.current === 'LIVE') {
+      console.warn('[forwardLiveDecision] Decisão do motor mecânico antigo ignorada em LIVE -- fonte de decisão real é a LLM (llm-active-brain), não este motor. Ver comentário 2026-09-11.', decision);
       return;
     }
     liveDecisionHandlerRef.current(decision);
