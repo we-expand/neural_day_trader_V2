@@ -68,6 +68,17 @@ function perSession<K, V>(store: Map<string, Map<K, V>>, sessionId: string): Map
 
 const lastQuotedCycleBySymbolStore = new Map<string, Map<string, number>>();
 
+// 🔴 2026-09-11 (llm-council: 223 stale + 163 rate-limit em 30h/44 trades --
+// ver blockEntryOnStaleIndicators em config.ts): rastreia, por sessão+símbolo,
+// em qual ciclo o get_mt5_quote (ferramenta) caiu no fallback sem tick real
+// (trend/volume/MACD/estocástico/regime = null). open_position consulta este
+// mapa e recusa abrir se o símbolo caiu no fallback NESTE MESMO ciclo --
+// mesmo que a re-cotação interna de open_position (linha ~1376) já bloqueie
+// preço obsoleto no MOMENTO da abertura, isso não garante que a DECISÃO em
+// si foi tomada com indicadores reais (o LLM pode ter decidido no fallback
+// e só then chamar open_position segundos depois, quando o feed já voltou).
+const staleQuoteToolCycleBySymbolStore = new Map<string, Map<string, number>>();
+
 // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido do Cleber apos
 // BTCUSD SHORT perder $5,58): o guard de "cotacao fresca no mesmo ciclo"
 // acima so garante que o agente CHAMOU get_mt5_quote antes de decidir --
@@ -578,6 +589,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
   const lastQuotedCycleBySymbol = perSession(lastQuotedCycleBySymbolStore, session.sessionId);
   const lastQuoteSnapshotBySymbol = perSession(lastQuoteSnapshotBySymbolStore, session.sessionId);
   const flipAttemptBlockedThisCycle = perSession(flipAttemptBlockedThisCycleStore, session.sessionId);
+  const staleQuoteToolCycleBySymbol = perSession(staleQuoteToolCycleBySymbolStore, session.sessionId);
   switch (name) {
     case "check_fictional_balance": {
       return { balance_usd: getBalanceUsd(), moeda: "USD FICTICIO - nao e dinheiro real" };
@@ -722,6 +734,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!quote) {
         const lastPrice = getLastKnownPrice(symbol);
         console.warn(`[tools.ts] Cotação de ${symbol} indisponível depois de retry -- devolvendo fallback com preço ${lastPrice || "nenhum histórico"}`);
+        // 🔴 2026-09-11 (llm-council, ver blockEntryOnStaleIndicators em
+        // config.ts): registra que ESTE ciclo devolveu indicadores nulos pra
+        // este símbolo -- open_position consulta isto e recusa abrir, sem
+        // depender do LLM decidir "confiar no stop" sozinho.
+        if (config.blockEntryOnStaleIndicators) {
+          staleQuoteToolCycleBySymbol.set(symbol, cycle);
+        }
         return {
           symbol,
           // 🔴 2026-08-31: usa último preço conhecido do histórico (ou 1.0 como padrão honesto)
@@ -743,7 +762,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           candlePatterns: null,
           regime: null,
           hmmRegime: null,
-          aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais.`
+          aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- ${config.blockEntryOnStaleIndicators ? "SEM indicadores reais (trend/volume/MACD/estocastico), abrir posicao neste simbolo agora sera RECUSADO por open_position. Avalie outro ativo da cesta ou espere o proximo ciclo pra dados reais." : "você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais."}`
         };
       }
       lastQuotedCycleBySymbol.set(symbol, cycle);
@@ -1159,6 +1178,25 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `Voce ainda nao chamou get_mt5_quote("${symbol}") NESTE ciclo -- abrir posicao sem consultar tendencia/volume/` +
             `MACD/estocastico/spread REAIS e ATUAIS deste ativo especifico e raciocinio raso, baseado so em memoria de ` +
             `trades passados. Chame get_mt5_quote("${symbol}") primeiro, avalie o dado de verdade, depois chame open_position de novo.`,
+        };
+      }
+      // 🔴 2026-09-11 (llm-council convocado pelo Cleber, achado real: 223
+      // cotacoes stale + 163 rate-limit em 30h/44 trades, sessao terminou
+      // -$32,81 -- ver blockEntryOnStaleIndicators em config.ts). O
+      // get_mt5_quote deste MESMO ciclo pode ter batido feed indisponivel e
+      // devolvido trend/volume/MACD/estocastico/regime = null (ver fallback
+      // acima) -- antes disso era so um aviso, o LLM podia abrir posicao
+      // mesmo sem nenhum indicador real. Agora e trava dura: decisao tomada
+      // as cegas nao abre posicao, independente de cotacao fresca ter
+      // voltado a tempo da re-cotacao interna abaixo (linha ~1376) -- o
+      // problema nao e o preco de preenchimento, e a DECISAO ter sido tomada
+      // sem trend/confluencia real.
+      if (config.blockEntryOnStaleIndicators && staleQuoteToolCycleBySymbol.get(symbol) === cycle) {
+        return {
+          error:
+            `get_mt5_quote("${symbol}") devolveu indicadores INDISPONIVEIS neste ciclo (feed obsoleto/rate-limited -- trend/volume/` +
+            `MACD/estocastico/regime vieram nulos). Decisao de entrada sem nenhum indicador real e proibida, mesmo com stop mecanico ` +
+            `como protecao -- posicao NAO aberta. Avalie outro ativo da cesta com dado real, ou espere o proximo ciclo.`,
         };
       }
       // 🔴 2026-08-30 (achado real, sessao de monitoramento -- pendencia de
@@ -2090,6 +2128,30 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         }
       } catch (err) {
         console.warn("[tools/close_position] falha ao rechecar stop/alvo mecanico, seguindo com fechamento manual:", err instanceof Error ? err.message : err);
+      }
+      // 🔴 2026-09-11 (llm-council convocado pelo Cleber, dado real via SQL:
+      // sessao de 30h, -$32,81 liquido, 44 trades -- 19 fechamentos
+      // discricionarios (AI_SIGNAL) com 42,1% de acerto e -$14,79, incluindo
+      // 8 casos com lucro flutuante real (MFE positivo) devolvido, contra TP
+      // mecanico com 100% de acerto/+$11,74 no mesmo periodo). Veredito
+      // unanime do conselho (5 conselheiros + 5 revisoes cruzadas): suspender
+      // a autoridade de fechamento discricionario por um periodo de teste
+      // fixo -- 5 dias uteis OU 40 trades fechados (o que vier depois),
+      // medindo payoff/win-rate contra esta sessao antes de reabilitar. Isto
+      // NAO desliga close_position inteiro -- a rechecagem mecanica de SL/TP
+      // acima (idempotente) continua rodando sempre; só a avaliacao
+      // discricionaria abaixo (reasoning/regras de >=50% do caminho/lucro
+      // acima do spread/2 fatores de invalidacao) fica bloqueada enquanto
+      // aiSignalDiscretionaryCloseEnabled=false. Flag unica, reversivel em 1
+      // linha (config.ts) quando o periodo de teste terminar.
+      if (!config.aiSignalDiscretionaryCloseEnabled) {
+        return {
+          error:
+            `Fechamento discricionario (AI_SIGNAL) suspenso por decisao do llm-council (veredito unanime, ver CLAUDE.md 2026-09-11): ` +
+            `dado real da sessao anterior mostrou 42,1% de acerto/-$14,79 em fechamentos discricionarios, pior que deixar o stop/alvo ` +
+            `mecanico decidir. Esta posicao NAO sera fechada por aqui -- so por SL/TP/trailing mecanico. Se a tese realmente invalidou, ` +
+            `confie no stop mecanico; ele ja roda a cada ciclo e a cada 5s via watchdog independente.`,
+        };
       }
       let positions;
       try {

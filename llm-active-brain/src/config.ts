@@ -595,6 +595,32 @@ export const config = {
   // desligado até o dado justificar ligar).
   hmmRegimeGateActive: process.env.HMM_REGIME_GATE_ACTIVE === "true",
   hmmRegimeGateMinConfidence: Number(process.env.HMM_REGIME_GATE_MIN_CONFIDENCE ?? 0.65),
+  // 🔴 2026-09-11 (llm-council convocado pelo Cleber, sessão de 30h negativa
+  // -$32,81/44 trades/payoff 0,60:1): dado real (SQL) mostrou 19 fechamentos
+  // discricionários (AI_SIGNAL) em 44 trades, 42,1% de acerto, -$14,79 --
+  // pior que deixar SL/TP mecânico decidir (TP mecânico: 100% de acerto,
+  // +$11,74 no mesmo período), incluindo 8 casos com lucro flutuante real
+  // (MFE positivo) devolvido por fechamento manual da própria IA. Veredito
+  // unânime do conselho (5 conselheiros + 5 revisões cruzadas): suspender a
+  // autoridade de fechamento discricionário por um período de teste fixo
+  // (5 dias úteis OU 40 trades fechados, o que vier depois -- mesmo piso
+  // estatístico já usado antes neste projeto), medir payoff/win-rate contra
+  // esta sessão, e só reabilitar com prova de que bate o mecânico. Protocolo
+  // de decisão: payoff ratio > 1,0:1 E win rate >= 45% sustentados -> pode
+  // reabilitar; senão, volta ao conselho antes de qualquer novo ajuste.
+  // Flag única, reversível em 1 linha -- não fecha close_position inteiro
+  // (o rechecagem mecânica de SL/TP no início da função continua intocada),
+  // só nega a AVALIAÇÃO discricionária que vem depois dela.
+  aiSignalDiscretionaryCloseEnabled: process.env.AI_SIGNAL_DISCRETIONARY_CLOSE_ENABLED !== "false",
+  // 🔴 2026-09-11 (mesmo llm-council): 223 ocorrências de cotação stale +
+  // 163 de rate-limit em 30h/44 trades -- quando get_mt5_quote (ferramenta)
+  // cai no fallback (trend/volume/MACD/estocástico/regime = null), o aviso
+  // injetado no prompt dizia literalmente "você PODE tentar entrar mesmo
+  // assim, confie no stop mecânico" -- convite explícito pra decidir sem
+  // nenhum indicador real. Unânime nas 5 revisões cruzadas: isto é bug de
+  // integridade de dado, não parâmetro de tuning -- trava dura, sem exceção.
+  // Ver staleQuoteToolCycleBySymbol / open_position em tools.ts.
+  blockEntryOnStaleIndicators: process.env.BLOCK_ENTRY_ON_STALE_INDICATORS !== "false",
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger

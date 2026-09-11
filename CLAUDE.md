@@ -15,6 +15,37 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-11] Sessão de 30h do LLM Brain fechou -$32,81
+líquido (44 trades, 43,2% acerto, payoff invertido 0,60:1) — Cleber pediu
+"chama o conselho", llm-council convocado (5 conselheiros + 5 revisões
+cruzadas, unânime). Dado real via SQL confirmou os achados dele (LINKUSD
+capturando centavos, UKOUSD 88%/92% de confiança tomando os 2 maiores
+losses) e achou causa técnica correlata: 223 cotações stale + 163
+rate-limit da MetaAPI em 30h, com o próprio prompt convidando a IA a
+"entrar mesmo assim, confie no stop mecânico" quando indicador vinha
+nulo — e 19 fechamentos discricionários (AI_SIGNAL) com 42,1% de acerto/
+-$14,79, pior que deixar o SL/TP mecânico decidir (100%/+$11,74 no mesmo
+período), incluindo 8 casos de lucro flutuante real devolvido.** 2 fixes
+implementados: `open_position` (`llm-active-brain/src/tools.ts`) recusa
+entrada se `get_mt5_quote` caiu no fallback (indicador nulo) NESTE ciclo,
+mesmo que o preço de preenchimento volte a ser fresco depois — antes era
+só aviso, agora é trava dura; `close_position` suspende avaliação
+discricionária inteira por flag (`aiSignalDiscretionaryCloseEnabled` em
+`config.ts`, default `false`) — rechecagem mecânica de SL/TP no início da
+função continua intocada, só a avaliação discricionária que vem depois
+fica bloqueada. Confiança declarada (85,3% vencedora vs 84,3% perdedora —
+sem poder preditivo real) e piso mínimo de captura ($3/trade) ficaram
+DELIBERADAMENTE de fora desta rodada — conselho unânime contra mexer em
+mais de uma coisa por vez (mesmo erro catalogado em 2026-09-04). Proposta
+de usar a folga de frequência pra operar mais agressivo (pyramiding,
+ampliar cesta) foi rejeitada por unanimidade nas revisões cruzadas.
+`tsc --noEmit` limpo, `npm run validate` 37/37. **Protocolo de validação
+por escrito (não pular)**: 5 dias úteis OU 40 trades fechados sob os 2
+fixes, sem nenhuma outra mudança de mecânica no período — critério de
+sucesso payoff ratio > 1,0:1 E win rate ≥ 45% sustentados; senão, volta ao
+conselho antes de qualquer novo ajuste. **Pendente**: `git commit` +
+`./restart.sh` (dentro de `llm-active-brain/`), aguardando Cleber rodar.
+
 **[RESOLVIDO 2026-09-09→11] Overshoot de stop no LLM Brain (BTCUSD fechou
 115 pontos além do stop, watchdog lia cotação de até 12s) corrigido via
 llm-council (2 rodadas) — validado ao vivo em 2026-09-11: overshoot caiu
