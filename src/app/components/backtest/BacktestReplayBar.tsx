@@ -22,7 +22,7 @@ import {
   Clock
 } from 'lucide-react';
 import { useBacktestReplay, ReplaySpeed } from '../../hooks/useBacktestReplay';
-import { Timeframe } from '../../services/BacktestDataService';
+import { CandleData, Timeframe } from '../../services/BacktestDataService';
 import { ALL_ASSETS } from '../../config/assetDatabase';
 
 // Catálogo canônico inteiro (assetDatabase.ts, ~480 ativos) achatado para o
@@ -49,9 +49,12 @@ const FLAT_ASSETS = ALL_ASSETS.map(asset => ({
 interface BacktestReplayBarProps {
   onClose: () => void;
   onCandleChange?: (candle: any) => void;
+  // Candles reais do dia carregado, do início até o índice atual do replay —
+  // é o que o gráfico precisa desenhar de verdade (o candle sozinho não basta).
+  onCandlesUpdate?: (candles: CandleData[]) => void;
 }
 
-export function BacktestReplayBar({ onClose, onCandleChange }: BacktestReplayBarProps) {
+export function BacktestReplayBar({ onClose, onCandleChange, onCandlesUpdate }: BacktestReplayBarProps) {
   const replay = useBacktestReplay();
 
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
@@ -85,7 +88,10 @@ export function BacktestReplayBar({ onClose, onCandleChange }: BacktestReplayBar
     if (replay.currentCandle && onCandleChange) {
       onCandleChange(replay.currentCandle);
     }
-  }, [replay.currentCandle, onCandleChange]);
+    if (onCandlesUpdate && replay.allCandles.length > 0) {
+      onCandlesUpdate(replay.allCandles.slice(0, replay.currentIndex + 1));
+    }
+  }, [replay.currentCandle, replay.currentIndex, replay.allCandles, onCandleChange, onCandlesUpdate]);
 
   const isActive = replay.state !== 'idle';
   const isPlaying = replay.state === 'playing';

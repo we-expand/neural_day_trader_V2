@@ -1637,6 +1637,19 @@ export function ChartView({
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
   const [showBacktestConfig, setShowBacktestConfig] = useState(false); // 🆕 Modal de configuração do Backtest
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
+  // 🔧 FIX replay de mercado: o fetch/auto-refresh de dado AO VIVO (abaixo) não
+  // sabia da existência do Replay — continuava reaplicando candle real por
+  // cima a cada 30s, brigando com o candle do replay. Ref (não state) porque é
+  // lido dentro do setInterval de auto-refresh, criado 1x no mount do efeito.
+  const showBacktestReplayRef = useRef(false);
+  useEffect(() => {
+    showBacktestReplayRef.current = showBacktestReplay;
+  }, [showBacktestReplay]);
+  // Ao fechar o replay, os candles reais do dia (ao vivo) precisam substituir
+  // por completo os candles do replay já desenhados — força o próximo fetch
+  // real a fazer `applyNewData` (reset total) em vez de `updateData`
+  // incremental (que ia misturar candle de replay com candle ao vivo).
+  const forceFullReloadAfterReplayRef = useRef(false);
 
   // Entrada vinda de fora (ex: botão "Criar personalizada" na tela de IA) — abre
   // o construtor direto, sem passar pela tela de config de backtest.
@@ -6127,10 +6140,11 @@ export function ChartView({
           // símbolo/timeframe, sem dataset ainda no chart) usa `applyNewData`
           // de verdade; todo refresh de 30s seguinte vira atualização
           // incremental das velas novas/em formação desde o último fetch.
-          if (!hasAppliedFullDatasetRef.current) {
+          if (!hasAppliedFullDatasetRef.current || forceFullReloadAfterReplayRef.current) {
             chart.applyNewData(candles);
             console.log('[ChartView] ✅ chart.applyNewData completed (primeira carga)!');
             hasAppliedFullDatasetRef.current = true;
+            forceFullReloadAfterReplayRef.current = false;
           } else {
             const incremental = candles.filter(c => c.timestamp >= lastAppliedCandleTimestampRef.current);
             incremental.forEach(c => chart.updateData(c));
@@ -6504,6 +6518,11 @@ export function ChartView({
 
       // 🔄 AUTO-REFRESH: Atualizar candles a cada 30 segundos
       const refreshInterval = setInterval(() => {
+        if (showBacktestReplayRef.current) {
+          // Replay de mercado ativo: não deixar o refresh de dado AO VIVO
+          // sobrescrever os candles do replay (ver ref acima).
+          return;
+        }
         if (fetchInProgress) {
           console.log('[ChartView] ⏭️ Auto-refresh pulado: retry de candles ainda em andamento');
           return;
@@ -8780,6 +8799,8 @@ export function ChartView({
           onClose={() => {
             setShowBacktestReplay(false);
             setIsReplayMode(false);
+            forceFullReloadAfterReplayRef.current = true;
+            fetchChartDataRef.current?.();
           }}
           onCandleChange={(candle) => {
             // Ativar modo replay na primeira vez
@@ -8790,6 +8811,21 @@ export function ChartView({
               toast.success('🎬 Modo Replay ativado!');
             }
             console.log('[ChartView] 🎬 Replay candle:', candle);
+          }}
+          onCandlesUpdate={(candles) => {
+            // 🔧 FIX: antes disto, o replay nunca desenhava nada de verdade no
+            // gráfico — só logava o candle atual no console. klinecharts usa
+            // `timestamp`, não `time` (formato do BacktestDataService).
+            const chart = chartInstanceRef.current;
+            if (!chart || candles.length === 0) return;
+            chart.applyNewData(candles.map(c => ({
+              timestamp: c.time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume,
+            })));
           }}
         />
       )}
