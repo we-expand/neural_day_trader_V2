@@ -648,6 +648,11 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         volume_label_at_entry: params.volumeLabelAtEntry ?? null,
         volatility_label_at_entry: params.volatilityLabelAtEntry ?? null,
         broker_position_id: params.brokerPositionId ?? null,
+        // 🔴 2026-09-11 (pedido do Cleber): campo EXPLICITO pra distinguir
+        // ordem real de simulada -- nunca mais inferir pelo broker_position_id
+        // ser nulo ou nao. Setado aqui mesmo, no unico lugar que sabe de
+        // verdade se a ordem foi enviada pra corretora.
+        is_live_execution: params.brokerPositionId != null,
         indicators_snapshot: params.indicatorsSnapshot ?? null,
       })
       .select("id")
