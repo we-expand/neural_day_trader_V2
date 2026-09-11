@@ -15,6 +15,95 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-11, noite] ACHADO GRAVE: `MT5_LIVE_EXECUTION_ENABLED=false`
+o dia inteiro — nenhum trade de hoje (BTCUSD/LNKUSD/UKOUSD/SPX500...) foi
+ordem real na corretora, apesar do Cleber acreditar que era dinheiro real.**
+Confirmado depois que Cleber fechou manualmente uma posição UKOUSD com medo
+(feed MetaAPI instável, sem proteção mecânica de stop) e notou que o saldo
+real do MetaTrader ($57) não mudou nada. `isLiveExecutionActive()`
+(`liveExecution.ts`) checa esse flag do `.env` do motor ANTES de checar
+`broker_credentials` — com ele `false`, toda entrada vira só registro
+simulado em `ai_trades` (preço real, ordem nunca enviada). O badge "MODO
+LIVE" do frontend e a conexão de corretora são **desacoplados** desse flag —
+nunca avisam o motor server-side pra operar de verdade. **Boa notícia**: SL/TP
+real na corretora já está implementado desde 08/09 (`executeLiveMarketOrder`
+→ `/broker/execute` → MetaAPI com `stopLoss`/`takeProfit` reais, confirmado
+no código) — não precisa de dev novo, só nunca foi exercitado por este
+kill-switch estar desligado. De carona, 3 fixes reais de reconciliação
+LIVE (posição/saldo do MT5 sumindo/piscando no Dashboard — causa raiz era
+`executionMode`, campo legado que nada mais seta pra `'LIVE'` no client) e
+recolhimento dos painéis de Estágio 1-4 (motor client-side separado e mais
+antigo, ligado por engano). Mitigação aplicada pra investigar a
+instabilidade recorrente da MetaAPI (504 sustentado em múltiplos símbolos):
+polling do rodapé de ativos (`MarketTicker.tsx`, ~30-47 símbolos/120s)
+desligado, busca só 1x no mount. **Decisão do Cleber**: não religar
+`MT5_LIVE_EXECUTION_ENABLED` até a MetaAPI provar estabilidade por horas
+sem o rodapé consumindo cota. Handoff completo:
+[SESSAO_2026-09-11_RECONCILIACAO_LIVE_EXECUCAO_MORTA_E_METAAPI_INSTAVEL.md](SESSAO_2026-09-11_RECONCILIACAO_LIVE_EXECUCAO_MORTA_E_METAAPI_INSTAVEL.md).
+**Pendente**: `git push origin dev` do commit do `MarketTicker.tsx` (comando
+entregue); observar estabilidade; só depois decidir religar execução real.
+
+**[EM ANDAMENTO 2026-09-11, tarde] Conta MetaAPI dedicada (Londres)
+desconectando — réplica em `backup-new-york` adicionada como tentativa de
+mitigação, mas efeito real AINDA NÃO COMPROVADO — achado que enfraquece a
+hipótese de "problema é a região".** Cleber reportou a conta desconectada
+de novo; confirmado ao vivo no `relay.log` (região `london`): ciclo de
+`Failed to subscribe TimeoutError` repetido por ~1h e confirmado via API
+de provisionamento que `connectionStatus` estava `DISCONNECTED` de
+verdade — mesma classe de fragilidade já catalogada em 08/09
+(`resourceSlots: 1`, `accountReplicas: []`, sem failover). Ação: em vez de
+recriar a conta numa região nova (exigiria senha do MT5 de novo e trocar
+`accountId` em todo lugar), usada a função de **réplica** do painel
+MetaAPI — mesma conta (`bb99f865-96fb-4573-98a7-1f32895f84f7`),
+credenciais reaproveitadas, região extra `backup-new-york` (1000+
+resource slots), ~$6,84/mês. Confirmado via API depois de criada:
+`accountReplicas` deixou de ser `[]`, as duas regiões com `state:
+DEPLOYED`/`connectionStatus: CONNECTED` simultâneas; `streaming-relay`
+reiniciado, log confirmou as 4 sockets conectadas. **Não precisou de
+mudança de código nem de secret** — é a mesma conta, a MetaAPI faz
+failover entre regiões de forma transparente. **Achado real, honesto,
+que NÃO estava na hipótese original**: ~13min depois do restart, as 4
+sockets (Londres E a réplica nova, as duas regiões) caíram JUNTAS num
+burst de `ping timeout`/`lost connection`, e nos minutos seguintes
+**tanto Londres quanto a réplica nova falharam `Failed to subscribe`
+simultaneamente** (17:57-17:58 UTC) — se o problema fosse específico da
+região de Londres, a réplica deveria ter continuado saudável enquanto
+Londres falhava; as duas caindo e falhando juntas aponta mais pra rede
+local (Mac/Wi-Fi/ISP do Cleber) ou o lado do broker/conta do que pra
+região MetaAPI em si. Depois desse burst, ~20min sem nova falha até o
+monitoramento ser encerrado a pedido do Cleber (ele mesmo ia continuar
+observando). **Não declarar esta mitigação como sucesso** até acumular
+várias horas/dias sem recorrência do cluster de `Failed to subscribe` —
+critério limpo: se voltar a falhar com as DUAS regiões juntas, a causa
+raiz não é a região de Londres (não vale gastar mais em trocar região
+de novo); se só Londres falhar dali pra frente com Nova York saudável,
+aí sim a réplica está cumprindo o papel de failover esperado. **Pendente
+real**: Cleber está observando por conta própria, sem monitoramento
+automático armado agora — retomar se ele reportar recorrência.
+
+**[RESOLVIDO 2026-09-11, madrugada] Painel "Atividade da IA" ficou preso em
+"Aguardando..." depois de "Reinicialização Total" — causa real era ciclo
+anormalmente longo, não bug de cache no caminho principal; achado e
+corrigido um bug real de verdade num caminho secundário (fallback).**
+Cleber clicou "Reinicialização Total" no meio de um ciclo do LLM Brain que
+estava demorando ~21min (cesta em rate-limit/stale da MetaAPI) — o reset
+criou sessão nova (`ai_sessions`) mas o ciclo antigo, já em andamento,
+só terminou minutos depois; o painel ficou "vazio" (sessão nova sem
+nenhuma linha ainda) até o próximo ciclo começar e resolver a sessão certa
+sozinho — o caminho real de resolução (`listEligibleMt5Sessions`,
+`neuralBridge.ts`) já reconsulta o banco do zero a cada ciclo, sem cache,
+e se autocorrigiu sem precisar de restart. Achado de verdade, corrigido:
+existe um 2º caminho de resolução de sessão
+(`getOrCreateMt5Session`, usado só como fallback bootstrap quando não há
+nenhuma sessão elegível) que cacheava o `session_id` numa Promise ETERNA,
+sem nunca revalidar — se esse caminho fosse acionado depois de um reset,
+ficaria preso pra sempre, sem autocura. Trocado por cache com
+revalidação a cada 30s, que detecta sessão mais nova e migra sozinho,
+logando a troca (`llm-active-brain/src/neuralBridge.ts`). `tsc --noEmit`
+limpo. **Pendente**: `git commit` (comando entregue ao Cleber) — não
+precisa de restart pra esse fix específico pegar, só vale a partir do
+próximo restart do motor.
+
 **[EM ANDAMENTO 2026-09-11] Sessão de 30h do LLM Brain fechou -$32,81
 líquido (44 trades, 43,2% acerto, payoff invertido 0,60:1) — Cleber pediu
 "chama o conselho", llm-council convocado (5 conselheiros + 5 revisões
@@ -1937,12 +2026,51 @@ O que ainda está genuinamente em aberto:
    landing, comissão em todos os tiers, pacote de 6 alavancas pra lucro no
    Ano 1. CAC/conversão/rebate ainda são meta, não medição. Detalhe:
    `SESSAO_2026-08-10_MODELO_FINANCEIRO.md`.
-5. **[2026-08-17] Ideia registrada, não iniciada: probabilidade de acerto
-   calibrada por entrada.** Hoje o `confidence` exibido é heurística não
-   calibrada (documentado no código), nunca medida contra resultado real.
-   Se retomado: projeto de pesquisa novo (dado, validação out-of-sample,
-   calibration curve/Brier score), mesmo escopo do Trilho 2 (hoje pausado).
-   Sem próximo passo definido.
+5. **[2026-08-17, retomado/detalhado 2026-09-11] Ideia registrada, não
+   iniciada: probabilidade de acerto calibrada por entrada.** Hoje o
+   `confidence` exibido é heurística não calibrada (documentado no
+   código), nunca medida contra resultado real — confirmado de novo em
+   2026-09-11 via SQL: 85,3% de confiança média em trade vencedor vs
+   84,3% em perdedor, praticamente idêntico, sem poder preditivo real
+   (n=44, sessão daquele dia). Se retomado: projeto de pesquisa novo
+   (dado, validação out-of-sample, calibration curve/Brier score), mesmo
+   escopo do Trilho 2 (hoje pausado). Sem próximo passo definido.
+5a. **[2026-09-11] Ideia relacionada mas de escopo DIFERENTE, registrada
+   nesta sessão: ML de MAGNITUDE de alvo (não de direção).** Contexto:
+   Cleber notou que o alvo de um trade real (SPX500 SHORT, R:R 1:1,2, só
+   acima do piso mínimo `mt5MinRrAfterSrCap=1.0` em `config.ts`) nasceu
+   matematicamente fraco — com ~43% de acerto na sessão, R:R perto de
+   1:1 é receita de prejuízo estrutural (precisa de >50% de acerto só
+   pra empatar). Perguntou se Machine Learning deveria prever o alvo.
+   **Distinção importante, não confundir com o Trilho 2 (fechado por
+   falta de edge direcional)**: prever DIREÇÃO já foi buscado
+   exaustivamente sem sucesso (ver seção "Cérebro de decisão da IA"
+   acima) — um ML que precisa acertar direção embutida provavelmente
+   bate na mesma parede. Mas prever MAGNITUDE (dado que a direção já foi
+   decidida pelo LLM, até onde o preço tende a ir antes de reverter,
+   pra calibrar a distância do alvo em vez da fórmula fixa ATR×multiplicador
+   capada por S/R) é estruturalmente mais parecido com previsão de
+   volatilidade — que o projeto já permite ML ("ML entra só em previsão
+   de volatilidade, nunca de direção", ver "Cérebro de decisão" acima).
+   **Checado nesta sessão: infraestrutura de dado NÃO existe ainda.**
+   995 trades fechados no total (`ai_trades`), só 413 com
+   `indicators_snapshot` gravado (resto é de mecânicas antigas/formato
+   diferente), e a métrica que serviria de alvo de treino — `mfe_usd`
+   (maior lucro flutuante real antes de reverter, commit `9f33d3388`,
+   2026-09-10) — **só tem 19 trades com dado, começou a gravar ontem**.
+   Mesmo os 413 vêm de dezenas de versões diferentes do motor (stop
+   mudou 2.0x→1.3x→0.65x→2.0x ATR só entre 03-09/09, por exemplo) —
+   misturar tudo seria misturar populações não-estacionárias, viés real.
+   **Critério concreto pra reabrir esta investigação**: esperar `mfe_usd`
+   acumular amostra mínima (referência: mesmo piso de 150-300+ trades
+   fechados já usado como norma neste projeto pra qualquer alegação
+   estatística, ver disciplina de "5 dias úteis/40+ trades" usada em
+   vários fixes de mecânica) SOB A MESMA VERSÃO de motor (não misturar
+   regimes de stop/trailing diferentes) antes de treinar qualquer coisa
+   — com split out-of-sample real, walk-forward sem look-ahead, e
+   validação por Brier score/curva de calibração antes de declarar
+   qualquer resultado. Sem próximo passo definido além de "esperar
+   acumular dado limpo".
 6. **[2026-08-18] Programa de Parceiros IB — falta aplicar B4.** B1/B2/B3
    completos (ledger, captura de `?ref=`, marcos do funil). B4 (job de
    apuração periódica) escrito e deployado, mas migration
