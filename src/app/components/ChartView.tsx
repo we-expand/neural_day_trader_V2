@@ -8807,9 +8807,18 @@ export function ChartView({
             // nessa posição mesmo depois da barra sumir, jogando o header
             // (símbolo/preço) pra fora da tela por cima. O ativo selecionado
             // nunca mudou de verdade (confirmado no DOM), só ficava invisível.
-            requestAnimationFrame(() => {
-              chartContainerRef.current?.closest('main')?.scrollTo({ top: 0, behavior: 'smooth' });
-            });
+            // Reforçado em 3 momentos (0/150/400ms) — o layout só termina de
+            // recalcular altura depois do fetchChartDataRef/re-render, 1
+            // rAF isolado nem sempre alcançava a tempo (confirmado que o bug
+            // persistia com só 1 tentativa).
+            const resetMainScroll = () => {
+              const main = chartContainerRef.current?.closest('main');
+              if (main) main.scrollTop = 0;
+            };
+            resetMainScroll();
+            requestAnimationFrame(resetMainScroll);
+            setTimeout(resetMainScroll, 150);
+            setTimeout(resetMainScroll, 400);
           }}
           onCandleChange={(candle) => {
             // Ativar modo replay na primeira vez
@@ -8835,6 +8844,26 @@ export function ChartView({
               close: c.close,
               volume: c.volume,
             })));
+            // 🔧 FIX: `applyNewData` sempre reseta o scroll pro comportamento
+            // padrão da klinecharts (candle mais recente colado na borda
+            // DIREITA) — com poucos candles isso amontoa tudo à direita,
+            // deixando o lado esquerdo vazio. Cleber pediu que o replay
+            // comece do lado ESQUERDO da tela, com espaço à direita pra
+            // acompanhar os candles surgindo — igual ferramenta de replay de
+            // corretora de verdade. Empurra o offset da direita até o candle
+            // mais recente ficar perto da borda esquerda; assim que os
+            // candles já reais preenchem a tela inteira, o offset padrão
+            // (pequeno) volta a valer sozinho, sem mais precisar deste ajuste.
+            try {
+              const containerWidth = chartContainerRef.current?.clientWidth || 0;
+              const barSpace = chart.getBarSpace();
+              const usedWidth = candles.length * (typeof barSpace === 'number' ? barSpace : 8);
+              if (containerWidth > 0 && usedWidth < containerWidth) {
+                chart.setOffsetRightDistance(containerWidth - usedWidth);
+              }
+            } catch (e) {
+              console.warn('[ChartView] ⚠️ Falha ao ancorar replay à esquerda:', e);
+            }
           }}
         />
       )}
