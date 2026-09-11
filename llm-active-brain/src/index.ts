@@ -30,7 +30,22 @@ function sleep(ms: number) {
 // o LLM terminar de pensar. Idempotente e seguro rodar em paralelo ao
 // enforceMt5StopsAndTargets que roda no inicio de cada ciclo (closeMt5Position
 // so age em posicao ainda OPEN).
-const STOP_WATCHDOG_INTERVAL_MS = 3_000;
+// 🔴 2026-09-11 (pedido direto do Cleber, ao vivo: BTCUSD SHORT fechou
+// 89,5pts alem do alvo -- 326% do risco original, bem acima da faixa
+// validada de 0,2%-16% do fix de 2026-09-09 abaixo. Log confirmou que NAO
+// era feed indisponivel/rate-limited desta vez (zero avisos de "SEM
+// PROTECAO" nessa janela) -- o proprio intervalo de 3s deu tempo do preco
+// correr alem da linha ANTES da proxima checagem, num ativo rapido como
+// BTCUSD). Cleber foi explicito: "ao encostar na linha... tem que ser
+// encerrada", decisao consciente de reduzir ainda mais a janela de exposicao,
+// mesmo sabendo que isso e mudanca de mecanica de execucao (reinicia o
+// protocolo de validacao de 5 dias/40 trades combinado com o llm-council em
+// 2026-09-10/11). Descido de 3s para 1s -- ainda batched (primeQuotes cobre
+// so os simbolos com posicao aberta, tipicamente 1-2, nunca a cesta
+// inteira), entao o aumento de carga por posicao aberta e 3x, nao
+// proporcional a cesta toda (ver fix de 2026-09-11 acima que ja reduziu o
+// prime geral de 28 pra so os simbolos realmente usados).
+const STOP_WATCHDOG_INTERVAL_MS = 1_000;
 // 🔴 2026-09-09 (achado real via log + llm-council: overshoot de stop de
 // ~115 pontos em BTCUSD, ver comentario em mt5Broker.ts/getQuoteSingleAttempt):
 // o watchdog rodava a cada 3s mas aceitava cotacao com ate 12s de idade (TTL
@@ -41,7 +56,10 @@ const STOP_WATCHDOG_INTERVAL_MS = 3_000;
 // atendido via prime EM LOTE (ver stopWatchdogTick abaixo) -- nunca fetch
 // individual por simbolo com posicao aberta, pra nao reintroduzir o
 // incidente de rate-limit que forcou o TTL geral a subir pra 12s.
-const STOP_WATCHDOG_MAX_QUOTE_AGE_MS = 4_000;
+// 🔴 2026-09-11: descido de 4s pra 1,5s, acompanhando o intervalo do
+// watchdog acima (3s -> 1s) -- mantem a mesma folga proporcional (um pouco
+// acima do intervalo) sem herdar cotacao velha de 4s num ciclo de 1s.
+const STOP_WATCHDOG_MAX_QUOTE_AGE_MS = 1_500;
 let stopWatchdogSessions: Mt5Session[] = [];
 let stopWatchdogBusy = false;
 let stopWatchdogTimer: ReturnType<typeof setInterval> | undefined;
