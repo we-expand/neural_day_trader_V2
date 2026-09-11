@@ -364,7 +364,34 @@ async function runContinuous() {
       // deste ciclo reaproveitam o mesmo cache de curta duracao. Falha
       // silenciosa (nunca lanca): se der errado, cada getQuote() cai pro
       // fetch individual de sempre, sem perder protecao nenhuma.
-      await primeQuotes(MT5_ASSET_BASKET);
+      //
+      // 🔴 2026-09-11 (achado real, pedido do Cleber pra reduzir rate-limit):
+      // isto primava o array FIXO `MT5_ASSET_BASKET` (28 simbolos, universo
+      // POSSIVEL) inteiro todo ciclo, mesmo com a cesta REAL do usuario
+      // (`ai_user_config.activeAssets`) tendo so 11 -- quase 3x mais simbolos
+      // pedidos ao endpoint compartilhado da MetaAPI do que qualquer sessao
+      // ia de fato usar naquele ciclo. Agora prima so a UNIAO das cestas
+      // efetivas de cada sessao elegivel + simbolos de posicao aberta fora da
+      // cesta (mesma excecao ja existente em get_mt5_quote/tools.ts, pra nao
+      // deixar de cotar uma posicao herdada de uma cesta antiga) -- reduz a
+      // carga por ciclo pro que realmente importa, sem mudar nenhum
+      // parametro de risco/mecanica de trading.
+      const primeSymbols = new Set<string>();
+      for (const s of sessions) {
+        for (const sym of s.userConfig?.activeAssets ?? MT5_ASSET_BASKET) primeSymbols.add(sym);
+      }
+      try {
+        for (const s of sessions) {
+          const openPositions = await listMt5OpenPositions(s.sessionId);
+          for (const pos of openPositions) primeSymbols.add(pos.symbol);
+        }
+      } catch (err) {
+        console.warn(
+          "[DEBUG] falha ao coletar simbolos de posicao aberta pra prime desta cesta reduzida (nao bloqueante):",
+          err instanceof Error ? err.message : err
+        );
+      }
+      await primeQuotes(Array.from(primeSymbols));
 
       // 🔴 2026-09-03: mantem o watchdog independente (acima) sempre com a
       // lista atual de sessoes elegiveis -- ele roda no seu proprio timer,
