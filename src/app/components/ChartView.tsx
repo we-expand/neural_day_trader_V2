@@ -5105,7 +5105,17 @@ export function ChartView({
       // usada pras entradas duplicadas) só pra enxergar as duas linhas, sem
       // nunca mudar o preço real mostrado no texto da label.
       const isBreakevenStop = hasSl && order.sl === order.price;
-      const breakevenNudge = isBreakevenStop ? pointSize * 4 * (isLong ? -1 : 1) : 0;
+      // 🔴 2026-09-11 (pedido do Cleber: "precisa aparecer" — nudge fixo de
+      // pontos ficava minúsculo demais pra separar as linhas em ativo de
+      // preço alto, ex: 20 "pontos" em BTCUSD ~$79.000 some no meio da
+      // escala do preço): deslocamento agora é uma FRAÇÃO do próprio preço
+      // (0,06%), então escala junto com a magnitude do ativo em vez de um
+      // valor absoluto fixo — separa de forma visível tanto em BTCUSD
+      // (~$79.000, nudge ~$47) quanto em ativo barato (XLMUSD ~$0,18, nudge
+      // ~$0,0001, ainda proporcionalmente visível na régua do próprio
+      // ativo). Sempre um deslocamento puramente visual — a label continua
+      // mostrando o preço real do stop, nunca o deslocado.
+      const breakevenNudge = isBreakevenStop ? order.price * 0.0006 * (isLong ? -1 : 1) : 0;
       const riskPts = riskPriceDiff / pointSize;
       const rewardPts = rewardPriceDiff / pointSize;
       const riskUsd = riskPriceDiff * units;
@@ -5137,7 +5147,13 @@ export function ChartView({
         const pointsSign = pointsFavorable >= 0 ? '+' : '';
         const liveStats = ` · ${pnlSign}$${pnl.toFixed(usdPrecision(pnl))} (${pointsSign}${pointsFavorable.toFixed(ptsPrecision(pointsFavorable))} pts)`;
         const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
-        const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(labelPricePrecision)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`;
+        // 🔴 2026-09-11 (pedido do Cleber: o nudge visual sozinho não bastou —
+        // em certos níveis de zoom as 2 linhas continuam parecendo 1 só):
+        // o texto da própria linha de Entrada também avisa quando o stop está
+        // travado em cima dela, pra não depender só de enxergar 2 traços
+        // separados na tela.
+        const breakevenSuffix = isBreakevenStop ? ' · 🔒 SL NO BREAKEVEN (em cima da entrada)' : '';
+        const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(labelPricePrecision)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}${breakevenSuffix}`;
 
         // 🔴 2026-08-29: atualiza a overlay existente no lugar (preço +
         // texto de P&L ao vivo) em vez de remove+recria — é isto que
