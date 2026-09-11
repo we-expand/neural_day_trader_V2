@@ -583,8 +583,11 @@ export interface OpenMt5PositionParams {
   // 🔴 2026-08-29: stop/alvo MECÂNICOS (preço absoluto, não %), calculados em
   // tools.ts na abertura e gravados aqui -- ver enforceMt5StopsAndTargets
   // abaixo, que os lê a cada ciclo e fecha por código, independente do LLM.
-  stopLoss: number;
-  takeProfit: number;
+  // 🔴 2026-09-11: aceita null pra adoção automática de ordem aberta fora da
+  // plataforma (reconciliação, index.ts) -- nunca inventa um nível que o
+  // dono não escolheu; enforceMt5StopsAndTargets já ignora stop/alvo null.
+  stopLoss: number | null;
+  takeProfit: number | null;
   reasoning: string;
   // 🔴 2026-09-02 (pedido do Cleber, achado real: coluna "Confiança" do log
   // de operações sempre vazia -- ai_confidence só era gravado pelo motor

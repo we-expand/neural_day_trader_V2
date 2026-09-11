@@ -5,8 +5,8 @@ import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
-import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, closeMt5Position, type Mt5OpenPosition } from "./neuralBridge.js";
-import { MT5_ASSET_BASKET } from "./assetBasket.js";
+import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, closeMt5Position, openMt5Position, type Mt5OpenPosition } from "./neuralBridge.js";
+import { MT5_ASSET_BASKET, LOT_SIZE } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
@@ -227,12 +227,52 @@ async function liveReconcileTick(): Promise<void> {
       }
 
       if (unexpectedOnBroker.length > 0) {
-        // Corretora tem posicao real que o motor nao reconhece -- isso SIM
-        // e perigoso pra ORDEM NOVA (estado real diverge do que o motor
-        // pensa que existe), trava a execucao ate alguem olhar.
-        tripLiveCircuitBreaker(
-          `Corretora tem posicoes reais [${unexpectedOnBroker.map((p) => p.id).join(",")}] que o motor nao reconhece (sessao ${session.sessionId}).`
-        );
+        // 🔴 2026-09-11 (pedido do Cleber, ao vivo: "isso tem que ser
+        // instantaneo" -- antes disto, uma ordem aberta manualmente por ele
+        // DIRETO no terminal MT5 so entrava no Dashboard/ai_trades depois de
+        // alguem (Claude, via SQL) reconhecer na mao o broker_position_id,
+        // minutos ou horas depois, com o circuit breaker travando TODA
+        // execucao real ate la (achado ao vivo: ticket 1214146969 aberto no
+        // MT5 ficou invisivel no Dashboard e derrubou a execucao ate esta
+        // sessao ser investigada). Agora a propria reconciliacao ADOTA a
+        // posicao real na hora (mesmo formato ja usado nos reconhecimentos
+        // manuais anteriores: is_live_execution=true, sem SL/TP proprios --
+        // o dono decidiu abrir sem protecao mecanica da plataforma, decisao
+        // dele) -- nunca fabrica preco/side, usa exatamente o que a
+        // corretora devolveu. So dispara o circuit breaker se a adocao em si
+        // falhar (nesse caso o estado real segue desconhecido pra nos).
+        for (const position of unexpectedOnBroker) {
+          const side: "LONG" | "SHORT" = position.type.toUpperCase().includes("SELL") ? "SHORT" : "LONG";
+          // `quantity` na tabela é convenção de exposição em USD (ver
+          // comentário em increaseMt5Position acima), não lotes crus --
+          // mesma fórmula usada em open_position (tools.ts): lots ×
+          // LOT_SIZE × preço. LOT_SIZE default 1 pra símbolo fora do mapa
+          // (mesma convenção do resto do motor).
+          const amountUsd = position.volume * (LOT_SIZE[position.symbol] ?? 1) * position.openPrice;
+          const adoptedId = await openMt5Position({
+            sessionId: session.sessionId,
+            userId: session.userId,
+            symbol: position.symbol,
+            side,
+            entryPrice: position.openPrice,
+            amountUsd,
+            stopLoss: null,
+            takeProfit: null,
+            reasoning:
+              `Ordem aberta fora da plataforma (direto no terminal MetaTrader) -- sincronizada automaticamente pela ` +
+              `reconciliacao ao vivo (broker_position_id=${position.id}), sem SL/TP mecanico da plataforma pois nao foi ` +
+              `a plataforma quem abriu. Nunca bloqueia nem fecha essa posicao, so passa a monitora-la.`,
+            brokerPositionId: position.id,
+          });
+          if (adoptedId) {
+            console.warn(`[live-reconcile] 🟢 Posicao real ${position.id} (${position.symbol}) nao reconhecida -- adotada automaticamente como ${adoptedId}.`);
+          } else {
+            console.error(`[live-reconcile] Falha ao adotar posicao real ${position.id} (${position.symbol}) -- estado real permanece desconhecido.`);
+            tripLiveCircuitBreaker(
+              `Corretora tem posicao real [${position.id}] que o motor nao conseguiu adotar automaticamente (sessao ${session.sessionId}).`
+            );
+          }
+        }
       }
     }
   } finally {
