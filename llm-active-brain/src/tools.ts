@@ -1642,11 +1642,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // derivado dele) -- o calculo do alvo abaixo precisa do ATR original
       // pra usar mt5TargetReferenceStopAtrMultiplier como referencia de
       // risco, independente do multiplicador real do stop (mt5StopAtrMultiplier).
+      // 🔴 2026-09-11 (pedido direto do Cleber, isolado ao fim de semana --
+      // ver comentário completo em config.ts): usa mt5StopAtrMultiplierWeekend
+      // (1.5x) em vez do mt5StopAtrMultiplier de dia útil (2.0x) quando
+      // isWeekendMode() -- NUNCA altera o stop de dia útil.
+      const stopAtrMultiplierForRegime = isWeekendMode()
+        ? config.mt5StopAtrMultiplierWeekend
+        : config.mt5StopAtrMultiplier;
       const atrPctForStop = await getAtrPercent(symbol, openPositionTimeframe);
       let stopPct: number | null = atrPctForStop == null
         ? null
         : (() => {
-            const dynamicStopPct = atrPctForStop * config.mt5StopAtrMultiplier;
+            const dynamicStopPct = atrPctForStop * stopAtrMultiplierForRegime;
             if (dynamicStopPct < config.mt5StopMinPct || dynamicStopPct > config.mt5StopMaxPct) return null;
             return dynamicStopPct;
           })();
@@ -1754,8 +1761,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (atrPctForStop*1.3), gerando alvo bem menor que o proprio stop
       // fallback. Corrigido pra checar usedFallbackStop (que cobre os dois
       // casos: ATR nulo E ATR fora do range) em vez de so atrPctForStop.
+      // 🔴 2026-09-11 (pedido direto do Cleber -- "alvo encolhe junto" com o
+      // stop novo de fim de semana): em dia útil a referência continua
+      // exatamente mt5TargetReferenceStopAtrMultiplier (2.0x, igual sempre
+      // foi); em fim de semana passa a usar o MESMO stopAtrMultiplierForRegime
+      // (1.5x) em vez da referência congelada de dia útil -- o alvo de fim de
+      // semana (mt5TakeProfitAtrMultiplierWeekend=2.5x) some encolhido junto
+      // com o stop, mantendo R:R positivo (2.5/1.5 ≈ 1,67:1) em vez de deixar
+      // o R:R degradar por manter o alvo ancorado num risco de dia útil que
+      // não existe mais nesse regime.
+      const targetReferenceMultiplierForRegime = isWeekendMode()
+        ? stopAtrMultiplierForRegime
+        : config.mt5TargetReferenceStopAtrMultiplier;
       const targetReferenceStopPct = !usedFallbackStop
-        ? atrPctForStop! * config.mt5TargetReferenceStopAtrMultiplier
+        ? atrPctForStop! * targetReferenceMultiplierForRegime
         : stopPct;
       let takeProfitPct = targetReferenceStopPct * rrMultiplier;
       // 🔴 2026-09-02 (pedido direto do Cleber): alvo por ATR e cego a
@@ -2012,15 +2031,16 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           tripLiveCircuitBreaker(`Saldo real da conta <= 0 ($${liveAccount.balance}) -- nao ha capital pra operar.`);
           return { error: "Saldo real da conta <= 0 -- circuit breaker acionado, posicao NAO aberta." };
         }
-        // Teto de perda ABSOLUTO em dolar (nao %, ver mt5LiveAbsoluteLossLimitUsd
-        // em config.ts) -- 3% de $22 e ruido demais pro proprio sistema notar
-        // um bug antes do capital pequeno acabar.
+        // 🔴 2026-09-11: teto de perda absoluto agora e % do saldo REAL desta
+        // conta (mt5LiveAbsoluteLossLimitPct, config.ts) -- cada usuario
+        // deposita um valor diferente, um numero fixo em dolar nao escala.
         const initialLiveBalance = liveAccount.balance; // aproximacao: saldo atual como piso de referencia deste ciclo.
-        if (initialLiveBalance - liveAccount.equity > config.mt5LiveAbsoluteLossLimitUsd) {
+        const absoluteLossLimitUsd = initialLiveBalance * (config.mt5LiveAbsoluteLossLimitPct / 100);
+        if (initialLiveBalance - liveAccount.equity > absoluteLossLimitUsd) {
           tripLiveCircuitBreaker(
-            `Drawdown flutuante ($${(initialLiveBalance - liveAccount.equity).toFixed(2)}) excede o teto absoluto de $${config.mt5LiveAbsoluteLossLimitUsd} -- posicao NOVA bloqueada.`
+            `Drawdown flutuante ($${(initialLiveBalance - liveAccount.equity).toFixed(2)}) excede o teto de ${config.mt5LiveAbsoluteLossLimitPct}% do saldo ($${absoluteLossLimitUsd.toFixed(2)}) -- posicao NOVA bloqueada.`
           );
-          return { error: "Teto de perda absoluta em dolar excedido -- circuit breaker acionado, posicao NAO aberta." };
+          return { error: "Teto de perda absoluta (% do saldo) excedido -- circuit breaker acionado, posicao NAO aberta." };
         }
         const liveResult = await executeLiveMarketOrder(session.userId, {
           side: side as "LONG" | "SHORT",

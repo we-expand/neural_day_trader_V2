@@ -319,6 +319,22 @@ export const config = {
   // se vale testar um valor intermediario (ex: 1.5x-1.7x) DEPOIS de rodar
   // 2.0x por 5 dias/40+ trades estavel -- nao antes.
   mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 2.0),
+  // 🔴 2026-09-11 (pedido direto do Cleber -- "o stop está muito grande, pro
+  // modelo fim de semana"): stop DEDICADO de fim de semana, ISOLADO do
+  // mt5StopAtrMultiplier de dia útil acima -- NÃO reabre o corte de
+  // 2026-09-04 (2.0x -> 1.3x -> 0.65x) que derrubou a taxa de acerto de
+  // 80%->33% (ver comentário longo acima); aquele corte era GLOBAL (todo
+  // dia), este é isolado ao regime de fim de semana (isWeekendMode(),
+  // atr.ts/assetBasket.ts), que já opera só cripto com liquidez global
+  // menor -- mesmo raciocínio de regime dedicado já usado pro alvo
+  // (mt5TakeProfitAtrMultiplierWeekend). O alvo de fim de semana passa a
+  // usar este mesmo multiplicador como referência de risco (ver
+  // targetReferenceMultiplierForRegime em tools.ts), então o R:R de fim de
+  // semana continua positivo (2.5/1.5 ≈ 1,67:1) em vez de encolher só o
+  // stop e deixar o R:R degradar. Sem validação estatística ainda -- precisa
+  // de amostra rodando (mesma disciplina de 5 dias úteis/40+ trades já usada
+  // no projeto) antes de julgar efeito real.
+  mt5StopAtrMultiplierWeekend: Number(process.env.MT5_STOP_ATR_MULTIPLIER_WEEKEND ?? 1.5),
   // 🔴 2026-09-07 (pedido direto do Cleber): distância (em multiplos de ATR)
   // acima da qual o preço é considerado "esticado" longe de EMA9/SMA20/SMA200
   // -- ver getMovingAverageDistance (atr.ts). 3.0x ATR é um limiar
@@ -363,16 +379,33 @@ export const config = {
   // consumir uma fração grande demais de um alvo de 1,7% ATR.
   mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 4.0),
   // 🔴 2026-09-05: alvo dedicado de fim de semana (2.5x ATR) foi testado e
-  // REVERTIDO no mesmo dia a pedido direto do Cleber -- volta a ser IGUAL ao
-  // do dia útil (4.0x ATR, mesmo R:R 1:2 sempre, stop 2.0x ATR intocado).
-  // Constante mantida (não removida) só pra não quebrar a referência em
-  // tools.ts -- default agora aponta pro mesmo valor do dia útil, sem
-  // regime especial de fim de semana pro alvo.
-  mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 4.0),
+  // REVERTIDO no mesmo dia a pedido direto do Cleber -- tinha voltado a ser
+  // IGUAL ao do dia útil (4.0x ATR, mesmo R:R 1:2, stop 2.0x ATR intocado).
+  // 🔴 2026-09-11 (pedido direto do Cleber, mesmo valor da tentativa
+  // anterior): reintroduzido -- fim de semana tem volume estruturalmente
+  // menor (só cripto, liquidez global mais baixa, ver `isWeekend` em
+  // atr.ts/agent.ts), então o motor deve mirar um alvo MENOR (menos pontos,
+  // captura mais rápida) em vez de continuar pedindo o mesmo movimento de
+  // preço do dia útil. Stop (mt5StopAtrMultiplier) continua INTOCADO --
+  // nunca repetir o corte de stop de 2026-09-04 (derrubou acerto de
+  // 80%->33%, ver CLAUDE.md). R:R fim de semana passa a ser 2.5/2.0=1.25:1
+  // (mais curto que o 4.0/2.0=2:1 do dia útil, ainda positivo). O sizing de
+  // abertura (rawLotsPreCap em open_position, mira mt5TargetRewardUsd em
+  // dólar fixo) já compensa automaticamente um takeProfitPct menor com MAIS
+  // lotes -- não precisa de nenhum multiplicador de risco% extra pra manter
+  // o retorno em dólar por trade "condizente" com o alvo mais curto; o teto
+  // duro de risco (mt5MaxRiskPctPerTrade) continua limitando por cima, sem
+  // mudança.
+  mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 2.5),
   // 🔴 2026-09-05: revertido junto com o alvo acima -- sem alvo mais curto no
-  // fim de semana, não há R:R menor pra compensar. Multiplicador volta a 1.0
-  // (no-op). Mantido como config (não removido) só pra não quebrar a
-  // referência em tools.ts.
+  // fim de semana, não havia R:R menor pra compensar. Multiplicador ficou em
+  // 1.0 (no-op).
+  // 🔴 2026-09-11: continua em 1.0 de propósito, mesmo com o alvo de fim de
+  // semana voltando a ser mais curto -- ver comentário acima: a
+  // compensação de tamanho já é automática via mt5TargetRewardUsd
+  // (open_position), este multiplicador de risco% é de uma geração anterior
+  // do sizing (pré-2026-09-05) e ligá-lo de novo dobraria a compensação
+  // (mais lotes pelo alvo menor E mais risco% por cima, sem necessidade).
   mt5RiskPctPerTradeWeekendMultiplier: Number(process.env.MT5_RISK_PCT_PER_TRADE_WEEKEND_MULTIPLIER ?? 1.0),
   // 🔴 2026-08-30 (mesmo redesenho): 0.002 -> 0.003 -- piso um pouco mais
   // largo, margem extra de segurança contra whipsaw por ruído puro em
@@ -672,12 +705,16 @@ export const config = {
   // depois do Cleber revisar o código e decidir explicitamente (não é
   // decisão que o código deva tomar sozinho).
   mt5LiveExecutionEnabled: process.env.MT5_LIVE_EXECUTION_ENABLED === "true",
-  // Teto de perda em DÓLAR ABSOLUTO, não %, pro modo LIVE -- 3% de $22 (~$0,66,
-  // ver mt5MaxRiskPctPerTrade acima) é ruído estatístico demais pro próprio
-  // sistema perceber um bug de sizing/execução antes do capital pequeno já era.
-  // Checado em open_position (tools.ts) contra o saldo REAL da MetaAPI antes
-  // de qualquer ordem real nova -- acima disso, circuit breaker.
-  mt5LiveAbsoluteLossLimitUsd: Number(process.env.MT5_LIVE_ABSOLUTE_LOSS_LIMIT_USD ?? 3),
+  // 🔴 2026-09-11 (achado real, pedido do Cleber): ERA um teto de perda em
+  // DOLAR ABSOLUTO fixo ($3 pra toda conta, calibrado só pra uma conta de
+  // teste de ~$22-57) -- quebrava pra qualquer outro saldo: trava cedo
+  // demais numa conta grande (flutuação normal já dispara o breaker) ou
+  // tarde demais numa conta pequena que deposite mais que o valor de teste.
+  // Cada usuário vai entrar com saldo diferente, então o teto precisa ser
+  // % do saldo REAL dele, não um número fixo igual pra todo mundo. Checado
+  // em open_position (tools.ts) contra o saldo REAL da MetaAPI antes de
+  // qualquer ordem real nova -- acima disso, circuit breaker.
+  mt5LiveAbsoluteLossLimitPct: Number(process.env.MT5_LIVE_ABSOLUTE_LOSS_LIMIT_PCT ?? 10),
 };
 
 if (config.mt5LiveExecutionEnabled) {
@@ -686,8 +723,8 @@ if (config.mt5LiveExecutionEnabled) {
       "MT5_LIVE_EXECUTION_ENABLED=true exige NEURAL_BRIDGE_ENABLED=true e todas as NEURAL_SUPABASE_*/NEURAL_USER_ID preenchidas -- execucao real precisa da mesma ponte de sessao."
     );
   }
-  if (!Number.isFinite(config.mt5LiveAbsoluteLossLimitUsd) || config.mt5LiveAbsoluteLossLimitUsd <= 0) {
-    throw new Error("MT5_LIVE_ABSOLUTE_LOSS_LIMIT_USD precisa ser um numero positivo quando a execucao real esta ligada.");
+  if (!Number.isFinite(config.mt5LiveAbsoluteLossLimitPct) || config.mt5LiveAbsoluteLossLimitPct <= 0) {
+    throw new Error("MT5_LIVE_ABSOLUTE_LOSS_LIMIT_PCT precisa ser um numero positivo quando a execucao real esta ligada.");
   }
 }
 
