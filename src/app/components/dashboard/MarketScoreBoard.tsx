@@ -830,7 +830,13 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
 
   const activePnL = activeOrders.reduce((acc, o) => acc + (o.currentProfit || 0), 0);
   const animatedActivePnL = useAnimatedNumber(activePnL);
-  const profitAi = (portfolio?.equity || 0) - (config.initialBalance || 100);
+
+  // ✅ 2026-09-12: "Lucro AI Trader" media contra config.initialBalance
+  // (default hardcoded $100), igual ao bug já corrigido abaixo pro card
+  // "Risco da Conta" -- com allocatedCapital real menor que $100 (ex:
+  // $54,03), o número inflava a perda exibida (achado real: $14,22 de
+  // equity mostrava "-$85,78" em vez da perda real de ~$39,81 contra o
+  // capital de fato alocado). Âncora unificada com allocatedCapital abaixo.
 
   // ✅ 2026-07-20: "Risco da Conta" usava só o P&L flutuante das posições
   // ABERTAS agora (activePnL) — zerava sempre que não havia posição aberta,
@@ -854,6 +860,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
   const allocatedCapital = config.allocatedCapital && config.allocatedCapital > 0
     ? config.allocatedCapital
     : 100;
+  const profitAi = (portfolio?.equity || 0) - allocatedCapital;
   const currentEquity = portfolio?.equity ?? allocatedCapital;
   const realDrawdownPercent = currentEquity < allocatedCapital
     ? ((allocatedCapital - currentEquity) / allocatedCapital) * 100
