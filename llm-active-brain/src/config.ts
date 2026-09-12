@@ -593,6 +593,15 @@ export const config = {
   // mantido igual ao de dia útil pra não reabrir o mesmo gargalo quando a
   // virada de dia útil->fim de semana acontecer com o contador ainda alto.
   mt5MaxEntriesPer24hWeekend: Number(process.env.MT5_MAX_ENTRIES_PER_24H_WEEKEND ?? 60),
+  // 2026-09-12 (pedido direto do Cleber): gate de confiança mínima pra abrir
+  // posição (MIN_CONFIDENCE_FOR_OPEN_POSITION em tools.ts, fixo em 80%) cai
+  // pra este valor mais baixo enquanto isWeekendMode() está ativo -- liquidez
+  // menor no fim de semana já reduz a chance de confluência forte o
+  // suficiente pra passar de 80%, travando o motor perto do teto de
+  // frequência. Dia útil continua exigindo 80%, intocado. Sem validação
+  // estatística ainda -- é o valor que ele pediu explicitamente, reavaliar
+  // com amostra de fins de semana sob este gate.
+  mt5MinConfidenceForOpenPositionWeekend: Number(process.env.MT5_MIN_CONFIDENCE_WEEKEND ?? 70),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO

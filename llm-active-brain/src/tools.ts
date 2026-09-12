@@ -479,9 +479,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             description:
               `Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/` +
               `estocastico/spread/padroes de candle) e o reasoning acima -- e o seu julgamento de o quanto os fatores reais ` +
-              `convergem a favor desta tese. IMPORTANTE: abaixo de ${MIN_CONFIDENCE_FOR_OPEN_POSITION} a entrada e RECUSADA ` +
-              `pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real; se for < ` +
-              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}, so nao abra a posicao.`,
+              `convergem a favor desta tese. IMPORTANTE: abaixo de ${MIN_CONFIDENCE_FOR_OPEN_POSITION} em dia util (ou ` +
+              `${config.mt5MinConfidenceForOpenPositionWeekend} em fim de semana, "isWeekend" em get_mt5_quote) a entrada e ` +
+              `RECUSADA pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real.`,
           },
           setupType: {
             type: "string",
@@ -1104,10 +1104,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // reintroduzido no mesmo dia depois de um revert anterior (c510c1074)
       // ter removido o gate. `confidence` não é só registrado (ai_confidence),
       // também bloqueia a entrada quando abaixo do mínimo.
-      if (confidence === null || confidence < MIN_CONFIDENCE_FOR_OPEN_POSITION) {
+      // 2026-09-12 (pedido do Cleber): no fim de semana o piso cai pro valor
+      // de config.mt5MinConfidenceForOpenPositionWeekend (default 70) --
+      // liquidez menor reduz a chance de confluência forte o bastante pra
+      // passar de 80%, e o teto de frequência de fim de semana ficava sem uso
+      // real. Dia útil continua exigindo MIN_CONFIDENCE_FOR_OPEN_POSITION (80%).
+      const minConfidenceRequired = isWeekendMode()
+        ? config.mt5MinConfidenceForOpenPositionWeekend
+        : MIN_CONFIDENCE_FOR_OPEN_POSITION;
+      if (confidence === null || confidence < minConfidenceRequired) {
         return {
           error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
-            `(${MIN_CONFIDENCE_FOR_OPEN_POSITION}%). So abra quando a confluencia tecnica REAL justificar confianca alta -- ` +
+            `(${minConfidenceRequired}%${isWeekendMode() ? ", piso de fim de semana" : ""}). So abra quando a confluencia tecnica REAL justificar confianca alta -- ` +
             `nao infle o numero so pra passar deste gate, o campo e auditado.`,
         };
       }

@@ -247,6 +247,25 @@ export async function executeLiveClose(userId: string, brokerPositionId: string)
   const result = await callBrokerExecute(userId, { action: "closePosition", positionId: brokerPositionId });
   if (!result.success) return { success: false, error: result.error };
 
+  // 2026-09-12: `result.success` acima so significa que /broker/execute
+  // devolveu HTTP 200 -- e esse handler so confere o HTTP status da MetaAPI,
+  // nunca o corpo da resposta de execucao (a MetaAPI pode aceitar a
+  // requisicao e mesmo assim REJEITAR o fechamento na corretora, ex. posicao
+  // ja fechada por outro lado, erro de mercado). Confirmado ao vivo: um
+  // "fechamento" que retornou sucesso aqui deixou a posicao real aberta na
+  // corretora, e a reconciliacao a readotou minutos depois como posicao
+  // nova -- duplicando o rastreio da mesma posicao real. Corrigido
+  // reconferindo getPositions DEPOIS do closePosition: so aceita sucesso se
+  // a posicao de fato sumiu da lista real.
+  const after = await getLivePositions(userId);
+  const stillOpen = after.find((p) => String(p.id) === brokerPositionId);
+  if (stillOpen) {
+    tripLiveCircuitBreaker(
+      `Posicao ${brokerPositionId} recebeu closePosition com sucesso reportado mas continua aberta na corretora -- fechamento real nao confirmado.`
+    );
+    return { success: false, error: "Corretora aceitou o fechamento mas a posicao continua aberta de verdade -- circuit breaker acionado, fechamento NAO confirmado." };
+  }
+
   // A resposta de fechamento da MetaAPI nao traz sempre um preco de saida
   // pronto -- usa o preco corrente (bid/ask) da posicao no momento do
   // fechamento, ja carregado em `before`, como aproximacao real mais
