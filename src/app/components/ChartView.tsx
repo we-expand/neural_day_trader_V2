@@ -6326,18 +6326,39 @@ export function ChartView({
           // 🔧 FIX: recria os desenhos do usuário capturados no snapshot antes do dispose()
           // (ver cleanup do effect, onde `userDrawingsSnapshotRef` é preenchido). Sem isso,
           // trendline/fibonacci/shapes/texto/emoji desenhados manualmente somem pra sempre
-          // a cada troca de timeframe/símbolo — bug real confirmado ao vivo. `points` usa
-          // `dataIndex`, que é relativo ao dataset carregado (mesmo símbolo+intervalo de
-          // candles reais, já reaplicado acima por `applyNewData`), então a posição visual
-          // é preservada corretamente.
+          // a cada troca de timeframe/símbolo — bug real confirmado ao vivo.
+          //
+          // 🐛 BUG REAL achado nesta sessão (Cleber reportou: Fibonacci especificamente não
+          // segurava ao trocar de TIMEFRAME, mesmo com este mecanismo já existindo desde
+          // 2026-08-31): o comentário acima estava ERRADO — `dataIndex` NÃO é preservável
+          // entre timeframes diferentes. `dataIndex` é a posição do candle dentro do array
+          // carregado; ele só corresponde ao MESMO instante de tempo quando o dataset não
+          // muda de granularidade (troca de símbolo mantendo o timeframe, caso que este
+          // mecanismo sempre testou). Ao trocar de timeframe (ex: 5m→1H) o número total de
+          // candles muda inteiramente — um `dataIndex` de milhares (comum no timeframe mais
+          // granular) simplesmente não existe no array novo, menor, e a klinecharts não
+          // desenha a figura (silencioso, sem erro). Um trendline entre 2 candles próximos do
+          // fim do gráfico às vezes ainda calha de cair dentro do range novo por coincidência;
+          // uma Extensão de Fibonacci (3 pontos espalhados por um movimento inteiro) quase
+          // sempre estoura o range — por isso o Cleber via especificamente o Fibonacci sumir.
+          // Fix real: `getOverlayById` (na captura, no cleanup do effect) já devolve pontos
+          // no formato `{ dataIndex, timestamp, value }` (tipo `Point` nativo da klinecharts,
+          // ver `node_modules/klinecharts/dist/index.d.ts`) — ao recriar, descartamos o
+          // `dataIndex` velho e mandamos só `timestamp`+`value`; a própria lib recalcula o
+          // `dataIndex` certo contra o dataset NOVO já carregado por `applyNewData` acima,
+          // igual ela já faz ao converter overlay por timestamp em outros pontos do código
+          // (ver `chart.convertToPixel({ timestamp })`).
           if (userDrawingsSnapshotRef.current.length > 0) {
             const restored: string[] = [];
             userDrawingsSnapshotRef.current.forEach(saved => {
               try {
+                const remappedPoints = Array.isArray(saved.points)
+                  ? saved.points.map((p: any) => ({ timestamp: p.timestamp, value: p.value }))
+                  : saved.points;
                 const newId = chart.createOverlay({
                   name: saved.name,
                   groupId: USER_DRAWINGS_GROUP,
-                  points: saved.points,
+                  points: remappedPoints,
                   styles: saved.styles,
                   extendData: saved.extendData,
                   lock: saved.lock,
