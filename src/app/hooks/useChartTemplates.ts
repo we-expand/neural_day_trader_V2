@@ -34,6 +34,12 @@ export interface ChartTemplateConfig {
   // Opcionais: templates salvos antes disso não têm.
   anchorTimestamp?: number | null;
   anchorX?: number | null;
+  // 🆕 Desenhos manuais do usuário (trendline, Fibonacci, formas, texto, emoji...).
+  // Só usado no estado de SESSÃO (sessionStorage) pra sobreviver à troca de aba da
+  // plataforma (ChartView desmonta/remonta a cada navegação) — não persistido em
+  // Templates nomeados nem no Setup Favorito, escopo mantido igual ao que já existia
+  // pra indicadores/timeframe. Opcional: sessões salvas antes desta mudança não têm.
+  userDrawings?: Array<{ name: string; points: unknown; styles: unknown; extendData: unknown; lock: boolean; visible: boolean }>;
 }
 
 export interface ChartTemplate {

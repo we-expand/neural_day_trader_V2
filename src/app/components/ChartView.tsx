@@ -6310,6 +6310,19 @@ export function ChartView({
           // bloco aplicar o que tinha sido restaurado.
           initialRestoreDoneRef.current = true;
 
+          // 🔧 FIX: numa MONTAGEM NOVA de verdade (navegou pra outra aba e voltou), o ref
+          // acima nasce vazio — ele só sobrevive a troca de timeframe/símbolo dentro da
+          // MESMA montagem. Semeia com o que foi salvo no sessionStorage no desmonte
+          // anterior (ver cleanup do effect) antes do bloco de restauração logo abaixo
+          // rodar — sem isso, desenho manual (Fibonacci, trendline...) sumia ao trocar de
+          // seção da plataforma mesmo já tendo o mecanismo de snapshot em memória.
+          if (userDrawingsSnapshotRef.current.length === 0) {
+            const savedSession = readSessionState(user?.id);
+            if (savedSession?.userDrawings?.length) {
+              userDrawingsSnapshotRef.current = savedSession.userDrawings as any;
+            }
+          }
+
           // 🔧 FIX: recria os desenhos do usuário capturados no snapshot antes do dispose()
           // (ver cleanup do effect, onde `userDrawingsSnapshotRef` é preenchido). Sem isso,
           // trendline/fibonacci/shapes/texto/emoji desenhados manualmente somem pra sempre
@@ -6695,6 +6708,16 @@ export function ChartView({
               }));
             userDrawingsSnapshotRef.current = snapshot;
             console.log('[ChartView] 📸 Snapshot de', snapshot.length, 'desenho(s) do usuário antes do dispose');
+            // 🔧 FIX: além do ref em memória (só sobrevive a troca de timeframe/símbolo
+            // DENTRO da mesma montagem), grava também no sessionStorage — sem isso, um
+            // desenho manual (ex: expansão de Fibonacci) some pra sempre ao navegar pra
+            // outra aba da plataforma (ChartView desmonta de verdade, o ref morre junto).
+            // Reaproveita o mesmo mecanismo já usado pra indicadores/timeframe (ver
+            // useChartSessionState.ts) — mescla no config completo pra não perder o
+            // resto do estado de sessão já salvo.
+            if (initialRestoreDoneRef.current) {
+              saveSessionState(userIdRef.current, { ...captureCurrentChartConfigRef.current(), userDrawings: snapshot });
+            }
           }
         } catch (e) {
           console.warn('[ChartView] ⚠️ Falha ao capturar snapshot de desenhos do usuário:', e);
