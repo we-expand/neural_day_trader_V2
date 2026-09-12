@@ -6310,6 +6310,22 @@ export function ChartView({
           // bloco aplicar o que tinha sido restaurado.
           initialRestoreDoneRef.current = true;
 
+          // 🐛 BUG REAL achado nesta sessão (causa raiz #2 do Fibonacci sumindo ao trocar
+          // de timeframe, além do problema de dataIndex já corrigido acima): este cleanup
+          // de "bolinha preta misteriosa" (chart.removeOverlay() SEM argumento, apaga
+          // TODOS os overlays) rodava DEPOIS do bloco de restauração de desenhos do
+          // usuário logo abaixo — a Fibonacci restaurada era criada e, no MESMO ciclo de
+          // `fetchData`, apagada de novo por este removeOverlay() genérico, antes do
+          // usuário sequer ver. Movido pra ANTES da restauração — continua rodando só uma
+          // vez por troca de timeframe/símbolo (`didCleanMysteryOverlay`), mas agora limpa
+          // o residual do chart ANTIGO antes dos desenhos do usuário serem recriados no
+          // chart NOVO, em vez de apagar os que acabaram de nascer.
+          if (!didCleanMysteryOverlay) {
+            chart.removeOverlay();
+            didCleanMysteryOverlay = true;
+            console.log('[ChartView] 🧹 Overlays cleared after data load (só na 1ª carga)');
+          }
+
           // 🔧 FIX: numa MONTAGEM NOVA de verdade (navegou pra outra aba e voltou), o ref
           // acima nasce vazio — ele só sobrevive a troca de timeframe/símbolo dentro da
           // MESMA montagem. Semeia com o que foi salvo no sessionStorage no desmonte
@@ -6372,6 +6388,14 @@ export function ChartView({
             userDrawingOverlayIdsRef.current = restored;
             console.log('[ChartView] 🔄', restored.length, 'desenho(s) do usuário restaurado(s) após troca de timeframe/símbolo');
           }
+          // 🔧 FIX: sem isso, `fetchData` (chamado de novo a cada refresh de 30s dentro da
+          // MESMA montagem/timeframe, ver setInterval) via rodar este bloco de novo com o
+          // snapshot antigo ainda em mãos — recriando os MESMOS desenhos por cima a cada
+          // 30s (duplicata visível, acumulando desenhos repetidos com o passar do tempo).
+          // Uma vez restaurado, o snapshot não serve mais até a PRÓXIMA troca real de
+          // timeframe/símbolo (que já preenche `userDrawingsSnapshotRef` de novo, ver
+          // cleanup do effect).
+          userDrawingsSnapshotRef.current = [];
 
           // 🆕 Restaura o estado "ao vivo" da sessão (indicadores/timeframe de segundos
           // atrás, antes do usuário trocar de seção do app) — tem prioridade sobre o
@@ -6479,20 +6503,7 @@ export function ChartView({
             }
           });
           console.log('[ChartView] 📊 Y-axis number format customized (no thousands separator)');
-          
-          // 🔧 FIX GRAVE: chart.removeOverlay() SEM argumento apaga TODOS os overlays —
-          // esse código rodava a cada ciclo do auto-refresh de 30s (fetchData é chamado em
-          // loop, ver setInterval logo abaixo), então TODO desenho do usuário (linhas,
-          // textos anexados na Linha com Informações, formas, garfos...) sumia sozinho a
-          // cada 30 segundos, mesmo sem o usuário tocar em nada. Agora só limpa a "bolinha
-          // preta misteriosa" residual UMA VEZ, na primeira carga desta troca de
-          // símbolo/timeframe — nunca mais nos refreshs automáticos seguintes.
-          if (!didCleanMysteryOverlay) {
-            chart.removeOverlay();
-            didCleanMysteryOverlay = true;
-            console.log('[ChartView] 🧹 Overlays cleared after data load (só na 1ª carga)');
-          }
-          
+
           console.log('[ChartView] ✅ Data applied successfully!');
           console.log('[ChartView] 🎉 Chart fully initialized and ready!');
           console.log('[ChartView] 📊 Chart should now display', candles.length, 'candles from', new Date(candles[0].timestamp).toLocaleString(), 'to', new Date(candles[candles.length - 1].timestamp).toLocaleString());
