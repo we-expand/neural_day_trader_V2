@@ -3728,6 +3728,71 @@ export function ChartView({
     { id: 'support_resistance', label: 'S&R', icon: Target },
   ];
 
+  // 🔧 FIX: extraído do inline que só existia dentro de `handleDrawingToolSelect` — o
+  // desenho recriado na restauração pós-troca de timeframe/símbolo (ver
+  // `userDrawingsSnapshotRef`) nunca recebia ESTE `onClick`, então clicar num desenho
+  // (Fibonacci, trendline, forma...) depois de trocar de timeframe não fazia mais nada
+  // (nem selecionava, nem abria o menu de Mover/Estilo/Travar/Apagar). Mesma lógica de
+  // antes, só fatorada pra ser reaproveitada nos dois lugares que criam overlay
+  // (`createOverlay` inicial da toolbar e a recriação no restore).
+  const buildDrawingOnClickHandler = (overlayName: string) => (event: any) => {
+    if (overlayName === 'infoLine') {
+      const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
+      setInfoLineText(existingText);
+      infoLineTextRef.current = existingText;
+      setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
+    } else {
+      const clickedId = event.overlay.id;
+      // 🔧 FIX: 1º clique só seleciona + destaca (linha fica levemente mais grossa);
+      // só um 2º clique NO MESMO desenho já selecionado abre o menu -- ver comentário
+      // completo na declaração de `selectedDrawingIdRef` acima. Isso também resolve o
+      // menu abrindo sozinho no clique que TERMINA de desenhar (esse clique final é o
+      // "1º clique" deste desenho, então agora só seleciona).
+      if (selectedDrawingIdRef.current && selectedDrawingIdRef.current !== clickedId) {
+        clearDrawingSelectionHighlight(selectedDrawingIdRef.current);
+      }
+      if (selectedDrawingIdRef.current === clickedId && showContextToolbarRef.current) {
+        // Já selecionado e com o menu aberto -- clicar de novo FECHA o menu (mesmo
+        // gesto abre/fecha), mantendo o destaque de "selecionado".
+        setShowContextToolbar(false);
+      } else if (selectedDrawingIdRef.current === clickedId) {
+        // Já selecionado, menu fechado -- este clique é o "acionar" pedido pelo Cleber:
+        // abre o menu perto de onde o usuário clicou (não mais fixo no topo-centro,
+        // que ficava em cima do painel de compra/venda).
+        const chartRect = chartContainerRef.current?.getBoundingClientRect();
+        if (chartRect) {
+          const TOOLBAR_WIDTH = 420;
+          const TOOLBAR_HEIGHT = 56;
+          // 🔧 event.x/event.y da klinecharts são relativos ao CONTAINER do gráfico
+          // (mesma convenção já usada pelo infoLineEditor/textAnnotationEditor, ambos
+          // `position:absolute` DENTRO do container) -- mas este menu usa
+          // `position:fixed` (coordenada de viewport), então precisa somar
+          // chartRect.left/top pra converter, senão abre fora do lugar.
+          const rawX = chartRect.left + (event.x ?? chartRect.width / 2) + 12;
+          const rawY = chartRect.top + (event.y ?? 50) - TOOLBAR_HEIGHT - 12;
+          setContextToolbarPosition({
+            x: Math.min(Math.max(rawX, chartRect.left + 8), chartRect.right - TOOLBAR_WIDTH - 8),
+            y: Math.min(Math.max(rawY, chartRect.top + 8), chartRect.bottom - TOOLBAR_HEIGHT - 8)
+          });
+        }
+        setShowContextToolbar(true);
+      } else {
+        // Seleciona um desenho novo (ou troca de um pra outro) -- só destaca, o menu
+        // fica oculto por padrão (comportamento pedido: "via de regra ela fica oculta").
+        selectedDrawingIdRef.current = clickedId;
+        applyDrawingSelectionHighlight(clickedId);
+        setSelectedDrawing({
+          id: clickedId,
+          type: event.overlay.name,
+          isLocked: !!event.overlay.lock,
+          isHidden: event.overlay.visible === false
+        });
+        setShowContextToolbar(false);
+      }
+    }
+    return true;
+  };
+
   // 🆕 HANDLE DRAWING TOOL SELECT
   const handleDrawingToolSelect = (tool: string) => {
     console.log('[ChartView] 🎨 Drawing tool selected:', tool);
@@ -3878,63 +3943,7 @@ export function ChartView({
         // do desenho encaixarem no OHLC do candle mais próximo em vez de ficarem soltos
         // em qualquer coordenada crua do mouse. Suporte nativo da klinecharts.
         mode: magnetActive ? OverlayMode.WeakMagnet : OverlayMode.Normal,
-        onClick: (event: any) => {
-          if (overlayType === 'infoLine') {
-            const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
-            setInfoLineText(existingText);
-            infoLineTextRef.current = existingText;
-            setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
-          } else {
-            const clickedId = event.overlay.id;
-            // 🔧 FIX: 1º clique só seleciona + destaca (linha fica levemente mais grossa);
-            // só um 2º clique NO MESMO desenho já selecionado abre o menu -- ver comentário
-            // completo na declaração de `selectedDrawingIdRef` acima. Isso também resolve o
-            // menu abrindo sozinho no clique que TERMINA de desenhar (esse clique final é o
-            // "1º clique" deste desenho, então agora só seleciona).
-            if (selectedDrawingIdRef.current && selectedDrawingIdRef.current !== clickedId) {
-              clearDrawingSelectionHighlight(selectedDrawingIdRef.current);
-            }
-            if (selectedDrawingIdRef.current === clickedId && showContextToolbarRef.current) {
-              // Já selecionado e com o menu aberto -- clicar de novo FECHA o menu (mesmo
-              // gesto abre/fecha), mantendo o destaque de "selecionado".
-              setShowContextToolbar(false);
-            } else if (selectedDrawingIdRef.current === clickedId) {
-              // Já selecionado, menu fechado -- este clique é o "acionar" pedido pelo Cleber:
-              // abre o menu perto de onde o usuário clicou (não mais fixo no topo-centro,
-              // que ficava em cima do painel de compra/venda).
-              const chartRect = chartContainerRef.current?.getBoundingClientRect();
-              if (chartRect) {
-                const TOOLBAR_WIDTH = 420;
-                const TOOLBAR_HEIGHT = 56;
-                // 🔧 event.x/event.y da klinecharts são relativos ao CONTAINER do gráfico
-                // (mesma convenção já usada pelo infoLineEditor/textAnnotationEditor, ambos
-                // `position:absolute` DENTRO do container) -- mas este menu usa
-                // `position:fixed` (coordenada de viewport), então precisa somar
-                // chartRect.left/top pra converter, senão abre fora do lugar.
-                const rawX = chartRect.left + (event.x ?? chartRect.width / 2) + 12;
-                const rawY = chartRect.top + (event.y ?? 50) - TOOLBAR_HEIGHT - 12;
-                setContextToolbarPosition({
-                  x: Math.min(Math.max(rawX, chartRect.left + 8), chartRect.right - TOOLBAR_WIDTH - 8),
-                  y: Math.min(Math.max(rawY, chartRect.top + 8), chartRect.bottom - TOOLBAR_HEIGHT - 8)
-                });
-              }
-              setShowContextToolbar(true);
-            } else {
-              // Seleciona um desenho novo (ou troca de um pra outro) -- só destaca, o menu
-              // fica oculto por padrão (comportamento pedido: "via de regra ela fica oculta").
-              selectedDrawingIdRef.current = clickedId;
-              applyDrawingSelectionHighlight(clickedId);
-              setSelectedDrawing({
-                id: clickedId,
-                type: event.overlay.name,
-                isLocked: !!event.overlay.lock,
-                isHidden: event.overlay.visible === false
-              });
-              setShowContextToolbar(false);
-            }
-          }
-          return true;
-        }
+        onClick: buildDrawingOnClickHandler(overlayType)
       });
       
       if (overlayId) {
@@ -6023,7 +6032,56 @@ export function ChartView({
             console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
             return null;
           });
-          const candles = await fetchCandles(selectedSymbol, timeframe);
+          let candles = await fetchCandles(selectedSymbol, timeframe);
+          if (cancelled) return;
+
+          // 🐛 BUG REAL achado nesta sessão (Cleber: Fibonacci "invertida, indo pro lado
+          // completamente errado" ao trocar de timeframe): `fetchCandles` busca sempre um
+          // número FIXO de candles (default 200) independente do timeframe — 200 candles de
+          // 1m cobrem só ~3h de histórico real, enquanto 200 candles de 1D cobrem ~200 dias.
+          // Um desenho feito num timeframe de janela larga (ex: 1D) tem pontos com timestamp
+          // ANTERIOR ao candle mais antigo carregado no timeframe novo, mais estreito (ex:
+          // 1m) — a klinecharts não tem como posicionar um ponto fora do dataset carregado,
+          // então CLAMPA (`binarySearchNearest`) esse ponto pro candle mais antigo disponível,
+          // uma posição arbitrária que não é a real. Com 3 pontos (A/B/C), só 1 ou 2 ficarem
+          // presos nessa borda distorce a forma inteira — inclusive parecendo "espelhada"/do
+          // lado errado, mesmo a matemática do desenho (direção dos níveis) estando correta.
+          // Fix: antes de restaurar, checa se algum ponto salvo é mais antigo que o candle
+          // mais antigo já carregado — se for, busca candles extras (mesmo símbolo/timeframe,
+          // limite maior) só o suficiente pra cobrir esse ponto, teto de segurança 5000
+          // candles (mesmo `MAX_CANDLES` já usado como teto em outros lugares do projeto,
+          // ver market-service.ts) pra nunca disparar uma busca desproporcional.
+          if (userDrawingsSnapshotRef.current.length > 0 && candles.length > 0) {
+            let earliestDrawingTs = Infinity;
+            userDrawingsSnapshotRef.current.forEach(saved => {
+              if (!Array.isArray(saved.points)) return;
+              saved.points.forEach((p: any) => {
+                if (typeof p?.timestamp === 'number' && p.timestamp < earliestDrawingTs) {
+                  earliestDrawingTs = p.timestamp;
+                }
+              });
+            });
+            const earliestLoadedTs = candles[0].timestamp;
+            if (Number.isFinite(earliestDrawingTs) && earliestDrawingTs < earliestLoadedTs) {
+              try {
+                const msPerCandle = timeframeToMs(timeframe);
+                const gapMs = earliestLoadedTs - earliestDrawingTs;
+                // +20 candles de margem -- desenho pode ter sido feito um pouco antes do
+                // 1º candle visível na época, evita ficar exatamente na borda de novo.
+                const extraCandlesNeeded = Math.ceil(gapMs / msPerCandle) + 20;
+                const neededLimit = Math.min(candles.length + extraCandlesNeeded, 5000);
+                if (neededLimit > candles.length) {
+                  console.log('[ChartView] 📐 Desenho salvo é anterior ao candle mais antigo carregado — buscando', neededLimit, 'candles pra cobrir a posição real');
+                  const extended = await fetchCandles(selectedSymbol, timeframe, neededLimit);
+                  if (!cancelled && extended.length > candles.length) {
+                    candles = extended;
+                  }
+                }
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao estender candles pra cobrir desenho salvo (segue com o dataset padrão):', e);
+              }
+            }
+          }
           if (cancelled) return;
 
           console.log('[ChartView] 📦 Received data:', {
@@ -6378,7 +6436,12 @@ export function ChartView({
                   styles: saved.styles,
                   extendData: saved.extendData,
                   lock: saved.lock,
-                  visible: saved.visible
+                  visible: saved.visible,
+                  // 🔧 FIX: sem isso, o desenho recriado após trocar de timeframe/símbolo
+                  // ficava sem NENHUM clique funcional — nem selecionava, nem abria o menu
+                  // de Mover/Estilo/Travar/Apagar (o Cleber pediu justamente esse menu pra
+                  // Fibonacci). Mesmo handler usado na criação original via toolbar.
+                  onClick: buildDrawingOnClickHandler(saved.name)
                 });
                 if (newId) restored.push(newId as string);
               } catch (e) {
