@@ -15,6 +15,7 @@
  */
 import MetaApi, { SynchronizationListener, MetatraderSymbolPrice } from 'metaapi.cloud-sdk';
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import { ALL_ASSETS } from '../../src/app/config/assetDatabase.js';
 import { isAvailableOnBroker, isCryptoCfdAvailable, getBrokerSymbol } from '../../src/app/config/brokerRegistry.js';
 import { DEFAULT_ANALYSIS_BASKET } from '../../src/app/config/defaultBasket.js';
@@ -146,6 +147,8 @@ async function main() {
   await relayChannel.subscribe();
   console.log('[streaming-relay] ✅ Conectado ao canal Supabase Realtime (turbo-main-channel).');
 
+  connectBinanceBtcTicker();
+
   const api = new MetaApi(METAAPI_TOKEN);
   const account = await api.metatraderAccountApi.getAccount(METAAPI_ACCOUNT_ID);
   await withTimeoutOuter(account.waitConnected(), CONNECT_TIMEOUT_MS, 'account.waitConnected');
@@ -205,6 +208,71 @@ async function main() {
     }
     console.log(`[streaming-relay] 📈 Seed de previousClose concluído (${previousCloseBySymbol.size}/${symbols.length} símbolos).`);
   })();
+}
+
+// ✅ 2026-09-12 (pedido do Cleber, "melhorar o delay/latência do BTCUSD"):
+// BTCUSD é excluído da assinatura MetaAPI acima de propósito (ver comentário
+// de 2026-08-31) e até aqui só tinha preço via REST polling em `/mt5-prices`
+// (ticker 24hr da Binance, consultado a cada ~1,5-2s pelo frontend) — o
+// único ativo da cesta sem push em tempo real. WebSocket público da Binance
+// (`@ticker`, sem autenticação, mesmo par BTCUSDT já usado no polling REST)
+// publicado no MESMO canal/formato `turbo-main-channel` → `price-update`,
+// pra ficar consistente com o resto da cesta (sub-segundo em vez de
+// aguardar o próximo ciclo de poll). Não muda o par nem a fonte de preço
+// (continua Binance, nunca Infinox/MetaAPI) — só o transporte, de REST pra
+// push. Reconecta sozinho com backoff simples se a conexão cair; isolado da
+// conexão MetaAPI (falha aqui nunca derruba o restante do relay).
+const BINANCE_WS_RECONNECT_BASE_MS = 2_000;
+const BINANCE_WS_RECONNECT_MAX_MS = 30_000;
+let binanceWsReconnectAttempts = 0;
+
+function connectBinanceBtcTicker() {
+  const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker');
+
+  ws.on('open', () => {
+    binanceWsReconnectAttempts = 0;
+    console.log('[streaming-relay] ✅ WebSocket Binance (BTCUSDT ticker) conectado.');
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const ticker = JSON.parse(raw.toString());
+      const price = parseFloat(ticker.c);
+      const bid = parseFloat(ticker.b);
+      const ask = parseFloat(ticker.a);
+      if (!(price > 0)) return;
+
+      relayChannel.send({
+        type: 'broadcast',
+        event: 'price-update',
+        payload: {
+          asset_symbol: 'BTCUSD',
+          price,
+          bid: bid > 0 ? bid : price,
+          ask: ask > 0 ? ask : price,
+          change_24h: parseFloat(ticker.p) || 0,
+          change_percent_24h: parseFloat(ticker.P) || 0,
+          volume: parseFloat(ticker.v) || 0,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error('[streaming-relay] ⚠️ Falha ao processar ticker BTCUSDT da Binance:', error instanceof Error ? error.message : error);
+    }
+  });
+
+  const scheduleReconnect = () => {
+    binanceWsReconnectAttempts += 1;
+    const backoffMs = Math.min(BINANCE_WS_RECONNECT_BASE_MS * 2 ** (binanceWsReconnectAttempts - 1), BINANCE_WS_RECONNECT_MAX_MS);
+    console.warn(`[streaming-relay] ⏳ WebSocket Binance caiu — reconectando em ${Math.round(backoffMs / 1000)}s (tentativa ${binanceWsReconnectAttempts}).`);
+    setTimeout(connectBinanceBtcTicker, backoffMs);
+  };
+
+  ws.on('close', scheduleReconnect);
+  ws.on('error', (error) => {
+    console.error('[streaming-relay] ⚠️ Erro no WebSocket Binance:', error.message);
+    ws.close();
+  });
 }
 
 let consecutiveFailures = 0;
