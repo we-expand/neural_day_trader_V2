@@ -15,6 +15,241 @@
 
 ## ▶ COMECE AQUI
 
+**[NOTA 2026-09-13] As 3 entradas de sessão de 2026-09-11 logo abaixo
+(mobile drawer, stop de fim de semana, Risco da Conta) tinham sido
+commitadas junto com sua documentação (`e46763a94`) mas sumiram deste
+arquivo numa edição posterior de outra sessão rodando em paralelo na
+mesma pasta — mesmo risco já catalogado antes no projeto ("evitar sessões
+paralelas no mesmo working directory"). Re-adicionadas aqui;
+**confirmado via `git log`/grep no código atual que os 3 fixes continuam
+intactos no HEAD**, nenhum foi revertido.**
+
+**[RESOLVIDO 2026-09-11] Mobile (iPhone SE/Galaxy S20, 360-375px) estava
+"todo desalinhado" — sidebar fixa de 320px sempre visível era a causa raiz,
+virou drawer; 3 overflows do ChartView corrigidos.** Sidebar (`Sidebar.tsx`)
+tinha `w-80` fixo sem breakpoint nem hambúrguer — sobrava <60px pra todo o
+resto do app nessas larguras. Agora esconde por padrão em `<md` e abre via
+botão hambúrguer no `Header.tsx` (estado em `App.tsx`, `isMobileMenuOpen`).
+De carona no `ChartView.tsx`: modal de busca de ativo (era `980px` fixo,
+virou `calc(100vw-1.5rem)`), barra de timeframes (ganhou `overflow-x-auto`)
+e menu de contexto (cálculo `window.innerWidth - 380` ficava negativo em
+telas de 360px, cortando o menu). `tsc --noEmit` sem erro novo. Commit
+`cd2cf98b4`, já em `origin/dev`, confirmado ainda presente no código atual
+(2026-09-13). **Nunca confirmado visualmente por navegador** (dev local
+exige login) — pendente confirmação real do Cleber no celular.
+
+**[EM ANDAMENTO 2026-09-11] Stop de fim de semana do LLM Brain isolado do
+stop de dia útil (1.5x ATR vs 2.0x, `mt5StopAtrMultiplierWeekend` em
+`config.ts`) — pedido do Cleber, NÃO reabre o corte global de 2026-09-04
+que derrubou acerto 80%→33%.** Usado só quando `isWeekendMode()`; alvo de
+fim de semana passa a usar esse mesmo multiplicador como referência de
+risco (alvo encolhe junto, R:R fim de semana ~1,67:1). Stop de dia útil
+continua 2.0x, intocado. `tsc --noEmit`/`npm run validate` (37/37) limpos.
+Commits `20b4e8751`+`e46763a94`, já em `origin/dev`, confirmado ainda
+presente em `config.ts:337`/`tools.ts` (2026-09-13). **Pendente real**: sem
+validação estatística ainda — precisa de amostra de fim de semana rodando
+sob este valor antes de julgar efeito.
+
+**[RESOLVIDO 2026-09-11, refinado depois por outra sessão] Card "Risco da
+Conta" do Dashboard — parou de esconder o drawdown real (era travado no
+teto configurado) e passou a calcular contra o capital alocado no Setup
+(`allocatedCapital`), não mais contra um pico de equity móvel.** Cleber viu
+"RISCO ALTO" com patrimônio de $54 e achou estranho — confirmado via SQL
+que o drawdown real (contra a âncora antiga) já estava ~46% acima do teto
+de 35%, não era só bug de exibição. A pedido explícito do Cleber, a base
+do cálculo virou `allocatedCapital` — com o valor real dele (~$57,49) o
+drawdown caiu pra ~6%. Commits `8b2bfe953`+`ff7cfa51d`+`e46763a94`, já em
+`origin/dev`. **Confirmado em 2026-09-13 que outra sessão evoluiu o fix
+ainda mais**: `profitAi` (`MarketScoreBoard.tsx:863`) também passou a usar
+`allocatedCapital` como referência (era `config.initialBalance || 100`
+fixo antes), unificando a âncora entre os dois cards. `tsc --noEmit`/
+`npm run validate` limpos na versão original.
+
+**[EM ANDAMENTO 2026-09-11] Tesouraria Global: comissão própria da casa
+(LIVE) real por ativo + caixa contábil — implementado, aguardando migration/
+commit/deploy do Cleber.** Cleber viu "Comissões da Casa (LIVE)" sempre em
+US$0 e pediu que a tesouraria refletisse o dinheiro real de spread/comissão.
+Achado arquitetural trazido à mesa antes de codar: cada usuário conecta a
+PRÓPRIA conta MT5 na Infinox — a plataforma não é a contraparte, então
+alargar o spread mostrado exigiria virar corretora licenciada (B-book), risco
+jurídico real; Cleber confirmou o caminho legítimo: comissão por lote,
+transparente. Implementado com pesquisa real de mercado (Infinox ECN: Forex/
+Ouro US$7/lote round-turn, Petróleo US$0,70, Índices US$2; cripto sem
+comissão própria publicada pela Infinox, usada referência de mercado mais
+amplo ~US$10, marcada como tal) — tabela nova `platform_commission_ledger`
+(caixa contábil real, 1 lançamento por trade LIVE fechado, taxa travada no
+momento, gravado automaticamente em `neuralBridge.ts`), `/admin/commission-
+summary` lendo do ledger real, Tesouraria com gráfico de saldo acumulado +
+comissão por ativo. `tsc`/`npm run validate`/`deno check` limpos. É ACCRUED
+(o que deveria ser cobrado), não dinheiro já recebido — mecanismo de
+cobrança efetiva do usuário ainda não existe (mesma pendência de "falta
+sistema de pagamento" já catalogada). **Pendente**: rodar migration
+`20260911_platform_commission_ledger.sql` no SQL Editor; `git commit` (raiz
++ `llm-active-brain/`) + `supabase functions deploy server` +
+`./restart.sh` (comandos entregues, nenhum rodado por mim). Handoff
+completo:
+[SESSAO_2026-09-11_TESOURARIA_COMISSAO_PROPRIA_CAIXA_CONTABIL.md](SESSAO_2026-09-11_TESOURARIA_COMISSAO_PROPRIA_CAIXA_CONTABIL.md).
+
+**[RESOLVIDO 2026-09-13] Desenhos manuais do Gráfico (Fibonacci em especial)
+sumindo/distorcendo — 5 causas raiz reais corrigidas e já commitadas
+(`7f180efc6`/`a3b69d7bd`/`72dc9b9fb`/`94f1236b1`).** Cleber reportou em
+sequência: (1) desenho sumia ao navegar entre abas da plataforma — snapshot
+vivia só num `useRef`, morto no desmonte real do `ChartView`; agora também
+salvo no `sessionStorage` (mesmo mecanismo de indicadores/timeframe). (2)
+sumia ao trocar de TIMEFRAME — restauração reaproveitava `dataIndex` do
+dataset antigo, inválido quando o timeframe muda o total de candles
+carregados; corrigido pra recriar só com `timestamp`+`value`, deixando a
+klinecharts recalcular o índice certo. (3) mesmo corrigido acima, um
+`chart.removeOverlay()` SEM argumento (apaga tudo) rodava logo DEPOIS do
+bloco de restauração no mesmo ciclo — desenho renascia e morria na hora;
+movido pra ANTES. (4) Fibonacci aparecia "invertida, lado errado" — achado
+real: `fetchCandles` busca quantidade FIXA de candles (200) não importa o
+timeframe, então timeframes com janelas de tempo muito diferentes deixavam
+pontos do desenho fora do dataset carregado, forçando a lib a grudar numa
+borda arbitrária e distorcer a forma; corrigido buscando candles extras o
+suficiente pra cobrir o ponto mais antigo salvo (teto 5000). (5) clique no
+desenho restaurado não abria o menu de Mover/Estilo/Travar/Apagar — o
+`onClick` nunca era reanexado na recriação; extraído pra função reutilizável
+usada nos dois lugares que criam overlay. `tsc --noEmit` limpo (631, mesmo
+ruído pré-existente, nenhum erro novo) em todos os 4 commits. **Não testado
+ao vivo** (dev local exige login) — pendente confirmação visual do Cleber:
+desenhar Fibonacci, trocar timeframe, navegar entre abas, clicar no desenho
+restaurado. Handoff completo:
+[SESSAO_2026-09-13_DESENHOS_GRAFICO_PERSISTENCIA_E_FIBONACCI_DISTORCIDA.md](SESSAO_2026-09-13_DESENHOS_GRAFICO_PERSISTENCIA_E_FIBONACCI_DISTORCIDA.md).
+
+**[EM ANDAMENTO 2026-09-12/13] LLM Brain: circuit breaker preso desde cedo
+travando execução real (corrigido via restart), gate de confiança 70% no
+fim de semana implementado, bug real de "fechamento fantasma" achado e
+corrigido — mas achado sério à parte, NÃO explicado: 3 posições reais
+apareceram na conta sem nenhum `open_position` da IA por trás.** Cleber
+reportou "a IA não abre posição" no modo fim de semana; investigação ao
+vivo no `llm-brain.log` achou que o circuit breaker global
+(`liveExecution.ts`) tinha disparado horas antes por timeout numa chamada
+a `/broker/execute` (mesmo mecanismo fail-closed já documentado em
+2026-09-11) — desde então toda ordem saía como `live_execution:false`
+(simulada), mesmo a IA "achando" que estava operando real; um restart
+zerou a flag (só existe em memória, não persiste por desenho). De carona,
+a pedido do Cleber, `MIN_CONFIDENCE_FOR_OPEN_POSITION` (fixo em 80%) ganhou
+variante de fim de semana: `config.mt5MinConfidenceForOpenPositionWeekend`
+(default 70, `isWeekendMode()`) — dia útil continua 80%, intocado.
+Confirmado ao vivo depois do restart: entradas com 72%/78% passaram desse
+gate (recusadas depois só por R:R/confluência real, não mais por
+confiança). **Achado grave corrigido**: `executeLiveClose` só conferia o
+HTTP 200 de `/broker/execute` como prova de fechamento real, sem
+reconferir a lista de posições na corretora depois — um "fechamento" do
+NAS100 marcou `CLOSED` no banco, mas a posição real continuou aberta e foi
+readotada 17s depois como entrada nova pela reconciliação (duplicando o
+rastreio da mesma posição real). Corrigido: agora reconfere `getPositions`
+após o `closePosition`, só aceita sucesso se a posição de fato sumiu;
+senão aciona o circuit breaker. `tsc --noEmit`/`npm run validate` (37/37)
+limpos nos 3 arquivos (`config.ts`/`tools.ts`/`liveExecution.ts`), commit
+entregue ao Cleber (comando pronto, ele decide rodar). **Achado sério, SEM
+explicação ainda**: ao longo do dia, 3 posições reais apareceram na conta
+(NAS100, BTCUSD LONG `1214151467`, BTCUSD SHORT `1214151788`) sem nenhum
+`open_position` correspondente no log — a reconciliação só as "adotou"
+(mecanismo correto, evita travar o motor), mas não explica a origem.
+Chegou a haver LONG e SHORT simultâneos em BTCUSD na conta real ao mesmo
+tempo. Pergunta feita ao Cleber (se são entradas manuais dele na Infinox
+em paralelo ao motor) ainda sem resposta confirmada. **Pendente real**:
+Cleber rodar o commit; investigar a origem das 3 posições fantasmas antes
+de assumir que é comportamento normal.
+
+**[EM ANDAMENTO 2026-09-12/13] Dashboard mobile "desalinhado" investigado sem
+confirmação visual (sem login no dev local) + número de preço "fantasma" no
+Gráfico (Fibonacci) — nenhum dos dois corrigido de verdade ainda, ambos
+pendentes de confirmação do Cleber.** (1) Cleber reportou pelo celular que o
+Dashboard aparecia "como plataforma maximizada espremida numa janela
+pequena". Investigação de código (`App.tsx`, `Sidebar.tsx`,
+`MarketScoreBoard.tsx`) não achou nenhuma largura mínima forçando isso — a
+arquitetura de layout (drawer da sidebar, `flex-1 min-w-0`) já está correta
+desde o fix de 2026-09-11, e o `isMobileMenuOpen` nasce `false`. Suspeita
+não confirmada: o print pode ter sido tirado de uma URL de deployment com
+hash (congelada, nunca atualiza) em vez do alias `dev` — pedido ao Cleber
+confirmar a URL exata, sem resposta ainda. **Nenhuma mudança de código
+aplicada** — achado inconclusivo, não tratar como resolvido. (2) Cleber
+mandou print (Chrome desktop, ETHUSD/1H) mostrando dois números soltos no
+Gráfico ("11" com preço 2.660,99 flutuando acima dos candles, e "2.406,85"
+sobrepondo candles "12 13" mais abaixo) — à primeira vista parecia resíduo
+do bug de Fibonacci já atacado 3x nos últimos commits
+(`94f1236b1`/`72dc9b9fb`/`a3b69d7bd`), mas achado real na investigação: os
+dois valores caem exatamente dentro do range de preço visível na régua do
+próprio print (~2.405-2.666) — não são valores fabricados/aleatórios, mais
+provável que seja um desenho de Fibonacci NATIVO da klinecharts
+(`fibonacciLine`) desenhado de verdade em algum momento (por ele ou sessão
+anterior) e nunca apagado, não necessariamente um bug de renderização. Pedido
+ao Cleber clicar direto no número pra confirmar se abre o menu de Mover/
+Estilo/Travar/Apagar (desenho real, só precisa apagar) ou se o clique é
+morto (aí sim bug de restauração de overlay, mesma classe do ref
+`userDrawingOverlayIdsRef`/`srOverlayIdsRef` não resetado no dispose()+
+init() do chart — hipótese levantada mas NÃO aplicada, sem confirmação).
+**Pendente real**: resposta do Cleber nos dois itens antes de qualquer fix
+ser escrito — nada foi commitado nesta sessão.
+
+**[RESOLVIDO 2026-09-11, noite] "LLM não abre posição" era circuit breaker
+global travado por posição aberta manualmente no MT5 (não saldo) + teto de
+exposição correlacionada estourado — ambos resolvidos; achado sério à
+parte: drawdown real de ~50% na conta, não é bug de dashboard.** Cleber
+pediu checagem de saldo; causa raiz #1 era `liveExecution.ts` — corretora
+tinha posição (aberta manualmente por Cleber direto no MetaTrader) que o
+motor não reconhecia em `ai_trades`, disparando o breaker global (fica
+travado até restart, por desenho) e bloqueando toda ordem real (abrir/
+fechar) desde ~19:49 UTC. Confirmado ao vivo via `getLivePositions` que as
+posições reais batiam com o banco antes de reiniciar — seguro,
+`./restart.sh` limpou o breaker. Achado no working tree um fix já pronto
+(de sessão anterior, não commitado ainda) que resolve a causa raiz de
+verdade: reconciliação ADOTA automaticamente posição real não reconhecida
+em vez de travar tudo. Causa raiz #2: teto de exposição do grupo
+correlacionado (`MT5_MAX_CORRELATED_NOTIONAL_USD`, fixo em $2700 desde
+30/08) travava toda entrada LONG em cripto (exposição já em ~$12k) — a
+pedido do Cleber (queria mais volume no fim de semana, ~15 trades/12h),
+subido pra **$15.000** via `.env` do `llm-active-brain` (sem commit,
+motor reiniciado). Confirmado depois que passou a travar só por
+seletividade normal (confiança/confluência/R:R), não mais pelo teto.
+**Achado sério à parte, sem relação com os dois acima**: Dashboard
+mostrando "RISCO ALTO" mesmo pós-fix de exibição de mais cedo — confirmado
+DIRETO na corretora (`getLiveAccountInfo`): saldo real $9,11, equity
+$27→$28 (recuperando), contra `allocatedCapitalUsd=$54,03` — drawdown real
+~49-50%, confirmado também via SQL (4 trades reais fechados, PnL líquido
+-$35,13). Não é bug, é perda real; Cleber confirmou ciente ("sei que
+perdi, mas está recuperando"). **Pendente real**: `git push origin dev`
+do commit (`hmmRegime.ts`+`index.ts`+`neuralBridge.ts`, comando entregue);
+observar se o teto de $15.000 realmente sustenta ~15 entradas/12h ao longo
+do fim de semana ou se a seletividade segue sendo o gargalo dominante;
+acompanhar se a recuperação de equity se mantém. Handoff completo:
+[SESSAO_2026-09-11_CIRCUIT_BREAKER_TRAVADO_POSICAO_MANUAL_MT5.md](SESSAO_2026-09-11_CIRCUIT_BREAKER_TRAVADO_POSICAO_MANUAL_MT5.md).
+
+**[RESOLVIDO 2026-09-11, noite] Verificação pós-reset do LLM Brain pra
+saldo real + achado de queda/recuperação da MetaAPI durante a cesta 100%
+cripto do fim de semana — só checagem/monitoramento, nenhum código
+mudado.** Cleber pediu conferência depois de resetar o motor pra saldo
+real e trocar a cesta do Setup pra cripto ("só moedas" pro fim de semana).
+Confirmado via `.env` + Supabase (`ai_trades`): `MT5_LIVE_EXECUTION_ENABLED=true`
+de fato ativo, trades desde ~20:17 UTC já saem com `broker_position_id`
+real e comissão cobrada (ex.: BTCUSD LONG -$1,63 líquido, comissão
+$0,225) — execução real confirmada funcionando. Cesta nova em
+`ai_user_config` (`BTCUSD, AVAUSD, BNBUSD, DOGUSD, LNKUSD, XETUSD`)
+confirmada 100% cripto — **correção própria registrada aqui**: cheguei a
+achar que XETUSD fosse o índice alemão (DAX) por semelhança de nome e
+recomendei removê-lo por engano; Cleber corrigiu — `XETUSD` é o contrato
+Ethereum da Infinox (`assetDatabase.ts:178`, `name: 'Ethereum (XET)'`,
+categoria CRYPTO 24/7), documentado desde 2026-07-16. Achado real, não
+suposição: por volta de 21:00 UTC o feed da MetaAPI/Infinox travou por
+completo pra TODOS os símbolos não-BTC da cesta nova (AVAUSD/BNBUSD/
+DOGUSD/LNKUSD/XETUSD todos com o mesmo tick parado, mesmo timestamp) —
+só BTCUSD continuou fresco por já ser roteado direto pra Binance (fix de
+2026-08-31); `streaming-relay` também estava fora do ar nesse intervalo
+(processo não aparecia no `ps`, log parado). ~1h20 depois, confirmado via
+`curl` direto em `/mt5-prices` (não só pelo log do processo, que fica em
+cache) que a MetaAPI recuperou sozinha — todos os cripto da cesta voltaram
+com tick de poucos segundos de idade; só o NAS100 (posição antiga ainda
+aberta, fora da cesta nova) segue com tick congelado de sexta ~21h UTC,
+comportamento esperado de CFD de índice fechado no fim de semana, não
+falha. **Nenhuma ação de código foi tomada** — motor já bloqueia entrada
+em cotação `stale` sozinho, sem risco de operar com preço velho durante a
+queda. Mesma classe de instabilidade recorrente da conta MetaAPI dedicada
+já catalogada mais acima (réplica `backup-new-york`) — sem novidade sobre
+causa raiz.
+
 **[RESOLVIDO 2026-09-11] Mobile (iPhone SE/Galaxy S20, 360-375px) estava
 "todo desalinhado" — sidebar fixa de 320px sempre visível era a causa raiz,
 virou drawer; 3 overflows do ChartView corrigidos. Commit rodado pelo
