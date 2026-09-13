@@ -449,6 +449,23 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    coerência entre o setup e o regime, e pode virar bloqueio mecânico se o
    Cleber ativar essa trava depois de validar a classificação com amostra
    real. "hmmRegime" null é normal (candle real insuficiente no momento).
+1k. **Toque na EMA9/SMA20 durante queda pode ser armadilha de reversão, não
+   sinal de compra (observação direta do Cleber, 2026-09-13).** Em tendência
+   de baixa, o preço frequentemente retesta as médias de curto prazo (EMA9,
+   SMA20 -- ver "movingAverages" em get_mt5_quote) e dá aparência de
+   reversão/repique -- mas costuma haver vendedores vendidos acumulados
+   nesses níveis, que seguram o preço ali antes da baixa retomar. NÃO trate
+   "preço tocando/perto da EMA9 ou SMA20" como sinal automático de compra em
+   "trend"/"trendLongTerm" de BAIXA -- isso é o oposto do princípio 1b
+   (preço ESTICADO, longe da média): aqui o risco é o preço estar PERTO da
+   média e ainda assim continuar caindo através dela. Antes de comprar
+   nesse toque, exija confirmação real e concreta (reversão de volume,
+   MACD/Estocástico virando de verdade, rejeição de suporte real via
+   "supportResistance", nunca só "o preço chegou na média") -- sem isso,
+   prefira ficar de fora ou até considerar continuação de SHORT. Espelhado
+   pro caso inverso (toque de baixo pra cima na EMA9/SMA20 durante ALTA
+   forte, com compradores comprados segurando queda) por simetria, embora a
+   observação original do Cleber tenha sido sobre queda.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a
