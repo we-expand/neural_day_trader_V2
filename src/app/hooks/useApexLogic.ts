@@ -1490,35 +1490,51 @@ export function useApexLogic(
         }
       }
       if (brokerConnectedCacheRef.current.connected) {
+        let accountInfo: Awaited<ReturnType<typeof import('../services/BrokerClient')['getAccountInfo']>> = null;
         try {
           const { getAccountInfo } = await import('../services/BrokerClient');
-          const accountInfo = await getAccountInfo();
+          accountInfo = await getAccountInfo();
           if (cancelled) return;
-          if (accountInfo) {
-            setPortfolio(prev => {
-              const equity = accountInfo.equity ?? accountInfo.balance;
-              if (
-                prev.balance === accountInfo.balance &&
-                prev.equity === equity &&
-                prev.margin === accountInfo.margin &&
-                prev.freeMargin === accountInfo.freeMargin &&
-                prev.marginLevel === accountInfo.marginLevel
-              ) return prev;
-              return {
-                ...prev,
-                balance: accountInfo.balance,
-                equity,
-                margin: accountInfo.margin,
-                freeMargin: accountInfo.freeMargin,
-                marginLevel: accountInfo.marginLevel,
-              };
-            });
-          }
         } catch (e) {
           console.warn('[useApexLogic] Falha ao sincronizar saldo real da MetaAPI (mantendo último valor conhecido):', e);
         }
-        if (!cancelled) setLastPositionSyncAt(Date.now());
-        return;
+        if (accountInfo) {
+          setPortfolio(prev => {
+            const equity = accountInfo!.equity ?? accountInfo!.balance;
+            if (
+              prev.balance === accountInfo!.balance &&
+              prev.equity === equity &&
+              prev.margin === accountInfo!.margin &&
+              prev.freeMargin === accountInfo!.freeMargin &&
+              prev.marginLevel === accountInfo!.marginLevel
+            ) return prev;
+            return {
+              ...prev,
+              balance: accountInfo!.balance,
+              equity,
+              margin: accountInfo!.margin,
+              freeMargin: accountInfo!.freeMargin,
+              marginLevel: accountInfo!.marginLevel,
+            };
+          });
+          if (!cancelled) setLastPositionSyncAt(Date.now());
+          return;
+        }
+        // 🔴 FIX 2026-09-13 (achado do Cleber: voltou de LIVE pra DEMO e o
+        // Dashboard ficou preso em $100 para sempre, mesmo com a sessão DEMO
+        // real tendo 28 trades fechados e 2 posições abertas no banco):
+        // `getAccountInfo()` (BrokerClient.ts) engole erro internamente e
+        // devolve `null` em vez de lançar -- então quando `brokerConnectedCacheRef`
+        // ainda acha "conectado" (cache de 20s, ou uma falha transitória no
+        // credentials/status que faz o cache "manter o último estado
+        // conhecido" indefinidamente) mas não há mais corretora de verdade,
+        // este bloco SEMPRE devolvia `null` e um `return` incondicional logo
+        // abaixo travava a reconciliação aqui pra sempre -- nunca chegava no
+        // recálculo de saldo DEMO (via ai_trades) mais abaixo. Sem
+        // `accountInfo` real, não trava mais: cai pro recálculo DEMO deste
+        // mesmo tick em vez de esperar o cache expirar (que, se
+        // credentials/status também estiver falhando, nunca expira de
+        // verdade -- "mantém último conhecido" vira permanente).
       }
 
       // 🆕 2026-08-18: junto com a perda de autoridade de fechamento do
