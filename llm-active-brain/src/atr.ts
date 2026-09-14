@@ -315,6 +315,64 @@ export async function getLongTermTrendInfo(symbol: string): Promise<TrendInfo | 
   return getTrendInfo(symbol, TREND_LONG_TERM_TIMEFRAME, TREND_LONG_TERM_LOOKBACK_CANDLES);
 }
 
+export interface ImmediateMomentumInfo {
+  /** ALTA = as ultimas velas fechadas vieram subindo em sequencia; BAIXA = caindo em sequencia; MISTO = sem direcao clara (velas alternando). */
+  label: "ALTA" | "BAIXA" | "MISTO";
+  /** Quantas das ultimas `lookbackCandles` velas fecharam ACIMA do fechamento anterior. */
+  upCandles: number;
+  /** Quantas das ultimas `lookbackCandles` velas fecharam ABAIXO do fechamento anterior. */
+  downCandles: number;
+  lookbackCandles: number;
+  lookbackMinutes: number;
+}
+
+const IMMEDIATE_MOMENTUM_LOOKBACK_CANDLES = 3;
+
+/**
+ * 🔴 2026-09-14 (achado real, pedido do Cleber -- UKOUSD LONG aberto durante
+ * uma queda de 5 velas seguidas em andamento, confirmado nos candles reais:
+ * 110.36 -> 109.49 nos 25min anteriores a entrada -- mas `trend` (janela de
+ * 60min) e MACD (indicador atrasado por natureza) nao pegaram a reversao
+ * recem-comecada, so viam o saldo liquido positivo da hora inteira).
+ * `getTrendInfo`/MACD respondem "pra onde o mercado foi na ultima hora", nao
+ * "pra onde ele esta indo NESTE INSTANTE" -- ha uma lacuna real entre os dois.
+ * Esta funcao mede só a estrutura das ULTIMAS 3 velas FECHADAS (~15min em
+ * 5m): se as 3 fecharam cada vez mais baixo, é queda em andamento AGORA,
+ * mesmo que a janela de 60min ainda mostre saldo positivo. Mesma fonte de
+ * candle que `getTrendInfo` (fetchRecentCandles), nunca fabrica dado -- só
+ * fecha a lacuna entre "tendencia da hora" e "o que esta acontecendo agora".
+ */
+export async function getImmediateMomentum(
+  symbol: string,
+  timeframe: SupportedTimeframe = "5m",
+  lookbackCandles: number = IMMEDIATE_MOMENTUM_LOOKBACK_CANDLES
+): Promise<ImmediateMomentumInfo | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < lookbackCandles + 1) return null;
+
+  const recent = candles.slice(-lookbackCandles - 1);
+  let upCandles = 0;
+  let downCandles = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const prevClose = recent[i - 1].close;
+    const close = recent[i].close;
+    if (!Number.isFinite(prevClose) || !Number.isFinite(close)) continue;
+    if (close > prevClose) upCandles++;
+    else if (close < prevClose) downCandles++;
+  }
+
+  const label: ImmediateMomentumInfo["label"] =
+    downCandles === lookbackCandles ? "BAIXA" : upCandles === lookbackCandles ? "ALTA" : "MISTO";
+
+  return {
+    label,
+    upCandles,
+    downCandles,
+    lookbackCandles,
+    lookbackMinutes: lookbackCandles * (TIMEFRAME_MINUTES[timeframe] ?? 5),
+  };
+}
+
 export interface VolumeConfirmation {
   /** Volume das últimas 3 velas (15min) dividido pela média das 12 anteriores (1h) -- OU (fallback) razão entre inclinação recente e anterior do preço, ver "source". */
   ratio: number;

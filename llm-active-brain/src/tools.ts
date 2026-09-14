@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -1468,7 +1468,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
@@ -1477,7 +1477,37 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         getCandlePatterns(symbol, openPositionTimeframe),
         getMarketRegime(symbol, openPositionTimeframe),
         getHmmMarketRegime(symbol, openPositionTimeframe),
+        getImmediateMomentum(symbol, openPositionTimeframe),
       ]);
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
+      // quando o mercado está caindo e venda quando está subindo"): caso real
+      // confirmado -- UKOUSD LONG aberto durante 5 velas seguidas de queda
+      // (110.36->109.49 nos 25min anteriores), porque `trend` (janela de 60min)
+      // e MACD (atrasado) ainda mostravam saldo ALTA da hora inteira, cegos
+      // pra reversao que ja estava em andamento AGORA. Trava MECANICA (nao
+      // prompt -- decisao explicita do Cleber de aceitar so trava mecanica
+      // pra este tipo de erro, ver conversa 2026-09-14): bloqueia entrada
+      // quando as ultimas 3 velas fechadas estao numa sequencia CLARA contra
+      // o lado da entrada (LONG contra 3 velas de queda seguidas, ou SHORT
+      // contra 3 de alta seguidas). So NAO bloqueia quando o proprio
+      // setupType declarado e "REVERSAO" (a tese explicita ali e operar
+      // CONTRA o movimento imediato, com os gates de confluencia proprios de
+      // reversao — ver stochasticExtremeConfirmsReversal/confluenceFactors
+      // acima e abaixo) -- continuacao/rompimento nunca deveriam entrar
+      // durante um movimento imediato oposto.
+      if (
+        immediateMomentumForGate &&
+        setupType !== "REVERSAO" &&
+        ((side === "LONG" && immediateMomentumForGate.label === "BAIXA") ||
+          (side === "SHORT" && immediateMomentumForGate.label === "ALTA"))
+      ) {
+        return {
+          error:
+            `${symbol}: as ultimas ${immediateMomentumForGate.lookbackCandles} velas fechadas (~${immediateMomentumForGate.lookbackMinutes}min) estao numa sequencia clara de ${immediateMomentumForGate.label} AGORA -- ` +
+            `abrir ${side} aqui (setupType != REVERSAO) vai direto contra o movimento que esta acontecendo neste instante, mesmo que a janela de 60min (trend) ou o MACD ainda mostrem saldo diferente (sao mais lentos, nao veem a reversao recem-comecada). ` +
+            `Posicao NAO aberta. Se a tese e mesmo entrar contra este movimento imediato, declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); se a tese e continuacao/rompimento, espere as velas pararem de ir contra o lado ou avalie outro ativo.`,
+        };
+      }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- BNBUSD e XETUSD abertos
       // AO VIVO com "Stochastic SOBREVENDIDO (k=15.99) + MACD BAIXA = 2 fatores
       // reais alinhados pra SHORT"): o proprio reasoning da IA inverteu o
