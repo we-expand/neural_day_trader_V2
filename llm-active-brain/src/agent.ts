@@ -258,6 +258,20 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    não conta pro bias). Nunca gatilho sozinho -- reforça ou contradiz os
    outros fatores (ex: MARTELO em cima de SUPORTE com volume é confluência
    forte; isolado é ruído). "detected" vazio na maioria dos ciclos é normal.
+   **Achado real 2026-09-14, à noite: BTCUSD LONG aberto citando "candle
+   pattern ENGOLFO_BAIXA classico reversao" como fator de confluência --
+   ENGOLFO_BAIXA (engolfo de baixa) é sinal de VENDA por convenção clássica
+   (bias BAIXA), o oposto de reversão compradora.** O erro não foi inventar
+   o padrão (ele estava lá de verdade, detectado), foi ler a direção dele ao
+   contrário -- "_BAIXA" no nome não é ambíguo, é o mesmo tipo de erro já
+   catalogado com Estocástico (princípio 1l). Antes de citar QUALQUER padrão
+   de candle no reasoning, confirme mentalmente: ENGOLFO_ALTA/MARTELO/
+   HARAMI_ALTA/ESTRELA_DA_MANHA/MARUBOZU_ALTA = compra; ENGOLFO_BAIXA/
+   ESTRELA_CADENTE/HARAMI_BAIXA/ESTRELA_DA_NOITE/MARUBOZU_BAIXA = venda. O
+   código agora bloqueia mecanicamente quando o padrão citado pelo nome no
+   reasoning contradiz o lado da entrada (mapa fixo nome->bias, sempre
+   ativo, não depende de validador de LLM) -- mas o objetivo é você nunca
+   citar um padrão na direção errada, não só depender do bloqueio.
 1g. **Regime de mercado: volume e volatilidade baixos NÃO significam
    "mercado ruim pra operar" -- às vezes significam o oposto.** get_mt5_quote
    devolve "regime": {"session": ASIA/LONDRES/NY/ROLLOVER, "volumeLabel":

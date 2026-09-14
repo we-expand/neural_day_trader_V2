@@ -1595,6 +1595,53 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           };
         }
       }
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- BTCUSD LONG aberto
+      // citando "candle pattern ENGOLFO_BAIXA classico reversao" como um dos
+      // fatores -- ENGOLFO_BAIXA (engolfo de baixa) tem bias BAIXA por
+      // convencao classica de mercado (ver getCandlePatterns acima), e um
+      // sinal de VENDA, nao de reversao compradora. O texto citou um padrao
+      // real e detectado de verdade (nao inventado), so leu a direcao dele
+      // ao contrario -- mesma classe de erro ja vista com Estocastico
+      // (principio 1l), agora no padrao de candle. Trava MECANICA e
+      // DETERMINISTICA (mapa fixo nome->bias, o mesmo que getCandlePatterns
+      // ja usa pra classificar -- nao depende de validador semantico de LLM,
+      // que fica desligado com LLM_PROVIDER=ollama): se o reasoning cita
+      // pelo nome um padrao REALMENTE detectado neste candle mas o bias
+      // classico dele contradiz o lado da entrada, bloqueia. Nao bloqueia
+      // quando o padrao citado nao foi detectado de verdade (esse caso ja
+      // seria fabricacao, fora do escopo desta trava) nem quando o
+      // reasoning simplesmente nao menciona nenhum padrao pelo nome.
+      if (candlePatternsForConfluenceCheck?.detected.length) {
+        const patternBiasMap: Record<string, "ALTA" | "BAIXA"> = {
+          MARUBOZU_ALTA: "ALTA",
+          MARUBOZU_BAIXA: "BAIXA",
+          MARTELO: "ALTA",
+          ESTRELA_CADENTE: "BAIXA",
+          ENGOLFO_ALTA: "ALTA",
+          ENGOLFO_BAIXA: "BAIXA",
+          HARAMI_ALTA: "ALTA",
+          HARAMI_BAIXA: "BAIXA",
+          ESTRELA_DA_MANHA: "ALTA",
+          ESTRELA_DA_NOITE: "BAIXA",
+        };
+        const reasoningUpper = reasoning.toUpperCase();
+        const misreadPattern = candlePatternsForConfluenceCheck.detected.find((patternName) => {
+          const patternBias = patternBiasMap[patternName];
+          if (!patternBias) return false; // DOJI e afins nao tem bias proprio
+          if (!reasoningUpper.includes(patternName)) return false; // so checa padrao que o proprio texto citou pelo nome
+          const contradicts = (side === "LONG" && patternBias === "BAIXA") || (side === "SHORT" && patternBias === "ALTA");
+          return contradicts;
+        });
+        if (misreadPattern) {
+          return {
+            error:
+              `${symbol}: o padrao de candle "${misreadPattern}" foi detectado de verdade neste candle e citado no reasoning, mas o bias classico dele e ` +
+              `${patternBiasMap[misreadPattern]} (${patternBiasMap[misreadPattern] === "BAIXA" ? "sinal de VENDA" : "sinal de COMPRA"}) -- o oposto do lado ${side} que voce esta tentando abrir. ` +
+              `Isso e uma leitura invertida do padrao, nao confirmacao real. Posicao NAO aberta. Releia o padrao com a direcao classica correta antes de decidir, ` +
+              `ou baseie a entrada em outros fatores reais que de fato alinhem com ${side}.`,
+          };
+        }
+      }
       // 🔴 2026-09-09 (pedido direto do Cleber -- Classificador de Regime de
       // Mercado via HMM como "principal trava de seguranca do Motor de
       // Decisao"): bloqueio MECANICO opcional, DESLIGADO por padrao
