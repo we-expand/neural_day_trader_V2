@@ -1057,13 +1057,57 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
           const body = res.ok ? await res.json() : null;
           const prices = Array.isArray(body?.prices) ? body.prices : [];
           prices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
-          if (prices.length > 0) anyChunkSucceeded = true;
+          // ✅ 2026-09-14 (achado real, pedido do Cleber -- Navegador de
+          // Ativos aparecia "Sem dados" pra TODO ativo, testado ao vivo: o
+          // endpoint /mt5-prices confirmadamente responde HTTP 429/504 em
+          // rajadas curtas quando a conta MetaAPI compartilhada satura (ex.
+          // motor LLM Brain rodando ciclo no mesmo momento), mas se recupera
+          // sozinha em segundos (confirmado retestando o mesmo lote 3x
+          // seguidas: falhou na 1a, 200/200/200 nas 3 seguintes). O bug real
+          // aqui era contar `prices.length > 0` como sucesso mesmo quando
+          // TODO item do lote vinha com `price: null` + campo `error` (HTTP
+          // 429/504 por símbolo) -- o array nunca vem vazio nesse caso, só
+          // com preço nulo, entao `anyChunkSucceeded` ficava true por engano
+          // e nenhuma tentativa nova acontecia; o modal ficava com "Sem
+          // dados" pro resto da sessao, sem nunca se recuperar sozinho ate
+          // fechar/reabrir. Corrigido pra só contar como sucesso quem de
+          // fato tem price valido.
+          if (prices.some((p: any) => isValidPrice(p?.price))) anyChunkSucceeded = true;
         } catch (error: any) {
-          console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices, símbolos desse lote vão pro Yahoo.', error?.message);
+          console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices.', error?.message);
         }
 
         if (i + CHUNK_SIZE < brokerNames.length) {
           await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS_MS));
+        }
+      }
+
+      // ✅ 2026-09-14: retry UNICO, so pros simbolos que ainda nao tem preco
+      // valido depois da 1a passada -- o teste ao vivo mostrou que o 429/504
+      // e transitorio (rajada curta de rate-limit), nao permanente. Espera
+      // 3s (tempo real observado pra conta MetaAPI compartilhada liberar de
+      // novo) e tenta so o que faltou, uma vez -- nao substitui o Yahoo pros
+      // simbolos indisponiveis no broker (isso ja acontece antes, linha
+      // ~982), so evita "Sem dados" permanente por uma rajada curta.
+      const stillMissing = brokerNames.filter((name) => !isValidPrice(priceByBrokerName.get(name)?.price));
+      if (stillMissing.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const retryRes = await fetch(MT5_PRICES_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ symbols: stillMissing }),
+            signal: AbortSignal.timeout(20000),
+          });
+          const retryBody = retryRes.ok ? await retryRes.json() : null;
+          const retryPrices = Array.isArray(retryBody?.prices) ? retryBody.prices : [];
+          retryPrices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
+          if (retryPrices.some((p: any) => isValidPrice(p?.price))) anyChunkSucceeded = true;
+        } catch (error: any) {
+          console.warn('[RealMarketData] ⚠️ Retry de /mt5-prices tambem falhou.', error?.message);
         }
       }
     };
