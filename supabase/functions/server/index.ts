@@ -17,6 +17,7 @@ import * as kv from './kv_store_resilient.tsx'; // 🔄 RESILIENT: auto-retry pa
 import { synthesizeSpeech, validateGoogleTTSKey } from './tts-google.ts';
 import { transcribeAudio, validateGoogleSTTKey } from './stt-google.ts';
 import { isLedgerTrackedAction, buildExecutionLedgerRow } from './brokerExecutionLedger.ts';
+import { estimatePlatformCommissionUsd } from './platformCommission.ts';
 
 const app = new Hono().basePath('/server');
 
@@ -1031,27 +1032,6 @@ app.post("/transaction", async (c) => {
     }
 });
 
-// Telemetry Track Route
-app.post("/telemetry/track", async (c) => {
-    try {
-        const body = await c.req.json();
-        const { fingerprint } = body;
-        
-        if (!fingerprint) {
-            return c.json({ error: "Missing fingerprint data" }, 400);
-        }
-
-        // Use high-resolution timestamp for ordering
-        const key = `access_log:${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-        
-        await kv.set(key, fingerprint);
-        
-        return c.json({ status: "tracked", id: key });
-    } catch (e: any) {
-        return c.json({ error: e.message }, 500);
-    }
-});
-
 // MT5 Token Management Routes
 // 🔒 PATCH DE SEGURANÇA (Fase 1): antes aceitava qualquer userId no body/query sem checar
 // quem estava chamando (IDOR — dava pra ler/sobrescrever o token de qualquer usuário).
@@ -1860,7 +1840,7 @@ app.get("/admin/commission-summary", async (c) => {
 
         const { data, error } = await supabaseAdmin
             .from('ai_trades')
-            .select('commission, net_pnl, pnl, broker_position_id, entry_time')
+            .select('id, commission, net_pnl, pnl, broker_position_id, entry_time, symbol, quantity')
             .eq('status', 'CLOSED')
             .not('commission', 'is', null);
 
@@ -1881,6 +1861,75 @@ app.get("/admin/commission-summary", async (c) => {
         const now = Date.now();
         const last30d = rows.filter((r) => r.entry_time && now - new Date(r.entry_time).getTime() <= 30 * 24 * 60 * 60 * 1000);
 
+        // 🔴 2026-09-11 (pedido do Cleber: "esse dinheiro tem que ser
+        // gerenciado, tem que ter um caixa que faz a contabilidade") -- a
+        // partir da migration `20260911_platform_commission_ledger.sql`, o
+        // caixa real é a tabela `platform_commission_ledger` (1 lançamento
+        // por trade LIVE fechado, taxa travada no momento -- ver
+        // `llm-active-brain/src/platformCommissionLedger.ts`). Trades LIVE
+        // fechados ANTES da migration não têm lançamento (não dá pra
+        // reconstruir com integridade sem fabricar `closed_at`/taxa
+        // retroativa) -- por isso ainda calculamos on-the-fly (função
+        // legada abaixo) só para ESSES, e somamos com o caixa real. Uma vez
+        // que a amostra pré-ledger sair da janela relevante, este fallback
+        // pode ser removido.
+        const { data: ledgerRows, error: ledgerError } = await supabaseAdmin
+            .from('platform_commission_ledger')
+            .select('trade_id, symbol, notional_usd, accrued_usd, closed_at')
+            .order('closed_at', { ascending: true });
+        if (ledgerError) {
+            console.error('[ADMIN] Erro ao consultar platform_commission_ledger:', ledgerError);
+        }
+        const ledgerTradeIds = new Set((ledgerRows ?? []).map((r) => r.trade_id));
+
+        const platformCommissionBySymbol = new Map<string, { trades: number; notionalUsd: number; accruedUsd: number }>();
+        let platformCommissionAccruedUsd = 0;
+        const addToBySymbol = (symbol: string, notionalUsd: number, accruedUsd: number) => {
+            platformCommissionAccruedUsd += accruedUsd;
+            const key = symbol || 'DESCONHECIDO';
+            const entry = platformCommissionBySymbol.get(key) ?? { trades: 0, notionalUsd: 0, accruedUsd: 0 };
+            entry.trades += 1;
+            entry.notionalUsd += notionalUsd;
+            entry.accruedUsd += accruedUsd;
+            platformCommissionBySymbol.set(key, entry);
+        };
+        // 1) Caixa real (ledger travado no fechamento).
+        for (const r of ledgerRows ?? []) {
+            addToBySymbol(r.symbol, Number(r.notional_usd) || 0, Number(r.accrued_usd) || 0);
+        }
+        // 2) Fallback legado: trades LIVE fechados sem lançamento no ledger
+        // (fechados antes desta migration existir) -- recalculado on-the-fly,
+        // mesma taxa, nunca gravado retroativamente na tabela.
+        // 🔴 achado desta rodada: `ai_trades.id` não vinha na query original
+        // (só campos agregados) -- sem ele não dá pra cruzar com o ledger por
+        // trade, cairia em double-count de todo trade LIVE já lançado. Corrigido
+        // abaixo, no select.
+        for (const r of liveRows) {
+            if (ledgerTradeIds.has((r as any).id)) continue; // já contado via ledger
+            const notional = Number(r.quantity) || 0;
+            const accrued = estimatePlatformCommissionUsd(r.symbol, notional);
+            addToBySymbol(r.symbol, notional, accrued);
+        }
+        const platformCommissionByAsset = Array.from(platformCommissionBySymbol.entries())
+            .map(([symbol, v]) => ({ symbol, ...v }))
+            .sort((a, b) => b.accruedUsd - a.accruedUsd);
+
+        // Fluxo de caixa real da comissão própria: saldo acumulado por dia,
+        // só a partir do ledger de verdade (pré-ledger não tem data de
+        // lançamento granular confiável pra série temporal).
+        const dailyMap = new Map<string, number>();
+        for (const r of ledgerRows ?? []) {
+            const day = String(r.closed_at).slice(0, 10);
+            dailyMap.set(day, (dailyMap.get(day) ?? 0) + (Number(r.accrued_usd) || 0));
+        }
+        let running = 0;
+        const platformCommissionCashFlow = Array.from(dailyMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([day, dayTotal]) => {
+                running += dayTotal;
+                return { day, dayTotalUsd: dayTotal, cumulativeUsd: running };
+            });
+
         return c.json({
             totalClosedTrades: rows.length,
             demo: {
@@ -1894,11 +1943,12 @@ app.get("/admin/commission-summary", async (c) => {
                 totalCommissionUsd: sum(liveRows, 'commission'),
                 totalNetPnlUsd: sum(liveRows, 'net_pnl'),
                 totalGrossPnlUsd: sum(liveRows, 'pnl'),
-                // Cobrança de comissão REAL em LIVE ainda não implementada
-                // (decisão de mecanismo de cobrança pendente, fora do escopo
-                // desta rodada) -- este número existe pra deixar isso visível
-                // no admin, não pra esconder que ainda é 0.
-                note: 'Cobrança de comissão em execução LIVE ainda não implementada -- número real, mas ainda zerado por falta de mecanismo de coleta.',
+                // Receita própria da casa sobre volume real (accrued), por
+                // ativo -- ver comentário acima e platformCommission.ts.
+                platformCommissionAccruedUsd,
+                platformCommissionByAsset,
+                platformCommissionCashFlow,
+                note: 'Valor ACUMULADO no caixa contábil (platform_commission_ledger) sobre volume real já executado (taxa por ativo calibrada por pesquisa de mercado real, ver platformCommission.ts) -- ainda não existe mecanismo de cobrança efetiva (fatura/débito em conta/gateway de pagamento), então este número é o que deveria ter sido cobrado, não o que já foi recebido.',
             },
             last30Days: {
                 trades: last30d.length,
@@ -4459,26 +4509,54 @@ const priceCacheKvKey = (symbol: string) => `mt5price_cache_${symbol}`;
 // reducao do semaforo do llm-active-brain de 3->2 no mesmo commit deixa o
 // pior caso combinado em 4 concorrentes, com folga de 1 sob o teto real de 5
 // mesmo se ambos dispararem no mesmo instante.
-// ⚠️ Limite conhecido desta mitigacao: e um semaforo LOCAL por isolate/
-// processo, nao um limitador distribuido de verdade -- se o Supabase escalar
-// esta Edge Function pra mais de 1 isolate simultaneo sob carga alta, o
-// limite real por isolate ainda soma corretamente ate o teto entre eles no
-// caso comum, mas o pior caso teorico (varios isolates saturados ao mesmo
-// tempo) ainda pode ultrapassar 5. Fix definitivo exigiria um semaforo
-// distribuido (ex: contador em Postgres/advisory lock) compartilhado entre
-// esta Edge Function E o processo Node do llm-active-brain -- nao
-// implementado nesta sessao, ver handoff/relatorio de pesquisa.
+// 🔴 2026-09-14 (achado real, pedido do Cleber -- conta MetaAPI DEDICADA
+// ainda estourando o teto, confirmado ao vivo: erro da propria MetaAPI
+// "concurrentRequestCount: 6" contra maximo 5, mesmo com este semaforo
+// "limitando" a 2): o limite acima era exatamente o problema descrito no
+// comentario antigo -- LOCAL por isolate/processo, nao global de verdade.
+// Sob carga o Supabase escala pra varias instancias desta Edge Function em
+// paralelo, cada uma com sua PROPRIA copia de `activeHistoricalDataRequests`,
+// sem saber da concorrencia real das outras -- o codigo "achava" que
+// limitava a 2, mas 3 instancias saturadas ao mesmo tempo already somava 6.
+// Fix real: semaforo distribuido via Postgres (compartilhado de verdade
+// entre todas as instancias), usando `pg_advisory_xact_lock` pra serializar
+// as tentativas de aquisicao globalmente -- ver migration
+// 20260914_add_metaapi_historical_slot_semaphore.sql (tabela
+// `metaapi_historical_fetch_slots` + funcoes `acquire_historical_fetch_slot`/
+// `release_historical_fetch_slot`). Vagas mais velhas que
+// `HISTORICAL_SLOT_TTL_SECONDS` sao limpas sozinhas (protege contra
+// instancia que crashou sem liberar).
 const MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS = 2;
-let activeHistoricalDataRequests = 0;
-const historicalDataRequestQueue: Array<() => void> = [];
+const HISTORICAL_SLOT_TTL_SECONDS = 30;
+const HISTORICAL_SLOT_POLL_MS = 150;
 
-async function acquireHistoricalDataSlot(): Promise<void> {
-  if (activeHistoricalDataRequests < MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS) {
-    activeHistoricalDataRequests++;
-    return;
+function getHistoricalSlotDbClient() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  return createClient(supabaseUrl!, supabaseServiceKey!);
+}
+
+async function tryAcquireHistoricalFetchSlotDb(): Promise<string | null> {
+  const client = getHistoricalSlotDbClient();
+  const { data, error } = await client.rpc('acquire_historical_fetch_slot', {
+    p_max: MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS,
+    p_ttl_seconds: HISTORICAL_SLOT_TTL_SECONDS,
+  });
+  if (error) {
+    console.error('[HistoricalSlot] ⚠️ Falha ao consultar semaforo distribuido, liberando sem limite nesta tentativa:', error.message);
+    // Fail-open: nunca deixa o semaforo derrubar a rota inteira -- pior caso
+    // vira o comportamento antigo (sem limite nesta chamada), nao um erro.
+    return 'fail-open';
   }
-  await new Promise<void>((resolve) => historicalDataRequestQueue.push(resolve));
-  activeHistoricalDataRequests++;
+  return (data as string | null) ?? null;
+}
+
+async function acquireHistoricalDataSlot(): Promise<string> {
+  for (;;) {
+    const id = await tryAcquireHistoricalFetchSlotDb();
+    if (id) return id;
+    await new Promise((resolve) => setTimeout(resolve, HISTORICAL_SLOT_POLL_MS));
+  }
 }
 
 // 🔴 2026-09-04 (mesmo dia, achado do Cleber ao vivo no Navegador de
@@ -4497,37 +4575,23 @@ async function acquireHistoricalDataSlot(): Promise<void> {
 // pode demorar 1 ciclo de polling a mais sob concorrência alta — troca
 // deliberada (Cleber: "dados têm que entrar rapidamente assim que o usuário
 // acionar o navegador de ativos").
-async function acquireHistoricalDataSlotWithBudget(budgetMs: number): Promise<boolean> {
-  if (activeHistoricalDataRequests < MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS) {
-    activeHistoricalDataRequests++;
-    return true;
+async function acquireHistoricalDataSlotWithBudget(budgetMs: number): Promise<string | null> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const id = await tryAcquireHistoricalFetchSlotDb();
+    if (id) return id;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, HISTORICAL_SLOT_POLL_MS));
   }
-  let settled = false;
-  return new Promise<boolean>((resolve) => {
-    const onSlotFreed = () => {
-      if (settled) {
-        // Já desistiu por timeout — não usa a vaga liberada tardiamente,
-        // só deixa livre pro próximo a pedir (sem vazar concorrência).
-        return;
-      }
-      settled = true;
-      activeHistoricalDataRequests++;
-      resolve(true);
-    };
-    historicalDataRequestQueue.push(onSlotFreed);
-    setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        resolve(false);
-      }
-    }, budgetMs);
-  });
 }
 
-function releaseHistoricalDataSlot(): void {
-  activeHistoricalDataRequests--;
-  const next = historicalDataRequestQueue.shift();
-  if (next) next();
+async function releaseHistoricalDataSlot(slotId: string): Promise<void> {
+  if (slotId === 'fail-open') return; // nunca foi uma vaga real, nada a liberar
+  const client = getHistoricalSlotDbClient();
+  const { error } = await client.rpc('release_historical_fetch_slot', { p_id: slotId });
+  if (error) {
+    console.error('[HistoricalSlot] ⚠️ Falha ao liberar vaga do semaforo distribuido (auto-expira em', HISTORICAL_SLOT_TTL_SECONDS, 's):', error.message);
+  }
 }
 
 app.post('/mt5-prices', async (c) => {
@@ -4789,8 +4853,8 @@ app.post('/mt5-prices', async (c) => {
                         // liberar a tempo, desiste do candle nesse ciclo em vez de segurar
                         // o preço (tick) inteiro na fila — o preço já foi buscado acima e
                         // precisa voltar rápido pro Navegador de Ativos/Dashboard.
-                        const gotSlot = await acquireHistoricalDataSlotWithBudget(1200);
-                        if (!gotSlot) {
+                        const slotId = await acquireHistoricalDataSlotWithBudget(1200);
+                        if (!slotId) {
                             return { ok: false, candles: null as any[] | null };
                         }
                         try {
@@ -4807,7 +4871,7 @@ app.post('/mt5-prices', async (c) => {
                             const json = await res.json();
                             return { ok: true, candles: Array.isArray(json) ? json : null };
                         } finally {
-                            releaseHistoricalDataSlot();
+                            await releaseHistoricalDataSlot(slotId);
                         }
                     }
 
@@ -5313,7 +5377,7 @@ app.post('/mt5-candles', async (c) => {
         // compartilhar o semaforo, as duas rotas desta MESMA Edge Function
         // poderiam somar concorrencia acima do teto real mesmo cada uma
         // "respeitando" o proprio limite isolado.
-        await acquireHistoricalDataSlot();
+        const mt5CandlesSlotId = await acquireHistoricalDataSlot();
         let response: Response;
         try {
             response = await fetch(
@@ -5327,7 +5391,7 @@ app.post('/mt5-candles', async (c) => {
                 }
             );
         } finally {
-            releaseHistoricalDataSlot();
+            await releaseHistoricalDataSlot(mt5CandlesSlotId);
         }
 
         if (!response.ok) {
@@ -5580,7 +5644,7 @@ app.post('/mt5-candles-history', async (c) => {
                 // rodar ao mesmo tempo que outra chamada desta rota (2 usuários
                 // fazendo backtest) ou das outras duas rotas, contra a MESMA
                 // conta MetaAPI.
-                await acquireHistoricalDataSlot();
+                const pageSlotId = await acquireHistoricalDataSlot();
                 try {
                     const candidate = await fetch(
                         `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
@@ -5595,14 +5659,14 @@ app.post('/mt5-candles-history', async (c) => {
                     }
                     lastPageError = `HTTP ${candidate.status}`;
                     // 429/502/503/504 são tipicamente transitórios (rate-limit
-                    // ou saturação momentânea da conta compartilhada) — vale
-                    // tentar de novo; outros códigos (4xx de request malformado)
-                    // não vão se resolver com retry, mas o custo de tentar é
-                    // baixo e mantém o comportamento antigo como pior caso.
+                    // ou saturação momentânea da conta) — vale tentar de novo;
+                    // outros códigos (4xx de request malformado) não vão se
+                    // resolver com retry, mas o custo de tentar é baixo e
+                    // mantém o comportamento antigo como pior caso.
                 } catch (fetchErr: any) {
                     lastPageError = fetchErr?.message || 'network error';
                 } finally {
-                    releaseHistoricalDataSlot();
+                    await releaseHistoricalDataSlot(pageSlotId);
                 }
                 if (attempt < PAGE_RETRIES) {
                     await new Promise(resolve => setTimeout(resolve, PAGE_RETRY_DELAYS_MS[attempt]));
