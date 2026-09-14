@@ -63,18 +63,28 @@ function calculateAtr(candles: Candle[], period = 14): number | null {
 }
 
 const candlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
-const CANDLES_CACHE_TTL_MS = 5 * 60 * 1000; // 5min -- teto de segurança pro maior timeframe suportado (5m); timeframes menores usam um TTL mais curto, ver CACHE_TTL_BY_TIMEFRAME abaixo
+const CANDLES_CACHE_TTL_MS = 45 * 1000; // fallback pra timeframe fora do mapa abaixo (não deveria acontecer, todos SupportedTimeframe estão cobertos) -- nunca mais alto que o menor TTL real, ver CACHE_TTL_BY_TIMEFRAME
 
-// 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional"):
-// TTL do cache precisa ser <= a duracao de 1 vela do timeframe escolhido,
-// senao um timeframe curto (1m) fica lendo candle "fresco" que na verdade
-// tem ate 5min de idade (o TTL fixo antigo, calibrado so pro caso de 5m).
+// 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto com
+// Estocastico registrado como NEUTRO, mas recalculo manual usando a ultima
+// vela FECHADA de verdade no mesmo instante deu K=80,79 = SOBRECOMPRADO):
+// o TTL antigo (5m pro timeframe 5m, igual a duracao de 1 vela inteira)
+// deixava o cache servir candle com ate ~5min de atraso -- quando uma vela
+// nova fecha, o motor podia continuar vendo o conjunto de velas ANTIGO por
+// ate 5min antes de buscar de novo, entao o Estocastico calculado nao
+// refletia a vela mais recente de verdade. Como o ciclo do motor roda a
+// cada ~40s, um TTL de 5min significava, na pratica, servir candle cacheado
+// na maioria dos ciclos. Reduzido pra uma fracao pequena da duracao de cada
+// vela -- fresco o suficiente pra pegar a vela recem-fechada rapido, ainda
+// cacheando chamadas repetidas dentro do MESMO ciclo de raciocinio (varias
+// chamadas de get_mt5_quote pro mesmo simbolo no mesmo ciclo nao disparam
+// requisicao nova a cada uma).
 const CACHE_TTL_BY_TIMEFRAME: Record<string, number> = {
-  "1m": 30 * 1000,
-  "5m": 5 * 60 * 1000,
-  "15m": 5 * 60 * 1000,
-  "1H": 5 * 60 * 1000,
-  "4H": 15 * 60 * 1000,
+  "1m": 10 * 1000,
+  "5m": 45 * 1000,
+  "15m": 60 * 1000,
+  "1H": 90 * 1000,
+  "4H": 120 * 1000,
 };
 
 /** Timeframes suportados pelo endpoint /mt5-candles (ver timeframeMap em supabase/functions/server/index.ts) -- mesmos valores que o campo `timeframe` do Setup do AI Trader (AIConfig) já usa no frontend. */
