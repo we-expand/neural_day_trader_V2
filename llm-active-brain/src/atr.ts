@@ -641,6 +641,21 @@ export interface SlowStochasticResult {
   label: "SOBRECOMPRADO" | "SOBREVENDIDO" | "NEUTRO";
   /** %K cruzou %D na ultima vela vs a penultima -- sinal classico de reversao/continuacao. null quando nao houve cruzamento. */
   crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
+  // 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto em
+  // cima de rompimento forte, com %K BRUTO (sem suavizacao) ja em 98,2
+  // (exaustao extrema), mas o %K LENTO (SMA3, campo `k` acima, usado pela
+  // trava mecanica de contradicao) ainda calculando ~78,8 -- abaixo do
+  // limiar de 80, entao a trava nao disparou. Causa raiz real: a
+  // suavizacao dupla (SMA3 de %K + SMA3 de %D) existe de proposito pra
+  // filtrar ruido, mas por isso reage 2-3 velas DEPOIS de um rompimento
+  // brusco -- exatamente o cenario onde uma entrada de CONTINUACAO
+  // (ROMPIMENTO) mais precisa desse alerta, porque e ali que se compra no
+  // topo do movimento rapido. `rawK` expoe o %K SEM suavizacao (janela de
+  // 14 periodos, sem SMA3) pra permitir uma checagem adicional que reage
+  // na hora, sem substituir a leitura lenta (que continua sendo a fonte
+  // principal, mais confiavel pra maioria dos casos).
+  /** %K RAPIDO (sem suavizacao SMA3), 0-100 -- reage na hora, mais ruidoso. Usado so como alerta extra de exaustao em rompimentos, nunca substitui `k`/`label`. */
+  rawK: number;
 }
 
 const STOCH_PERIOD = 14;
@@ -712,7 +727,8 @@ export async function getSlowStochastic(symbol: string, timeframe: SupportedTime
 
   const lastK = validSlowK[validSlowK.length - 1];
   const lastD = dSeries[dSeries.length - 1];
-  if (!Number.isFinite(lastK) || !Number.isFinite(lastD)) return null;
+  const lastRawK = validFastK[validFastK.length - 1];
+  if (!Number.isFinite(lastK) || !Number.isFinite(lastD) || !Number.isFinite(lastRawK)) return null;
 
   const overboughtThreshold = isWeekendMode() ? STOCH_OVERBOUGHT_WEEKEND : STOCH_OVERBOUGHT;
   const oversoldThreshold = isWeekendMode() ? STOCH_OVERSOLD_WEEKEND : STOCH_OVERSOLD;
@@ -734,6 +750,7 @@ export async function getSlowStochastic(symbol: string, timeframe: SupportedTime
     d: Number(lastD.toFixed(2)),
     label,
     crossing,
+    rawK: Number(lastRawK.toFixed(2)),
   };
 }
 

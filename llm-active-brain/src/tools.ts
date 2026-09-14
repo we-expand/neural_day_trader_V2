@@ -1528,17 +1528,70 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // LONG+SOBRECOMPRADO) bloqueia sempre -- e o oposto do sinal de exaustao
       // real, nunca faz sentido como base de entrada, mesmo se outro fator
       // (MACD, trend) tambem alinhar.
-      if (stochasticForReversalCheck) {
+      // 🔴 2026-09-14 (achado real e grave, pedido do Cleber -- UKOUSD SHORT
+      // executado com sucesso mesmo com o proprio reasoning admitindo "Stoch
+      // SOBREVENDIDO", e o get_mt5_quote IMEDIATAMENTE anterior no mesmo log
+      // confirmando k=19.73/SOBREVENDIDO -- a trave acima existia mas nao
+      // bloqueou): causa raiz real, nao suposicao -- `stochasticForReversalCheck`
+      // vem de uma chamada FRESCA e INDEPENDENTE a getSlowStochastic() (dentro
+      // do Promise.all acima), separada da chamada que get_mt5_quote fez
+      // segundos antes. Se essa chamada fresca falhar/retornar null (rede,
+      // rate-limit da MetaAPI -- risco real e ativo nesta mesma sessao, ver
+      // conversa sobre concorrencia de 5 requisicoes), o `if (stochasticForReversalCheck)`
+      // silenciosamente PULAVA o bloqueio inteiro -- fail-OPEN exatamente no
+      // pior momento (dado indisponivel = trava desliga, quando deveria ser o
+      // oposto). Fix: usa TAMBEM o ultimo snapshot que get_mt5_quote de fato
+      // devolveu pra este simbolo nesta sessao (`lastQuoteSnapshotBySymbol`,
+      // MESMA fonte que indicators_snapshot grava no banco, sempre disponivel
+      // se o modelo cotou o simbolo antes de abrir) -- bloqueia se QUALQUER
+      // uma das duas fontes mostrar contradicao, nunca deixa a falha de uma
+      // fonte anular a protecao da outra.
+      const lastQuoteStochasticLabel = lastQuoteSnapshotBySymbol.get(symbol)?.stochasticLabel ?? null;
+      const stochasticLabelForGate = stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel;
+      if (stochasticLabelForGate) {
         const stochasticContradictsSide =
-          (side === "SHORT" && stochasticForReversalCheck.label === "SOBREVENDIDO") ||
-          (side === "LONG" && stochasticForReversalCheck.label === "SOBRECOMPRADO");
+          (side === "SHORT" && stochasticLabelForGate === "SOBREVENDIDO") ||
+          (side === "LONG" && stochasticLabelForGate === "SOBRECOMPRADO");
         if (stochasticContradictsSide) {
+          const kDisplay = stochasticForReversalCheck ? ` (k=${stochasticForReversalCheck.k.toFixed(2)})` : "";
           return {
             error:
-              `${symbol}: Estocastico esta ${stochasticForReversalCheck.label} (k=${stochasticForReversalCheck.k.toFixed(2)}), o que e sinal de EXAUSTAO ` +
-              `${stochasticForReversalCheck.label === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
+              `${symbol}: Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
+              `${stochasticLabelForGate === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
               `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
-              `Se a tese e reversao de verdade, o lado correto seria ${stochasticForReversalCheck.label === "SOBREVENDIDO" ? "LONG" : "SHORT"}; se a tese e continuacao, espere o Estocastico sair do extremo.`,
+              `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}; se a tese e continuacao, espere o Estocastico sair do extremo.`,
+          };
+        }
+      }
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto em
+      // cima de rompimento forte no MESMO ciclo em que o %K RAPIDO ja estava
+      // em 98,2, mas passou pela trava acima porque ela usa o %K LENTO
+      // (SMA3), que ainda calculava ~78,8 -- abaixo do limiar de 80. Causa
+      // raiz real: a dupla suavizacao do Estocastico LENTO existe pra
+      // filtrar ruido, mas por isso reage 2-3 velas DEPOIS de um rompimento
+      // brusco -- exatamente o momento em que comprar (ou vender) significa
+      // entrar já perto do topo (ou fundo) do movimento rapido que acabou de
+      // acontecer. Trava adicional, com limiar mais apertado que o do
+      // Estocastico lento (95/5 em vez de 80/20, ja que o %K bruto e mais
+      // ruidoso e nao deveria bloquear toda entrada de tendencia forte) --
+      // bloqueia so quando o %K SEM suavizacao ja esta em exaustao extrema
+      // CONTRA o lado da entrada, mesmo que o Estocastico lento ainda nao
+      // tenha "alcancado".
+      const RAW_STOCH_EXTREME_OVERBOUGHT = 95;
+      const RAW_STOCH_EXTREME_OVERSOLD = 5;
+      if (stochasticForReversalCheck) {
+        const rawK = stochasticForReversalCheck.rawK;
+        const rawContradictsSide =
+          (side === "LONG" && rawK >= RAW_STOCH_EXTREME_OVERBOUGHT) ||
+          (side === "SHORT" && rawK <= RAW_STOCH_EXTREME_OVERSOLD);
+        if (rawContradictsSide) {
+          return {
+            error:
+              `${symbol}: Estocastico RAPIDO (sem suavizacao) esta em ${rawK.toFixed(2)}, exaustao extrema ` +
+              `${rawK >= RAW_STOCH_EXTREME_OVERBOUGHT ? "DA ALTA (favorece SHORT, nunca LONG)" : "DA QUEDA (favorece LONG, nunca SHORT)"} -- ` +
+              `mesmo que o Estocastico LENTO (k=${stochasticForReversalCheck.k.toFixed(2)}) ainda nao tenha alcancado esse extremo (suavizacao reage com atraso), ` +
+              `abrir ${side} aqui significa entrar perto do topo/fundo de um movimento que acabou de acontecer, alto risco de reversao imediata. ` +
+              `Posicao NAO aberta. Espere o preco respirar (candle de consolidacao) antes de entrar nesse lado, ou avalie o lado oposto se a tese virou reversao.`,
           };
         }
       }

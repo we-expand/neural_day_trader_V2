@@ -466,6 +466,53 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    pro caso inverso (toque de baixo pra cima na EMA9/SMA20 durante ALTA
    forte, com compradores comprados segurando queda) por simetria, embora a
    observação original do Cleber tenha sido sobre queda.
+1l. **Estocástico: SOBREVENDIDO = exaustão da QUEDA (favorece LONG),
+   SOBRECOMPRADO = exaustão da ALTA (favorece SHORT) -- NUNCA o contrário
+   (achado real 2026-09-14, entradas SHORT abertas com Estocástico
+   SOBREVENDIDO citando "mean-reversion" como justificativa, exatamente
+   invertido).** "stochasticLabel" em get_mt5_quote (k>=80/limiar de fim de
+   semana = SOBRECOMPRADO, k<=20/limiar de fim de semana = SOBREVENDIDO) mede
+   se o preço está perto do TOPO ou do FUNDO do range recente -- é sinal de
+   exaustão do movimento, não confirmação de continuação dele. SOBREVENDIDO
+   significa "já caiu demais, pode repicar pra cima" -- é argumento pra
+   comprar (LONG) ou pra NÃO vender mais, nunca pra abrir SHORT. SOBRECOMPRADO
+   é o espelho: argumento pra vender (SHORT) ou não comprar mais, nunca pra
+   abrir LONG. Antes de citar Estocástico como fator numa entrada, confirme
+   que o LADO da entrada bate com essa direção -- se não bater, o fator não
+   existe, não force a leitura pra caber na tese. O código agora bloqueia
+   mecanicamente open_position quando side contradiz stochasticLabel dessa
+   forma (SHORT+SOBREVENDIDO ou LONG+SOBRECOMPRADO), mas o objetivo aqui é
+   você nunca propor isso, não só depender do bloqueio.
+   **Achado real 2026-09-14, tarde: bloquear o lado errado não basta --
+   quando isso acontecer, TENTE O LADO OPOSTO no mesmo ativo antes de
+   descartar e passar pro próximo.** Confirmado ao vivo: NAS100 SHORT foi
+   bloqueado (Estocástico SOBREVENDIDO), você registrou corretamente em
+   log_thought que "favorece LONG", mas nunca chegou a AVALIAR nem tentar
+   abrir NAS100 LONG de verdade -- só anotou e seguiu pro próximo ativo da
+   cesta, desperdiçando o próprio sinal que você mesma identificou como
+   real. Isso é diferente de forçar entrada: o Estocástico extremo É um
+   sinal genuíno de exaustão, só que aponta pro lado oposto do que você
+   pensou primeiro -- quando o bloqueio disser "o lado correto seria X",
+   trate isso como um convite real pra avaliar abrir X (com o resto dos
+   critérios normais: trend, MACD, volume, confiança >=80%), não como um
+   beco sem saída. Só descarte de vez se X também não tiver confluência
+   suficiente nos outros fatores -- não porque "já tentei este ativo".
+   **Achado real 2026-09-14, à noite: o Estocástico LENTO (suavizado, SMA3)
+   pode ainda estar NEUTRO justo quando um rompimento forte já esgotou o
+   movimento de verdade.** Confirmado ao vivo: XETUSD LONG aberto num
+   rompimento (MACD cruzando pra cima, MARUBOZU ALTA) com Estocástico lento
+   em ~79 (abaixo do limiar de 80) -- mas o %K BRUTO (sem suavização) já
+   estava em 98, exaustão extrema. A suavização dupla existe pra filtrar
+   ruído, só que por isso reage 2-3 velas DEPOIS do movimento brusco --
+   exatamente quando comprar/vender significa entrar perto do topo/fundo do
+   que acabou de acontecer. O código agora expõe também o %K bruto e
+   bloqueia mecanicamente open_position quando ele estiver em exaustão
+   extrema (>=95/<=5) contra o lado, mesmo que o Estocástico lento ainda não
+   tenha alcançado esse nível -- mas o objetivo aqui é você mesma notar isso
+   antes: um rompimento com vela(s) muito esticada(s) recém-formada(s)
+   merece cautela extra mesmo com Estocástico lento "neutro" no papel,
+   principalmente quando a vela que confirma o rompimento já é ela própria
+   grande/forte (Marubozu, gap, volume muito acima do normal).
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a
