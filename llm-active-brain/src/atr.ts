@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import { analyzeSmc, type SmcZoneType } from "./smc.js";
-import { classifyRegimeHmm, type HmmRegimeResult } from "./hmmRegime.js";
+import { classifyRegimeHmm, type HmmRegimeResult, HMM_STATE_TREND } from "./hmmRegime.js";
 import { getTickTrend, getTickVolatility, getMomentumAcceleration } from "./tickHistory.js";
 import { isWeekendMode } from "./assetBasket.js";
 import { archiveCandles } from "./neuralBridge.js";
@@ -381,6 +381,73 @@ export async function getImmediateMomentum(
     lookbackCandles,
     lookbackMinutes: lookbackCandles * (TIMEFRAME_MINUTES[timeframe] ?? 5),
   };
+}
+
+// 🔴 2026-09-14 (pedido direto do Cleber -- "o nosso problema esta sendo ela
+// acertar direcao de mercado... ela precisa ter essa resposta"): ate aqui, a
+// resposta pra "pra que lado o mercado esta indo" ficava espalhada em 4
+// campos separados (trend, trendLongTerm, immediateMomentum, hmmRegime) --
+// cabia ao LLM reconciliar os 4 sozinho, em texto livre, a cada ciclo. Os
+// bugs reais catalogados hoje (Estocastico lido ao contrario, padrao de
+// candle lido ao contrario, comprar em rompimento ja exaurido) nao foram por
+// falta de dado de direcao -- foram por erro na SINTESE que o modelo tinha
+// que fazer sozinho. Esta funcao faz essa sintese em CODIGO, deterministica
+// e auditavel: conta quantos dos sinais disponiveis (que tiveram opiniao
+// real, ignora LATERAL/MISTO/indisponivel) apontam ALTA vs BAIXA, e devolve
+// um veredito UNICO. Pedido explicito do Cleber: os componentes de curto
+// prazo (trend/immediateMomentum) sempre olham o grafico de 5 MINUTOS aqui,
+// independente do timeframe operacional escolhido pelo usuario (mesmo
+// espirito de trendLongTerm ja ser fixo em 1H) -- callers que quiserem
+// combinar com sinais do timeframe operacional continuam livres pra isso,
+// esta funcao so representa o veredito de 5m explicitamente pedido.
+export interface MarketDirectionResult {
+  /** Veredito unico: ALTA/BAIXA = todos os sinais disponiveis concordam; DIVERGENTE = tem sinal real dos dois lados; INDEFINIDO = nenhum sinal com opiniao real agora. */
+  consensus: "ALTA" | "BAIXA" | "DIVERGENTE" | "INDEFINIDO";
+  /** Explicacao factual curta, pronta pro prompt -- nao repete didatica (isso fica no principio do prompt), so o resultado deste ciclo. */
+  agreement: string;
+  votesAlta: number;
+  votesBaixa: number;
+  /** Quantos dos 4 sinais possiveis (trend 5m, trendLongTerm 1H, immediateMomentum 5m, hmmRegime) tinham opiniao real neste ciclo. */
+  signalsUsed: number;
+}
+
+export function computeMarketDirection(
+  trend5m: TrendInfo | null,
+  trendLongTerm: TrendInfo | null,
+  immediateMomentum5m: ImmediateMomentumInfo | null,
+  hmmRegime: HmmRegimeResult | null
+): MarketDirectionResult {
+  let votesAlta = 0;
+  let votesBaixa = 0;
+  if (trend5m?.label === "ALTA") votesAlta++;
+  else if (trend5m?.label === "BAIXA") votesBaixa++;
+  if (trendLongTerm?.label === "ALTA") votesAlta++;
+  else if (trendLongTerm?.label === "BAIXA") votesBaixa++;
+  if (immediateMomentum5m?.label === "ALTA") votesAlta++;
+  else if (immediateMomentum5m?.label === "BAIXA") votesBaixa++;
+  if (hmmRegime?.regime === HMM_STATE_TREND && hmmRegime.direction) {
+    if (hmmRegime.direction === "ALTA") votesAlta++;
+    else votesBaixa++;
+  }
+
+  const signalsUsed = votesAlta + votesBaixa;
+  let consensus: MarketDirectionResult["consensus"];
+  let agreement: string;
+  if (signalsUsed === 0) {
+    consensus = "INDEFINIDO";
+    agreement = "Nenhum sinal de direcao disponivel/claro agora (tendencias LATERAL, momentum MISTO, HMM sem regime de tendencia claro).";
+  } else if (votesBaixa === 0) {
+    consensus = "ALTA";
+    agreement = `${votesAlta}/${signalsUsed} sinal(is) disponivel(is) concordam em ALTA neste ciclo.`;
+  } else if (votesAlta === 0) {
+    consensus = "BAIXA";
+    agreement = `${votesBaixa}/${signalsUsed} sinal(is) disponivel(is) concordam em BAIXA neste ciclo.`;
+  } else {
+    consensus = "DIVERGENTE";
+    agreement = `${votesAlta} sinal(is) ALTA vs ${votesBaixa} sinal(is) BAIXA -- direcao SEM consenso, cautela extra antes de operar continuacao em qualquer lado.`;
+  }
+
+  return { consensus, agreement, votesAlta, votesBaixa, signalsUsed };
 }
 
 export interface VolumeConfirmation {

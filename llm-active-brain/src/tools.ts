@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -762,6 +762,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           candlePatterns: null,
           regime: null,
           hmmRegime: null,
+          marketDirection: null,
           aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- ${config.blockEntryOnStaleIndicators ? "SEM indicadores reais (trend/volume/MACD/estocastico), abrir posicao neste simbolo agora sera RECUSADO por open_position. Avalie outro ativo da cesta ou espere o proximo ciclo pra dados reais." : "você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais."}`
         };
       }
@@ -857,6 +858,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (default false, sem amostra real ainda validando a classificação).
       // null quando não há candle real suficiente, nunca fabrica regime.
       const hmmRegime = await getHmmMarketRegime(symbol, timeframe);
+      // 🔴 2026-09-14 (pedido direto do Cleber -- "ela precisa ter essa
+      // resposta, pra que lado o mercado esta correndo, no grafico de 5
+      // minutos"): veredito UNICO de direcao, calculado em codigo (ver
+      // computeMarketDirection/atr.ts pro detalhe) combinando trend/
+      // trendLongTerm/immediateMomentum/hmmRegime -- os componentes de curto
+      // prazo aqui sao FIXOS em 5m (pedido explicito), independente do
+      // timeframe operacional escolhido pelo usuario, mesmo espirito de
+      // trendLongTerm ja ser fixo em 1H. Reaproveita `trend` se o timeframe
+      // operacional ja for 5m (nao duplica fetch); senao busca separado.
+      const trend5mForDirection = timeframe === "5m" ? trend : await getTrendInfo(symbol, "5m");
+      const immediateMomentum5m = await getImmediateMomentum(symbol, "5m");
+      const marketDirection = computeMarketDirection(trend5mForDirection, trendLongTerm, immediateMomentum5m, hmmRegime);
       // 🔴 2026-09-07 (pedido direto do Cleber): EMA9/SMA20/SMA200 são as
       // três médias mais observadas pelo mercado -- preço longe demais delas
       // tende a reverter em direção a elas (mean reversion). Só CONTEXTO/
@@ -965,9 +978,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const hmmRegimeSlim = hmmRegime
         ? { regime: hmmRegime.regime, confidence: hmmRegime.confidence, direction: hmmRegime.direction, sampleSize: hmmRegime.sampleSize }
         : null;
+      if (marketDirection.consensus === "DIVERGENTE") {
+        avisos.push(
+          `DIRECAO SEM CONSENSO: ${marketDirection.agreement} Ver "marketDirection" -- exija confirmacao extra antes de operar continuacao em qualquer lado.`
+        );
+      }
       return {
         ...quote,
         marketOpen: true,
+        marketDirection,
         trend,
         trendLongTerm,
         volume,
@@ -1468,7 +1487,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
@@ -1478,7 +1497,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         getMarketRegime(symbol, openPositionTimeframe),
         getHmmMarketRegime(symbol, openPositionTimeframe),
         getImmediateMomentum(symbol, openPositionTimeframe),
+        // 🔴 2026-09-14 (pedido direto do Cleber -- veredito unico de direcao,
+        // ver computeMarketDirection/atr.ts): componentes extras so pra este
+        // veredito, curto prazo FIXO em 5m por pedido explicito (independente
+        // do timeframe operacional acima).
+        getLongTermTrendInfo(symbol),
+        openPositionTimeframe === "5m" ? Promise.resolve(null) : getTrendInfo(symbol, "5m"),
+        openPositionTimeframe === "5m" ? Promise.resolve(null) : getImmediateMomentum(symbol, "5m"),
       ]);
+      const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
+      const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
+      const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate);
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
       // quando o mercado está caindo e venda quando está subindo"): caso real
       // confirmado -- UKOUSD LONG aberto durante 5 velas seguidas de queda
@@ -1506,6 +1535,30 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `${symbol}: as ultimas ${immediateMomentumForGate.lookbackCandles} velas fechadas (~${immediateMomentumForGate.lookbackMinutes}min) estao numa sequencia clara de ${immediateMomentumForGate.label} AGORA -- ` +
             `abrir ${side} aqui (setupType != REVERSAO) vai direto contra o movimento que esta acontecendo neste instante, mesmo que a janela de 60min (trend) ou o MACD ainda mostrem saldo diferente (sao mais lentos, nao veem a reversao recem-comecada). ` +
             `Posicao NAO aberta. Se a tese e mesmo entrar contra este movimento imediato, declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); se a tese e continuacao/rompimento, espere as velas pararem de ir contra o lado ou avalie outro ativo.`,
+        };
+      }
+      // 🔴 2026-09-14 (pedido direto do Cleber -- "ela precisa saber pra que
+      // lado o mercado esta correndo, essa e a primeira resposta que ela
+      // precisa ter"): veredito UNICO de direcao (ver computeMarketDirection/
+      // atr.ts) combina os 4 sinais de tendencia/momentum/regime que ja
+      // existiam espalhados -- trava mecanica igual em espirito a trava de
+      // momentum imediato acima (so libera contra-consenso com setupType
+      // explicito de REVERSAO), mas aqui olhando o quadro consolidado, nao so
+      // as ultimas 3 velas. So bloqueia quando o consenso e CLARO (ALTA ou
+      // BAIXA, nunca DIVERGENTE/INDEFINIDO -- direcao sem consenso real nao
+      // deveria travar nada sozinha, so os avisos de "DIRECAO SEM CONSENSO" em
+      // get_mt5_quote ja cobrem esse caso como contexto).
+      if (
+        setupType !== "REVERSAO" &&
+        ((side === "LONG" && marketDirectionForGate.consensus === "BAIXA") ||
+          (side === "SHORT" && marketDirectionForGate.consensus === "ALTA"))
+      ) {
+        return {
+          error:
+            `${symbol}: veredito de direcao (curto prazo 5m + tendencia diaria + ultimas velas + regime HMM) esta em ${marketDirectionForGate.consensus} -- ${marketDirectionForGate.agreement} ` +
+            `Abrir ${side} aqui (setupType != REVERSAO) vai direto contra o consenso de direcao. Posicao NAO aberta. ` +
+            `Se a tese e mesmo entrar contra a direcao, declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); ` +
+            `se a tese e continuacao/rompimento, opere no lado que o consenso aponta ou avalie outro ativo.`,
         };
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- BNBUSD e XETUSD abertos
