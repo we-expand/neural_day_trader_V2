@@ -1478,6 +1478,40 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         getMarketRegime(symbol, openPositionTimeframe),
         getHmmMarketRegime(symbol, openPositionTimeframe),
       ]);
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- BNBUSD e XETUSD abertos
+      // AO VIVO com "Stochastic SOBREVENDIDO (k=15.99) + MACD BAIXA = 2 fatores
+      // reais alinhados pra SHORT"): o proprio reasoning da IA inverteu o
+      // significado do indicador -- SOBREVENDIDO (k baixo, preco perto do fundo
+      // do range) e sinal de EXAUSTAO DA QUEDA, favorece LONG por convencao
+      // (mesma convencao ja usada em `stochasticExtremeConfirmsReversal` mais
+      // abaixo: SHORT so e confirmado por SOBRECOMPRADO, LONG por SOBREVENDIDO).
+      // A IA descreveu como "mean-reversion no sobrevendido" pra justificar um
+      // SHORT -- exatamente o oposto do que mean-reversion em sobrevendido
+      // significa. Nenhum gate existente pegava isso: o par SHORT+BAIXA e
+      // trend-following (nao passa pelo guard de contra-tendencia abaixo, que
+      // so roda quando side vai CONTRA `trend.label`), e o validador semantico
+      // de reasoning (`reasoningValidator.ts`) fica DESLIGADO quando
+      // LLM_PROVIDER=ollama (config atual desta sessao) -- so a checagem
+      // deterministica de TENDENCIA roda sempre, nao cobre estocastico. Trava
+      // MECANICA nova, sempre ativa, independente de trend/regime/provedor:
+      // Estocastico extremo CONTRA o lado da entrada (SHORT+SOBREVENDIDO ou
+      // LONG+SOBRECOMPRADO) bloqueia sempre -- e o oposto do sinal de exaustao
+      // real, nunca faz sentido como base de entrada, mesmo se outro fator
+      // (MACD, trend) tambem alinhar.
+      if (stochasticForReversalCheck) {
+        const stochasticContradictsSide =
+          (side === "SHORT" && stochasticForReversalCheck.label === "SOBREVENDIDO") ||
+          (side === "LONG" && stochasticForReversalCheck.label === "SOBRECOMPRADO");
+        if (stochasticContradictsSide) {
+          return {
+            error:
+              `${symbol}: Estocastico esta ${stochasticForReversalCheck.label} (k=${stochasticForReversalCheck.k.toFixed(2)}), o que e sinal de EXAUSTAO ` +
+              `${stochasticForReversalCheck.label === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
+              `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
+              `Se a tese e reversao de verdade, o lado correto seria ${stochasticForReversalCheck.label === "SOBREVENDIDO" ? "LONG" : "SHORT"}; se a tese e continuacao, espere o Estocastico sair do extremo.`,
+          };
+        }
+      }
       // 🔴 2026-09-09 (pedido direto do Cleber -- Classificador de Regime de
       // Mercado via HMM como "principal trava de seguranca do Motor de
       // Decisao"): bloqueio MECANICO opcional, DESLIGADO por padrao
@@ -1575,6 +1609,46 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           stochasticForReversalCheck != null &&
           ((side === "SHORT" && stochasticForReversalCheck.label === "SOBRECOMPRADO") ||
             (side === "LONG" && stochasticForReversalCheck.label === "SOBREVENDIDO"));
+        // 🔴 2026-09-14 (achado real via SQL, pedido do Cleber apos "risco
+        // alto"/perda sustentada): medido direto no `ai_trades` dos ultimos
+        // 14 dias (n=422) que trades classificados como REVERSAO/contrarian
+        // no proprio reasoning tem 39,5% de acerto e -$0,62/trade em media
+        // (243 trades, -$151,12 liquido), contra 45,3%/-$0,05 em trades de
+        // CONTINUACAO (179 trades, -$8,09) -- a maior parte do prejuizo da
+        // sessao vem daqui. Rastreado ate este gate: Estocastico extremo
+        // SOZINHO (sem volume) ja bastava pra abrir contrarian contra a
+        // tendencia confirmada (nao-LATERAL) -- exatamente o padrao que mais
+        // perde. Fix: Estocastico extremo deixa de ser suficiente sozinho,
+        // precisa de mais um fator real alinhado (MACD ou padrao de candle),
+        // mesmo espirito de "2 fatores" ja usado no gate de mercado LATERAL
+        // logo acima -- nao proibe contrarian trade, proibe contrarian trade
+        // com UM UNICO indicador (Estocastico) como confirmacao inteira.
+        const macdConfirmsReversal =
+          macdForConfluenceCheck != null &&
+          ((side === "LONG" && macdForConfluenceCheck.label === "ALTA") ||
+            (side === "SHORT" && macdForConfluenceCheck.label === "BAIXA"));
+        const candlePatternConfirmsReversal =
+          candlePatternsForConfluenceCheck?.bias != null &&
+          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
+        const reversalConfirmationFactors = [
+          volume.elevated ? `volume elevado (${volume.ratio}x)` : null,
+          stochasticExtremeConfirmsReversal ? `Estocastico ${stochasticForReversalCheck?.label}` : null,
+          macdConfirmsReversal ? `MACD ${macdForConfluenceCheck?.label}` : null,
+          candlePatternConfirmsReversal
+            ? `padrao de candle ${candlePatternsForConfluenceCheck?.detected.join("/")} (bias ${candlePatternsForConfluenceCheck?.bias})`
+            : null,
+        ].filter((f): f is string => f !== null);
+        if (counterTrend && stochasticExtremeConfirmsReversal && !volume.elevated && reversalConfirmationFactors.length < 2) {
+          return {
+            error:
+              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) -- ` +
+              `so ha 1 fator real confirmando a reversao (Estocastico ${stochasticForReversalCheck?.label}). Medicao real dos ultimos 14 dias mostra que ` +
+              `contrarian trade com Estocastico extremo SOZINHO tem 39,5% de acerto e perde em media (-$0,62/trade, n=243) -- Estocastico isolado nao e mais ` +
+              `confirmacao suficiente. Posicao NAO aberta. Precisa de mais 1 fator real alinhado (volume elevado, MACD ${side === "LONG" ? "ALTA" : "BAIXA"}, ` +
+              `ou padrao de candle bias ${side === "LONG" ? "ALTA" : "BAIXA"}) alem do Estocastico, opere a favor da tendencia, ou avalie outro ativo.`,
+          };
+        }
         // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
         // Operacao"): quando o usuario NAO escolheu nada (marketMode=null),
         // mantem o guard existente (bloqueia contra-tendencia só sem volume
