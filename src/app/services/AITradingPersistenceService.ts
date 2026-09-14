@@ -805,6 +805,38 @@ class AITradingPersistenceService {
   }
 
   /**
+   * Edição completa da ordem pendente (modo edição da boleta — preço,
+   * SL/TP e volume juntos), diferente de `updatePendingOrderPrice` (só
+   * arrasto no gráfico). Cada campo é opcional pra permitir editar só o
+   * que mudou sem reenviar os outros.
+   */
+  async updatePendingOrderDetails(orderId: string, updates: {
+    triggerPrice?: number;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+    volume?: number;
+  }): Promise<boolean> {
+    try {
+      const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (updates.triggerPrice !== undefined) payload.trigger_price = updates.triggerPrice;
+      if (updates.stopLoss !== undefined) payload.stop_loss = updates.stopLoss;
+      if (updates.takeProfit !== undefined) payload.take_profit = updates.takeProfit;
+      if (updates.volume !== undefined) payload.volume = updates.volume;
+
+      const { error } = await supabase
+        .from('ai_pending_orders')
+        .update(payload)
+        .eq('id', orderId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao editar ordem pendente:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Marcar ordem pendente como cancelada (clique direito) ou disparada
    * (preço cruzou o gatilho, virou posição em `ai_trades`).
    */

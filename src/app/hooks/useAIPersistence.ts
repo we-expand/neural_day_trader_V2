@@ -570,6 +570,20 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   }, [options.enabled]);
 
   /**
+   * Edição completa (modo edição da boleta): preço/SL/TP/volume juntos.
+   */
+  const onPendingOrderDetailsUpdate = useCallback(async (localId: string, updates: {
+    triggerPrice?: number;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+    volume?: number;
+  }) => {
+    if (!options.enabled) return;
+    const dbId = pendingOrderDbIdsRef.current.get(localId) ?? localId;
+    await aiPersistence.updatePendingOrderDetails(dbId, updates);
+  }, [options.enabled]);
+
+  /**
    * Marcar cancelada (clique direito) ou disparada (cruzou o gatilho).
    */
   const onPendingOrderStatusChange = useCallback(async (localId: string, status: 'FILLED' | 'CANCELLED') => {
@@ -754,6 +768,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Pending orders
     onPendingOrderOpen,
     onPendingOrderPriceUpdate,
+    onPendingOrderDetailsUpdate,
     onPendingOrderStatusChange,
     getUserOpenPendingOrders,
 

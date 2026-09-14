@@ -3434,6 +3434,70 @@ export function useApexLogic(
     return { success: true };
   }, [addLog]);
 
+  // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
+  // edição completa da ordem pendente pela boleta (gatilho/SL/TP/volume
+  // juntos), diferente de `updateManualPendingOrderPrice` (só arrasto no
+  // gráfico, só preço). Cada campo é opcional: só valida/atualiza o que foi
+  // passado, deixando o resto intocado.
+  const updateManualPendingOrder = useCallback((
+    orderId: string,
+    updates: { triggerPrice?: number; stopLoss?: number | null; takeProfit?: number | null; volume?: number },
+    currentPrice: number
+  ): { success: boolean; error?: string } => {
+    const order = pendingOrdersRef.current.find(o => o.id === orderId);
+    if (!order) {
+      return { success: false, error: 'Ordem pendente não encontrada' };
+    }
+
+    const nextTrigger = updates.triggerPrice ?? order.triggerPrice;
+    if (!(nextTrigger > 0)) {
+      return { success: false, error: 'Preço inválido' };
+    }
+    const isBuy = order.side === 'LONG';
+    const aboveMarket = nextTrigger > currentPrice;
+    const validDirection = order.orderType === 'LIMIT'
+      ? (isBuy ? !aboveMarket : aboveMarket)
+      : (isBuy ? aboveMarket : !aboveMarket);
+    if (!validDirection) {
+      return {
+        success: false,
+        error: `${order.orderType === 'LIMIT' ? 'Limit' : 'Stop'} de ${isBuy ? 'compra' : 'venda'} precisa estar ${
+          (order.orderType === 'LIMIT') === isBuy ? 'abaixo' : 'acima'
+        } do preço atual`,
+      };
+    }
+
+    if (updates.volume !== undefined && !(updates.volume > 0)) {
+      return { success: false, error: 'Volume inválido' };
+    }
+    const nextSl = updates.stopLoss === undefined ? order.stopLoss : (updates.stopLoss ?? undefined);
+    const nextTp = updates.takeProfit === undefined ? order.takeProfit : (updates.takeProfit ?? undefined);
+    if (nextSl != null) {
+      const badSl = isBuy ? nextSl >= nextTrigger : nextSl <= nextTrigger;
+      if (badSl) return { success: false, error: `Perda máxima inválida para ${isBuy ? 'compra' : 'venda'}` };
+    }
+    if (nextTp != null) {
+      const badTp = isBuy ? nextTp <= nextTrigger : nextTp >= nextTrigger;
+      if (badTp) return { success: false, error: `Lucro máximo inválido para ${isBuy ? 'compra' : 'venda'}` };
+    }
+
+    setPendingOrders(prev => prev.map(o => (o.id === orderId ? {
+      ...o,
+      triggerPrice: nextTrigger,
+      stopLoss: nextSl,
+      takeProfit: nextTp,
+      volume: updates.volume ?? o.volume,
+    } : o)));
+    addLog(`✏️ Ordem pendente editada: ${order.symbol} ${order.orderType} ${order.side} @ $${nextTrigger.toFixed(2)}`);
+    persistenceRef.current.onPendingOrderDetailsUpdate(orderId, {
+      triggerPrice: updates.triggerPrice,
+      stopLoss: updates.stopLoss,
+      takeProfit: updates.takeProfit,
+      volume: updates.volume,
+    });
+    return { success: true };
+  }, [addLog]);
+
   // Chamado a cada tick de preço (ChartView, pro símbolo selecionado) — dispara
   // qualquer ordem pendente cujo gatilho o preço já cruzou. Preenche no preço
   // ATUAL da tela (não no preço de gatilho): não temos profundidade real pra
@@ -3861,6 +3925,7 @@ export function useApexLogic(
     openManualPendingOrder,
     cancelManualPendingOrder,
     updateManualPendingOrderPrice,
+    updateManualPendingOrder,
     checkPendingOrderTriggers,
     updateAIConfig,
     connectToMT5,

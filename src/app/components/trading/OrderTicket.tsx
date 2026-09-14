@@ -19,7 +19,7 @@ import {
 } from '../../services/BrokerClient';
 import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlertStage';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
-import { computePriceMagnitudePnl } from '../../hooks/useApexLogic';
+import { computePriceMagnitudePnl, type PendingOrderVisual } from '../../hooks/useApexLogic';
 
 type Side = 'BUY' | 'SELL';
 type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
@@ -71,8 +71,18 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, closeLiveManualPosition, setSelectedAsset } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+
+  // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
+  // id da ordem pendente em edição na ficha (null = nenhuma) + campos de
+  // texto do formulário de edição, mesmo padrão de texto-bruto-editável do
+  // volume acima (edita string livre, só valida/aplica no Salvar).
+  const [editingPendingId, setEditingPendingId] = useState<string | null>(null);
+  const [editTriggerPrice, setEditTriggerPrice] = useState('');
+  const [editStopLoss, setEditStopLoss] = useState('');
+  const [editTakeProfit, setEditTakeProfit] = useState('');
+  const [editVolume, setEditVolume] = useState('');
 
   const asset = useMemo(() => getAssetBySymbol(symbol), [symbol]);
   const contractSpec = useMemo(() => getContractSpec(symbol), [symbol]);
@@ -87,6 +97,56 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     () => activeOrders.filter((o) => o.symbol === symbol),
     [activeOrders, symbol],
   );
+
+  // 🆕 2026-09-14: ordens pendentes (Limit/Stop, DEMO) deste símbolo — só
+  // existiam antes via linha arrastável no gráfico (mover preço) ou clique
+  // direito (cancelar), sem lista nem edição de SL/TP/volume na própria
+  // ficha. Pedido explícito do Cleber: "modo edição de ordem pendurada".
+  const symbolPendingOrders = useMemo(
+    () => pendingOrders.filter((o) => o.symbol === symbol),
+    [pendingOrders, symbol],
+  );
+
+  function startEditPendingOrder(order: PendingOrderVisual) {
+    setEditingPendingId(order.id);
+    setEditTriggerPrice(String(order.triggerPrice));
+    setEditStopLoss(order.stopLoss != null ? String(order.stopLoss) : '');
+    setEditTakeProfit(order.takeProfit != null ? String(order.takeProfit) : '');
+    setEditVolume(String(order.volume));
+  }
+
+  function cancelEditPendingOrder() {
+    setEditingPendingId(null);
+  }
+
+  function saveEditPendingOrder(orderId: string) {
+    if (currentPrice == null) {
+      toast.error('Aguardando preço do ativo…');
+      return;
+    }
+    const trigger = Number(editTriggerPrice.replace(',', '.'));
+    const sl = editStopLoss.trim() === '' ? null : Number(editStopLoss.replace(',', '.'));
+    const tp = editTakeProfit.trim() === '' ? null : Number(editTakeProfit.replace(',', '.'));
+    const vol = Number(editVolume.replace(',', '.'));
+    const result = updateManualPendingOrder(orderId, {
+      triggerPrice: trigger > 0 ? trigger : undefined,
+      stopLoss: sl != null && sl > 0 ? sl : null,
+      takeProfit: tp != null && tp > 0 ? tp : null,
+      volume: vol > 0 ? vol : undefined,
+    }, currentPrice);
+    if (result.success) {
+      toast.success('Ordem pendente atualizada');
+      setEditingPendingId(null);
+    } else {
+      toast.error('Não foi possível editar a ordem', { description: result.error });
+    }
+  }
+
+  function handleCancelPendingOrder(orderId: string) {
+    cancelManualPendingOrder(orderId);
+    toast.success('Ordem pendente cancelada');
+    if (editingPendingId === orderId) setEditingPendingId(null);
+  }
 
   // 🛡️ Posições abertas em OUTRO símbolo — a linha/overlay de posição só pode
   // ser desenhada no gráfico do próprio símbolo (não tem como sobrepor num
@@ -168,6 +228,23 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   const [takeProfit, setTakeProfit] = useState('0.00');
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState<Side | null>(null);
+
+  // 🐛 FIX 2026-09-14 (Cleber: "não dá pra adicionar ordem limit/stop/stop
+  // limit em DEMO"): o campo de gatilho só mostrava o preço atual como
+  // PLACEHOLDER (cinza, nunca vira valor real) — o campo ficava vazio de
+  // verdade até o usuário digitar algo. Clicar em Comprar/Vender sem editar
+  // o campo (parecia já preenchido, visualmente idêntico ao valor) sempre
+  // batia em "Informe o preço de gatilho da ordem", sem nenhuma pista de
+  // que o campo estava realmente vazio. Agora pré-preenche com o preço
+  // atual ao trocar pra uma aba que precisa de gatilho — mesmo
+  // comportamento do MT5 (abre a ficha já com o preço de referência,
+  // editável). Só preenche se o campo ainda está vazio, pra não sobrescrever
+  // o que o usuário já digitou ao trocar de aba e voltar.
+  React.useEffect(() => {
+    if ((orderType === 'LIMIT' || orderType === 'STOP' || orderType === 'STOP_LIMIT') && !triggerPrice && currentPrice != null) {
+      setTriggerPrice(String(currentPrice));
+    }
+  }, [orderType, currentPrice]);
 
   const [brokerConfigured, setBrokerConfigured] = useState<boolean | null>(null);
   React.useEffect(() => {
@@ -429,6 +506,25 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     }
   }
 
+  // 🆕 2026-09-14 (pedido do Cleber): clicar fora da ficha expandida no
+  // gráfico agora recolhe a boleta de volta pra barra compacta — mesmo
+  // padrão de qualquer popover/modal do app, faltava aqui porque a ficha
+  // não tem backdrop (fica flutuando dentro do gráfico, de propósito, pra
+  // não bloquear a visão dos candles). `mousedown` (não `click`) pra fechar
+  // antes de qualquer outro handler de clique do gráfico por baixo tratar o
+  // mesmo evento.
+  const ticketRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!expanded) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (ticketRef.current && !ticketRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [expanded]);
+
   const priceLabel = currentPrice != null ? formatPrice(currentPrice, symbol) : '----.--';
 
   // ─────────────────────────── Modo recolhido ───────────────────────────
@@ -564,7 +660,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   };
 
   return (
-    <div className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/10" data-testid="order-ticket-expanded">
+    <div ref={ticketRef} className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/10" data-testid="order-ticket-expanded">
       {otherSymbolPositionsBySymbol.map(({ symbol: otherSymbol, count }) => (
         <button
           key={otherSymbol}
@@ -728,6 +824,83 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                   >
                     {closingTradeId === pos.id ? 'Fechando...' : 'Fechar posição'}
                   </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {symbolPendingOrders.length > 0 && (
+          <div className="mb-3 space-y-1.5 relative z-10">
+            {symbolPendingOrders.map((order) => {
+              const isEditing = editingPendingId === order.id;
+              if (isEditing) {
+                return (
+                  <div key={order.id} className="bg-black/30 rounded-lg p-2.5 border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${order.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                        {order.orderType} {order.side === 'LONG' ? 'COMPRA' : 'VENDA'}
+                      </span>
+                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">Editando</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Gatilho</label>
+                        <input type="text" inputMode="decimal" value={editTriggerPrice} onChange={(e) => setEditTriggerPrice(e.target.value)} className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none focus:ring-2 focus:ring-white/20" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Volume</label>
+                        <input type="text" inputMode="decimal" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none focus:ring-2 focus:ring-white/20" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Perda máx.</label>
+                        <input type="text" inputMode="decimal" value={editStopLoss} onChange={(e) => setEditStopLoss(e.target.value)} placeholder="—" className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none placeholder:text-slate-600 focus:ring-2 focus:ring-white/20" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Lucro máx.</label>
+                        <input type="text" inputMode="decimal" value={editTakeProfit} onChange={(e) => setEditTakeProfit(e.target.value)} placeholder="—" className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none placeholder:text-slate-600 focus:ring-2 focus:ring-white/20" />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => saveEditPendingOrder(order.id)} className="flex-1 h-7 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white transition-colors">Salvar</button>
+                      <button type="button" onClick={cancelEditPendingOrder} className="flex-1 h-7 rounded-md bg-white/5 border border-white/10 hover:bg-white/10 text-[10px] font-bold text-slate-300 transition-colors">Cancelar edição</button>
+                      <button type="button" onClick={() => handleCancelPendingOrder(order.id)} className="h-7 px-2 rounded-md bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600/30 text-[10px] font-bold text-rose-300 transition-colors">Fechar ordem</button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={order.id} className="flex items-center justify-between gap-2 bg-black/30 rounded-lg p-2.5 border border-white/5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${order.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                      {order.orderType} {order.side === 'LONG' ? 'COMPRA' : 'VENDA'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">@ {formatPrice(order.triggerPrice, symbol)}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">· {order.volume.toFixed(2)} lote(s)</span>
+                    {(order.stopLoss != null || order.takeProfit != null) && (
+                      <span className="text-[9px] text-slate-500 font-mono">
+                        {order.stopLoss != null ? `SL ${formatPrice(order.stopLoss, symbol)}` : ''}
+                        {order.stopLoss != null && order.takeProfit != null ? ' · ' : ''}
+                        {order.takeProfit != null ? `TP ${formatPrice(order.takeProfit, symbol)}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => startEditPendingOrder(order)}
+                      className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelPendingOrder(order.id)}
+                      className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-rose-600/20 border border-rose-500/30 text-rose-300 hover:bg-rose-600/30 transition-colors"
+                    >
+                      Fechar ordem
+                    </button>
+                  </div>
                 </div>
               );
             })}
