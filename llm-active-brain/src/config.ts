@@ -653,7 +653,16 @@ export const config = {
   // Flag única, reversível em 1 linha -- não fecha close_position inteiro
   // (o rechecagem mecânica de SL/TP no início da função continua intocada),
   // só nega a AVALIAÇÃO discricionária que vem depois dela.
-  aiSignalDiscretionaryCloseEnabled: process.env.AI_SIGNAL_DISCRETIONARY_CLOSE_ENABLED !== "false",
+  // 🔴 2026-09-15 (achado do Cleber, ao vivo: UKOUSD LONG lucrativo, MFE
+  // $6,79, fechado via AI_SIGNAL em 107,612 com alvo em 108,875 -- exatamente
+  // o padrao que o llm-council de 2026-09-11 tinha provado ser pior que o
+  // mecanico): a linha abaixo estava com a polaridade INVERTIDA -- `!==
+  // "false"` deixa a trava LIGADA (fechamento discricionario ATIVO) por
+  // padrao quando a env var nao esta setada, exatamente o oposto do veredito
+  // do conselho (suspender por padrao, so reabilitar apos prova estatistica).
+  // Corrigido pra opt-in explicito: precisa de
+  // AI_SIGNAL_DISCRETIONARY_CLOSE_ENABLED=true no .env pra reabilitar.
+  aiSignalDiscretionaryCloseEnabled: process.env.AI_SIGNAL_DISCRETIONARY_CLOSE_ENABLED === "true",
   // 🔴 2026-09-11 (mesmo llm-council): 223 ocorrências de cotação stale +
   // 163 de rate-limit em 30h/44 trades -- quando get_mt5_quote (ferramenta)
   // cai no fallback (trend/volume/MACD/estocástico/regime = null), o aviso
