@@ -7026,7 +7026,20 @@ export function ChartView({
         chartUpdateTimeoutRef.current = null;
       }
     };
-  }, [selectedSymbol]);
+    // 🐛 FIX 2026-09-15 (formação de candle quebrada no 4H, achado ao vivo):
+    // `timeframe` faltava aqui -- o closure de `intervalMs`
+    // (TIMEFRAME_INTERVALS_MS[timeframe], usado pra decidir "candle virou")
+    // ficava CONGELADO no timeframe que estava selecionado quando este efeito
+    // rodou pela última vez (só reagia a troca de símbolo). Trocar de
+    // timeframe (ex: 5m -> 4H) SEM trocar de ativo mantinha a assinatura
+    // antiga viva: o motor de tick continuava "virando candle" a cada 5min
+    // (intervalo velho) meses depois de o usuário já estar olhando pra
+    // barras de 4H, empurrando candles espúrios (open=high=low=close=preço
+    // do momento, timestamp = último + 5min, não +4h) pro meio da série real
+    // de 4H -- exatamente o tipo de OHLC impossível (low > high) visto no
+    // print do Cleber. Agora o efeito também reinicia quando o timeframe
+    // muda, recalculando `intervalMs` do zero.
+  }, [selectedSymbol, timeframe]);
 
   // 🆕 Watchdog de "preço desatualizado" -- o polling de 2s acima nunca para de rodar
   // mesmo quando toda tentativa falha (getRealMarketData cai pro último valor real em
