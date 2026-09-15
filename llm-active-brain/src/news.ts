@@ -49,7 +49,18 @@ export async function getMarketNewsBriefing(): Promise<MarketNewsBriefing | null
     return newsCache.briefing;
   }
   try {
-    const url = `${config.neuralSupabaseUrl}/functions/v1/server/news/aggregate?lang=pt`;
+    // 🔴 2026-09-15 (pedido direto do Cleber): a IA opera mercados mundiais
+    // (índices/forex/cripto americanos e globais), não deve absorver notícia
+    // de mercado LOCAL brasileiro (STF, Ibovespa, política nacional) como se
+    // fosse contexto relevante pra decisão de trade -- isso é só ruído pra
+    // ela. `lang=en` seleciona NEWS_FEEDS_EN no backend (Investing.com/
+    // Cointelegraph/CNBC internacionais), mercado americano/global de
+    // verdade, em vez de NEWS_FEEDS_PT (br.investing.com/Money Times, pauta
+    // brasileira). A notícia PT-BR pro USUÁRIO no Dashboard (por localização
+    // dele) é uma tela separada, não afetada por esta mudança -- ver
+    // `NewsWidget`/`MarketScoreBoard` no frontend, que continuam chamando o
+    // mesmo endpoint com `lang` derivado da localização do usuário.
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/news/aggregate?lang=en`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}` },
       signal: AbortSignal.timeout(12_000),

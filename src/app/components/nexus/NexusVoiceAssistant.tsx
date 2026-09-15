@@ -273,7 +273,12 @@ export const NexusVoiceAssistant = ({ embedded = false }: { embedded?: boolean }
     const relevantCategory = isCrypto ? 'crypto' : relevantCurrencies.length > 0 ? 'forex' : null;
     let newsHeadlines: any[] = [];
     try {
-      const newsRes = await fetch(`https://${projectId}.supabase.co/functions/v1/server/news/aggregate`, {
+      // 🔴 2026-09-15: faltava `lang` aqui -- caía sempre no default `pt` do
+      // servidor, ignorando a localização real do usuário (o `NewsFeed.tsx`
+      // do Dashboard já faz isso certo via navigator.language, ver
+      // `getUserLang`). Mesmo padrão aplicado aqui pro NEXUS.
+      const userLang = (navigator.language || 'pt-BR').split('-')[0].toLowerCase();
+      const newsRes = await fetch(`https://${projectId}.supabase.co/functions/v1/server/news/aggregate?lang=${userLang}`, {
         headers: { Authorization: `Bearer ${publicAnonKey}` },
       });
       if (newsRes.ok) {
