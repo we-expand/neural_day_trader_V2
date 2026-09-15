@@ -602,6 +602,17 @@ export const config = {
   // estatística ainda -- é o valor que ele pediu explicitamente, reavaliar
   // com amostra de fins de semana sob este gate.
   mt5MinConfidenceForOpenPositionWeekend: Number(process.env.MT5_MIN_CONFIDENCE_WEEKEND ?? 70),
+  // 2026-09-15 (pedido direto do Cleber): todos os dias, das 17h às 23h
+  // Brasília, o gate de "volume elevado" (VOLUME_ELEVATED_RATIO em atr.ts,
+  // usado em open_position pra exigir confirmação extra em entrada contra a
+  // tendência, ver princípio 1c em agent.ts) fica mais permissivo -- fora
+  // dessa janela volta ao valor normal (1.05). Nenhuma outra regra muda
+  // nessa janela (R:R, stop, confiança mínima etc continuam intocados) --
+  // é só o limiar de volume. Sem validação estatística ainda, é a janela e o
+  // valor que ele pediu explicitamente; reavaliar com amostra rodando sob
+  // este gate. Valor pedido explicitamente pelo Cleber: 50% do normal
+  // (1.05 -> 0.525).
+  mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.525),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO

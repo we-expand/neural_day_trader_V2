@@ -488,6 +488,21 @@ const VOLUME_RECENT_CANDLES = 3; // 15min
 const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
 const VOLUME_ELEVATED_RATIO = 1.05; // 2026-08-31: baixado de 1.15 a pedido do Cleber (achou restritivo demais)
 
+// 2026-09-15 (pedido direto do Cleber): das 17h00 às 23h00 Brasília, TODO
+// dia (não só fim de semana), o gate de volume elevado usa
+// config.mt5VolumeElevatedRatioEvening (mais permissivo) em vez do valor
+// normal acima -- fora dessa janela, comportamento intocado. Mesmo padrão
+// de horário fixo em Brasília (UTC-3, sem DST) já usado em
+// isWeekendNow/getNySessionPhase logo abaixo.
+const VOLUME_EVENING_START_BRASILIA_MIN = 17 * 60; // 17:00 Brasilia
+const VOLUME_EVENING_END_BRASILIA_MIN = 23 * 60; // 23:00 Brasilia
+
+function isVolumeEveningWindow(now: Date = new Date()): boolean {
+  const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const nowBrasiliaMin = (nowUtcMin - BRASILIA_UTC_OFFSET_HOURS * 60 + 24 * 60) % (24 * 60);
+  return nowBrasiliaMin >= VOLUME_EVENING_START_BRASILIA_MIN && nowBrasiliaMin < VOLUME_EVENING_END_BRASILIA_MIN;
+}
+
 /**
  * 🔴 2026-08-29 (mesmo achado do Cleber): fallback quando o candle (e o
  * volume real dele) não vem -- usa aceleração de momentum por tick real
@@ -505,7 +520,8 @@ export async function getVolumeConfirmation(symbol: string, timeframe: Supported
       const baselineAvg = baseline.reduce((sum, c) => sum + (c.volume as number), 0) / baseline.length;
       if (baselineAvg > 0) {
         const ratio = recentAvg / baselineAvg;
-        return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= VOLUME_ELEVATED_RATIO, source: "candle_volume" };
+        const threshold = isVolumeEveningWindow() ? config.mt5VolumeElevatedRatioEvening : VOLUME_ELEVATED_RATIO;
+        return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= threshold, source: "candle_volume" };
       }
     }
   }
