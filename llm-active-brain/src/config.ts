@@ -610,9 +610,11 @@ export const config = {
   // nessa janela (R:R, stop, confiança mínima etc continuam intocados) --
   // é só o limiar de volume. Sem validação estatística ainda, é a janela e o
   // valor que ele pediu explicitamente; reavaliar com amostra rodando sob
-  // este gate. Valor pedido explicitamente pelo Cleber: 50% do normal
-  // (1.05 -> 0.525).
-  mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.525),
+  // este gate. Valor pedido explicitamente pelo Cleber: 60% do normal
+  // (1.05 -> 0.63) -- ajustado nesta mesma sessão depois de ver o dado real
+  // (113 leituras de 17h-20h28 Brasília hoje, média de participação real
+  // 0.549x; com 0.63 passam ~40% das leituras, contra ~50% em 0.525).
+  mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.63),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO
