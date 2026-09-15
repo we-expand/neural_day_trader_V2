@@ -839,6 +839,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // leitura de exaustao classica. null quando nao ha candle real
       // suficiente, nunca fabrica indicador.
       const stochastic = await getSlowStochastic(symbol, timeframe);
+      // 🔴 2026-09-15 (achado do Cleber, ao vivo: BTCUSD LONG abriu com
+      // MACD/Estocastico NULOS -- candle falhou nesse ciclo mas a cotacao via
+      // tick veio fresca, entao a trava de staleQuoteToolCycleBySymbol acima
+      // (so cobre falha TOTAL de get_mt5_quote) nunca disparou. A IA decidiu
+      // com 1 unico sinal fraco (marketDirection via tick) porque os
+      // osciladores que confirmariam/reprovariam a entrada nem chegaram a
+      // existir neste ciclo. MACD e Estocastico sao os 2 fatores mais citados
+      // pelo proprio prompt (principios 1l/2) -- se os dois vierem nulos junto
+      // com cotacao fresca, marca o mesmo sinalizador da trava existente pra
+      // open_position recusar, mesmo sem ser falha total de quote.
+      if (config.blockEntryOnStaleIndicators && !macd && !stochastic) {
+        staleQuoteToolCycleBySymbol.set(symbol, cycle);
+      }
       // 🔴 2026-08-30 (pedido do Cleber, "10 padroes de candle mais
       // famosos"): primeira vez que o LLM recebe a FORMA da vela (corpo vs
       // pavios), nao so o fechamento -- ver getCandlePatterns em atr.ts pra
