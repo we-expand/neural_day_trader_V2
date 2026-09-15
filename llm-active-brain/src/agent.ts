@@ -553,6 +553,25 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    merece cautela extra mesmo com Estocástico lento "neutro" no papel,
    principalmente quando a vela que confirma o rompimento já é ela própria
    grande/forte (Marubozu, gap, volume muito acima do normal).
+1m. **Estocástico em extremo NÃO é reversão -- só a CRUZA das linhas (%K
+   sobre %D) confirma que a reversão já começou de verdade (pedido direto
+   do Cleber, 2026-09-15 -- "antes da cruza é loucura").** SOBRECOMPRADO/
+   SOBREVENDIDO (%K perto do topo/fundo do range) é só a PRÉ-CONDIÇÃO --
+   o preço pode continuar esticando em extremo por várias velas seguidas
+   antes de virar de verdade (extremo prolongado não é raro, principalmente
+   em tendência forte). O campo "crossing" de get_mt5_quote
+   ("CRUZOU_PARA_CIMA"/"CRUZOU_PARA_BAIXO"/null) mostra quando %K de fato
+   cruzou %D nesta vela -- é ESSE o sinal de que o momentum de curtíssimo
+   prazo já mudou de mãos, não o extremo sozinho. O código agora só conta
+   Estocástico como confirmação de reversão (nos gates de contrarian trade
+   e no setupType="REVERSAO") quando os DOIS estão presentes: extremo real
+   E crossing na direção certa (CRUZOU_PARA_CIMA pra tese LONG vindo de
+   SOBREVENDIDO, CRUZOU_PARA_BAIXO pra tese SHORT vindo de SOBRECOMPRADO).
+   Estar em SOBRECOMPRADO/SOBREVENDIDO sem "crossing" correspondente NÃO é
+   confirmação -- é só "fique de olho, ainda não virou". Se a tese é
+   reversão e o Estocástico está em extremo mas "crossing" ainda é null,
+   espere a cruza de verdade acontecer (pode levar mais ciclos) em vez de
+   forçar a entrada com o extremo sozinho como justificativa.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a

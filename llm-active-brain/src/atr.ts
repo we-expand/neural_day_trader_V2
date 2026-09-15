@@ -400,6 +400,14 @@ export async function getImmediateMomentum(
 // espirito de trendLongTerm ja ser fixo em 1H) -- callers que quiserem
 // combinar com sinais do timeframe operacional continuam livres pra isso,
 // esta funcao so representa o veredito de 5m explicitamente pedido.
+// 🔴 2026-09-15 (pedido direto do Cleber -- metodo real que ele usa pra ler
+// mercado: "eu olho o grafico de 5 minutos, o de 15 minutos, e o de uma
+// hora"): trend15m adicionado como 5o voto, timeframe intermediario entre o
+// curtissimo prazo (5m, reage rapido/ruidoso) e a tendencia do dia (1H) --
+// ajuda a distinguir ruido de 5m de um movimento que ja tem alguma
+// consistencia. Opcional (paramentro pode vir null de callers antigos ainda
+// nao atualizados) pra nao quebrar assinatura -- mas ambos os callers reais
+// (get_mt5_quote e open_position em tools.ts) ja passam o valor.
 export interface MarketDirectionResult {
   /** Veredito unico: ALTA/BAIXA = todos os sinais disponiveis concordam; DIVERGENTE = tem sinal real dos dois lados; INDEFINIDO = nenhum sinal com opiniao real agora. */
   consensus: "ALTA" | "BAIXA" | "DIVERGENTE" | "INDEFINIDO";
@@ -407,7 +415,7 @@ export interface MarketDirectionResult {
   agreement: string;
   votesAlta: number;
   votesBaixa: number;
-  /** Quantos dos 4 sinais possiveis (trend 5m, trendLongTerm 1H, immediateMomentum 5m, hmmRegime) tinham opiniao real neste ciclo. */
+  /** Quantos dos 5 sinais possiveis (trend 5m, trend 15m, trendLongTerm 1H, immediateMomentum 5m, hmmRegime) tinham opiniao real neste ciclo. */
   signalsUsed: number;
 }
 
@@ -415,12 +423,15 @@ export function computeMarketDirection(
   trend5m: TrendInfo | null,
   trendLongTerm: TrendInfo | null,
   immediateMomentum5m: ImmediateMomentumInfo | null,
-  hmmRegime: HmmRegimeResult | null
+  hmmRegime: HmmRegimeResult | null,
+  trend15m: TrendInfo | null = null
 ): MarketDirectionResult {
   let votesAlta = 0;
   let votesBaixa = 0;
   if (trend5m?.label === "ALTA") votesAlta++;
   else if (trend5m?.label === "BAIXA") votesBaixa++;
+  if (trend15m?.label === "ALTA") votesAlta++;
+  else if (trend15m?.label === "BAIXA") votesBaixa++;
   if (trendLongTerm?.label === "ALTA") votesAlta++;
   else if (trendLongTerm?.label === "BAIXA") votesBaixa++;
   if (immediateMomentum5m?.label === "ALTA") votesAlta++;
