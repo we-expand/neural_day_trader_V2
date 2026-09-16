@@ -33,6 +33,17 @@ interface CaptionLine {
   translated: string;
 }
 
+// 2026-09-16 (achado ao vivo: reabrir a janela reiniciava do zero, buscando
+// a transcrição inteira de novo — depois de vários minutos de discurso isso
+// virou um bloco grande demais pra traduzir numa chamada só, a tradução
+// falhava e caía no texto bruto em inglês sem quebrar em frases, cobrindo o
+// vídeo inteiro). Cursor agora persiste em sessionStorage por dia — só a
+// PRIMEIRA vez que a janela abre no dia busca a transcrição completa ("na
+// íntegra", pedido do Cleber); reabrir depois disso continua de onde parou.
+function getCaptionsStorageKey(): string {
+  return `neural_fomc_captions_cursor_${new Date().toISOString().slice(0, 10)}`;
+}
+
 export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
   const [lines, setLines] = useState<CaptionLine[]>([]);
   const [isLive, setIsLive] = useState<boolean | null>(null); // null = ainda não checou
@@ -44,10 +55,13 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
   // ver supabase/functions/fomc-captions/index.ts pra fonte e limitações.
   useEffect(() => {
     if (!isOpen) return;
-    setLines([]);
     setIsLive(null);
     setErrorNote(null);
-    cursorRef.current = '-1';
+    try {
+      cursorRef.current = sessionStorage.getItem(getCaptionsStorageKey()) || '-1';
+    } catch {
+      cursorRef.current = '-1';
+    }
     let cancelled = false;
 
     async function poll() {
@@ -64,6 +78,11 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
 
         setIsLive(!!data.live);
         cursorRef.current = data.cursor ?? cursorRef.current;
+        try {
+          sessionStorage.setItem(getCaptionsStorageKey(), cursorRef.current);
+        } catch {
+          // sessionStorage indisponível -- sem persistência entre reaberturas, sem quebrar a legenda ao vivo
+        }
 
         // 2026-09-16 (achado ao vivo durante o próprio discurso de hoje): a
         // 1ª chamada da sessão traz a transcrição INTEIRA desde o início
@@ -71,12 +90,20 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
         // empurrada como 1 linha só, vira uma parede de texto gigante em
         // vez de legenda. Corrigido quebrando por frase, cada uma vira sua
         // própria linha (mesma caixa de últimas 6, texto original só junto
-        // da última frase pra não duplicar em cada linha).
+        // da última frase pra não duplicar em cada linha). MAX_SENTENCE_CHARS
+        // é rede de segurança pro caso raro de a tradução falhar E o texto
+        // bruto não quebrar bem em frases (ex: falha em pegar toda a
+        // transcrição de uma vez) — trunca em vez de estourar a tela.
+        const MAX_SENTENCE_CHARS = 280;
         if (data.translatedText || data.originalText) {
           const source = data.translatedText || data.originalText;
           const sentences = (source.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [source])
             .map((s: string) => s.trim())
-            .filter(Boolean);
+            .filter(Boolean)
+            .map((s: string) => (s.length > MAX_SENTENCE_CHARS ? `…${s.slice(-MAX_SENTENCE_CHARS)}` : s));
+          const originalTail = data.originalText && data.originalText.length > MAX_SENTENCE_CHARS
+            ? `…${data.originalText.slice(-MAX_SENTENCE_CHARS)}`
+            : data.originalText;
           setLines((prev) => {
             const next = [...prev];
             sentences.forEach((sentence: string, i: number) => {
@@ -84,7 +111,7 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
               next.push({
                 id: lineIdRef.current,
                 translated: data.translatedText ? sentence : '',
-                original: data.translatedText ? (i === sentences.length - 1 ? data.originalText : '') : sentence,
+                original: data.translatedText ? (i === sentences.length - 1 ? originalTail : '') : sentence,
               });
             });
             return next.slice(-6);
@@ -185,7 +212,7 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
 
               {/* LEGENDA — original (inglês, fonte real: CART do próprio Fed) + tradução */}
               <div className="absolute bottom-8 left-0 right-0 flex justify-center pb-6 px-10">
-                <div className="max-w-4xl w-full bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 min-h-[100px] flex flex-col items-center text-center gap-1">
+                <div className="max-w-4xl w-full bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 min-h-[100px] max-h-[35vh] overflow-y-auto flex flex-col items-center text-center gap-1">
                   {isLive === false && (
                     <p className="text-xs text-slate-500">Aguardando o início da transmissão…</p>
                   )}
