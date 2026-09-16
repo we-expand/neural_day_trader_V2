@@ -408,29 +408,35 @@ class AITradingPersistenceService {
         .maybeSingle();
       if (findError) throw findError;
 
+      // 🔴 2026-09-15 (achado do Cleber: "a ferramenta tinha que voltar pros
+      // $100 e já calcular de acordo com a posição aberta, ela tá deletando
+      // a posição e reiniciando os $100"): a versão anterior (2026-09-11)
+      // travava o reset inteiro quando havia posição OPEN -- corrigia o
+      // sumiço da posição, mas o preço era o reset nunca acontecer de
+      // verdade (saldo continuava carregando TODO o histórico da sessão
+      // antiga, não voltava pra $100). O que o Cleber pede é as duas coisas
+      // ao mesmo tempo: baseline zera pra $100 de verdade, E a posição
+      // aberta continua rodando (sem fechar, sem duplicar, sem sumir) --
+      // agora ela é REALOCADA (`UPDATE ai_trades.session_id`) da sessão
+      // antiga pra nova antes da antiga ser encerrada. Nunca fecha a
+      // posição, nunca reescreve preço/PnL/status dela -- só o vínculo de
+      // sessão muda, e a tabela `ai_trades_audit_log` (trigger AFTER
+      // UPDATE) já registra esse UPDATE automaticamente, sem precisar de
+      // UPDATE silencioso nenhum.
+      let openTradeIds: string[] = [];
       if (existing?.id) {
-        // 🔴 2026-09-11 (achado do Cleber: 3 posições reais somem do
-        // Dashboard ao resetar): encerrar a sessão antiga sem checar
-        // posições OPEN a torna invisível pra `getActiveSession()` (só
-        // mostra RUNNING/STOPPED), mesmo com as posições continuando reais
-        // no banco -- mesma classe de bug de "sessão órfã" já catalogada
-        // várias vezes neste projeto. Uma posição aberta precisa continuar
-        // visível e sendo gerida (stop/alvo) até fechar sozinha; reset não
-        // pode apagar isso da tela nem trocar a sessão que o motor
-        // (`llm-active-brain`) está de fato operando.
         const { data: openTrades, error: openError } = await supabase
           .from('ai_trades')
           .select('id')
           .eq('session_id', existing.id)
           .eq('status', 'OPEN');
         if (openError) throw openError;
-        if ((openTrades || []).length > 0) {
-          console.warn(`${this.LOG_PREFIX} ⚠️ Reset do LLM Active Brain abortado: sessão ${existing.id} tem ${openTrades!.length} posição(ões) aberta(s). Elas precisam fechar sozinhas antes do reset -- nenhuma sessão nova foi criada.`);
-          return false;
-        }
+        openTradeIds = (openTrades || []).map((t: any) => t.id);
 
         // Fecha a sessão antiga com o saldo real (initial_balance + soma de
         // net_pnl dos trades fechados) -- nunca sobrescreve, só encerra.
+        // Baseado só nos trades JÁ FECHADOS -- a posição aberta (se houver)
+        // é realocada abaixo, não entra nesta conta da sessão antiga.
         const { data: trades, error: tradesError } = await supabase
           .from('ai_trades')
           .select('net_pnl')
@@ -442,7 +448,7 @@ class AITradingPersistenceService {
         await this.endSession(existing.id, finalBalance, finalBalance);
       }
 
-      const { error: createError } = await supabase
+      const { data: newSession, error: createError } = await supabase
         .from('ai_sessions')
         .insert([{
           user_id: userId,
@@ -455,8 +461,19 @@ class AITradingPersistenceService {
           config: {
             source: 'Reset via botão "Reinicialização Total" (AI Trader)',
           },
-        }]);
+        }])
+        .select('id')
+        .single();
       if (createError) throw createError;
+
+      if (openTradeIds.length > 0) {
+        const { error: migrateError } = await supabase
+          .from('ai_trades')
+          .update({ session_id: newSession.id })
+          .in('id', openTradeIds);
+        if (migrateError) throw migrateError;
+        console.log(`${this.LOG_PREFIX} 🔀 ${openTradeIds.length} posição(ões) aberta(s) realocada(s) pra sessão nova (continuam rodando, sem fechar).`);
+      }
 
       console.log(`${this.LOG_PREFIX} ✅ Sessão do LLM Active Brain resetada para $${resetBalanceUsd}`);
       return true;
