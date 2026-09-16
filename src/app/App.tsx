@@ -451,7 +451,7 @@ function AppContent() {
               onOpenFedEventCenter={() => setShowFedEventCenter(true)}
             />
 
-            <HighImpactEventBanner />
+            <HighImpactEventBanner onWatchFedLive={() => setShowFedEventCenter(true)} />
 
             <main className="flex-1 overflow-auto">
               {renderContent}
