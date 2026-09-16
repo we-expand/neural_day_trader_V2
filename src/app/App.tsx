@@ -13,6 +13,7 @@ import { useFavicon } from '@/app/hooks/useFavicon'; // 🆕 Hook para logo no b
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 import { Sidebar } from '@/app/components/Sidebar';
 import { Header } from '@/app/components/layout/Header';
+import { NeuralEventCenter } from '@/app/components/dashboard/NeuralEventCenter';
 import { Dashboard } from '@/app/components/Dashboard';
 import { Funds } from '@/app/components/Funds';
 import { Assets } from '@/app/components/Assets';
@@ -189,6 +190,7 @@ function AppContent() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
+  const [showFedEventCenter, setShowFedEventCenter] = useState(false);
   const [language, setLanguage] = useState<Language>('pt');
   const { user, signOut, loading } = useAuth();
   const { fullName } = useUserProfile();
@@ -402,11 +404,16 @@ function AppContent() {
               onLogout={handleLogout}
               user={user}
               onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+              onOpenFedEventCenter={() => setShowFedEventCenter(true)}
             />
-            
+
             <main className="flex-1 overflow-auto">
               {renderContent}
             </main>
+
+            {showFedEventCenter && (
+              <NeuralEventCenter isOpen={showFedEventCenter} onClose={() => setShowFedEventCenter(false)} />
+            )}
 
             <footer className="shrink-0">
               <div className="h-12 border-t border-slate-700/50 flex items-center justify-center">

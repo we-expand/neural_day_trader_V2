@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2, Menu } from 'lucide-react';
+import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2, Menu, Radio } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { BrokerConnectionStatus } from '../BrokerConnectionStatus';
@@ -10,9 +10,10 @@ interface HeaderProps {
   onLogout?: () => void;
   user?: { name: string; email: string; role: string } | null;
   onOpenMobileMenu?: () => void;
+  onOpenFedEventCenter?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onOpenMobileMenu }) => {
+export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onOpenMobileMenu, onOpenFedEventCenter }) => {
   // 🔴 2026-09-09: `isLiveConnected`/`disconnectLive` centralizados no
   // TradingContext (fonte de verdade real: `broker_credentials`, mesma que
   // o llm-active-brain usa) -- usado também pelo toggle do AITrader.tsx,
@@ -80,6 +81,19 @@ export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, 
       <div className="flex items-center gap-2 md:gap-4 ml-auto shrink-0">
         {/* 🟢 BROKER CONNECTION STATUS */}
         <BrokerConnectionStatus />
+
+        {/* Discurso do Fed ao vivo, traduzido — ver NeuralEventCenter.tsx */}
+        {onOpenFedEventCenter && (
+          <button
+            type="button"
+            onClick={onOpenFedEventCenter}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition-all"
+            title="Assistir ao discurso do Fed com legenda traduzida ao vivo"
+          >
+            <Radio className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Fed ao vivo</span>
+          </button>
+        )}
 
         {/* Notifications */}
         <button className="relative p-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/5">
