@@ -1941,14 +1941,28 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             ? `padrao de candle ${candlePatternsForConfluenceCheck?.detected.join("/")} (bias ${candlePatternsForConfluenceCheck?.bias})`
             : null,
         ].filter((f): f is string => f !== null);
-        if (counterTrend && stochasticExtremeConfirmsReversal && !volume.elevated && reversalConfirmationFactors.length < 2) {
+        // 🔴 2026-09-16 (achado real via SQL, pedido do Cleber -- "isso nao
+        // pode acontecer": 5 de 7 trades fechados no dia usaram "volume alto
+        // justifica entrada contrarian" ou "MACD contradiz mas..." pra abrir
+        // contra o proprio indicador que a IA citou, quase todos batendo
+        // stop). Causa raiz real: esta trava so entrava em acao quando
+        // `stochasticExtremeConfirmsReversal` ja era true E `!volume.elevated`
+        // -- ou seja, (a) contra-tendencia SEM Estocastico em extremo passava
+        // 100% livre (nenhuma trava de fator minimo rodava), e (b) contra-
+        // tendencia COM Estocastico extremo mas volume tambem elevado pulava
+        // a checagem inteira, tratando volume sozinho como suficiente --
+        // exatamente o padrao citado pelo Cleber. Fix: exige >=2 fatores reais
+        // alinhados (volume/Estocastico-extremo-com-crossing/MACD/candle) pra
+        // QUALQUER entrada contra-tendencia, sempre, sem pre-condicao nem
+        // bypass por volume.
+        if (counterTrend && reversalConfirmationFactors.length < 2) {
           return {
             error:
               `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) -- ` +
-              `so ha 1 fator real confirmando a reversao (Estocastico ${stochasticForReversalCheck?.label}). Medicao real dos ultimos 14 dias mostra que ` +
-              `contrarian trade com Estocastico extremo SOZINHO tem 39,5% de acerto e perde em media (-$0,62/trade, n=243) -- Estocastico isolado nao e mais ` +
-              `confirmacao suficiente. Posicao NAO aberta. Precisa de mais 1 fator real alinhado (volume elevado, MACD ${side === "LONG" ? "ALTA" : "BAIXA"}, ` +
-              `ou padrao de candle bias ${side === "LONG" ? "ALTA" : "BAIXA"}) alem do Estocastico, opere a favor da tendencia, ou avalie outro ativo.`,
+              `so ha ${reversalConfirmationFactors.length} fator(es) real(is) confirmando a reversao (${reversalConfirmationFactors.join(", ") || "nenhum"}). ` +
+              `Contra-tendencia exige pelo menos 2 fatores reais alinhados (volume elevado, Estocastico em extremo COM crossing na direcao certa, MACD ` +
+              `${side === "LONG" ? "ALTA" : "BAIXA"}, ou padrao de candle bias ${side === "LONG" ? "ALTA" : "BAIXA"}) -- nenhum fator isolado (nem volume ` +
+              `sozinho, nem Estocastico sozinho) e suficiente. Posicao NAO aberta. Junte mais uma confirmacao real, opere a favor da tendencia, ou avalie outro ativo.`,
           };
         }
         // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
