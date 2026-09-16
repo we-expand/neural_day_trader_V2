@@ -34,10 +34,16 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
 
   return (
     <>
-      {/* Overlay escuro atrás do drawer, só em mobile (< md) quando aberto */}
+      {/* Overlay escuro atrás do drawer, só em mobile (< md) quando aberto.
+          z-[500]/z-[510] — acima de QUALQUER overlay de tela, inclusive a
+          boleta do Gráfico (z-[220], deliberadamente alto pra vencer
+          camadas internas do klinecharts). Achado real 2026-09-15: sem
+          isso, abrir o menu em cima do Gráfico deixava a boleta "vazando"
+          por cima da navegação — a intenção de navegar sempre tem que
+          vencer, não o contrário. */}
       {isOpenOnMobile && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          className="fixed inset-0 bg-black/60 z-[500] md:hidden"
           onClick={onCloseMobile}
           aria-hidden="true"
         />
@@ -45,7 +51,7 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
       <aside
         id="app-sidebar"
         className={`w-80 max-w-[85vw] bg-black border-r border-white/5 flex flex-col h-screen font-sans
-          fixed inset-y-0 left-0 z-50 transition-transform duration-200
+          fixed inset-y-0 left-0 z-[510] transition-transform duration-200
           ${isOpenOnMobile ? 'translate-x-0' : '-translate-x-full'}
           md:relative md:translate-x-0 md:z-auto`}
       >
