@@ -1044,12 +1044,27 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
           // horas antes/depois já liberadas, mas ainda no mesmo dia
           // atípico): exigir mais confirmações, tamanho mais conservador,
           // desconfiar de sinais fracos.
+          // 🔴 2026-09-16 (pedido direto do Cleber -- "a LLM tem que estar
+          // atenta a oportunidades nesse horario"): a trava mecanica
+          // (open_position/tools.ts) BLOQUEIA entrada na janela do evento em
+          // si (20min antes/60min depois) -- decisao mantida, protege contra
+          // whipsaw de anuncio (mesmo motivo do corte 80%->33% de 2026-09-04).
+          // Mas ISSO NAO significa ficar paralisado o resto do dia: o
+          // movimento real de verdade costuma vir logo ANTES do bloqueio
+          // (pricing-in) e logo DEPOIS que ele libera (reacao real ao
+          // resultado, quando ha confluencia genuina) -- excesso de cautela
+          // nesses instantes tambem tem custo (oportunidade perdida). Reforco
+          // explicito: mais confluencia exigida (nunca menos), mas SEM deixar
+          // de avaliar ativamente os ativos assim que a janela travada abrir.
           economicCalendarBlock =
             `\n\n⚠️ AGENDA ECONÔMICA AMERICANA DE HOJE (alto impacto, dado real) -- LEITURA OBRIGATÓRIA:\n${lines.join("\n")}\n` +
             `Em dia com evento de alto impacto (decisão de juros, discurso do Fed, NFP, CPI etc): mercado tende a ficar mais ` +
             `inquieto/imprevisível o dia INTEIRO, não só na janela travada mecanicamente. Exija MAIS confluência real antes de ` +
             `entrar (nunca menos), prefira size mais conservador, e desconfie de setups "quase lá" -- um dia atípico não é dia ` +
-            `pra forçar entrada.`;
+            `pra forçar entrada. Isso NÃO significa parar de avaliar: a trava mecânica cobre só a janela do anúncio em si -- ` +
+            `assim que ela liberar (ver open_position se ainda estiver bloqueado), avalie ATIVAMENTE se o movimento real pós-evento ` +
+            `tem confluência genuína (não é o mesmo que "voltar a operar automaticamente") -- reação real a um resultado de juros ` +
+            `costuma ser um dos movimentos mais limpos do dia quando a confluência é real, não deixe passar por cautela excessiva.`;
         }
       }
     } catch (err) {

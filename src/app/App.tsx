@@ -14,6 +14,7 @@ import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 import { Sidebar } from '@/app/components/Sidebar';
 import { Header } from '@/app/components/layout/Header';
 import { NeuralEventCenter } from '@/app/components/dashboard/NeuralEventCenter';
+import { HighImpactEventBanner } from '@/app/components/dashboard/HighImpactEventBanner';
 import { Dashboard } from '@/app/components/Dashboard';
 import { Funds } from '@/app/components/Funds';
 import { Assets } from '@/app/components/Assets';
@@ -449,6 +450,8 @@ function AppContent() {
               onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
               onOpenFedEventCenter={() => setShowFedEventCenter(true)}
             />
+
+            <HighImpactEventBanner />
 
             <main className="flex-1 overflow-auto">
               {renderContent}
