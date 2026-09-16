@@ -685,6 +685,52 @@ export const config = {
   // integridade de dado, não parâmetro de tuning -- trava dura, sem exceção.
   // Ver staleQuoteToolCycleBySymbol / open_position em tools.ts.
   blockEntryOnStaleIndicators: process.env.BLOCK_ENTRY_ON_STALE_INDICATORS !== "false",
+  // 🔴 2026-09-16 (pedido direto do Cleber -- Super Quarta/FOMC: "mercado
+  // fica completamente inquieto... a forma de operar muda, mais cautelosa").
+  // Achado real da sessão (SQL): 8/8 trades fechados desde o restart saíram
+  // por STOP, zero por alvo -- padrão de whipsaw típico de véspera de FOMC,
+  // com a IA invertendo direção 3x no mesmo ativo (UKOUSD) em ~7h. Trava
+  // MECÂNICA (não é só contexto): bloqueia ABERTURA de posição nova numa
+  // janela em torno de qualquer evento de alto impacto (impact="high" no
+  // calendário real, ver getUsEconomicCalendar/atr.ts) do dia -- decisão de
+  // juros, discurso do Fed, NFP, CPI etc, não só FOMC. Nunca fecha posição
+  // já aberta, só impede entrada nova (mesmo padrão de teto de frequência).
+  // Janela default (antes/depois de CADA evento de alto impacto, união dos
+  // dois se houver mais de um próximo -- ex: decisão+coletiva do Fed no
+  // mesmo dia): 20min antes + 60min depois. Pesquisado ao vivo nesta sessão
+  // (FOMC 16/09/2026: decisão 14h ET/18h UTC, coletiva do novo chair do Fed
+  // 14h30 ET/18h30 UTC, duração média real ~1h) -- produz exatamente
+  // 14:40-16:30 Brasília pedido pelo Cleber para hoje, mas a regra é
+  // genérica: vale pra QUALQUER dia com evento de alto impacto, não só hoje.
+  highImpactNewsGateActive: process.env.HIGH_IMPACT_NEWS_GATE_ACTIVE !== "false",
+  highImpactNewsGateMinutesBefore: Number(process.env.HIGH_IMPACT_NEWS_GATE_MINUTES_BEFORE ?? 20),
+  highImpactNewsGateMinutesAfter: Number(process.env.HIGH_IMPACT_NEWS_GATE_MINUTES_AFTER ?? 60),
+  // 🔴 2026-09-16 (mesmo pedido -- achado real: SPX500 LONG aberto com
+  // setupType=ROMPIMENTO usando `brokeAboveResistance`, que é calculado em
+  // cima do ÚLTIMO candle buscado, possivelmente ainda em formação -- ver
+  // getSupportResistance/atr.ts. Cleber, ao vivo: "rompeu, ótimo. Espera o
+  // candle fechar, e se ele fechar acima do rompimento, pode dar entrada.
+  // Antes disso, ninguém faz nada."). Trava MECÂNICA: setupType="ROMPIMENTO"
+  // só é aceito em open_position se o ÚLTIMO CANDLE JÁ FECHADO (não o mais
+  // recente buscado, que pode estar em formação) fechou além do nível
+  // estabelecido -- ver closedAboveResistance/closedBelowSupport em
+  // SupportResistance (atr.ts). Default ligado (sem opt-out silencioso,
+  // igual blockEntryOnStaleIndicators acima) -- é correção de integridade
+  // de sinal, não parâmetro de tuning.
+  breakoutRequireClosedCandleConfirmation: process.env.BREAKOUT_REQUIRE_CLOSED_CANDLE !== "false",
+  // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
+  // diário... atualizando 5x ao dia... isso indica o apetite a risco do
+  // mercado"). VIX real (nunca fabricado -- ver tratamento do valor
+  // "Fallback (Estimativa)" como indisponível em getVixContext/atr.ts).
+  // Cache de 288min (24h/5 = exatamente "5x ao dia" pedido). Contexto
+  // informativo no prompt (mesmo padrão de agenda econômica) + efeito
+  // MECÂNICO real (não só narrativo, pedido explícito: "se não vai
+  // perder"): VIX ELEVADO/ALTO soma ao piso de confiança mínima exigido em
+  // open_position, exigindo mais convicção real pra abrir posição quando o
+  // apetite a risco do mercado está baixo.
+  vixCacheTtlMinutes: Number(process.env.VIX_CACHE_TTL_MINUTES ?? 288),
+  vixMinConfidenceBonusElevated: Number(process.env.VIX_MIN_CONFIDENCE_BONUS_ELEVADO ?? 2),
+  vixMinConfidenceBonusAlto: Number(process.env.VIX_MIN_CONFIDENCE_BONUS_ALTO ?? 5),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger

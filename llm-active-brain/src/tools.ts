@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -1159,14 +1159,50 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // liquidez menor reduz a chance de confluência forte o bastante pra
       // passar de 80%, e o teto de frequência de fim de semana ficava sem uso
       // real. Dia útil continua exigindo MIN_CONFIDENCE_FOR_OPEN_POSITION (80%).
-      const minConfidenceRequired = isWeekendMode()
-        ? config.mt5MinConfidenceForOpenPositionWeekend
-        : MIN_CONFIDENCE_FOR_OPEN_POSITION;
+      // 🔴 2026-09-16 (pedido direto do Cleber, Super Quarta/FOMC): bloqueia
+      // ABERTURA de posição nova numa janela em torno de qualquer evento de
+      // alto impacto do dia (decisão de juros, discurso do Fed, NFP, CPI
+      // etc -- calendário real, nunca hardcoded pra um evento específico).
+      // Nunca fecha posição já aberta -- SL/TP/trailing mecânicos continuam
+      // rodando normalmente durante a janela. Achado real que motivou:
+      // 8/8 trades fechados desde o restart de hoje saíram por STOP (zero
+      // por alvo), com a IA invertendo direção 3x no mesmo ativo em ~7h --
+      // padrão de whipsaw de véspera de evento de alto impacto.
+      if (config.highImpactNewsGateActive) {
+        const activeNewsWindow = await getActiveHighImpactNewsWindow(
+          config.highImpactNewsGateMinutesBefore,
+          config.highImpactNewsGateMinutesAfter,
+        );
+        if (activeNewsWindow) {
+          return {
+            error: `BLOQUEADO: janela de evento de alto impacto ativa -- "${activeNewsWindow.event.event}" às ${activeNewsWindow.event.time} ` +
+              `(janela: ${activeNewsWindow.minutesBefore}min antes a ${activeNewsWindow.minutesAfter}min depois). Mercado tende a ficar inquieto/whipsaw ` +
+              `nesse intervalo -- nenhuma posição NOVA até a janela fechar. Posições já abertas continuam sendo monitoradas normalmente (stop/breakeven/trailing).`,
+          };
+        }
+      }
+      // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
+      // diário... isso indica o apetite a risco do mercado, tem que se
+      // orientar nisso"): VIX real (nunca fabricado, ver getVixContext)
+      // soma ao piso de confiança mínima quando o apetite a risco do
+      // mercado está baixo (ELEVADO/ALTO) -- exige mais convicção real pra
+      // abrir posição nesses momentos. VIX indisponível (fonte fora do ar)
+      // não bloqueia nem penaliza -- fail-open, mesmo padrão do resto do
+      // arquivo.
+      const vixContext = await getVixContext();
+      const vixConfidenceBonus =
+        vixContext?.label === "ALTO"
+          ? config.vixMinConfidenceBonusAlto
+          : vixContext?.label === "ELEVADO"
+          ? config.vixMinConfidenceBonusElevated
+          : 0;
+      const minConfidenceRequired =
+        (isWeekendMode() ? config.mt5MinConfidenceForOpenPositionWeekend : MIN_CONFIDENCE_FOR_OPEN_POSITION) + vixConfidenceBonus;
       if (confidence === null || confidence < minConfidenceRequired) {
         return {
           error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
-            `(${minConfidenceRequired}%${isWeekendMode() ? ", piso de fim de semana" : ""}). So abra quando a confluencia tecnica REAL justificar confianca alta -- ` +
-            `nao infle o numero so pra passar deste gate, o campo e auditado.`,
+            `(${minConfidenceRequired}%${isWeekendMode() ? ", piso de fim de semana" : ""}${vixConfidenceBonus > 0 ? `, +${vixConfidenceBonus} por VIX ${vixContext?.label} (${vixContext?.value})` : ""}). ` +
+            `So abra quando a confluencia tecnica REAL justificar confianca alta -- nao infle o numero so pra passar deste gate, o campo e auditado.`,
         };
       }
       const basket = effectiveBasket(session);
@@ -1543,6 +1579,28 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
       const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
       const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal);
+      // 🔴 2026-09-16 (pedido direto do Cleber, ao vivo -- "rompeu, ótimo.
+      // Espera o candle fechar, e se ele fechar acima do rompimento, pode
+      // dar entrada. Antes disso, ninguém faz nada"): setupType="ROMPIMENTO"
+      // só é aceito se o ÚLTIMO CANDLE JÁ FECHADO confirmou o rompimento
+      // (closedAboveResistance/closedBelowSupport em getSupportResistance,
+      // atr.ts -- diferente de brokeAboveResistance/brokeBelowSupport, que
+      // usa o candle mais recente buscado, possivelmente ainda em formação).
+      // Achado real que motivou: SPX500 LONG aberto hoje com
+      // setupType=ROMPIMENTO citando "override" do estocástico sobrecomprado
+      // sem nenhuma confirmação de fechamento. Não afeta REVERSAO/OUTRO nem
+      // entrada sem setupType declarado (campo opcional).
+      if (config.breakoutRequireClosedCandleConfirmation && setupType === "ROMPIMENTO" && supportResistanceForTarget) {
+        const confirmedByClosedCandle =
+          side === "LONG" ? supportResistanceForTarget.closedAboveResistance : supportResistanceForTarget.closedBelowSupport;
+        if (!confirmedByClosedCandle) {
+          return {
+            error: `BLOQUEADO: setupType="ROMPIMENTO" em ${symbol} exige que o ÚLTIMO CANDLE JÁ FECHADO tenha fechado além do nível rompido -- ` +
+              `ainda não confirmado (o rompimento visível agora pode estar acontecendo dentro do candle atual, ainda em formação). ` +
+              `Espere o candle fechar além do nível antes de abrir ${side}, ou reavalie como setupType="REVERSAO"/"OUTRO" se a tese for outra.`,
+          };
+        }
+      }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
       // quando o mercado está caindo e venda quando está subindo"): caso real
       // confirmado -- UKOUSD LONG aberto durante 5 velas seguidas de queda

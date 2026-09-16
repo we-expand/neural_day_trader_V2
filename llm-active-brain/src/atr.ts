@@ -555,6 +555,21 @@ export interface SupportResistance {
    */
   brokeAboveResistance: boolean;
   brokeBelowSupport: boolean;
+  /**
+   * 🔴 2026-09-16 (pedido direto do Cleber -- "rompeu, ótimo. Espera o candle
+   * fechar, e se ele fechar acima do rompimento, pode dar entrada. Antes
+   * disso, ninguém faz nada"): brokeAboveResistance/brokeBelowSupport acima
+   * usam o ÚLTIMO candle da janela (`candles[length-1]`), que pode ainda
+   * estar em formação -- rompimento "em tempo real", não confirmado. Estes
+   * dois campos usam o candle ANTERIOR a esse (`candles[length-2]`, que por
+   * construção nunca entra no cálculo de resistance/support -- ver
+   * SR_BREAKOUT_EXCLUDE_CANDLES abaixo), ou seja, o último candle que
+   * seguramente já fechou antes do candle mais recente buscado: só true
+   * quando esse candle FECHOU além do nível estabelecido. Usado como trava
+   * mecânica em open_position (tools.ts) para setupType="ROMPIMENTO".
+   */
+  closedAboveResistance: boolean;
+  closedBelowSupport: boolean;
   lookbackMinutes: number;
 }
 
@@ -614,6 +629,16 @@ export async function getSupportResistance(symbol: string, timeframe: SupportedT
       ? "SUPORTE"
       : null;
 
+  // 🔴 2026-09-16: candle imediatamente ANTERIOR ao mais recente buscado --
+  // por construção (SR_BREAKOUT_EXCLUDE_CANDLES=2) nunca entra no cálculo de
+  // resistance/support acima, e é o último candle que seguramente já fechou
+  // antes do candle mais recente (que pode ainda estar em formação). Ver
+  // comentário do campo em SupportResistance.
+  const lastClosedCandle = candles[candles.length - 2];
+  const lastClosedClose = lastClosedCandle?.close;
+  const closedAboveResistance = Number.isFinite(lastClosedClose) ? (lastClosedClose as number) > resistance : false;
+  const closedBelowSupport = Number.isFinite(lastClosedClose) ? (lastClosedClose as number) < support : false;
+
   return {
     resistance: Number(resistance.toFixed(6)),
     support: Number(support.toFixed(6)),
@@ -622,6 +647,8 @@ export async function getSupportResistance(symbol: string, timeframe: SupportedT
     nearLevel,
     brokeAboveResistance: distanceToResistancePct < 0,
     brokeBelowSupport: distanceToSupportPct < 0,
+    closedAboveResistance,
+    closedBelowSupport,
     lookbackMinutes: candles.length * (TIMEFRAME_MINUTES[timeframe] ?? 5),
   };
 }
@@ -1421,6 +1448,110 @@ export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null
     return calendar;
   } catch {
     economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+    return null;
+  }
+}
+
+/**
+ * 🔴 2026-09-16 (pedido direto do Cleber, Super Quarta/FOMC -- "dia atípico,
+ * mercado fica completamente inquieto... a forma de operar muda, é mais
+ * cautelosa"). Trava MECÂNICA (não só contexto, diferente do bloco acima):
+ * true quando "agora" cai dentro da janela de qualquer evento de alto
+ * impacto de hoje -- [evento.time - minutosAntes, evento.time + minutosDepois],
+ * união entre eventos (cobre automaticamente decisão+coletiva do Fed no
+ * mesmo dia, ou qualquer outro cluster). Genérico: vale pra QUALQUER evento
+ * impact="high" do calendário real (decisão de juros, discurso do Fed, NFP,
+ * CPI etc), não hardcoded pra FOMC. Nunca fabrica evento -- calendário null
+ * (fonte fora do ar) = retorna null (sem bloqueio, fail-open, mesmo padrão
+ * do resto do arquivo).
+ */
+export interface HighImpactNewsWindow {
+  event: UsEconomicEvent;
+  minutesBefore: number;
+  minutesAfter: number;
+}
+
+export async function getActiveHighImpactNewsWindow(
+  minutesBefore: number,
+  minutesAfter: number,
+): Promise<HighImpactNewsWindow | null> {
+  const calendar = await getUsEconomicCalendar();
+  if (!calendar) return null;
+  const now = Date.now();
+  for (const event of calendar.highImpactToday) {
+    const eventTime = new Date(event.time).getTime();
+    if (!Number.isFinite(eventTime)) continue;
+    const windowStart = eventTime - minutesBefore * 60_000;
+    const windowEnd = eventTime + minutesAfter * 60_000;
+    if (now >= windowStart && now <= windowEnd) {
+      return { event, minutesBefore, minutesAfter };
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// VIX -- ÍNDICE DE VOLATILIDADE/APETITE A RISCO (2026-09-16, pedido direto do
+// Cleber, Super Quarta/FOMC: "a nossa AI tem que consultar o VIX diário...
+// atualizando 5x ao dia! Isso indica o apetite a risco do mercado"). Reaproveita
+// o MESMO endpoint real (`/vix`, Edge Function `server`) que o Dashboard já usa
+// -- NUNCA fabrica: quando todas as fontes reais (S&P Global/CBOE/Yahoo) falham,
+// esse endpoint devolve um valor de FALLBACK fixo (source: "Fallback
+// (Estimativa)", achado real nesta sessão, débito técnico pré-existente do
+// projeto) -- tratado aqui explicitamente como indisponível (null), nunca usado
+// como dado real pra decisão. Cache de 288min = 24h/5 = exatamente "5x ao dia".
+// ============================================================================
+
+export interface VixContext {
+  value: number;
+  changePercent: number;
+  source: string;
+  /** BAIXO (<15, complacência) / NORMAL (15-20) / ELEVADO (20-25) / ALTO (>25, medo real -- exige mais confirmação) */
+  label: "BAIXO" | "NORMAL" | "ELEVADO" | "ALTO";
+}
+
+let vixCache: { fetchedAt: number; vix: VixContext | null } | null = null;
+const VIX_FALLBACK_SOURCE_MARKER = "Fallback (Estimativa)";
+
+function classifyVix(value: number): VixContext["label"] {
+  if (value >= 25) return "ALTO";
+  if (value >= 20) return "ELEVADO";
+  if (value >= 15) return "NORMAL";
+  return "BAIXO";
+}
+
+export async function getVixContext(): Promise<VixContext | null> {
+  const ttlMs = config.vixCacheTtlMinutes * 60_000;
+  if (vixCache && Date.now() - vixCache.fetchedAt < ttlMs) return vixCache.vix;
+  try {
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/vix`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      vixCache = { fetchedAt: Date.now(), vix: null };
+      return null;
+    }
+    const result = (await res.json()) as { value?: unknown; changePercent?: unknown; source?: unknown };
+    const value = Number(result.value);
+    const source = String(result.source ?? "");
+    // nunca fabrica: fallback do endpoint (débito técnico já existente, não
+    // introduzido aqui) tratado como indisponível, não como dado real.
+    if (!Number.isFinite(value) || value <= 0 || source === VIX_FALLBACK_SOURCE_MARKER) {
+      vixCache = { fetchedAt: Date.now(), vix: null };
+      return null;
+    }
+    const vix: VixContext = {
+      value: Number(value.toFixed(2)),
+      changePercent: Number.isFinite(Number(result.changePercent)) ? Number(Number(result.changePercent).toFixed(2)) : 0,
+      source,
+      label: classifyVix(value),
+    };
+    vixCache = { fetchedAt: Date.now(), vix };
+    return vix;
+  } catch {
+    vixCache = { fetchedAt: Date.now(), vix: null };
     return null;
   }
 }

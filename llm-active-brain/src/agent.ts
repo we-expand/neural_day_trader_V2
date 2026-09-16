@@ -14,7 +14,7 @@ import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
 import { getMarketNewsBriefing, formatNewsBlock } from "./news.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
-import { getUsEconomicCalendar } from "./atr.js";
+import { getUsEconomicCalendar, getVixContext } from "./atr.js";
 
 // 🔴 2026-09-06 (achado do Cleber, direto na tela): o painel "Logs do
 // Sistema" ficava dominado por JSON cru de cada get_mt5_quote (200+
@@ -1034,11 +1034,51 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
           lines.push(`Próximo evento de alto impacto (USD) que AINDA VAI sair hoje: "${n.event}" às ${n.time} (previsto ${n.forecast || "n/d"}).`);
         }
         if (lines.length > 0) {
-          economicCalendarBlock = `\n\nAgenda econômica americana (alto impacto, dado real):\n${lines.join("\n")}`;
+          // 🔴 2026-09-16 (pedido direto do Cleber, Super Quarta/FOMC --
+          // "a nossa IA tem que ter isso na ponta da língua... dia de
+          // decisão de juros é atípico, com muita volatilidade"): reforço
+          // textual explícito quando há evento de alto impacto hoje --
+          // além da trava mecânica (bloqueio de entrada na janela do
+          // evento, ver open_position/tools.ts), isto é pra pesar no
+          // JULGAMENTO da IA mesmo fora da janela de bloqueio (ex: nas
+          // horas antes/depois já liberadas, mas ainda no mesmo dia
+          // atípico): exigir mais confirmações, tamanho mais conservador,
+          // desconfiar de sinais fracos.
+          economicCalendarBlock =
+            `\n\n⚠️ AGENDA ECONÔMICA AMERICANA DE HOJE (alto impacto, dado real) -- LEITURA OBRIGATÓRIA:\n${lines.join("\n")}\n` +
+            `Em dia com evento de alto impacto (decisão de juros, discurso do Fed, NFP, CPI etc): mercado tende a ficar mais ` +
+            `inquieto/imprevisível o dia INTEIRO, não só na janela travada mecanicamente. Exija MAIS confluência real antes de ` +
+            `entrar (nunca menos), prefira size mais conservador, e desconfie de setups "quase lá" -- um dia atípico não é dia ` +
+            `pra forçar entrada.`;
         }
       }
     } catch (err) {
       console.error("[agent] falha ao buscar agenda economica (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
+    }
+    // 🔴 2026-09-16 (pedido direto do Cleber -- "a nossa AI tem que
+    // consultar o VIX diário... isso indica o apetite a risco do mercado
+    // e a nossa AI tem que se orientar nisso corretamente, se não vai
+    // perder"). VIX real (nunca fabricado, ver getVixContext/atr.ts),
+    // cache de 5x/dia -- contexto declarado 1x por ciclo, igual agenda
+    // econômica acima. Efeito MECÂNICO real (não só este texto) já soma ao
+    // piso de confiança mínima em open_position quando ELEVADO/ALTO -- ver
+    // tools.ts.
+    let vixBlock = "";
+    try {
+      const vix = await getVixContext();
+      if (vix) {
+        const guidance =
+          vix.label === "ALTO"
+            ? "Apetite a risco BAIXO (medo real no mercado) -- exija confluência mais forte, prefira ficar de fora de setups marginais, especialmente ROMPIMENTO (rompimentos falsos são mais comuns em pânico)."
+            : vix.label === "ELEVADO"
+            ? "Apetite a risco reduzido -- mais cautela que o normal, principalmente em reversão contra a tendência principal."
+            : vix.label === "BAIXO"
+            ? "Apetite a risco ALTO (complacência) -- cuidado com breakouts sem volume real de participação, tendem a reverter (armadilha de alta complacência)."
+            : "Apetite a risco normal.";
+        vixBlock = `\n\nVIX (índice de volatilidade/medo do mercado, dado real, fonte ${vix.source}): ${vix.value} (${vix.label}, variação ${vix.changePercent > 0 ? "+" : ""}${vix.changePercent}%). ${guidance}`;
+      }
+    } catch (err) {
+      console.error("[agent] falha ao buscar VIX (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
     }
     // 🔴 2026-09-08 (pedido direto do Cleber: "a IA tem que fazer leitura das
     // noticias do dia... de 3 em 3 horas, registrar e entender"). Manchetes
@@ -1083,6 +1123,7 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       strategyDirective +
       economicCalendarBlock +
+      vixBlock +
       newsBlock;
   } else {
     const ethBalance = await getBalanceEth();
