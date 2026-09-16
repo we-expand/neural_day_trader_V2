@@ -26,7 +26,8 @@ interface NeuralEventCenterProps {
  */
 const FED_BRIGHTCOVE_ACCOUNT = '66043936001';
 const FED_BRIGHTCOVE_VIDEO_ID = '6376885161112';
-const FED_VIDEO_EMBED_URL = `https://players.brightcove.net/${FED_BRIGHTCOVE_ACCOUNT}/default_default/index.html?videoId=${FED_BRIGHTCOVE_VIDEO_ID}`;
+// autoplay=true (achado ao vivo 2026-09-16, ver FedMiniPlayer.tsx pro mesmo fix): sem isso o player fica parado na miniatura, exigindo clique manual em Play.
+const FED_VIDEO_EMBED_URL = `https://players.brightcove.net/${FED_BRIGHTCOVE_ACCOUNT}/default_default/index.html?videoId=${FED_BRIGHTCOVE_VIDEO_ID}&autoplay=true`;
 
 export function NeuralEventCenter({ isOpen, onClose, onMinimize }: NeuralEventCenterProps) {
   const { lines, isLive, errorNote } = useFomcLiveCaptions(isOpen);

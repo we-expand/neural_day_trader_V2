@@ -14,7 +14,11 @@ import { useFomcLiveCaptions } from '@/app/hooks/useFomcLiveCaptions';
  */
 const FED_BRIGHTCOVE_ACCOUNT = '66043936001';
 const FED_BRIGHTCOVE_VIDEO_ID = '6376885161112';
-const FED_VIDEO_EMBED_URL = `https://players.brightcove.net/${FED_BRIGHTCOVE_ACCOUNT}/default_default/index.html?videoId=${FED_BRIGHTCOVE_VIDEO_ID}`;
+// autoplay=true pede autoplay real de verdade pro player do Brightcove
+// (2026-09-16, achado ao vivo: sem esse parâmetro o vídeo ficava parado na
+// miniatura, o usuário tinha que clicar em Play — o próprio player exige o
+// clique real, o atributo `allow="autoplay"` do iframe sozinho não basta).
+const FED_VIDEO_EMBED_URL = `https://players.brightcove.net/${FED_BRIGHTCOVE_ACCOUNT}/default_default/index.html?videoId=${FED_BRIGHTCOVE_VIDEO_ID}&autoplay=true`;
 
 interface FedMiniPlayerProps {
   onMaximize: () => void;
@@ -58,18 +62,25 @@ export function FedMiniPlayer({ onMaximize, onClose }: FedMiniPlayerProps) {
           </div>
         </div>
 
-        <button onClick={onMaximize} className="block w-full relative bg-black aspect-video group">
+        <div className="relative w-full bg-black aspect-video group">
           <iframe
             title="Federal Reserve Live (mini)"
-            className="w-full h-full pointer-events-none"
+            className="w-full h-full"
             src={FED_VIDEO_EMBED_URL}
             allow="autoplay; encrypted-media; fullscreen"
             loading="lazy"
           />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-            <Maximize2 className="w-6 h-6 text-white" />
-          </div>
-        </button>
+          {/* Ícone de maximizar sobreposto só no canto — não cobre o resto do
+              vídeo, então o player continua clicável (play/pause/volume) de
+              verdade, em vez de a área inteira virar um "link" pra outra tela. */}
+          <button
+            onClick={onMaximize}
+            title="Maximizar"
+            className="absolute bottom-1.5 right-1.5 p-1.5 rounded-md bg-black/70 backdrop-blur text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/90"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         {lastLine && (
           <div className="px-3 py-2 bg-black/80 border-t border-white/10">
