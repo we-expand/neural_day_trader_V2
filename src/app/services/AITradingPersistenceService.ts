@@ -331,6 +331,24 @@ class AITradingPersistenceService {
   }
 
   /**
+   * 🔴 2026-09-15 (achado do Cleber: BTCUSD LONG real sumiu do Dashboard
+   * após "Reinicialização Total" enquanto a posição continuava aberta de
+   * verdade no banco): checagem usada por `endSession` -- a mesma regra
+   * que `resetLlmActiveBrainSession` já aplicava pra sessão NOVA nunca se
+   * aplicava a este `endSession`, que fecha a sessão ATUAL incondicional.
+   */
+  async hasOpenTrades(sessionId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('ai_trades')
+      .select('id')
+      .eq('session_id', sessionId)
+      .eq('status', 'OPEN')
+      .limit(1);
+    if (error) throw error;
+    return (data || []).length > 0;
+  }
+
+  /**
    * Finalizar sessão
    */
   async endSession(

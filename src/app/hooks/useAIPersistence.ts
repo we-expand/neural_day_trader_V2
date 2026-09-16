@@ -161,6 +161,18 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     if (!sessionIdRef.current || !options.enabled) return;
 
     try {
+      // 🔴 2026-09-15 (achado do Cleber: posição BTCUSD real sumiu do
+      // Dashboard após "Reinicialização Total", mesmo continuando aberta
+      // no banco): nunca encerrar sessão com posição OPEN -- ela precisa
+      // continuar visível/gerida (stop/alvo) até fechar sozinha. Mesma
+      // regra que `resetLlmActiveBrainSession` já aplicava só pra sessão
+      // nova, agora também aqui, na sessão que este `endSession` fecha.
+      const hasOpen = await aiPersistence.hasOpenTrades(sessionIdRef.current);
+      if (hasOpen) {
+        console.warn(`${LOG_PREFIX} ⚠️ Encerramento de sessão abortado: ${sessionIdRef.current} tem posição(ões) aberta(s). Elas precisam fechar sozinhas antes.`);
+        return;
+      }
+
       console.log(`${LOG_PREFIX} 🏁 Finalizando sessão...`);
 
       await aiPersistence.endSession(
