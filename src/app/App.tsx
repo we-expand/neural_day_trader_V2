@@ -203,6 +203,49 @@ function AppContent() {
     document.title = 'Neural Day Trader';
   }, []);
 
+  // 🔴 2026-09-16 (pedido direto do Cleber -- "o vídeo tem que rodar
+  // automaticamente 30 minutos antes do discurso do Fed", não depender de
+  // clique no botão do header): abre a janela do NeuralEventCenter sozinha
+  // quando faltam <=30min pro horário REAL da coletiva do Fed (confirmado
+  // via federalreserve.gov nesta mesma sessão: 2026-09-16 18:30 UTC/14:30 ET
+  // -- mesmo horário já documentado em llm-active-brain/src/config.ts pro
+  // gate de notícias de alto impacto). Se o usuário fechar a janela
+  // manualmente, respeita a decisão pelo resto do dia (não reabre sozinha de
+  // novo) -- "o usuário que não queira, fecha a janela".
+  const FED_PRESS_CONFERENCE_UTC = '2026-09-16T18:30:00Z';
+  const FED_AUTO_OPEN_MINUTES_BEFORE = 30;
+  useEffect(() => {
+    const eventTime = new Date(FED_PRESS_CONFERENCE_UTC).getTime();
+    const autoOpenTime = eventTime - FED_AUTO_OPEN_MINUTES_BEFORE * 60_000;
+    const dismissKey = `neural_fed_event_dismissed_${FED_PRESS_CONFERENCE_UTC.slice(0, 10)}`;
+
+    function checkAutoOpen() {
+      const now = Date.now();
+      if (now < autoOpenTime || now > eventTime + 90 * 60_000) return; // fora da janela (antes de -30min ou >90min depois do início, já deve ter acabado)
+      let dismissed = false;
+      try {
+        dismissed = localStorage.getItem(dismissKey) === 'true';
+      } catch {
+        // localStorage indisponível (modo privado etc) -- segue sem persistir a decisão
+      }
+      if (!dismissed) setShowFedEventCenter(true);
+    }
+
+    checkAutoOpen();
+    const interval = setInterval(checkAutoOpen, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleCloseFedEventCenter = useCallback(() => {
+    setShowFedEventCenter(false);
+    try {
+      const dismissKey = `neural_fed_event_dismissed_${FED_PRESS_CONFERENCE_UTC.slice(0, 10)}`;
+      localStorage.setItem(dismissKey, 'true');
+    } catch {
+      // localStorage indisponível -- só fecha nesta sessão, pode reabrir sozinha no próximo poll
+    }
+  }, []);
+
   // ✅ STABLE handleViewChange — no currentView in deps (prevents cascade re-renders)
   const handleViewChange = useCallback((newView: View) => {
     setCurrentView(newView);
@@ -412,7 +455,7 @@ function AppContent() {
             </main>
 
             {showFedEventCenter && (
-              <NeuralEventCenter isOpen={showFedEventCenter} onClose={() => setShowFedEventCenter(false)} />
+              <NeuralEventCenter isOpen={showFedEventCenter} onClose={handleCloseFedEventCenter} />
             )}
 
             <footer className="shrink-0">

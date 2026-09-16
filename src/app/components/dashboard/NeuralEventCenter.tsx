@@ -136,6 +136,35 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
                 </div>
               </div>
 
+              {/* 🔴 2026-09-16 (pedido do Cleber -- "o video nao inicia"): o
+                  player embedado pode nao tocar por 2 motivos bem diferentes
+                  -- (1) a transmissao ainda nao comecou (antes do horario
+                  agendado, o player carrega mas fica sem sinal, comportamento
+                  normal) ou (2) o Brightcove da Fed bloqueia embed fora do
+                  proprio dominio deles (nao confirmado, nao consigo testar
+                  logado no ambiente de dev). Sem certeza da causa, fallback
+                  visivel sempre disponivel pras 2 fontes que a propria pagina
+                  do Fed ja anuncia como alternativa oficial, nunca escondido
+                  atras de um erro que pode nunca aparecer. */}
+              <div className="absolute top-6 right-6 flex gap-2">
+                <a
+                  href="https://www.federalreserve.gov/live-broadcast.htm"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-black/60 backdrop-blur border border-white/10 rounded text-[11px] font-medium text-white hover:bg-white/10 transition-colors"
+                >
+                  Vídeo não carrega? Abrir no site do Fed ↗
+                </a>
+                <a
+                  href="https://www.youtube.com/@federalreserve/live"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-black/60 backdrop-blur border border-white/10 rounded text-[11px] font-medium text-white hover:bg-white/10 transition-colors"
+                >
+                  Abrir no YouTube ↗
+                </a>
+              </div>
+
               {/* LEGENDA — original (inglês, fonte real: CART do próprio Fed) + tradução */}
               <div className="absolute bottom-8 left-0 right-0 flex justify-center pb-6 px-10">
                 <div className="max-w-4xl w-full bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 min-h-[100px] flex flex-col items-center text-center gap-1">
