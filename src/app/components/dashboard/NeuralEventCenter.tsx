@@ -1,18 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic,
   Globe,
   X,
+  Minimize2,
   Activity,
   Signal,
   Languages,
 } from 'lucide-react';
-import { projectId } from '/utils/supabase/info';
+import { useFomcLiveCaptions } from '@/app/hooks/useFomcLiveCaptions';
 
 interface NeuralEventCenterProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Opcional: quando presente, mostra um botão de "minimizar" (volta pro mini player docado) ao lado do X. */
+  onMinimize?: () => void;
 }
 
 /**
@@ -25,110 +28,8 @@ const FED_BRIGHTCOVE_ACCOUNT = '66043936001';
 const FED_BRIGHTCOVE_VIDEO_ID = '6376885161112';
 const FED_VIDEO_EMBED_URL = `https://players.brightcove.net/${FED_BRIGHTCOVE_ACCOUNT}/default_default/index.html?videoId=${FED_BRIGHTCOVE_VIDEO_ID}`;
 
-const CAPTIONS_POLL_INTERVAL_MS = 3000;
-
-interface CaptionLine {
-  id: number;
-  original: string;
-  translated: string;
-}
-
-// 2026-09-16 (achado ao vivo: reabrir a janela reiniciava do zero, buscando
-// a transcrição inteira de novo — depois de vários minutos de discurso isso
-// virou um bloco grande demais pra traduzir numa chamada só, a tradução
-// falhava e caía no texto bruto em inglês sem quebrar em frases, cobrindo o
-// vídeo inteiro). Cursor agora persiste em sessionStorage por dia — só a
-// PRIMEIRA vez que a janela abre no dia busca a transcrição completa ("na
-// íntegra", pedido do Cleber); reabrir depois disso continua de onde parou.
-function getCaptionsStorageKey(): string {
-  return `neural_fomc_captions_cursor_${new Date().toISOString().slice(0, 10)}`;
-}
-
-export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
-  const [lines, setLines] = useState<CaptionLine[]>([]);
-  const [isLive, setIsLive] = useState<boolean | null>(null); // null = ainda não checou
-  const [errorNote, setErrorNote] = useState<string | null>(null);
-  const cursorRef = useRef<string>('-1');
-  const lineIdRef = useRef(0);
-
-  // Polling real da legenda oficial do Fed (StreamText/CART) + tradução —
-  // ver supabase/functions/fomc-captions/index.ts pra fonte e limitações.
-  useEffect(() => {
-    if (!isOpen) return;
-    setIsLive(null);
-    setErrorNote(null);
-    try {
-      cursorRef.current = sessionStorage.getItem(getCaptionsStorageKey()) || '-1';
-    } catch {
-      cursorRef.current = '-1';
-    }
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const url = `https://${projectId}.supabase.co/functions/v1/fomc-captions?cursor=${encodeURIComponent(cursorRef.current)}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (cancelled) return;
-
-        if (data.error) {
-          setErrorNote(data.error);
-          return;
-        }
-
-        setIsLive(!!data.live);
-        cursorRef.current = data.cursor ?? cursorRef.current;
-        try {
-          sessionStorage.setItem(getCaptionsStorageKey(), cursorRef.current);
-        } catch {
-          // sessionStorage indisponível -- sem persistência entre reaberturas, sem quebrar a legenda ao vivo
-        }
-
-        // 2026-09-16 (achado ao vivo durante o próprio discurso de hoje): a
-        // 1ª chamada da sessão traz a transcrição INTEIRA desde o início
-        // (pedido do Cleber: "na íntegra"), não só uma frase nova — se
-        // empurrada como 1 linha só, vira uma parede de texto gigante em
-        // vez de legenda. Corrigido quebrando por frase, cada uma vira sua
-        // própria linha (mesma caixa de últimas 6, texto original só junto
-        // da última frase pra não duplicar em cada linha). MAX_SENTENCE_CHARS
-        // é rede de segurança pro caso raro de a tradução falhar E o texto
-        // bruto não quebrar bem em frases (ex: falha em pegar toda a
-        // transcrição de uma vez) — trunca em vez de estourar a tela.
-        const MAX_SENTENCE_CHARS = 280;
-        if (data.translatedText || data.originalText) {
-          const source = data.translatedText || data.originalText;
-          const sentences = (source.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [source])
-            .map((s: string) => s.trim())
-            .filter(Boolean)
-            .map((s: string) => (s.length > MAX_SENTENCE_CHARS ? `…${s.slice(-MAX_SENTENCE_CHARS)}` : s));
-          const originalTail = data.originalText && data.originalText.length > MAX_SENTENCE_CHARS
-            ? `…${data.originalText.slice(-MAX_SENTENCE_CHARS)}`
-            : data.originalText;
-          setLines((prev) => {
-            const next = [...prev];
-            sentences.forEach((sentence: string, i: number) => {
-              lineIdRef.current += 1;
-              next.push({
-                id: lineIdRef.current,
-                translated: data.translatedText ? sentence : '',
-                original: data.translatedText ? (i === sentences.length - 1 ? originalTail : '') : sentence,
-              });
-            });
-            return next.slice(-6);
-          });
-        }
-      } catch (err: any) {
-        if (!cancelled) setErrorNote(err?.message ?? 'Falha ao buscar legenda.');
-      }
-    }
-
-    poll();
-    const interval = setInterval(poll, CAPTIONS_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [isOpen]);
+export function NeuralEventCenter({ isOpen, onClose, onMinimize }: NeuralEventCenterProps) {
+  const { lines, isLive, errorNote } = useFomcLiveCaptions(isOpen);
 
   if (!isOpen) return null;
 
@@ -155,9 +56,20 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
             </h2>
           </div>
 
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-slate-500 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-1">
+            {onMinimize && (
+              <button
+                onClick={onMinimize}
+                title="Minimizar (continua tocando no canto da tela)"
+                className="p-2 hover:bg-white/10 rounded-full text-slate-500 hover:text-white transition-colors"
+              >
+                <Minimize2 className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-slate-500 hover:text-white transition-colors">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* MAIN STAGE */}

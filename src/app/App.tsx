@@ -14,6 +14,7 @@ import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 import { Sidebar } from '@/app/components/Sidebar';
 import { Header } from '@/app/components/layout/Header';
 import { NeuralEventCenter } from '@/app/components/dashboard/NeuralEventCenter';
+import { FedMiniPlayer } from '@/app/components/dashboard/FedMiniPlayer';
 import { HighImpactEventBanner } from '@/app/components/dashboard/HighImpactEventBanner';
 import { Dashboard } from '@/app/components/Dashboard';
 import { Funds } from '@/app/components/Funds';
@@ -191,7 +192,10 @@ function AppContent() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
-  const [showFedEventCenter, setShowFedEventCenter] = useState(false);
+  // 'closed' | 'mini' | 'full' — 2026-09-16, pedido do Cleber: por padrão o
+  // vídeo do Fed fica num mini player dockado (pode só ouvir), e só vai pra
+  // tela cheia quando o usuário clica em maximizar. Ver FedMiniPlayer.tsx.
+  const [fedVideoMode, setFedVideoMode] = useState<'closed' | 'mini' | 'full'>('closed');
   const [language, setLanguage] = useState<Language>('pt');
   const { user, signOut, loading } = useAuth();
   const { fullName } = useUserProfile();
@@ -206,45 +210,47 @@ function AppContent() {
 
   // 🔴 2026-09-16 (pedido direto do Cleber -- "o vídeo tem que rodar
   // automaticamente 30 minutos antes do discurso do Fed", não depender de
-  // clique no botão do header): abre a janela do NeuralEventCenter sozinha
-  // quando faltam <=30min pro horário REAL da coletiva do Fed (confirmado
-  // via federalreserve.gov nesta mesma sessão: 2026-09-16 18:30 UTC/14:30 ET
-  // -- mesmo horário já documentado em llm-active-brain/src/config.ts pro
-  // gate de notícias de alto impacto). Se o usuário fechar a janela
-  // manualmente, respeita a decisão pelo resto do dia (não reabre sozinha de
-  // novo) -- "o usuário que não queira, fecha a janela".
+  // clique no botão do header): abre o MINI PLAYER dockado sozinho quando
+  // faltam <=30min pro horário REAL da coletiva do Fed (confirmado via
+  // federalreserve.gov nesta mesma sessão: 2026-09-16 18:30 UTC/14:30 ET --
+  // mesmo horário já documentado em llm-active-brain/src/config.ts pro gate
+  // de notícias de alto impacto). Não abre em tela cheia automaticamente --
+  // pedido do Cleber ("se eu quiser maximizar, eu maximizo, se não posso
+  // ficar só ouvindo"). Se o usuário fechar, respeita a decisão pelo resto
+  // do dia (não reabre sozinho de novo).
   const FED_PRESS_CONFERENCE_UTC = '2026-09-16T18:30:00Z';
   const FED_AUTO_OPEN_MINUTES_BEFORE = 30;
+  const fedDismissKey = `neural_fed_event_dismissed_${FED_PRESS_CONFERENCE_UTC.slice(0, 10)}`;
   useEffect(() => {
     const eventTime = new Date(FED_PRESS_CONFERENCE_UTC).getTime();
     const autoOpenTime = eventTime - FED_AUTO_OPEN_MINUTES_BEFORE * 60_000;
-    const dismissKey = `neural_fed_event_dismissed_${FED_PRESS_CONFERENCE_UTC.slice(0, 10)}`;
 
     function checkAutoOpen() {
       const now = Date.now();
       if (now < autoOpenTime || now > eventTime + 90 * 60_000) return; // fora da janela (antes de -30min ou >90min depois do início, já deve ter acabado)
       let dismissed = false;
       try {
-        dismissed = localStorage.getItem(dismissKey) === 'true';
+        dismissed = localStorage.getItem(fedDismissKey) === 'true';
       } catch {
         // localStorage indisponível (modo privado etc) -- segue sem persistir a decisão
       }
-      if (!dismissed) setShowFedEventCenter(true);
+      setFedVideoMode((prev) => (dismissed || prev !== 'closed' ? prev : 'mini'));
     }
 
     checkAutoOpen();
     const interval = setInterval(checkAutoOpen, 30_000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCloseFedEventCenter = useCallback(() => {
-    setShowFedEventCenter(false);
+    setFedVideoMode('closed');
     try {
-      const dismissKey = `neural_fed_event_dismissed_${FED_PRESS_CONFERENCE_UTC.slice(0, 10)}`;
-      localStorage.setItem(dismissKey, 'true');
+      localStorage.setItem(fedDismissKey, 'true');
     } catch {
-      // localStorage indisponível -- só fecha nesta sessão, pode reabrir sozinha no próximo poll
+      // localStorage indisponível -- só fecha nesta sessão, pode reabrir sozinho no próximo poll
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ✅ STABLE handleViewChange — no currentView in deps (prevents cascade re-renders)
@@ -448,17 +454,24 @@ function AppContent() {
               onLogout={handleLogout}
               user={user}
               onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-              onOpenFedEventCenter={() => setShowFedEventCenter(true)}
+              onOpenFedEventCenter={() => setFedVideoMode((prev) => (prev === 'closed' ? 'mini' : prev))}
             />
 
-            <HighImpactEventBanner onWatchFedLive={() => setShowFedEventCenter(true)} />
+            <HighImpactEventBanner onWatchFedLive={() => setFedVideoMode((prev) => (prev === 'closed' ? 'mini' : prev))} />
 
             <main className="flex-1 overflow-auto">
               {renderContent}
             </main>
 
-            {showFedEventCenter && (
-              <NeuralEventCenter isOpen={showFedEventCenter} onClose={handleCloseFedEventCenter} />
+            {fedVideoMode === 'mini' && (
+              <FedMiniPlayer onMaximize={() => setFedVideoMode('full')} onClose={handleCloseFedEventCenter} />
+            )}
+            {fedVideoMode === 'full' && (
+              <NeuralEventCenter
+                isOpen
+                onClose={handleCloseFedEventCenter}
+                onMinimize={() => setFedVideoMode('mini')}
+              />
             )}
 
             <footer className="shrink-0">
