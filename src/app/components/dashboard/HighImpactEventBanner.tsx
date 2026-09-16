@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { AlertTriangle, X, Radio } from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 /**
@@ -17,13 +17,12 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
  * "assim está grosseiro, apresente um pop-up delicado") -- era uma barra
  * full-width no topo, virou um card flutuante no canto.
  *
- * 2026-09-16, mesmo dia: Cleber pediu "push dentro do Dashboard" que leve
- * direto ao vídeo do Fed, sem depender de o usuário notar a janela sozinho.
- * Em vez de criar um componente novo, este card (que já é o "push" real,
- * dado de calendário econômico verdadeiro) ganhou um botão "Assistir ao
- * vivo" só quando o evento é do Fed (nome reconhecido por palavra-chave --
- * sem essa checagem o botão apareceria também em eventos sem vídeo, tipo
- * NFP/CPI, levando a uma janela vazia).
+ * 2026-09-16, mesmo dia: Cleber pediu inicialmente um botão aqui pra abrir
+ * o vídeo do Fed, depois corrigiu — "não existe botão nessa interação, na
+ * mecânica não existe botão": o vídeo tem que aparecer sozinho (mini player
+ * dockado, ver FedMiniPlayer.tsx + auto-open em App.tsx), nunca depender de
+ * o usuário clicar em nada aqui. Botão removido, este card volta a ser só
+ * o aviso de texto que já era antes.
  */
 interface EconomicEvent {
   id: string;
@@ -37,13 +36,8 @@ interface EconomicEvent {
 const WARN_MINUTES_BEFORE = 180;
 const WARN_MINUTES_AFTER = 30;
 const POLL_INTERVAL_MS = 5 * 60_000;
-const FED_VIDEO_EVENT_KEYWORDS = /fed|fomc|powell|juros|conferência de imprensa|press conference|coletiva/i;
 
-interface HighImpactEventBannerProps {
-  onWatchFedLive?: () => void;
-}
-
-export function HighImpactEventBanner({ onWatchFedLive }: HighImpactEventBannerProps) {
+export function HighImpactEventBanner() {
   const [event, setEvent] = useState<EconomicEvent | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -83,36 +77,22 @@ export function HighImpactEventBanner({ onWatchFedLive }: HighImpactEventBannerP
     minute: '2-digit',
     timeZone: 'America/Sao_Paulo',
   });
-  const isFedVideoEvent = FED_VIDEO_EVENT_KEYWORDS.test(event.event);
-
   return (
     <div className="fixed bottom-5 right-5 z-[300] w-[min(360px,calc(100vw-2.5rem))] animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex flex-col gap-2 px-4 py-3 rounded-xl bg-[#1a1206]/95 backdrop-blur border border-amber-500/30 shadow-lg shadow-black/40 text-amber-100">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
-          <p className="text-xs leading-relaxed flex-1">
-            Hoje às <strong>{eventTimeLocal}</strong> (horário de Brasília): <strong>{event.event}</strong> — evento de
-            alto impacto (USD). Volatilidade elevada esperada; a IA opera com confluência reforçada nesse horário.
-          </p>
-          <button
-            type="button"
-            onClick={() => setDismissed((prev) => new Set(prev).add(event.id))}
-            className="p-1 rounded hover:bg-white/10 text-amber-400 hover:text-white transition-colors shrink-0"
-            aria-label="Dispensar aviso"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        {isFedVideoEvent && onWatchFedLive && (
-          <button
-            type="button"
-            onClick={onWatchFedLive}
-            className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs font-semibold hover:bg-amber-500/25 transition-colors"
-          >
-            <Radio className="w-3.5 h-3.5" />
-            Assistir ao vivo com legenda em português
-          </button>
-        )}
+      <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-[#1a1206]/95 backdrop-blur border border-amber-500/30 shadow-lg shadow-black/40 text-amber-100">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+        <p className="text-xs leading-relaxed flex-1">
+          Hoje às <strong>{eventTimeLocal}</strong> (horário de Brasília): <strong>{event.event}</strong> — evento de
+          alto impacto (USD). Volatilidade elevada esperada; a IA opera com confluência reforçada nesse horário.
+        </p>
+        <button
+          type="button"
+          onClick={() => setDismissed((prev) => new Set(prev).add(event.id))}
+          className="p-1 rounded hover:bg-white/10 text-amber-400 hover:text-white transition-colors shrink-0"
+          aria-label="Dispensar aviso"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );

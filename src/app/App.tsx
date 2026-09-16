@@ -454,10 +454,9 @@ function AppContent() {
               onLogout={handleLogout}
               user={user}
               onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-              onOpenFedEventCenter={() => setFedVideoMode((prev) => (prev === 'closed' ? 'mini' : prev))}
             />
 
-            <HighImpactEventBanner onWatchFedLive={() => setFedVideoMode((prev) => (prev === 'closed' ? 'mini' : prev))} />
+            <HighImpactEventBanner />
 
             <main className="flex-1 overflow-auto">
               {renderContent}
