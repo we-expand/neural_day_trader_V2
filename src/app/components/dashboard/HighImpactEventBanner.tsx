@@ -4,14 +4,18 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 /**
  * 🔴 2026-09-16 (pedido direto do Cleber -- "o usuário precisa ser avisado
- * que às 3 da tarde terá divulgação da taxa de juros"): banner visível,
- * dado real (mesmo endpoint /economic-calendar já usado em
- * EconomicCalendar.tsx, nunca hardcoded), aparece quando há evento de alto
- * impacto (USD, importance>=3) dentro da janela de "vale a pena avisar"
- * (3h antes até 30min depois). Dispensável por evento (sessionStorage) --
- * fechar não volta a aparecer pro MESMO evento na mesma aba, mas reaparece
- * pra um evento novo (ex: decisão às 15h e coletiva às 15h30 no mesmo dia
- * contam como avisos separados).
+ * que às 3 da tarde terá divulgação da taxa de juros"): pop-up discreto no
+ * canto do Dashboard, dado real (mesmo endpoint /economic-calendar já usado
+ * em EconomicCalendar.tsx, nunca hardcoded), aparece quando há evento de
+ * alto impacto (USD, importance>=3 -- cobre tanto a decisão de juros quanto
+ * qualquer discurso do Fed/coletiva de imprensa que apareça no calendário
+ * real, não é uma data fixa) dentro da janela de "vale a pena avisar" (3h
+ * antes até 30min depois). Dispensável por evento (estado em memória --
+ * fechar não volta a aparecer pro MESMO evento nesta sessão, mas reaparece
+ * pra um evento novo, ex: decisão às 15h e coletiva às 15h30 no mesmo dia
+ * contam como avisos separados). Redesenhado 2026-09-16 (pedido do Cleber:
+ * "assim está grosseiro, apresente um pop-up delicado") -- era uma barra
+ * full-width no topo, virou um card flutuante no canto.
  */
 interface EconomicEvent {
   id: string;
@@ -68,20 +72,22 @@ export function HighImpactEventBanner() {
   });
 
   return (
-    <div className="shrink-0 flex items-center gap-3 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-300">
-      <AlertTriangle className="w-4 h-4 shrink-0" />
-      <p className="text-xs font-medium flex-1">
-        Hoje às <strong>{eventTimeLocal}</strong> (horário de Brasília): <strong>{event.event}</strong> — evento de alto
-        impacto (USD). Volatilidade elevada esperada; a IA opera com confluência reforçada nesse horário.
-      </p>
-      <button
-        type="button"
-        onClick={() => setDismissed((prev) => new Set(prev).add(event.id))}
-        className="p-1 rounded hover:bg-white/10 text-amber-400 hover:text-white transition-colors shrink-0"
-        aria-label="Dispensar aviso"
-      >
-        <X className="w-4 h-4" />
-      </button>
+    <div className="fixed bottom-5 right-5 z-[300] w-[min(360px,calc(100vw-2.5rem))] animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-[#1a1206]/95 backdrop-blur border border-amber-500/30 shadow-lg shadow-black/40 text-amber-100">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+        <p className="text-xs leading-relaxed flex-1">
+          Hoje às <strong>{eventTimeLocal}</strong> (horário de Brasília): <strong>{event.event}</strong> — evento de
+          alto impacto (USD). Volatilidade elevada esperada; a IA opera com confluência reforçada nesse horário.
+        </p>
+        <button
+          type="button"
+          onClick={() => setDismissed((prev) => new Set(prev).add(event.id))}
+          className="p-1 rounded hover:bg-white/10 text-amber-400 hover:text-white transition-colors shrink-0"
+          aria-label="Dispensar aviso"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
     </div>
   );
 }
