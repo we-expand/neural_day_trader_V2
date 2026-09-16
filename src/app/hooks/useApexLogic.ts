@@ -2845,6 +2845,20 @@ export function useApexLogic(
     // negativo) travava pra sempre, impedindo qualquer posição nova de
     // abrir (risco por trade sobre saldo negativo nunca cabe no lote
     // mínimo). Fire-and-forget, mesmo padrão do endSession acima.
+    //
+    // 🔴 2026-09-16 (achado do Cleber: posições reais "desapareciam" do
+    // Dashboard logo após o Reset, mesmo continuando OPEN de verdade no
+    // banco -- confirmado via SQL que a realocação pra sessão nova já
+    // funcionava certo): a causa era só o `setActiveOrders([])` explícito
+    // abaixo, que apagava a posição da tela na hora, ANTES do
+    // `resetLlmActiveBrainSession` (assíncrono) terminar de realocar --
+    // deixando a tela vazia até o próximo poll do `reconcile()` (até 5s)
+    // resincronizar. `resetLlmActiveBrainSession` agora já atualiza o
+    // `sessionIdRef` pro id da sessão nova na hora (ver useAIPersistence.ts),
+    // então basta NÃO apagar `activeOrders` aqui -- se a posição continuar
+    // aberta de verdade, ela é o MESMO registro (mesmo id, só o
+    // `session_id` mudou), e o próximo `reconcile()` já lê da sessão certa
+    // sem nenhum flash de "sumiu e voltou".
     persistenceRef.current.resetLlmActiveBrainSession(INITIAL_STATE.portfolio.balance);
     // Reset explícito = "começar do zero" pra Performance também — sem isto,
     // trades fechados de semanas atrás (inclusive registros comprovadamente
@@ -2861,7 +2875,10 @@ export function useApexLogic(
 
     setIsActive(false);
     setIsPaused(false);
-    setActiveOrders([]);
+    // (ver comentário grande acima, junto de `resetLlmActiveBrainSession`)
+    // `activeOrders` NÃO é zerado aqui de propósito -- uma posição real
+    // aberta sobrevive ao Reset (realocada pra sessão nova), o próprio
+    // `reconcile()` decide se ela continua ou não a partir do banco.
     setOrderHistory([]); // ✅ Limpa histórico de trades
     // 🔴 FIX 2026-08-21 (achado do Cleber: "Curva de Equity" do Dashboard
     // continuava mostrando o mergulho da sessão anterior depois do Reset):

@@ -387,7 +387,7 @@ class AITradingPersistenceService {
    * Ver mesma mudança espelhada em `llm-active-brain/src/neuralBridge.ts`
    * (`getOrCreateMt5Session`/`listEligibleMt5Sessions`).
    */
-  async resetLlmActiveBrainSession(userId: string, resetBalanceUsd: number): Promise<boolean> {
+  async resetLlmActiveBrainSession(userId: string, resetBalanceUsd: number): Promise<{ success: boolean; newSessionId: string | null }> {
     const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
     // Mesma cesta de `llm-active-brain/src/assetBasket.ts` (MT5_ASSET_BASKET)
     // -- duplicado aqui de propósito: este arquivo roda no browser, aquele
@@ -476,10 +476,10 @@ class AITradingPersistenceService {
       }
 
       console.log(`${this.LOG_PREFIX} ✅ Sessão do LLM Active Brain resetada para $${resetBalanceUsd}`);
-      return true;
+      return { success: true, newSessionId: newSession.id };
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao resetar sessão do LLM Active Brain:`, error);
-      return false;
+      return { success: false, newSessionId: null };
     }
   }
 

@@ -700,8 +700,21 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
    * "Reinicialização Total" do AI Trader, ver resetLogic em useApexLogic.ts.
    */
   const resetLlmActiveBrainSession = useCallback(async (resetBalanceUsd: number) => {
-    if (!user?.id) return false;
-    return await aiPersistence.resetLlmActiveBrainSession(user.id, resetBalanceUsd);
+    if (!user?.id) return null;
+    const result = await aiPersistence.resetLlmActiveBrainSession(user.id, resetBalanceUsd);
+    // 🔴 2026-09-16 (achado do Cleber: posições reais reapareciam "sozinhas"
+    // no Dashboard só depois de alguns segundos/reload após o Reset, e por
+    // um instante pareciam ter sumido de vez): `sessionIdRef` (usado por
+    // `getSessionId()`, que o `reconcile()` de useApexLogic.ts lê a cada
+    // poll) continuava apontando pra sessão ANTIGA (agora COMPLETED) até o
+    // próximo poll detectar a troca sozinho -- essa janela é o que fazia a
+    // posição parecer "sumida" na tela, mesmo com o backend já tendo
+    // realocado ela pra sessão nova corretamente. Atualiza o ref na hora,
+    // sem esperar o poll.
+    if (result.success && result.newSessionId) {
+      sessionIdRef.current = result.newSessionId;
+    }
+    return result;
   }, [user]);
 
   /**
