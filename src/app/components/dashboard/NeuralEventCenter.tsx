@@ -65,12 +65,30 @@ export function NeuralEventCenter({ isOpen, onClose }: NeuralEventCenterProps) {
         setIsLive(!!data.live);
         cursorRef.current = data.cursor ?? cursorRef.current;
 
-        if (data.originalText) {
-          lineIdRef.current += 1;
-          setLines((prev) => [
-            ...prev,
-            { id: lineIdRef.current, original: data.originalText, translated: data.translatedText || '' },
-          ].slice(-6));
+        // 2026-09-16 (achado ao vivo durante o próprio discurso de hoje): a
+        // 1ª chamada da sessão traz a transcrição INTEIRA desde o início
+        // (pedido do Cleber: "na íntegra"), não só uma frase nova — se
+        // empurrada como 1 linha só, vira uma parede de texto gigante em
+        // vez de legenda. Corrigido quebrando por frase, cada uma vira sua
+        // própria linha (mesma caixa de últimas 6, texto original só junto
+        // da última frase pra não duplicar em cada linha).
+        if (data.translatedText || data.originalText) {
+          const source = data.translatedText || data.originalText;
+          const sentences = (source.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [source])
+            .map((s: string) => s.trim())
+            .filter(Boolean);
+          setLines((prev) => {
+            const next = [...prev];
+            sentences.forEach((sentence: string, i: number) => {
+              lineIdRef.current += 1;
+              next.push({
+                id: lineIdRef.current,
+                translated: data.translatedText ? sentence : '',
+                original: data.translatedText ? (i === sentences.length - 1 ? data.originalText : '') : sentence,
+              });
+            });
+            return next.slice(-6);
+          });
         }
       } catch (err: any) {
         if (!cancelled) setErrorNote(err?.message ?? 'Falha ao buscar legenda.');
