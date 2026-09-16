@@ -994,8 +994,27 @@ export function useApexLogic(
             const marker = JSON.parse(rawMarker) as { t: number; sessionId: string | null };
             const isFresh = Date.now() - marker.t < RESET_MARKER_STALE_MS;
             const sameSession = !marker.sessionId || marker.sessionId === restored.session.id;
+            // 🔴 2026-09-15 (achado do Cleber: BTCUSD LONG real some do
+            // Dashboard de novo ao recarregar logo após um Reset, mesmo com
+            // `endSession` já blindado contra posição OPEN): esta checagem
+            // tratava QUALQUER sessão RUNNING encontrada dentro da janela de
+            // 30s como "resíduo de corrida" e a descartava aqui no cliente,
+            // incondicionalmente -- mesmo quando `endSession` (acima) já
+            // tinha recusado de propósito encerrar essa sessão por ela ter
+            // posição aberta de verdade. Sem checar isso, o cliente pisava
+            // na decisão do servidor e escondia uma posição real e legítima.
+            // Só trata como resíduo de corrida se não houver posição OPEN.
+            let hasOpen = false;
             if (isFresh && sameSession) {
-              console.warn('[useApexLogic] ⚠️ Sessão RUNNING encontrada logo após Reset — descartando como resíduo de corrida e reforçando endSession.');
+              try {
+                hasOpen = await aiPersistence.hasOpenTrades(restored.session.id!);
+              } catch (err) {
+                console.warn('[useApexLogic] Falha ao checar posição aberta antes de descartar sessão pós-Reset (mantendo sessão por segurança):', err);
+                hasOpen = true;
+              }
+            }
+            if (isFresh && sameSession && !hasOpen) {
+              console.warn('[useApexLogic] ⚠️ Sessão RUNNING sem posição aberta encontrada logo após Reset — descartando como resíduo de corrida e reforçando endSession.');
               persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
               restored = null;
             }
