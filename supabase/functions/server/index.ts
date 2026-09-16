@@ -299,12 +299,22 @@ const METAAPI_CLIENT_API_BASE = 'https://mt-client-api-v1.new-york.agiliumtrade.
 // a réplica `CONNECTED` (confirmado ao vivo: primária "london" DISCONNECTED, réplica
 // "backup-new-york" CONNECTED, causando 504 em todo símbolo não-cripto). Corrigido pra checar
 // `connectionStatus` de verdade e preferir qualquer réplica CONNECTED quando a primária não está.
-const metaApiRegionCache = new Map<string, { region: string; expiresAt: number }>();
+// 🔁 2026-09-16 (pedido do Cleber: "tem que funcionar como uma suíte — quando uma região não
+// funciona, a outra tem que entrar no mesmo instante"): o cache abaixo guarda TODAS as regiões
+// candidatas (primária + réplicas), na ordem de preferência (CONNECTED primeiro), não só a
+// escolhida — e um `reportMetaApiRegionFailure` deixa qualquer chamador derrubar a região do
+// topo NA HORA (sem esperar o TTL de 60s) assim que uma chamada real bate 504/502/503/timeout
+// nela, promovendo a próxima candidata pro topo imediatamente para TODOS os chamadores
+// seguintes (o cache é compartilhado). `metaApiFetchWithFailover` usa isso pra tentar a região
+// seguinte DENTRO da mesma requisição, sem esperar o próximo ciclo.
+type MetaApiRegionCandidate = { region: string; connectionStatus?: string };
+const metaApiRegionCache = new Map<string, { candidates: MetaApiRegionCandidate[]; expiresAt: number }>();
 const METAAPI_REGION_CACHE_TTL_MS = 60_000;
+const METAAPI_RETRYABLE_STATUS = new Set([502, 503, 504, 522, 524]);
 
-async function resolveMetaApiRegion(token: string, accountId: string): Promise<string | null> {
+async function resolveMetaApiRegionCandidates(token: string, accountId: string): Promise<MetaApiRegionCandidate[]> {
     const cached = metaApiRegionCache.get(accountId);
-    if (cached && cached.expiresAt > Date.now()) return cached.region;
+    if (cached && cached.expiresAt > Date.now()) return cached.candidates;
 
     try {
         const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
@@ -314,29 +324,94 @@ async function resolveMetaApiRegion(token: string, accountId: string): Promise<s
         if (res.ok) {
             const account = await res.json();
             const replicas: Array<{ region?: string; connectionStatus?: string }> = Array.isArray(account?.accountReplicas) ? account.accountReplicas : [];
-            const candidates = [
+            const all = [
                 { region: account?.region as string | undefined, connectionStatus: account?.connectionStatus as string | undefined },
                 ...replicas,
-            ].filter((c): c is { region: string; connectionStatus?: string } => !!c.region);
+            ].filter((c): c is MetaApiRegionCandidate => !!c.region);
 
-            const connected = candidates.find((c) => c.connectionStatus === 'CONNECTED');
-            const chosen = connected || candidates[0] || null;
-            if (chosen) {
-                metaApiRegionCache.set(accountId, { region: chosen.region, expiresAt: Date.now() + METAAPI_REGION_CACHE_TTL_MS });
-                console.log(`[METAAPI] 🌍 Região selecionada para conta ${accountId}: ${chosen.region} (status: ${chosen.connectionStatus || 'desconhecido'}, candidatas: ${candidates.map((c) => `${c.region}:${c.connectionStatus}`).join(', ')})`);
-                return chosen.region;
+            // CONNECTED primeiro, preservando a ordem relativa entre elas (e entre as não-conectadas).
+            const candidates = [...all].sort((a, b) => {
+                const aConn = a.connectionStatus === 'CONNECTED' ? 0 : 1;
+                const bConn = b.connectionStatus === 'CONNECTED' ? 0 : 1;
+                return aConn - bConn;
+            });
+
+            if (candidates.length > 0) {
+                metaApiRegionCache.set(accountId, { candidates, expiresAt: Date.now() + METAAPI_REGION_CACHE_TTL_MS });
+                console.log(`[METAAPI] 🌍 Regiões da conta ${accountId} (ordem de preferência): ${candidates.map((c) => `${c.region}:${c.connectionStatus || '?'}`).join(', ')}`);
+                return candidates;
             }
         }
     } catch (err) {
         console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta:', err);
     }
 
-    return null;
+    return cached?.candidates ?? [];
+}
+
+// Derruba a região do topo NA HORA (chamado quando um fetch real bate erro de infra nela) —
+// promove a próxima candidata pro topo, valendo pra TODOS os chamadores seguintes, sem esperar
+// o TTL. Reordena em vez de descartar: se essa região voltar a ficar boa, uma nova consulta à
+// provisioning API (após o TTL) pode trazê-la de volta pro topo naturalmente.
+function reportMetaApiRegionFailure(accountId: string, failedRegion: string) {
+    const cached = metaApiRegionCache.get(accountId);
+    if (!cached || cached.candidates.length <= 1) return;
+    const idx = cached.candidates.findIndex((c) => c.region === failedRegion);
+    if (idx <= 0) return; // já não é o topo, ou não achado — nada a fazer
+    const [failed] = cached.candidates.splice(idx, 1);
+    cached.candidates.push({ ...failed, connectionStatus: 'DISCONNECTED' });
+    console.warn(`[METAAPI] 🔻 Região "${failedRegion}" falhou (conta ${accountId}) — promovendo "${cached.candidates[0].region}" imediatamente.`);
+}
+
+async function resolveMetaApiRegion(token: string, accountId: string): Promise<string | null> {
+    const candidates = await resolveMetaApiRegionCandidates(token, accountId);
+    return candidates[0]?.region ?? null;
 }
 
 async function getMetaApiClientApiBase(token: string, accountId: string): Promise<string> {
     const region = await resolveMetaApiRegion(token, accountId);
     return region ? `https://mt-client-api-v1.${region}.agiliumtrade.ai` : METAAPI_CLIENT_API_BASE;
+}
+
+// Envelope de failover instantâneo pra chamadas reais ao client-api/market-data-api: tenta a
+// região do topo e, se a resposta for um erro de INFRA (504/502/503/timeout — nunca 4xx de
+// negócio, tipo símbolo inexistente), reporta a falha (derruba do topo na hora) e tenta a
+// próxima região candidata dentro da MESMA requisição, sem esperar o usuário tentar de novo.
+async function metaApiFetchWithFailover(
+    token: string,
+    accountId: string,
+    kind: 'client' | 'market-data',
+    buildPath: (base: string) => string,
+    init: RequestInit,
+): Promise<Response> {
+    const candidates = await resolveMetaApiRegionCandidates(token, accountId);
+    const hosts = candidates.length > 0 ? candidates.map((c) => c.region) : [kind === 'client' ? 'new-york' : 'new-york'];
+
+    let lastRes: Response | null = null;
+    let lastErr: unknown = null;
+    for (let i = 0; i < hosts.length; i++) {
+        const region = hosts[i];
+        const base = kind === 'client'
+            ? `https://mt-client-api-v1.${region}.agiliumtrade.ai`
+            : `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
+        try {
+            const res = await fetch(buildPath(base), init);
+            if (METAAPI_RETRYABLE_STATUS.has(res.status) && i < hosts.length - 1) {
+                reportMetaApiRegionFailure(accountId, region);
+                lastRes = res;
+                continue;
+            }
+            return res;
+        } catch (err) {
+            lastErr = err;
+            if (i < hosts.length - 1) {
+                reportMetaApiRegionFailure(accountId, region);
+                continue;
+            }
+        }
+    }
+    if (lastRes) return lastRes;
+    throw lastErr;
 }
 
 // 🕯️ Candles históricos (OHLCV) vivem numa API **separada** da de tick/execução
@@ -4691,9 +4766,6 @@ app.post('/mt5-prices', async (c) => {
         
         console.log(`[MT5 PRICES] Símbolos:`, symbols.join(', '));
 
-        // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
-        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
-
         // Buscar preços de todos os símbolos, com concorrência limitada (ver
         // mapWithConcurrency acima — evita rate-limit por excesso de chamadas
         // simultâneas à mesma conta MetaAPI compartilhada dentro de um chunk).
@@ -4773,13 +4845,17 @@ app.post('/mt5-prices', async (c) => {
                     // em situações de rede lenta/fila). keepSubscription=true mantém a
                     // assinatura viva de forma persistente -- corretora empurra tick novo
                     // continuamente, sem esse buraco de 12min.
-                    const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick?keepSubscription=true`;
-                    const tickerRes = await fetch(tickerUrl, {
-                        headers: {
-                            'auth-token': metaapiToken,
-                            'Accept': 'application/json'
-                        }
-                    });
+                    // 🔁 2026-09-16: falha de infra (504/502/503/timeout) na região do topo
+                    // agora tenta a próxima região candidata NA MESMA requisição (ver
+                    // metaApiFetchWithFailover acima) — "suíte" de verdade, sem esperar o
+                    // usuário recarregar ou o TTL de cache de região expirar.
+                    const tickerRes = await metaApiFetchWithFailover(
+                        metaapiToken,
+                        metaapiAccountId,
+                        'client',
+                        (base) => `${base}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick?keepSubscription=true`,
+                        { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } },
+                    );
                     
                     if (!tickerRes.ok) {
                         console.warn(`[MT5 PRICES] ⚠️ ${symbol}: Ticker failed (${tickerRes.status})`);
@@ -4806,7 +4882,6 @@ app.post('/mt5-prices', async (c) => {
                     // mt-client-api-v1), endpoint /historical-market-data/.../candles,
                     // carrega PRA TRÁS a partir de `startTime`. Ver getMetaApiMarketDataApiBase.
                     const now = new Date();
-                    const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
 
                     // ✅ 2026-08-20: cripto usa janela ROLANTE de 24h (candles de 1h),
                     // não o fechamento D1 do broker (21:00 UTC) usado por todo o resto.
@@ -4829,7 +4904,7 @@ app.post('/mt5-prices', async (c) => {
                     // de ~1h pra ~1min, não elimina (ainda é discreto, Binance é contínuo),
                     // mas reduz bastante a chance de cruzar o zero por causa só da
                     // granularidade da referência.
-                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '1m' : '1d'}/candles`;
+                    const candlesPath = `/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '1m' : '1d'}/candles`;
                     // ✅ 2026-07-15 (4ª parte): `limit=2` funcionou pra praticamente todo
                     // ativo por meses (posição fixa `length-2` = candle de ontem fechado).
                     // Só o BTCUSD (mercado 24/7, sem a pausa diária que CFD tradicional tem)
@@ -4855,14 +4930,15 @@ app.post('/mt5-prices', async (c) => {
                             return { ok: false, candles: null as any[] | null };
                         }
                         try {
-                            const res = await fetch(
-                                `${candlesUrl}?startTime=${startTime.toISOString()}&limit=${limit}`,
-                                {
-                                    headers: {
-                                        'auth-token': metaapiToken,
-                                        'Accept': 'application/json'
-                                    }
-                                }
+                            // 🔁 2026-09-16: mesmo failover instantâneo de região do ticker
+                            // acima (ver metaApiFetchWithFailover) — 504/502/503/timeout na
+                            // região do topo tenta a próxima candidata na mesma requisição.
+                            const res = await metaApiFetchWithFailover(
+                                metaapiToken,
+                                metaapiAccountId,
+                                'market-data',
+                                (base) => `${base}${candlesPath}?startTime=${startTime.toISOString()}&limit=${limit}`,
+                                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } },
                             );
                             if (!res.ok) return { ok: false, candles: null as any[] | null };
                             const json = await res.json();
@@ -5361,10 +5437,9 @@ app.post('/mt5-candles', async (c) => {
         // e mesmo path que `/mt5-candles-history` já usa corretamente
         // (ver getMetaApiMarketDataApiBase acima), só que aqui carregando
         // pra trás a partir de "agora" em vez de um range explícito.
-        const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
-        const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
+        const candlesPath = `/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
 
-        console.log(`[MT5 CANDLES] URL: ${candlesUrl}`);
+        console.log(`[MT5 CANDLES] Path: ${candlesPath}`);
         console.log(`[MT5 CANDLES] Timeframe: ${mt5Timeframe}, Limit: ${candleLimit}`);
 
         // 🔴 2026-09-04: mesmo semaforo global de historical-market-data usado
@@ -5377,15 +5452,15 @@ app.post('/mt5-candles', async (c) => {
         const mt5CandlesSlotId = await acquireHistoricalDataSlot();
         let response: Response;
         try {
-            response = await fetch(
-                `${candlesUrl}?startTime=${endTime.toISOString()}&limit=${Math.min(candleLimit, 1000)}`,
-                {
-                    headers: {
-                        'auth-token': metaapiToken,
-                        'Accept': 'application/json'
-                    },
-                    signal: AbortSignal.timeout(8000)
-                }
+            // 🔁 2026-09-16: failover instantâneo de região (ver metaApiFetchWithFailover
+            // acima) — é literalmente a rota que o Gráfico chama pra desenhar candle;
+            // é aqui que "gráfico não abre" acontecia quando a região primária caía.
+            response = await metaApiFetchWithFailover(
+                metaapiToken,
+                metaapiAccountId,
+                'market-data',
+                (base) => `${base}${candlesPath}?startTime=${endTime.toISOString()}&limit=${Math.min(candleLimit, 1000)}`,
+                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }, signal: AbortSignal.timeout(8000) },
             );
         } finally {
             await releaseHistoricalDataSlot(mt5CandlesSlotId);
@@ -5523,8 +5598,7 @@ app.post('/mt5-candles-history', async (c) => {
         // API de candles é separada da de tick/execução (host diferente) e o
         // endpoint carrega PRA TRÁS a partir de `startTime` (não um range) —
         // ver getMetaApiMarketDataApiBase acima.
-        const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
-        const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
+        const candlesPath = `/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
 
         const requestedStart = new Date(startTime).getTime();
         const requestedEnd = new Date(endTime).getTime();
@@ -5643,12 +5717,17 @@ app.post('/mt5-candles-history', async (c) => {
                 // conta MetaAPI.
                 const pageSlotId = await acquireHistoricalDataSlot();
                 try {
-                    const candidate = await fetch(
-                        `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
-                        {
-                            headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' },
-                            signal: AbortSignal.timeout(8000)
-                        }
+                    // 🔁 2026-09-16: failover instantâneo de região (ver
+                    // metaApiFetchWithFailover acima) — cada tentativa de retry já usa a
+                    // região mais recente do cache, então uma falha de infra na região do
+                    // topo muda de região DENTRO desta própria paginação, não só na
+                    // próxima chamada à rota.
+                    const candidate = await metaApiFetchWithFailover(
+                        metaapiToken,
+                        metaapiAccountId,
+                        'market-data',
+                        (base) => `${base}${candlesPath}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
+                        { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }, signal: AbortSignal.timeout(8000) },
                     );
                     if (candidate.ok) {
                         response = candidate;
