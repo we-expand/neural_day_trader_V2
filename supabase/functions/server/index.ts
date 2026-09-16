@@ -288,12 +288,23 @@ const METAAPI_CLIENT_API_BASE = 'https://mt-client-api-v1.new-york.agiliumtrade.
 
 // Cada conta MetaAPI é hospedada numa região específica (new-york, london, singapore, vint-hill...).
 // Chamar o client-api com a região errada trava/retorna 504. Descobrimos a região certa consultando
-// a provisioning API (que devolve o campo "region" da conta) e cacheamos por accountId.
-const metaApiRegionCache = new Map<string, string>();
+// a provisioning API e cacheamos por accountId, com TTL curto (connectionStatus muda ao vivo).
+//
+// 🐛 BUG REAL corrigido em 2026-09-16: o código lia `account.regions` (array) pra decidir a
+// região — esse campo NUNCA existiu no payload real da provisioning API. O nome real vem em
+// `account.region` (string, ex. "london") e a réplica de failover (adicionada 2026-09-11) vem
+// em `account.accountReplicas[].region` ("backup-new-york"), cada uma com seu próprio
+// `connectionStatus`. Como `regions` sempre virava `[]`, a checagem `regions.includes('new-york')`
+// nunca era verdadeira — o código sempre usava a região PRIMÁRIA, mesmo com ela `DISCONNECTED` e
+// a réplica `CONNECTED` (confirmado ao vivo: primária "london" DISCONNECTED, réplica
+// "backup-new-york" CONNECTED, causando 504 em todo símbolo não-cripto). Corrigido pra checar
+// `connectionStatus` de verdade e preferir qualquer réplica CONNECTED quando a primária não está.
+const metaApiRegionCache = new Map<string, { region: string; expiresAt: number }>();
+const METAAPI_REGION_CACHE_TTL_MS = 60_000;
 
-async function getMetaApiClientApiBase(token: string, accountId: string): Promise<string> {
+async function resolveMetaApiRegion(token: string, accountId: string): Promise<string | null> {
     const cached = metaApiRegionCache.get(accountId);
-    if (cached) return cached;
+    if (cached && cached.expiresAt > Date.now()) return cached.region;
 
     try {
         const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
@@ -302,23 +313,30 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
         });
         if (res.ok) {
             const account = await res.json();
-            const regions: string[] = Array.isArray(account?.regions) ? account.regions : [];
-            // 2026-09-11 (pedido do Cleber): a conta ganhou réplica em new-york — preferir
-            // essa região quando disponível, em vez do `region` primário (hoje "london",
-            // que já causou stale/rate-limit documentado várias vezes neste projeto).
-            const region = regions.includes('new-york') ? 'new-york' : (account?.region || regions[0] || null);
-            if (region) {
-                const base = `https://mt-client-api-v1.${region}.agiliumtrade.ai`;
-                metaApiRegionCache.set(accountId, base);
-                console.log(`[METAAPI] 🌍 Região selecionada para conta ${accountId}: ${region} (disponíveis: ${regions.join(',') || account?.region || 'desconhecido'})`);
-                return base;
+            const replicas: Array<{ region?: string; connectionStatus?: string }> = Array.isArray(account?.accountReplicas) ? account.accountReplicas : [];
+            const candidates = [
+                { region: account?.region as string | undefined, connectionStatus: account?.connectionStatus as string | undefined },
+                ...replicas,
+            ].filter((c): c is { region: string; connectionStatus?: string } => !!c.region);
+
+            const connected = candidates.find((c) => c.connectionStatus === 'CONNECTED');
+            const chosen = connected || candidates[0] || null;
+            if (chosen) {
+                metaApiRegionCache.set(accountId, { region: chosen.region, expiresAt: Date.now() + METAAPI_REGION_CACHE_TTL_MS });
+                console.log(`[METAAPI] 🌍 Região selecionada para conta ${accountId}: ${chosen.region} (status: ${chosen.connectionStatus || 'desconhecido'}, candidatas: ${candidates.map((c) => `${c.region}:${c.connectionStatus}`).join(', ')})`);
+                return chosen.region;
             }
         }
     } catch (err) {
-        console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta, usando new-york como padrão:', err);
+        console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta:', err);
     }
 
-    return METAAPI_CLIENT_API_BASE;
+    return null;
+}
+
+async function getMetaApiClientApiBase(token: string, accountId: string): Promise<string> {
+    const region = await resolveMetaApiRegion(token, accountId);
+    return region ? `https://mt-client-api-v1.${region}.agiliumtrade.ai` : METAAPI_CLIENT_API_BASE;
 }
 
 // 🕯️ Candles históricos (OHLCV) vivem numa API **separada** da de tick/execução
@@ -330,31 +348,10 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
 // /mt5-candles-history sempre 404ava, mascarado até então porque o gráfico
 // caía num fallback sintético local sem avisar).
 async function getMetaApiMarketDataApiBase(token: string, accountId: string): Promise<string> {
-    const cached = metaApiRegionCache.get(`md:${accountId}`);
-    if (cached) return cached;
-
-    try {
-        const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
-            headers: { 'auth-token': token, 'Accept': 'application/json' },
-            signal: AbortSignal.timeout(8000),
-        });
-        if (res.ok) {
-            const account = await res.json();
-            const regions: string[] = Array.isArray(account?.regions) ? account.regions : [];
-            // Mesma preferência por new-york do client-api acima — mantém as duas APIs
-            // (tick/execução e candles) na mesma região da conta.
-            const region = regions.includes('new-york') ? 'new-york' : (account?.region || regions[0] || null);
-            if (region) {
-                const base = `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
-                metaApiRegionCache.set(`md:${accountId}`, base);
-                return base;
-            }
-        }
-    } catch (err) {
-        console.warn('[METAAPI] ⚠️ Falha ao detectar região (market-data) da conta, usando new-york como padrão:', err);
-    }
-
-    return 'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai';
+    // Mesma resolução de região do client-api acima (mesmo bug corrigido junto) — mantém as
+    // duas APIs (tick/execução e candles) sempre na mesma região CONNECTED da conta.
+    const region = await resolveMetaApiRegion(token, accountId);
+    return region ? `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai` : 'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai';
 }
 
 /**
