@@ -37,7 +37,7 @@ interface EconomicEvent {
 const WARN_MINUTES_BEFORE = 180;
 const WARN_MINUTES_AFTER = 30;
 const POLL_INTERVAL_MS = 5 * 60_000;
-const FED_VIDEO_EVENT_KEYWORDS = /fed|fomc|powell|juros/i;
+const FED_VIDEO_EVENT_KEYWORDS = /fed|fomc|powell|juros|conferência de imprensa|press conference|coletiva/i;
 
 interface HighImpactEventBannerProps {
   onWatchFedLive?: () => void;
