@@ -944,8 +944,12 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                 </button>
 
                 <div
-                    className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20"
-                    title={scanner?.bestAsset ? `Melhor ativo real (cripto): ${scanner.bestAsset.symbol} — score ${scanner.bestAsset.score.toFixed(0)}, ${scanner.bestAsset.classification}` : undefined}
+                    onClick={scanner?.bestAsset ? () => {
+                        setSelectedAsset(scanner.bestAsset!.symbol);
+                        onNavigate?.('chart');
+                    } : undefined}
+                    className={`flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20 transition-all ${scanner?.bestAsset ? 'cursor-pointer hover:border-purple-500/50 hover:bg-purple-500/20' : ''}`}
+                    title={scanner?.bestAsset ? `Ver ${scanner.bestAsset.symbol} no gráfico — score ${scanner.bestAsset.score.toFixed(0)}, ${scanner.bestAsset.classification}` : undefined}
                 >
                      <div className={`w-1.5 h-1.5 rounded-full ${scanner?.isScanning ? 'bg-purple-400 animate-pulse' : 'bg-emerald-400'}`} />
                      <span className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
