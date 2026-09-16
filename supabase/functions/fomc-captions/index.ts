@@ -22,13 +22,18 @@
  *   `text-data.ashx?event=<EVENT>&last=<cursor>` (confirmado via
  *   Network tab ao vivo, 2026-09-16 — endpoint sem documentação pública).
  *
- * ACHADO IMPORTANTE, NÃO FABRICAR CONFIANÇA: o formato exato do JSON de
- * resposta de `text-data.ashx` só pôde ser confirmado quando o evento
- * estiver REALMENTE ao vivo (antes disso o endpoint devolve 404) — o parser
- * abaixo foi escrito de forma DEFENSIVA (tenta várias formas conhecidas de
- * serviço de CART: {Data,Position}/{data,position}/texto cru), mas não foi
- * validado contra uma resposta real ainda. Testar assim que a transmissão
- * começar, ANTES de confiar cegamente no texto capturado.
+ * ACHADO REAL, confirmado ao vivo em produção 2026-09-16 durante o discurso
+ * de verdade (a 1ª versão do parser abaixo estava ERRADA — chutava um
+ * formato genérico de CART que nunca bateu, por isso a legenda nunca
+ * aparecia): o formato real de `text-data.ashx` é
+ * `{"lastPosition": <number>, "i": [{"format":"basic","d":"<fragmento
+ * URL-encoded>"}, ...]}`. O cursor de paginação é `lastPosition` (não um
+ * campo genérico `Position`/`Last`). Cada fragmento em `i[].d` é
+ * URL-encoded (`%20`=espaço, `%0D%0A`=quebra de linha) e pode conter o
+ * caractere de controle backspace (`\b`, 0x08) de verdade — o estenógrafo
+ * humano usa isso pra corrigir erro de digitação ao vivo, então precisa
+ * ser aplicado como um backspace real (remover o char anterior), não só
+ * removido/ignorado, senão a palavra corrigida fica errada.
  *
  * ID do evento StreamText ('CFI-FRB') é específico do Fed — não muda por
  * reunião (confirmado: é canal fixo da instituição, não vídeo-por-evento).
@@ -43,15 +48,13 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
-function stripHtml(raw: string): string {
-  return raw
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
+interface StreamTextItem {
+  format?: string;
+  d?: string;
+}
+interface StreamTextResponse {
+  lastPosition?: number;
+  i?: StreamTextItem[];
 }
 
 interface ParsedDelta {
@@ -59,30 +62,39 @@ interface ParsedDelta {
   nextCursor: string;
 }
 
-/** Parser defensivo — ver nota grande no topo do arquivo sobre a incerteza real do formato. */
+function decodeFragment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** Backspace real (0x08) do estenógrafo — aplica de verdade, não descarta. */
+function applyBackspaces(text: string): string {
+  const out: string[] = [];
+  for (const ch of text) {
+    if (ch === '\b') out.pop();
+    else out.push(ch);
+  }
+  return out.join('');
+}
+
 function parseStreamTextDelta(body: string, previousCursor: string): ParsedDelta {
   const trimmed = body.trim();
   if (!trimmed) return { newText: '', nextCursor: previousCursor };
 
   try {
-    const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object') {
-      const dataField = parsed.Data ?? parsed.data ?? parsed.Text ?? parsed.text ?? parsed.lines ?? parsed.Lines;
-      const posField = parsed.Position ?? parsed.position ?? parsed.Last ?? parsed.last ?? parsed.cursor;
-      const text = Array.isArray(dataField) ? dataField.join(' ') : (dataField ?? '');
-      return {
-        newText: stripHtml(String(text ?? '')),
-        nextCursor: posField !== undefined && posField !== null ? String(posField) : previousCursor,
-      };
-    }
+    const parsed: StreamTextResponse = JSON.parse(trimmed);
+    const items = Array.isArray(parsed.i) ? parsed.i : [];
+    const rawJoined = items.map((item) => decodeFragment(item?.d ?? '')).join('');
+    const cleaned = applyBackspaces(rawJoined).replace(/\r\n/g, ' ').replace(/\s+/g, ' ').trim();
+    const nextCursor = typeof parsed.lastPosition === 'number' ? String(parsed.lastPosition) : previousCursor;
+    return { newText: cleaned, nextCursor };
   } catch {
-    // não é JSON — trata como HTML/texto cru abaixo
+    // corpo não é o JSON esperado — nunca fabrica texto, devolve vazio.
+    return { newText: '', nextCursor: previousCursor };
   }
-
-  // Fallback: corpo é HTML/texto cru. Sem cursor estruturado disponível,
-  // usa o tamanho do corpo como proxy de posição (heurística, não confirmada
-  // ao vivo ainda — ver nota no topo do arquivo).
-  return { newText: stripHtml(trimmed), nextCursor: String(trimmed.length) };
 }
 
 async function translateToPortuguese(text: string): Promise<string> {
@@ -118,7 +130,7 @@ async function callOpenAICompat(
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: 400, temperature: 0, messages, ...extraBody }),
+    body: JSON.stringify({ model, max_tokens: 2000, temperature: 0, messages, ...extraBody }),
   });
   if (!res.ok) throw new Error(`[fomc-captions] LLM API ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
   const data = await res.json();
@@ -131,7 +143,7 @@ async function callAnthropic(apiKey: string, messages: { role: 'user'; content: 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-5-20250929', max_tokens: 400, messages }),
+    body: JSON.stringify({ model: 'claude-sonnet-4-5-20250929', max_tokens: 2000, messages }),
   });
   if (!res.ok) throw new Error(`[fomc-captions] Anthropic API ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
   const data = await res.json();
@@ -146,7 +158,12 @@ Deno.serve(async (req: Request) => {
   try {
     const url = new URL(req.url);
     const event = url.searchParams.get('event') || STREAMTEXT_EVENT_DEFAULT;
-    const cursor = url.searchParams.get('cursor') || '-1';
+    const cursorParam = url.searchParams.get('cursor') || '-1';
+    // "-1" é o valor inicial que o frontend manda na 1ª chamada da sessão —
+    // convertido pra "0" pra trazer a transcrição completa desde o início
+    // do discurso (pedido do Cleber: "tem que aparecer na íntegra"), não só
+    // o que for dito a partir do momento em que o usuário abriu a janela.
+    const cursor = cursorParam === '-1' ? '0' : cursorParam;
 
     const stRes = await fetch(`${STREAMTEXT_BASE}?event=${encodeURIComponent(event)}&last=${encodeURIComponent(cursor)}`);
 
