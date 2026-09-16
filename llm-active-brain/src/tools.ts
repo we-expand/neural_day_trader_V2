@@ -495,13 +495,16 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
           },
           setupType: {
             type: "string",
-            enum: ["ROMPIMENTO", "CRUZAMENTO_MEDIAS", "REVERSAO", "OUTRO"],
+            enum: ["ROMPIMENTO", "CRUZAMENTO_MEDIAS", "REVERSAO", "OUTRO", "FOMC_BTC_PLAY"],
             description:
               `Opcional -- que TIPO de setup esta entrada representa. "ROMPIMENTO" (breakout de faixa/nivel) e ` +
               `"CRUZAMENTO_MEDIAS" (cruzamento de EMA/SMA) sao setups de CONTINUACAO, historicamente fracos quando o mercado ` +
               `esta em CONSOLIDACAO_BAIXA_VOL (ver "hmmRegime" em get_mt5_quote -- classificador de regime, HMM). "REVERSAO" ` +
               `(esperar o preco bater extremo e voltar dentro do range) e o oposto, mais adequado a esse regime. Declarar ` +
-              `honestamente ajuda o codigo a avaliar coerencia entre o setup e o regime atual${config.hmmRegimeGateActive ? " (BLOQUEIO MECANICO ATIVO nesta sessao -- ver aviso em get_mt5_quote)" : ""}.`,
+              `honestamente ajuda o codigo a avaliar coerencia entre o setup e o regime atual${config.hmmRegimeGateActive ? " (BLOQUEIO MECANICO ATIVO nesta sessao -- ver aviso em get_mt5_quote)" : ""}. ` +
+              `"FOMC_BTC_PLAY" e a jogada especial pedida pelo Cleber para hoje (2026-09-16): so use em BTCUSD, logo apos a ` +
+              `janela do evento de alto impacto do Fed FECHAR, e so se a confluencia tecnica real (trend/MACD/estocastico/volume) ` +
+              `apoiar a direcao escolhida -- ativa stop/alvo de 1500 pontos (R:R 1:1) e sizing de 10% do patrimonio, so em modo DEMO.`,
           },
         },
         required: ["symbol", "side", "size", "reasoning", "confidence"],
@@ -1205,8 +1208,41 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `So abra quando a confluencia tecnica REAL justificar confianca alta -- nao infle o numero so pra passar deste gate, o campo e auditado.`,
         };
       }
+      // 🔴 2026-09-16 (pedido direto do Cleber): validação de elegibilidade
+      // do setup especial "FOMC_BTC_PLAY" -- ver config.ts (fomcBtcPlay*) pro
+      // contexto completo. Roda ANTES do gate de cesta porque essa jogada
+      // sempre vale para BTCUSD, independente do que estiver configurado na
+      // cesta do usuário no momento.
+      const isFomcBtcPlay = setupType === "FOMC_BTC_PLAY";
+      if (isFomcBtcPlay) {
+        if (!config.fomcBtcPlayEnabled) {
+          return { error: `setupType="FOMC_BTC_PLAY" está desativado nesta sessão (FOMC_BTC_PLAY_ENABLED=false).` };
+        }
+        if (symbol !== config.fomcBtcPlaySymbol) {
+          return {
+            error: `setupType="FOMC_BTC_PLAY" só vale para ${config.fomcBtcPlaySymbol} -- tentativa em ${symbol}. ` +
+              `Abra ${symbol} sem esse setupType (regras normais) se a tese for outra.`,
+          };
+        }
+        if (await isLiveExecutionActive(session.userId)) {
+          return {
+            error: `setupType="FOMC_BTC_PLAY" está restrito a modo DEMO (pedido explícito do Cleber) -- ` +
+              `esta sessão tem execução real (LIVE) ativa. Posição NÃO aberta com esse setupType.`,
+          };
+        }
+        const activeNewsWindowForPlay = await getActiveHighImpactNewsWindow(
+          config.highImpactNewsGateMinutesBefore,
+          config.highImpactNewsGateMinutesAfter,
+        );
+        if (activeNewsWindowForPlay) {
+          return {
+            error: `setupType="FOMC_BTC_PLAY" é para DEPOIS que o discurso/evento terminar -- ainda dentro da janela de ` +
+              `"${activeNewsWindowForPlay.event.event}" (mesmo gate de highImpactNewsGate). Aguarde a janela fechar antes de tentar essa entrada.`,
+          };
+        }
+      }
       const basket = effectiveBasket(session);
-      if (!basket.includes(symbol)) {
+      if (!isFomcBtcPlay && !basket.includes(symbol)) {
         return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
       }
       // 🔴 2026-08-31 (pedido do Cleber, Setup do AI Trader reconectado):
@@ -2215,7 +2251,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const distanceToLevelPct =
           (side === "LONG" ? supportResistanceForTarget.distanceToResistancePct : supportResistanceForTarget.distanceToSupportPct) / 100;
         const srCappedTakeProfitPct = distanceToLevelPct * config.mt5SrTargetMarginPct;
-        if (srCappedTakeProfitPct < takeProfitPct) {
+        if (!isFomcBtcPlay && srCappedTakeProfitPct < takeProfitPct) {
           if (srCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
             const levelName = side === "LONG" ? "resistencia" : "suporte";
             return {
@@ -2244,7 +2280,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       let takeProfitCappedByRange = false;
       if (regimeForTarget?.range?.label === "ESTREITO" && !confirmedBreakoutInTradeDirection) {
         const rangeCappedTakeProfitPct = regimeForTarget.range.pct * config.mt5RangeTargetMarginPct;
-        if (rangeCappedTakeProfitPct < takeProfitPct) {
+        if (!isFomcBtcPlay && rangeCappedTakeProfitPct < takeProfitPct) {
           if (rangeCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
             return {
               error:
@@ -2272,7 +2308,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // problema. Checagem final, incondicional, cobre QUALQUER causa (S/R,
       // spread, ATR minusculo, fallback) -- alvo sempre >= stop *
       // mt5MinRrAfterSrCap, ou a posicao nao abre.
-      if (takeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+      if (!isFomcBtcPlay && takeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
         return {
           error:
             `${symbol}: alvo calculado (${(takeProfitPct * 100).toFixed(3)}%) ficaria menor que o minimo aceitavel ` +
@@ -2290,6 +2326,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // resolver -- o risco (stop) ja e o mesmo independente do volume, e o
       // R:R 1:2 ja da margem suficiente sem precisar de um ajuste extra.
       const lowVolumeAdjusted = false;
+
+      // 🔴 2026-09-16 (pedido direto do Cleber): jogada especial pós-Fed em
+      // BTCUSD -- sobrescreve TUDO que o pipeline ATR/S-R/regime calculou
+      // acima (stopPct/takeProfitPct) pelos 1500 pontos fixos pedidos, em vez
+      // de qualquer dinâmica automática. R:R fica 1:1 por definição (decisão
+      // explícita do Cleber, ciente de que é abaixo do R:R mínimo normal do
+      // motor -- ver config.ts pro contexto completo). fillPrice já foi
+      // resolvido mais acima (quote.ask/quote.bid).
+      if (isFomcBtcPlay) {
+        const pointsAsPct = fillPrice > 0 ? config.fomcBtcPlayStopPoints / fillPrice : config.mt5StopFallbackPct;
+        stopPct = pointsAsPct;
+        takeProfitPct = fillPrice > 0 ? config.fomcBtcPlayTargetPoints / fillPrice : pointsAsPct;
+      }
 
       // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde,
       // perde pouco, quando ganha, ganha muito" / "não pode quebrar o caixa
@@ -2325,7 +2374,16 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // LOT_SIZE * preço). "forte" escala este alvo de retorno.
       const targetRewardUsd = config.mt5TargetRewardUsd * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
       const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
-      let lots = rawLotsPreCap;
+      // 🔴 2026-09-16 (pedido direto do Cleber): jogada FOMC_BTC_PLAY usa
+      // sizing por EXPOSIÇÃO NOTIONAL (10% do patrimônio), não por retorno-
+      // alvo em dólar como o resto do motor -- pedido explícito, mesmo sendo
+      // um percentual bem maior que o normal (ver ressalva no gate de risco
+      // abaixo, que é pulado só neste caminho). Ainda respeita os tetos
+      // absolutos de segurança (mt5SafetyMaxLots/mt5MaxNotionalUsd) como
+      // última rede de proteção.
+      let lots = isFomcBtcPlay
+        ? (balance * config.fomcBtcPlayExposurePct) / (LOT_SIZE[symbol] * quote.price)
+        : rawLotsPreCap;
       lots = Math.min(lots, config.mt5SafetyMaxLots);
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Lotes Maximos por
       // Trade"): teto do usuario, quando configurado, nunca frouxo o teto de
@@ -2359,7 +2417,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       let actualRiskUsd = amountUsd * stopPct;
       const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
       let rewardCappedByRisk = false;
-      if (actualRiskUsd > maxRiskUsd) {
+      // 🔴 2026-09-16: FOMC_BTC_PLAY pula este recap por %-de-risco de
+      // propósito -- o pedido explícito do Cleber foi expor 10% do
+      // patrimônio em notional, sabendo que isso ultrapassa o teto normal de
+      // risco por trade (mt5MaxRiskPctPerTrade). Continua sob os tetos
+      // absolutos de segurança logo abaixo (mt5MaxNotionalUsd).
+      if (!isFomcBtcPlay && actualRiskUsd > maxRiskUsd) {
         let riskCappedLots = maxRiskUsd / stopPct / (LOT_SIZE[symbol] * quote.price);
         riskCappedLots = Math.round(riskCappedLots / MIN_LOTS) * MIN_LOTS;
         if (riskCappedLots < MIN_LOTS) {
@@ -2549,6 +2612,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             : "") +
           (rewardCappedByRisk
             ? ` ATENCAO: o lote foi REDUZIDO em relacao ao alvo de retorno de $${targetRewardUsd.toFixed(2)} porque o lote necessario pra alcanca-lo estouraria o teto de risco desta conta -- retorno projetado real ficou em $${(amountUsd * takeProfitPct).toFixed(2)}, risco seguro sempre vence retorno desejado.`
+            : "") +
+          (isFomcBtcPlay
+            ? ` JOGADA ESPECIAL FOMC_BTC_PLAY (pedido do Cleber, 2026-09-16): stop e alvo fixos em ${config.fomcBtcPlayStopPoints}/${config.fomcBtcPlayTargetPoints} pontos (R:R 1:1, nao pelo ATR), exposicao de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do patrimonio ($${amountUsd.toFixed(2)} de $${balance.toFixed(2)}) -- o teto normal de risco por trade (${(config.mt5MaxRiskPctPerTrade * 100).toFixed(1)}%) foi deliberadamente pulado para esta entrada.`
             : ""),
       };
     }

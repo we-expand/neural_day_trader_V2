@@ -1064,7 +1064,16 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
             `pra forçar entrada. Isso NÃO significa parar de avaliar: a trava mecânica cobre só a janela do anúncio em si -- ` +
             `assim que ela liberar (ver open_position se ainda estiver bloqueado), avalie ATIVAMENTE se o movimento real pós-evento ` +
             `tem confluência genuína (não é o mesmo que "voltar a operar automaticamente") -- reação real a um resultado de juros ` +
-            `costuma ser um dos movimentos mais limpos do dia quando a confluência é real, não deixe passar por cautela excessiva.`;
+            `costuma ser um dos movimentos mais limpos do dia quando a confluência é real, não deixe passar por cautela excessiva.` +
+            (config.fomcBtcPlayEnabled
+              ? `\n\n🎯 JOGADA ESPECIAL pedida pelo Cleber para hoje: assim que a janela do evento acima FECHAR (a trava mecânica libera ` +
+                `sozinha), avalie ${config.fomcBtcPlaySymbol} especificamente para uma entrada mirando ${config.fomcBtcPlayTargetPoints} pontos, ` +
+                `com stop também em ${config.fomcBtcPlayStopPoints} pontos (R:R 1:1) e exposição de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do ` +
+                `patrimônio -- use setupType="FOMC_BTC_PLAY" no open_position (o código aplica o stop/alvo/sizing especiais automaticamente, você não ` +
+                `precisa calcular). IMPORTANTE: isto NÃO é uma ordem incondicional -- só abra se a confluência técnica REAL (trend/MACD/estocástico/` +
+                `volume, mesmos fatores de sempre) apoiar de verdade a direção escolhida. Se não houver confluência clara logo após a janela abrir, não force -- ` +
+                `continue avaliando ${config.fomcBtcPlaySymbol} normalmente ao longo da tarde até que a tese fique clara, sem prazo fixo.`
+              : "");
         }
       }
     } catch (err) {

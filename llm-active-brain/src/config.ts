@@ -731,6 +731,24 @@ export const config = {
   vixCacheTtlMinutes: Number(process.env.VIX_CACHE_TTL_MINUTES ?? 288),
   vixMinConfidenceBonusElevated: Number(process.env.VIX_MIN_CONFIDENCE_BONUS_ELEVADO ?? 2),
   vixMinConfidenceBonusAlto: Number(process.env.VIX_MIN_CONFIDENCE_BONUS_ALTO ?? 5),
+  // 🔴 2026-09-16 (pedido direto do Cleber, mesma Super Quarta/FOMC): jogada
+  // específica em BTCUSD logo após o discurso do Fed terminar (assim que a
+  // janela de highImpactNewsGate acima FECHAR) -- 1500 pontos de distância
+  // pro stop e pro alvo (R:R 1:1, decisão explícita do Cleber, não é bug),
+  // expondo 10% do patrimônio em notional (não % de risco -- ver override em
+  // open_position/tools.ts, setupType="FOMC_BTC_PLAY"). A IA ainda precisa
+  // validar confluência técnica real antes de abrir (Cleber escolheu essa
+  // opção explicitamente -- não é gatilho incondicional); isto só destrava o
+  // símbolo/alvo/sizing especiais para essa janela pós-evento, nunca abre
+  // sozinho. Restrito a modo DEMO (Cleber pediu explicitamente "não LIVE
+  // ainda") -- bloqueado se isLiveExecutionActive() for true. Sem validação
+  // estatística nenhuma -- é uma tese discricionária do Cleber pro evento de
+  // hoje, não edge comprovado.
+  fomcBtcPlayEnabled: process.env.FOMC_BTC_PLAY_ENABLED !== "false",
+  fomcBtcPlaySymbol: process.env.FOMC_BTC_PLAY_SYMBOL ?? "BTCUSD",
+  fomcBtcPlayTargetPoints: Number(process.env.FOMC_BTC_PLAY_TARGET_POINTS ?? 1500),
+  fomcBtcPlayStopPoints: Number(process.env.FOMC_BTC_PLAY_STOP_POINTS ?? 1500),
+  fomcBtcPlayExposurePct: Number(process.env.FOMC_BTC_PLAY_EXPOSURE_PCT ?? 0.10),
   // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
   // agente como trade virtual isolado em ai_trades/ai_sessions daquele
   // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
