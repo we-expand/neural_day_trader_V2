@@ -40,6 +40,7 @@ import { AlertSystemPanel } from '@/app/components/system/AlertSystemPanel';
 import { DecisionBrainShadowPanel } from '@/app/components/system/DecisionBrainShadowPanel';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { isPositionOpenSoundEnabled, setPositionOpenSoundEnabled, playPositionOpenSound } from '@/app/lib/positionOpenSound';
+import { PushPositionAlerts } from '@/app/components/settings/PushPositionAlerts';
 
 export function Settings() {
   const { user } = useAuth();
@@ -341,6 +342,9 @@ export function Settings() {
               <div className="col-span-1 xl:col-span-2">
                 <VoiceSettings />
               </div>
+
+              {/* Aviso no celular (push real, PWA) */}
+              <PushPositionAlerts />
 
               {/* Notificações */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-lg">
@@ -1104,8 +1108,8 @@ export function Settings() {
         </div>
 
         {/* Botões de Ação - Fixos no bottom */}
-        <div className="fixed bottom-20 left-64 right-0 p-4 bg-black/95 border-t border-zinc-800 backdrop-blur-sm z-10">
-          <div className="max-w-7xl mx-auto flex gap-3">
+        <div className="fixed bottom-16 md:bottom-20 left-0 md:left-64 right-0 p-3 md:p-4 bg-black/95 border-t border-zinc-800 backdrop-blur-sm z-10">
+          <div className="max-w-7xl mx-auto flex gap-2 md:gap-3">
             <button 
               onClick={handleSaveSettings}
               className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"

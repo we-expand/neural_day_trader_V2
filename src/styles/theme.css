@@ -654,3 +654,42 @@
 [data-sonner-toast] svg path {
   fill: currentColor !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   REDE DE SEGURANÇA — ENQUADRAMENTO MOBILE (PWA, telas ≤400px)
+   ═══════════════════════════════════════════════════════════════════
+   Pedido do Cleber 2026-09-15: nenhuma tela pode "estourar" no iPhone
+   SE (375px). Em vez de auditar tela por tela (dezenas de componentes),
+   esta camada cobre o app inteiro: título grande demais vira proporção
+   menor, e nenhum elemento consegue criar scroll horizontal — mesmo se
+   uma tela específica ainda não foi revisada manualmente.
+
+   Carrega DEPOIS do tailwind.css (import em src/styles/index.css), então
+   estas classes (mesma especificidade que a utility do Tailwind) vencem
+   a cascata sem precisar de !important — exceto onde a página já usa
+   !important em outro lugar, daí precisamos também. */
+@media (max-width: 400px) {
+  html, body {
+    overflow-x: hidden;
+  }
+
+  #root {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .text-5xl, .text-4xl {
+    font-size: 1.75rem !important;
+    line-height: 1.2 !important;
+  }
+
+  .text-3xl {
+    font-size: 1.375rem !important;
+    line-height: 1.25 !important;
+  }
+
+  .text-2xl {
+    font-size: 1.125rem !important;
+    line-height: 1.3 !important;
+  }
+}

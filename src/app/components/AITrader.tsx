@@ -1523,7 +1523,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             onClick={() => setShowMT5ConfigModal(false)}
           />
           
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-h-[90vh] border border-gray-700 bg-[#131722] rounded-lg shadow-2xl z-[100] flex flex-col">
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-1.5rem)] max-w-[520px] max-h-[90vh] border border-gray-700 bg-[#131722] rounded-lg shadow-2xl z-[100] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 flex-shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-white">Configuração MT5</h2>

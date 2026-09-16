@@ -173,8 +173,19 @@ type Language = 'en' | 'pt' | 'es';
 
 type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs' | 'jarvis';
 
+const VALID_VIEWS: View[] = ['dashboard', 'wallet', 'funds', 'assets', 'chart', 'ai-trader', 'ai-engine', 'performance', 'settings', 'system', 'ai-voice', 'dev-lab', 'innovation', 'strategy', 'store', 'partners', 'prop-challenge', 'admin', 'profile', 'competitive-analysis', 'compliance-analysis', 'launch-strategy', 'trader-insights', 'quantum-analysis', 'social', 'live-trading-test', 'operation-logs', 'jarvis'];
+
+// PWA instalado (manifest.webmanifest start_url) abre direto em "Posições
+// Abertas" (ai-trader) via ?view=, em vez de cair no Dashboard padrão —
+// só lido uma vez na montagem, nunca sobrescreve navegação subsequente.
+function getInitialViewFromUrl(): View {
+  if (typeof window === 'undefined') return 'dashboard';
+  const requested = new URLSearchParams(window.location.search).get('view');
+  return (VALID_VIEWS as string[]).includes(requested || '') ? (requested as View) : 'dashboard';
+}
+
 function AppContent() {
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [currentView, setCurrentView] = useState<View>(getInitialViewFromUrl);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);

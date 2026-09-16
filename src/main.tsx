@@ -241,6 +241,14 @@ function initializeApp() {
       <SafeApp />
     );
     console.log('[MAIN] ✅ Neural Day Trader initialized successfully (with 1000ms delay)');
+
+    // Service worker de push notification (posição aberta pela IA) — só
+    // registra, não faz cache de nada, nunca afeta o fluxo de renderização.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((e) => {
+        console.warn('[MAIN] Falha ao registrar service worker de push:', e);
+      });
+    }
   }).catch((error) => {
     console.error('[MAIN] 🚨 Failed to initialize:', error);
     
