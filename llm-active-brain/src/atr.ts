@@ -896,6 +896,8 @@ export interface CandlePatternResult {
   /** Vies classico agregado dos padroes detectados -- "ALTA" (reversao/continuacao compradora), "BAIXA" (vendedora), null quando nenhum padrao detectado ou padroes contraditorios entre si. */
   bias: "ALTA" | "BAIXA" | null;
   lookbackMinutes: number;
+  /** Timestamp (epoch ms) da vela mais recente FECHADA em que o padrao foi avaliado -- usado pra exigir que a entrada de REVERSAO so aconteca no candle SEGUINTE ao padrao (ver gate em tools.ts), nunca no mesmo candle em que o padrao acabou de fechar. */
+  patternCandleTimestamp: number;
 }
 
 const CANDLE_PATTERN_TREND_CONTEXT_CANDLES = 5; // ~25min antes do padrao, pra achar "veio de alta/baixa" (martelo/estrela cadente exigem contexto de tendencia pra fazer sentido classico)
@@ -950,7 +952,7 @@ export async function getCandlePatterns(symbol: string, timeframe: SupportedTime
   const c2 = candles[n - 1]; // vela mais recente fechada -- padrão sempre "termina" aqui
   const s1 = shapeOf(c1);
   const s2 = shapeOf(c2);
-  if (s2.range <= 0) return { detected: [], bias: null, lookbackMinutes: candles.length * 5 };
+  if (s2.range <= 0) return { detected: [], bias: null, lookbackMinutes: candles.length * 5, patternCandleTimestamp: c2.timestamp };
 
   const detected: string[] = [];
   const biases: Array<"ALTA" | "BAIXA"> = [];
@@ -1073,7 +1075,7 @@ export async function getCandlePatterns(symbol: string, timeframe: SupportedTime
   const uniqueBiases = new Set(biases);
   const bias: CandlePatternResult["bias"] = uniqueBiases.size === 1 ? [...uniqueBiases][0] : null;
 
-  return { detected, bias, lookbackMinutes: candles.length * 5 };
+  return { detected, bias, lookbackMinutes: candles.length * 5, patternCandleTimestamp: c2.timestamp };
 }
 
 export interface MarketRegime {

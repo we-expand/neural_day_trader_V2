@@ -79,6 +79,17 @@ const lastQuotedCycleBySymbolStore = new Map<string, Map<string, number>>();
 // e só then chamar open_position segundos depois, quando o feed já voltou).
 const staleQuoteToolCycleBySymbolStore = new Map<string, Map<string, number>>();
 
+// 🔴 2026-09-17 (pedido direto do Cleber, mesmo espirito do gate acima que
+// exige padrao de candle pra REVERSAO): so exigir o padrao nao basta -- ele
+// pode ter acabado de fechar NESTE MESMO candle, sem nenhuma confirmacao de
+// que o movimento realmente virou (o padrao pode falhar no candle seguinte,
+// classico "engolfo que nao confirma"). Pedido explicito: a entrada so pode
+// acontecer no candle SEGUINTE ao candle onde o padrao foi detectado, nunca
+// no mesmo. Rastreia por sessao+simbolo+lado o timestamp do candle em que o
+// padrao alinhado foi visto pela PRIMEIRA vez -- so libera quando um
+// `patternCandleTimestamp` mais novo (candle novo ja fechou) aparecer.
+const reversalPatternFirstSeenStore = new Map<string, Map<string, number>>();
+
 // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido do Cleber apos
 // BTCUSD SHORT perder $5,58): o guard de "cotacao fresca no mesmo ciclo"
 // acima so garante que o agente CHAMOU get_mt5_quote antes de decidir --
@@ -502,6 +513,10 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
               `esta em CONSOLIDACAO_BAIXA_VOL (ver "hmmRegime" em get_mt5_quote -- classificador de regime, HMM). "REVERSAO" ` +
               `(esperar o preco bater extremo e voltar dentro do range) e o oposto, mais adequado a esse regime. Declarar ` +
               `honestamente ajuda o codigo a avaliar coerencia entre o setup e o regime atual${config.hmmRegimeGateActive ? " (BLOQUEIO MECANICO ATIVO nesta sessao -- ver aviso em get_mt5_quote)" : ""}. ` +
+              `IMPORTANTE: "REVERSAO" exige TAMBEM um padrao grafico real de reversao (Estrela Cadente, Martelo, Engolfo, Harami, ` +
+              `Estrela da Manha/Noite, Marubozu...) com bias alinhado ao lado da entrada -- sem isso a posicao e recusada (gate ` +
+              `obrigatorio), mesmo com Estocastico extremo/volume/MACD alinhados. E a entrada so acontece no candle SEGUINTE ao ` +
+              `candle em que o padrao fechou (nunca no mesmo candle do padrao) -- tente de novo no proximo ciclo se acabou de ver o padrao agora. ` +
               `"FOMC_BTC_PLAY" e a jogada especial pedida pelo Cleber para hoje (2026-09-16): so use em BTCUSD, logo apos a ` +
               `janela do evento de alto impacto do Fed FECHAR, e so se a confluencia tecnica real (trend/MACD/estocastico/volume) ` +
               `apoiar a direcao escolhida -- ativa stop/alvo de 1500 pontos (R:R 1:1) e sizing de 10% do patrimonio, so em modo DEMO.`,
@@ -1636,6 +1651,61 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
               `Espere o candle fechar além do nível antes de abrir ${side}, ou reavalie como setupType="REVERSAO"/"OUTRO" se a tese for outra.`,
           };
         }
+      }
+      // 🔴 2026-09-17 (pedido direto do Cleber, apos investigacao real via
+      // SQL): puxado o ai_reasoning de 19 trades recentes onde o lucro
+      // flutuante maximo nunca passou de $1 antes de bater stop -- a maioria
+      // era setupType="REVERSAO" apostando so em Estocastico extremo (+volume
+      // ou MACD como 2o fator "de aluguel") contra o consenso de direcao
+      // inteiro, sem nenhum padrao de candle real de reversao no candle mais
+      // recente. Ex. real: UKOUSD LONG hoje, 4/4 sinais em BAIXA + MACD BAIXA
+      // + trend curto e longo em BAIXA, "confirmado" so por Estocastico
+      // sobrevendido cruzando + volume alto -- perdeu quase sem respirar
+      // (MFE $0.25 contra perda de $4.09). Fix: setupType="REVERSAO" agora
+      // exige TAMBEM um padrao de candle real de reversao detectado
+      // (getCandlePatterns, atr.ts -- Estrela Cadente, Martelo, Engolfo,
+      // Harami, Estrela Manha/Noite, Marubozu...) com bias alinhado ao lado
+      // da entrada. Sem isso, bloqueado -- nao importa quantos outros fatores
+      // (Estocastico, volume, MACD) estejam alinhados. Isso e ALEM do gate de
+      // >=2 fatores contra-tendencia mais abaixo (candlePatternConfirmsReversal
+      // ali continua contando como 1 dos fatores possiveis) -- aqui e
+      // obrigatorio especificamente pra qualquer entrada declarada REVERSAO,
+      // mesmo em mercado LATERAL (onde o gate de fatores minimos nao exige
+      // candle especificamente, so "algum" fator).
+      if (setupType === "REVERSAO") {
+        const reversalPatternAligned =
+          candlePatternsForConfluenceCheck?.bias != null &&
+          candlePatternsForConfluenceCheck.detected.length > 0 &&
+          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
+        if (!reversalPatternAligned) {
+          const patternDesc = candlePatternsForConfluenceCheck?.detected.length
+            ? `padrao(oes) detectado(s) (${candlePatternsForConfluenceCheck.detected.join("/")}) tem bias ${candlePatternsForConfluenceCheck.bias ?? "neutro"}, nao alinhado com ${side}`
+            : "nenhum padrao de candle detectado no candle mais recente";
+          return {
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} exige um padrao grafico de reversao real (Estrela Cadente, Martelo, Engolfo, Harami, ` +
+              `Estrela da Manha/Noite, Marubozu...) com bias alinhado a ${side}, alem de qualquer outro indicador -- ${patternDesc}. ` +
+              `Posicao NAO aberta. Espere um padrao de candle real confirmar a reversao, ou reavalie como continuacao/rompimento se a tese for outra.`,
+          };
+        }
+        // 🔴 2026-09-17 (pedido direto do Cleber): padrao alinhado nao basta
+        // se ele acabou de fechar NESTE candle -- exige que a entrada so
+        // aconteca no candle SEGUINTE ao candle do padrao (mesmo espirito do
+        // gate de ROMPIMENTO acima, que exige fechamento confirmado).
+        const reversalPatternFirstSeenBySymbolSide = perSession(reversalPatternFirstSeenStore, session.sessionId);
+        const reversalKey = `${symbol}:${side}`;
+        const patternCandleTimestamp = candlePatternsForConfluenceCheck!.patternCandleTimestamp;
+        const firstSeenTimestamp = reversalPatternFirstSeenBySymbolSide.get(reversalKey);
+        if (firstSeenTimestamp == null || firstSeenTimestamp === patternCandleTimestamp) {
+          reversalPatternFirstSeenBySymbolSide.set(reversalKey, patternCandleTimestamp);
+          return {
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} -- padrao grafico ${candlePatternsForConfluenceCheck!.detected.join("/")} detectado, mas ` +
+              `AINDA no mesmo candle em que fechou (sem confirmacao do candle seguinte). Posicao NAO aberta. Espere o proximo candle fechar mantendo a ` +
+              `tese antes de entrar -- entrar no mesmo candle do padrao e apostar sem confirmacao de que o movimento realmente virou.`,
+          };
+        }
+        // Candle novo ja fechou desde a primeira deteccao -- padrao confirmado, libera e reseta o rastreio deste par simbolo+lado.
+        reversalPatternFirstSeenBySymbolSide.delete(reversalKey);
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
       // quando o mercado está caindo e venda quando está subindo"): caso real
