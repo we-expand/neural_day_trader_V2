@@ -601,7 +601,17 @@ export const config = {
   // frequência. Dia útil continua exigindo 80%, intocado. Sem validação
   // estatística ainda -- é o valor que ele pediu explicitamente, reavaliar
   // com amostra de fins de semana sob este gate.
-  mt5MinConfidenceForOpenPositionWeekend: Number(process.env.MT5_MIN_CONFIDENCE_WEEKEND ?? 70),
+  // 🔴 2026-09-18 (pedido direto do Cleber, mesmo dia do design de "modo
+  // fim de semana" -- ver comentario de volume ignorado em tools.ts): 70 ->
+  // 65 -> 60 (2 ajustes no mesmo pedido, ele mesmo revisou em tempo real
+  // antes de aplicar). Justificativa dele: fim de semana e mais previsivel
+  // (cesta so cripto, sem os gates de forex/indice) e e a UNICA janela onde
+  // ele quer mais volume de operacoes -- comeca em 60%, com aviso explicito
+  // dele de subir de novo "se tiver muitos problemas". Dia util continua em
+  // 70 (o valor que acabei de reverter de 80 -> 70 hoje mesmo), intocado.
+  // Isolado ao fim de semana por design (isWeekendMode()), nao empilha com
+  // a mudanca de dia util.
+  mt5MinConfidenceForOpenPositionWeekend: Number(process.env.MT5_MIN_CONFIDENCE_WEEKEND ?? 60),
   // 2026-09-15 (pedido direto do Cleber): todos os dias, das 17h às 23h
   // Brasília, o gate de "volume elevado" (VOLUME_ELEVATED_RATIO em atr.ts,
   // usado em open_position pra exigir confirmação extra em entrada contra a

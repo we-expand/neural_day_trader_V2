@@ -1646,6 +1646,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // espirito de getLongTermTrendInfo acima.
         getDailyHighLow(symbol),
       ]);
+      // 🔴 2026-09-18 (pedido direto do Cleber -- desenho do "modo fim de
+      // semana"): "a LLM nao pode dar atencao a volume" no fim de semana --
+      // volume de fim de semana e estruturalmente baixo (menos
+      // participantes, mercado majoritariamente cripto), entao um "volume
+      // elevado" nesse regime nao significa a mesma coisa que num dia util
+      // liquido -- pode ser so ruido de baixa liquidez, nao confirmacao
+      // real de forca. O principio 1g do prompt (agent.ts) ja instrui o
+      // modelo a nao usar volumeLabel como fator de cautela no fim de
+      // semana; isto fecha o mesmo buraco a nivel de CODIGO -- volume deixa
+      // de contar como fator de confluencia mecanico nos gates abaixo
+      // (lateral 2-fatores, contra-tendencia 2-fatores) enquanto
+      // isWeekendMode(). Nao afeta dia util (continua usando volume real,
+      // intocado) nem remove os outros fatores reais (MACD, Estocastico,
+      // padrao de candle) que continuam valendo nos dois regimes.
+      const volumeForConfluence = isWeekendMode() ? null : volume;
       const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
       const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
@@ -1976,7 +1991,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             (side === "SHORT" && stochasticForReversalCheck.label === "SOBRECOMPRADO");
           if (stochAligned) confluenceFactors.push(`Estocastico ${stochasticForReversalCheck.label}`);
         }
-        if (volume?.elevated) confluenceFactors.push(`volume elevado (${volume.ratio}x)`);
+        if (volumeForConfluence?.elevated) confluenceFactors.push(`volume elevado (${volumeForConfluence.ratio}x)`);
         if (candlePatternsForConfluenceCheck?.bias) {
           const patternAligned =
             (side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
@@ -2004,7 +2019,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           };
         }
       }
-      if (trend && trend.label !== "LATERAL" && volume) {
+      // 🔴 2026-09-18: condicao deixou de exigir `volume` truthy pra entrar
+      // no bloco -- antes, se volume viesse null (fim de semana, por design
+      // agora, ou falha real de dado), o gate inteiro de contra-tendencia
+      // era PULADO por completo (mais permissivo, nao mais restritivo).
+      // Corrigido: o bloco roda sempre que ha tendencia clara, usando
+      // volumeForConfluence (null no fim de semana por design) com optional
+      // chaining abaixo -- sem volume, os outros fatores reais (Estocastico
+      // com crossing, MACD, padrao de candle) continuam decidindo sozinhos.
+      if (trend && trend.label !== "LATERAL") {
         const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
         // 🔴 2026-09-02 (pedido do Cleber): Estocastico em extremo real
         // (SOBRECOMPRADO/SOBREVENDIDO) e sinal genuino de exaustao de curto
@@ -2060,7 +2083,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
             (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
         const reversalConfirmationFactors = [
-          volume.elevated ? `volume elevado (${volume.ratio}x)` : null,
+          volumeForConfluence?.elevated ? `volume elevado (${volumeForConfluence.ratio}x)` : null,
           stochasticExtremeConfirmsReversal ? `Estocastico ${stochasticForReversalCheck?.label}` : null,
           macdConfirmsReversal ? `MACD ${macdForConfluenceCheck?.label}` : null,
           candlePatternConfirmsReversal
@@ -2116,7 +2139,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
               `bloqueado enquanto essa preferencia estiver ativa (busca reversao em suporte/resistencia). Opere contra a tendencia ou avalie outro ativo.`,
           };
         }
-        if (marketMode == null && counterTrend && !volume.elevated && !stochasticExtremeConfirmsReversal) {
+        if (marketMode == null && counterTrend && !volumeForConfluence?.elevated && !stochasticExtremeConfirmsReversal) {
           // 🔴 2026-09-15: mensagem distingue "sem extremo" de "em extremo mas
           // ainda sem cruza" -- este 2o caso e o mais comum de erro (a IA via
           // extremo e ja tratava como confirmado, mesmo achado que motivou o
@@ -2129,7 +2152,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           return {
             error:
               `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%), ` +
-              `o volume recente NAO esta acima do normal (razao ${volume.ratio}x) e o Estocastico ${stochDesc} -- ` +
+              `o volume recente NAO esta acima do normal (${volumeForConfluence ? `razao ${volumeForConfluence.ratio}x` : "ignorado no fim de semana"}) e o Estocastico ${stochDesc} -- ` +
               `${side} aqui seria ir contra o movimento sem nenhuma confirmacao real de reversao. ` +
               `Posicao NAO aberta. Espere volume elevado OU a cruza real do Estocastico em extremo (nao so o extremo) confirmando exaustao, opere a favor da tendencia, ou avalie outro ativo.`,
           };
