@@ -371,8 +371,9 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
      "lookbackMinutes" mostra quantos minutos de candle real sustentam essa
      leitura -- varia com o timeframe operacional configurado. null quando
      não há candle real suficiente, nunca fabrica amplitude.
-   - 🔴🔴 **"isWeekend" (pedido direto do Cleber, reforçado 2026-09-06): Sábado
-     inteiro + Domingo até 19:00 Brasília + Sexta após 18:00 Brasília** (janela
+   - 🔴🔴 **"isWeekend" (pedido direto do Cleber, reforçado 2026-09-06, início
+     adiantado pra 17:00 em 2026-09-18): Sábado inteiro + Domingo até 19:00
+     Brasília + Sexta após 17:00 Brasília** (janela
      real em isWeekendMode()/assetBasket.ts). Nesta janela a cesta operável
      já é restrita só a cripto (forex/índices ficam fechados/tick congelado,
      fora da cesta de qualquer forma). Volume GLOBAL baixo (menos

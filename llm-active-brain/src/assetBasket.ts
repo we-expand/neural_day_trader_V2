@@ -301,8 +301,11 @@ const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
  * dois lados -- ajustado aqui. Esta é a MESMA janela que `isWeekendNow` em
  * atr.ts usa (duplicada lá de propósito, sem import circular -- ver
  * comentário lá) -- se mudar aqui, mudar lá também.
+ * 🔴 2026-09-18 (pedido direto do Cleber, mesmo dia do desenho do modo fim
+ * de semana): inicio adiantado de 18:00 -> 17:00 Brasília, toda sexta,
+ * permanente (nao so hoje). Fim (domingo 19:00 Brasília) intocado.
  */
-const WEEKEND_START_UTC_MINUTES = 21 * 60; // sexta 18:00 Brasília
+const WEEKEND_START_UTC_MINUTES = 20 * 60; // sexta 17:00 Brasília
 const WEEKEND_END_UTC_MINUTES = 22 * 60; // domingo 19:00 Brasília
 
 export function isWeekendMode(now: Date = new Date()): boolean {
@@ -311,11 +314,11 @@ export function isWeekendMode(now: Date = new Date()): boolean {
 
   if (utcDay === 6) return true; // Sábado inteiro
   if (utcDay === 0) return totalMinutes < WEEKEND_END_UTC_MINUTES; // Domingo antes das 19h Brasília
-  if (utcDay === 5) return totalMinutes >= WEEKEND_START_UTC_MINUTES; // Sexta a partir das 18h Brasília
+  if (utcDay === 5) return totalMinutes >= WEEKEND_START_UTC_MINUTES; // Sexta a partir das 17h Brasília
   return false;
 }
 
-/** Fecha: Sexta 18:00 Brasília. Abre: Domingo 19:00 Brasília. Inverso de isWeekendMode. */
+/** Fecha: Sexta 17:00 Brasília. Abre: Domingo 19:00 Brasília. Inverso de isWeekendMode. */
 export function isForexMarketOpen(now: Date = new Date()): boolean {
   return !isWeekendMode(now);
 }
