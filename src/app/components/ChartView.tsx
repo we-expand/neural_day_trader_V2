@@ -7316,6 +7316,18 @@ export function ChartView({
         handleCrosshairModeChange('arrow');
         return;
       }
+
+      // + / = = Zoom in, - = Zoom out (sem modificador, atalho direto de zoom do gráfico)
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        chartInstanceRef.current?.zoomAtCoordinate(1.25, undefined, 200);
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        chartInstanceRef.current?.zoomAtCoordinate(0.8, undefined, 200);
+        return;
+      }
     };
 
     document.addEventListener('keydown', handleKeyboardShortcuts);

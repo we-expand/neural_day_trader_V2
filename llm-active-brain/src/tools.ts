@@ -2206,11 +2206,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ? config.mt5StopAtrMultiplierWeekend
         : config.mt5StopAtrMultiplier;
       const atrPctForStop = await getAtrPercent(symbol, openPositionTimeframe);
+      // 🔴 2026-09-18: piso dedicado no fim de semana -- o stop de fim de
+      // semana (0.95x ATR) fica ABAIXO do piso de dia útil, e sem este
+      // desvio cairia no fallback (0,500%), ficando maior que o stop que o
+      // corte deveria produzir. Dia útil intocado. Hoisted (era só local ao
+      // cálculo do dynamicStopPct) porque o cap por S/R logo abaixo também
+      // usava um piso -- estava usando incondicionalmente config.mt5StopMinPct
+      // (dia útil) mesmo em fim de semana, reabrindo a mesma armadilha que
+      // este piso dedicado foi criado pra fechar.
+      const stopMinPctForRegime = isWeekendMode() ? config.mt5StopMinPctWeekend : config.mt5StopMinPct;
       let stopPct: number | null = atrPctForStop == null
         ? null
         : (() => {
             const dynamicStopPct = atrPctForStop * stopAtrMultiplierForRegime;
-            if (dynamicStopPct < config.mt5StopMinPct || dynamicStopPct > config.mt5StopMaxPct) return null;
+            if (dynamicStopPct < stopMinPctForRegime || dynamicStopPct > config.mt5StopMaxPct) return null;
             return dynamicStopPct;
           })();
       let usedFallbackStop = stopPct == null;
@@ -2262,7 +2271,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const srCappedStopPct = Math.max(
             distanceToInvalidationLevelPct * config.mt5SrStopMarginPct,
             minStopForSpread,
-            config.mt5StopMinPct,
+            stopMinPctForRegime,
           );
           if (srCappedStopPct < stopPct) {
             stopPct = srCappedStopPct;
@@ -2332,7 +2341,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const targetReferenceStopPct = !usedFallbackStop
         ? atrPctForStop! * targetReferenceMultiplierForRegime
         : stopPct;
-      let takeProfitPct = targetReferenceStopPct * rrMultiplier;
+      // 🔴 2026-09-18 (pedido direto do Cleber: "arriscar 1,5 pra buscar 3"):
+      // no fim de semana o alvo passa a ser uma proporção FIXA do stop real
+      // da entrada (mt5WeekendRiskRewardRatio = 2:1), em vez de derivar do
+      // targetPoints do Setup / referência de ATR. Fora do fim de semana o
+      // cálculo é exatamente o que sempre foi.
+      let takeProfitPct = isWeekendMode()
+        ? stopPct * config.mt5WeekendRiskRewardRatio
+        : targetReferenceStopPct * rrMultiplier;
       // 🔴 2026-09-02 (pedido direto do Cleber): alvo por ATR e cego a
       // estrutura real do preco -- capado aqui pela distancia real ate o
       // proximo suporte/resistencia (candle oficial, mesma fonte que MACD/

@@ -334,7 +334,17 @@ export const config = {
   // stop e deixar o R:R degradar. Sem validação estatística ainda -- precisa
   // de amostra rodando (mesma disciplina de 5 dias úteis/40+ trades já usada
   // no projeto) antes de julgar efeito real.
-  mt5StopAtrMultiplierWeekend: Number(process.env.MT5_STOP_ATR_MULTIPLIER_WEEKEND ?? 1.5),
+  // 🔴 2026-09-18 (pedido direto do Cleber, âncora concreta: XETUSD LONG
+  // aberto com stop de 11,03 pts / 0,419% -- ele pediu o equivalente a ~7
+  // pts, ou seja 0,266%, mantido percentual/por ATR pros demais ativos):
+  // 1.5x -> 0.95x. Continua ISOLADO ao fim de semana; o stop de dia útil
+  // (mt5StopAtrMultiplier, 2.0x) segue intocado. Decisão explícita dele de
+  // testar primeiro no fim de semana e, se funcionar, avaliar dia útil
+  // depois. Este corte exige o piso dedicado abaixo
+  // (mt5StopMinPctWeekend) -- sem ele, 0,266% cai abaixo do piso de dia
+  // útil (0,300%) e o stop cairia no fallback de 0,500%, ficando MAIOR que
+  // antes (mesma armadilha já documentada no caso NAS100 de 2026-09-04).
+  mt5StopAtrMultiplierWeekend: Number(process.env.MT5_STOP_ATR_MULTIPLIER_WEEKEND ?? 0.95),
   // 🔴 2026-09-07 (pedido direto do Cleber): distância (em multiplos de ATR)
   // acima da qual o preço é considerado "esticado" longe de EMA9/SMA20/SMA200
   // -- ver getMovingAverageDistance (atr.ts). 3.0x ATR é um limiar
@@ -397,6 +407,17 @@ export const config = {
   // duro de risco (mt5MaxRiskPctPerTrade) continua limitando por cima, sem
   // mudança.
   mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 2.5),
+  // 🔴 2026-09-18 (pedido direto do Cleber, junto do corte de stop de fim de
+  // semana): "arriscar 1,5 pra buscar 3" -- R:R 2:1 no fim de semana, medido
+  // contra o stop REAL da entrada, não contra referência de ATR. Com o stop
+  // em ~0,266%, o alvo sai em ~0,532%. Aplicado só quando isWeekendMode();
+  // dia útil segue exatamente como estava (targetPoints do Setup / referência
+  // congelada mt5TargetReferenceStopAtrMultiplier). Sobrepõe o targetPoints
+  // do Setup DENTRO do fim de semana de propósito: o pedido foi uma proporção
+  // explícita, e com targetPoints=POUCOS (1.5) o alvo sairia em 1,5:1, abaixo
+  // do que ele pediu. O cap por suporte/resistência real e o piso
+  // mt5MinRrAfterSrCap continuam valendo por cima, sem mudança.
+  mt5WeekendRiskRewardRatio: Number(process.env.MT5_WEEKEND_RISK_REWARD_RATIO ?? 2.0),
   // 🔴 2026-09-05: revertido junto com o alvo acima -- sem alvo mais curto no
   // fim de semana, não havia R:R menor pra compensar. Multiplicador ficou em
   // 1.0 (no-op).
@@ -412,6 +433,15 @@ export const config = {
   // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:
   // stop apertado demais bate por ruído antes de qualquer tese ter chance).
   mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.003),
+  // 🔴 2026-09-18 (mesmo pedido do corte de stop de fim de semana acima):
+  // piso DEDICADO ao fim de semana. O piso de dia útil (0,300%) é maior que
+  // o próprio stop alvo do fim de semana (~0,266% no XETUSD de referência),
+  // então sem este piso separado o stop dinâmico seria descartado por estar
+  // "fora do range" e cairia no fallback de 0,500% -- ficando MAIOR que
+  // antes do corte, o oposto do pedido. 0,200% preserva margem real contra
+  // whipsaw por ruído puro (o guard de spread, mt5SpreadStopSafetyMultiplier,
+  // continua alargando por cima quando o spread exige). Dia útil INTOCADO.
+  mt5StopMinPctWeekend: Number(process.env.MT5_STOP_MIN_PCT_WEEKEND ?? 0.002),
   mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
   mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),
   // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
