@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -1605,7 +1605,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection, dailyHighLowForTarget] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
@@ -1625,6 +1625,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // 🔴 2026-09-15 (pedido direto do Cleber -- 15m como terceiro voto,
         // ver comentario em get_mt5_quote acima): FIXO em 15m tambem aqui.
         openPositionTimeframe === "15m" ? Promise.resolve(null) : getTrendInfo(symbol, "15m"),
+        // 🔴 2026-09-17 (pedido direto do Cleber -- cap de alvo por maxima/
+        // minima real das ultimas 24h, ver getDailyHighLow/atr.ts e uso
+        // abaixo): FIXO em 1H, independente do timeframe operacional, mesmo
+        // espirito de getLongTermTrendInfo acima.
+        getDailyHighLow(symbol),
       ]);
       const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
@@ -2336,6 +2341,44 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           takeProfitCappedBySR = true;
         }
       }
+      // 🔴 2026-09-17 (pedido direto do Cleber -- "ela acabou de desenhar um
+      // alvo acima da maxima do dia em BTCUSD... pode bater, mas e muito
+      // pouco provavel, ela tem que ter esses calculos de probabilidade na
+      // cabeca"): achado real -- o cap de S/R logo acima so enxerga a janela
+      // do timeframe OPERACIONAL (default 5m x 60 velas = so 5h), sem
+      // nenhuma nocao do que aconteceu antes disso no mesmo dia. Um alvo por
+      // ATR podia nascer limpo acima da maxima/minima real das ultimas 24h
+      // so porque ela ficou fora dessa janela curta. Cap dedicado, mesmo
+      // criterio do cap de S/R (margem + R:R minimo), usando getDailyHighLow
+      // (atr.ts, janela ROLANTE de 24h em velas de 1H, independente do
+      // timeframe operacional) -- nunca desliga por rompimento na janela
+      // curta, so quando o preco JA rompeu de verdade a maxima/minima real
+      // das ultimas 24h.
+      let takeProfitCappedByDailyLevel = false;
+      if (dailyHighLowForTarget) {
+        const brokeDailyLevelInTradeDirection =
+          side === "LONG" ? dailyHighLowForTarget.brokeAboveDailyHigh : dailyHighLowForTarget.brokeBelowDailyLow;
+        if (!brokeDailyLevelInTradeDirection) {
+          const distanceToDailyLevelPct =
+            (side === "LONG" ? dailyHighLowForTarget.distanceToDailyHighPct : dailyHighLowForTarget.distanceToDailyLowPct) / 100;
+          const dailyCappedTakeProfitPct = distanceToDailyLevelPct * config.mt5SrTargetMarginPct;
+          if (!isFomcBtcPlay && dailyCappedTakeProfitPct < takeProfitPct) {
+            if (dailyCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+              const levelName = side === "LONG" ? "maxima" : "minima";
+              return {
+                error:
+                  `${symbol}: a ${levelName} real das ultimas 24h esta a so ${(distanceToDailyLevelPct * 100).toFixed(3)}% de distancia -- ` +
+                  `alvo (${(takeProfitPct * 100).toFixed(3)}% por ATR) exigiria uma NOVA ${levelName} de 24h (possivel, mas pouco provavel sem ` +
+                  `confirmacao real de rompimento), e o espaco disponivel nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 acima ` +
+                  `do stop (${(stopPct * 100).toFixed(3)}%). Posicao NAO aberta -- risco/retorno desfavoravel de partida. Espere o preco romper esse ` +
+                  `nivel de verdade ou avalie outro ativo/lado.`,
+              };
+            }
+            takeProfitPct = dailyCappedTakeProfitPct;
+            takeProfitCappedByDailyLevel = true;
+          }
+        }
+      }
       // 🔴 2026-09-05 (pedido direto do Cleber -- "ela tem que saber se o
       // mercado está largo ou estreito"): achado real via print (XETUSD
       // LONG, alvo de +11pts com a máxima/mínima da janela recente mal
@@ -2663,6 +2706,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
         alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
         alvo_capado_por_suporte_resistencia: takeProfitCappedBySR,
+        alvo_capado_por_maxima_minima_24h: takeProfitCappedByDailyLevel,
         alvo_capado_por_amplitude_estreita: takeProfitCappedByRange,
         stop_capado_por_pavio_real: stopCappedBySR,
         stop_alargado_por_spread: widenedForSpread,
@@ -2676,6 +2720,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             : "") +
           (takeProfitCappedBySR
             ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o suporte/resistencia real esta mais perto -- mirando logo antes do nivel, nao alem dele.`
+            : "") +
+          (takeProfitCappedByDailyLevel
+            ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque a maxima/minima real das ultimas 24h esta mais perto -- bater uma NOVA maxima/minima de 24h e possivel mas pouco provavel sem confirmacao real de rompimento, mirando logo antes do nivel.`
             : "") +
           (takeProfitCappedByRange
             ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o mercado esta em regime ESTREITO -- a amplitude real recente nao sustenta um alvo maior sem romper a estrutura primeiro.`

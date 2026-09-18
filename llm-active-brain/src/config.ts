@@ -614,7 +614,10 @@ export const config = {
   // (1.05 -> 0.63) -- ajustado nesta mesma sessão depois de ver o dado real
   // (113 leituras de 17h-20h28 Brasília hoje, média de participação real
   // 0.549x; com 0.63 passam ~40% das leituras, contra ~50% em 0.525).
-  mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.63),
+  // 2026-09-16 (pedido direto do Cleber): baixado de 60% pra 40% do normal
+  // (0.63 -> 0.42). Sem validação estatística ainda -- reavaliar com amostra
+  // rodando sob este novo valor.
+  mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.42),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO

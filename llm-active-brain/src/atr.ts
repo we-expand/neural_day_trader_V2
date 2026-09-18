@@ -653,6 +653,64 @@ export async function getSupportResistance(symbol: string, timeframe: SupportedT
   };
 }
 
+export interface DailyHighLow {
+  /** Maxima/minima real da janela ROLANTE das ultimas ~24h (velas de 1H, exclui as ultimas 2 -- mesmo criterio de SR_BREAKOUT_EXCLUDE_CANDLES, honesto, nao projetado). */
+  dailyHigh: number;
+  dailyLow: number;
+  distanceToDailyHighPct: number;
+  distanceToDailyLowPct: number;
+  /** true quando o preco ja rompeu de verdade a maxima/minima das ultimas 24h -- nesse caso o nivel antigo deixa de ser um teto real. */
+  brokeAboveDailyHigh: boolean;
+  brokeBelowDailyLow: boolean;
+  lookbackHours: number;
+}
+
+const DAILY_HIGH_LOW_LOOKBACK_CANDLES = 24; // ~24h em velas de 1H
+
+/**
+ * 🔴 2026-09-17 (pedido direto do Cleber -- "ela desenhou um alvo acima da
+ * maxima do dia em BTCUSD... pode bater, mas e muito pouco provavel, ela tem
+ * que ter esses calculos de probabilidade na cabeca"): achado real -- o cap
+ * de alvo por S/R em tools.ts (open_position) usava so getSupportResistance
+ * no timeframe OPERACIONAL da sessao (default 5m x 60 velas = so 5h de
+ * janela) -- cego a qualquer maxima/minima que tenha acontecido ANTES dessa
+ * janela no mesmo dia (ex: pico da sessao ASIA, com o motor avaliando de
+ * tarde em NY). Esta funcao busca 1H FIXO (independente do timeframe
+ * operacional, mesmo espirito de getLongTermTrendInfo acima), janela ROLANTE
+ * de 24h -- mais robusto que "dia calendario" (qual fuso? UTC corta a sessao
+ * ASIA ao meio) e e o que qualquer trader discricionario chama de "maxima/
+ * minima do dia" numa mesa 24h como cripto. `null` quando nao ha candle real
+ * suficiente -- nunca fabrica nivel.
+ */
+export async function getDailyHighLow(symbol: string): Promise<DailyHighLow | null> {
+  const candles = await fetchRecentCandles(symbol, "1H");
+  if (!candles || candles.length < DAILY_HIGH_LOW_LOOKBACK_CANDLES + SR_BREAKOUT_EXCLUDE_CANDLES) return null;
+
+  const window = candles.slice(-(DAILY_HIGH_LOW_LOOKBACK_CANDLES + SR_BREAKOUT_EXCLUDE_CANDLES));
+  const establishedCandles = window.slice(0, window.length - SR_BREAKOUT_EXCLUDE_CANDLES);
+  const highs = establishedCandles.map((c) => c.high).filter((v) => Number.isFinite(v));
+  const lows = establishedCandles.map((c) => c.low).filter((v) => Number.isFinite(v));
+  if (highs.length === 0 || lows.length === 0) return null;
+
+  const dailyHigh = Math.max(...highs);
+  const dailyLow = Math.min(...lows);
+  const lastClose = candles[candles.length - 1].close;
+  if (!Number.isFinite(lastClose) || lastClose <= 0 || dailyHigh <= 0 || dailyLow <= 0) return null;
+
+  const distanceToDailyHighPct = ((dailyHigh - lastClose) / lastClose) * 100;
+  const distanceToDailyLowPct = ((lastClose - dailyLow) / lastClose) * 100;
+
+  return {
+    dailyHigh: Number(dailyHigh.toFixed(6)),
+    dailyLow: Number(dailyLow.toFixed(6)),
+    distanceToDailyHighPct: Number(distanceToDailyHighPct.toFixed(3)),
+    distanceToDailyLowPct: Number(distanceToDailyLowPct.toFixed(3)),
+    brokeAboveDailyHigh: distanceToDailyHighPct < 0,
+    brokeBelowDailyLow: distanceToDailyLowPct < 0,
+    lookbackHours: DAILY_HIGH_LOW_LOOKBACK_CANDLES,
+  };
+}
+
 export interface MacdResult {
   /** Linha MACD (EMA12 - EMA26), em unidade de preço (mesma unidade do símbolo). */
   macd: number;
