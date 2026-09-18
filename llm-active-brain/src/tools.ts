@@ -179,7 +179,22 @@ const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 // entradas por dia em troca de mais seletividade. Sem validacao estatistica
 // ainda -- precisa de amostra rodando sob este gate antes de julgar efeito
 // real na taxa de acerto.
-const MIN_CONFIDENCE_FOR_OPEN_POSITION = 80;
+// 🔴 2026-09-18 (pedido direto do Cleber, aprovado como mudanca UNICA e
+// isolada -- ver "conselho" convocado no mesmo dia): revertido de 80 -> 70
+// (valor anterior ao "creep" 65->70->75->80 que nunca foi medido passo a
+// passo). Achado real que motivou: este gate sozinho foi o maior bloqueio
+// mecanico das ultimas 72h (55 tentativas recusadas) e NAO EXISTIA em
+// 02/09 (melhor dia real do motor, 80% de acerto, 15 trades) -- foi criado
+// DEPOIS (commit 925d7f3). Achado tambem relevante (SQL, 2026-09-11):
+// confianca declarada NAO tem correlacao real com resultado (85,3% media
+// em trade vencedor vs 84,3% em perdedor) -- ou seja, o numero em si nao e
+// calibrado, subir/descer o teto nao necessariamente compra mais
+// assertividade real. Por isso 70 (nao um valor mais baixo ainda) -- ainda
+// e um teto alto, mudanca conservadora de um unico parametro pra medir
+// isolado (regra do projeto: nunca empilhar mudanca de mecanica sem medir,
+// precedente 04/09). NAO mexer de novo antes de 5 dias uteis / 40+ trades
+// fechados sob este valor.
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 70;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
