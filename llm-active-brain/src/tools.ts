@@ -1842,12 +1842,26 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // se o modelo cotou o simbolo antes de abrir) -- bloqueia se QUALQUER
       // uma das duas fontes mostrar contradicao, nunca deixa a falha de uma
       // fonte anular a protecao da outra.
+      // 🔴 2026-09-21 (achado real, reportado pelo Cleber -- "a LLM entrou com
+      // estocastico sobrecomprado"): o fix de 09-14 acima documentava
+      // "bloqueia se QUALQUER uma das duas fontes mostrar contradicao", mas o
+      // codigo usava `??` -- que e PREFERENCIA, nao OR. Com a chamada fresca
+      // devolvendo qualquer label nao-nulo (ex: NEUTRO, ou label suavizado
+      // pelo limiar de fim de semana 75/25), o snapshot real que dizia
+      // SOBRECOMPRADO era DESCARTADO e o gate passava. Confirmado no banco:
+      // BNBUSD LONG 2026-09-19 01:22 com indicators_snapshot.stochasticLabel =
+      // SOBRECOMPRADO aberto normalmente, 5 dias DEPOIS do gate estar no ar
+      // (mesmo padrao em BTCUSD SHORT/UKOUSD SHORT 09-16, ambos SOBREVENDIDO).
+      // Fix: avalia as DUAS fontes de verdade, como o comentario original ja
+      // prometia -- contradicao em qualquer uma bloqueia.
       const lastQuoteStochasticLabel = lastQuoteSnapshotBySymbol.get(symbol)?.stochasticLabel ?? null;
-      const stochasticLabelForGate = stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel;
+      const contradictoryLabelForSide = side === "SHORT" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
+      const stochasticLabelForGate =
+        [stochasticForReversalCheck?.label ?? null, lastQuoteStochasticLabel]
+          .find((label) => label === contradictoryLabelForSide)
+        ?? stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel;
       if (stochasticLabelForGate) {
-        const stochasticContradictsSide =
-          (side === "SHORT" && stochasticLabelForGate === "SOBREVENDIDO") ||
-          (side === "LONG" && stochasticLabelForGate === "SOBRECOMPRADO");
+        const stochasticContradictsSide = stochasticLabelForGate === contradictoryLabelForSide;
         if (stochasticContradictsSide) {
           const kDisplay = stochasticForReversalCheck ? ` (k=${stochasticForReversalCheck.k.toFixed(2)})` : "";
           return {
