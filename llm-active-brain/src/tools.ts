@@ -1884,7 +1884,26 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const contradictionSourceIsLongTerm =
         stochasticLabelForGate === contradictoryLabelForSide &&
         (stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel) !== contradictoryLabelForSide;
-      if (stochasticLabelForGate) {
+      // 🔴 2026-09-21 (Ajuste 1 do conselho, pedido do Cleber -- "ela tem que
+      // ser menos restritiva"): achado real medido em produção (170
+      // bloqueios/9 dias): 93% desses bloqueios ocorriam com `crossing=null`
+      // -- ou seja, o %K nunca tinha de fato CRUZADO o %D, só estava na zona
+      // (isso é o comportamento NORMAL de uma tendência viva, não exaustão --
+      // medido: P(Estoc 1H SOBRECOMPRADO | tendência 1H ALTA) = 42,1%).
+      // E5 (consenso de direção, `marketDirectionForGate` abaixo) já só
+      // libera LONG quando o veredito de direção é de alta; este gate travava
+      // o MESMO lado que E5 acabou de liberar -- as duas travas são
+      // logicamente incompatíveis em mercado direcional, por construção, não
+      // por calibragem (medido: BTCUSD/NAS100/UK100 travados aqui em
+      // 2026-09-21 com confluência real de tendência+MACD+rompimento e 80-85%
+      // de confiança). Fix: esta trava (zona do Estocástico LENTO, 5m e 1H)
+      // passa a valer só quando a TESE DECLARADA já é reversão
+      // (setupType==="REVERSAO") -- é exatamente quando "o indicador contra o
+      // lado" é a própria tese sendo checada. Continuação/rompimento deixam
+      // de ser vetados por zona sozinha; a rede de segurança contra exaustão
+      // literal em continuação (E7, %K BRUTO >=95/<=5, ver bloco abaixo)
+      // continua intocada. Isolado: nenhum outro gate mudou nesta mudança.
+      if (setupType === "REVERSAO" && stochasticLabelForGate) {
         const stochasticContradictsSide = stochasticLabelForGate === contradictoryLabelForSide;
         if (stochasticContradictsSide) {
           const sourceStoch = contradictionSourceIsLongTerm ? stochasticLongTermForReversalCheck : stochasticForReversalCheck;
@@ -1892,10 +1911,10 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const kDisplay = sourceStoch ? ` (k=${sourceStoch.k.toFixed(2)} em ${tfLabel})` : ` (timeframe ${tfLabel})`;
           return {
             error:
-              `${symbol}: Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
+              `${symbol}: setupType="REVERSAO" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
               `${stochasticLabelForGate === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
               `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
-              `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}; se a tese e continuacao, espere o Estocastico sair do extremo.`,
+              `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}.`,
           };
         }
       }
