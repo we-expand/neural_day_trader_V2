@@ -488,14 +488,16 @@ const VOLUME_RECENT_CANDLES = 3; // 15min
 const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
 const VOLUME_ELEVATED_RATIO = 1.05; // 2026-08-31: baixado de 1.15 a pedido do Cleber (achou restritivo demais)
 
-// 2026-09-15 (pedido direto do Cleber): das 17h00 às 23h00 Brasília, TODO
+// 2026-09-15 (pedido direto do Cleber): das 17h00 às 00h00 Brasília, TODO
 // dia (não só fim de semana), o gate de volume elevado usa
 // config.mt5VolumeElevatedRatioEvening (mais permissivo) em vez do valor
 // normal acima -- fora dessa janela, comportamento intocado. Mesmo padrão
 // de horário fixo em Brasília (UTC-3, sem DST) já usado em
 // isWeekendNow/getNySessionPhase logo abaixo.
+// 🔴 2026-09-21: horário definitivo confirmado pelo Cleber é 17h-00h (era
+// 17h-23h) -- fim da janela estendido em 1h.
 const VOLUME_EVENING_START_BRASILIA_MIN = 17 * 60; // 17:00 Brasilia
-const VOLUME_EVENING_END_BRASILIA_MIN = 23 * 60; // 23:00 Brasilia
+const VOLUME_EVENING_END_BRASILIA_MIN = 24 * 60; // 00:00 Brasilia (meia-noite)
 
 function isVolumeEveningWindow(now: Date = new Date()): boolean {
   const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -837,25 +839,31 @@ export interface SlowStochasticResult {
   rawK: number;
 }
 
-const STOCH_PERIOD = 14;
+// 🔴 2026-09-21 (Ajuste 2 do conselho, pedido explicito do Cleber --
+// "nosso estocastico tem que estar com a configuracao do MT5.. afinal o
+// sinal vem de la"): periodo mudado de 14 pra 5, confirmado nos 3 prints
+// do terminal MT5 real do Cleber (Periodo %K=5, Retardar(slowing)=3,
+// Periodo %D=3, Metodo=Simple, Campo do preco=Low/High, niveis fixos
+// 20/80, escala 0-100). Antes deste ajuste, o motor calculava um
+// Estocastico de janela 14 -- MAIS LENTO/suavizado que o do Cleber -- que
+// nunca podia bater ponto a ponto com o que ele olha na tela real,
+// mesmo com dado de candle idêntico. STOCH_K_SMOOTHING/STOCH_D_SMOOTHING
+// (3/3, "slowing"/"%D period") já batiam com o print, intocados.
+const STOCH_PERIOD = 5;
 const STOCH_K_SMOOTHING = 3;
 const STOCH_D_SMOOTHING = 3;
+// 🔴 2026-09-21 (Ajuste 2, mesmo pedido acima): niveis do Estocastico no
+// MT5 real do Cleber sao FIXOS em 20/80 (confirmado no print, sem variante
+// de fim de semana no terminal dele) -- o par STOCH_OVERBOUGHT_WEEKEND/
+// STOCH_OVERSOLD_WEEKEND (75/25, calibrado em 2026-09-05 por hipotese
+// interna, nunca validado contra o terminal real) foi removido pra bater
+// com a fonte de verdade declarada por ele ("o sinal vem de la"). Efeito
+// dominante do fim de semana já é coberto por outros mecanismos
+// (confianca minima/volume ignorado, ver modo-fim-de-semana-2026-09-18) --
+// este limiar deixa de duplicar/contradizer isso com um numero proprio
+// nunca confirmado contra o MT5.
 const STOCH_OVERBOUGHT = 80;
 const STOCH_OVERSOLD = 20;
-// 🔴 2026-09-05 (pedido do Cleber -- fim de semana, cesta só cripto, mercado
-// "mais previsível/acomodado" com volume global baixo): em dia útil, extremo
-// de 80/20 é o limiar certo pra evitar sinal falso em mercado líquido e
-// ruidoso. No regime de fim de semana (isWeekendMode(), mesma janela usada
-// em todo o resto do módulo de fim de semana), o range de preço tende a ser
-// mais estreito e o movimento mais lento -- esperar 80/20 de verdade faz o
-// sinal de exaustão chegar tarde demais, depois que boa parte da reversão já
-// aconteceu. Limiar mais sensível (75/25) só nesta janela, mesmo espírito da
-// convicção extra já dada a rompimento/estrutura em nySessionPhase (1g do
-// prompt) -- não é fabricar sinal, é o MESMO cálculo real (fastK/slowK/D),
-// só com o limiar de classificação recalibrado pro range mais curto do fim
-// de semana.
-const STOCH_OVERBOUGHT_WEEKEND = 75;
-const STOCH_OVERSOLD_WEEKEND = 25;
 
 /** Media movel simples de janela `period`, retorna série completa (NaN onde não há dados suficientes). */
 function calculateSmaSeries(values: number[], period: number): number[] {
@@ -923,10 +931,8 @@ export async function getSlowStochastic(symbol: string, timeframe: SupportedTime
   const lastRawK = validFastK[validFastK.length - 1];
   if (!Number.isFinite(lastK) || !Number.isFinite(lastD) || !Number.isFinite(lastRawK)) return null;
 
-  const overboughtThreshold = isWeekendMode() ? STOCH_OVERBOUGHT_WEEKEND : STOCH_OVERBOUGHT;
-  const oversoldThreshold = isWeekendMode() ? STOCH_OVERSOLD_WEEKEND : STOCH_OVERSOLD;
   const label: SlowStochasticResult["label"] =
-    lastK >= overboughtThreshold ? "SOBRECOMPRADO" : lastK <= oversoldThreshold ? "SOBREVENDIDO" : "NEUTRO";
+    lastK >= STOCH_OVERBOUGHT ? "SOBRECOMPRADO" : lastK <= STOCH_OVERSOLD ? "SOBREVENDIDO" : "NEUTRO";
 
   let crossing: SlowStochasticResult["crossing"] = null;
   const prevK = validSlowK[validSlowK.length - 2];
