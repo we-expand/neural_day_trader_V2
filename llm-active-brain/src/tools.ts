@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -114,6 +114,9 @@ const lastQuoteSnapshotBySymbolStore = new Map<
       volumeElevated: boolean | null;
       macdLabel: string | null;
       stochasticLabel: string | null;
+      // 🔴 2026-09-21 (pedido do Cleber -- observar 5m E 1H): label do
+      // Estocastico no timeframe de 1H, independente do operacional.
+      stochasticLongTermLabel: string | null;
       // 🔴 2026-09-02: regime (sessão/volume/volatilidade) do momento da
       // cotação -- reaproveitado na abertura pra gravar junto do trade (ver
       // openMt5Position em neuralBridge.ts), permitindo validar depois se
@@ -872,6 +875,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // leitura de exaustao classica. null quando nao ha candle real
       // suficiente, nunca fabrica indicador.
       const stochastic = await getSlowStochastic(symbol, timeframe);
+      // 🔴 2026-09-21 (pedido do Cleber): mesma leitura de exaustao, mas em
+      // 1H -- o grafico que ele acompanha. Complementa (nunca substitui) o
+      // Estocastico do timeframe operacional acima. null quando nao ha
+      // candle 1H real suficiente, nunca fabrica indicador.
+      const stochasticLongTerm = await getLongTermSlowStochastic(symbol);
       // 🔴 2026-09-15 (achado do Cleber, ao vivo: BTCUSD LONG abriu com
       // MACD/Estocastico NULOS -- candle falhou nesse ciclo mas a cotacao via
       // tick veio fresca, entao a trava de staleQuoteToolCycleBySymbol acima
@@ -945,6 +953,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volumeElevated: volume?.elevated ?? null,
         macdLabel: macd?.label ?? null,
         stochasticLabel: stochastic?.label ?? null,
+        stochasticLongTermLabel: stochasticLongTerm?.label ?? null,
         session: regime?.session ?? null,
         volumeLabel: regime?.volumeLabel ?? null,
         volatilityLabel: regime?.volatilityLabel ?? null,
@@ -958,7 +967,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         marketDirectionAgreement: marketDirection.agreement,
       });
       if (!isSymbolTradable(symbol)) {
-        return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, candlePatterns, regime, movingAverages, smcZones, hmmRegime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+        return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, stochasticLongTerm, candlePatterns, regime, movingAverages, smcZones, hmmRegime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
       }
       // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
       // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
@@ -1058,6 +1067,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         supportResistance,
         macd,
         stochastic,
+        stochasticLongTerm,
         candlePatterns,
         regime,
         movingAverages,
@@ -1620,11 +1630,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
       const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection, dailyHighLowForTarget] = await Promise.all([
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, stochasticLongTermForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection, dailyHighLowForTarget] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
         getSupportResistance(symbol, openPositionTimeframe),
         getSlowStochastic(symbol, openPositionTimeframe),
+        getLongTermSlowStochastic(symbol),
         getMacd(symbol, openPositionTimeframe),
         getCandlePatterns(symbol, openPositionTimeframe),
         getMarketRegime(symbol, openPositionTimeframe),
@@ -1856,14 +1867,29 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // prometia -- contradicao em qualquer uma bloqueia.
       const lastQuoteStochasticLabel = lastQuoteSnapshotBySymbol.get(symbol)?.stochasticLabel ?? null;
       const contradictoryLabelForSide = side === "SHORT" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
+      // 🔴 2026-09-21 (pedido do Cleber -- "aonde deve ser observado... 5
+      // minutos e 1 hora"): o gate passa a considerar TAMBEM o Estocastico de
+      // 1H, com o mesmo criterio de contradicao direta. Exaustao de 1H contra
+      // o lado da entrada e um sinal mais forte que o de 5m (janela maior),
+      // e ate aqui nao era observada por nenhum gate.
+      const lastQuoteStochasticLongTermLabel = lastQuoteSnapshotBySymbol.get(symbol)?.stochasticLongTermLabel ?? null;
       const stochasticLabelForGate =
-        [stochasticForReversalCheck?.label ?? null, lastQuoteStochasticLabel]
-          .find((label) => label === contradictoryLabelForSide)
+        [
+          stochasticForReversalCheck?.label ?? null,
+          lastQuoteStochasticLabel,
+          stochasticLongTermForReversalCheck?.label ?? null,
+          lastQuoteStochasticLongTermLabel,
+        ].find((label) => label === contradictoryLabelForSide)
         ?? stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel;
+      const contradictionSourceIsLongTerm =
+        stochasticLabelForGate === contradictoryLabelForSide &&
+        (stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel) !== contradictoryLabelForSide;
       if (stochasticLabelForGate) {
         const stochasticContradictsSide = stochasticLabelForGate === contradictoryLabelForSide;
         if (stochasticContradictsSide) {
-          const kDisplay = stochasticForReversalCheck ? ` (k=${stochasticForReversalCheck.k.toFixed(2)})` : "";
+          const sourceStoch = contradictionSourceIsLongTerm ? stochasticLongTermForReversalCheck : stochasticForReversalCheck;
+          const tfLabel = contradictionSourceIsLongTerm ? "1H" : String(openPositionTimeframe);
+          const kDisplay = sourceStoch ? ` (k=${sourceStoch.k.toFixed(2)} em ${tfLabel})` : ` (timeframe ${tfLabel})`;
           return {
             error:
               `${symbol}: Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +

@@ -31,7 +31,8 @@ function summarizeToolResultForLog(name: string, input: Record<string, unknown>,
     const trend = (r.trend as { label?: string } | null)?.label;
     const macd = (r.macd as { label?: string } | null)?.label;
     const stoch = (r.stochastic as { label?: string } | null)?.label;
-    const parts = [trend ? `tendência ${trend}` : null, macd ? `MACD ${macd}` : null, stoch ? `estocástico ${stoch}` : null].filter(Boolean);
+    const stochLt = (r.stochasticLongTerm as { label?: string } | null)?.label;
+    const parts = [trend ? `tendência ${trend}` : null, macd ? `MACD ${macd}` : null, stoch ? `estocástico ${stoch}` : null, stochLt ? `estocástico 1H ${stochLt}` : null].filter(Boolean);
     return `Consultou ${r.symbol}: $${r.price}${parts.length ? " -- " + parts.join(", ") : ""}${r.aviso ? ` (${r.aviso})` : ""}`;
   }
   if (name === "get_mt5_quote" && r?.error) {
@@ -524,6 +525,15 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    mecanicamente open_position quando side contradiz stochasticLabel dessa
    forma (SHORT+SOBREVENDIDO ou LONG+SOBRECOMPRADO), mas o objetivo aqui é
    você nunca propor isso, não só depender do bloqueio.
+   **OBRIGATÓRIO desde 2026-09-21 (pedido explícito do Cleber): o Estocástico
+   deve ser observado em DOIS prazos, 5 minutos E 1 hora.** get_mt5_quote
+   agora devolve "stochasticLongTerm" (1H) ao lado de "stochastic" (timeframe
+   operacional). O de 1H tem peso MAIOR: exaustão em 1H contra o lado da
+   entrada é motivo pra não entrar mesmo com o de 5m NEUTRO -- confirmado ao
+   vivo num XETUSD LONG que leu 5m NEUTRO (leitura correta) enquanto o 1H
+   já estava esticado. O mesmo bloqueio mecânico de contradição agora vale
+   pros dois prazos. Ao justificar uma entrada, cite os DOIS explicitamente;
+   se só um estiver disponível, diga qual faltou em vez de omitir.
    **Achado real 2026-09-14, tarde: bloquear o lado errado não basta --
    quando isso acontecer, TENTE O LADO OPOSTO no mesmo ativo antes de
    descartar e passar pro próximo.** Confirmado ao vivo: NAS100 SHORT foi

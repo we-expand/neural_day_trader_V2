@@ -876,6 +876,20 @@ function calculateSmaSeries(values: number[], period: number): number[] {
  * `fetchRecentCandles` que MACD/ATR/tendência já usam -- se não houver
  * candle real suficiente, retorna `null`, nunca fabrica indicador.
  */
+// 🔴 2026-09-21 (pedido explicito do Cleber: "aonde deve ser observado... 5
+// minutos e 1 hora"): ate aqui o Estocastico so existia no timeframe
+// OPERACIONAL (5m na config atual) -- ao contrario da tendencia, que sempre
+// teve leitura de longo prazo dedicada (getLongTermTrendInfo/1H). Isso
+// deixava o motor literalmente CEGO a exaustao de 1H: confirmado no XETUSD
+// LONG de 2026-09-21, que gravou stochasticLabel=NEUTRO (leitura de 5m
+// correta e real) enquanto o Cleber via sobrecompra no grafico de 1H.
+// Mesmo timeframe fixo de getLongTermTrendInfo, mesma funcao/candle oficial.
+const STOCH_LONG_TERM_TIMEFRAME: SupportedTimeframe = "1H";
+
+export async function getLongTermSlowStochastic(symbol: string): Promise<SlowStochasticResult | null> {
+  return getSlowStochastic(symbol, STOCH_LONG_TERM_TIMEFRAME);
+}
+
 export async function getSlowStochastic(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SlowStochasticResult | null> {
   const candles = await fetchRecentCandles(symbol, timeframe);
   const minCandles = STOCH_PERIOD + STOCH_K_SMOOTHING + STOCH_D_SMOOTHING; // warm-up real pra dupla suavização
