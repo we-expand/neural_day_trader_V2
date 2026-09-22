@@ -180,17 +180,33 @@ export default function DevLab({ embedded = false }: DevLabProps) {
       return current < 20;
     });
 
+    const failedCategories: string[] = [];
     for (let i = 0; i < categoriesToFill.length; i++) {
       const cat = categoriesToFill[i];
       const current = suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status === 'active' && s.category === cat).length;
       const needed = 20 - current;
       setFillProgress({ done: i, total: categoriesToFill.length, label: CATEGORY_CONFIG[cat].label });
-      const result = await devLabService.generateAiSuggestions(undefined, needed, cat);
+
+      // Erro transitório do provedor de LLM (ex: 503 "overloaded") não pode
+      // travar o loop inteiro — sem retry aqui, 1 categoria sobrecarregada
+      // deixava as outras N-1 categorias sem nenhuma tentativa (achado real
+      // em 2026-09-22: TECH preencheu, DESIGN_UX deu 503 e as 9 categorias
+      // seguintes nunca foram sequer chamadas). Tenta 1x, espera 3s, tenta
+      // de novo antes de desistir só dessa categoria e seguir pra próxima.
+      let result = await devLabService.generateAiSuggestions(undefined, needed, cat);
       if ('error' in result) {
-        setAiError(`Falhou em "${CATEGORY_CONFIG[cat].label}": ${result.error}`);
-        break;
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        result = await devLabService.generateAiSuggestions(undefined, needed, cat);
+      }
+
+      if ('error' in result) {
+        failedCategories.push(`${CATEGORY_CONFIG[cat].label}: ${result.error}`);
+        continue;
       }
       setSuggestions((prev) => [...result.suggestions, ...prev]);
+    }
+    if (failedCategories.length > 0) {
+      setAiError(`Falhou em ${failedCategories.length} categoria(s): ${failedCategories.join(' | ')}`);
     }
     setFillProgress(null);
     setFillingAllCategories(false);
