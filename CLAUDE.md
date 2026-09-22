@@ -15,33 +15,40 @@
 
 ## ▶ COMECE AQUI
 
-**[EM ANDAMENTO 2026-09-22] Upgrade do cérebro do LLM Brain: modelo trocado
-pra Kimi K3 (grátis, NVIDIA NIM) após diagnóstico do conselho (75% dos
-bloqueios eram leitura invertida de Estocástico/candle pelo modelo antigo,
-4B) + fixes de retry (motor e Dev Lab) + Passo 2 do feedback loop
-iniciado.** Kimi K3 venceu benchmark real contra GLM-5.3/DeepSeek/Nemotron
-(único com tool_call correto nos 2 lados + latência viável, ~45s sob
-prompt real de 17k tokens). Achado e corrigido no caminho: erro de conexão
-transitório da NVIDIA matava o ciclo sem retry (motor ficou ~10min mudo) —
-corrigido; mesma causa explicava categorias vazias no Dev Lab "Sugestões
-da IA" (Edge Function sem retry nenhum) — corrigido, **deploy pendente**
-(`supabase functions deploy dev-lab-ai-suggestions`). `tradeMemory.ts`
-ganhou 1º degrau do Passo 2 (injeta `ai_reasoning` real dos trades mais
+**[EM ANDAMENTO 2026-09-22] Upgrade do cérebro do LLM Brain: Kimi K3
+(grátis, NVIDIA NIM) testado em produção e REVERTIDO pra Ollama (Qwen3.5
+4B) por instabilidade real da NVIDIA (não só transitória) — motor rodando
+Ollama agora, estável. Fixes de retry (motor e Dev Lab) + Passo 2 do
+feedback loop ficam, independente do modelo ativo.** Kimi K3 venceu
+benchmark isolado de qualidade (único a emitir tool_call correto nos 2
+lados sob os rótulos que o conselho identificou como causa de 75% dos
+bloqueios), mas em produção, numa amostra de 38 ciclos, ficou claro que
+não é ruído: ciclos 3-19 limpos, ciclos 20-37 praticamente todos falhando
+(50% de falha total mesmo esgotando 8 tentativas de retry, incluindo
+rate-limit real 429) — janela real e prolongada de sobrecarga da NVIDIA,
+não um blip. Revertido pra Ollama, confirmado saudável de novo. Fixes que
+ficam valendo pra qualquer modelo: retry contra erro de conexão
+transitório no motor e na Edge Function `dev-lab-ai-suggestions` (mesma
+causa explicava categorias vazias no Dev Lab "Sugestões da IA" —
+**deploy pendente**: `supabase functions deploy dev-lab-ai-suggestions`);
+`duration_seconds`/`mfe_usd` agora instrumentados; `tradeMemory.ts` ganhou
+1º degrau do feedback loop (injeta `ai_reasoning` real dos trades mais
 relevantes, antes buscado e descartado). Meta de frequência 10-15/12h
 pedida pelo Cleber, mantida apesar do achado de que não há teto de
 frequência a soltar hoje (gargalo é 100% qualidade de leitura). 2
 sugestões do Dev Lab avaliadas: regime via clustering já existia (HMM,
 fechado sem retrabalho); RL pra risco pausado (contradiz Passo 5 do
-conselho + precedente de 04/09). Lentidão por ativo investigada:
-NÃO é o modelo, é MetaAPI (BTCUSD via Binance 1,5s vs NAS100 via MetaAPI
-25,5s) — 10 chamadas sequenciais dentro de `get_mt5_quote` que dá pra
-paralelizar, **não implementado ainda**. Handoff completo:
+conselho + precedente de 04/09). Lentidão por ativo investigada: NÃO é o
+modelo, é MetaAPI (BTCUSD via Binance 1,5s vs NAS100 via MetaAPI 25,5s) —
+10 chamadas sequenciais dentro de `get_mt5_quote` que dá pra paralelizar,
+**não implementado ainda**. Handoff completo:
 [SESSAO_2026-09-22_UPGRADE_LLM_KIMI_K3_E_RETRY_FIXES.md](SESSAO_2026-09-22_UPGRADE_LLM_KIMI_K3_E_RETRY_FIXES.md).
 **Pendente real**: deploy do Dev Lab acima; confirmar via SQL que
 `duration_seconds` está gravando nos próximos trades reais; paralelizar
-`get_mt5_quote`; observar estabilidade do Kimi K3 por mais tempo (amostra
-desta sessão é pequena); `watchdog.sh` voltou a rodar sozinho (fora do meu
-controle) — checar antes de qualquer restart manual futuro.
+`get_mt5_quote`; se quiser retomar Kimi K3, só com monitoramento ativo
+(não deixar rodando sozinho até a NVIDIA provar estabilidade por
+horas); `watchdog.sh` voltou a rodar sozinho (fora do meu controle) —
+checar antes de qualquer restart manual futuro.
 
 **[EM ANDAMENTO 2026-09-16] Dia de FOMC ("Super Quarta"): investigado "1
 acerto em 9 entradas" (não era o Fed, era buraco real no gate de entrada

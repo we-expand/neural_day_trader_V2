@@ -9,14 +9,25 @@
 
 ## ▶ COMECE AQUI
 
-**Motor rodando agora com Kimi K3** (troca do Qwen3.5 4B/Ollama), sob
-gestão do `watchdog.sh` — confirmado saudável na última checagem desta
-sessão: processo único, zero erro de validador, 1 erro de conexão isolado
-recuperado pelo retry, avaliando toda a cesta com dado real e fresco.
+**⚠️ CORREÇÃO em cima do que este mesmo arquivo dizia mais cedo na sessão:
+Kimi K3 foi testado em produção e REVERTIDO de volta pro Ollama (Qwen3.5
+4B) — não ficou estável.** Amostra pequena (poucos ciclos) parecia
+saudável (1 erro de conexão isolado, recuperado pelo retry); amostra maior
+(38 ciclos) mostrou degradação real e sustentada: ciclos 3-19 limpos,
+ciclos 20-37 praticamente todos falhando (19/38 = 50% de falha total,
+mesmo esgotando as 8 tentativas de retry), incluindo rate-limit real (429)
+da NVIDIA, não só erro de conexão. **Motor rodando agora com Ollama**
+(reversão aplicada, confirmada saudável de novo: completou 1ª geração em
+~1min20s, avaliando a cesta normalmente). Kimi K3 continua sendo o modelo
+com melhor qualidade de raciocínio medida (venceu o benchmark isolado),
+mas a disponibilidade da NVIDIA NIM hoje não é confiável o bastante pra
+rodar sem supervisão — **retomar só com monitoramento ativo, não deixar
+rodando sozinho**.
 
 **Pendente real mais importante**: `supabase functions deploy
 dev-lab-ai-suggestions` (comando pronto na seção "Dev Lab" abaixo) — sem
-isso, o fix do Dev Lab não pega em produção.
+isso, o fix do Dev Lab não pega em produção. Este item continua válido
+independente da reversão do Kimi K3 acima (afeta uma function diferente).
 
 ---
 
@@ -94,7 +105,20 @@ Ainda propaga no último attempt (não mascara falha persistente).
 
 Religado depois do fix — confirmado ao vivo que o retry se recupera
 (chegou a acontecer 4-6 erros seguidos numa das tentativas, sempre
-recuperou sozinho) e o motor segue avaliando a cesta normalmente.
+recuperou sozinho) e o motor seguiu avaliando a cesta normalmente por um
+tempo.
+
+**Atualização, amostra maior (38 ciclos)**: o retry evita crash, mas não
+resolve uma degradação SUSTENTADA do provedor — mapeado ciclo a ciclo
+(`ciclos que falharam: [2, 20, 21, 22, ..., 37]`), ficou claro que
+3-19 rodaram limpos e a partir do ciclo 20 praticamente todo ciclo falhou
+até o fim da sessão, incluindo rate-limit real (429), não só
+`APIConnectionError`. Isto é diferente de "blip transitório" — é uma
+janela real e prolongada de sobrecarga/instabilidade da NVIDIA NIM.
+**Revertido para Ollama** como mitigação (ver seção "▶ COMECE AQUI" no
+topo deste arquivo). O fix de retry continua correto e commitado (protege
+contra blips reais, que também aconteceram) — só não é suficiente sozinho
+quando o provedor fica indisponível por minutos/horas seguidos.
 
 ### Bug colateral encontrado e corrigido: validador de raciocínio 404-ando
 
