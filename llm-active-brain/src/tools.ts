@@ -1687,6 +1687,42 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // setupType=ROMPIMENTO citando "override" do estocástico sobrecomprado
       // sem nenhuma confirmação de fechamento. Não afeta REVERSAO/OUTRO nem
       // entrada sem setupType declarado (campo opcional).
+      // 🔴 2026-09-22 (pedido direto do Cleber -- "ela nao prestou atencao no
+      // MACD. O MACD estava virando para subir, ela tem que estar atenta ao
+      // MACD, principalmente no grafico de 5 minutos"). Caso real: XETUSD
+      // SHORT 22:32 UTC, stopado (-$3,55). Histograma 5m: -1.04 (22:10) →
+      // -0.62 → -0.27 → -0.08 → +0.31 (22:30, cruzou pra cima na propria
+      // vela da entrada). O label so olhava o SINAL do histograma ("BAIXA"),
+      // entao contou como fator a favor do SHORT enquanto o momentum vendedor
+      // morria. Trava dura, MACD FIXO em 5m (independente do timeframe
+      // operacional):
+      //  - SHORT bloqueado se o MACD 5m cruzou pra cima, esta VIRANDO_PARA_CIMA
+      //    (histograma subindo 2 velas seguidas, mesmo ainda negativo), ou esta
+      //    ALTA sem ja estar virando pra baixo.
+      //  - LONG espelhado.
+      // Reversao legitima continua possivel: SHORT com MACD ALTA mas
+      // VIRANDO_PARA_BAIXO (momentum comprador perdendo forca) passa.
+      // Sem MACD real (null) nao bloqueia aqui -- blockEntryOnStaleIndicators
+      // ja cuida desse caso.
+      if (config.macd5mTurnGateEnabled) {
+        const macd5m = openPositionTimeframe === "5m" ? macdForConfluenceCheck : await getMacd(symbol, "5m");
+        if (macd5m) {
+          const againstUp = macd5m.crossing === "CRUZOU_PARA_CIMA" || macd5m.turning === "VIRANDO_PARA_CIMA" || (macd5m.label === "ALTA" && macd5m.turning !== "VIRANDO_PARA_BAIXO");
+          const againstDown = macd5m.crossing === "CRUZOU_PARA_BAIXO" || macd5m.turning === "VIRANDO_PARA_BAIXO" || (macd5m.label === "BAIXA" && macd5m.turning !== "VIRANDO_PARA_CIMA");
+          const blocked = (side === "SHORT" && againstUp) || (side === "LONG" && againstDown);
+          if (blocked) {
+            const hist = macd5m.histogramRecent.map((h) => h.toFixed(4)).join(" → ");
+            return {
+              error: `BLOQUEADO: MACD 5m de ${symbol} esta contra o ${side} -- label=${macd5m.label}, crossing=${macd5m.crossing ?? "nenhum"}, ` +
+                `turning=${macd5m.turning ?? "nenhum"}, histograma ultimas 3 velas: ${hist}. ` +
+                (side === "SHORT"
+                  ? `Histograma subindo = momentum vendedor morrendo / comprador assumindo. `
+                  : `Histograma caindo = momentum comprador morrendo / vendedor assumindo. `) +
+                `Nao entre contra a virada do MACD 5m. Espere o histograma voltar a expandir a favor do lado, ou reavalie o lado oposto. Posicao NAO aberta.`,
+            };
+          }
+        }
+      }
       if (config.breakoutRequireClosedCandleConfirmation && setupType === "ROMPIMENTO" && supportResistanceForTarget) {
         const confirmedByClosedCandle =
           side === "LONG" ? supportResistanceForTarget.closedAboveResistance : supportResistanceForTarget.closedBelowSupport;

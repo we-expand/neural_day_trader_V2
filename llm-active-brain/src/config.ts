@@ -682,6 +682,15 @@ export const config = {
   // (0.63 -> 0.42). Sem validação estatística ainda -- reavaliar com amostra
   // rodando sob este novo valor.
   mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.42),
+  // 2026-09-22 (pedido direto do Cleber): o threshold de volume elevado
+  // FORA da janela noturna (00h-17h Brasília) era fixo em 1.05 direto no
+  // codigo (atr.ts, VOLUME_ELEVATED_RATIO), sem variavel de ambiente --
+  // Cleber percebeu volume mais baixo num horario do meio do dia e pediu
+  // pra poder regular esse valor sem precisar editar codigo toda vez.
+  // Exposto aqui com o MESMO default de sempre (1.05), so ajustavel via
+  // .env agora. Sem validacao estatistica ainda -- so infraestrutura de
+  // ajuste, valor so muda se o Cleber setar explicitamente no .env.
+  mt5VolumeElevatedRatio: Number(process.env.MT5_VOLUME_ELEVATED_RATIO ?? 1.05),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO
@@ -785,6 +794,12 @@ export const config = {
   // igual blockEntryOnStaleIndicators acima) -- é correção de integridade
   // de sinal, não parâmetro de tuning.
   breakoutRequireClosedCandleConfirmation: process.env.BREAKOUT_REQUIRE_CLOSED_CANDLE !== "false",
+  // 🔴 2026-09-22 (pedido direto do Cleber -- "a LLM tem que estar atenta ao
+  // MACD, principalmente no grafico de 5 minutos"): trava dura em
+  // open_position contra entrar quando o MACD 5m (FIXO em 5m, independente do
+  // timeframe operacional) esta virando/cruzando CONTRA o lado. Ver uso em
+  // tools.ts. Desligavel via MACD_5M_TURN_GATE=false.
+  macd5mTurnGateEnabled: process.env.MACD_5M_TURN_GATE !== "false",
   // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
   // diário... atualizando 5x ao dia... isso indica o apetite a risco do
   // mercado"). VIX real (nunca fabricado -- ver tratamento do valor

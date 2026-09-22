@@ -255,6 +255,13 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    principalmente antes de entrar CONTRA um momentum real -- MACD sozinho
    discordando não impede a entrada, mas ignorá-lo sem registrar o motivo em
    log_thought é o tipo de erro que já custou dinheiro real.
+   🔴 **Leia a INCLINAÇÃO do histograma, não só o sinal** ("turning" e
+   "histogramRecent", últimas 3 velas). Histograma negativo ENCOLHENDO rumo
+   ao zero (VIRANDO_PARA_CIMA) = vendedor perdendo força, NÃO é argumento pra
+   SHORT -- mesmo com label "BAIXA". Espelhado pra LONG. open_position
+   BLOQUEIA de forma dura entrada contra o MACD de 5min (FIXO em 5m) quando
+   ele cruzou, está virando ou está expandindo contra o lado -- não gaste
+   tentativa nisso.
 1e. **Estocástico LENTO: %K (média 3-períodos do %K rápido, período 14) e
    %D (média 3-períodos do %K lento), mesmo candle oficial.** "label"
    (SOBRECOMPRADO se %K>=80, SOBREVENDIDO se %K<=20, NEUTRO no meio --

@@ -486,7 +486,12 @@ export interface VolumeConfirmation {
 // de força/fraqueza por trás do movimento).
 const VOLUME_RECENT_CANDLES = 3; // 15min
 const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
-const VOLUME_ELEVATED_RATIO = 1.05; // 2026-08-31: baixado de 1.15 a pedido do Cleber (achou restritivo demais)
+// 2026-08-31: baixado de 1.15 a pedido do Cleber (achou restritivo demais).
+// 2026-09-22: valor default (1.05) migrado pra config.mt5VolumeElevatedRatio
+// (variavel de ambiente MT5_VOLUME_ELEVATED_RATIO) -- Cleber pediu pra poder
+// regular o threshold de horarios de volume mais baixo fora da janela
+// noturna sem precisar editar codigo, mesmo padrao ja usado pra
+// mt5VolumeElevatedRatioEvening.
 
 // 2026-09-15 (pedido direto do Cleber): das 17h00 às 00h00 Brasília, TODO
 // dia (não só fim de semana), o gate de volume elevado usa
@@ -522,7 +527,7 @@ export async function getVolumeConfirmation(symbol: string, timeframe: Supported
       const baselineAvg = baseline.reduce((sum, c) => sum + (c.volume as number), 0) / baseline.length;
       if (baselineAvg > 0) {
         const ratio = recentAvg / baselineAvg;
-        const threshold = isVolumeEveningWindow() ? config.mt5VolumeElevatedRatioEvening : VOLUME_ELEVATED_RATIO;
+        const threshold = isVolumeEveningWindow() ? config.mt5VolumeElevatedRatioEvening : config.mt5VolumeElevatedRatio;
         return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= threshold, source: "candle_volume" };
       }
     }
@@ -724,6 +729,18 @@ export interface MacdResult {
   label: "ALTA" | "BAIXA" | "NEUTRO";
   /** Histograma mudou de sinal na última vela vs a penúltima -- sinal de virada real, não só direção atual. null quando não houve troca de sinal. */
   crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
+  /**
+   * 🔴 2026-09-22 (pedido direto do Cleber -- XETUSD SHORT 22:32 UTC stopado
+   * com MACD 5m "virando pra subir"): inclinação do histograma nas últimas 3
+   * velas. VIRANDO_PARA_CIMA = histograma subiu 2 velas seguidas (h2<h1<h0),
+   * VIRANDO_PARA_BAIXO = caiu 2 velas seguidas. Pega a virada ANTES do
+   * cruzamento -- ex. real: histograma -1.04 → -0.62 → -0.27 → -0.08 ainda
+   * rotulado "BAIXA" pelo sinal, mas o momentum vendedor já estava morrendo
+   * e cruzou pra cima na vela seguinte. null quando não há tendência clara.
+   */
+  turning: "VIRANDO_PARA_CIMA" | "VIRANDO_PARA_BAIXO" | null;
+  /** Últimos 3 valores do histograma (mais antigo → mais recente), pra auditoria/leitura do LLM. */
+  histogramRecent: number[];
 }
 
 const MACD_FAST_PERIOD = 12;
@@ -804,12 +821,26 @@ export async function getMacd(symbol: string, timeframe: SupportedTimeframe = "5
     }
   }
 
+  const histogramRecent: number[] = [];
+  for (let i = Math.max(0, lastIdx - 2); i <= lastIdx; i++) {
+    const h = macdSeries[i] - signalSeries[i];
+    if (Number.isFinite(h)) histogramRecent.push(h);
+  }
+  let turning: MacdResult["turning"] = null;
+  if (histogramRecent.length === 3) {
+    const [h2, h1, h0] = histogramRecent;
+    if (h2 < h1 && h1 < h0) turning = "VIRANDO_PARA_CIMA";
+    else if (h2 > h1 && h1 > h0) turning = "VIRANDO_PARA_BAIXO";
+  }
+
   return {
     macd: Number(macd.toFixed(6)),
     signal: Number(signal.toFixed(6)),
     histogram: Number(histogram.toFixed(6)),
     label,
     crossing,
+    turning,
+    histogramRecent: histogramRecent.map((h) => Number(h.toFixed(6))),
   };
 }
 
