@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
 import { getAtrPercent } from "./atr.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
+import { recordPlatformCommission } from "./platformCommissionLedger.js";
 
 /**
  * Ponte pro Neural Day Trader (2026-08-28): espelha cada ordem real de
@@ -645,6 +646,10 @@ export async function openMt5Position(params: OpenMt5PositionParams): Promise<st
         entry_time: new Date().toISOString(),
         status: "OPEN",
         commission: 0,
+        // 🔴 2026-09-22: mfe_usd so e escrito em nova maxima, entao trade que
+        // nunca ficou positivo terminava NULL -- indistinguivel de "nao medido".
+        // Com default 0, NULL volta a significar ausencia de medicao.
+        mfe_usd: 0,
         is_test_data: true,
         test_data_reason: MT5_TEST_DATA_REASON,
         session_at_entry: params.sessionAtEntry ?? null,
@@ -956,7 +961,7 @@ export async function closeMt5Position(params: {
     const sb = getClient();
     const { data: trade, error: fetchError } = await sb
       .from("ai_trades")
-      .select("entry_price, side, quantity, ai_reasoning, symbol")
+      .select("entry_price, side, quantity, ai_reasoning, symbol, broker_position_id, user_id, session_id, entry_time")
       .eq("id", params.tradeId)
       .eq("status", "OPEN")
       .maybeSingle();
@@ -985,13 +990,24 @@ export async function closeMt5Position(params: {
         ? (params.exitPrice - entryPrice) * (amountUsd / entryPrice)
         : (entryPrice - params.exitPrice) * (amountUsd / entryPrice);
     const pnlPercentage = ((params.exitPrice - entryPrice) / entryPrice) * 100 * (side === "LONG" ? 1 : -1);
+    const exitTime = new Date().toISOString();
+    // 🔴 2026-09-22: duration_seconds ficava NULL em 100% dos trades --
+    // impossivel medir tempo em posicao e, portanto, impossivel medir se a IA
+    // sai cedo demais dos vencedores. Calculado aqui porque closeMt5Position e
+    // o funil unico dos 3 caminhos de fechamento (watchdog/index.ts,
+    // discricionario/tools.ts, enforceMt5StopsAndTargets).
+    const entryTimeMs = trade.entry_time ? new Date(trade.entry_time as string).getTime() : NaN;
+    const durationSeconds = Number.isFinite(entryTimeMs)
+      ? Math.max(0, Math.round((new Date(exitTime).getTime() - entryTimeMs) / 1000))
+      : null;
 
     const { error: updateError } = await sb
       .from("ai_trades")
       .update({
         status: "CLOSED",
         exit_price: params.exitPrice,
-        exit_time: new Date().toISOString(),
+        exit_time: exitTime,
+        duration_seconds: durationSeconds,
         exit_reason: params.exitReason ?? "AI_SIGNAL",
         pnl,
         pnl_percentage: pnlPercentage,
@@ -1001,6 +1017,23 @@ export async function closeMt5Position(params: {
       })
       .eq("id", params.tradeId);
     if (updateError) throw updateError;
+
+    // 🔴 2026-09-11 (pedido do Cleber: "esse dinheiro tem que ser gerenciado,
+    // tem que ter um caixa"): lançamento no caixa contábil da comissão
+    // própria, só para execução REAL confirmada (broker_position_id presente)
+    // -- nunca para DEMO. Fire-and-forget deliberado: falha ao gravar o caixa
+    // não pode reverter um fechamento de posição real já confirmado.
+    if (trade.broker_position_id) {
+      recordPlatformCommission(sb, {
+        tradeId: params.tradeId,
+        userId: (trade as any).user_id ?? null,
+        sessionId: (trade as any).session_id ?? null,
+        symbol: trade.symbol,
+        notionalUsd: amountUsd,
+        closedAt: exitTime,
+      }).catch((e) => console.error("[neuralBridge/mt5] falha ao gravar caixa de comissão:", e));
+    }
+
     return true;
   } catch (err) {
     console.error("[neuralBridge/mt5] falha ao fechar posição:", err instanceof Error ? err.message : err);

@@ -1262,7 +1262,16 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       // antes de responder -- mesmo ajuste do NEXUS (nexus-brain), evita
       // latencia alta desnecessaria pro caso de tool-calling em ciclo.
       // Campo ignorado por outros provedores (Groq/Cerebras/Gemini/etc).
-      ...(config.llmProvider === "nvidia" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+      //
+      // 🔴 2026-09-22: restrito a NEMOTRON. Antes valia pra TODO modelo
+      // servido pela NVIDIA, o que desligaria o raciocinio em cadeia de
+      // modelos de fronteira gratuitos do mesmo endpoint (Kimi K3, GLM-5.3)
+      // -- justamente a capacidade que o diagnostico de 2026-09-22 apontou
+      // como gargalo (75% dos bloqueios eram leitura invertida de rotulo).
+      // Para nemotron o motivo original (latencia) continua valendo.
+      ...(config.llmProvider === "nvidia" && config.llmModel.toLowerCase().includes("nemotron")
+        ? { chat_template_kwargs: { enable_thinking: false } }
+        : {}),
     } as ChatCompletionCreateParamsNonStreaming);
 
     const message = response.choices[0].message;
