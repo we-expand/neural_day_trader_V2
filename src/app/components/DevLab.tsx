@@ -180,33 +180,47 @@ export default function DevLab({ embedded = false }: DevLabProps) {
       return current < 20;
     });
 
-    const failedCategories: string[] = [];
-    for (let i = 0; i < categoriesToFill.length; i++) {
-      const cat = categoriesToFill[i];
+    // Erro transitório do provedor de LLM (ex: 503 "overloaded") não pode
+    // consumir o tempo de espera de retry ANTES de dar a chance de tentar
+    // as outras categorias — achado real em 2026-09-22: com retry síncrono
+    // por categoria (tenta, espera 3s, tenta de novo, só então segue pra
+    // próxima), qualquer interrupção no meio (reload/troca de aba do
+    // usuário) matava o loop sempre na MESMA 1ª categoria pendente, porque
+    // o tempo de retry ficava todo "gasto" nela antes de sequer tentar as
+    // demais. Agora são 2 passadas: 1ª tenta TODAS as categorias pendentes
+    // uma vez cada (o mais rápido possível, sem esperar nada); só na 2ª
+    // passada volta pra tentar de novo, uma vez, só quem falhou na 1ª —
+    // maximiza quantas categorias recebem pelo menos 1 tentativa real antes
+    // de qualquer atraso de retry.
+    const attempt = async (cat: Category, doneCount: number, total: number): Promise<{ ok: true } | { ok: false; error: string }> => {
       const current = suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status === 'active' && s.category === cat).length;
       const needed = 20 - current;
-      setFillProgress({ done: i, total: categoriesToFill.length, label: CATEGORY_CONFIG[cat].label });
-
-      // Erro transitório do provedor de LLM (ex: 503 "overloaded") não pode
-      // travar o loop inteiro — sem retry aqui, 1 categoria sobrecarregada
-      // deixava as outras N-1 categorias sem nenhuma tentativa (achado real
-      // em 2026-09-22: TECH preencheu, DESIGN_UX deu 503 e as 9 categorias
-      // seguintes nunca foram sequer chamadas). Tenta 1x, espera 3s, tenta
-      // de novo antes de desistir só dessa categoria e seguir pra próxima.
-      let result = await devLabService.generateAiSuggestions(undefined, needed, cat);
-      if ('error' in result) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        result = await devLabService.generateAiSuggestions(undefined, needed, cat);
-      }
-
-      if ('error' in result) {
-        failedCategories.push(`${CATEGORY_CONFIG[cat].label}: ${result.error}`);
-        continue;
-      }
+      if (needed <= 0) return { ok: true };
+      setFillProgress({ done: doneCount, total, label: CATEGORY_CONFIG[cat].label });
+      const result = await devLabService.generateAiSuggestions(undefined, needed, cat);
+      if ('error' in result) return { ok: false, error: result.error };
       setSuggestions((prev) => [...result.suggestions, ...prev]);
+      return { ok: true };
+    };
+
+    const failed: { cat: Category; error: string }[] = [];
+    for (let i = 0; i < categoriesToFill.length; i++) {
+      const outcome = await attempt(categoriesToFill[i], i, categoriesToFill.length);
+      if (outcome.ok === false) failed.push({ cat: categoriesToFill[i], error: outcome.error });
     }
-    if (failedCategories.length > 0) {
-      setAiError(`Falhou em ${failedCategories.length} categoria(s): ${failedCategories.join(' | ')}`);
+
+    // 2ª passada: só as que falharam na 1ª, com 1 retry cada — a essa
+    // altura o resto da cesta já foi tentado, então mesmo se o usuário
+    // interromper aqui, a cobertura real já é ampla.
+    const stillFailed: string[] = [];
+    for (let i = 0; i < failed.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const outcome = await attempt(failed[i].cat, i, failed.length);
+      if (outcome.ok === false) stillFailed.push(`${CATEGORY_CONFIG[failed[i].cat].label}: ${outcome.error}`);
+    }
+
+    if (stillFailed.length > 0) {
+      setAiError(`Falhou em ${stillFailed.length} categoria(s) mesmo com retry: ${stillFailed.join(' | ')}`);
     }
     setFillProgress(null);
     setFillingAllCategories(false);
