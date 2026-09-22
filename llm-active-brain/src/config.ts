@@ -100,13 +100,25 @@ const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: strin
     // mesmo prompt real (8400 tokens) -- "qwen3-trading" (8B, Modelfile
     // dedicado) levou 58s na 1a chamada fria; "qwen35-trading" (Qwen3.5 4B,
     // mesmo esquema de Modelfile) levou 30s, ~2x mais rapido, raciocinio e
-    // tool_call igualmente corretos no teste. Trocado pro mais rapido --
-    // qwen3-trading continua criado no Ollama local como fallback de
-    // qualidade se a velocidade deixar de ser a prioridade. Se recriar do
-    // zero: `ollama pull qwen3.5:4b` + Modelfile com `FROM qwen3.5:4b` +
-    // `PARAMETER num_ctx 16384`, depois `ollama create qwen35-trading -f
-    // Modelfile.qwen35-trading`.
-    model: "qwen35-trading",
+    // tool_call igualmente corretos no teste. qwen3-trading continua criado
+    // no Ollama local como fallback de qualidade se a velocidade deixar de
+    // ser a prioridade.
+    // 🔴 2026-09-22 (achado ao vivo, grave): Mac com RAM/swap praticamente
+    // esgotados (swap ~95% usado) -- processo do LLM Brain entrando em
+    // crash-loop (SIGKILL, codigo 137) a cada 15-30min a noite inteira,
+    // religado pelo watchdog.sh sem nunca sobreviver o suficiente pra
+    // terminar um ciclo. Trocado pra "qwen3-1.7b-trading" (1,4GB, menos da
+    // metade do qwen35-trading de 3,4GB) a pedido do Cleber -- prioriza
+    // estabilidade (processo nao ser morto por OOM) sobre qualidade de
+    // raciocinio; e um modelo objetivamente menos inteligente que o
+    // qwen35-trading (4B), tradeoff consciente enquanto a causa raiz de
+    // memoria nao e resolvida. Se recriar do zero: `ollama pull qwen3:1.7b`
+    // + Modelfile com `FROM qwen3:1.7b` + `PARAMETER num_ctx 32768` +
+    // `PARAMETER num_keep 12000`, depois `ollama create qwen3-1.7b-trading
+    // -f Modelfile.qwen3-1.7b-trading` (ja feito nesta sessao, modelo
+    // existe local). Reverter pra "qwen35-trading" se a pressao de memoria
+    // for resolvida por outro caminho (fechar apps/mais RAM).
+    model: "qwen3-1.7b-trading",
     apiKeyEnv: "OLLAMA_API_KEY",
   },
 };
@@ -476,7 +488,19 @@ export const config = {
   // entrada e RECUSADA em vez de aceitar uma aposta com risco/retorno ruim
   // so porque "o ATR mandou entrar" -- mesmo espirito do gate de spread
   // acima (nao abre posicao com matematica desfavoravel de partida).
-  mt5MinRrAfterSrCap: Number(process.env.MT5_MIN_RR_AFTER_SR_CAP ?? 1.0),
+  // 🔴 2026-09-22 (diagnostico com dado real, pedido do Cleber "pode
+  // atacar"): piso subido de 1.0 -> 1.5. Motivo e ARITMETICA, nao palpite --
+  // com o win rate real medido (41,8% em 213 trades ate 15/09), o R:R de
+  // breakeven e 1.39:1; um piso de 1.0 autorizava entradas nascendo em
+  // 1,07:1 (XETUSD 19/09 e 21/09, ambas perderam), matematicamente
+  // perdedoras de partida. Corte medido no historico (12 dias, saidas
+  // SL/TP): trades que terminaram com R:R efetivo < 1.5 acertaram 6,3%
+  // (16 trades, -$35,96); os com R:R >= 1.5 acertaram 45,1%. Ressalva
+  // honesta registrada: esse corte usa o stop ATUAL do banco, que o
+  // trailing reescreve (neuralBridge.ts:1151), entao nao e exatamente o R:R
+  // de abertura -- o sinal e forte mas nao e prova limpa. Efeito esperado:
+  // MENOS entradas (recusa as de matematica ruim), nao mais acerto por si.
+  mt5MinRrAfterSrCap: Number(process.env.MT5_MIN_RR_AFTER_SR_CAP ?? 1.5),
   // 🔴 2026-09-05 (pedido direto do Cleber, achado ao vivo -- XLMUSD SHORT
   // com stop bem além do pavio da última alta real, "o stop tem que ser da
   // altura do candle", "o pavio do candle"): igual o alvo já era capado pela
