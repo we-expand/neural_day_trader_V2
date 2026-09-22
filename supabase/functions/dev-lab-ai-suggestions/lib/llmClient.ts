@@ -4,7 +4,25 @@
  * `NVIDIA_API_KEY`/`GROQ_API_KEY`/`ANTHROPIC_API_KEY`), sem duplicar o loop
  * de tool-calling porque esta function não usa ferramenta nenhuma — só pede
  * um JSON de sugestões em uma única chamada.
+ *
+ * 🔴 2026-09-22 (achado real via logs de produção): "Preencher 20 por
+ * categoria" falhava sempre pras categorias sem sugestão nenhuma ainda
+ * (GROWTH_MARKETING/MONETIZATION/AI_BRAIN/SECURITY -- TECH só "funcionou"
+ * por ter sido preenchida antes desta janela de instabilidade) -- causa
+ * real: NVIDIA NIM devolvendo 503 "Service temporarily overloaded" e Groq
+ * 429 (teto de 8000 TPM do tier gratuito estourado), a MESMA instabilidade
+ * transitória da NVIDIA encontrada no mesmo dia no `llm-active-brain`
+ * (ver commit "retry em erro de conexao com o provedor de LLM"). Esta
+ * function nunca teve retry nenhum -- qualquer erro (mesmo transitório)
+ * abortava a chamada inteira na 1a tentativa. Adicionado retry curto com
+ * backoff pra status transitórios (429/500/502/503/504), mesmo espírito
+ * do fix do motor de trading.
  */
+const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL_DEFAULT = 'openai/gpt-oss-120b';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
@@ -23,27 +41,37 @@ async function completeOpenAICompat(
   params: CompleteParams,
   opts: { providerLabel: string; url: string; apiKey: string; model: string; extraBody?: Record<string, unknown> },
 ): Promise<string> {
-  const res = await fetch(opts.url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
-    body: JSON.stringify({
-      model: opts.model,
-      max_tokens: params.maxTokens ?? 2000,
-      messages: [
-        { role: 'system', content: params.system },
-        { role: 'user', content: params.userMessage },
-      ],
-      ...opts.extraBody,
-    }),
-  });
-  if (!res.ok) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(opts.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
+      body: JSON.stringify({
+        model: opts.model,
+        max_tokens: params.maxTokens ?? 2000,
+        messages: [
+          { role: 'system', content: params.system },
+          { role: 'user', content: params.userMessage },
+        ],
+        ...opts.extraBody,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) throw new Error(`[dev-lab-ai-suggestions] Resposta da ${opts.providerLabel} sem texto.`);
+      return content as string;
+    }
     const errText = await res.text().catch(() => '');
+    if (TRANSIENT_STATUS.has(res.status) && attempt < maxAttempts) {
+      const waitMs = 2000 * attempt;
+      console.warn(`[dev-lab-ai-suggestions] ${opts.providerLabel} API ${res.status} (transitorio), tentativa ${attempt}/${maxAttempts}, aguardando ${waitMs}ms: ${errText.slice(0, 200)}`);
+      await sleep(waitMs);
+      continue;
+    }
     throw new Error(`[dev-lab-ai-suggestions] ${opts.providerLabel} API ${res.status}: ${errText.slice(0, 300)}`);
   }
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error(`[dev-lab-ai-suggestions] Resposta da ${opts.providerLabel} sem texto.`);
-  return content as string;
+  throw new Error('[dev-lab-ai-suggestions] Nao deveria chegar aqui.');
 }
 
 async function completeAnthropic(params: CompleteParams): Promise<string> {
