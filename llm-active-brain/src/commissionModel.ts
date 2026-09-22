@@ -47,14 +47,50 @@ const CRYPTO_SYMBOLS = new Set([
   "ADAUSD", "LNKUSD", "UNIUSD", "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD",
   "BNBUSD", "AVAUSD",
 ]);
-const COMMODITY_SYMBOLS = new Set(["XAUUSD", "UKOUSD"]);
+const COMMODITY_SYMBOLS = new Set(["XAUUSD", "UKOUSD", "XAUJPY"]);
 const INDEX_SYMBOLS = new Set([
   "GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50",
 ]);
-const FOREX_MAJOR_SYMBOLS = new Set(["EURUSD"]);
+// 🔴 2026-09-22: pares da sessao asiatica adicionados a cesta (ver
+// assetBasket.ts). Mesma taxa FOREX_MAJOR (Infinox cobra comissao por lote
+// igual em qualquer par forex) -- antes caiam no mesmo fallback, agora
+// explicitos pra nao gerar warning.
+const FOREX_MAJOR_SYMBOLS = new Set([
+  "EURUSD", "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
+  "USDCNH", "USDSGD", "USDTWD",
+]);
+
+// 🔴 2026-09-22 (pares asiaticos, achado ao adicionar): getPointValue
+// (TradeSizing.ts, compartilhado com o app) devolve pip 0.0001 pra QUALQUER
+// simbolo com "JPY" no nome -- pip real de par cotado em iene e 0.01, entao o
+// custo desses pares saia ~100x subestimado (medido: USDJPY 0.0001%
+// round-trip vs spread real 0.0064%). Mesmo problema de escala em
+// USDCNH/USDTWD/XAUJPY. Override LOCAL (nao mexe no TradeSizing.ts, que o
+// app inteiro usa) com pip real + classe de custo por par, calibrado contra o
+// spread real medido ao vivo em 2026-09-22 (mesma calibracao do EURUSD:
+// custo modelado ~1,4x o spread cru, pra cobrir comissao/slippage):
+//   USDJPY major pip 0.01 -> 0.0089% (spread real 0.0064%)
+//   xxxJPY minor pip 0.01 -> ~0.02%  (spread real 0.008-0.019%)
+//   USDCNH exotic pip 0.0001 -> ~0.045% (spread real 0.024%)
+//   USDTWD exotic pip 0.001 -> ~0.095% (spread real 0.104%)
+//   XAUJPY commodity, ponto = 0.1 oz-USD convertido (~0.1*USDJPY)
+const PAIR_COST_OVERRIDE: Record<string, { assetClass: AssetClass; pointValue: number }> = {
+  USDJPY: { assetClass: "FOREX_MAJOR", pointValue: 0.01 },
+  AUDJPY: { assetClass: "FOREX_MINOR", pointValue: 0.01 },
+  NZDJPY: { assetClass: "FOREX_MINOR", pointValue: 0.01 },
+  EURJPY: { assetClass: "FOREX_MINOR", pointValue: 0.01 },
+  GBPJPY: { assetClass: "FOREX_MINOR", pointValue: 0.01 },
+  AUDUSD: { assetClass: "FOREX_MAJOR", pointValue: 0.0001 },
+  NZDUSD: { assetClass: "FOREX_MAJOR", pointValue: 0.0001 },
+  USDSGD: { assetClass: "FOREX_MINOR", pointValue: 0.0001 },
+  USDCNH: { assetClass: "FOREX_EXOTIC", pointValue: 0.0001 },
+  USDTWD: { assetClass: "FOREX_EXOTIC", pointValue: 0.001 },
+  XAUJPY: { assetClass: "COMMODITY", pointValue: 15.75 },
+};
 
 function resolveAssetClass(symbol: string): AssetClass {
   const s = symbol.toUpperCase();
+  if (PAIR_COST_OVERRIDE[s]) return PAIR_COST_OVERRIDE[s].assetClass;
   if (CRYPTO_SYMBOLS.has(s)) return "CRYPTO";
   if (COMMODITY_SYMBOLS.has(s)) return "COMMODITY";
   if (INDEX_SYMBOLS.has(s)) return "INDEX";
@@ -77,7 +113,7 @@ export function estimateCommissionUsd(symbol: string, notionalUsd: number, price
   }
   try {
     const assetClass = resolveAssetClass(symbol);
-    const pointValue = getPointValue(symbol);
+    const pointValue = PAIR_COST_OVERRIDE[symbol.toUpperCase()]?.pointValue ?? getPointValue(symbol);
     const roundTripPercent = estimateCostPercent(assetClass, priceLevel, pointValue) * 2;
     if (!Number.isFinite(roundTripPercent) || roundTripPercent < 0) return 0;
     return notionalUsd * roundTripPercent;

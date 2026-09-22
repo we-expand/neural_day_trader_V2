@@ -206,6 +206,20 @@ export const MT5_ASSET_BASKET = [
   "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
   "AUS200", "JPN225", "HKG33", "CHINA50",
+  // 🔴 2026-09-22 (pedido direto do Cleber -- "mais indices asiaticos"):
+  // lista oficial de simbolos da conta (MetaAPI /symbols, 364 simbolos)
+  // confirmou que NAO existe nenhum outro indice asiatico nesta corretora
+  // (Singapura/India/Taiwan/Coreia/China-H: todos 404; HK50ft e o mesmo Hang
+  // Seng do HKG33, redundante). Alternativa aprovada: pares de moeda que
+  // operam na sessao asiatica. Todos confirmados ao vivo antes de adicionar
+  // (spec MetaAPI: contractSize 100000 / XAUJPY 100, minVolume 0.01,
+  // tradeMode FULL; cotacao real via /mt5-prices). USDHKD ficou de fora
+  // (tradeMode DISABLED na corretora). USDTWD = unica exposicao a Taiwan
+  // disponivel -- spread ~0.10% (10x um par principal) e so negocia no
+  // horario de Taipei (~01h-08h UTC), fora disso a trava de tick obsoleto
+  // bloqueia sozinha.
+  "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
+  "USDCNH", "USDSGD", "USDTWD", "XAUJPY",
 ];
 
 /**
@@ -265,6 +279,31 @@ export const LOT_SIZE: Record<string, number> = {
   JPN225: 0.03256,
   HKG33: 1.2756,
   CHINA50: 1.4905,
+  // 🔴 2026-09-22: LOT_SIZE aqui e "notional em USD por lote / preco", pra
+  // que amountUsd = lots * LOT_SIZE * preco seja o notional REAL em USD e o
+  // PnL do motor ((exit-entry) * amountUsd/entry) saia em USD de verdade --
+  // mesmo cuidado do JPN225 acima (evitar o bug de PnL 20x do NAS100, agora
+  // por moeda de cotacao). Cotacao real desta corretora em 2026-09-22 23:36
+  // UTC (USDJPY 157.456, AUDUSD 0.71129, USDCNH 6.69607, USDSGD 1.27506,
+  // USDTWD 31.713):
+  //   Base USD (USDxxx): notional = 100000 USD -> 100000 / preco
+  //   Cotado em USD (xxxUSD): 100000 (igual EURUSD)
+  //   Cotado em JPY (xxxJPY): 100000 / USDJPY = 635.1 (vale pra AUD/NZD/EUR/
+  //     GBP-JPY: notional = 100000 * xxxUSD, dividido por xxxJPY = /USDJPY)
+  //   XAUJPY: 100 oz / USDJPY = 0.6351
+  // Aproximacao estatica (erro proporcional ao drift da moeda de cotacao vs
+  // USD) -- revisitar se USDJPY/USDCNH/USDSGD/USDTWD andarem muito.
+  USDJPY: 635.1,
+  AUDUSD: 100000,
+  NZDUSD: 100000,
+  AUDJPY: 635.1,
+  NZDJPY: 635.1,
+  EURJPY: 635.1,
+  GBPJPY: 635.1,
+  USDCNH: 14934,
+  USDSGD: 78428,
+  USDTWD: 3153.3,
+  XAUJPY: 0.6351,
 };
 
 export const MIN_LOTS = 0.01;
@@ -290,6 +329,8 @@ export const MIN_LOTS = 0.01;
 const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
   "AUS200", "JPN225", "HKG33", "CHINA50",
+  "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
+  "USDCNH", "USDSGD", "USDTWD", "XAUJPY",
 ]);
 
 /**
@@ -356,6 +397,14 @@ const CORRELATED_GROUPS: string[][] = [
   // grupo -- todos índices de bolsa, mesmo risco correlacionado risk-on/
   // risk-off macro global dos demais.
   ["GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50"],
+  // 🔴 2026-09-22 (pares asiaticos): agrupados pelo lado REAL da exposicao
+  // de moeda, pra LONG/LONG no mesmo grupo ser de fato a mesma aposta.
+  // LONG em qualquer xxxJPY = vendido em iene (inclui XAUJPY).
+  ["USDJPY", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY", "XAUJPY"],
+  // LONG = vendido em dolar contra moeda de risco do Pacifico.
+  ["AUDUSD", "NZDUSD"],
+  // LONG = comprado em dolar contra moeda asiatica.
+  ["USDCNH", "USDSGD", "USDTWD"],
 ];
 
 export function getCorrelatedGroup(symbol: string): string[] {
