@@ -3,10 +3,58 @@ import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers, AlertTriang
 import { motion, AnimatePresence } from 'motion/react';
 import { getInfinoxAssetsByCategory, INFINOX_CATEGORY_NAMES } from '@/config/infinoxAssets';
 import { getBrokerSymbol } from '@/app/config/brokerRegistry';
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
 import { fetchRealPricesBatch, type BatchPriceResult } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
 import { getMarketStatus } from '@/app/utils/marketStatus';
 import { comparePricesBatch } from '@/app/utils/priceDebugger';
 import { getMinLotNotionalUsd } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
+
+// 🔴 2026-09-22 (achado do Cleber: "não vejo os ativos" -- procurava pares
+// asiáticos recém-liberados no AI Trader): a busca só casava pelo CÓDIGO do
+// símbolo (USDJPY, USDTWD...) -- digitar "Taiwan", "iene", "Japão", "ouro"
+// não achava nada, mesmo com o ativo no catálogo. Agora casa também pelo
+// nome/descrição do catálogo (assetDatabase.ts, em inglês) e por termos em
+// português de cada moeda/ativo que aparece no código do símbolo.
+const PT_SEARCH_TERMS_BY_CODE: Record<string, string> = {
+  USD: 'dolar dólar americano eua estados unidos',
+  EUR: 'euro europa',
+  GBP: 'libra reino unido inglaterra',
+  JPY: 'iene yen japao japão japones japonês',
+  AUD: 'australia austrália australiano',
+  NZD: 'nova zelandia nova zelândia kiwi',
+  CAD: 'canada canadá canadense',
+  CHF: 'franco suico suíço suica suíça',
+  CNH: 'yuan renminbi china chines chinês',
+  SGD: 'singapura cingapura',
+  TWD: 'taiwan taiwanes taiwanês',
+  HKD: 'hong kong',
+  XAU: 'ouro',
+  XAG: 'prata',
+  BTC: 'bitcoin',
+  JPN225: 'nikkei japao japão indice índice',
+  HKG33: 'hang seng hong kong indice índice',
+  CHINA50: 'china a50 indice índice',
+  AUS200: 'asx australia austrália indice índice',
+};
+
+function normalizeSearch(text: string): string {
+  return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function matchesAssetSearch(symbol: string, rawTerm: string): boolean {
+  const term = normalizeSearch(rawTerm.trim());
+  if (!term) return true;
+  if (symbol.toLowerCase().includes(term)) return true;
+  if (getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(term)) return true;
+  const asset = getAssetBySymbol(symbol);
+  const upper = symbol.toUpperCase();
+  const ptTerms = Object.entries(PT_SEARCH_TERMS_BY_CODE)
+    .filter(([code]) => upper.includes(code))
+    .map(([, words]) => words)
+    .join(' ');
+  const haystack = normalizeSearch(`${asset?.name ?? ''} ${asset?.description ?? ''} ${ptTerms}`);
+  return haystack.includes(term);
+}
 
 interface InfinoxAssetsBrowserProps {
   isOpen: boolean;
@@ -89,13 +137,9 @@ export function InfinoxAssetsBrowser({
     // busca mesmo já cadastrados. Agora casa também pelo nome real via
     // getBrokerSymbol (reverse-match), sem precisar duplicar entrada no
     // catálogo nem renomear o símbolo unificado já usado em todo o app.
-    const term = searchTerm.toLowerCase();
     const allSymbols = Object.values(allAssets).flat();
     const matches = allSymbols
-      .filter(symbol =>
-        symbol.toLowerCase().includes(term) ||
-        getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(term)
-      )
+      .filter(symbol => matchesAssetSearch(symbol, searchTerm))
       .sort((a, b) => {
         // Priorizar matches que começam com o termo
         const aStarts = a.toLowerCase().startsWith(searchTerm.toLowerCase());
@@ -225,10 +269,7 @@ export function InfinoxAssetsBrowser({
   // real da corretora, não só pelo símbolo unificado.
   const filteredCategories = Object.entries(allAssets)
     .map(([categoryKey, symbols]) => {
-      const filtered = symbols.filter(symbol =>
-        symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      const filtered = symbols.filter(symbol => matchesAssetSearch(symbol, searchTerm));
 
       return {
         categoryKey,
