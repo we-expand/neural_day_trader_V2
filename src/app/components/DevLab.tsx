@@ -314,6 +314,19 @@ export default function DevLab({ embedded = false }: DevLabProps) {
           </div>
         )}
 
+        {viewMode !== 'ai_suggestions' && (fillingAllCategories || fillProgress || aiError) && (
+          <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4 text-xs">
+            {fillingAllCategories && !aiError && (
+              <p className="text-indigo-300 flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Preenchendo sugestões da IA em segundo plano
+                {fillProgress ? ` — categoria ${fillProgress.done + 1} de ${fillProgress.total}: ${fillProgress.label}...` : '...'}
+              </p>
+            )}
+            {aiError && <p className="text-red-400">Sugestões da IA falharam: {aiError}</p>}
+          </div>
+        )}
+
         {viewMode !== 'research' && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <button
