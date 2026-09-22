@@ -1,4 +1,4 @@
-import OpenAI, { APIError } from "openai";
+import OpenAI, { APIError, APIConnectionError } from "openai";
 import type {
   ChatCompletion,
   ChatCompletionCreateParamsNonStreaming,
@@ -866,7 +866,26 @@ async function createChatCompletionWithRetry(
     try {
       return await client.chat.completions.create(params);
     } catch (err) {
+      // 🔴 2026-09-22: achado ao vivo testando Kimi K3 via NVIDIA NIM --
+      // "Connection error." (APIConnectionError/APIConnectionTimeoutError do
+      // SDK, sem `status` HTTP) matava o ciclo INTEIRO na 1a tentativa, sem
+      // nenhum retry -- so 429 era coberto. 2/2 ciclos morreram assim sob o
+      // prompt real (13.7k tokens), motor ficou ~10min sem nenhuma decisao.
+      // Erro de conexao/timeout de rede costuma ser transitorio (throttling
+      // de infra do provedor, TLS reset) -- vale tentar de novo com backoff
+      // curto, diferente do backoff de rate-limit (que pode esperar minutos
+      // por um motivo totalmente diferente: cota, nao rede).
       const isRateLimit = err instanceof APIError && err.status === 429;
+      const isConnectionError = err instanceof APIConnectionError;
+      if (isConnectionError && attempt < maxAttempts) {
+        const waitSeconds = Math.min(5 * attempt, 30);
+        console.log(
+          `  (erro de conexao com ${config.llmProvider} ("${err.message}"), tentativa ${attempt}/${maxAttempts} - ` +
+            `aguardando ${waitSeconds}s antes de tentar de novo)`
+        );
+        await sleep(waitSeconds * 1000);
+        continue;
+      }
       if (!isRateLimit || attempt === maxAttempts) throw err;
 
       // Um pouco de folga sobre o tempo indicado pra evitar bater no limite
