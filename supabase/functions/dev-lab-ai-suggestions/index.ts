@@ -108,7 +108,23 @@ Deno.serve(async (req: Request) => {
       const jsonMatch = raw.match(/\[[\s\S]*\]/);
       parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
     } catch {
-      return new Response(JSON.stringify({ error: 'Resposta do modelo não veio em JSON válido', raw: raw.slice(0, 500) }), { status: 502, headers: CORS_HEADERS });
+      // Alguns provedores (achado real com Groq, gpt-oss-120b) cortam o
+      // array no meio quando o pedido de 20 itens estoura o teto de
+      // tokens — sem o `]` de fechamento, o regex acima nem casa e o
+      // parse falha. Em vez de descartar a resposta inteira, tenta
+      // salvar os objetos completos que já vieram: corta no último `}`
+      // fechado e fecha o array ali.
+      const start = raw.indexOf('[');
+      const lastClosedObject = raw.lastIndexOf('}');
+      const repaired = start !== -1 && lastClosedObject > start ? `${raw.slice(start, lastClosedObject + 1)}]` : null;
+      try {
+        parsed = repaired ? JSON.parse(repaired) : null;
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) {
+        return new Response(JSON.stringify({ error: 'Resposta do modelo não veio em JSON válido', raw: raw.slice(0, 500) }), { status: 502, headers: CORS_HEADERS });
+      }
     }
     if (!Array.isArray(parsed)) {
       return new Response(JSON.stringify({ error: 'Resposta do modelo não é um array' }), { status: 502, headers: CORS_HEADERS });
