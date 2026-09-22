@@ -15,6 +15,136 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-22] Upgrade do cérebro do LLM Brain: modelo trocado
+pra Kimi K3 (grátis, NVIDIA NIM) após diagnóstico do conselho (75% dos
+bloqueios eram leitura invertida de Estocástico/candle pelo modelo antigo,
+4B) + fixes de retry (motor e Dev Lab) + Passo 2 do feedback loop
+iniciado.** Kimi K3 venceu benchmark real contra GLM-5.3/DeepSeek/Nemotron
+(único com tool_call correto nos 2 lados + latência viável, ~45s sob
+prompt real de 17k tokens). Achado e corrigido no caminho: erro de conexão
+transitório da NVIDIA matava o ciclo sem retry (motor ficou ~10min mudo) —
+corrigido; mesma causa explicava categorias vazias no Dev Lab "Sugestões
+da IA" (Edge Function sem retry nenhum) — corrigido, **deploy pendente**
+(`supabase functions deploy dev-lab-ai-suggestions`). `tradeMemory.ts`
+ganhou 1º degrau do Passo 2 (injeta `ai_reasoning` real dos trades mais
+relevantes, antes buscado e descartado). Meta de frequência 10-15/12h
+pedida pelo Cleber, mantida apesar do achado de que não há teto de
+frequência a soltar hoje (gargalo é 100% qualidade de leitura). 2
+sugestões do Dev Lab avaliadas: regime via clustering já existia (HMM,
+fechado sem retrabalho); RL pra risco pausado (contradiz Passo 5 do
+conselho + precedente de 04/09). Lentidão por ativo investigada:
+NÃO é o modelo, é MetaAPI (BTCUSD via Binance 1,5s vs NAS100 via MetaAPI
+25,5s) — 10 chamadas sequenciais dentro de `get_mt5_quote` que dá pra
+paralelizar, **não implementado ainda**. Handoff completo:
+[SESSAO_2026-09-22_UPGRADE_LLM_KIMI_K3_E_RETRY_FIXES.md](SESSAO_2026-09-22_UPGRADE_LLM_KIMI_K3_E_RETRY_FIXES.md).
+**Pendente real**: deploy do Dev Lab acima; confirmar via SQL que
+`duration_seconds` está gravando nos próximos trades reais; paralelizar
+`get_mt5_quote`; observar estabilidade do Kimi K3 por mais tempo (amostra
+desta sessão é pequena); `watchdog.sh` voltou a rodar sozinho (fora do meu
+controle) — checar antes de qualquer restart manual futuro.
+
+**[EM ANDAMENTO 2026-09-16] Dia de FOMC ("Super Quarta"): investigado "1
+acerto em 9 entradas" (não era o Fed, era buraco real no gate de entrada
+contrarian, corrigido) + janela do vídeo do Fed virou automática (30min
+antes, sem depender de clique) + banner de aviso de evento de alto
+impacto no Dashboard + reforço no prompt do LLM Brain.** Achado real via
+SQL: 5 de 7 trades fechados do dia usavam "volume alto justifica entrada
+contrarian" pra ignorar o próprio MACD/Estocástico citado no reasoning —
+causa era um gate em `tools.ts` que só travava contra-tendência quando
+Estocástico JÁ estava em extremo E volume NÃO elevado (2 buracos reais,
+volume sozinho bastava). Corrigido pra exigir sempre ≥2 fatores reais,
+sem bypass — já reiniciado ao vivo a pedido do Cleber. De carona: vídeo
+do Fed (`NeuralEventCenter.tsx`, feature de sessão paralela) não abria
+mais por clique, agora abre sozinho 30min antes do horário real da
+coletiva (confirmado no site do Fed), com fallback pro YouTube caso o
+embed do Brightcove tenha restrição de domínio (não confirmado). Banner
+novo no Dashboard avisa qualquer evento de alto impacto do dia (dado
+real, `/economic-calendar`). Prompt do agente reforçado pra não ficar
+paralisado fora da janela travada pelo gate de FOMC (decisão consciente
+do Cleber: manter o gate, só reforçar contexto). Handoff completo:
+[SESSAO_2026-09-16_FOMC_GATE_CONTRARIAN_E_AVISO_FED.md](SESSAO_2026-09-16_FOMC_GATE_CONTRARIAN_E_AVISO_FED.md).
+**Pendente real**: `git commit` de tudo (comandos entregues, nada
+commitado por mim); `./restart.sh` do banner/reforço de prompt (só o fix
+do gate de contra-tendência foi reiniciado até agora); confirmar
+visualmente perto de 15h/15h30 Brasília se a janela do Fed abre sozinha e
+o vídeo realmente toca, e observar as próximas entradas do LLM Brain pra
+confirmar que a trava nova barra o padrão "1 fator sozinho".
+
+**[RESOLVIDO 2026-09-16] "UKOUSD não abre o Gráfico" — não era rate-limit,
+era bug real: o código nunca conseguia usar a réplica MetaAPI de Nova York
+(criada em 09-11) mesmo com a região primária (London) desconectada.**
+Confirmado ao vivo (provisioning API da MetaAPI): `london` (primária)
+`DISCONNECTED`, `backup-new-york` (réplica) `CONNECTED` — Cleber suspeitou
+certo. Causa: `getMetaApiClientApiBase`/`getMetaApiMarketDataApiBase`
+(`supabase/functions/server/index.ts`) liam `account.regions` (array),
+campo que **nunca existiu** no payload real da API — a leitura sempre
+resultava em array vazio, então o código sempre usava a região primária,
+ignorando a réplica desde que ela foi criada. Corrigido em 2 partes: (1)
+leitura correta de `account.region` + `account.accountReplicas[]`; (2) a
+pedido do Cleber ("tem que funcionar como uma suíte — quando uma não
+funciona, a outra tem que entrar no mesmo instante"), failover
+INSTANTÂNEO — `metaApiFetchWithFailover` tenta a região do topo e, em erro
+de infra (504/502/503/timeout), promove a próxima região candidata e
+tenta de novo na MESMA requisição, sem esperar TTL/reload — aplicado em
+`/mt5-prices`, `/mt5-candles` e `/mt5-candles-history` (as 3 rotas que
+causavam o sintoma). `deno check`: 14 erros, todos pré-existentes, nenhum
+novo. Commit + `supabase functions deploy server` já rodados pelo Cleber.
+**Pendente real**: confirmar ao vivo pós-deploy que o Gráfico abre normal
+mesmo com London desconectada; rotas de execução/posição/conta
+(`account-information`/`positions`/`orders`/`trade`) ainda não têm o
+retry instantâneo próprio, só herdam a região corrigida via cache
+compartilhado — gap conhecido, não fechado nesta sessão; causa raiz de
+por que `london` cai continua desconhecida (mesma instabilidade recorrente
+da conta MetaAPI já catalogada, este fix só evita ficar refém dela).
+Handoff completo:
+[SESSAO_2026-09-16_FAILOVER_REGIAO_METAAPI_UKOUSD.md](SESSAO_2026-09-16_FAILOVER_REGIAO_METAAPI_UKOUSD.md).
+
+**[RESOLVIDO 2026-09-15] Reset do LLM Brain: posição aberta sumia do
+Dashboard, depois o fix disso fazia o saldo nunca mais voltar pros
+$100 de verdade — 2 rodadas de fix na mesma sessão, resolvido com
+REALOCAÇÃO da posição pra sessão nova em vez de bloquear o reset.**
+Rodada 1: Cleber reportou que "restartar" o LLM Brain pra $100 de
+madrugada (config nova de ativos asiáticos) fazia uma posição BTCUSD
+LONG sumir do Dashboard — confirmado que ela continuava `OPEN` de
+verdade em `ai_trades` o tempo todo, nunca foi fechada. Causa: (1)
+`endSession()` (`useAIPersistence.ts`) encerrava a sessão do LLM Brain
+incondicionalmente, sem checar posição aberta; (2) um guard de
+"resíduo de corrida" no reload (`useApexLogic.ts`) descartava qualquer
+sessão RUNNING encontrada até 30s depois de um Reset, mesmo com posição
+aberta legítima. Ambos corrigidos com checagem nova (`hasOpenTrades`).
+Rodada 2 (efeito colateral achado pelo Cleber ao testar: "como posso
+estar abaixo de $100 se a posição tá com +$2,43?"): o fix da rodada 1
+fazia `resetLlmActiveBrainSession()` ABORTAR o reset inteiro quando
+havia posição aberta — nenhuma sessão nova nascia, saldo continuava
+carregando todo o histórico da sessão antiga (nunca voltava pra $100
+de verdade). Corrigido pra REALOCAR (`UPDATE ai_trades.session_id`) a
+posição aberta pra uma sessão nova em $100, em vez de bloquear —
+sessão antiga encerrada com saldo real preservado no histórico, trade
+aberto nunca é fechado/reescrito (só o vínculo de sessão muda, auditado
+automaticamente por `ai_trades_audit_log`). Aplicado também
+manualmente no estado real do Cleber (sessão nova `ff7c9bfd...` em
+$100, posição BTCUSD migrada, conferida contra preço real da Binance).
+`tsc --noEmit` limpo nas 2 rodadas. Commits `6fa367a74`+`5b53c8afb`
+(rodada 1) + 1 pendente do Cleber rodar (rodada 2, comando entregue).
+Handoff completo:
+[SESSAO_2026-09-15_RESET_APAGAVA_POSICAO_ABERTA_DO_DASHBOARD.md](SESSAO_2026-09-15_RESET_APAGAVA_POSICAO_ABERTA_DO_DASHBOARD.md).
+**Pendente real**: nenhuma das 2 rodadas teve teste de Reset genuíno
+de ponta a ponta feito DEPOIS do respectivo fix estar no ar — só
+verificação retroativa (aplicada à mão no estado atual). Confirmar na
+próxima vez que o Cleber resetar de verdade com o código já rodando.
+
+**[RESOLVIDO 2026-09-13] Princípio novo no LLM Brain: toque na EMA9/SMA20
+durante queda pode ser armadilha de reversão, não sinal de compra —
+observação de mercado do Cleber, commitado e restart rodado.** Em
+tendência de baixa o preço costuma retestar as médias de 9/20 períodos e
+parecer que vai reverter, mas há vendedores vendidos segurando o preço
+ali antes da queda retomar. Princípio 1k novo em `agent.ts` (logo após
+1j/HMM) exige confirmação real (volume/MACD/Estocástico/S&R) antes de
+comprar nesse toque — nunca só "preço chegou na média". `tsc --noEmit`
+limpo. É contexto de julgamento pro LLM, não trava mecânica — sem
+validação estatística ainda, é a leitura de mercado dele, não edge
+comprovado.
+
 **[NOTA 2026-09-13] As 3 entradas de sessão de 2026-09-11 logo abaixo
 (mobile drawer, stop de fim de semana, Risco da Conta) tinham sido
 commitadas junto com sua documentação (`e46763a94`) mas sumiram deste
