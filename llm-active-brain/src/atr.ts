@@ -446,16 +446,16 @@ export function computeMarketDirection(
   let agreement: string;
   if (signalsUsed === 0) {
     consensus = "INDEFINIDO";
-    agreement = "Nenhum sinal de direcao disponivel/claro agora (tendencias LATERAL, momentum MISTO, HMM sem regime de tendencia claro).";
+    agreement = "Nenhum sinal disponivel agora.";
   } else if (votesBaixa === 0) {
     consensus = "ALTA";
-    agreement = `${votesAlta}/${signalsUsed} sinal(is) disponivel(is) concordam em ALTA neste ciclo.`;
+    agreement = `${votesAlta}/${signalsUsed} concordam ALTA.`;
   } else if (votesAlta === 0) {
     consensus = "BAIXA";
-    agreement = `${votesBaixa}/${signalsUsed} sinal(is) disponivel(is) concordam em BAIXA neste ciclo.`;
+    agreement = `${votesBaixa}/${signalsUsed} concordam BAIXA.`;
   } else {
     consensus = "DIVERGENTE";
-    agreement = `${votesAlta} sinal(is) ALTA vs ${votesBaixa} sinal(is) BAIXA -- direcao SEM consenso, cautela extra antes de operar continuacao em qualquer lado.`;
+    agreement = `${votesAlta} ALTA vs ${votesBaixa} BAIXA -- SEM consenso, exija confirmacao extra antes de continuacao.`;
   }
 
   return { consensus, agreement, votesAlta, votesBaixa, signalsUsed };

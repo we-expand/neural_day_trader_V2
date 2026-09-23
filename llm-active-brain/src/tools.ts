@@ -1052,9 +1052,10 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ? { regime: hmmRegime.regime, confidence: hmmRegime.confidence, direction: hmmRegime.direction, sampleSize: hmmRegime.sampleSize }
         : null;
       if (marketDirection.consensus === "DIVERGENTE") {
-        avisos.push(
-          `DIRECAO SEM CONSENSO: ${marketDirection.agreement} Ver "marketDirection" -- exija confirmacao extra antes de operar continuacao em qualquer lado.`
-        );
+        // 🔴 2026-09-22: texto ja esta completo em marketDirection.agreement
+        // (mesmo objeto, campo ao lado) -- aviso so precisa sinalizar que
+        // existe, nao reembalar a mesma frase de novo (duplicava por ativo).
+        avisos.push(`DIRECAO SEM CONSENSO (ver "marketDirection.agreement").`);
       }
       return {
         ...quote,
