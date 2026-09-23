@@ -20,6 +20,7 @@ import {
 import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlertStage';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
 import { computePriceMagnitudePnl, type PendingOrderVisual } from '../../hooks/useApexLogic';
+import { calculateRoundTripCost } from '../../services/risk/ExecutionCost';
 
 type Side = 'BUY' | 'SELL';
 type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
@@ -311,19 +312,28 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   // aberta — mesmo símbolo, dois números diferentes. LIVE continua usando
   // `contractSpec` de propósito: ali é a MetaAPI/corretora real quem cobra
   // pelo tick, então o valor de contrato é o correto pra essa via.
+  const roundTripCostUsd = useMemo(() => {
+    if (executionMode !== 'DEMO' || !asset || !currentPrice || !(volume > 0)) return 0;
+    return calculateRoundTripCost(symbol, volume * asset.lotSize * currentPrice, currentPrice).costUsd;
+  }, [executionMode, asset, currentPrice, volume, symbol]);
+
   const riskUsd = useMemo(() => {
     if (!slSet || !currentPrice || !(volume > 0)) return null;
     const priceDelta = Math.abs(currentPrice - slNum);
-    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode);
-  }, [slSet, currentPrice, slNum, volume, contractSpec, executionMode, asset]);
+    // Perda LÍQUIDA: o stop perde o movimento + o custo round-trip (o que de fato
+    // é gravado no log). Só DEMO -- em LIVE quem cobra é a corretora.
+    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode) + roundTripCostUsd;
+  }, [slSet, currentPrice, slNum, volume, contractSpec, executionMode, asset, roundTripCostUsd]);
 
   const riskPercent = riskUsd != null && portfolio.balance > 0 ? (riskUsd / portfolio.balance) * 100 : null;
 
   const rewardUsd = useMemo(() => {
     if (!tpSet || !currentPrice || !(volume > 0)) return null;
     const priceDelta = Math.abs(tpNum - currentPrice);
-    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode);
-  }, [tpSet, currentPrice, tpNum, volume, contractSpec, executionMode, asset]);
+    // Lucro LÍQUIDO do custo round-trip: o usuário só ganha depois de pagar o
+    // spread, então a boleta mostra exatamente o que será registrado no log.
+    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode) - roundTripCostUsd;
+  }, [tpSet, currentPrice, tpNum, volume, contractSpec, executionMode, asset, roundTripCostUsd]);
 
   const marginEstimate = useMemo(() => {
     if (!currentPrice || !asset || !(volume > 0)) return null;
