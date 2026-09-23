@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { startMeasuredSpreadsLoader } from '@/app/services/risk/MeasuredSpreadsLoader';
 import '@/app/config/figmaErrorHandler'; // 🛡️ Silencia erros do Figma iframe
 import { AuthProvider, useAuth } from '@/app/contexts/AuthContext';
 import { MarketProvider } from '@/app/contexts/MarketContext';
@@ -204,6 +205,10 @@ function AppContent() {
   useFavicon();
 
   // ✅ TITLE: always "Neural Day Trader" — never user's name, never "Trade Hub"
+  useEffect(() => {
+    startMeasuredSpreadsLoader(); // spread real medido -> custo da boleta/log
+  }, []);
+
   useEffect(() => {
     document.title = 'Neural Day Trader';
   }, []);

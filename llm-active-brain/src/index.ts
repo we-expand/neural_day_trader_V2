@@ -12,6 +12,7 @@ import { getBalanceUsd } from "./economy.js";
 import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, closeMt5Position, openMt5Position, type Mt5OpenPosition } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET, LOT_SIZE } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
+import { startSpreadCollector } from "./spreadCollector.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 function sleep(ms: number) {
@@ -540,6 +541,7 @@ async function main() {
   acquireSingleInstanceLock();
   await assertOnTestnet();
   if (config.mt5TradingEnabled) startStopWatchdog();
+  startSpreadCollector(); // spread real medido -> custo (research/COST_SOURCE_OF_TRUTH.md)
   if (config.mt5LiveExecutionEnabled) {
     // Kill-switch mestre ligado -- a partir daqui, QUALQUER usuario que
     // conectar broker_credentials pela UI passa a operar com dinheiro real

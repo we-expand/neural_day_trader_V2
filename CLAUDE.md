@@ -15,6 +15,16 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-23, noite] Custo de execução agora vem do spread REAL
+medido (fonte única) — boleta = log.** Cleber viu +$30 na boleta e $8 no log
+(bruto $32,62 − custo $24,56). Pesquisa+medição: o modelo estático de cripto
+(0,029%) subestimava o mercado (BTC ~0,07%, ETH ~0,1%, alts 0,4–14%). Novo:
+`market_spread_samples` + coletor (`spreadCollector.ts`, 5 min) → mediana 7d →
+`ExecutionCost.ts`/`commissionModel.ts`; boleta com prévia líquida
+(`OrderTicket.tsx`). Detalhe e fontes: [research/COST_SOURCE_OF_TRUTH.md](research/COST_SOURCE_OF_TRUTH.md).
+**Pendente**: rodar migration `20260923_market_spread_samples.sql`, commit,
+`./restart.sh`; custo de BTC sobe ~3x (esperado, é o real).
+
 **[EM ANDAMENTO 2026-09-23, tarde] Congelamento de 22/09 QUEBRADO de
 propósito (pedido do Cleber, "não radical"): LLM Brain quase não entrava à
 tarde. Causa medida: gate de padrão de candle em REVERSAO (143 bloqueios/7

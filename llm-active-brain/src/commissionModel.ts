@@ -36,7 +36,8 @@
  * FOREX_MAJOR (mesmo default conservador do resto do projeto) com log de
  * aviso, nunca falha silenciosa.
  */
-import { estimateCostPercent, type AssetClass } from "../../research/CostModel.ts";
+import { estimateCostPercent, estimateCostPercentMeasured, publishedCommissionRoundTripPct, type AssetClass } from "../../research/CostModel.ts";
+import { getMeasuredSpread } from "../../research/MeasuredSpreads.ts";
 import { getPointValue } from "../../src/app/services/strategy/TradeSizing.ts";
 
 // Composição real de MT5_ASSET_BASKET (assetBasket.ts) -- cripto/cross vs.
@@ -114,7 +115,10 @@ export function estimateCommissionUsd(symbol: string, notionalUsd: number, price
   try {
     const assetClass = resolveAssetClass(symbol);
     const pointValue = PAIR_COST_OVERRIDE[symbol.toUpperCase()]?.pointValue ?? getPointValue(symbol);
-    const roundTripPercent = estimateCostPercent(assetClass, priceLevel, pointValue) * 2;
+    const measured = getMeasuredSpread(symbol);
+    const roundTripPercent = (measured
+      ? estimateCostPercentMeasured(assetClass, priceLevel, pointValue, measured.medianPct, publishedCommissionRoundTripPct(symbol, assetClass, priceLevel))
+      : estimateCostPercent(assetClass, priceLevel, pointValue)) * 2;
     if (!Number.isFinite(roundTripPercent) || roundTripPercent < 0) return 0;
     return notionalUsd * roundTripPercent;
   } catch (err) {

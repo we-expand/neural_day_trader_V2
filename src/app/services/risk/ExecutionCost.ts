@@ -43,7 +43,8 @@
  * que o COST_GATE já usa pra recusar trades. Não há número novo aqui; este
  * módulo só converte "percentual do notional" em "dólares desta posição".
  */
-import { estimateCostPercent } from '../../../../research/CostModel.ts';
+import { estimateCostPercent, estimateCostPercentMeasured, publishedCommissionRoundTripPct } from '../../../../research/CostModel.ts';
+import { getMeasuredSpread } from '../../../../research/MeasuredSpreads.ts';
 import { resolveCostAssetClass } from './CostAssetClass.ts';
 import { getPointValue } from '../strategy/TradeSizing.ts';
 
@@ -54,6 +55,10 @@ export interface ExecutionCostBreakdown {
   costUsd: number;
   /** Classe de custo resolvida pelo catálogo (auditoria — não adivinhada por substring). */
   assetClass: string;
+  /** 'MEASURED_7D' = spread real medido (market_spread_samples); 'STATIC_MODEL' = tabela estática (sem amostra). */
+  source?: 'MEASURED_7D' | 'STATIC_MODEL';
+  /** Spread mediano real usado (% do preço), quando medido. */
+  measuredSpreadPct?: number;
 }
 
 /**
@@ -90,7 +95,10 @@ export function calculateRoundTripCost(
   const pointValue = getPointValue(symbol);
   // `* 2` = ida e volta. Mesma convenção de BacktestEngine.ts e do COST_GATE
   // em runTradingCycle.ts — `estimateCostPercent` devolve custo POR PERNA.
-  const roundTripPercent = estimateCostPercent(assetClass, priceLevel, pointValue) * 2;
+  const measured = getMeasuredSpread(symbol);
+  const roundTripPercent = (measured
+    ? estimateCostPercentMeasured(assetClass, priceLevel, pointValue, measured.medianPct, publishedCommissionRoundTripPct(symbol, assetClass, priceLevel))
+    : estimateCostPercent(assetClass, priceLevel, pointValue)) * 2;
 
   if (!Number.isFinite(roundTripPercent) || roundTripPercent < 0) {
     return { roundTripPercent: 0, costUsd: 0, assetClass };
@@ -100,5 +108,7 @@ export function calculateRoundTripCost(
     roundTripPercent,
     costUsd: notionalUsd * roundTripPercent,
     assetClass,
+    source: measured ? 'MEASURED_7D' : 'STATIC_MODEL',
+    measuredSpreadPct: measured?.medianPct,
   };
 }
