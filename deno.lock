@@ -44,6 +44,7 @@
         "npm:@radix-ui/react-tooltip@1.1.8",
         "npm:@react-three/drei@^9.99.0",
         "npm:@react-three/fiber@^8.15.19",
+        "npm:@simplewebauthn/browser@10",
         "npm:@supabase/supabase-js@^2.89.0",
         "npm:@tailwindcss/vite@4.1.12",
         "npm:@types/node@^22.20.0",

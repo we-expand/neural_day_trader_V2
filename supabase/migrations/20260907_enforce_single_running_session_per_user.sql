@@ -32,9 +32,16 @@ with duplicated as (
     id,
     user_id,
     mode,
+    -- 🔴 Prioriza SEMPRE strategy_name='LLM_ACTIVE_BRAIN_MT5' (o motor único
+    -- real, ver CLAUDE.md) como a linha que fica RUNNING, independente de
+    -- qual sessão é mais recente -- a mesma regra que getActiveSession()
+    -- já usa no cliente (AITradingPersistenceService.ts). Sem isso, a
+    -- ordenação por started_at desc sozinha fecharia a sessão REAL e
+    -- manteria a órfã "Apex AI" quando ela por acaso for mais recente
+    -- (exatamente o caso hoje: órfã criada minutos depois da sessão real).
     row_number() over (
       partition by user_id, mode
-      order by started_at desc nulls last, created_at desc
+      order by (strategy_name = 'LLM_ACTIVE_BRAIN_MT5') desc, started_at desc nulls last, created_at desc
     ) as rn
   from ai_sessions
   where status = 'RUNNING'

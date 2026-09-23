@@ -10,3 +10,4 @@ OmniRoute/
 # Saida gerada pelo skill graphify (knowledge graph do codebase) -- artefato
 # de ferramenta, nao codigo-fonte do projeto.
 graphify-out/
+*.env.bak*

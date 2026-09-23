@@ -58,6 +58,18 @@
  * desligado até haver amostra real validando que a classificação bate com o
  * que se observa no gráfico (mesma disciplina de `ASSET_SCORECARD_ACTIVE`
  * já usada neste projeto).
+ *
+ * CASO CONHECIDO DE AMBIGUIDADE (validado com dado sintético, ver testes que
+ * sustentaram os limiares em `labelStates`): um choque de volatilidade
+ * PERFEITAMENTE simétrico (sem viés direcional algum, o candle inteiro sobe
+ * ou desce por sorteio) e SEM nenhum trecho mais calmo na mesma janela pra
+ * servir de referência cai em CONSOLIDACAO_BAIXA_VOL em vez de
+ * CHOQUE_DE_VOLATILIDADE -- o modelo não tem como saber que "isto é raro"
+ * sem ver um período mais calmo do MESMO símbolo pra comparar. Na prática
+ * real isso é incomum (choques de mercado de verdade -- notícia, liquidação
+ * em cascata -- quase sempre têm um viés direcional real, e a janela
+ * buscada normalmente mistura momentos mais calmos), mas é um limite
+ * conhecido, não escondido.
  */
 
 export interface HmmCandle {
@@ -357,7 +369,31 @@ function viterbiDecode(features: number[][], model: HmmModel): number[] {
   return path;
 }
 
-/** Rotula os 3 estados ocultos (índices 0/1/2, sem significado a priori) usando as features CRUAS (não padronizadas) do candle atribuído a cada um pelo Viterbi -- mesmo critério documentado no cabeçalho do arquivo. */
+// 🔴 Limiares ABSOLUTOS (não só ranking relativo entre os 3 estados) --
+// validado com dado sintético antes de aceitar esta versão: um ranking
+// PURAMENTE relativo (sempre "o maior dos 3 é X") força um rótulo mesmo
+// quando NENHUM dos 3 estados de fato exhibit esse comportamento -- ex: numa
+// janela 100% consolidada, os 3 estados vão ter |retorno médio| perto de
+// zero por definição, mas o argmax relativo ainda escolhe "o menos perto de
+// zero dos 3" como TENDENCIA (falso positivo, confirmado no teste sintético
+// de consolidação pura antes deste fix). Os limiares abaixo exigem que o
+// candidato realmente pareça o que o rótulo diz, não só "o mais parecido
+// dos 3 disponíveis" -- quando nenhum estado passa no limiar, o rótulo cai
+// pra CONSOLIDACAO_BAIXA_VOL (mais de um estado pode legitimamente
+// compartilhar esse rótulo -- não há problema em 2 dos 3 estados ocultos
+// representarem sabores diferentes de "sem tendência/sem choque real").
+// 🔴 1.2 (não 0.6) -- calibrado com dado sintético: um choque de alta
+// volatilidade com sinal ALEATÓRIO a cada candle ainda pode gerar, por puro
+// acaso estatístico numa janela curta de ~10 candles (mesmo limite de
+// MIN_CANDLES_FOR_HMM/60 candles do endpoint real), uma média móvel de
+// retorno com razão sinal/ruído perto de 1.0 sem nenhuma direção real por
+// trás -- 1.2 mantém a detecção de tendência genuína (testada com folga
+// bem acima disso, razão ~2-8 nos casos sintéticos de tendência real) sem
+// confundir ruído simétrico de choque com direção real.
+const MIN_TREND_SIGNAL_TO_NOISE = 1.2; // |retorno médio da janela| / volatilidade realizada -- abaixo disso, a "direção" é indistinguível de ruído
+const MIN_SHOCK_VOLATILITY_RATIO = 1.6; // volatilidade do candidato / mediana dos outros 2 -- abaixo disso, a diferença de volatilidade não é grande o suficiente pra chamar de choque
+
+/** Rotula os 3 estados ocultos (índices 0/1/2, sem significado a priori) usando as features CRUAS (não reescaladas) do candle atribuído a cada um pelo Viterbi -- ver limiares acima. */
 function labelStates(rawFeatures: number[][], viterbiPath: number[]): Record<number, HmmRegimeLabel> {
   const stats = Array.from({ length: N_STATES }, () => ({ absReturn: 0, volatility: 0, count: 0 }));
   for (let t = 0; t < rawFeatures.length; t++) {
@@ -372,20 +408,50 @@ function labelStates(rawFeatures: number[][], viterbiPath: number[]): Record<num
       s.volatility /= s.count;
     }
   }
-
   if (process.env.HMM_DEBUG === "true") console.error("[hmm-debug] labelStates stats=", stats);
-  const remaining = new Set([0, 1, 2]);
-  const shockState = [...remaining].reduce((best, s) => (stats[s].volatility > stats[best].volatility ? s : best));
-  remaining.delete(shockState);
-  const trendState = [...remaining].reduce((best, s) => (stats[s].absReturn > stats[best].absReturn ? s : best));
-  remaining.delete(trendState);
-  const consolidationState = [...remaining][0];
 
-  return {
-    [shockState]: HMM_STATE_SHOCK,
-    [trendState]: HMM_STATE_TREND,
-    [consolidationState]: HMM_STATE_CONSOLIDATION,
-  };
+  const labels: Record<number, HmmRegimeLabel> = { 0: HMM_STATE_CONSOLIDATION, 1: HMM_STATE_CONSOLIDATION, 2: HMM_STATE_CONSOLIDATION };
+
+  // 🔴 ORDEM IMPORTA (validado com dado sintético antes de aceitar esta
+  // versão): TENDÊNCIA é avaliada PRIMEIRO, sobre os 3 estados, usando a
+  // razão sinal/ruído (direção/volatilidade) -- não a volatilidade sozinha.
+  // Um mercado em tendência real costuma ter volatilidade MAIOR que um
+  // mercado consolidado do mesmo símbolo (movimento genuíno desloca preço
+  // mais que ruído parado) -- se CHOQUE fosse avaliado primeiro (maior
+  // volatilidade relativa vence), uma tendência de verdade, mas mais
+  // volátil que a consolidação anterior na mesma janela, seria confundida
+  // com choque (confirmado no teste sintético "consolidação -> tendência"
+  // antes deste reordenamento). CHOQUE é sobre volatilidade ALTA SEM
+  // direção confiável (SNR baixo) -- por isso só é avaliado DEPOIS, e só
+  // entre os estados que a tendência já descartou.
+  const trendStates: number[] = [];
+  for (const candidate of [0, 1, 2]) {
+    const ratio = stats[candidate].absReturn / Math.max(stats[candidate].volatility, 1e-12);
+    if (ratio >= MIN_TREND_SIGNAL_TO_NOISE) {
+      labels[candidate] = HMM_STATE_TREND;
+      trendStates.push(candidate);
+    }
+  }
+
+  // Choque: só entre os estados que NÃO viraram tendência -- candidato
+  // precisa ter volatilidade MATERIALMENTE acima da mediana dos outros
+  // candidatos remanescentes (não da tendência, que pode legitimamente ter
+  // volatilidade maior sem ser "choque").
+  const nonTrendStates = [0, 1, 2].filter((s) => !trendStates.includes(s));
+  if (nonTrendStates.length >= 2) {
+    let shockState: number | null = null;
+    for (const candidate of nonTrendStates) {
+      const others = nonTrendStates.filter((s) => s !== candidate).map((s) => stats[s].volatility);
+      const medianOthers = others.reduce((a, b) => a + b, 0) / others.length || 1e-12;
+      const ratio = stats[candidate].volatility / medianOthers;
+      if (ratio >= MIN_SHOCK_VOLATILITY_RATIO && (shockState === null || stats[candidate].volatility > stats[shockState].volatility)) {
+        shockState = candidate;
+      }
+    }
+    if (shockState !== null) labels[shockState] = HMM_STATE_SHOCK;
+  }
+
+  return labels;
 }
 
 /**
@@ -409,33 +475,37 @@ export function classifyRegimeHmm(candles: HmmCandle[]): HmmRegimeResult | null 
   }
 
   const lastGamma = gamma[gamma.length - 1];
-  let currentState = 0;
-  for (let s = 1; s < N_STATES; s++) if (lastGamma[s] > lastGamma[currentState]) currentState = s;
-
-  const regime = labels[currentState];
   const stateProbabilities = {
     [HMM_STATE_TREND]: 0,
     [HMM_STATE_CONSOLIDATION]: 0,
     [HMM_STATE_SHOCK]: 0,
   } as Record<HmmRegimeLabel, number>;
-  for (let s = 0; s < N_STATES; s++) stateProbabilities[labels[s]] = lastGamma[s];
+  // += (não =) -- 2 estados ocultos podem legitimamente compartilhar o mesmo
+  // rótulo (ver labelStates: default CONSOLIDACAO quando nenhum candidato
+  // passa no limiar de tendência/choque), a probabilidade desse rótulo é a
+  // SOMA da probabilidade de todos os estados que o carregam.
+  for (let s = 0; s < N_STATES; s++) stateProbabilities[labels[s]] += lastGamma[s];
+
+  // Regime/confiança reportados vêm da probabilidade AGREGADA por rótulo
+  // (não do estado bruto de maior posterior) -- consistente com a soma acima
+  // quando 2 estados compartilham o mesmo rótulo.
+  const regime = (Object.entries(stateProbabilities) as [HmmRegimeLabel, number][]).reduce((best, curr) => (curr[1] > best[1] ? curr : best))[0];
+  const confidence = stateProbabilities[regime];
 
   let direction: "ALTA" | "BAIXA" | null = null;
   if (regime === HMM_STATE_TREND) {
-    const trendStateIdx = Object.entries(labels).find(([, label]) => label === HMM_STATE_TREND)?.[0];
-    if (trendStateIdx !== undefined) {
-      const idx = Number(trendStateIdx);
-      const returnsInTrend = rawFeatures.filter((_, t) => viterbiPath[t] === idx).map((f) => f[0]);
-      if (returnsInTrend.length > 0) {
-        const meanReturn = returnsInTrend.reduce((a, b) => a + b, 0) / returnsInTrend.length;
-        direction = meanReturn > 0 ? "ALTA" : "BAIXA";
-      }
+    // Agrega candles de TODOS os estados rotulados TENDENCIA (pode ser mais
+    // de um, ver labelStates) -- não só o primeiro encontrado.
+    const returnsInTrend = rawFeatures.filter((_, t) => labels[viterbiPath[t]] === HMM_STATE_TREND).map((f) => f[0]);
+    if (returnsInTrend.length > 0) {
+      const meanReturn = returnsInTrend.reduce((a, b) => a + b, 0) / returnsInTrend.length;
+      direction = meanReturn > 0 ? "ALTA" : "BAIXA";
     }
   }
 
   return {
     regime,
-    confidence: lastGamma[currentState],
+    confidence,
     stateProbabilities,
     direction,
     sampleSize: candles.length,
