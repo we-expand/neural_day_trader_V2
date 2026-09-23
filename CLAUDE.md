@@ -15,6 +15,47 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-23, tarde] Congelamento de 22/09 QUEBRADO de
+propósito (pedido do Cleber, "não radical"): LLM Brain quase não entrava à
+tarde. Causa medida: gate de padrão de candle em REVERSAO (143 bloqueios/7
+dias) + veredito por unanimidade (sempre DIVERGENTE).** Mudanças (commits
+`b8f038f94`…`225d9289c`, motor reiniciado): REVERSAO libera por Estocástico
+(cruzamento %K/%D OU zona extrema, 5m/1H), sem padrão de candle; veredito
+rápido por maioria (dia %, 5m, 1H; 1H veta); prompt alinhado; snapshot do
+trade grava `directionRule`/`reversalRule`/`reversalConfirmation`. De
+carona: PnL aberto/equity agora LÍQUIDOS do custo round-trip desde o 1º
+tick (`useApexLogic.ts`) — manual de 1 BTC mostrava +$4 e fechava -$20.
+**Critério de reversão definido antes**: 10 reversões fechadas com acerto
+<45% ou payoff <1:1 → reverter. Custo CRYPTO ($24,5/BTC, metade é slippage
+assumido) provavelmente inflado — recalibrar só com dado real. Handoff:
+[SESSAO_2026-09-23_REVERSAO_VEREDITO_RAPIDO_E_PNL_LIQUIDO.md](SESSAO_2026-09-23_REVERSAO_VEREDITO_RAPIDO_E_PNL_LIQUIDO.md).
+
+**[EM ANDAMENTO 2026-09-23] Congelamento do motor atual (tag
+`freeze-llm-brain-2026-09-22`) + pipeline Fail-Fast novo implementado
+ISOLADO (não plugado em produção) + modo diagnóstico ligado em DEMO
+(8 gates técnicos desligados com shadow-log) pra avaliar o julgamento
+"cru" da IA.** Pedido do Cleber: testar arquitetura Pipeline (Chain of
+Responsibility, 4 fases) + Position Sizing por ATR de um plano colado
+(Gemini). Implementado em `llm-active-brain/src/pipeline/` (código novo,
+testável, **não substitui o motor real ainda**). Ao tentar plugar a Fase
+3 (score substituindo os 4 gates técnicos: MACD/momentum/consenso/
+estocástico) de verdade, achado que cada trava nasceu de incidente real
+documentado (não é regra genérica) — decisão consciente do Cleber de
+**não** substituir ainda, só instrumentar (telemetria `[OK]`/`[REJECTED]`
+em 8 pontos de `tools.ts`, zero mudança de decisão, confirmado por diff).
+Depois, a pedido explícito do Cleber ("saber se ela é boa mesmo ou se é
+besta"), ligado modo diagnóstico (`MT5_DIAGNOSTIC_TECHNICAL_GATES_DISABLED=true`,
+`.env`) que desliga os 8 gates técnicos com log `[SHADOW-REJECTED]` (nunca
+silencioso) — gates de proteção de capital (spread/perda diária/exposição
+correlacionada/etc) continuam intocados. Confirmado `MT5_LIVE_EXECUTION_ENABLED=false`
+antes de ligar — sessão é DEMO, sem risco de capital real. `tsc --noEmit`/
+`npm run validate` limpos em toda a sessão. Handoff completo:
+[SESSAO_2026-09-23_PIPELINE_FAIL_FAST_CONGELAMENTO_E_MODO_DIAGNOSTICO.md](SESSAO_2026-09-23_PIPELINE_FAIL_FAST_CONGELAMENTO_E_MODO_DIAGNOSTICO.md).
+**Pendente real**: commit da última rodada (modo diagnóstico) ainda não
+rodado; sem critério de parada definido pro modo diagnóstico (recomendado
+não deixar rodando indefinidamente); amostra de resultado ainda
+insuficiente (monitoramento de 5 em 5min em andamento).
+
 **[EM ANDAMENTO 2026-09-22] Upgrade do cérebro do LLM Brain: Kimi K3
 (grátis, NVIDIA NIM) testado em produção e REVERTIDO pra Ollama (Qwen3.5
 4B) por instabilidade real da NVIDIA (não só transitória) — motor rodando
