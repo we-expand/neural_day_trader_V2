@@ -1765,6 +1765,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (b) esta na zona extrema oposta ao lado (LONG+SOBREVENDIDO,
       // SHORT+SOBRECOMPRADO). Os demais gates (MACD contra, consenso,
       // contra-tendencia >=2 fatores, R:R, confianca) continuam valendo.
+      let reversalConfirmationForLog: string | null = null;
       if (setupType === "REVERSAO") {
         const stochExtremeLabel = side === "LONG" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
         const stochCrossing = side === "LONG" ? "CRUZOU_PARA_CIMA" : "CRUZOU_PARA_BAIXO";
@@ -1782,6 +1783,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
               `Nenhuma das duas condicoes existe agora. Posicao NAO aberta. Espere o Estocastico cruzar/entrar na zona ou reavalie como continuacao/rompimento.`,
           };
         }
+        reversalConfirmationForLog = stochConfirmations.join(" | ");
         console.log(`[reversao] ${symbol} ${side}: confirmada por Estocastico -- ${stochConfirmations.join(" | ")}.`);
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
@@ -2826,6 +2828,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           marketDirectionVotesAlta: marketDirectionForGate.votesAlta,
           marketDirectionVotesBaixa: marketDirectionForGate.votesBaixa,
           setupType: setupType ?? null,
+          // 2026-09-23: separa amostras antes/depois das regras novas
+          // (veredito por maioria de 3 leituras + REVERSAO por Estocastico).
+          directionRule: "maioria-3-leituras-v1",
+          reversalRule: "estocastico-cruzamento-ou-extremo-v1",
+          reversalConfirmation: reversalConfirmationForLog,
+          dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
         },
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
