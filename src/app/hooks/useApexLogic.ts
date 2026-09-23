@@ -2537,7 +2537,16 @@ export function useApexLogic(
                 // Calculate P&L (mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo)
                 const pnl = calculateEngineConsistentPnL(order.price, nextPrice, order.side, order.amount);
 
-                totalUnrealizedPnL += pnl;
+                // 🔴 2026-09-23 (pedido do Cleber): o não-realizado mostrado ao
+                // usuário passa a ser LÍQUIDO do custo round-trip estimado desde o
+                // 1º tick -- antes ele via +$4 na tela e o trade fechava em -$20
+                // (o custo só aparecia no fechamento). O usuário não opera no
+                // escuro: o número da posição aberta é o mesmo que será gravado.
+                // `pnl` segue bruto só pra decisão de fechamento/log abaixo.
+                const { costUsd: closeCostUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+                const pnlNet = pnl - closeCostUsd;
+
+                totalUnrealizedPnL += pnlNet;
                 totalExposure += order.amount * nextPrice * order.leverage;
 
                 // Check TP/SL — tp/sl igual a 0 significa "não definido" (ordem manual
@@ -2568,9 +2577,6 @@ export function useApexLogic(
                 // `commission: 0`, e o PnL saía de preço médio nas duas pontas.
                 // `pnl` (acima) segue BRUTO — é o que alimenta o não-realizado da UI;
                 // `pnlNet` é o que move balance e vai pro banco como `net_pnl`.
-                const { costUsd: closeCostUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
-                const pnlNet = pnl - closeCostUsd;
-
                 if (hitTP) {
                     realizedPnL += pnlNet;
                     logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnlNet.toFixed(2)} (custo $${closeCostUsd.toFixed(4)})`);
@@ -2589,7 +2595,7 @@ export function useApexLogic(
                         ...order,
                         sl: effectiveSl,
                         currentPrice: nextPrice,
-                        currentProfit: pnl, // ✅ CRITICAL: Update profit for UI display
+                        currentProfit: pnlNet, // ✅ LÍQUIDO do custo estimado (ver comentário acima) -- fonte única da UI
                         trailMoves: trailMoved ? (order.trailMoves || 0) + 1 : order.trailMoves, // 🆕 contador real pro widget ATR Trailing Stop
                     });
                 }
@@ -3591,11 +3597,11 @@ export function useApexLogic(
     setPortfolio(prev => ({
       ...prev,
       balance: prev.balance + tradePnLNet,
-      equity: prev.balance + tradePnL,
+      equity: prev.balance + tradePnLNet,
     }));
-    setOrderHistory(prev => [...prev, { ...order, currentPrice, currentProfit: tradePnL, closedAt: Date.now() }]);
+    setOrderHistory(prev => [...prev, { ...order, currentPrice, currentProfit: tradePnLNet, closedAt: Date.now() }]);
     setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
-    addLog(`✅ Posição manual fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
+    addLog(`✅ Posição manual fechada: ${order.symbol} — P&L líquido: $${tradePnLNet.toFixed(2)} (bruto $${tradePnL.toFixed(2)}, custo $${costUsd.toFixed(2)})`);
   }, [addLog]);
 
   // 🔴 2026-09-09 (pedido explícito do Cleber: "consigo controlar fechamento
