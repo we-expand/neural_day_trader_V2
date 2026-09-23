@@ -800,19 +800,6 @@ export const config = {
   // timeframe operacional) esta virando/cruzando CONTRA o lado. Ver uso em
   // tools.ts. Desligavel via MACD_5M_TURN_GATE=false.
   macd5mTurnGateEnabled: process.env.MACD_5M_TURN_GATE !== "false",
-  // 🔴 2026-09-23 (pedido direto do Cleber -- teste de diagnóstico do
-  // pipeline Fail-Fast: "eliminar as travas pra ver como ela se comporta,
-  // saber se ela é boa mesmo ou se é besta"): desliga os 8 gates de
-  // JULGAMENTO técnico (MACD 5m/momentum imediato/consenso de direção/
-  // estocástico extremo/padrão REVERSAO obrigatório/contradição estocástico-
-  // REVERSAO/LATERAL 2-fatores/contra-tendência 2-fatores) SEM tocar nos de
-  // PROTEÇÃO (spread/cotação obsoleta/calendário/teto de posições/exposição
-  // correlacionada/perda diária/cooldown, todos intocados). Cada gate
-  // desligado continua logando [SHADOW-REJECTED] (o que teria bloqueado),
-  // nunca silencioso. Sessão é DEMO (MT5_LIVE_EXECUTION_ENABLED=false no
-  // momento em que isto foi ligado) -- reavaliar antes de usar perto de
-  // execução real. Default false, só ativa com o .env explícito.
-  mt5DiagnosticTechnicalGatesDisabled: process.env.MT5_DIAGNOSTIC_TECHNICAL_GATES_DISABLED === "true",
   // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
   // diário... atualizando 5x ao dia... isso indica o apetite a risco do
   // mercado"). VIX real (nunca fabricado -- ver tratamento do valor

@@ -243,20 +243,6 @@ async function requestCandles(
 /** Minutos por vela de cada timeframe suportado -- só pra reportar `lookbackMinutes` corretamente quando o timeframe não é o default de 5m. */
 const TIMEFRAME_MINUTES: Record<string, number> = { "1m": 1, "5m": 5, "15m": 15, "1H": 60, "4H": 240 };
 
-// 2026-09-23 (pipeline Fail-Fast novo, ver src/pipeline/): mesma fonte e
-// mesma fórmula de getAtrPercent, mas devolve o ATR em unidade de preço
-// (pontos), não em %. Position Sizing por ATR precisa da distância em
-// pontos pra calcular o Stop Loss e o tamanho do lote -- getAtrPercent por
-// si só não basta pra essa conta.
-export async function getAtrAbsolute(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<number | null> {
-  const candles = await fetchRecentCandles(symbol, timeframe);
-  if (candles) {
-    const atr = calculateAtr(candles, 14);
-    if (atr != null && Number.isFinite(atr)) return atr;
-  }
-  return null;
-}
-
 export async function getAtrPercent(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<number | null> {
   const candles = await fetchRecentCandles(symbol, timeframe);
   if (candles) {
