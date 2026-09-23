@@ -13,6 +13,8 @@ import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGr
 import { checkReasoningConsistency } from "./reasoningValidator.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
+const EXHAUSTION_VETO_SYMBOLS = new Set(["BTCUSD", "BTCXBN", "ETHUSD", "XETUSD"]);
+
 // 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
 // Medicao REAL da cesta inteira, 6 chamadas seguidas a /mt5-prices em ~50s
 // (2026-08-30 02:45-02:46 UTC, sabado, cripto em pregao 24/7):
@@ -1679,6 +1681,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
       const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
       const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal, lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null);
+      // 🔴 2026-09-23 (conselho + teste de 3 anos Binance, pedido do Cleber):
+      // VETO de SHORT em BTC/ETH entre 17h e 20h de Brasilia quando o dia ja
+      // caiu >= 2%. Nesse contexto o SHORT acertou so 39% (BTC) / 43% (ETH),
+      // E[R] negativo mesmo antes do custo; hora de respiro, nao de vender.
+      // So RESTRINGE (nunca cria entrada). Cada bloqueio loga [VETO-EXAUSTAO]
+      // com preco pra medir o contrafactual depois (stop/alvo 1x ATR 1H, 4h).
+      if (side === "SHORT" && EXHAUSTION_VETO_SYMBOLS.has(symbol)) {
+        const dayPctForVeto = lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null;
+        const hourBrt = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", hour12: false }).format(new Date()));
+        if (dayPctForVeto != null && Number.isFinite(dayPctForVeto) && dayPctForVeto <= -2 && hourBrt >= 17 && hourBrt < 20) {
+          console.log(`[VETO-EXAUSTAO] ${symbol} SHORT bloqueado -- dia ${dayPctForVeto.toFixed(2)}%, ${hourBrt}h BRT, preco ${fillPrice} (${new Date().toISOString()})`);
+          return {
+            error: `BLOQUEADO (veto de exaustao): ${symbol} ja caiu ${dayPctForVeto.toFixed(2)}% no dia e sao ${hourBrt}h em Brasilia. ` +
+              `Historico de 3 anos: nesse contexto SHORT acerta so ~40% (o mercado tende a respirar/repicar). ` +
+              `Nao venda a favor do dia esgotado. Espere o repique ou nao opere ${symbol} agora.`,
+          };
+        }
+      }
       // 🔴 2026-09-16 (pedido direto do Cleber, ao vivo -- "rompeu, ótimo.
       // Espera o candle fechar, e se ele fechar acima do rompimento, pode
       // dar entrada. Antes disso, ninguém faz nada"): setupType="ROMPIMENTO"
@@ -2830,7 +2850,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           setupType: setupType ?? null,
           // 2026-09-23: separa amostras antes/depois das regras novas
           // (veredito por maioria de 3 leituras + REVERSAO por Estocastico).
-          directionRule: "maioria-3-leituras-v1",
+          directionRule: "5m-1h-sem-dia-v2",
           reversalRule: "estocastico-cruzamento-ou-extremo-v1",
           reversalConfirmation: reversalConfirmationForLog,
           dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,

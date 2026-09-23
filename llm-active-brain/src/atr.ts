@@ -442,7 +442,10 @@ export function computeMarketDirection(
       : dayChangePct > 0 ? "ALTA" : "BAIXA";
   const read5m = trend5m?.label === "ALTA" || trend5m?.label === "BAIXA" ? trend5m.label : null;
   const read1h = trendLongTerm?.label === "ALTA" || trendLongTerm?.label === "BAIXA" ? trendLongTerm.label : null;
-  const reads = [dayRead, read5m, read1h];
+  // 2026-09-23 (noite): dia% SAI do voto (so aparece no resumo). Teste em 3 anos
+  // de Binance: depois de dia <= -2%, SHORT acerta 39-43% -- votar 'dia caiu =
+  // vende' era o oposto do que o dado mostra. Veredito = 5m + 1H concordando.
+  const reads = [read5m, read1h];
   const votesAlta = reads.filter((r) => r === "ALTA").length;
   const votesBaixa = reads.filter((r) => r === "BAIXA").length;
   const signalsUsed = votesAlta + votesBaixa;
@@ -453,7 +456,7 @@ export function computeMarketDirection(
   if (signalsUsed === 0) {
     consensus = "INDEFINIDO";
     agreement = `Veredito rapido: ${summary} -- nenhuma leitura com direcao agora.`;
-  } else if (votesAlta >= 2 && read1h !== "BAIXA") {
+  } else if (votesAlta >= 2 && read1h !== "BAIXA") { // 2 = 5m e 1H concordam
     consensus = "ALTA";
     agreement = `Veredito rapido: ${summary} -- maioria ALTA e 1H nao contraria.`;
   } else if (votesBaixa >= 2 && read1h !== "ALTA") {
