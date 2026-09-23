@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow, isAfternoonReversalWindow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -1755,7 +1755,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // obrigatorio especificamente pra qualquer entrada declarada REVERSAO,
       // mesmo em mercado LATERAL (onde o gate de fatores minimos nao exige
       // candle especificamente, so "algum" fator).
-      if (setupType === "REVERSAO") {
+      // Janela da tarde (13h-17h BRT): Estocastico extremo alinhado (5m ou 1H) + MACD
+      // nao contrario substitui o padrao de candle -- ver isAfternoonReversalWindow.
+      const afternoonExtremeLabel = side === "LONG" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
+      const afternoonMacdAgainst = side === "LONG" ? "BAIXA" : "ALTA";
+      const afternoonReversalAlt =
+        isAfternoonReversalWindow() &&
+        (stochasticForReversalCheck?.label === afternoonExtremeLabel || stochasticLongTermForReversalCheck?.label === afternoonExtremeLabel) &&
+        macdForConfluenceCheck != null &&
+        macdForConfluenceCheck.label !== afternoonMacdAgainst;
+      if (setupType === "REVERSAO" && afternoonReversalAlt) {
+        console.log(`[janela-tarde] ${symbol} ${side}: REVERSAO liberada sem padrao de candle (Estocastico ${afternoonExtremeLabel} + MACD ${macdForConfluenceCheck?.label}).`);
+      } else if (setupType === "REVERSAO") {
         const reversalPatternAligned =
           candlePatternsForConfluenceCheck?.bias != null &&
           candlePatternsForConfluenceCheck.detected.length > 0 &&
