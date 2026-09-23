@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow, isAfternoonReversalWindow } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -1755,51 +1755,32 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // obrigatorio especificamente pra qualquer entrada declarada REVERSAO,
       // mesmo em mercado LATERAL (onde o gate de fatores minimos nao exige
       // candle especificamente, so "algum" fator).
-      // Janela da tarde (13h-17h BRT): Estocastico extremo alinhado (5m ou 1H) + MACD
-      // nao contrario substitui o padrao de candle -- ver isAfternoonReversalWindow.
-      const afternoonExtremeLabel = side === "LONG" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
-      const afternoonMacdAgainst = side === "LONG" ? "BAIXA" : "ALTA";
-      const afternoonReversalAlt =
-        isAfternoonReversalWindow() &&
-        (stochasticForReversalCheck?.label === afternoonExtremeLabel || stochasticLongTermForReversalCheck?.label === afternoonExtremeLabel) &&
-        macdForConfluenceCheck != null &&
-        macdForConfluenceCheck.label !== afternoonMacdAgainst;
-      if (setupType === "REVERSAO" && afternoonReversalAlt) {
-        console.log(`[janela-tarde] ${symbol} ${side}: REVERSAO liberada sem padrao de candle (Estocastico ${afternoonExtremeLabel} + MACD ${macdForConfluenceCheck?.label}).`);
-      } else if (setupType === "REVERSAO") {
-        const reversalPatternAligned =
-          candlePatternsForConfluenceCheck?.bias != null &&
-          candlePatternsForConfluenceCheck.detected.length > 0 &&
-          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
-            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
-        if (!reversalPatternAligned) {
-          const patternDesc = candlePatternsForConfluenceCheck?.detected.length
-            ? `padrao(oes) detectado(s) (${candlePatternsForConfluenceCheck.detected.join("/")}) tem bias ${candlePatternsForConfluenceCheck.bias ?? "neutro"}, nao alinhado com ${side}`
-            : "nenhum padrao de candle detectado no candle mais recente";
+      // 🔴 2026-09-23 (pedido do Cleber, quebra consciente do congelamento):
+      // REVERSAO NAO exige mais padrao de candle nem espera de candle extra
+      // (medido: 143 reversoes barradas em 7 dias so por essa regra). Vale
+      // sempre (dia todo) que o Estocastico (5m ou 1H) confirme a reversao a
+      // favor do lado: (a) linhas %K/%D CRUZARAM no sentido do lado, ou
+      // (b) esta na zona extrema oposta ao lado (LONG+SOBREVENDIDO,
+      // SHORT+SOBRECOMPRADO). Os demais gates (MACD contra, consenso,
+      // contra-tendencia >=2 fatores, R:R, confianca) continuam valendo.
+      if (setupType === "REVERSAO") {
+        const stochExtremeLabel = side === "LONG" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
+        const stochCrossing = side === "LONG" ? "CRUZOU_PARA_CIMA" : "CRUZOU_PARA_BAIXO";
+        const stochSources: Array<[string, typeof stochasticForReversalCheck]> = [
+          [String(openPositionTimeframe), stochasticForReversalCheck],
+          ["1H", stochasticLongTermForReversalCheck],
+        ];
+        const stochConfirmations = stochSources
+          .filter(([, st]) => st != null && (st.crossing === stochCrossing || st.label === stochExtremeLabel))
+          .map(([tf, st]) => `${tf}: ${st!.crossing === stochCrossing ? "cruzamento %K/%D" : st!.label} (k=${st!.k.toFixed(1)})`);
+        if (stochConfirmations.length === 0) {
           return {
-            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} exige um padrao grafico de reversao real (Estrela Cadente, Martelo, Engolfo, Harami, ` +
-              `Estrela da Manha/Noite, Marubozu...) com bias alinhado a ${side}, alem de qualquer outro indicador -- ${patternDesc}. ` +
-              `Posicao NAO aberta. Espere um padrao de candle real confirmar a reversao, ou reavalie como continuacao/rompimento se a tese for outra.`,
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} ${side} exige confirmacao do Estocastico a favor do lado -- ` +
+              `cruzamento das linhas %K/%D para ${side === "LONG" ? "cima" : "baixo"} OU zona ${stochExtremeLabel}, no ${openPositionTimeframe} ou no 1H. ` +
+              `Nenhuma das duas condicoes existe agora. Posicao NAO aberta. Espere o Estocastico cruzar/entrar na zona ou reavalie como continuacao/rompimento.`,
           };
         }
-        // 🔴 2026-09-17 (pedido direto do Cleber): padrao alinhado nao basta
-        // se ele acabou de fechar NESTE candle -- exige que a entrada so
-        // aconteca no candle SEGUINTE ao candle do padrao (mesmo espirito do
-        // gate de ROMPIMENTO acima, que exige fechamento confirmado).
-        const reversalPatternFirstSeenBySymbolSide = perSession(reversalPatternFirstSeenStore, session.sessionId);
-        const reversalKey = `${symbol}:${side}`;
-        const patternCandleTimestamp = candlePatternsForConfluenceCheck!.patternCandleTimestamp;
-        const firstSeenTimestamp = reversalPatternFirstSeenBySymbolSide.get(reversalKey);
-        if (firstSeenTimestamp == null || firstSeenTimestamp === patternCandleTimestamp) {
-          reversalPatternFirstSeenBySymbolSide.set(reversalKey, patternCandleTimestamp);
-          return {
-            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} -- padrao grafico ${candlePatternsForConfluenceCheck!.detected.join("/")} detectado, mas ` +
-              `AINDA no mesmo candle em que fechou (sem confirmacao do candle seguinte). Posicao NAO aberta. Espere o proximo candle fechar mantendo a ` +
-              `tese antes de entrar -- entrar no mesmo candle do padrao e apostar sem confirmacao de que o movimento realmente virou.`,
-          };
-        }
-        // Candle novo ja fechou desde a primeira deteccao -- padrao confirmado, libera e reseta o rastreio deste par simbolo+lado.
-        reversalPatternFirstSeenBySymbolSide.delete(reversalKey);
+        console.log(`[reversao] ${symbol} ${side}: confirmada por Estocastico -- ${stochConfirmations.join(" | ")}.`);
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
       // quando o mercado está caindo e venda quando está subindo"): caso real

@@ -510,21 +510,6 @@ function isVolumeEveningWindow(now: Date = new Date()): boolean {
   return nowBrasiliaMin >= VOLUME_EVENING_START_BRASILIA_MIN && nowBrasiliaMin < VOLUME_EVENING_END_BRASILIA_MIN;
 }
 
-// 🔴 2026-09-23 (pedido do Cleber, quebra consciente do congelamento de
-// 2026-09-22): das 13h00 as 17h00 Brasilia o motor quase nao entrava (medido:
-// 14h-16h = 4-5 entradas/14 dias vs 15-21 em 10h-13h; 30+ dos bloqueios da
-// tarde eram o gate de padrao de candle em REVERSAO, mercado lateral quase
-// nunca forma engolfo/martelo). Nesta janela o gate de REVERSAO aceita
-// Estocastico extremo alinhado + MACD nao contrario no lugar do padrao de candle.
-const AFTERNOON_START_BRASILIA_MIN = 13 * 60;
-const AFTERNOON_END_BRASILIA_MIN = 17 * 60;
-
-export function isAfternoonReversalWindow(now: Date = new Date()): boolean {
-  const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const nowBrasiliaMin = (nowUtcMin - BRASILIA_UTC_OFFSET_HOURS * 60 + 24 * 60) % (24 * 60);
-  return nowBrasiliaMin >= AFTERNOON_START_BRASILIA_MIN && nowBrasiliaMin < AFTERNOON_END_BRASILIA_MIN;
-}
-
 /**
  * 🔴 2026-08-29 (mesmo achado do Cleber): fallback quando o candle (e o
  * volume real dele) não vem -- usa aceleração de momentum por tick real
