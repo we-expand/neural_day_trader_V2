@@ -44,30 +44,41 @@ const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 // fix de zoom-out em 1D/1W, só corta o excesso em timeframes finos.
 const MAX_CANDLES = 2_000;
 
-function resolveLookbackMs(msPerCandle: number, previousBarCount: number): number {
+function resolveLookbackMs(msPerCandle: number, previousBarCount: number, maxCandlesOverride?: number): number {
   const desired = Math.max(FIVE_YEARS_MS, previousBarCount * msPerCandle);
-  const cap = MAX_CANDLES * msPerCandle;
+  const cap = (maxCandlesOverride ?? MAX_CANDLES) * msPerCandle;
   return Math.min(desired, cap);
 }
 
 /**
  * 🌐 FETCH CANDLES - ROTEAMENTO INTELIGENTE POR FONTE
+ *
+ * 🚀 PERF 2026-09-23 (Cleber: "gráfico demora demais pra entrar"): pra
+ * forex/índice (MetaAPI), o teto padrão de MAX_CANDLES (2.000, ~5 anos
+ * capados) força até 2 páginas sequenciais no backend contra a conta
+ * MetaAPI COMPARTILHADA (sujeita a rate-limit, ver CLAUDE.md) antes do
+ * 1º candle aparecer — mesmo a tela só precisando de algumas centenas.
+ * `maxCandlesOverride` permite ao chamador (ChartView, só na 1ª pintura)
+ * pedir uma janela bem mais estreita (1 página só) pra exibir rápido, e
+ * completar o histórico de 5 anos depois em 2º plano — ver
+ * `extendHistoryInBackground` em ChartView.tsx. Sem o parâmetro, o
+ * comportamento é idêntico ao de antes (cap padrão).
  */
-export async function fetchCandles(symbol: string, timeframe: string, limit: number = 200): Promise<CandleData[]> {
+export async function fetchCandles(symbol: string, timeframe: string, limit: number = 200, maxCandlesOverride?: number): Promise<CandleData[]> {
   console.log(`[MarketService] 🎯 Fetching candles for ${symbol} ${timeframe} via intelligent routing...`);
-  
+
   // 🔍 Detectar tipo de ativo
   const mapping = symbolMappingService.findMapping(symbol);
   const assetType = mapping?.type || detectAssetType(symbol);
-  
+
   console.log(`[MarketService] 📊 Asset type detected: ${assetType} for ${symbol}`);
-  
+
   // 🔀 ROTEAR PARA FONTE CORRETA
   if (assetType === 'crypto') {
-    return fetchCandlesFromBinance(symbol, timeframe, limit);
+    return fetchCandlesFromBinance(symbol, timeframe, limit, maxCandlesOverride);
   } else if (assetType === 'forex' || assetType === 'index' || assetType === 'commodity') {
     // Tentar MetaAPI primeiro, depois fallback
-    const metaCandlesAttempt = await fetchCandlesFromMetaAPI(symbol, timeframe, limit);
+    const metaCandlesAttempt = await fetchCandlesFromMetaAPI(symbol, timeframe, limit, maxCandlesOverride);
     if (metaCandlesAttempt.length > 0) {
       return metaCandlesAttempt;
     }
@@ -120,7 +131,7 @@ function detectAssetType(symbol: string): 'crypto' | 'forex' | 'index' | 'commod
 /**
  * 📡 Buscar candles da Binance (crypto)
  */
-async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
+async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit: number, maxCandlesOverride?: number): Promise<CandleData[]> {
   // Mapear símbolos para formato Binance
   const symbolMap: Record<string, string> = {
     'BTCUSD': 'BTCUSDT',
@@ -170,7 +181,7 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
     '1d': 86_400_000, '1w': 7 * 86_400_000, '1M': 30 * 86_400_000,
   };
   const intervalMs = msPerCandle[binanceInterval] || 3_600_000;
-  const lookbackMs = resolveLookbackMs(intervalMs, limit);
+  const lookbackMs = resolveLookbackMs(intervalMs, limit, maxCandlesOverride);
   const endTime = Date.now();
   const startTime = endTime - lookbackMs;
 
@@ -237,7 +248,7 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
  * explícito e aqui tratamos como "sem candles" (fallback local assume por
  * cima, mas pelo menos não finge ser real).
  */
-async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
+async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, maxCandlesOverride?: number): Promise<CandleData[]> {
   try {
     // Mapear timeframe pro formato aceito por /mt5-candles-history
     const mt5TimeframeMap: Record<string, string> = {
@@ -267,7 +278,7 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     // timeframes finos) -- o backend (/mt5-candles-history) já pagina sozinho
     // em blocos de 1000 candles até cobrir o intervalo pedido, então só
     // precisamos alargar startTime/endTime, sem chunking aqui no cliente.
-    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit);
+    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit, maxCandlesOverride);
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - lookbackMs);
 

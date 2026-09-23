@@ -480,6 +480,15 @@ import { analyzeSmc, type SmcZone, type Candle } from '@/app/services/smc';
 import { OrderTicket } from '@/app/components/trading/OrderTicket';
 import type { TradeVisual, PendingOrderVisual } from '@/app/hooks/useApexLogic';
 
+// 🚀 PERF 2026-09-23 (Cleber: "gráfico demora demais pra entrar"): teto de
+// candles pedido só na 1ª pintura de um símbolo/timeframe — cabe numa única
+// página do backend (Binance/MetaAPI paginam em blocos de 1000), em vez do
+// teto padrão de 2.000/5 anos que força 2 chamadas sequenciais contra a
+// conta MetaAPI COMPARTILHADA antes do gráfico aparecer. Ver
+// `fetchCandles`/`resolveLookbackMs` em market-service.ts e o uso deste
+// valor dentro do effect de fetchData mais abaixo.
+const FAST_FIRST_PAINT_MAX_CANDLES = 800;
+
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
   name: 'pointMarker',
@@ -6017,7 +6026,8 @@ export function ChartView({
         // só faz sentido na 1ª carga de verdade (ainda sem nenhum candle no
         // chart) ou numa tentativa de RETRY depois de falha real — nunca no
         // auto-refresh silencioso de rotina.
-        if (retryAttempt === 0 && isInitialLoadRef.current) {
+        const isFastFirstPaint = retryAttempt === 0 && isInitialLoadRef.current;
+        if (isFastFirstPaint) {
           setCandlesLoading(true);
           setCandlesLoadFailed(false);
         }
@@ -6032,7 +6042,21 @@ export function ChartView({
             console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
             return null;
           });
-          let candles = await fetchCandles(selectedSymbol, timeframe);
+          // 🚀 PERF 2026-09-23 (Cleber: "gráfico demora demais pra entrar"): a 1ª
+          // pintura de um símbolo/timeframe pede só 1 página de candles
+          // (FAST_FIRST_PAINT_MAX_CANDLES, teto que cabe numa única chamada ao
+          // backend) em vez do teto padrão de 5 anos/2.000 candles — corta pela
+          // metade (ou mais) o número de chamadas contra a conta MetaAPI
+          // COMPARTILHADA antes do gráfico aparecer. O histórico completo (zoom-out
+          // até 5 anos) é buscado logo depois, em 2º plano, sem bloquear a 1ª
+          // exibição — ver `extendHistoryInBackground` mais abaixo, disparado só
+          // quando `isFastFirstPaint` é true.
+          let candles = await fetchCandles(
+            selectedSymbol,
+            timeframe,
+            200,
+            isFastFirstPaint ? FAST_FIRST_PAINT_MAX_CANDLES : undefined
+          );
           if (cancelled) return;
 
           // 🐛 BUG REAL achado nesta sessão (Cleber: Fibonacci "invertida, indo pro lado
@@ -6360,6 +6384,38 @@ export function ChartView({
             }
           } else {
             console.log('[ChartView] ⏭️ Skipping auto-scroll - não é primeira carga (mantendo posição do usuário)');
+          }
+
+          // 🚀 PERF 2026-09-23: a 1ª pintura usou só FAST_FIRST_PAINT_MAX_CANDLES
+          // (1 página) pra aparecer rápido — completa o histórico de zoom-out (até
+          // 5 anos, teto padrão) em 2º plano, sem travar a exibição inicial e sem
+          // resetar a posição/zoom que o usuário já está vendo. Reaproveita
+          // `readChartScrollPosition`/`applyChartScrollPosition` (mesmo par já usado
+          // pra restaurar sessão salva depois de um `applyNewData`, ver acima) —
+          // não crítico: qualquer falha aqui só significa que o zoom-out completo
+          // só fica disponível na próxima troca de símbolo/timeframe, sem quebrar
+          // o gráfico já exibido.
+          if (isFastFirstPaint) {
+            setTimeout(async () => {
+              if (cancelled) return;
+              try {
+                const fullCandles = await fetchCandles(selectedSymbol, timeframe, 200);
+                if (cancelled || fullCandles.length <= candles.length) return;
+                const chartNow = chartInstanceRef.current;
+                if (!chartNow) return;
+                const savedScroll = readChartScrollPosition(chartNow);
+                chartNow.applyNewData(fullCandles, undefined, () => {
+                  if (savedScroll) {
+                    applyChartScrollPosition(chartNow, savedScroll.anchorTimestamp, savedScroll.anchorX);
+                  }
+                });
+                const lastFull = fullCandles[fullCandles.length - 1];
+                if (lastFull) lastAppliedCandleTimestampRef.current = lastFull.timestamp;
+                console.log('[ChartView] 📚 Histórico completo estendido em 2º plano:', fullCandles.length, 'candles (era', candles.length, ')');
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao estender histórico em 2º plano (gráfico continua exibindo a janela rápida):', e);
+              }
+            }, 1200);
           }
 
           // Marca que a restauração inicial (sessão ou favorito, com ou sem dado salvo)
