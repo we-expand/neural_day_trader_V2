@@ -12,6 +12,7 @@ import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
+import { logPipelineReject, logPipelineOk } from "./pipeline/telemetry.js";
 
 // 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
 // Medicao REAL da cesta inteira, 6 chamadas seguidas a /mt5-prices em ~50s
@@ -1218,6 +1219,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           config.highImpactNewsGateMinutesAfter,
         );
         if (activeNewsWindow) {
+          logPipelineReject("Phase1-StateValidator", "news_blackout", symbol, activeNewsWindow.event.event);
           return {
             error: `BLOQUEADO: janela de evento de alto impacto ativa -- "${activeNewsWindow.event.event}" às ${activeNewsWindow.event.time} ` +
               `(janela: ${activeNewsWindow.minutesBefore}min antes a ${activeNewsWindow.minutesAfter}min depois). Mercado tende a ficar inquieto/whipsaw ` +
@@ -1243,6 +1245,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const minConfidenceRequired =
         (isWeekendMode() ? config.mt5MinConfidenceForOpenPositionWeekend : MIN_CONFIDENCE_FOR_OPEN_POSITION) + vixConfidenceBonus;
       if (confidence === null || confidence < minConfidenceRequired) {
+        logPipelineReject("Phase4-LLMValidator", "min_confidence", symbol, `confidence=${confidence ?? "null"} required=${minConfidenceRequired}`);
         return {
           error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
             `(${minConfidenceRequired}%${isWeekendMode() ? ", piso de fim de semana" : ""}${vixConfidenceBonus > 0 ? `, +${vixConfidenceBonus} por VIX ${vixContext?.label} (${vixContext?.value})` : ""}). ` +
@@ -1284,6 +1287,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const basket = effectiveBasket(session);
       if (!isFomcBtcPlay && !basket.includes(symbol)) {
+        logPipelineReject("Phase2-RiskValidator", "basket", symbol, `basket=${basket.join(",")}`);
         return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
       }
       // 🔴 2026-08-31 (pedido do Cleber, Setup do AI Trader reconectado):
@@ -1292,6 +1296,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // outra checagem (barato, sem chamar cotacao/validador por nada).
       const userDirection = session.userConfig?.direction ?? "AUTO";
       if (userDirection !== "AUTO" && side !== userDirection) {
+        logPipelineReject("Phase2-RiskValidator", "direction_locked", symbol, `userDirection=${userDirection} side=${side}`);
         return {
           error: `Direcao "${side}" bloqueada pela preferencia do usuario no Setup do AI Trader (direcao travada em ${userDirection}). ` +
             `Opere só ${userDirection} enquanto essa preferencia estiver ativa, ou avalie outro ativo.`,
@@ -1307,6 +1312,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const balanceForLimit = await getMt5AccountBalance(session.sessionId);
         const lossPct = todayNetPnl < 0 ? (-todayNetPnl / balanceForLimit) * 100 : 0;
         if (lossPct >= dailyLossLimitPct) {
+          logPipelineReject("Phase2-RiskValidator", "daily_loss_limit", symbol, `lossPct=${lossPct.toFixed(2)} limit=${dailyLossLimitPct}`);
           return {
             error: `Limite de perda diaria do Setup (${dailyLossLimitPct.toFixed(1)}%) ja atingido hoje ` +
               `(prejuizo real: ${lossPct.toFixed(2)}%). Nenhuma nova posicao ate 00:00 no fuso de Brasilia. Posicoes ja abertas nao sao afetadas.`,
@@ -1572,6 +1578,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             (t) => t.side === side && isLoss(t) && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
           );
         if (sameSideStreak) {
+          logPipelineReject("Phase2-RiskValidator", "loss_streak_cooldown", symbol, `side=${side} threshold=${config.mt5LossStreakThreshold}`);
           return {
             error:
               `${symbol} perdeu ${config.mt5LossStreakThreshold}x seguidas no lado ${side} nos ultimos ${config.mt5LossStreakCooldownMinutes} minutos (stop mecanico ou fechamento manual negativo). ` +
@@ -1713,6 +1720,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const blocked = (side === "SHORT" && againstUp) || (side === "LONG" && againstDown);
           if (blocked) {
             const hist = macd5m.histogramRecent.map((h) => h.toFixed(4)).join(" → ");
+            logPipelineReject("Phase3-TechnicalScoring", "macd_5m_turn", symbol, `side=${side} label=${macd5m.label} crossing=${macd5m.crossing ?? "none"}`);
             return {
               error: `BLOQUEADO: MACD 5m de ${symbol} esta contra o ${side} -- label=${macd5m.label}, crossing=${macd5m.crossing ?? "nenhum"}, ` +
                 `turning=${macd5m.turning ?? "nenhum"}, histograma ultimas 3 velas: ${hist}. ` +
@@ -1765,6 +1773,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const patternDesc = candlePatternsForConfluenceCheck?.detected.length
             ? `padrao(oes) detectado(s) (${candlePatternsForConfluenceCheck.detected.join("/")}) tem bias ${candlePatternsForConfluenceCheck.bias ?? "neutro"}, nao alinhado com ${side}`
             : "nenhum padrao de candle detectado no candle mais recente";
+          logPipelineReject("Phase3-TechnicalScoring", "reversao_pattern_required", symbol, patternDesc);
           return {
             error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} exige um padrao grafico de reversao real (Estrela Cadente, Martelo, Engolfo, Harami, ` +
               `Estrela da Manha/Noite, Marubozu...) com bias alinhado a ${side}, alem de qualquer outro indicador -- ${patternDesc}. ` +
@@ -1812,6 +1821,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ((side === "LONG" && immediateMomentumForGate.label === "BAIXA") ||
           (side === "SHORT" && immediateMomentumForGate.label === "ALTA"))
       ) {
+        logPipelineReject("Phase3-TechnicalScoring", "immediate_momentum_against", symbol, `side=${side} label=${immediateMomentumForGate.label}`);
         return {
           error:
             `${symbol}: as ultimas ${immediateMomentumForGate.lookbackCandles} velas fechadas (~${immediateMomentumForGate.lookbackMinutes}min) estao numa sequencia clara de ${immediateMomentumForGate.label} AGORA -- ` +
@@ -1844,6 +1854,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           (side === "LONG" && marketDirectionForGate.consensus === "BAIXA") ||
           (side === "SHORT" && marketDirectionForGate.consensus === "ALTA"))
       ) {
+        logPipelineReject("Phase3-TechnicalScoring", "consensus_against", symbol, `side=${side} consensus=${marketDirectionForGate.consensus}`);
         return {
           error:
             `${symbol}: veredito de direcao (curto prazo 5m + 15m + tendencia diaria 1H + ultimas velas + regime HMM) esta em ${marketDirectionForGate.consensus} -- ${marketDirectionForGate.agreement} ` +
@@ -1946,6 +1957,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const sourceStoch = contradictionSourceIsLongTerm ? stochasticLongTermForReversalCheck : stochasticForReversalCheck;
           const tfLabel = contradictionSourceIsLongTerm ? "1H" : String(openPositionTimeframe);
           const kDisplay = sourceStoch ? ` (k=${sourceStoch.k.toFixed(2)} em ${tfLabel})` : ` (timeframe ${tfLabel})`;
+          logPipelineReject("Phase3-TechnicalScoring", "stochastic_contradicts_reversao", symbol, `side=${side} label=${stochasticLabelForGate}`);
           return {
             error:
               `${symbol}: setupType="REVERSAO" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
@@ -1977,6 +1989,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           (side === "LONG" && rawK >= RAW_STOCH_EXTREME_OVERBOUGHT) ||
           (side === "SHORT" && rawK <= RAW_STOCH_EXTREME_OVERSOLD);
         if (rawContradictsSide) {
+          logPipelineReject("Phase3-TechnicalScoring", "raw_stochastic_extreme", symbol, `side=${side} rawK=${rawK.toFixed(2)}`);
           return {
             error:
               `${symbol}: Estocastico RAPIDO (sem suavizacao) esta em ${rawK.toFixed(2)}, exaustao extrema ` +
@@ -2755,6 +2768,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // ligada, envia a ordem de verdade na Infinox ANTES de gravar o trade
       // -- fail-closed: qualquer falha aborta a abertura, nunca grava um
       // trade "OPEN" que nao existe de verdade na corretora.
+      logPipelineOk("Phase4-LLMValidator", symbol, `side=${side} confidence=${confidence} setupType=${setupType}`);
       if (await isLiveExecutionActive(session.userId)) {
         const liveAccount = await getLiveAccountInfo(session.userId);
         if (!liveAccount) {
