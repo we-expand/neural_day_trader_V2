@@ -6288,6 +6288,22 @@ const NEWS_FEEDS_EN: NewsFeedConfig[] = [
   { url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html', category: 'macro', source: 'CNBC' },
 ];
 
+// 🔴 2026-09-22 (pedido do Cleber): o LLM Brain opera cesta com ativos
+// asiáticos (JPN225/HKG33/CHINA50/AUS200/USDTWD/USDSGD...) e precisa de
+// contexto de notícia da região, não só EUA/global. Testado ao vivo antes
+// de adicionar (nunca fabricar fonte): Nikkei Asia RSS (404, descontinuado)
+// e SCMP (redirect não devolve RSS válido) descartados; Channel News Asia
+// (Singapura, veículo real, RSS confirmado com conteúdo de mercado da
+// região) é a única fonte de Ásia que respondeu com dado real. Categoria
+// 'macro' (o schema atual não distingue região, só categoria) -- a fonte
+// (source: 'Channel News Asia') já deixa a origem regional identificável
+// pra quem ler. Só entra no agregado quando `includeAsia=1` é pedido
+// explicitamente (llm-active-brain), pra não mudar o que o Dashboard/NEXUS
+// já mostram pro usuário comum.
+const NEWS_FEEDS_ASIA: NewsFeedConfig[] = [
+  { url: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml', category: 'macro', source: 'Channel News Asia' },
+];
+
 // ✅ 2026-07-20: em vez de traduzir manchete em inglês pro português (sempre
 // perde qualidade — "$70K" virava "$ 70 mil", tom de tradução automática),
 // usa as mesmas editoras só que na versão que JÁ publica nativamente em
@@ -6368,7 +6384,8 @@ app.get('/news/aggregate', async (c) => {
   try {
     const targetLang = (c.req.query('lang') || 'pt').split('-')[0].toLowerCase();
     const isNativePt = targetLang === 'pt';
-    const feeds = isNativePt ? NEWS_FEEDS_PT : NEWS_FEEDS_EN;
+    const includeAsia = c.req.query('includeAsia') === '1';
+    const feeds = [...(isNativePt ? NEWS_FEEDS_PT : NEWS_FEEDS_EN), ...(includeAsia ? NEWS_FEEDS_ASIA : [])];
 
     const perFeed = await Promise.allSettled(
       feeds.map(async (feed) => {

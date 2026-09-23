@@ -60,7 +60,13 @@ export async function getMarketNewsBriefing(): Promise<MarketNewsBriefing | null
     // dele) é uma tela separada, não afetada por esta mudança -- ver
     // `NewsWidget`/`MarketScoreBoard` no frontend, que continuam chamando o
     // mesmo endpoint com `lang` derivado da localização do usuário.
-    const url = `${config.neuralSupabaseUrl}/functions/v1/server/news/aggregate?lang=en`;
+    // 🔴 2026-09-22 (pedido do Cleber): a cesta opera ativos asiáticos
+    // (JPN225/HKG33/CHINA50/AUS200/USDTWD/USDSGD...) o tempo todo, não só de
+    // madrugada -- então a IA precisa SEMPRE do contexto americano/global E
+    // asiático juntos, não trocar por horário. `includeAsia=1` soma
+    // NEWS_FEEDS_ASIA (Channel News Asia, fonte real confirmada) ao
+    // agregado padrão em inglês.
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/news/aggregate?lang=en&includeAsia=1`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}` },
       signal: AbortSignal.timeout(12_000),
