@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
+import { withSpan } from "./otelHelpers.js";
 
 /**
  * Execução REAL de ordens na Infinox via MetaAPI, chamando a MESMA Edge
@@ -197,38 +198,56 @@ export async function executeLiveMarketOrder(
   userId: string,
   params: { side: "LONG" | "SHORT"; symbol: string; volume: number; stopLoss: number; takeProfit: number; comment: string }
 ): Promise<LiveOrderResult> {
-  if (!(await isLiveExecutionActive(userId))) return { success: false, error: "Execucao real desligada (kill-switch, circuit breaker ou broker nao conectado)." };
+  return withSpan(
+    "order.execute",
+    { "order.symbol": params.symbol, "order.side": params.side, "order.volume": params.volume, "trading.user_id": userId },
+    async (span) => {
+      if (!(await isLiveExecutionActive(userId))) {
+        span.setAttribute("order.rejected_reason", "live_execution_inactive");
+        return { success: false, error: "Execucao real desligada (kill-switch, circuit breaker ou broker nao conectado)." };
+      }
 
-  const result = await callBrokerExecute(userId, {
-    action: params.side === "LONG" ? "createMarketBuyOrder" : "createMarketSellOrder",
-    symbol: params.symbol,
-    volume: params.volume,
-    stopLoss: params.stopLoss,
-    takeProfit: params.takeProfit,
-    comment: params.comment,
-  });
-  if (!result.success) return { success: false, error: result.error };
+      const result = await callBrokerExecute(userId, {
+        action: params.side === "LONG" ? "createMarketBuyOrder" : "createMarketSellOrder",
+        symbol: params.symbol,
+        volume: params.volume,
+        stopLoss: params.stopLoss,
+        takeProfit: params.takeProfit,
+        comment: params.comment,
+      });
+      if (!result.success) {
+        span.setAttribute("order.rejected_reason", result.error ?? "erro_desconhecido");
+        return { success: false, error: result.error };
+      }
 
-  const brokerPositionId = String(result.positionId ?? "");
-  if (!brokerPositionId) {
-    tripLiveCircuitBreaker("Ordem real aceita pela corretora mas sem positionId na resposta -- estado real desconhecido.");
-    return { success: false, error: "Ordem enviada mas resposta sem positionId -- circuit breaker acionado por seguranca." };
-  }
+      const brokerPositionId = String(result.positionId ?? "");
+      span.setAttribute("order.broker_position_id", brokerPositionId);
+      if (!brokerPositionId) {
+        tripLiveCircuitBreaker("Ordem real aceita pela corretora mas sem positionId na resposta -- estado real desconhecido.");
+        span.setAttribute("order.rejected_reason", "sem_position_id");
+        return { success: false, error: "Ordem enviada mas resposta sem positionId -- circuit breaker acionado por seguranca." };
+      }
 
-  // Preco de preenchimento real: /broker/execute nao devolve o preco de
-  // execucao no corpo (a MetaAPI confirma via trade result, nem sempre com
-  // openPrice pronto na resposta síncrona) -- busca a posicao recem-aberta
-  // pra pegar o preco real que a corretora de fato preencheu.
-  const positions = await getLivePositions(userId);
-  const opened = positions.find((p) => String(p.id) === brokerPositionId);
-  if (!opened || !Number.isFinite(opened.openPrice)) {
-    tripLiveCircuitBreaker(
-      `Ordem real ${brokerPositionId} aceita mas nao encontrada/sem preco em getPositions logo em seguida -- estado real incerto.`
-    );
-    return { success: false, error: "Ordem enviada mas nao foi possivel confirmar preco real de preenchimento -- circuit breaker acionado." };
-  }
+      // Preco de preenchimento real: /broker/execute nao devolve o preco de
+      // execucao no corpo (a MetaAPI confirma via trade result, nem sempre com
+      // openPrice pronto na resposta síncrona) -- busca a posicao recem-aberta
+      // pra pegar o preco real que a corretora de fato preencheu. Este é o
+      // ponto de "confirmação de execução" do trace end-to-end: só aqui o
+      // preenchimento real vira certo, não a resposta síncrona do envio.
+      const positions = await withSpan("order.confirm", { "order.broker_position_id": brokerPositionId }, () => getLivePositions(userId));
+      const opened = positions.find((p) => String(p.id) === brokerPositionId);
+      if (!opened || !Number.isFinite(opened.openPrice)) {
+        tripLiveCircuitBreaker(
+          `Ordem real ${brokerPositionId} aceita mas nao encontrada/sem preco em getPositions logo em seguida -- estado real incerto.`
+        );
+        span.setAttribute("order.rejected_reason", "confirmacao_falhou");
+        return { success: false, error: "Ordem enviada mas nao foi possivel confirmar preco real de preenchimento -- circuit breaker acionado." };
+      }
 
-  return { success: true, fillPrice: opened.openPrice, brokerPositionId };
+      span.setAttribute("order.fill_price", opened.openPrice);
+      return { success: true, fillPrice: opened.openPrice, brokerPositionId };
+    }
+  );
 }
 
 export interface LiveCloseResult {
@@ -239,13 +258,14 @@ export interface LiveCloseResult {
 
 /** Fecha posição REAL por id, pro usuario dono da sessao. FAIL-CLOSED: se não confirmar preço real de saída, aciona o breaker em vez de inventar. */
 export async function executeLiveClose(userId: string, brokerPositionId: string): Promise<LiveCloseResult> {
+  return withSpan("order.close", { "order.broker_position_id": brokerPositionId, "trading.user_id": userId }, async (span) => {
   if (!(await isLiveExecutionActive(userId))) return { success: false, error: "Execucao real desligada (kill-switch, circuit breaker ou broker nao conectado)." };
 
   const before = await getLivePositions(userId);
   const target = before.find((p) => String(p.id) === brokerPositionId);
 
   const result = await callBrokerExecute(userId, { action: "closePosition", positionId: brokerPositionId });
-  if (!result.success) return { success: false, error: result.error };
+  if (!result.success) { span.setAttribute("order.rejected_reason", result.error ?? "erro_desconhecido"); return { success: false, error: result.error }; }
 
   // 2026-09-12: `result.success` acima so significa que /broker/execute
   // devolveu HTTP 200 -- e esse handler so confere o HTTP status da MetaAPI,
@@ -263,6 +283,7 @@ export async function executeLiveClose(userId: string, brokerPositionId: string)
     tripLiveCircuitBreaker(
       `Posicao ${brokerPositionId} recebeu closePosition com sucesso reportado mas continua aberta na corretora -- fechamento real nao confirmado.`
     );
+    span.setAttribute("order.rejected_reason", "fechamento_nao_confirmado");
     return { success: false, error: "Corretora aceitou o fechamento mas a posicao continua aberta de verdade -- circuit breaker acionado, fechamento NAO confirmado." };
   }
 
@@ -274,10 +295,13 @@ export async function executeLiveClose(userId: string, brokerPositionId: string)
     tripLiveCircuitBreaker(
       `Posicao ${brokerPositionId} fechada na corretora mas sem preco de referencia confiavel -- estado de PnL real incerto.`
     );
+    span.setAttribute("order.rejected_reason", "sem_preco_referencia");
     return { success: false, error: "Posicao fechada na corretora mas sem preco confiavel pra registrar -- circuit breaker acionado." };
   }
 
+  span.setAttribute("order.exit_price", target.currentPrice);
   return { success: true, exitPrice: target.currentPrice };
+  });
 }
 
 export interface LiveAccountInfo {

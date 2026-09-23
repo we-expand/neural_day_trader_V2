@@ -10,6 +10,7 @@
  */
 import { config } from "./config.js";
 import { recordTick } from "./tickHistory.js";
+import { withSpan } from "./otelHelpers.js";
 
 interface Mt5PriceTick {
   price: number;
@@ -240,12 +241,18 @@ export async function getQuote(symbol: string): Promise<Mt5Quote | null> {
   const cached = getFreshCachedQuote(symbol);
   if (cached) return cached;
 
-  for (let attempt = 1; attempt <= QUOTE_RETRY_ATTEMPTS; attempt++) {
-    const quote = await fetchQuoteOnce(symbol);
-    if (quote) return quote;
-    if (attempt < QUOTE_RETRY_ATTEMPTS) await sleep(QUOTE_RETRY_DELAY_MS * attempt);
-  }
-  return null;
+  return withSpan("market.signal_received", { "market.symbol": symbol, "market.source": "mt5" }, async (span) => {
+    for (let attempt = 1; attempt <= QUOTE_RETRY_ATTEMPTS; attempt++) {
+      const quote = await fetchQuoteOnce(symbol);
+      if (quote) {
+        span.setAttributes({ "market.attempt": attempt, "market.price": quote.price });
+        return quote;
+      }
+      if (attempt < QUOTE_RETRY_ATTEMPTS) await sleep(QUOTE_RETRY_DELAY_MS * attempt);
+    }
+    span.setAttribute("market.attempt", QUOTE_RETRY_ATTEMPTS);
+    return null;
+  });
 }
 
 // 🔴 2026-09-03 (achado ao vivo: NAS100 travando no Gráfico do cliente,

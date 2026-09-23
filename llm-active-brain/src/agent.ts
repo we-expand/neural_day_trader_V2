@@ -15,6 +15,8 @@ import { getTradeMemoryBlock } from "./tradeMemory.js";
 import { getMarketNewsBriefing, formatNewsBlock } from "./news.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
 import { getUsEconomicCalendar, getVixContext } from "./atr.js";
+import { withSpan } from "./otelHelpers.js";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 // 🔴 2026-09-06 (achado do Cleber, direto na tela): o painel "Logs do
 // Sistema" ficava dominado por JSON cru de cada get_mt5_quote (200+
@@ -939,7 +941,29 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
 
 // Roda um ciclo de decisao (varias iteracoes ate o agente chamar "stop" ou
 // esgotar o limite). Retorna true se o agente chamou "stop" explicitamente.
+// Span raiz do trace de cada ciclo -- "sinal recebido" no sentido deste
+// motor: início do ciclo de decisão, cobre tudo até o agente chamar `stop`
+// ou esgotar `maxIterations` (decisão do LLM -> execução de ferramenta ->
+// ordem na corretora -> confirmação, todos aninhados como filhos deste span
+// via contexto ambiente do OTel -- ver withSpan em otelHelpers.ts).
 export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<boolean> {
+  return withSpan(
+    "trading.cycle",
+    {
+      "trading.cycle": cycle,
+      "trading.session_id": mt5Session?.sessionId ?? "",
+      "trading.user_id": mt5Session?.userId ?? "",
+      "trading.mode": config.mt5TradingEnabled ? "mt5" : "legacy",
+    },
+    async (span) => {
+      const calledStop = await runAgentInner(cycle, mt5Session);
+      span.setAttribute("trading.called_stop", calledStop);
+      return calledStop;
+    }
+  );
+}
+
+async function runAgentInner(cycle: number, mt5Session?: Mt5Session): Promise<boolean> {
   // Modo legado (Binance/experimento ETH testnet) não tem sessão MT5 --
   // executeTool ainda recebe algo, mas os handlers legados nunca leem sessionId/userId.
   const toolSession: ExecuteToolSession = mt5Session ?? { sessionId: "", userId: "", status: "RUNNING" };
@@ -1232,7 +1256,16 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
     // iteracao e cada request sozinha ja custa uma fatia relevante do limite).
     if (iteration > 1) await sleep(3000);
 
-    const response = await createChatCompletionWithRetry({
+    const response = await withSpan(
+      "llm.decision",
+      {
+        "trading.cycle": cycle,
+        "llm.iteration": iteration,
+        "llm.provider": config.llmProvider,
+        "llm.model": config.llmModel,
+      },
+      async (span) => {
+        const resp = await createChatCompletionWithRetry({
       model: config.llmModel,
       // 🔴 2026-09-02 (achado ao vivo, causa raiz do "motor não abre posição
       // nunca"): 1024 tokens deixou de ser suficiente pra este modelo (qwen3.5
@@ -1299,6 +1332,15 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
         ? { chat_template_kwargs: { enable_thinking: false } }
         : {}),
     } as ChatCompletionCreateParamsNonStreaming);
+        span.setAttributes({
+          "llm.finish_reason": resp.choices[0]?.finish_reason ?? "desconhecido",
+          "llm.usage.prompt_tokens": resp.usage?.prompt_tokens ?? 0,
+          "llm.usage.completion_tokens": resp.usage?.completion_tokens ?? 0,
+          "llm.tool_calls_count": resp.choices[0]?.message?.tool_calls?.length ?? 0,
+        });
+        return resp;
+      }
+    );
 
     const message = response.choices[0].message;
 
@@ -1359,7 +1401,23 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       console.log(`  -> chamando ferramenta: ${name}(${JSON.stringify(input)})`);
       let result: unknown;
       try {
-        result = await executeTool(name, input, cycle, toolSession);
+        result = await withSpan(
+          "tool.execute",
+          {
+            "trading.cycle": cycle,
+            "llm.iteration": iteration,
+            "tool.name": name,
+            "tool.symbol": typeof input.symbol === "string" ? input.symbol : "",
+            "tool.side": typeof input.side === "string" ? input.side : "",
+          },
+          (toolSpan) => {
+            return executeTool(name, input, cycle, toolSession).then((r) => {
+              const err = (r as { error?: string } | null)?.error;
+              if (err) toolSpan.setStatus({ code: SpanStatusCode.ERROR, message: err });
+              return r;
+            });
+          }
+        );
       } catch (err) {
         // Uma falha numa ferramenta (ex: API externa fora do ar, chave
         // invalida) nao deve derrubar o processo inteiro - o agente deve

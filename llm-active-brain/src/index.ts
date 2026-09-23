@@ -1,3 +1,7 @@
+// Precisa ser o 1º import do processo -- ver comentário no topo de
+// tracing.ts (instrumentação automática de HTTP precisa iniciar antes de
+// qualquer outro módulo abrir uma conexão/fazer fetch).
+import "./tracing.js";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
