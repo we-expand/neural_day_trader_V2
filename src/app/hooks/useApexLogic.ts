@@ -2980,7 +2980,14 @@ export function useApexLogic(
     }
     const volume = lotCheck.volume;
 
-    const amountUsd = volume * asset.lotSize * params.entryPrice;
+    // Par com base USD (USDTWD, USDJPY, USDCNH...): o preço é cotado na moeda
+    // estrangeira, então lote*lotSize*preço daria o nocional em TWD/JPY, não
+    // em USD (USDTWD: 31.830 "USD" em vez de ~1.000 -> PnL e comissão ~32x
+    // inflados, achado 2026-09-23). O nocional em USD é o próprio lote*lotSize.
+    const isUsdBasePair = /^USD[A-Z]{3}$/.test(params.symbol.toUpperCase());
+    const amountUsd = isUsdBasePair
+      ? volume * asset.lotSize
+      : volume * asset.lotSize * params.entryPrice;
 
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
       sessionStartedAtRef.current = Date.now();

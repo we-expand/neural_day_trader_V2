@@ -1192,7 +1192,8 @@ export async function enforceMt5StopsAndTargets(
   const quoteCache = new Map<string, { price: number; bid: number; ask: number } | null>();
 
   for (const pos of positions) {
-    if (pos.stop_loss == null) continue; // posicao antiga, de antes deste fix -- sem trava
+    // stop 0/negativo = "sem stop" (boleta manual sem SL gravava 0; SHORT com stop 0 fechava em 1s)
+    if (pos.stop_loss == null || !(pos.stop_loss > 0)) continue; // posicao antiga ou sem stop -- sem trava
 
     if (!quoteCache.has(pos.symbol)) {
       quoteCache.set(pos.symbol, await getQuote(pos.symbol));
@@ -1291,7 +1292,7 @@ export async function enforceMt5StopsAndTargets(
       continue; // posicao ja fechada -- nao faz sentido checar breakeven dela
     }
 
-    if (pos.stop_loss == null) continue; // sem stop original gravado -- nada pra mover/trilhar
+    if (pos.stop_loss == null || !(pos.stop_loss > 0)) continue; // sem stop original gravado -- nada pra mover/trilhar
     const favorableMove = pos.side === "LONG" ? price - pos.entry_price : pos.entry_price - price;
     if (favorableMove <= 0) continue; // so mexe no stop quando a operacao esta correndo A FAVOR
 
