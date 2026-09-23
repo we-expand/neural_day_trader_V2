@@ -419,43 +419,49 @@ export interface MarketDirectionResult {
   signalsUsed: number;
 }
 
+// 🔴 2026-09-23 (pedido do Cleber, opcao "B" escolhida por ele): veredito
+// rapido no metodo dele -- 3 leituras: % do dia, tendencia 5m, tendencia 1H.
+// Maioria (2 de 3) no mesmo lado, e a 1H NAO pode ser contraria (veto).
+// Antes: unanimidade entre ate 5 sinais (basta 1 discordante = DIVERGENTE,
+// causa de o veredito quase nunca sair em mercado lateral). Os parametros
+// 15m/momentum/HMM continuam na assinatura so pra nao mexer nos call sites,
+// nao entram mais no veredito.
+const DAY_CHANGE_NEUTRAL_BAND_PCT = 0.1;
+
 export function computeMarketDirection(
   trend5m: TrendInfo | null,
   trendLongTerm: TrendInfo | null,
-  immediateMomentum5m: ImmediateMomentumInfo | null,
-  hmmRegime: HmmRegimeResult | null,
-  trend15m: TrendInfo | null = null
+  _immediateMomentum5m: ImmediateMomentumInfo | null,
+  _hmmRegime: HmmRegimeResult | null,
+  _trend15m: TrendInfo | null = null,
+  dayChangePct: number | null = null
 ): MarketDirectionResult {
-  let votesAlta = 0;
-  let votesBaixa = 0;
-  if (trend5m?.label === "ALTA") votesAlta++;
-  else if (trend5m?.label === "BAIXA") votesBaixa++;
-  if (trend15m?.label === "ALTA") votesAlta++;
-  else if (trend15m?.label === "BAIXA") votesBaixa++;
-  if (trendLongTerm?.label === "ALTA") votesAlta++;
-  else if (trendLongTerm?.label === "BAIXA") votesBaixa++;
-  if (immediateMomentum5m?.label === "ALTA") votesAlta++;
-  else if (immediateMomentum5m?.label === "BAIXA") votesBaixa++;
-  if (hmmRegime?.regime === HMM_STATE_TREND && hmmRegime.direction) {
-    if (hmmRegime.direction === "ALTA") votesAlta++;
-    else votesBaixa++;
-  }
-
+  const dayRead: "ALTA" | "BAIXA" | null =
+    dayChangePct == null || !Number.isFinite(dayChangePct) || Math.abs(dayChangePct) < DAY_CHANGE_NEUTRAL_BAND_PCT
+      ? null
+      : dayChangePct > 0 ? "ALTA" : "BAIXA";
+  const read5m = trend5m?.label === "ALTA" || trend5m?.label === "BAIXA" ? trend5m.label : null;
+  const read1h = trendLongTerm?.label === "ALTA" || trendLongTerm?.label === "BAIXA" ? trendLongTerm.label : null;
+  const reads = [dayRead, read5m, read1h];
+  const votesAlta = reads.filter((r) => r === "ALTA").length;
+  const votesBaixa = reads.filter((r) => r === "BAIXA").length;
   const signalsUsed = votesAlta + votesBaixa;
+  const summary = `dia ${dayChangePct != null && Number.isFinite(dayChangePct) ? `${dayChangePct.toFixed(2)}%` : "n/d"} (${dayRead ?? "neutro"}), 5m ${read5m ?? "neutro"}, 1H ${read1h ?? "neutro"}`;
+
   let consensus: MarketDirectionResult["consensus"];
   let agreement: string;
   if (signalsUsed === 0) {
     consensus = "INDEFINIDO";
-    agreement = "Nenhum sinal disponivel agora.";
-  } else if (votesBaixa === 0) {
+    agreement = `Veredito rapido: ${summary} -- nenhuma leitura com direcao agora.`;
+  } else if (votesAlta >= 2 && read1h !== "BAIXA") {
     consensus = "ALTA";
-    agreement = `${votesAlta}/${signalsUsed} concordam ALTA.`;
-  } else if (votesAlta === 0) {
+    agreement = `Veredito rapido: ${summary} -- maioria ALTA e 1H nao contraria.`;
+  } else if (votesBaixa >= 2 && read1h !== "ALTA") {
     consensus = "BAIXA";
-    agreement = `${votesBaixa}/${signalsUsed} concordam BAIXA.`;
+    agreement = `Veredito rapido: ${summary} -- maioria BAIXA e 1H nao contraria.`;
   } else {
     consensus = "DIVERGENTE";
-    agreement = `${votesAlta} ALTA vs ${votesBaixa} BAIXA -- SEM consenso, exija confirmacao extra antes de continuacao.`;
+    agreement = `Veredito rapido: ${summary} -- SEM maioria clara (ou 1H vetando), exija confirmacao extra antes de continuacao.`;
   }
 
   return { consensus, agreement, votesAlta, votesBaixa, signalsUsed };

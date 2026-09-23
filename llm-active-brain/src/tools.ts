@@ -137,6 +137,7 @@ const lastQuoteSnapshotBySymbolStore = new Map<
       movingAveragesExtended: boolean | null;
       spreadPct: number | null;
       priceAtQuote: number | null;
+      dayChangePct: number | null;
       // 🔴 2026-09-15 (pedido do Cleber -- "queremos medir estatisticamente
       // se seguir marketDirection/setupType realmente melhora o resultado",
       // achado real: nenhum dos dois era persistido em indicators_snapshot
@@ -939,7 +940,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 3 componentes do consenso sempre no mesmo grafico que o metodo pede.
       const trend15mForDirection = timeframe === "15m" ? trend : await getTrendInfo(symbol, "15m");
       const immediateMomentum5m = await getImmediateMomentum(symbol, "5m");
-      const marketDirection = computeMarketDirection(trend5mForDirection, trendLongTerm, immediateMomentum5m, hmmRegime, trend15mForDirection);
+      const marketDirection = computeMarketDirection(trend5mForDirection, trendLongTerm, immediateMomentum5m, hmmRegime, trend15mForDirection, Number.isFinite(quote.changePercent) ? quote.changePercent : null);
       // 🔴 2026-09-07 (pedido direto do Cleber): EMA9/SMA20/SMA200 são as
       // três médias mais observadas pelo mercado -- preço longe demais delas
       // tende a reverter em direção a elas (mean reversion). Só CONTEXTO/
@@ -963,6 +964,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         movingAveragesExtended: movingAverages?.extended ?? null,
         spreadPct: Number.isFinite(quote.spreadPct) ? quote.spreadPct : null,
         priceAtQuote: quote.price ?? null,
+        dayChangePct: Number.isFinite(quote.changePercent) ? quote.changePercent : null,
         marketDirectionConsensus: marketDirection.consensus,
         marketDirectionAgreement: marketDirection.agreement,
       });
@@ -1676,7 +1678,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
       const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
-      const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal);
+      const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal, lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null);
       // 🔴 2026-09-16 (pedido direto do Cleber, ao vivo -- "rompeu, ótimo.
       // Espera o candle fechar, e se ele fechar acima do rompimento, pode
       // dar entrada. Antes disso, ninguém faz nada"): setupType="ROMPIMENTO"
