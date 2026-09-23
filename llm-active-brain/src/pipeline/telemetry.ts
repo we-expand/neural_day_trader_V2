@@ -8,8 +8,8 @@
 
 export type PipelinePhase = "Phase1-StateValidator" | "Phase2-RiskValidator" | "Phase3-TechnicalScoring" | "Phase4-LLMValidator";
 
-export function logPipelineReject(phase: PipelinePhase, rule: string, symbol: string, detail: string): void {
-  console.log(`[REJECTED] ${phase} - ${rule} - ${symbol} - ${detail}`);
+export function logPipelineReject(phase: PipelinePhase, rule: string, symbol: string, detail: string, shadow = false): void {
+  console.log(`[${shadow ? "SHADOW-REJECTED (bypassed)" : "REJECTED"}] ${phase} - ${rule} - ${symbol} - ${detail}`);
 }
 
 export function logPipelineOk(phase: PipelinePhase, symbol: string, detail?: string): void {

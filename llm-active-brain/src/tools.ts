@@ -1718,7 +1718,10 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const againstUp = macd5m.crossing === "CRUZOU_PARA_CIMA" || macd5m.turning === "VIRANDO_PARA_CIMA" || (macd5m.label === "ALTA" && macd5m.turning !== "VIRANDO_PARA_BAIXO");
           const againstDown = macd5m.crossing === "CRUZOU_PARA_BAIXO" || macd5m.turning === "VIRANDO_PARA_BAIXO" || (macd5m.label === "BAIXA" && macd5m.turning !== "VIRANDO_PARA_CIMA");
           const blocked = (side === "SHORT" && againstUp) || (side === "LONG" && againstDown);
-          if (blocked) {
+          if (blocked && config.mt5DiagnosticTechnicalGatesDisabled) {
+            logPipelineReject("Phase3-TechnicalScoring", "macd_5m_turn", symbol, `side=${side} label=${macd5m.label} crossing=${macd5m.crossing ?? "none"}`, true);
+          }
+          if (blocked && !config.mt5DiagnosticTechnicalGatesDisabled) {
             const hist = macd5m.histogramRecent.map((h) => h.toFixed(4)).join(" → ");
             logPipelineReject("Phase3-TechnicalScoring", "macd_5m_turn", symbol, `side=${side} label=${macd5m.label} crossing=${macd5m.crossing ?? "none"}`);
             return {
@@ -1763,7 +1766,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // obrigatorio especificamente pra qualquer entrada declarada REVERSAO,
       // mesmo em mercado LATERAL (onde o gate de fatores minimos nao exige
       // candle especificamente, so "algum" fator).
-      if (setupType === "REVERSAO") {
+      if (setupType === "REVERSAO" && config.mt5DiagnosticTechnicalGatesDisabled) {
+        const reversalPatternAligned =
+          candlePatternsForConfluenceCheck?.bias != null &&
+          candlePatternsForConfluenceCheck.detected.length > 0 &&
+          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
+        if (!reversalPatternAligned) {
+          const patternDesc = candlePatternsForConfluenceCheck?.detected.length
+            ? `padrao(oes) detectado(s) (${candlePatternsForConfluenceCheck.detected.join("/")}) tem bias ${candlePatternsForConfluenceCheck.bias ?? "neutro"}, nao alinhado com ${side}`
+            : "nenhum padrao de candle detectado no candle mais recente";
+          logPipelineReject("Phase3-TechnicalScoring", "reversao_pattern_required", symbol, patternDesc, true);
+        }
+        // Modo diagnóstico: não checa a espera de 1 candle extra (gate
+        // 2026-09-17) -- depende do padrão já ter passado no gate acima,
+        // que está bypassado aqui.
+      }
+      if (setupType === "REVERSAO" && !config.mt5DiagnosticTechnicalGatesDisabled) {
         const reversalPatternAligned =
           candlePatternsForConfluenceCheck?.bias != null &&
           candlePatternsForConfluenceCheck.detected.length > 0 &&
@@ -1821,13 +1840,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ((side === "LONG" && immediateMomentumForGate.label === "BAIXA") ||
           (side === "SHORT" && immediateMomentumForGate.label === "ALTA"))
       ) {
-        logPipelineReject("Phase3-TechnicalScoring", "immediate_momentum_against", symbol, `side=${side} label=${immediateMomentumForGate.label}`);
-        return {
-          error:
-            `${symbol}: as ultimas ${immediateMomentumForGate.lookbackCandles} velas fechadas (~${immediateMomentumForGate.lookbackMinutes}min) estao numa sequencia clara de ${immediateMomentumForGate.label} AGORA -- ` +
-            `abrir ${side} aqui (setupType != REVERSAO) vai direto contra o movimento que esta acontecendo neste instante, mesmo que a janela de 60min (trend) ou o MACD ainda mostrem saldo diferente (sao mais lentos, nao veem a reversao recem-comecada). ` +
-            `Posicao NAO aberta. Se a tese e mesmo entrar contra este movimento imediato, declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); se a tese e continuacao/rompimento, espere as velas pararem de ir contra o lado ou avalie outro ativo.`,
-        };
+        if (config.mt5DiagnosticTechnicalGatesDisabled) {
+          logPipelineReject("Phase3-TechnicalScoring", "immediate_momentum_against", symbol, `side=${side} label=${immediateMomentumForGate.label}`, true);
+        } else {
+          logPipelineReject("Phase3-TechnicalScoring", "immediate_momentum_against", symbol, `side=${side} label=${immediateMomentumForGate.label}`);
+          return {
+            error:
+              `${symbol}: as ultimas ${immediateMomentumForGate.lookbackCandles} velas fechadas (~${immediateMomentumForGate.lookbackMinutes}min) estao numa sequencia clara de ${immediateMomentumForGate.label} AGORA -- ` +
+              `abrir ${side} aqui (setupType != REVERSAO) vai direto contra o movimento que esta acontecendo neste instante, mesmo que a janela de 60min (trend) ou o MACD ainda mostrem saldo diferente (sao mais lentos, nao veem a reversao recem-comecada). ` +
+              `Posicao NAO aberta. Se a tese e mesmo entrar contra este movimento imediato, declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); se a tese e continuacao/rompimento, espere as velas pararem de ir contra o lado ou avalie outro ativo.`,
+          };
+        }
       }
       // 🔴 2026-09-14 (pedido direto do Cleber -- "ela precisa saber pra que
       // lado o mercado esta correndo, essa e a primeira resposta que ela
@@ -1854,14 +1877,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           (side === "LONG" && marketDirectionForGate.consensus === "BAIXA") ||
           (side === "SHORT" && marketDirectionForGate.consensus === "ALTA"))
       ) {
-        logPipelineReject("Phase3-TechnicalScoring", "consensus_against", symbol, `side=${side} consensus=${marketDirectionForGate.consensus}`);
-        return {
-          error:
-            `${symbol}: veredito de direcao (curto prazo 5m + 15m + tendencia diaria 1H + ultimas velas + regime HMM) esta em ${marketDirectionForGate.consensus} -- ${marketDirectionForGate.agreement} ` +
-            `Abrir ${side} aqui (setupType != REVERSAO) vai direto contra o consenso de direcao (ou o consenso esta dividido, sem tese clara pra continuacao em nenhum lado). Posicao NAO aberta. ` +
-            `Se a tese e mesmo entrar contra a direcao (ou aproveitar a divergencia), declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); ` +
-            `se a tese e continuacao/rompimento, opere no lado que o consenso aponta com clareza ou avalie outro ativo.`,
-        };
+        if (config.mt5DiagnosticTechnicalGatesDisabled) {
+          logPipelineReject("Phase3-TechnicalScoring", "consensus_against", symbol, `side=${side} consensus=${marketDirectionForGate.consensus}`, true);
+        } else {
+          logPipelineReject("Phase3-TechnicalScoring", "consensus_against", symbol, `side=${side} consensus=${marketDirectionForGate.consensus}`);
+          return {
+            error:
+              `${symbol}: veredito de direcao (curto prazo 5m + 15m + tendencia diaria 1H + ultimas velas + regime HMM) esta em ${marketDirectionForGate.consensus} -- ${marketDirectionForGate.agreement} ` +
+              `Abrir ${side} aqui (setupType != REVERSAO) vai direto contra o consenso de direcao (ou o consenso esta dividido, sem tese clara pra continuacao em nenhum lado). Posicao NAO aberta. ` +
+              `Se a tese e mesmo entrar contra a direcao (ou aproveitar a divergencia), declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); ` +
+              `se a tese e continuacao/rompimento, opere no lado que o consenso aponta com clareza ou avalie outro ativo.`,
+          };
+        }
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- BNBUSD e XETUSD abertos
       // AO VIVO com "Stochastic SOBREVENDIDO (k=15.99) + MACD BAIXA = 2 fatores
@@ -1957,14 +1984,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const sourceStoch = contradictionSourceIsLongTerm ? stochasticLongTermForReversalCheck : stochasticForReversalCheck;
           const tfLabel = contradictionSourceIsLongTerm ? "1H" : String(openPositionTimeframe);
           const kDisplay = sourceStoch ? ` (k=${sourceStoch.k.toFixed(2)} em ${tfLabel})` : ` (timeframe ${tfLabel})`;
-          logPipelineReject("Phase3-TechnicalScoring", "stochastic_contradicts_reversao", symbol, `side=${side} label=${stochasticLabelForGate}`);
-          return {
-            error:
-              `${symbol}: setupType="REVERSAO" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
-              `${stochasticLabelForGate === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
-              `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
-              `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}.`,
-          };
+          if (config.mt5DiagnosticTechnicalGatesDisabled) {
+            logPipelineReject("Phase3-TechnicalScoring", "stochastic_contradicts_reversao", symbol, `side=${side} label=${stochasticLabelForGate}`, true);
+          } else {
+            logPipelineReject("Phase3-TechnicalScoring", "stochastic_contradicts_reversao", symbol, `side=${side} label=${stochasticLabelForGate}`);
+            return {
+              error:
+                `${symbol}: setupType="REVERSAO" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
+                `${stochasticLabelForGate === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
+                `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
+                `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}.`,
+            };
+          }
         }
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto em
@@ -1989,15 +2020,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           (side === "LONG" && rawK >= RAW_STOCH_EXTREME_OVERBOUGHT) ||
           (side === "SHORT" && rawK <= RAW_STOCH_EXTREME_OVERSOLD);
         if (rawContradictsSide) {
-          logPipelineReject("Phase3-TechnicalScoring", "raw_stochastic_extreme", symbol, `side=${side} rawK=${rawK.toFixed(2)}`);
-          return {
-            error:
-              `${symbol}: Estocastico RAPIDO (sem suavizacao) esta em ${rawK.toFixed(2)}, exaustao extrema ` +
-              `${rawK >= RAW_STOCH_EXTREME_OVERBOUGHT ? "DA ALTA (favorece SHORT, nunca LONG)" : "DA QUEDA (favorece LONG, nunca SHORT)"} -- ` +
-              `mesmo que o Estocastico LENTO (k=${stochasticForReversalCheck.k.toFixed(2)}) ainda nao tenha alcancado esse extremo (suavizacao reage com atraso), ` +
-              `abrir ${side} aqui significa entrar perto do topo/fundo de um movimento que acabou de acontecer, alto risco de reversao imediata. ` +
-              `Posicao NAO aberta. Espere o preco respirar (candle de consolidacao) antes de entrar nesse lado, ou avalie o lado oposto se a tese virou reversao.`,
-          };
+          if (config.mt5DiagnosticTechnicalGatesDisabled) {
+            logPipelineReject("Phase3-TechnicalScoring", "raw_stochastic_extreme", symbol, `side=${side} rawK=${rawK.toFixed(2)}`, true);
+          } else {
+            logPipelineReject("Phase3-TechnicalScoring", "raw_stochastic_extreme", symbol, `side=${side} rawK=${rawK.toFixed(2)}`);
+            return {
+              error:
+                `${symbol}: Estocastico RAPIDO (sem suavizacao) esta em ${rawK.toFixed(2)}, exaustao extrema ` +
+                `${rawK >= RAW_STOCH_EXTREME_OVERBOUGHT ? "DA ALTA (favorece SHORT, nunca LONG)" : "DA QUEDA (favorece LONG, nunca SHORT)"} -- ` +
+                `mesmo que o Estocastico LENTO (k=${stochasticForReversalCheck.k.toFixed(2)}) ainda nao tenha alcancado esse extremo (suavizacao reage com atraso), ` +
+                `abrir ${side} aqui significa entrar perto do topo/fundo de um movimento que acabou de acontecer, alto risco de reversao imediata. ` +
+                `Posicao NAO aberta. Espere o preco respirar (candle de consolidacao) antes de entrar nesse lado, ou avalie o lado oposto se a tese virou reversao.`,
+            };
+          }
         }
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- BTCUSD LONG aberto
@@ -2119,13 +2154,29 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // não é o padrão do fim de semana.
         const requiredConfluenceFactors = isWeekendMode() ? 1 : 2;
         if (confluenceFactors.length < requiredConfluenceFactors) {
-          return {
-            error:
-              `${symbol} esta em tendencia LATERAL (sem direcao clara) e so ha ${confluenceFactors.length} fator real alinhado com ${side} ` +
-              `(${confluenceFactors.join(", ") || "nenhum"}). Em mercado lateral, exige-se pelo menos ${requiredConfluenceFactors} fator(es) real(is) confirmando (MACD, Estocastico ` +
-              `em extremo, volume elevado, ou padrao de candle) antes de abrir -- conviccao unica num unico indicador nao e suficiente. ` +
-              `Posicao NAO aberta. Espere ${requiredConfluenceFactors > 1 ? "segunda confirmacao real" : "alguma confirmacao real"} ou avalie outro ativo.`,
-          };
+          if (config.mt5DiagnosticTechnicalGatesDisabled) {
+            logPipelineReject(
+              "Phase3-TechnicalScoring",
+              "lateral_min_confluence_factors",
+              symbol,
+              `side=${side} factors=${confluenceFactors.length}/${requiredConfluenceFactors} (${confluenceFactors.join(",") || "none"})`,
+              true,
+            );
+          } else {
+            logPipelineReject(
+              "Phase3-TechnicalScoring",
+              "lateral_min_confluence_factors",
+              symbol,
+              `side=${side} factors=${confluenceFactors.length}/${requiredConfluenceFactors} (${confluenceFactors.join(",") || "none"})`,
+            );
+            return {
+              error:
+                `${symbol} esta em tendencia LATERAL (sem direcao clara) e so ha ${confluenceFactors.length} fator real alinhado com ${side} ` +
+                `(${confluenceFactors.join(", ") || "nenhum"}). Em mercado lateral, exige-se pelo menos ${requiredConfluenceFactors} fator(es) real(is) confirmando (MACD, Estocastico ` +
+                `em extremo, volume elevado, ou padrao de candle) antes de abrir -- conviccao unica num unico indicador nao e suficiente. ` +
+                `Posicao NAO aberta. Espere ${requiredConfluenceFactors > 1 ? "segunda confirmacao real" : "alguma confirmacao real"} ou avalie outro ativo.`,
+            };
+          }
         }
       }
       // 🔴 2026-09-18: condicao deixou de exigir `volume` truthy pra entrar
@@ -2214,14 +2265,30 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // QUALQUER entrada contra-tendencia, sempre, sem pre-condicao nem
         // bypass por volume.
         if (counterTrend && reversalConfirmationFactors.length < 2) {
-          return {
-            error:
-              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) -- ` +
-              `so ha ${reversalConfirmationFactors.length} fator(es) real(is) confirmando a reversao (${reversalConfirmationFactors.join(", ") || "nenhum"}). ` +
-              `Contra-tendencia exige pelo menos 2 fatores reais alinhados (volume elevado, Estocastico em extremo COM crossing na direcao certa, MACD ` +
-              `${side === "LONG" ? "ALTA" : "BAIXA"}, ou padrao de candle bias ${side === "LONG" ? "ALTA" : "BAIXA"}) -- nenhum fator isolado (nem volume ` +
-              `sozinho, nem Estocastico sozinho) e suficiente. Posicao NAO aberta. Junte mais uma confirmacao real, opere a favor da tendencia, ou avalie outro ativo.`,
-          };
+          if (config.mt5DiagnosticTechnicalGatesDisabled) {
+            logPipelineReject(
+              "Phase3-TechnicalScoring",
+              "counter_trend_min_confluence_factors",
+              symbol,
+              `side=${side} trend=${trend.label} factors=${reversalConfirmationFactors.length}/2 (${reversalConfirmationFactors.join(",") || "none"})`,
+              true,
+            );
+          } else {
+            logPipelineReject(
+              "Phase3-TechnicalScoring",
+              "counter_trend_min_confluence_factors",
+              symbol,
+              `side=${side} trend=${trend.label} factors=${reversalConfirmationFactors.length}/2 (${reversalConfirmationFactors.join(",") || "none"})`,
+            );
+            return {
+              error:
+                `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) -- ` +
+                `so ha ${reversalConfirmationFactors.length} fator(es) real(is) confirmando a reversao (${reversalConfirmationFactors.join(", ") || "nenhum"}). ` +
+                `Contra-tendencia exige pelo menos 2 fatores reais alinhados (volume elevado, Estocastico em extremo COM crossing na direcao certa, MACD ` +
+                `${side === "LONG" ? "ALTA" : "BAIXA"}, ou padrao de candle bias ${side === "LONG" ? "ALTA" : "BAIXA"}) -- nenhum fator isolado (nem volume ` +
+                `sozinho, nem Estocastico sozinho) e suficiente. Posicao NAO aberta. Junte mais uma confirmacao real, opere a favor da tendencia, ou avalie outro ativo.`,
+            };
+          }
         }
         // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
         // Operacao"): quando o usuario NAO escolheu nada (marketMode=null),
