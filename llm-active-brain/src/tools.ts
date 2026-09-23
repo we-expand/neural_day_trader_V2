@@ -535,9 +535,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
               `Estrela da Manha/Noite, Marubozu...) com bias alinhado ao lado da entrada -- sem isso a posicao e recusada (gate ` +
               `obrigatorio), mesmo com Estocastico extremo/volume/MACD alinhados. E a entrada so acontece no candle SEGUINTE ao ` +
               `candle em que o padrao fechou (nunca no mesmo candle do padrao) -- tente de novo no proximo ciclo se acabou de ver o padrao agora. ` +
-              `"FOMC_BTC_PLAY" e a jogada especial pedida pelo Cleber para hoje (2026-09-16): so use em BTCUSD, logo apos a ` +
-              `janela do evento de alto impacto do Fed FECHAR, e so se a confluencia tecnica real (trend/MACD/estocastico/volume) ` +
-              `apoiar a direcao escolhida -- ativa stop/alvo de 1500 pontos (R:R 1:1) e sizing de 10% do patrimonio, so em modo DEMO.`,
+              `"FOMC_BTC_PLAY" e a jogada especial pos-FOMC (BTCUSD, logo apos a janela do evento de alto impacto do Fed FECHAR, ` +
+              `so se a confluencia tecnica real -- trend/MACD/estocastico/volume -- apoiar a direcao): ativa stop/alvo de ` +
+              `${config.fomcBtcPlayStopPoints}/${config.fomcBtcPlayTargetPoints} pontos e sizing de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do patrimonio, so em modo DEMO.`,
           },
         },
         required: ["symbol", "side", "size", "reasoning", "confidence"],
