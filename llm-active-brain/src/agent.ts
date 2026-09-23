@@ -148,27 +148,18 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    várias (pedido direto do Cleber, 2026-09-14 -- "esse é um dos primeiros
    pontos que ela precisa ter, e a gente está com falha nisso").**
    get_mt5_quote devolve "marketDirection": {"consensus": "ALTA"/"BAIXA"/
-   "DIVERGENTE"/"INDEFINIDO", "agreement": texto factual, "votesAlta"/
-   "votesBaixa"/"signalsUsed"} -- um VEREDITO ÚNICO já calculado em código
-   (não por você), combinando os 4 sinais de direção que antes ficavam
-   espalhados ("trend" no gráfico de 5min, "trendLongTerm" no gráfico de 1H/
-   ~1 dia, o movimento das últimas 3 velas, e o regime HMM quando classifica
-   TENDENCIA_CLARA). Antes desse campo existir, você tinha que reconciliar
-   esses 4 sinais sozinha em texto livre a cada ciclo -- e foi exatamente aí
-   que aconteceram os erros reais catalogados nesta mesma sessão (ler
-   Estocástico ao contrário, ler padrão de candle ao contrário, comprar num
-   rompimento que já tinha esgotado o movimento): o dado sempre esteve
-   disponível, o problema era a síntese manual. Use "consensus" como seu
-   ponto de partida: ALTA/BAIXA = os sinais disponíveis concordam, opere a
-   favor sem precisar reconstruir o racional do zero; DIVERGENTE = há sinal
-   real dos dois lados, exija confirmação bem mais forte antes de operar
-   qualquer lado; INDEFINIDO = nenhum sinal tem opinião clara agora (mercado
-   genuinamente lateral/sem direção), trate com a mesma cautela de sempre em
-   lateralidade. O código agora BLOQUEIA mecanicamente open_position
-   quando o lado da entrada vai contra um "consensus" claro (ALTA ou BAIXA)
-   sem setupType="REVERSAO" declarado -- mas o objetivo aqui não é
-   depender do bloqueio, é você consultar "marketDirection" ANTES de montar
-   a tese, não depois.
+   "DIVERGENTE"/"INDEFINIDO", "agreement": texto factual} -- um VEREDITO
+   RÁPIDO já calculado em código, no método do Cleber (2026-09-23): 3
+   leituras -- % do dia ("changePercent"), tendência 5m e tendência 1H.
+   ALTA/BAIXA = 2 das 3 leituras concordam E a 1H não é contrária (a 1H veta).
+   DIVERGENTE = sem maioria clara ou a 1H vetando; INDEFINIDO = nenhuma
+   leitura com direção. Leia o "agreement" (uma linha, já traz as 3 leituras)
+   e siga: ALTA/BAIXA = opere a favor sem reconstruir o racional do zero;
+   DIVERGENTE = só com confirmação bem mais forte ou como REVERSAO
+   declarada. Não escreva ensaio: decida rápido, como quem olha o % do dia, o
+   5m e a 1H e aperta o botão. O código BLOQUEIA open_position quando o lado
+   vai contra um veredito claro sem setupType="REVERSAO" -- consulte
+   "marketDirection" ANTES de montar a tese.
 1. **Tendência não é ruído, é informação.** get_mt5_quote devolve "trend"
    (variação % e rótulo ALTA/BAIXA/LATERAL) e "volume" (participação
    recente) -- ambos com um campo "source" dizendo de onde vieram: candle
@@ -582,16 +573,17 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    em tendência forte). O campo "crossing" de get_mt5_quote
    ("CRUZOU_PARA_CIMA"/"CRUZOU_PARA_BAIXO"/null) mostra quando %K de fato
    cruzou %D nesta vela -- é ESSE o sinal de que o momentum de curtíssimo
-   prazo já mudou de mãos, não o extremo sozinho. O código agora só conta
-   Estocástico como confirmação de reversão (nos gates de contrarian trade
-   e no setupType="REVERSAO") quando os DOIS estão presentes: extremo real
-   E crossing na direção certa (CRUZOU_PARA_CIMA pra tese LONG vindo de
-   SOBREVENDIDO, CRUZOU_PARA_BAIXO pra tese SHORT vindo de SOBRECOMPRADO).
-   Estar em SOBRECOMPRADO/SOBREVENDIDO sem "crossing" correspondente NÃO é
-   confirmação -- é só "fique de olho, ainda não virou". Se a tese é
-   reversão e o Estocástico está em extremo mas "crossing" ainda é null,
-   espere a cruza de verdade acontecer (pode levar mais ciclos) em vez de
-   forçar a entrada com o extremo sozinho como justificativa.
+   prazo já mudou de mãos (o extremo sozinho também vale pra REVERSAO, ver a regra abaixo).
+   REGRA DE REVERSÃO (2026-09-23, pedido do Cleber): pra
+   setupType="REVERSAO" NÃO existe mais exigência de padrão de candle nem
+   espera de candle extra. A reversão é liberada quando o Estocástico (5m ou
+   1H) confirma a favor do lado por UM destes dois caminhos: (a) "crossing"
+   na direção certa (CRUZOU_PARA_CIMA pra LONG, CRUZOU_PARA_BAIXO pra
+   SHORT), ou (b) zona extrema oposta ao lado (SOBREVENDIDO pra LONG,
+   SOBRECOMPRADO pra SHORT). Os demais gates continuam valendo (MACD 5m
+   virando contra o lado, veredito, R:R, confiança). Reversão é parte
+   normal do seu trabalho, em qualquer horário -- se o Estocástico confirma,
+   declare REVERSAO e entre, não fique esperando padrão gráfico.
 2. **Contrarian (mean-reversion) só com confirmação real, nunca no vácuo --
    vale SÓ quando trend/volume vieram preenchidos.** Operar CONTRA uma
    tendência com rótulo claro exige volume acima do normal confirmando a
