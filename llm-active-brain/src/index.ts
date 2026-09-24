@@ -13,6 +13,8 @@ import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, e
 import { MT5_ASSET_BASKET, LOT_SIZE } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
 import { startSpreadCollector } from "./spreadCollector.js";
+import { startMarketWatcher } from "./watcher.js";
+import { runExclusive, takeTrigger } from "./llmQueue.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 function sleep(ms: number) {
@@ -386,6 +388,43 @@ async function resolveMt5Sessions(): Promise<Mt5Session[]> {
   return [{ sessionId, userId: config.neuralUserId, userConfig, status: "RUNNING" }];
 }
 
+// 🔴 2026-09-23 (vigia mecanico, watcher.ts): consome a fila de gatilhos e roda
+// uma analise FOCADA (cesta = 1 ativo, prompt curto) por sessao elegivel.
+// `cycle` alto e multiplo de 4 -> passa a Cadencia de Entrada (tools.ts usa
+// cycle % N) e e unico por analise (get_mt5_quote exige cotacao no MESMO ciclo).
+let focusedCycle = 1_000_000;
+let drainingTriggers = false;
+async function drainTriggers(): Promise<void> {
+  if (drainingTriggers) return;
+  drainingTriggers = true;
+  try {
+    let t;
+    while ((t = takeTrigger())) {
+      const trig = t;
+      try {
+        await runExclusive(async () => {
+          const sessions = await resolveMt5Sessions();
+          for (const s of sessions) {
+            const basket = s.userConfig?.activeAssets ?? MT5_ASSET_BASKET;
+            if (!basket.includes(trig.symbol)) continue;
+            focusedCycle += 4;
+            console.log(`[watcher->LLM] analise focada #${focusedCycle}: ${trig.symbol} ${trig.trigger} @ ${trig.price}`);
+            const focusedSession: Mt5Session = {
+              ...s,
+              userConfig: s.userConfig ? { ...s.userConfig, activeAssets: [trig.symbol] } : s.userConfig,
+            };
+            await runAgent(focusedCycle, focusedSession, trig);
+          }
+        });
+      } catch (err) {
+        console.error("[watcher->LLM] falha na analise focada:", err instanceof Error ? err.message : err);
+      }
+    }
+  } finally {
+    drainingTriggers = false;
+  }
+}
+
 async function runSingleCycle() {
   console.log("Iniciando agente em Base Sepolia (testnet — sem valor real)...\n");
   await runAgent(1);
@@ -465,7 +504,7 @@ async function runContinuous() {
       for (const session of sessions) {
         try {
           console.log(`[DEBUG] Session antes de runAgent:`, JSON.stringify(session));
-          const stoppedThisSession = await runAgent(cycle, session);
+          const stoppedThisSession = await runExclusive(() => runAgent(cycle, session));
           calledStop = calledStop || stoppedThisSession;
         } catch (err) {
           console.error(
@@ -541,6 +580,7 @@ async function main() {
   acquireSingleInstanceLock();
   await assertOnTestnet();
   if (config.mt5TradingEnabled) startStopWatchdog();
+  if (process.env.WATCHER_ENABLED !== "false") startMarketWatcher(drainTriggers); // vigia mecanico, so observador (watcher.ts)
   startSpreadCollector(); // spread real medido -> custo (research/COST_SOURCE_OF_TRUTH.md)
   if (config.mt5LiveExecutionEnabled) {
     // Kill-switch mestre ligado -- a partir daqui, QUALQUER usuario que

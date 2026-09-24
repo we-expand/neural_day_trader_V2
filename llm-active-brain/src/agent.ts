@@ -5,6 +5,7 @@ import type {
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { config } from "./config.js";
+import { hasPendingTrigger, type WatcherTrigger } from "./llmQueue.js";
 import { scopedToolDefinitions, executeTool, MAX_PYRAMID_ADDS, type ExecuteToolSession } from "./tools.js";
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
@@ -938,7 +939,7 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
 // ou esgotar `maxIterations` (decisão do LLM -> execução de ferramenta ->
 // ordem na corretora -> confirmação, todos aninhados como filhos deste span
 // via contexto ambiente do OTel -- ver withSpan em otelHelpers.ts).
-export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<boolean> {
+export async function runAgent(cycle: number, mt5Session?: Mt5Session, focus?: WatcherTrigger): Promise<boolean> {
   return withSpan(
     "trading.cycle",
     {
@@ -948,14 +949,14 @@ export async function runAgent(cycle: number, mt5Session?: Mt5Session): Promise<
       "trading.mode": config.mt5TradingEnabled ? "mt5" : "legacy",
     },
     async (span) => {
-      const calledStop = await runAgentInner(cycle, mt5Session);
+      const calledStop = await runAgentInner(cycle, mt5Session, focus);
       span.setAttribute("trading.called_stop", calledStop);
       return calledStop;
     }
   );
 }
 
-async function runAgentInner(cycle: number, mt5Session?: Mt5Session): Promise<boolean> {
+async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: WatcherTrigger): Promise<boolean> {
   // Modo legado (Binance/experimento ETH testnet) não tem sessão MT5 --
   // executeTool ainda recebe algo, mas os handlers legados nunca leem sessionId/userId.
   const toolSession: ExecuteToolSession = mt5Session ?? { sessionId: "", userId: "", status: "RUNNING" };
@@ -1195,6 +1196,18 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session): Promise<bo
     // um template ChatML generico, nao o Jinja nativo da Qwen3 onde o
     // "/no_think" e documentado). Revertido; ver comentario em max_tokens
     // acima pro historico completo da investigacao deste bug.
+    // 🔴 2026-09-23 (vigia mecanico, ver watcher.ts): analise FOCADA num unico
+    // ativo que disparou gatilho. Mensagem curta de proposito (menos tokens de
+    // prefill = resposta em segundos, nao minutos). Nao instrui a operar num
+    // sentido: o gatilho e so contexto, a decisao segue o julgamento normal e
+    // TODAS as travas de open_position continuam valendo (mesmo executeTool).
+    if (focus) {
+      userMessage =
+        `ANALISE RAPIDA DE GATILHO #${cycle}. O vigia mecanico detectou em ${focus.symbol}: ${focus.trigger} ` +
+        `(preco ${focus.price}). Sua cesta neste ciclo e SO ${focus.symbol}. Faca: list_open_positions, ` +
+        `get_mt5_quote de ${focus.symbol}, e decida rapido -- open_position se houver confluencia real (respeitando todas as regras), ` +
+        `senao stop com o motivo em 1 frase. Seja breve: sem resumos longos.${stopSummary}${strategyDirective}`;
+    } else
     userMessage =
       `Ciclo #${cycle}. Comece checando suas posicoes abertas.${stopSummary}` +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
@@ -1247,6 +1260,13 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session): Promise<bo
     // baixo do free tier do Groq (o historico + as tools crescem a cada
     // iteracao e cada request sozinha ja custa uma fatia relevante do limite).
     if (iteration > 1) await sleep(3000);
+    // Ciclo GERAL cede o slot do LLM quando o vigia acha gatilho pendente
+    // (senao um ciclo de ~16min seguraria a fila). Nada se perde: o ciclo
+    // geral recomeca logo depois e as posicoes seguem protegidas pelo watchdog.
+    if (!focus && iteration > 1 && hasPendingTrigger()) {
+      console.log("[agent] gatilho do vigia pendente -- ciclo geral cede o slot do LLM.");
+      break;
+    }
 
     const response = await withSpan(
       "llm.decision",
