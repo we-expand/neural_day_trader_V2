@@ -220,6 +220,13 @@ export const MT5_ASSET_BASKET = [
   // bloqueia sozinha.
   "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
   "USDCNH", "USDSGD", "USDTWD", "XAUJPY",
+  // 🔴 2026-09-24: AUDNZD pedido no Setup do Cleber e descartado em silencio
+  // (aviso do neuralBridge). Confirmado real ao vivo via /mt5-prices. BVSPX
+  // (Ibovespa, tambem pedido) NAO entra ainda: existe na corretora, mas o
+  // pointValue/moeda de cotacao dele em infinoxContractSpecs.ts e "aprox."
+  // (INDICES_US generico) -- sem valor confirmado o PnL sairia errado (mesma
+  // classe do bug de PnL 20x do NAS100). Confirmar spec real antes de adicionar.
+  "AUDNZD",
 ];
 
 /**
@@ -304,6 +311,10 @@ export const LOT_SIZE: Record<string, number> = {
   USDSGD: 78428,
   USDTWD: 3153.3,
   XAUJPY: 0.6351,
+  // 🔴 2026-09-24: AUDNZD = 100000 AUD por lote; notional USD = 100000 * AUDUSD
+  // (0.70334, cotacao real 2026-09-24) = 70334 -> / preco AUDNZD (1.23876) = 56776.
+  // Aproximacao estatica, revisitar se AUDUSD andar muito.
+  AUDNZD: 56776,
 };
 
 export const MIN_LOTS = 0.01;
@@ -330,7 +341,7 @@ const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
   "AUS200", "JPN225", "HKG33", "CHINA50",
   "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
-  "USDCNH", "USDSGD", "USDTWD", "XAUJPY",
+  "USDCNH", "USDSGD", "USDTWD", "XAUJPY", "AUDNZD",
 ]);
 
 /**
