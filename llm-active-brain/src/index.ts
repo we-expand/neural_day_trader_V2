@@ -14,7 +14,7 @@ import { MT5_ASSET_BASKET, LOT_SIZE } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
 import { startSpreadCollector } from "./spreadCollector.js";
 import { startMarketWatcher } from "./watcher.js";
-import { runExclusive, takeTrigger } from "./llmQueue.js";
+import { hasPendingTrigger, runExclusive, takeTrigger } from "./llmQueue.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 function sleep(ms: number) {
@@ -398,11 +398,15 @@ async function drainTriggers(): Promise<void> {
   if (drainingTriggers) return;
   drainingTriggers = true;
   try {
-    let t;
-    while ((t = takeTrigger())) {
-      const trig = t;
+    // O gatilho so sai da fila DENTRO do slot exclusivo (runExclusive): enquanto
+    // espera a vez, continua na fila e o ciclo geral em andamento ve
+    // hasPendingTrigger() e cede o slot (agent.ts). Tirar da fila ANTES de
+    // esperar o slot escondia o gatilho do ciclo geral e ele nunca cedia.
+    while (hasPendingTrigger()) {
       try {
         await runExclusive(async () => {
+          const trig = takeTrigger();
+          if (!trig) return;
           const sessions = await resolveMt5Sessions();
           for (const s of sessions) {
             const basket = s.userConfig?.activeAssets ?? MT5_ASSET_BASKET;
