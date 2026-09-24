@@ -16,7 +16,7 @@ import { Sidebar } from '@/app/components/Sidebar';
 import { Header } from '@/app/components/layout/Header';
 import { NeuralEventCenter } from '@/app/components/dashboard/NeuralEventCenter';
 import { FedMiniPlayer } from '@/app/components/dashboard/FedMiniPlayer';
-import { TrumpSpeechPlayer } from '@/app/components/dashboard/TrumpSpeechPlayer';
+import { LiveSpeechPlayer } from '@/app/components/dashboard/LiveSpeechPlayer';
 import { HighImpactEventBanner } from '@/app/components/dashboard/HighImpactEventBanner';
 import { Dashboard } from '@/app/components/Dashboard';
 import { Funds } from '@/app/components/Funds';
@@ -463,7 +463,7 @@ function AppContent() {
             />
 
             <HighImpactEventBanner />
-            <TrumpSpeechPlayer />
+            <LiveSpeechPlayer />
 
             <main className="flex-1 overflow-auto">
               {renderContent}

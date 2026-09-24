@@ -17,9 +17,21 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
  * transmissão ao vivo quando existe; fora do ar, o YouTube mostra o próprio
  * aviso de "sem transmissão" — por isso há link direto pro canal.
  */
-const WHITE_HOUSE_CHANNEL_ID = 'UCYxRlFDqcWM4y7FfpiAN3KQ';
-const EMBED_URL = `https://www.youtube.com/embed/live_stream?channel=${WHITE_HOUSE_CHANNEL_ID}&autoplay=1`;
-const CHANNEL_LIVE_URL = 'https://www.youtube.com/@WhiteHouse/live';
+interface Speaker {
+  label: string;
+  match: RegExp;
+  channelId: string;
+  source: string;
+  channelUrl: string;
+}
+
+// Channel ids confirmados nas próprias páginas dos canais (2026-09-23).
+// Fed/Powell NÃO entra aqui: já tem player próprio (FedMiniPlayer.tsx).
+const SPEAKERS: Speaker[] = [
+  { label: 'Trump', match: /trump/i, channelId: 'UCYxRlFDqcWM4y7FfpiAN3KQ', source: 'Casa Branca', channelUrl: 'https://www.youtube.com/@WhiteHouse/live' },
+  { label: 'Lagarde (BCE)', match: /lagarde|ecb press conference/i, channelId: 'UCXB8fM4VyQubRu3UVGhd3wA', source: 'Banco Central Europeu', channelUrl: 'https://www.youtube.com/user/ecbeuro/live' },
+  { label: 'Bailey (BoE)', match: /bailey|boe press conference/i, channelId: 'UCZ25rmSDSnjIWZxjd2-04Rg', source: 'Banco da Inglaterra', channelUrl: 'https://www.youtube.com/@bankofengland/live' },
+];
 
 const OPEN_MINUTES_BEFORE = 30;
 const KEEP_MINUTES_AFTER = 90;
@@ -33,13 +45,14 @@ interface CalendarEvent {
 }
 
 function dismissKey(id: string) {
-  return `neural_trump_speech_dismissed_${id}`;
+  return `neural_live_speech_dismissed_${id}`;
 }
 
-export function TrumpSpeechPlayer() {
+export function LiveSpeechPlayer() {
   const [event, setEvent] = useState<CalendarEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [full, setFull] = useState(false);
+  const [watching, setWatching] = useState(false);
 
   const check = useCallback(async () => {
     try {
@@ -52,7 +65,7 @@ export function TrumpSpeechPlayer() {
       const events: CalendarEvent[] = Array.isArray(data?.events) ? data.events : Array.isArray(data) ? data : [];
       const now = Date.now();
       const found = events.find((e) => {
-        if (!/trump/i.test(e.event || '')) return false;
+        if (!SPEAKERS.some((sp) => sp.match.test(e.event || ''))) return false;
         const t = new Date(e.time).getTime();
         if (Number.isNaN(t)) return false;
         const min = (t - now) / 60_000;
@@ -67,6 +80,7 @@ export function TrumpSpeechPlayer() {
             // localStorage indisponível -- segue sem persistir a decisão
           }
           setDismissed(wasDismissed);
+          setWatching(false);
         }
         return found ?? null;
       });
@@ -82,6 +96,8 @@ export function TrumpSpeechPlayer() {
   }, [check]);
 
   if (!event || dismissed) return null;
+  const speaker = SPEAKERS.find((sp) => sp.match.test(event.event))!;
+  const embedUrl = `https://www.youtube.com/embed/live_stream?channel=${speaker.channelId}&autoplay=1`;
 
   const close = () => {
     setDismissed(true);
@@ -113,7 +129,7 @@ export function TrumpSpeechPlayer() {
           <div className="flex items-center gap-2 min-w-0">
             <Mic className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="text-[11px] font-semibold text-white truncate">
-              DISCURSO DO TRUMP — {timeLocal} (Brasília)
+              DISCURSO: {speaker.label} — {timeLocal} (Brasília)
             </span>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
@@ -134,18 +150,29 @@ export function TrumpSpeechPlayer() {
           </div>
         </div>
         <div className="relative w-full bg-black aspect-video">
-          <iframe
-            title="Casa Branca ao vivo"
-            className="w-full h-full"
-            src={EMBED_URL}
-            allow="autoplay; encrypted-media; fullscreen"
-            loading="lazy"
-          />
+          {watching ? (
+            <iframe
+              title={`${speaker.source} ao vivo`}
+              className="w-full h-full"
+              src={embedUrl}
+              allow="autoplay; encrypted-media; fullscreen"
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-4">
+              <p className="text-xs text-slate-300">Discurso ao vivo em breve — {speaker.source}</p>
+              <button
+                onClick={() => setWatching(true)}
+                className="px-4 py-1.5 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-colors"
+              >
+                ▶ Assistir agora
+              </button>
+            </div>
+          )}
         </div>
         <div className="px-3 py-1.5 bg-black/80 border-t border-white/10 text-[10px] text-slate-400">
-          Transmissão oficial da Casa Branca (YouTube).{' '}
-          <a href={CHANNEL_LIVE_URL} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
-            Se não carregar, abrir no YouTube ↗
+          Transmissão oficial: {speaker.source} (YouTube).{' '}
+          <a href={speaker.channelUrl} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+            Abrir no YouTube ↗
           </a>
         </div>
       </div>
