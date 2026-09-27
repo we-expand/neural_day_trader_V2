@@ -2063,8 +2063,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // CRUZAMENTO_MEDIAS (setups de CONTINUACAO) durante CONSOLIDACAO_BAIXA_VOL
       // com confianca real >= HMM_REGIME_GATE_MIN_CONFIDENCE -- nunca bloqueia
       // REVERSAO/OUTRO nem quando setupType nao foi declarado (campo opcional).
+      // 🔴 2026-09-27: fim de semana usa hmmRegimeGateActiveWeekend (ligado por
+      // padrão desde hoje, achado real de XETUSD -- ver config.ts), dia útil
+      // continua em hmmRegimeGateActive (desligado, congelamento intocado).
+      const hmmRegimeGateActiveForRegime = isWeekendMode() ? config.hmmRegimeGateActiveWeekend : config.hmmRegimeGateActive;
       if (
-        config.hmmRegimeGateActive &&
+        hmmRegimeGateActiveForRegime &&
         hmmRegimeForGate?.regime === HMM_STATE_CONSOLIDATION &&
         hmmRegimeForGate.confidence >= config.hmmRegimeGateMinConfidence &&
         (setupType === "ROMPIMENTO" || setupType === "CRUZAMENTO_MEDIAS")
@@ -2110,17 +2114,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA");
           if (patternAligned) confluenceFactors.push(`padrao de candle ${candlePatternsForConfluenceCheck.detected.join("/")} (bias ${candlePatternsForConfluenceCheck.bias})`);
         }
-        // 🔴 2026-09-05 (pedido do Cleber -- fim de semana, mercado "mais
-        // previsível/acomodado", cesta só cripto): o teto de 2 fatores foi
-        // calibrado pra dia útil, mercado líquido e mais propenso a whipsaw.
-        // No regime de fim de semana, com volume estruturalmente baixo
-        // (princípio 1g do prompt já manda ignorar volumeLabel como fator de
-        // cautela) e o filtro de Estocástico já mais sensível (75/25, ver
-        // atr.ts), 1 fator real alinhado passa a bastar em mercado LATERAL --
-        // não remove a trava (ainda exige confirmação real, não convicção no
-        // vácuo), só reconhece que o padrão "líquido e ruidoso" do dia útil
-        // não é o padrão do fim de semana.
-        const requiredConfluenceFactors = isWeekendMode() ? 1 : 2;
+        // 🔴 2026-09-05: pedido do Cleber na época, hipótese de que fim de
+        // semana seria "mais previsível/acomodado" -- afrouxou de 2 pra 1
+        // fator só em mercado LATERAL de fim de semana.
+        // 🔴 2026-09-27: REVERTIDO. Dado real do fim de semana 25-27/09
+        // contradisse a hipótese de 09-05 -- XETUSD (76% do prejuízo do fim
+        // de semana, -$24 em 9 fechamentos) perdeu nos dois lados com esse
+        // piso de 1 fator só. Baixa liquidez de fim de semana em cripto é
+        // MAIS propensa a whipsaw, não menos. Volta pro mesmo piso do dia
+        // útil (2), configurável via env pra recalibrar sem tocar no valor
+        // de dia útil (que fica hardcoded, intocado, dentro do congelamento).
+        const requiredConfluenceFactors = isWeekendMode() ? config.mt5LateralConfluenceFactorsWeekend : 2;
         if (confluenceFactors.length < requiredConfluenceFactors) {
           return {
             error:

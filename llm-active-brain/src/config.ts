@@ -734,6 +734,24 @@ export const config = {
   // desligado até o dado justificar ligar).
   hmmRegimeGateActive: process.env.HMM_REGIME_GATE_ACTIVE === "true",
   hmmRegimeGateMinConfidence: Number(process.env.HMM_REGIME_GATE_MIN_CONFIDENCE ?? 0.65),
+  // 🔴 2026-09-27 (pedido do Cleber -- "duas IAs diferentes", regulagem de fim
+  // de semana separada da de dia útil; dia útil NUNCA muda, fica gated por
+  // isWeekendMode() em tools.ts). Achado real via SQL do fim de semana
+  // 25-27/09: XETUSD sozinho foi 76% do prejuízo (-$24 de -$31,63, 14 trades),
+  // perdendo nos DOIS lados (LONG e SHORT) -- não é viés direcional, é
+  // ROMPIMENTO/CRUZAMENTO_MEDIAS sendo aprovado num regime que o próprio
+  // reasoning da IA já classificava como consolidação/lateral. O gate acima
+  // existe desde 09-09 pra bloquear exatamente isso mas está desligado pra
+  // TODO o motor (sem amostra que validasse). Em vez de ligar geral (violaria
+  // o congelamento de dia útil em vigor desde 22/09), liga só no fim de
+  // semana, onde o dado real já mostra o problema -- dia útil continua
+  // usando hmmRegimeGateActive (hoje false) sem nenhuma mudança.
+  hmmRegimeGateActiveWeekend: process.env.HMM_REGIME_GATE_ACTIVE_WEEKEND !== "false",
+  // 🔴 2026-09-27: piso de fatores de confluência exigidos em mercado LATERAL
+  // no fim de semana (tools.ts) -- era 1 (decisão de 09-05), revertido pra 2
+  // (igual dia útil) pelo mesmo achado de XETUSD acima. Configurável aqui
+  // pra poder recalibrar isolado do dia útil, que continua hardcoded em 2.
+  mt5LateralConfluenceFactorsWeekend: Number(process.env.MT5_LATERAL_CONFLUENCE_FACTORS_WEEKEND ?? 2),
   // 🔴 2026-09-11 (llm-council convocado pelo Cleber, sessão de 30h negativa
   // -$32,81/44 trades/payoff 0,60:1): dado real (SQL) mostrou 19 fechamentos
   // discricionários (AI_SIGNAL) em 44 trades, 42,1% de acerto, -$14,79 --
