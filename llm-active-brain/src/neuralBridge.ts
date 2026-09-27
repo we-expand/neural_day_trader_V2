@@ -961,7 +961,7 @@ export async function closeMt5Position(params: {
     const sb = getClient();
     const { data: trade, error: fetchError } = await sb
       .from("ai_trades")
-      .select("entry_price, side, quantity, ai_reasoning, symbol, broker_position_id, user_id, session_id, entry_time")
+      .select("entry_price, side, quantity, ai_reasoning, symbol, broker_position_id, user_id, session_id, entry_time, original_stop_distance")
       .eq("id", params.tradeId)
       .eq("status", "OPEN")
       .maybeSingle();
@@ -1000,6 +1000,14 @@ export async function closeMt5Position(params: {
     const durationSeconds = Number.isFinite(entryTimeMs)
       ? Math.max(0, Math.round((new Date(exitTime).getTime() - entryTimeMs) / 1000))
       : null;
+    // 🔴 2026-09-27 (payoff assimetrico, Passo 2): resultado de cada trade em
+    // multiplos de R (distancia original do stop) -- permite medir se as
+    // perdas ficam de fato pequenas e os ganhos grandes. NULL quando o trade
+    // nao tem original_stop_distance gravado.
+    const originalStopDistance = trade.original_stop_distance != null ? Number(trade.original_stop_distance) : null;
+    const favorableMoveAtExit = side === "LONG" ? params.exitPrice - entryPrice : entryPrice - params.exitPrice;
+    const rMultipleRealized =
+      originalStopDistance != null && originalStopDistance > 0 ? favorableMoveAtExit / originalStopDistance : null;
 
     const { error: updateError } = await sb
       .from("ai_trades")
@@ -1013,6 +1021,7 @@ export async function closeMt5Position(params: {
         pnl_percentage: pnlPercentage,
         commission: commissionUsd,
         net_pnl: pnl - commissionUsd,
+        r_multiple_realized: rMultipleRealized,
         ai_reasoning: `${entryReasoning} || SAIDA: ${params.reasoning}`,
       })
       .eq("id", params.tradeId);
@@ -1120,6 +1129,7 @@ async function realizePartialProfit(args: {
       pnl_percentage: pnlPercentage,
       net_pnl: pnl - commissionUsd,
       commission: commissionUsd,
+      r_multiple_realized: favorableMoveR,
       ai_reasoning: `Realizacao PARCIAL de lucro (${(favorableMoveR * 100).toFixed(0)}% de 1R alcancado, ${(config.mt5PartialTpFraction * 100).toFixed(0)}% da posicao) -- mecanico, nao depende de decisao do LLM neste ciclo.`,
       is_test_data: true,
       test_data_reason: MT5_TEST_DATA_REASON,

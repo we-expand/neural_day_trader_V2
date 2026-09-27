@@ -549,7 +549,11 @@ export const config = {
   // "breakeven em 0,5R" que o motor mecânico já usa (ver CLAUDE.md,
   // 2026-08-28). Só anda pra frente (nunca afrouxa um stop já em
   // breakeven) -- ver enforceMt5StopsAndTargets em neuralBridge.ts.
-  mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 0.5),
+  // 🔴 2026-09-27 (proposta de payoff assimetrico aprovada pelo Cleber, ver
+  // analises/PROPOSTA_2026-09-27_PAYOFF_ASSIMETRICO.md): gatilho do breakeven
+  // baixa de 0.5R para 0.35R -- trava o pior caso em ~$0 mais cedo, pra que
+  // as perdas fiquem pequenas sem mexer no alvo dos vencedores.
+  mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 0.35),
   // 🔴 2026-08-30 (achado ao vivo, pedido explicito do Cleber -- "chegou a
   // ganhar $3, saiu a -$0,10, isso nao pode acontecer"): o trailing em
   // enforceMt5StopsAndTargets usava a MESMA distancia do stop de abertura
