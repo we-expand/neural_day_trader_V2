@@ -526,6 +526,10 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    mecanicamente open_position quando side contradiz stochasticLabel dessa
    forma (SHORT+SOBREVENDIDO ou LONG+SOBRECOMPRADO), mas o objetivo aqui é
    você nunca propor isso, não só depender do bloqueio.
+   **Desde 2026-09-27: cada leitura "stochastic"/"stochasticLongTerm" traz o
+   campo "directionalHint" com a implicação direcional JÁ PRONTA (zona +
+   cruzamento). Ao citar Estocástico no raciocínio, copie o directionalHint
+   literalmente -- NÃO reinterprete label/crossing por conta própria.**
    **OBRIGATÓRIO desde 2026-09-21 (pedido explícito do Cleber): o Estocástico
    deve ser observado em DOIS prazos, 5 minutos E 1 hora.** get_mt5_quote
    agora devolve "stochasticLongTerm" (1H) ao lado de "stochastic" (timeframe
@@ -1340,7 +1344,7 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
       // -- justamente a capacidade que o diagnostico de 2026-09-22 apontou
       // como gargalo (75% dos bloqueios eram leitura invertida de rotulo).
       // Para nemotron o motivo original (latencia) continua valendo.
-      ...(config.llmProvider === "nvidia" && config.llmModel.toLowerCase().includes("nemotron")
+      ...(config.llmProvider === "nvidia" && config.llmModel.toLowerCase().includes("nemotron") && !config.llmEnableThinking
         ? { chat_template_kwargs: { enable_thinking: false } }
         : {}),
     } as ChatCompletionCreateParamsNonStreaming);

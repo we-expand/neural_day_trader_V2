@@ -877,6 +877,35 @@ export interface SlowStochasticResult {
   // principal, mais confiavel pra maioria dos casos).
   /** %K RAPIDO (sem suavizacao SMA3), 0-100 -- reage na hora, mais ruidoso. Usado so como alerta extra de exaustao em rompimentos, nunca substitui `k`/`label`. */
   rawK: number;
+  // 🔴 2026-09-27 (achado real, pedido do Cleber): 75% dos bloqueios de
+  // entrada da trava de contradicao (tools.ts) eram o modelo lendo o
+  // Estocastico AO CONTRARIO -- escrevia "SOBREVENDIDO, favorece venda" e
+  // tentava SHORT em cima de exaustao da queda. A trava impede a entrada,
+  // mas nao corrige a leitura. Causa atacada aqui: em vez de a LLM
+  // INTERPRETAR label/crossing (onde ela erra), o motor entrega a
+  // implicacao direcional ja pronta em texto -- a LLM so precisa citar.
+  /** Implicacao direcional pronta (zona + cruzamento), pra LLM citar em vez de interpretar. Deriva so de `label`/`crossing`, nunca adiciona sinal novo. */
+  directionalHint: string;
+}
+
+/** Texto direcional fixo derivado de label/crossing -- mesma regra da trava de contradicao em tools.ts. */
+function buildStochasticDirectionalHint(
+  label: SlowStochasticResult["label"],
+  crossing: SlowStochasticResult["crossing"],
+): string {
+  const zone =
+    label === "SOBREVENDIDO"
+      ? "SOBREVENDIDO = exaustao da QUEDA, favorece COMPRA (LONG), NUNCA abrir venda (SHORT) por causa disto."
+      : label === "SOBRECOMPRADO"
+        ? "SOBRECOMPRADO = exaustao da ALTA, favorece VENDA (SHORT), NUNCA abrir compra (LONG) por causa disto."
+        : "NEUTRO = sem exaustao, o Estocastico sozinho NAO favorece nenhum lado.";
+  const cross =
+    crossing === "CRUZOU_PARA_CIMA"
+      ? " %K cruzou %D PARA CIMA = gatilho de COMPRA (LONG)."
+      : crossing === "CRUZOU_PARA_BAIXO"
+        ? " %K cruzou %D PARA BAIXO = gatilho de VENDA (SHORT)."
+        : "";
+  return zone + cross;
 }
 
 // 🔴 2026-09-21 (Ajuste 2 do conselho, pedido explicito do Cleber --
@@ -990,6 +1019,7 @@ export async function getSlowStochastic(symbol: string, timeframe: SupportedTime
     label,
     crossing,
     rawK: Number(lastRawK.toFixed(2)),
+    directionalHint: buildStochasticDirectionalHint(label, crossing),
   };
 }
 

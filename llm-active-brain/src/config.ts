@@ -134,6 +134,10 @@ export const config = {
   llmApiKey: requireEnv(llmProviderDefaults.apiKeyEnv),
   llmBaseUrl: process.env.LLM_BASE_URL || llmProviderDefaults.baseUrl,
   llmModel: process.env.LLM_MODEL || llmProviderDefaults.model,
+  // 2026-09-27: nemotron da NVIDIA desliga o thinking por padrao (latencia,
+  // ver agent.ts). LLM_ENABLE_THINKING=true mantem o raciocinio ligado --
+  // teste do nemotron-3-super-120b-a12b com thinking, pedido do Cleber.
+  llmEnableThinking: process.env.LLM_ENABLE_THINKING === "true",
   agentPrivateKey: requireEnv("AGENT_PRIVATE_KEY") as `0x${string}`,
   rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || undefined,
   // 🔴 2026-08-29 (pedido do Cleber): cesta de hoje tem 8 ativos (5 deles
