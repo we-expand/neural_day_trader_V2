@@ -227,6 +227,14 @@ export const MT5_ASSET_BASKET = [
   // (INDICES_US generico) -- sem valor confirmado o PnL sairia errado (mesma
   // classe do bug de PnL 20x do NAS100). Confirmar spec real antes de adicionar.
   "AUDNZD",
+  // 🔴 2026-09-28: XAGUSD (prata) pedido no Setup do Cleber. Confirmado real
+  // ao vivo via /mt5-prices ($61,105) + spec real em infinoxContractSpecs.ts
+  // (METAL_SILVER, contractSize=5000) -- ver LOT_SIZE abaixo. COFUSD/ETHUSD/
+  // LINKUSD tambem pedidos no mesmo Setup, mas ficam de fora: COFUSD e 404
+  // nesta corretora (mesmo achado ja catalogado em 2026-08-31); ETHUSD e
+  // LINKUSD sao nomes que nao existem aqui -- os reais (XETUSD/LNKUSD) ja
+  // estao nesta cesta.
+  "XAGUSD",
 ];
 
 /**
@@ -266,6 +274,8 @@ export const LOT_SIZE: Record<string, number> = {
   // qualquer classe desde que LOT_SIZE seja o contractSize real.
   EURUSD: 100000,
   XAUUSD: 100,
+  // 🔴 2026-09-28: contractSize real de infinoxContractSpecs.ts (METAL_SILVER).
+  XAGUSD: 5000,
   UKOUSD: 1000,
   GER40: 1,
   SPX500: 1,
