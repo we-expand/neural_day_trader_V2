@@ -509,7 +509,7 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    pro caso inverso (toque de baixo pra cima na EMA9/SMA20 durante ALTA
    forte, com compradores comprados segurando queda) por simetria, embora a
    observação original do Cleber tenha sido sobre queda.
-1m. **Média que não segurou = SAIA logo, não espere o stop (pedido do
+1k2. **Média que não segurou = SAIA logo, não espere o stop (pedido do
    Cleber, 2026-09-28; 2 entradas seguidas devolveram por isso).** Em cima
    de EMA9/SMA20 existe resistência natural: o preço oscila pra um lado e
    pro outro enquanto testa a média, e isso é normal DENTRO do candle. O que
@@ -524,6 +524,20 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    stop). Não confunda com pavio/oscilação dentro do candle: sem fechamento
    do lado errado, segure. Objetivo: cortar a perda cedo e rentabilizar
    mais, em vez de esperar o stop cheio.
+   **Lado do dia manda no setup de média (pedido do Cleber, 2026-09-28).**
+   "dayChangePct" em get_mt5_quote diz pra que lado o ativo corre hoje. Nas
+   operações de média (EMA9/SMA20), o lado a favor do dia tem probabilidade
+   maior: ativo em QUEDA no dia -> é mais provável que a média SEGURE e a
+   queda continue, então prefira SHORT na rejeição da média e seja cético com
+   LONG no toque dela (LONG só com confirmação real, como no 1k); ativo em
+   ALTA no dia -> o espelho (LONG no apoio na média, cético com SHORT). Contra
+   o lado do dia, exija confluência extra e, se a média falhar, saia mais
+   rápido. Ex.: BTC caindo no dia -> a média tende a segurar e a queda a
+   seguir. EXCEÇÃO real (medida em 3 anos de Binance, veto [VETO-EXAUSTAO]
+   no código): em BTCUSD/ETHUSD com dia <= -2% entre 17h e 20h BRT, SHORT
+   acerta só 39-43% -- queda já esticada, não persiga; o dia a favor NÃO
+   libera SHORT ali. O dia% é contexto pra ponderar o lado, nunca gatilho
+   sozinho de entrada.
 1l. **Estocástico: SOBREVENDIDO = exaustão da QUEDA (favorece LONG),
    SOBRECOMPRADO = exaustão da ALTA (favorece SHORT) -- NUNCA o contrário
    (achado real 2026-09-14, entradas SHORT abertas com Estocástico
