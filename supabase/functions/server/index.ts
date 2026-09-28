@@ -308,13 +308,58 @@ const METAAPI_CLIENT_API_BASE = 'https://mt-client-api-v1.new-york.agiliumtrade.
 // seguintes (o cache é compartilhado). `metaApiFetchWithFailover` usa isso pra tentar a região
 // seguinte DENTRO da mesma requisição, sem esperar o próximo ciclo.
 type MetaApiRegionCandidate = { region: string; connectionStatus?: string };
-const metaApiRegionCache = new Map<string, { candidates: MetaApiRegionCandidate[]; expiresAt: number }>();
 const METAAPI_REGION_CACHE_TTL_MS = 60_000;
 const METAAPI_RETRYABLE_STATUS = new Set([502, 503, 504, 522, 524]);
 
+// ✅ 2026-09-28: cache real no Postgres (compartilhado de verdade entre TODAS
+// as instâncias/isolates da Edge Function) — antes era uma `Map` em memória,
+// válida só dentro de uma instância; sob carga, cada isolate novo refazia a
+// consulta à API de provisionamento da MetaAPI (confirmado ao vivo: 40+
+// chamadas idênticas em <2s), sobrecarregando ainda mais a conta
+// compartilhada. Ver 20260928_add_metaapi_region_cache_table.sql. Mesmo
+// padrão do semáforo de dado histórico (metaapi_historical_fetch_slots).
+function getMetaApiRegionCacheDbClient() {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseServiceKey) return null;
+    return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+async function readMetaApiRegionCache(accountId: string): Promise<MetaApiRegionCandidate[] | null> {
+    const client = getMetaApiRegionCacheDbClient();
+    if (!client) return null;
+    try {
+        const { data, error } = await client
+            .from('metaapi_region_cache')
+            .select('candidates, expires_at')
+            .eq('account_id', accountId)
+            .maybeSingle();
+        if (error || !data) return null;
+        if (new Date(data.expires_at).getTime() <= Date.now()) return null;
+        return data.candidates as MetaApiRegionCandidate[];
+    } catch (err) {
+        console.warn('[METAAPI] ⚠️ Falha ao ler cache de região compartilhado, seguindo sem cache:', (err as any)?.message ?? err);
+        return null;
+    }
+}
+
+async function writeMetaApiRegionCache(accountId: string, candidates: MetaApiRegionCandidate[]): Promise<void> {
+    const client = getMetaApiRegionCacheDbClient();
+    if (!client) return;
+    try {
+        await client.from('metaapi_region_cache').upsert({
+            account_id: accountId,
+            candidates,
+            expires_at: new Date(Date.now() + METAAPI_REGION_CACHE_TTL_MS).toISOString(),
+        });
+    } catch (err) {
+        console.warn('[METAAPI] ⚠️ Falha ao gravar cache de região compartilhado (segue funcionando sem cache):', (err as any)?.message ?? err);
+    }
+}
+
 async function resolveMetaApiRegionCandidates(token: string, accountId: string): Promise<MetaApiRegionCandidate[]> {
-    const cached = metaApiRegionCache.get(accountId);
-    if (cached && cached.expiresAt > Date.now()) return cached.candidates;
+    const cached = await readMetaApiRegionCache(accountId);
+    if (cached && cached.length > 0) return cached;
 
     try {
         const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
@@ -337,7 +382,7 @@ async function resolveMetaApiRegionCandidates(token: string, accountId: string):
             });
 
             if (candidates.length > 0) {
-                metaApiRegionCache.set(accountId, { candidates, expiresAt: Date.now() + METAAPI_REGION_CACHE_TTL_MS });
+                await writeMetaApiRegionCache(accountId, candidates);
                 console.log(`[METAAPI] 🌍 Regiões da conta ${accountId} (ordem de preferência): ${candidates.map((c) => `${c.region}:${c.connectionStatus || '?'}`).join(', ')}`);
                 return candidates;
             }
@@ -346,21 +391,23 @@ async function resolveMetaApiRegionCandidates(token: string, accountId: string):
         console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta:', err);
     }
 
-    return cached?.candidates ?? [];
+    return cached ?? [];
 }
 
 // Derruba a região do topo NA HORA (chamado quando um fetch real bate erro de infra nela) —
 // promove a próxima candidata pro topo, valendo pra TODOS os chamadores seguintes, sem esperar
 // o TTL. Reordena em vez de descartar: se essa região voltar a ficar boa, uma nova consulta à
-// provisioning API (após o TTL) pode trazê-la de volta pro topo naturalmente.
-function reportMetaApiRegionFailure(accountId: string, failedRegion: string) {
-    const cached = metaApiRegionCache.get(accountId);
-    if (!cached || cached.candidates.length <= 1) return;
-    const idx = cached.candidates.findIndex((c) => c.region === failedRegion);
+// provisioning API (após o TTL) pode trazê-la de volta pro topo naturalmente. Escreve direto no
+// cache compartilhado (Postgres) — vale pra todas as instâncias, não só a que detectou a falha.
+async function reportMetaApiRegionFailure(accountId: string, failedRegion: string): Promise<void> {
+    const cached = await readMetaApiRegionCache(accountId);
+    if (!cached || cached.length <= 1) return;
+    const idx = cached.findIndex((c) => c.region === failedRegion);
     if (idx <= 0) return; // já não é o topo, ou não achado — nada a fazer
-    const [failed] = cached.candidates.splice(idx, 1);
-    cached.candidates.push({ ...failed, connectionStatus: 'DISCONNECTED' });
-    console.warn(`[METAAPI] 🔻 Região "${failedRegion}" falhou (conta ${accountId}) — promovendo "${cached.candidates[0].region}" imediatamente.`);
+    const [failed] = cached.splice(idx, 1);
+    cached.push({ ...failed, connectionStatus: 'DISCONNECTED' });
+    console.warn(`[METAAPI] 🔻 Região "${failedRegion}" falhou (conta ${accountId}) — promovendo "${cached[0].region}" imediatamente.`);
+    await writeMetaApiRegionCache(accountId, cached);
 }
 
 async function resolveMetaApiRegion(token: string, accountId: string): Promise<string | null> {
@@ -397,7 +444,7 @@ async function metaApiFetchWithFailover(
         try {
             const res = await fetch(buildPath(base), init);
             if (METAAPI_RETRYABLE_STATUS.has(res.status) && i < hosts.length - 1) {
-                reportMetaApiRegionFailure(accountId, region);
+                await reportMetaApiRegionFailure(accountId, region);
                 lastRes = res;
                 continue;
             }
@@ -405,7 +452,7 @@ async function metaApiFetchWithFailover(
         } catch (err) {
             lastErr = err;
             if (i < hosts.length - 1) {
-                reportMetaApiRegionFailure(accountId, region);
+                await reportMetaApiRegionFailure(accountId, region);
                 continue;
             }
         }
