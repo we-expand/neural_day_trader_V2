@@ -1511,6 +1511,47 @@ export async function getMovingAverageDistance(symbol: string, timeframe: Suppor
   };
 }
 
+export interface MaCloseStatus {
+  /** Fechamento do último candle JÁ FECHADO (candles[length-2], o mais recente pode estar em formação). */
+  closedClose: number;
+  /** Instante (ms) em que esse candle fechou (abertura + duração do timeframe). */
+  closedAtMs: number;
+  ema9: number;
+  sma20: number;
+  aboveEma9: boolean;
+  aboveSma20: boolean;
+}
+
+const TIMEFRAME_MS: Record<string, number> = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1H": 3_600_000, "4H": 14_400_000 };
+
+/**
+ * 2026-09-28 (pedido do Cleber): posição de toque na EMA9/SMA20 que não segurou.
+ * Devolve onde o ÚLTIMO CANDLE FECHADO fechou em relação às duas médias
+ * (calculadas até esse candle, sem o candle em formação). Dado real, nunca fabricado.
+ */
+export async function getMaCloseStatus(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MaCloseStatus | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < SMA20_PERIOD + 2) return null;
+  const closedCandles = candles.slice(0, -1);
+  const closes = closedCandles.map((c) => c.close);
+  if (closes.some((v) => !Number.isFinite(v))) return null;
+  const ema9Series = calculateEmaSeries(closes, EMA9_PERIOD);
+  const sma20Series = calculateSmaSeries(closes, SMA20_PERIOD);
+  const ema9 = ema9Series ? ema9Series[ema9Series.length - 1] : NaN;
+  const sma20 = sma20Series[sma20Series.length - 1];
+  const last = closedCandles[closedCandles.length - 1];
+  if (!Number.isFinite(ema9) || !Number.isFinite(sma20)) return null;
+  const openMs = last.timestamp < 1e12 ? last.timestamp * 1000 : last.timestamp;
+  return {
+    closedClose: last.close,
+    closedAtMs: openMs + (TIMEFRAME_MS[timeframe] ?? 300_000),
+    ema9,
+    sma20,
+    aboveEma9: last.close > ema9,
+    aboveSma20: last.close > sma20,
+  };
+}
+
 // ============================================================================
 // AGENDA ECONÔMICA (2026-09-04) -- pedido direto do Cleber: "tudo tem que
 // estar amarrado" à agenda econômica americana, porque a intensidade do

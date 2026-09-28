@@ -509,6 +509,21 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    pro caso inverso (toque de baixo pra cima na EMA9/SMA20 durante ALTA
    forte, com compradores comprados segurando queda) por simetria, embora a
    observação original do Cleber tenha sido sobre queda.
+1m. **Média que não segurou = SAIA logo, não espere o stop (pedido do
+   Cleber, 2026-09-28; 2 entradas seguidas devolveram por isso).** Em cima
+   de EMA9/SMA20 existe resistência natural: o preço oscila pra um lado e
+   pro outro enquanto testa a média, e isso é normal DENTRO do candle. O que
+   decide é o FECHAMENTO do candle (timeframe operacional): se você entrou
+   apostando que a média seguraria (LONG apoiado nela, SHORT rejeitado por
+   ela) e um candle FECHA do lado errado da EMA9 e da SMA20, a média falhou
+   -- é provável que o mercado devolva. Em cada ciclo, com posição aberta
+   nesse tipo de tese, chame get_mt5_quote, confira "movingAverages" e o
+   fechamento do último candle, e se a média não segurou chame
+   close_position NA HORA (o código libera esse fechamento mesmo com a regra
+   geral de não-fechamento discricionário, e sem exigir 50% do caminho até o
+   stop). Não confunda com pavio/oscilação dentro do candle: sem fechamento
+   do lado errado, segure. Objetivo: cortar a perda cedo e rentabilizar
+   mais, em vez de esperar o stop cheio.
 1l. **Estocástico: SOBREVENDIDO = exaustão da QUEDA (favorece LONG),
    SOBRECOMPRADO = exaustão da ALTA (favorece SHORT) -- NUNCA o contrário
    (achado real 2026-09-14, entradas SHORT abertas com Estocástico
