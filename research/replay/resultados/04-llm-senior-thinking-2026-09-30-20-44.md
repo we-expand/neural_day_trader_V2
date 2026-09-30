@@ -1,16 +1,3 @@
-modelo nvidia/nemotron-3-super-120b-a12b | variante senior-thinking | 300 situacoes (150 IN + 150 OUT) de 1409 validas
-  25/300
-  50/300
-  75/300
-  100/300
-  125/300
-  150/300
-  175/300
-  200/300
-  225/300
-  250/300
-  275/300
-  300/300
 
 # Replay da LLM -- variante "senior-thinking" -- nvidia/nemotron-3-super-120b-a12b
 
