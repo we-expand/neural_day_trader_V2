@@ -12,6 +12,7 @@ import { getBalanceUsd } from "./economy.js";
 import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, closeMt5Position, openMt5Position, type Mt5OpenPosition } from "./neuralBridge.js";
 import { MT5_ASSET_BASKET, LOT_SIZE } from "./assetBasket.js";
 import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./mt5Broker.js";
+import { startStreamingTicks } from "./streamingTicks.js";
 import { startSpreadCollector } from "./spreadCollector.js";
 import { startMarketWatcher } from "./watcher.js";
 import { hasPendingTrigger, runExclusive, takeTrigger } from "./llmQueue.js";
@@ -583,6 +584,7 @@ async function runContinuous() {
 async function main() {
   acquireSingleInstanceLock();
   await assertOnTestnet();
+  startStreamingTicks(); // opt-in (STREAMING_TICKS_ENABLED=true), cai pro REST se o tick envelhecer
   if (config.mt5TradingEnabled) startStopWatchdog();
   if (process.env.WATCHER_ENABLED !== "false") startMarketWatcher(drainTriggers); // vigia mecanico, so observador (watcher.ts)
   startSpreadCollector(); // spread real medido -> custo (research/COST_SOURCE_OF_TRUTH.md)

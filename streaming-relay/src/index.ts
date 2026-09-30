@@ -116,6 +116,8 @@ class RelaySynchronizationListener extends SynchronizationListener {
         change_percent_24h: changePercent,
         volume: 0,
         timestamp: new Date().toISOString(),
+        // Horario REAL do tick na corretora (o motor usa pra detectar tick obsoleto).
+        tick_time: price.time instanceof Date ? price.time.toISOString() : undefined,
       },
     });
   }

@@ -10,6 +10,7 @@
  */
 import { config } from "./config.js";
 import { recordTick } from "./tickHistory.js";
+import { getStreamTick } from "./streamingTicks.js";
 import { withSpan } from "./otelHelpers.js";
 
 interface Mt5PriceTick {
@@ -92,7 +93,22 @@ function sleep(ms: number) {
 const QUOTE_RETRY_ATTEMPTS = 3;
 const QUOTE_RETRY_DELAY_MS = 500;
 
+/** Tick do streaming quando fresco; so os simbolos sem tick fresco vao pro REST (ver streamingTicks.ts). */
 async function fetchTicks(symbols: string[]): Promise<Map<string, Mt5PriceTick> | null> {
+  const bySymbol = new Map<string, Mt5PriceTick>();
+  const missing: string[] = [];
+  for (const symbol of symbols) {
+    const streamed = getStreamTick(symbol);
+    if (streamed) bySymbol.set(symbol, streamed);
+    else missing.push(symbol);
+  }
+  if (missing.length === 0) return bySymbol;
+  const rest = await fetchTicksRest(missing);
+  if (rest) for (const [symbol, tick] of rest) bySymbol.set(symbol, tick);
+  return bySymbol.size > 0 ? bySymbol : null;
+}
+
+async function fetchTicksRest(symbols: string[]): Promise<Map<string, Mt5PriceTick> | null> {
   const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-prices`;
   try {
     const res = await fetch(url, {
