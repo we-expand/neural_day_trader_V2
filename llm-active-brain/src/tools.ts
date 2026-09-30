@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getMaCloseStatus, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -2961,32 +2961,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // acima do spread/2 fatores de invalidacao) fica bloqueada enquanto
       // aiSignalDiscretionaryCloseEnabled=false. Flag unica, reversivel em 1
       // linha (config.ts) quando o periodo de teste terminar.
-      // 2026-09-28 (pedido do Cleber): excecao mecanica a suspensao acima --
-      // "media nao segurou". Se o ULTIMO CANDLE FECHADO (apos a entrada) fechou
-      // do lado errado da EMA9 E da SMA20 e a posicao esta em perda, a media
-      // falhou como suporte/resistencia: o mercado tende a devolver, e esperar
-      // o stop cheio custa mais. Vale tambem contra o gate de 50% do caminho.
-      let maFailureExit: string | null = null;
-      try {
-        const openPositionsForMa = await listMt5OpenPositions(session.sessionId);
-        const posMa = openPositionsForMa.find((p) => p.id === tradeId);
-        if (posMa) {
-          const tfMa = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
-          const maStatus = await getMaCloseStatus(posMa.symbol, tfMa);
-          const entryMs = new Date(posMa.entry_time).getTime();
-          if (maStatus && Number.isFinite(entryMs) && maStatus.closedAtMs > entryMs) {
-            const inLoss = posMa.side === "LONG" ? maStatus.closedClose < posMa.entry_price : maStatus.closedClose > posMa.entry_price;
-            const wrongSide = posMa.side === "LONG" ? !maStatus.aboveEma9 && !maStatus.aboveSma20 : maStatus.aboveEma9 && maStatus.aboveSma20;
-            if (inLoss && wrongSide) {
-              maFailureExit = `candle ${tfMa} fechou em ${maStatus.closedClose} ${posMa.side === "LONG" ? "abaixo" : "acima"} da EMA9 (${maStatus.ema9.toFixed(4)}) e da SMA20 (${maStatus.sma20.toFixed(4)}) -- media nao segurou`;
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`[tools.ts] checagem de falha de media falhou (segue regra normal): ${err instanceof Error ? err.message : err}`);
-      }
-      if (maFailureExit) console.log(`[tools.ts] SAIDA POR FALHA DE MEDIA em ${tradeId}: ${maFailureExit}`);
-      if (!config.aiSignalDiscretionaryCloseEnabled && !maFailureExit) {
+      if (!config.aiSignalDiscretionaryCloseEnabled) {
         return {
           error:
             `Fechamento discricionario (AI_SIGNAL) suspenso por decisao do llm-council (veredito unanime, ver CLAUDE.md 2026-09-11): ` +
@@ -3048,7 +3023,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // conhecida e aceita pelo Cleber: atrasa tambem cortes rapidos em
       // teses genuinamente invalidadas cedo -- decisao de politica de risco,
       // nao bug.
-      if (!maFailureExit && position.stop_loss != null && position.take_profit != null) {
+      if (position.stop_loss != null && position.take_profit != null) {
         const stopDistance = Math.abs(position.entry_price - position.stop_loss);
         const targetDistance = Math.abs(position.take_profit - position.entry_price);
         const adverseMove = position.side === "LONG" ? position.entry_price - exitPrice : exitPrice - position.entry_price;
