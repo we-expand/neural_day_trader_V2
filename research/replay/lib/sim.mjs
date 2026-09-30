@@ -67,7 +67,10 @@ export function simulate(ctx, tMs, side, spreadPct, p = ENGINE) {
   let lo = 0, hi = m5.length - 1, e = -1;
   while (lo <= hi) { const m = (lo + hi) >> 1; if (m5[m].t >= tMs) { e = m; hi = m - 1; } else lo = m + 1; }
   if (e < 15 || m5[e].t - tMs > 300_000 * 1.5) return null;
-  const atrPct = atr[e - 1] != null ? atr[e - 1] / m5[e - 1].c : null;
+  // p.atrPctAt(tMs): horizonte alternativo (ex.: ATR de 1H) -- stop, alvo e trailing passam a usar esse ATR fixo
+  const fixedAtrPct = p.atrPctAt ? p.atrPctAt(tMs) : null;
+  if (p.atrPctAt && fixedAtrPct == null) return null;
+  const atrPct = fixedAtrPct ?? (atr[e - 1] != null ? atr[e - 1] / m5[e - 1].c : null);
   const st = stopAndTarget(atrPct, spreadPct, tMs, p);
   if (!st) return { skipped: "spread" };
   const entry = m5[e].o;
@@ -98,7 +101,7 @@ export function simulate(ctx, tMs, side, spreadPct, p = ENGINE) {
     if (!atBE) {
       if (p.beR != null && favR >= p.beR) stop = entry;
     } else if (p.trailAtr != null) {
-      const aPct = atr[k] != null ? atr[k] / c.c : null;
+      const aPct = fixedAtrPct ?? (atr[k] != null ? atr[k] / c.c : null);
       if (aPct != null) {
         const mult = favR >= p.trailWideR ? p.trailWideAtr : p.trailAtr;
         const cand = favor * (1 - dir * aPct * mult);
