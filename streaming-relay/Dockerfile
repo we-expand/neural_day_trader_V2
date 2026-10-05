@@ -13,6 +13,7 @@ WORKDIR /app
 COPY streaming-relay ./streaming-relay
 COPY src/app/config/assetDatabase.ts src/app/config/assetDatabase.ts
 COPY src/app/config/brokerRegistry.ts src/app/config/brokerRegistry.ts
+COPY src/app/config/defaultBasket.ts src/app/config/defaultBasket.ts
 
 WORKDIR /app/streaming-relay
 RUN npm run build
