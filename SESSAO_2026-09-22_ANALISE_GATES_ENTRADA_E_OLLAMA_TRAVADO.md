@@ -120,3 +120,43 @@ de novo, porque o problema estava no processo do modelo, não no cliente.
   "processo morto"), pode não reagir a esse tipo de trava. Vale considerar, numa sessão
   futura, um healthcheck que meça CPU/progresso de ciclo do `llama-server`, não só se o
   processo existe.
+
+## Parte 3 — 2026-09-23: fim do teste do pipeline e restauração do motor congelado
+
+Cleber decidiu encerrar o teste do pipeline Fail-Fast (sessão paralela de 09-23, ver
+`SESSAO_2026-09-23_PIPELINE_FAIL_FAST_CONGELAMENTO_E_MODO_DIAGNOSTICO.md`) e voltar ao motor
+congelado ("a forma com que ela estava treinada, as travas que ela estava utilizando"). O que
+era testado era uma configuração de LLM/arquitetura diferente, NÃO o Setup do AI Trader
+(`ai_user_config` no Supabase, que nunca foi mexido: risco 10%, perda diária 25%, cadência
+AGRESSIVA, alvo POUCOS, 5m, 9 ativos).
+
+### Achados na investigação
+- Ao começar, o `.env` já estava com `MT5_DIAGNOSTIC_TECHNICAL_GATES_DISABLED=false`, mas o
+  processo rodando (subido 00:51) ainda estava com o diagnóstico ligado (log com
+  `[SHADOW-REJECTED (bypassed)]`) — precisava de restart.
+- Comparação `.env` vs `.env.bak-20260922`: só diferem `LLM_MODEL=qwen35-trading`,
+  `MT5_VOLUME_ELEVATED_RATIO=1.0` (ambos anteriores ao teste) e a flag de diagnóstico.
+- Desempenho por hora (SQL): em 22/09 até ~19h BR, 5 de 7 trades ganhos (~71%, origem do
+  "estava acertando 70%"); depois, 0 de 7 (00h-09h de 23/09, já com o teste do pipeline).
+  Amostra minúscula, sem validade estatística.
+- Modelos Ollama treinados salvos localmente: `qwen35-trading` (4B, 32k ctx, em uso),
+  `qwen3-trading` (8B), `qwen3-1.7b-trading` (padrão do código desde 22/09 03:02, mas o
+  `.env` sobrescreve com o 4B). Cleber confirmou que quer voltar às travas/configuração, não
+  trocar de modelo.
+
+### O que foi feito
+1. `git restore --source=freeze-llm-brain-2026-09-22 --staged --worktree llm-active-brain/src`
+   — código do motor idêntico à tag (pipeline `src/pipeline/` removido, telemetria dos gates
+   e flag de diagnóstico revertidos). `tsc --noEmit` limpo. Mudanças ficaram só em staging,
+   **nada commitado** (histórico do teste continua nos commits 6efcee6d6/9bfc3525d/995182bb8).
+2. `restart.sh` às 12:04 (só flag) e de novo às 12:11 (código restaurado). Único processo
+   rodando, log sem `SHADOW-REJECTED`/`[OK]`/`[REJECTED]`.
+3. `MT5_LIVE_EXECUTION_ENABLED=false` (DEMO). Nenhuma mudança no Setup nem no Supabase.
+
+### Pendente
+- Confirmar que o 1º ciclo pós-restart termina e observar entradas/bloqueios (motor estava
+  ainda no ciclo 1 na última checagem). Registrar bloqueios sem mexer em travas
+  (congelamento de mecânica de 09-22 continua valendo).
+- Cleber vai rodar o próprio restart (`cd llm-active-brain && ./restart.sh`) por garantia.
+- Commit da restauração (staging tem M/D em `llm-active-brain/src`) — a decidir pelo Cleber.
+- Causa raiz do deadlock do `llama-server` (Parte 2) continua sem investigação.

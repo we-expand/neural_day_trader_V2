@@ -15,6 +15,25 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-09-23, fim da noite] IA "sem inteligência": os 2 SHORTs
+de 17h-18h (BTC/ETH, dia -2,3%/-2,8%) perderam porque a regra das 16:34
+fazia o dia% VOTAR pra vender — oposto do dado. Conselho + 3 anos de
+Binance: depois de dia ≤ -2% às 17h-20h BRT, SHORT acerta só 39-43%.**
+Código pronto (NÃO commitado, motor NÃO reiniciado): dia% sai do voto
+(`atr.ts`) + veto de SHORT em BTC/ETH nessa janela com log
+`[VETO-EXAUSTAO]` (`tools.ts`); `.env` `MT5_VOLUME_ELEVATED_RATIO` 1.0→0.6
+(pedido do Cleber, sem validação). Método do Cleber testado como regra
+(estocástico 5m + MACD + 1H, scalp, rompimento Fibonacci 1H): NADA tem
+vantagem líquida em BTC/ETH; só o veto passou. Perdas grandes do dia eram
+ordens MANUAIS (~-$209), não da IA. Meta "70% de acerto → subir lote":
+descartada como critério — decidir por R líquido em 150-300 trades da IA.
+**Pendente**: commit + `./restart.sh` (só o Cleber); unificar
+`volumeElevated`/`volumeLabel`; separar P&L manual×IA; Cleber vai enviar
+entradas em que ganhou pra alimentar a IA. Congelamento reinicia no commit
+(5 dias/40 trades). Handoff:
+[SESSAO_2026-09-23_NOITE_EXAUSTAO_VETO_SHORT_E_TESTE_DO_METODO.md](SESSAO_2026-09-23_NOITE_EXAUSTAO_VETO_SHORT_E_TESTE_DO_METODO.md),
+testes em [research/experiments/2026-09-23-metodo-do-cleber/verdict.md](research/experiments/2026-09-23-metodo-do-cleber/verdict.md).
+
 **[EM ANDAMENTO 2026-09-23, noite] Custo de execução agora vem do spread REAL
 medido (fonte única) — boleta = log.** Cleber viu +$30 na boleta e $8 no log
 (bruto $32,62 − custo $24,56). Pesquisa+medição: o modelo estático de cripto

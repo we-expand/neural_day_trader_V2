@@ -110,21 +110,37 @@ veem); `llm-active-brain/src/news.ts` passou a pedir sempre `lang=en&includeAsia
 endpoint real: 5 itens da Channel News Asia aparecendo no pacote de 15 manchetes. `deno check`: 14 erros,
 todos pré-existentes (mesmo baseline já documentado em sessões anteriores), nenhum novo.
 
-## 7. Monitoramento contínuo armado
+## 7. Monitoramento contínuo (armado e encerrado na mesma sessão)
 
-Cron recorrente (`af489903`, a cada 5min, expira em 7 dias) checando `prompt_tokens` mais recente,
-novos SIGKILL/restart no `watchdog.log`, e uso de swap — pedido explícito do Cleber pra acompanhar se
-o quadro de memória melhora ou piora. Primeira leitura pós-armado: mais um SIGKILL às 23h38, swap subiu
-pra 94,3%.
+Cron recorrente (`af489903`, a cada 5min) checando `prompt_tokens` mais recente, novos SIGKILL/restart
+no `watchdog.log`, e uso de swap — pedido explícito do Cleber pra acompanhar se o quadro de memória
+melhora ou piora. Rodou ~5 checagens antes de ser cancelado a pedido dele (`CronDelete`, fim da sessão):
+
+| Hora | SIGKILL novo? | Swap usado/total | % |
+|---|---|---|---|
+| 23h38 | sim (23h38) | 22,2/23,5GB | 94,3% |
+| 23h53 | sim (23h53) | 22,0/23,5GB | 93,5% |
+| ~23h58 | não (mesmo de 23h53) | 23,09/23,55GB | **98,0%** (pico) |
+| 00h00 | sim (00h00) | 23,27/24,58GB | 94,7% |
+| ~00h05 | não (mesmo de 00h00, sobrevivendo ~8min) | 23,74/24,58GB | 96,6% |
+
+**Conclusão real do monitoramento**: swap oscilou entre 93,5% e 98% a noite inteira, sem tendência clara
+de melhora — o macOS chegou a aumentar o teto total de swap sozinho 2x (20,5GB→23,5GB→24,58GB) tentando
+absorver a pressão. `prompt_tokens` nunca mais foi registrado no log durante o período monitorado (todo
+ciclo morria por SIGKILL antes de completar uma chamada ao modelo) — não foi possível medir o efeito
+real dos 2 cortes de texto em produção sob essa pressão de memória. Os cortes aplicados (seção 5) são
+válidos e reais, mas pequenos demais pra tirar a máquina da zona crítica sozinhos.
 
 ## Pendente real pra próxima sessão
 
 - Commit/restart dos 2 cortes de texto já rodados pelo Cleber e confirmados — nada pendente de deploy
   aqui.
-- **Causa raiz da memória segue ativa** — se o monitoramento de 5min mostrar que os SIGKILL continuam
-  frequentes, próximo passo real é decidir entre: comprimir `GENESIS_PROMPT_MT5` (maior alavanca, mas
-  toca texto de regra — precisa aval explícito do Cleber), fechar Chrome enquanto o motor roda, ou
-  reconsiderar se a máquina de 16GB aguenta rodar Ollama local + cesta de 20 ativos de forma sustentável.
+- **Causa raiz da memória segue ativa e não resolvida** — swap bateu 98% durante a noite, SIGKILL
+  recorrente a cada 5-15min a maior parte do tempo. Próximo passo real é decidir entre: comprimir
+  `GENESIS_PROMPT_MT5` (maior alavanca, mas toca texto de regra — precisa aval explícito do Cleber),
+  fechar Chrome enquanto o motor roda, ou reconsiderar se a máquina de 16GB aguenta rodar Ollama local +
+  cesta de 20 ativos de forma sustentável. Medir `prompt_tokens` real dos cortes já aplicados também
+  segue pendente (nunca chegou a ser registrado durante a noite).
 - Congelamento de mecânica de entrada segue valendo até ~27/09 (5 dias úteis) ou 40 trades fechados sob
   a config do commit `fec06949a` — não mexer em gate/regra antes disso.
 - UKOUSD (payoff invertido) e LNKUSD/SOLUSD (edge ~0% em amostra grande) seguem como candidatos de
