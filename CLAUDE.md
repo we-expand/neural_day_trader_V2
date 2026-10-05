@@ -15,11 +15,25 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-10-05] MetaAPI parou de sexta (02/10) até segunda por pagamento
+atrasado; pago, a conta `bb99f865…` voltou sozinha: `DEPLOYING` → `DEPLOYED`/
+`CONNECTED` em ~1 min (não precisou de deploy manual). Verificado ponta a
+ponta: `/mt5-prices` e `/mt5-candles-history` (rotas POST) HTTP 200, relay
+(launchd) ativo com 35 símbolos, motor reiniciado pelo Cleber (1 instância,
+sem `watchdog.sh`).** Réplica `backup-new-york` segue `UNDEPLOYED` — sem
+failover de região e com `ValidationError` repetido no `relay.log` (inofensivo).
+UKOUSD devolveu 404 do broker com mercado provavelmente fechado — reconferir
+com mercado aberto. **Pendente**: decidir se redeploya a réplica
+(~$6,84/mês); conferir se a migration `20260923_market_spread_samples.sql`
+foi aplicada (`spreadCollector` deu timeout no log); XNGUSD está no Setup mas
+não em `assetBasket.ts` (ignorado em silêncio).
+
 **[EM ANDAMENTO 2026-09-23, fim da noite] IA "sem inteligência": os 2 SHORTs
 de 17h-18h (BTC/ETH, dia -2,3%/-2,8%) perderam porque a regra das 16:34
 fazia o dia% VOTAR pra vender — oposto do dado. Conselho + 3 anos de
 Binance: depois de dia ≤ -2% às 17h-20h BRT, SHORT acerta só 39-43%.**
-Código pronto (NÃO commitado, motor NÃO reiniciado): dia% sai do voto
+Código commitado (`bbd6b6e2f`, confirmado em 2026-10-05; motor reiniciado
+em 2026-10-05 com esse código no disco): dia% sai do voto
 (`atr.ts`) + veto de SHORT em BTC/ETH nessa janela com log
 `[VETO-EXAUSTAO]` (`tools.ts`); `.env` `MT5_VOLUME_ELEVATED_RATIO` 1.0→0.6
 (pedido do Cleber, sem validação). Método do Cleber testado como regra
@@ -27,7 +41,7 @@ Código pronto (NÃO commitado, motor NÃO reiniciado): dia% sai do voto
 vantagem líquida em BTC/ETH; só o veto passou. Perdas grandes do dia eram
 ordens MANUAIS (~-$209), não da IA. Meta "70% de acerto → subir lote":
 descartada como critério — decidir por R líquido em 150-300 trades da IA.
-**Pendente**: commit + `./restart.sh` (só o Cleber); unificar
+**Pendente**: unificar
 `volumeElevated`/`volumeLabel`; separar P&L manual×IA; Cleber vai enviar
 entradas em que ganhou pra alimentar a IA. Congelamento reinicia no commit
 (5 dias/40 trades). Handoff:
