@@ -807,31 +807,31 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 onNavigate?.('chart');
                             }}
                             title={`Ver ${order.symbol} no gráfico`}
-                            className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex items-center justify-between group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden cursor-pointer">
+                            className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex flex-wrap items-center justify-between gap-y-2 group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden cursor-pointer">
                             {/* Status Bar */}
                             <div className={`absolute left-0 top-0 bottom-0 w-1 ${isPositive ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                            
-                            <div>
-                                <div className="flex items-center gap-2 mb-1">
+
+                            <div className="min-w-0 flex-1 pr-2">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${order.side === 'LONG' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
                                     {order.side === 'LONG' ? 'COMPRADO' : 'VENDIDO'}
                                 </span>
-                                <span className="font-bold text-white text-sm">{order.symbol.replace('USDT', '/USD')}</span>
+                                <span className="font-bold text-white text-sm truncate">{order.symbol.replace('USDT', '/USD')}</span>
                                 {/* 🎯 NEW: Contract Count Badge */}
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                    {order.amount} {order.amount === 1 ? 'contrato' : 'contratos'}
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 whitespace-nowrap">
+                                    {(order.amount || 0).toFixed(2)} {order.amount === 1 ? 'contrato' : 'contratos'}
                                 </span>
                                 </div>
-                                <div className="flex gap-3 text-[10px] text-slate-500 font-mono">
+                                <div className="flex gap-3 text-[10px] text-slate-500 font-mono flex-wrap">
                                     <span>Entry: ${(order.price || 0).toFixed(2)}</span>
                                     <span>Lev: {(order.leverage || 0).toFixed(1)}x</span>
                                 </div>
                             </div>
-                            <div className="text-right z-10">
-                                <div className={`${isPositive ? 'text-emerald-400' : 'text-red-400'} font-bold font-mono text-lg leading-none mb-1`}>
+                            <div className="text-right z-10 flex-shrink-0">
+                                <div className={`${isPositive ? 'text-emerald-400' : 'text-red-400'} font-bold font-mono text-lg leading-none mb-1 whitespace-nowrap`}>
                                     {isPositive ? '+' : ''}{pnlPercent}%
                                 </div>
-                                <div className={`text-[10px] uppercase tracking-wider font-mono ${isPositive ? 'text-emerald-500/60' : 'text-red-500/60'}`}>
+                                <div className={`text-[10px] uppercase tracking-wider font-mono whitespace-nowrap ${isPositive ? 'text-emerald-500/60' : 'text-red-500/60'}`}>
                                     {isPositive ? '+' : ''}${pnlValue}
                                 </div>
                             </div>
