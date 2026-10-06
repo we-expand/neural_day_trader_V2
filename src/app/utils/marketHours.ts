@@ -94,6 +94,14 @@ function detectMarketType(symbol: string): MarketType {
     return 'COMMODITIES';
   }
 
+  // ✅ 2026-10-06: B3 ANTES dos índices americanos. 'BVSPX' (Ibovespa, nome
+  // real na corretora) contém 'SPX' e caía no ramo de índices US (CFD
+  // quase 24/5), aparecendo como ABERTO fora do pregão da B3 (10:00 BRT).
+  if (['BVSPX', 'BVSP', 'IBOV', 'WIN', 'WDO', 'PETR', 'VALE', 'B3SA'].some(b3 => upperSymbol.includes(b3)) ||
+      catalogAsset?.subCategory === 'LatAm Indices') {
+    return 'B3';
+  }
+
   // ÍNDICES AMERICANOS (CFD — near 24/5, ver isCfdMarketOpen)
   if (['SPX', 'SP500', 'US500', 'NQ100', 'NASDAQ', 'NAS100', 'US30', 'DOW', 'US2000', 'VIX'].some(idx => upperSymbol.includes(idx))) {
     return 'US_STOCKS';
