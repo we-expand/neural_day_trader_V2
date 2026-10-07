@@ -1777,34 +1777,48 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // obrigatorio especificamente pra qualquer entrada declarada REVERSAO,
       // mesmo em mercado LATERAL (onde o gate de fatores minimos nao exige
       // candle especificamente, so "algum" fator).
-      // 🔴 2026-09-23 (pedido do Cleber, quebra consciente do congelamento):
-      // REVERSAO NAO exige mais padrao de candle nem espera de candle extra
-      // (medido: 143 reversoes barradas em 7 dias so por essa regra). Vale
-      // sempre (dia todo) que o Estocastico (5m ou 1H) confirme a reversao a
-      // favor do lado: (a) linhas %K/%D CRUZARAM no sentido do lado, ou
-      // (b) esta na zona extrema oposta ao lado (LONG+SOBREVENDIDO,
-      // SHORT+SOBRECOMPRADO). Os demais gates (MACD contra, consenso,
-      // contra-tendencia >=2 fatores, R:R, confianca) continuam valendo.
+      // 🔴 2026-10-07: de 23/09 a 07/10 esta regra ficou afrouxada (bastava o
+      // Estocastico cruzar ou estar em zona extrema, sem padrao de candle). O
+      // criterio combinado no dia do afrouxamento era "10 reversoes com acerto
+      // < 45% -> reverter"; fechou em 40 entradas com 30% de acerto e -$32,65.
+      // Volta a regra anterior (padrao de candle alinhado + candle seguinte de
+      // confirmacao), aprovada pelo Cleber depois do llm-council de 07/10.
       let reversalConfirmationForLog: string | null = null;
       if (setupType === "REVERSAO") {
-        const stochExtremeLabel = side === "LONG" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
-        const stochCrossing = side === "LONG" ? "CRUZOU_PARA_CIMA" : "CRUZOU_PARA_BAIXO";
-        const stochSources: Array<[string, typeof stochasticForReversalCheck]> = [
-          [String(openPositionTimeframe), stochasticForReversalCheck],
-          ["1H", stochasticLongTermForReversalCheck],
-        ];
-        const stochConfirmations = stochSources
-          .filter(([, st]) => st != null && (st.crossing === stochCrossing || st.label === stochExtremeLabel))
-          .map(([tf, st]) => `${tf}: ${st!.crossing === stochCrossing ? "cruzamento %K/%D" : st!.label} (k=${st!.k.toFixed(1)})`);
-        if (stochConfirmations.length === 0) {
+        const reversalPatternAligned =
+          candlePatternsForConfluenceCheck?.bias != null &&
+          candlePatternsForConfluenceCheck.detected.length > 0 &&
+          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
+        if (!reversalPatternAligned) {
+          const patternDesc = candlePatternsForConfluenceCheck?.detected.length
+            ? `padrao(oes) detectado(s) (${candlePatternsForConfluenceCheck.detected.join("/")}) tem bias ${candlePatternsForConfluenceCheck.bias ?? "neutro"}, nao alinhado com ${side}`
+            : "nenhum padrao de candle detectado no candle mais recente";
           return {
-            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} ${side} exige confirmacao do Estocastico a favor do lado -- ` +
-              `cruzamento das linhas %K/%D para ${side === "LONG" ? "cima" : "baixo"} OU zona ${stochExtremeLabel}, no ${openPositionTimeframe} ou no 1H. ` +
-              `Nenhuma das duas condicoes existe agora. Posicao NAO aberta. Espere o Estocastico cruzar/entrar na zona ou reavalie como continuacao/rompimento.`,
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} exige um padrao grafico de reversao real (Estrela Cadente, Martelo, Engolfo, Harami, ` +
+              `Estrela da Manha/Noite, Marubozu...) com bias alinhado a ${side}, alem de qualquer outro indicador -- ${patternDesc}. ` +
+              `Posicao NAO aberta. Espere um padrao de candle real confirmar a reversao, ou reavalie como continuacao/rompimento se a tese for outra.`,
           };
         }
-        reversalConfirmationForLog = stochConfirmations.join(" | ");
-        console.log(`[reversao] ${symbol} ${side}: confirmada por Estocastico -- ${stochConfirmations.join(" | ")}.`);
+        // 🔴 2026-09-17 (pedido direto do Cleber): padrao alinhado nao basta
+        // se ele acabou de fechar NESTE candle -- exige que a entrada so
+        // aconteca no candle SEGUINTE ao candle do padrao (mesmo espirito do
+        // gate de ROMPIMENTO acima, que exige fechamento confirmado).
+        const reversalPatternFirstSeenBySymbolSide = perSession(reversalPatternFirstSeenStore, session.sessionId);
+        const reversalKey = `${symbol}:${side}`;
+        const patternCandleTimestamp = candlePatternsForConfluenceCheck!.patternCandleTimestamp;
+        const firstSeenTimestamp = reversalPatternFirstSeenBySymbolSide.get(reversalKey);
+        if (firstSeenTimestamp == null || firstSeenTimestamp === patternCandleTimestamp) {
+          reversalPatternFirstSeenBySymbolSide.set(reversalKey, patternCandleTimestamp);
+          return {
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} -- padrao grafico ${candlePatternsForConfluenceCheck!.detected.join("/")} detectado, mas ` +
+              `AINDA no mesmo candle em que fechou (sem confirmacao do candle seguinte). Posicao NAO aberta. Espere o proximo candle fechar mantendo a ` +
+              `tese antes de entrar -- entrar no mesmo candle do padrao e apostar sem confirmacao de que o movimento realmente virou.`,
+          };
+        }
+        // Candle novo ja fechou desde a primeira deteccao -- padrao confirmado, libera e reseta o rastreio deste par simbolo+lado.
+        reversalPatternFirstSeenBySymbolSide.delete(reversalKey);
+        reversalConfirmationForLog = `padrao de candle ${candlePatternsForConfluenceCheck!.detected.join("/")} (bias ${candlePatternsForConfluenceCheck!.bias}) + candle seguinte`;
       }
       // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
       // quando o mercado está caindo e venda quando está subindo"): caso real
@@ -2852,10 +2866,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           marketDirectionVotesAlta: marketDirectionForGate.votesAlta,
           marketDirectionVotesBaixa: marketDirectionForGate.votesBaixa,
           setupType: setupType ?? null,
-          // 2026-09-23: separa amostras antes/depois das regras novas
-          // (veredito por maioria de 3 leituras + REVERSAO por Estocastico).
+          // Separa amostras por versao de regra. 2026-10-07: REVERSAO volta a
+          // exigir padrao de candle confirmado (reversalRule abaixo marca o
+          // pacote de 07/10); a leitura de 1H NAO mudou (a nova reprovou na
+          // validacao com o Cleber).
           directionRule: "5m-1h-sem-dia-v2",
-          reversalRule: "estocastico-cruzamento-ou-extremo-v1",
+          reversalRule: "padrao-candle-confirmado-v2",
           reversalConfirmation: reversalConfirmationForLog,
           dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
         },

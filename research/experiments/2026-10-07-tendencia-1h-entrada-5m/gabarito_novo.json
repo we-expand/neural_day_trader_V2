@@ -1,0 +1,74 @@
+[
+ {
+  "n": 1,
+  "sym": "ETHUSDT",
+  "t": "2025-05-22T21:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 2,
+  "sym": "BTCUSDT",
+  "t": "2026-03-20T15:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 3,
+  "sym": "ETHUSDT",
+  "t": "2026-08-01T21:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 4,
+  "sym": "ETHUSDT",
+  "t": "2025-07-01T21:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 5,
+  "sym": "BTCUSDT",
+  "t": "2026-02-01T23:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 6,
+  "sym": "BTCUSDT",
+  "t": "2025-10-07T19:00:00.000Z",
+  "regra_congelada": "LATERAL"
+ },
+ {
+  "n": 7,
+  "sym": "BTCUSDT",
+  "t": "2026-08-06T21:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 8,
+  "sym": "BTCUSDT",
+  "t": "2026-07-23T15:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ },
+ {
+  "n": 9,
+  "sym": "BTCUSDT",
+  "t": "2025-08-09T19:00:00.000Z",
+  "regra_congelada": "LATERAL"
+ },
+ {
+  "n": 10,
+  "sym": "ETHUSDT",
+  "t": "2026-07-26T01:00:00.000Z",
+  "regra_congelada": "ALTA"
+ },
+ {
+  "n": 11,
+  "sym": "ETHUSDT",
+  "t": "2025-02-19T18:00:00.000Z",
+  "regra_congelada": "LATERAL"
+ },
+ {
+  "n": 12,
+  "sym": "ETHUSDT",
+  "t": "2026-09-30T08:00:00.000Z",
+  "regra_congelada": "BAIXA"
+ }
+]

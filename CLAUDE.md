@@ -15,6 +15,31 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-10-07] Diagnóstico do LLM Brain + llm-council; pacote
+APROVADO pelo Cleber, no disco, commit pendente, restart pendente.** Medido
+(103 entradas da IA desde 22/09, parciais consolidadas): 33% de acerto, -$97;
+22/09 foram 5 entradas/+$1,70 (os 71% contavam parcial como trade). O trade
+perdia por saída e custo, não só por lado: breakeven em 0,35R tirava ganhos,
+XETUSD = 64% do prejuízo, custo = 0,24R por trade. Regra do Cleber "1H dá a
+direção, 5m dá a entrada" testada em 2 anos de BTC/ETH: 47-50% a favor, contra
+ou sem filtro. Pacote no disco: (1) Cleber tira XETUSD/ETHUSD no Setup; (2)
+`MT5_BREAKEVEN_TRIGGER_R` 0,35→1,0 (`.env` + default em `config.ts`); (3)
+REVERSAO volta a exigir padrão de candle + candle seguinte (critério de 23/09
+estourou: 40 entradas, 30%); marcador no snapshot: `reversalRule =
+'padrao-candle-confirmado-v2'`. NÃO entra: nova leitura de 1H (EMA9/20 + 6
+velas) — reprovou na validação cega com o Cleber (4/12; depois regras por
+convergência/curvatura/reversão 3/12 e 6/12, ver research/experiments/
+2026-10-07-tendencia-1h-entrada-5m/). Achados abertos: o Cleber lê padrões de
+candle, MACD e estocástico no 1H; a IA só recebe padrão de candle e MACD no
+timeframe operacional (5m) — ideia: dar a ela padrão/MACD de 1H, testando
+contra marcações dele em gráficos novos; ML supervisionado sobre as
+marcações dele é o primeiro projeto de ML combinado. Congelar até 100
+entradas contadas do restart (olhar em 50 só para abortar), julgando E[R]
+líquido por entrada. Sem promessa de lucro. `npm run validate`: 3 etapas
+falham por erro de bundling ("Dynamic require of stream"), sem relação com o
+pacote (tarefa aberta à parte). Números:
+[research/experiments/2026-10-07-tendencia-1h-entrada-5m/verdict.md](research/experiments/2026-10-07-tendencia-1h-entrada-5m/verdict.md).
+
 **[2026-10-05] MetaAPI parou de sexta (02/10) até segunda por pagamento
 atrasado; pago, a conta `bb99f865…` voltou sozinha: `DEPLOYING` → `DEPLOYED`/
 `CONNECTED` em ~1 min (não precisou de deploy manual). Verificado ponta a

@@ -557,7 +557,15 @@ export const config = {
   // analises/PROPOSTA_2026-09-27_PAYOFF_ASSIMETRICO.md): gatilho do breakeven
   // baixa de 0.5R para 0.35R -- trava o pior caso em ~$0 mais cedo, pra que
   // as perdas fiquem pequenas sem mexer no alvo dos vencedores.
-  mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 0.35),
+  // 🔴 2026-10-07 (llm-council + aprovacao do Cleber): 0.35R -> 1.0R. Medido
+  // nas 67 entradas reais em cripto de 22/09 a 07/10: 17 andaram >= 0,35R a
+  // favor e sairam no zero/negativo; nas MESMAS entradas (caminho Binance,
+  // custo descontado, stop 1R / alvo 1,5R) o breakeven em 0,35R da 15% de
+  // acerto e -0,20R por trade, em 0,5R da 31% e -0,03R, em 1,0R da 45% e
+  // -0,01R. Nao e prova de lucro (n=67), e reversao de um ajuste que tirava
+  // os ganhos antes da hora. Ver research/experiments/2026-10-07-tendencia-
+  // 1h-entrada-5m/verdict.md. O .env precisa trazer o MESMO valor.
+  mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 1.0),
   // 🔴 2026-08-30 (achado ao vivo, pedido explicito do Cleber -- "chegou a
   // ganhar $3, saiu a -$0,10, isso nao pode acontecer"): o trailing em
   // enforceMt5StopsAndTargets usava a MESMA distancia do stop de abertura
