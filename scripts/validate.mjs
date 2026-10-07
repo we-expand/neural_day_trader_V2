@@ -133,7 +133,14 @@ for (const suite of SUITES) {
   try {
     execFileSync(
       'npx',
-      ['esbuild', suite.entry, '--bundle', '--platform=node', '--format=esm', `--outfile=${out}`],
+      [
+        'esbuild', suite.entry, '--bundle', '--platform=node', '--format=esm', `--outfile=${out}`,
+        // Alguns validadores puxam (transitivamente) o cliente Supabase, cujas deps CJS
+        // (@supabase/node-fetch) fazem require("stream"). Em bundle ESM o esbuild troca
+        // isso por __require, que o Node recusa ("Dynamic require ... is not supported").
+        // O banner devolve um `require` real; não altera a lógica de nenhuma asserção.
+        '--banner:js=import { createRequire as __ndtCreateRequire } from "node:module"; const require = __ndtCreateRequire(import.meta.url);',
+      ],
       { encoding: 'utf8', stdio: 'pipe' },
     );
     run('node', [out]);
