@@ -18,6 +18,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["research/experiments/2026-10-07-ml-leitura-do-cleber/marcador.mjs"],
       "port": 5174
+    },
+    {
+      "name": "revisor-de-entradas",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["llm-active-brain/scripts/revisor-de-entradas.mjs"],
+      "port": 5175
     }
   ]
 }
