@@ -472,6 +472,7 @@ import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
 import { fetchCandles } from '@/app/services/market-service';
+import { lastCompletedSessionPivots, type SessionPivotsResult } from '@/app/services/analysis/sessionPivots';
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
@@ -560,6 +561,31 @@ try {
   registerOverlay(PositionLabelLineOverlay);
 } catch (e) {
   console.warn('[ChartView] ⚠️ Overlay de linha de posição já registrado ou erro:', e);
+}
+
+// 🎯 CUSTOM OVERLAY (2026-10-08, pedido do Cleber): linha de PIVÔ do último pregão (P, R1-R3, S1-S3), a mesma que
+// o indicador Order Block Finder desenha no MT5 dele. Rótulo no lado DIREITO do painel -- os rótulos de posição
+// (entrada/SL/TP) ficam à esquerda e não podem colidir. Ver services/analysis/sessionPivots.ts.
+const SessionPivotLineOverlay: OverlayTemplate = {
+  name: 'sessionPivotLine',
+  totalStep: 2,
+  needDefaultPointFigure: false,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: true,
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
+    const y = coordinates[0].y;
+    const label = typeof overlay.extendData === 'string' ? overlay.extendData : '';
+    return [
+      { type: 'line', attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] } },
+      { type: 'text', ignoreEvent: true, attrs: { x: bounding.width - 6, y: y - 3, text: label, align: 'right', baseline: 'bottom' } },
+    ];
+  },
+};
+
+try {
+  registerOverlay(SessionPivotLineOverlay);
+} catch (e) {
+  console.warn('[ChartView] ⚠️ Overlay de pivô do pregão já registrado ou erro:', e);
 }
 
 // 🎯 CUSTOM OVERLAY: Fibonacci Extension (Extensão de Fibonacci com 3 pontos)
@@ -1938,6 +1964,10 @@ export function ChartView({
   // último refresh (ver comentário grande na função, era a causa real do "pisca" das
   // caixas de S/R a cada 30s mesmo depois do fix de updateData incremental).
   const srOverlaySignatureRef = useRef<string>('');
+  // 🆕 2026-10-08: pivôs do último pregão (P, R1-R3, S1-S3) -- ligados ao MESMO toggle "Suporte/Resistência".
+  const pivotOverlayIdsRef = useRef<string[]>([]);
+  const pivotSignatureRef = useRef<string>('');
+  const sessionPivotsCacheRef = useRef<Map<string, { result: SessionPivotsResult | null; fetchedAt: number }>>(new Map());
   const positionOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids das linhas de posição aberta (entrada/SL/TP) desenhadas no gráfico
   const signalOverlayIdRef = useRef<string | null>(null); // 🆕 Id do marcador de Trading Signal atual (evita acumular um novo a cada refresh de 30s)
   // 🔧 FIX: troca de timeframe/símbolo faz dispose()+init() do chart (mesmo padrão documentado
@@ -4976,6 +5006,74 @@ export function ChartView({
     });
   };
 
+  // 🆕 2026-10-08 (pedido do Cleber): pivôs clássicos do último pregão concluído, as "resistências pesadas" do
+  // MT5 dele (indicador Order Block Finder, ShowPivot). Lógica pura em services/analysis/sessionPivots.ts --
+  // o motor vai importar de lá, pra o gráfico e a IA verem os mesmos níveis. Só o UKOUSD está calibrado contra
+  // o MT5; os demais saem com asterisco (virada padrão do dia do servidor, a confirmar com o Cleber).
+  const SESSION_PIVOT_REFRESH_MS = 5 * 60 * 1000;
+  const loadSessionPivots = async (symbol: string): Promise<SessionPivotsResult | null> => {
+    const cached = sessionPivotsCacheRef.current.get(symbol);
+    if (cached && Date.now() - cached.fetchedAt < SESSION_PIVOT_REFRESH_MS) return cached.result;
+    try {
+      const candles1h = await fetchCandles(symbol, '1H', 120);
+      const result = lastCompletedSessionPivots(candles1h, symbol, Date.now());
+      sessionPivotsCacheRef.current.set(symbol, { result, fetchedAt: Date.now() });
+      return result;
+    } catch (err) {
+      console.warn('[ChartView] ⚠️ Falha ao buscar candles de 1H para os pivôs do pregão:', err);
+      return cached?.result ?? null;
+    }
+  };
+
+  const renderSessionPivots = (symbol: string, result: SessionPivotsResult | null, visible: boolean) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const signature = !visible || !result ? '' : `${symbol}|${result.sessionEnd}|${result.high}|${result.low}|${result.close}`;
+    if (signature === pivotSignatureRef.current) return; // nada mudou: não pisca a cada refresh de 30s
+    pivotSignatureRef.current = signature;
+
+    pivotOverlayIdsRef.current.forEach((id) => {
+      try {
+        chart.removeOverlay(id);
+      } catch (e) {
+        // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+      }
+    });
+    pivotOverlayIdsRef.current = [];
+    if (!visible || !result) return;
+
+    const star = result.calibrated ? '' : ' *';
+    const decimals = result.pivots.pivot >= 1000 ? 2 : result.pivots.pivot >= 10 ? 3 : 5;
+    const levels: Array<{ key: string; name: string; value: number; color: string; dash: boolean }> = [
+      { key: 'r3', name: 'R3', value: result.pivots.r3, color: '#ef4444', dash: true },
+      { key: 'r2', name: 'R2', value: result.pivots.r2, color: '#ef4444', dash: true },
+      { key: 'r1', name: 'R1', value: result.pivots.r1, color: '#ef4444', dash: false },
+      { key: 'pivot', name: 'P', value: result.pivots.pivot, color: '#c0c0c0', dash: false },
+      { key: 's1', name: 'S1', value: result.pivots.s1, color: '#22c55e', dash: false },
+      { key: 's2', name: 'S2', value: result.pivots.s2, color: '#22c55e', dash: true },
+      { key: 's3', name: 'S3', value: result.pivots.s3, color: '#22c55e', dash: true },
+    ];
+    levels.forEach((lv) => {
+      const id = `pivot_${lv.key}`;
+      try {
+        chart.createOverlay({
+          name: 'sessionPivotLine',
+          id,
+          lock: true,
+          points: [{ value: lv.value }],
+          styles: {
+            line: { color: lv.color, style: lv.dash ? 'dashed' : 'solid', size: 1 },
+            text: { color: lv.color, size: 11, backgroundColor: 'transparent', borderSize: 0 },
+          },
+          extendData: `${lv.name} ${lv.value.toFixed(decimals)}${star}`,
+        });
+        pivotOverlayIdsRef.current.push(id);
+      } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar o pivô do pregão:', lv.name, e);
+      }
+    });
+  };
+
   // 🆕 Desenha as posições abertas (DEMO ou LIVE, incluindo as abertas pela
   // boleta manual) direto no gráfico — linha de entrada + SL/TP, mesmo padrão
   // visual/técnico de renderSrOverlays (horizontalStraightLine, groupId
@@ -5420,6 +5518,12 @@ export function ChartView({
     if (!lastCandle) return;
     const extendMs = timeframeToMs(timeframe) * 20;
     renderSrOverlays(orderBlockZones, showSrOverlay, lastCandle.timestamp, extendMs);
+    // 🆕 2026-10-08: os pivôs do pregão acompanham o mesmo toggle.
+    const pivotSymbolAtToggle = selectedSymbol;
+    loadSessionPivots(pivotSymbolAtToggle).then((pv) => {
+      if (pivotSymbolAtToggle !== selectedSymbol) return;
+      renderSessionPivots(pivotSymbolAtToggle, pv, showSrOverlay);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- orderBlockZones intencionalmente fora: já é redesenhado no momento do cálculo
   }, [showSrOverlay]);
 
@@ -5901,6 +6005,8 @@ export function ChartView({
       // força renderSrOverlays a desenhar de novo mesmo que as zonas sejam as mesmas
       // do símbolo/timeframe anterior (assinatura por id pode colidir entre eles).
       srOverlaySignatureRef.current = '__new_chart__';
+      pivotSignatureRef.current = '__new_chart__'; // chart novo não tem os pivôs: força redesenhar
+      pivotOverlayIdsRef.current = [];
       signalOverlayIdRef.current = null;
 
       // 🧹 LIMPAR TODOS OS OVERLAYS (Remove bolinha preta misteriosa e qualquer overlay residual)
@@ -6694,6 +6800,13 @@ export function ChartView({
           // `activeOrders`/`pendingOrders` fechados no momento em que este
           // fetchData foi criado (ver comentário grande em activeOrdersRef).
           renderPositionOverlays(activeOrdersRef.current, selectedSymbol, pendingOrdersRef.current);
+
+          // 🆕 2026-10-08: pivôs do último pregão (mesmo toggle do S/R); busca 1H em 2º plano, sem bloquear o gráfico.
+          const pivotSymbolAtFetch = selectedSymbol;
+          loadSessionPivots(pivotSymbolAtFetch).then((pv) => {
+            if (pivotSymbolAtFetch !== selectedSymbol) return; // ativo já trocou, descarta
+            renderSessionPivots(pivotSymbolAtFetch, pv, showSrOverlayRef.current);
+          });
 
           // 🆕 Busca a estrutura de longo prazo (SMC, 1D/~5 anos) em paralelo e, quando
           // chegar, re-desenha o S/R combinando com a janela curta acima — sem isso as

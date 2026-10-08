@@ -64,6 +64,10 @@ const SUITES = [
     entry: 'src/app/services/analysis/__validate__.ts',
   },
   {
+    name: 'Pivôs clássicos do último pregão — UKOUSD real contra as 7 linhas do MT5 do Cleber (2026-10-08)',
+    entry: 'src/app/services/analysis/__validate__pivots__.ts',
+  },
+  {
     name: 'Expectancy Engine — expectativa, risco de ruína, Kelly honesto (Bloco C, cérebro cognitivo)',
     entry: 'src/app/services/risk/__validate__expectancy__.ts',
   },
