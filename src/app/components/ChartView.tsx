@@ -244,7 +244,10 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
     shortName: 'STOCH LENTO',
     series: 'normal' as any,
     precision: 2,
-    calcParams: [14, 3, 3],
+    // 🔴 2026-10-07 (pedido do Cleber): o gráfico do app TEM que mostrar o mesmo Estocástico do
+    // MT5 dele e do motor (llm-active-brain/src/atr.ts: STOCH_PERIOD=5, suavização 3, %D 3,
+    // SMA, Low/High, níveis 20/80 -- conferido em print do MT5). Antes: 14,3,3, outro indicador.
+    calcParams: [5, 3, 3],
     shouldOhlc: false,
     // 🔧 FIX: sem range fixo o painel auto-escalava pro range real de %K/%D no
     // recorte visível (podendo mostrar algo como "10 a 70"), em vez da escala
@@ -1333,7 +1336,7 @@ const INDICATORS: IndicatorConfig[] = [
     description: '%K suavizado por SMA + %D — diferente do KDJ acima (que usa suavização exponencial e tem uma 3ª linha J)',
     category: 'momentum',
     klinechartsName: 'STOCH_SLOW',
-    defaultParams: [14, 3, 3],
+    defaultParams: [5, 3, 3],
     isPaneIndicator: true
   },
   {
