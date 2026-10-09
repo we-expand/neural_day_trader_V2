@@ -5015,12 +5015,28 @@ export function ChartView({
     const cached = sessionPivotsCacheRef.current.get(symbol);
     if (cached && Date.now() - cached.fetchedAt < SESSION_PIVOT_REFRESH_MS) return cached.result;
     try {
-      const candles1h = await fetchCandles(symbol, '1H', 120);
+      // Janela CURTA (6 dias de 1H): os pivôs só precisam do último pregão. `fetchCandles` pede até 5 anos e
+      // disputava vaga com o carregamento do próprio gráfico na conta MetaAPI compartilhada (a 1ª versão desta
+      // função usava ele e as linhas não apareciam). Mesmo serviço do S/R macro (BacktestDataService): Binance
+      // para cripto, MetaAPI para o resto, com retry.
+      const hourMs = 3_600_000;
+      const end = new Date(Math.floor(Date.now() / hourMs) * hourMs + hourMs);
+      const start = new Date(end.getTime() - 6 * 24 * hourMs);
+      const response = await backtestDataService.fetchHistoricalData(symbol, start, end, '1h');
+      const candles1h = response.candles
+        .map((c) => {
+          const t: unknown = c.time;
+          const ms = typeof t === 'string' ? Date.parse(t) : typeof t === 'number' && t < 1e12 ? t * 1000 : (t as number);
+          return { timestamp: ms, open: c.open, high: c.high, low: c.low, close: c.close };
+        });
       const result = lastCompletedSessionPivots(candles1h, symbol, Date.now());
+      console.log(`[ChartView] 📍 Pivôs do pregão ${symbol}:`, result ? `${result.candlesUsed} velas, R1 ${result.pivots.r1.toFixed(3)}, P ${result.pivots.pivot.toFixed(3)}, S1 ${result.pivots.s1.toFixed(3)}${result.calibrated ? '' : ' (não calibrado)'}` : `sem pregão concluído com candles suficientes (${candles1h.length} velas de 1H recebidas)`);
       sessionPivotsCacheRef.current.set(symbol, { result, fetchedAt: Date.now() });
       return result;
     } catch (err) {
-      console.warn('[ChartView] ⚠️ Falha ao buscar candles de 1H para os pivôs do pregão:', err);
+      if (!(err instanceof BacktestDataUnavailableError)) {
+        console.warn('[ChartView] ⚠️ Falha ao buscar candles de 1H para os pivôs do pregão:', err);
+      }
       return cached?.result ?? null;
     }
   };
