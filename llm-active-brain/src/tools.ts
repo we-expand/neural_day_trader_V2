@@ -107,6 +107,7 @@ const reversalPatternFirstSeenStore = new Map<string, Map<string, number>>();
 // reasoning vs o dado real que o motivou -- por isso nao pegou. Cache aqui
 // guarda o ultimo snapshot renderizado por get_mt5_quote por simbolo, pra
 // alimentar o validador com o dado real e ele comparar contra o texto.
+const validatorBlocksBySymbolSide = new Map<string, number[]>();
 const lastQuoteSnapshotBySymbolStore = new Map<
   string,
   Map<
@@ -116,6 +117,9 @@ const lastQuoteSnapshotBySymbolStore = new Map<
       volumeElevated: boolean | null;
       macdLabel: string | null;
       stochasticLabel: string | null;
+      macdCrossing?: string | null;
+      macdTurning?: string | null;
+      stochasticCrossing?: string | null;
       // 🔴 2026-09-21 (pedido do Cleber -- observar 5m E 1H): label do
       // Estocastico no timeframe de 1H, independente do operacional.
       stochasticLongTermLabel: string | null;
@@ -956,6 +960,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         volumeElevated: volume?.elevated ?? null,
         macdLabel: macd?.label ?? null,
         stochasticLabel: stochastic?.label ?? null,
+        macdCrossing: macd?.crossing ?? null,
+        macdTurning: macd?.turning ?? null,
+        stochasticCrossing: stochastic?.crossing ?? null,
         stochasticLongTermLabel: stochasticLongTerm?.label ?? null,
         session: regime?.session ?? null,
         volumeLabel: regime?.volumeLabel ?? null,
@@ -1441,10 +1448,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         realSnapshot: lastQuoteSnapshotBySymbol.get(symbol),
       });
       if (!consistencyCheckOpen.consistent) {
+        // 2026-10-11: o modelo repetia a mesma tentativa bloqueada dezenas de
+        // vezes por dia (gastando cota da NVIDIA). Apos 3 bloqueios do mesmo
+        // simbolo+lado em 10 min, manda desistir em vez de reescrever.
+        const blockKey = `${session.sessionId}|${symbol}|${side}`;
+        const nowMs = Date.now();
+        const recent = (validatorBlocksBySymbolSide.get(blockKey) ?? []).filter((t) => nowMs - t < 10 * 60_000);
+        recent.push(nowMs);
+        validatorBlocksBySymbolSide.set(blockKey, recent);
+        const giveUpHint =
+          recent.length >= 3
+            ? ` Esta e a ${recent.length}a tentativa bloqueada de ${symbol} ${side} em 10 min: DESISTA deste ativo/lado agora (avalie outro ou chame stop).`
+            : "";
         return {
           error:
             `Contradicao semantica detectada pelo validador: ${consistencyCheckOpen.note || "raciocinio parece argumentar contra a propria acao"}. ` +
-            `Posicao NAO aberta. Revise o raciocinio -- se a decisao de abrir ainda fizer sentido, reescreva deixando claro o motivo real, ou avalie outro ativo/lado.`,
+            `Posicao NAO aberta. Revise o raciocinio -- se a decisao de abrir ainda fizer sentido, reescreva deixando claro o motivo real, ou avalie outro ativo/lado.` +
+            giveUpHint,
         };
       }
       // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o

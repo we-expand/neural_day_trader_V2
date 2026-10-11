@@ -36,6 +36,12 @@ export interface QuoteSnapshot {
   volumeElevated: boolean | null;
   macdLabel: string | null;
   stochasticLabel: string | null;
+  // 2026-10-11: cruzamento/virada sao campos SEPARADOS do rotulo no
+  // get_mt5_quote (ex: label=NEUTRO com crossing=CRUZOU_PARA_CIMA). Sem eles
+  // o validador marcava "MACD cruzou para cima" como fato inventado.
+  macdCrossing?: string | null;
+  macdTurning?: string | null;
+  stochasticCrossing?: string | null;
 }
 
 function buildPrompt(params: {
@@ -62,8 +68,10 @@ function buildPrompt(params: {
     ? `\n\nDADO REAL da ultima cotacao consultada para ${params.symbol} (fonte: get_mt5_quote, mesmo ciclo): ` +
       `tendencia=${params.realSnapshot.trendLabel ?? "indisponivel"}, ` +
       `volume_elevado=${params.realSnapshot.volumeElevated === null ? "indisponivel" : params.realSnapshot.volumeElevated ? "SIM" : "NAO"}, ` +
-      `MACD=${params.realSnapshot.macdLabel ?? "indisponivel"}, ` +
-      `estocastico=${params.realSnapshot.stochasticLabel ?? "indisponivel"}.`
+      `MACD=${params.realSnapshot.macdLabel ?? "indisponivel"} (cruzamento=${params.realSnapshot.macdCrossing ?? "nenhum"}, virada=${params.realSnapshot.macdTurning ?? "nenhuma"}), ` +
+      `estocastico=${params.realSnapshot.stochasticLabel ?? "indisponivel"} (cruzamento=${params.realSnapshot.stochasticCrossing ?? "nenhum"}). ` +
+      `ATENCAO: o rotulo (NEUTRO/ALTA/BAIXA/SOBRECOMPRADO...) e o cruzamento sao informacoes DISTINTAS e ambas reais -- ` +
+      `afirmar "MACD/estocastico cruzou para cima/baixo" NAO contradiz rotulo NEUTRO quando o campo cruzamento confirma.`
     : "";
 
   return `Voce e um verificador de consistencia para um sistema de trading automatizado. Sua tarefa e dizer se o RACIOCINIO abaixo CONTRADIZ a ACAO que esta prestes a ser executada, EM QUALQUER UMA das duas formas abaixo.
