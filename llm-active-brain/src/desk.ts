@@ -5,9 +5,9 @@
 // trader sênior → equipe de risco → gestor de risco → Agente Master.
 //
 //   Analistas (em paralelo)
-//     1. Analista de Estocástico        (todos os tempos gráficos)
-//     2. Analista de MACD               (todos os tempos gráficos)
-//     3. Analista de Médias e Candles   (todos os tempos gráficos + níveis)
+//     1. Analista 5m   (estocástico, MACD, médias e candles SÓ do 5m)
+//     2. Analista 15m  (idem, SÓ do 15m)
+//     3. Analista 1H   (idem, SÓ do 1H; o tempo maior manda no lado)
 //     4. Analista Fundamentalista       (calendário, VIX, regime)
 //     5. Analista de Notícias           (manchetes reais)
 //     6. Analista de Sentimento         (VIX, amplitude da cesta, tom das manchetes)
@@ -67,6 +67,7 @@ import {
   readMacd,
   readStochastic,
   readTargetRoom,
+  computeHardVetoes,
   type TargetBarrier,
   type TimeframeReadings,
 } from "./deskReadings.js";
@@ -322,17 +323,9 @@ function readingsByTimeframe(data: MarketData): TimeframeReadings[] {
   return data.perTf.map((t) => ({ tf: t.tf, estocastico: readStochastic(t.stoch), macd: readMacd(t.macd), medias: readAverages(t.avg) }));
 }
 
-function levelsBlock(p: DeskProposal, data: MarketData): string {
-  // Tudo aqui sai JÁ INTERPRETADO por código (deskReadings.ts): a IA não recebe
-  // número cru de posição no range nem escolhe qual nível barra o alvo.
-  const lines: string[] = [];
+function dayAndTargetReadings(p: DeskProposal, data: MarketData) {
   const d = data.daily;
-  if (d) {
-    const leitura = readDayRange(p.entryPrice, d.dailyHigh, d.dailyLow, p.side, config.mt5DayExtremeVetoRangeFrac);
-    lines.push(`POSIÇÃO NO DIA: ${leitura ? leitura.texto : "sem dado"} (máxima de 24h ${d.dailyHigh}, mínima de 24h ${d.dailyLow})`);
-  } else {
-    lines.push("POSIÇÃO NO DIA: sem dado de máxima/mínima das últimas 24h.");
-  }
+  const dayRange = d ? readDayRange(p.entryPrice, d.dailyHigh, d.dailyLow, p.side, config.mt5DayExtremeVetoRangeFrac) : null;
   const barreiras: TargetBarrier[] = [];
   for (const t of data.perTf) {
     if (!t.sr) continue;
@@ -349,8 +342,19 @@ function levelsBlock(p: DeskProposal, data: MarketData): string {
         : { nome: `mínima das últimas 24h (${d.dailyLow})`, distanciaPct: d.distanceToDailyLowPct, rompido: d.brokeBelowDailyLow },
     );
   }
-  lines.push(`ESPAÇO PARA O ALVO (${p.side === "LONG" ? "compra: o que barra está ACIMA" : "venda: o que barra está ABAIXO"}): ${readTargetRoom(p.side, p.takeProfitPct * 100, barreiras).texto}`);
-  return lines.join("\n");
+  const targetRoom = readTargetRoom(p.side, p.takeProfitPct * 100, barreiras);
+  return { dayRange, targetRoom };
+}
+
+function levelsBlock(p: DeskProposal, data: MarketData): string {
+  // Tudo aqui sai JÁ INTERPRETADO por código (deskReadings.ts): a IA não recebe
+  // número cru de posição no range nem escolhe qual nível barra o alvo.
+  const { dayRange, targetRoom } = dayAndTargetReadings(p, data);
+  const d = data.daily;
+  const posicao = d
+    ? `POSIÇÃO NO DIA: ${dayRange ? dayRange.texto : "sem dado"} (máxima de 24h ${d.dailyHigh}, mínima de 24h ${d.dailyLow})`
+    : "POSIÇÃO NO DIA: sem dado de máxima/mínima das últimas 24h.";
+  return `${posicao}\nESPAÇO PARA O ALVO (${p.side === "LONG" ? "compra: o que barra está ACIMA" : "venda: o que barra está ABAIXO"}): ${targetRoom.texto}`;
 }
 
 function priceActionLine(t: MarketData["perTf"][number]): string {
@@ -374,6 +378,12 @@ function priceActionLine(t: MarketData["perTf"][number]): string {
   return `${t.tf}: ${partes.join(" | ")}`;
 }
 
+/** Os tempos gráficos que têm um analista próprio: 5m, 15m e 1H (definição do Cleber). O 4H segue no placar e nos vetos como contexto. */
+const TECHNICAL_AGENT_TIMEFRAMES = ["5m", "15m", "1H"];
+function technicalTimeframes(data: MarketData): MarketData["perTf"] {
+  return data.perTf.filter((t) => TECHNICAL_AGENT_TIMEFRAMES.includes(t.tf));
+}
+
 function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeReadings[]): AgentSpec[] {
   const head = header(p, data);
   const schema = `{"vies":"ALTA"|"BAIXA"|"NEUTRO","confianca":0-100,"resumo":"até 3 frases","apoia_a_proposta":true|false,"alerta":"o principal risco que você vê, ou null"}`;
@@ -393,37 +403,26 @@ function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeRead
     : "sem dado dos outros ativos da cesta neste ciclo";
 
   return [
-    {
-      key: "analista_estocastico",
-      agent: "Analista de Estocástico",
-      system:
-        `Você é o Analista de Estocástico de uma mesa de day trade. Indicador: Estocástico Lento 5,3,3, níveis 20 e 80. ` +
-        `A leitura de cada tempo gráfico JÁ FOI FEITA pelo sistema e está correta: não recalcule, não contradiga, não troque sobrecompra por sobrevenda. ` +
-        `Seu trabalho é juntar os tempos gráficos e dizer o que o estocástico aponta. ${regraTempos} ` +
-        `Extremo sem cruzamento não é sinal por si só, e é VETO contra o lado oposto (nunca se vende em sobrevenda nem se compra em sobrecompra). O melhor gatilho é o cruzamento do %K sobre o %D dentro do extremo; o cruzamento na zona neutra a favor do lado também conta, mais fraco. Se o estocástico está neutro e sem cruzamento, diga que ele NÃO se opõe nem apoia (vies NEUTRO), sem tratar como veto: a decisão cabe aos outros indicadores. ` +
-        jsonOnly(schema),
-      user: `${head}\n\nLEITURA DO ESTOCÁSTICO POR TEMPO GRÁFICO:\n${readings.map((r) => `${r.tf}: ${r.estocastico.texto}`).join("\n")}`,
-    },
-    {
-      key: "analista_macd",
-      agent: "Analista de MACD",
-      system:
-        `Você é o Analista de MACD (12,26,9) de uma mesa de day trade. A leitura de cada tempo gráfico JÁ FOI FEITA pelo sistema e está correta: não recalcule nem contradiga. ` +
-        `O sinal do histograma diz quem manda; a inclinação diz se essa força cresce ou morre. Histograma negativo subindo para zero é a queda PERDENDO força, não ganhando. ` +
-        `${regraTempos} ` +
-        jsonOnly(schema),
-      user: `${head}\n\nLEITURA DO MACD POR TEMPO GRÁFICO:\n${readings.map((r) => `${r.tf}: ${r.macd.texto}`).join("\n")}`,
-    },
-    {
-      key: "analista_medias_candles",
-      agent: "Analista de Médias e Candles",
-      system:
-        `Você é o Analista de Médias e Price Action de uma mesa de day trade: médias de 9, 20 e 200, tendência, padrões de candle, suporte e resistência, máxima e mínima do dia. ` +
-        `Os dados abaixo foram calculados pelo sistema sobre velas reais: não invente padrão nem nível que não esteja listado. ` +
-        `As linhas "POSIÇÃO NO DIA" e "ESPAÇO PARA O ALVO" já vêm CONCLUÍDAS pelo sistema: repita a conclusão delas, não refaça a conta nem troque máxima por mínima ou suporte por resistência. ${regraTempos} ` +
-        jsonOnly(schema),
-      user: `${head}\n\nMÉDIAS, TENDÊNCIA, CANDLES E NÍVEIS POR TEMPO GRÁFICO:\n${data.perTf.map(priceActionLine).join("\n")}\n\n${levelsBlock(p, data)}`,
-    },
+    ...technicalTimeframes(data).map((t): AgentSpec => {
+      const r = readings.find((x) => x.tf === t.tf)!;
+      const maior = t.tf === "1H" ? "Este é o tempo MAIOR dos três: ele manda no lado." : t.tf === "15m" ? "Este é o tempo INTERMEDIÁRIO: confirma ou desmente o 1H e o 5m." : "Este é o tempo MENOR: ele só dá a hora de entrar.";
+      return {
+        key: `analista_${t.tf}`,
+        agent: `Analista ${t.tf}`,
+        system:
+          `Você é o Analista do gráfico de ${t.tf} de uma mesa de day trade. Você olha SÓ o ${t.tf}: estocástico lento (5,3,3; níveis 20 e 80), MACD (12,26,9), médias de 9 e 20, tendência, candles e níveis. ` +
+          `${maior} As leituras abaixo JÁ FORAM FEITAS pelo sistema e estão corretas: não recalcule, não contradiga e NUNCA troque sobrecompra por zona neutra nem o contrário (se a leitura diz SOBRECOMPRADO, o estocástico está sobrecomprado). ` +
+          `Extremo sem cruzamento não é sinal por si só, e é VETO contra o lado oposto (nunca se vende em sobrevenda nem se compra em sobrecompra). O melhor gatilho é o cruzamento do %K sobre o %D dentro do extremo; ` +
+          `o cruzamento na zona neutra a favor do lado conta, mais fraco. MACD: histograma encolhendo é força morrendo. ` +
+          `Diga o que ESTE tempo gráfico aponta e se apoia a proposta. Se nada aponta, vies NEUTRO. ` +
+          jsonOnly(schema),
+        user:
+          `${head}\n\nLEITURA DO ${t.tf} (já calculada pelo sistema):\n` +
+          `- Estocástico: ${r.estocastico.texto}\n- MACD: ${r.macd.texto}\n- Médias: ${r.medias.texto}\n` +
+          `- Contexto: ${priceActionLine(t).replace(/^[^:]+: /, "")}`,
+      };
+    }),
+
     {
       key: "analista_fundamentalista",
       agent: "Analista Fundamentalista",
@@ -654,6 +653,12 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
   const alinhamento = alignmentSummary(readings);
   const head = header(p, data);
   const metodo = loadMethod();
+  const { dayRange, targetRoom } = dayAndTargetReadings(p, data);
+  const vetoes = computeHardVetoes({ side: p.side, readings, dayRange, targetRoom });
+  const vetoesBlock = vetoes.length
+    ? `VETOS DUROS ACIONADOS (calculados pelo sistema; são os ÚNICOS vetos duros que existem):\n${vetoes.map((v) => `- ${v.id}: ${v.texto}`).join("\n")}`
+    : `VETOS DUROS ACIONADOS (calculados pelo sistema; são os ÚNICOS vetos duros que existem): NENHUM. Portanto não há veto duro: decida pelo conjunto e pelos gatilhos.`;
+  console.log(`[MESA] ${p.symbol} ${p.side} | vetos duros calculados: ${vetoes.length ? vetoes.map((v) => v.id).join(", ") : "nenhum"}`);
 
   // 1. Analistas
   const analysts = await stage(analystSpecs(p, data, readings));
@@ -683,16 +688,16 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
       system:
         `Você é o Trader Sênior da mesa: décadas de day trade, opera pouco e para acertar. Você julga se a proposta deve ser executada AGORA. ` +
         `O placar dos indicadores foi calculado pelo sistema e é fato: não o contradiga. Siga o método da casa abaixo.\n` +
-        `VETOS DUROS (aí a resposta é NAO_EXECUTAR): (a) estocástico em extremo CONTRA o lado, sem cruzamento a favor (nunca vender em sobrevenda, nunca comprar em sobrecompra); ` +
-        `(b) 1H E 4H, os dois, contra o lado; (c) preço colado no extremo do dia contra o lado, sem rompimento confirmado; (d) o alvo não cabe antes do próximo nível. ` +
-        `Fora desses vetos, JULGUE PELO CONJUNTO: um gatilho claro vale a entrada (veja os GATILHOS VÁLIDOS no método). Um tempo gráfico discordando NÃO é veto: ` +
+        `VETOS DUROS: o sistema calcula 4 (estocástico em extremo contra o lado; 1H e 4H os dois contra; colado no extremo do dia contra o lado; alvo que não cabe) e os LISTA em "VETOS DUROS ACIONADOS". Se algum estiver listado, a resposta é NAO_EXECUTAR. ` +
+        `Se estiver NENHUM, não existe veto duro: VOCÊ NÃO CRIA VETOS NOVOS. Um ponto contra que você enxergar é peso, não veto: vira EXECUTAR_METADE ou menos convicção, nunca um veto inventado. ` +
+        `Sem veto listado, JULGUE PELO CONJUNTO: um gatilho claro vale a entrada (veja os GATILHOS VÁLIDOS no método). Um tempo gráfico discordando NÃO é veto: ` +
         `se os outros apontam o lado, use EXECUTAR_METADE. O mercado raramente alinha tudo: exigir alinhamento perfeito é ficar fora o dia inteiro. ` +
         `Estocástico neutro sem cruzamento em extremo NÃO impede a entrada se MACD, médias e candle dão o gatilho. ` +
         `É scalp de alvo curto: o retorno/risco é apertado, então a leitura precisa ser BOA, mas não perfeita. ` +
         `EXECUTAR = leitura boa; EXECUTAR_METADE = leitura razoável com um ponto contra; NAO_EXECUTAR = veto duro ou leitura de fato ruim.\n\n${metodo}\n\n` +
         jsonOnly(`{"decisao":"EXECUTAR"|"EXECUTAR_METADE"|"NAO_EXECUTAR","conviccao":0-100,"gatilho":"qual dos gatilhos válidos está presente, ou nenhum","motivo":"2 a 3 frases","o_que_invalida":"o que teria de acontecer no gráfico para você desistir"}`),
       user:
-        `${head}\nA proposta defende: ${ladoProposto}.\n\nO QUE O OPERADOR ESCREVEU AO PROPOR: ${p.operatorReasoning.slice(0, 700) || "(sem texto)"}\n\n` +
+        `${head}\nA proposta defende: ${ladoProposto}.\n\n${vetoesBlock}\n\nNÍVEIS (calculados pelo sistema):\n${levelsBlock(p, data)}\n\nO QUE O OPERADOR ESCREVEU AO PROPOR: ${p.operatorReasoning.slice(0, 700) || "(sem texto)"}\n\n` +
         `PLACAR DOS INDICADORES (fato):\n${alinhamento}\n\nRELATÓRIOS DOS ANALISTAS:\n${analystsText}\n\nDEBATE:\n${debateText}`,
     },
   ]);
@@ -766,8 +771,8 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
           ? `ATENÇÃO: neste teste NÃO existe nenhuma trava mecânica de leitura ou de risco depois de você. Se você aprovar, a ordem sai agora. Só o stop já definido protege a posição. `
           : `As travas mecânicas do motor já deixaram esta proposta passar; você é a camada de julgamento por cima delas. `) +
         `Como decidir: (1) o placar dos indicadores é fato calculado pelo sistema. ` +
-        `(2) VETOS DUROS, que obrigam REJEITAR: estocástico em extremo contra o lado sem cruzamento a favor; 1H E 4H os dois contra o lado; ` +
-        `preço colado no extremo do dia contra o lado sem rompimento; alvo que não cabe antes do próximo nível; veto do Gestor de Risco (a menos que o motivo dele se apoie num fato errado, e diga qual). ` +
+        `(2) VETOS DUROS obrigam REJEITAR, e são SOMENTE os que o sistema lista em "VETOS DUROS ACIONADOS" mais o veto do Gestor de Risco (a menos que o motivo dele se apoie num fato errado, e diga qual). ` +
+        `Nenhum agente, nem o Trader, cria veto duro por conta própria: se a lista diz NENHUM e o Trader falou em "veto duro", ele errou, e você decide pelo conjunto. ` +
         `(3) SEM veto duro, decida pelo CONJUNTO: se há um gatilho válido e o placar e o debate favorecem o lado, APROVE. ` +
         `O Trader Sênior pesa muito, mas NAO_EXECUTAR dele com convicção até 70 pode ser vencido se o placar, o debate e a equipe de risco apontam o lado e não há veto duro (aprove com METADE). ` +
         `Se ele disse EXECUTAR_METADE, aprove com METADE. ` +
@@ -777,7 +782,7 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
         `rejeitar boas leituras por excesso de cautela também custa dinheiro. Dúvida pequena = METADE; dúvida grande ou veto duro = REJEITAR.\n\n${metodo}\n\n` +
         jsonOnly(`{"decisao":"APROVAR"|"REJEITAR","tamanho":"INTEIRO"|"METADE","conviccao":0-100,"motivo":"2 a 4 frases","votos_a_favor":["agente"],"votos_contra":["agente"]}`),
       user:
-        `${head}\nA proposta defende: ${ladoProposto}.\n\nPLACAR DOS INDICADORES (fato):\n${alinhamento}\n\nANALISTAS:\n${analystsText}\n\nDEBATE:\n${debateText}\n\n` +
+        `${head}\nA proposta defende: ${ladoProposto}.\n\n${vetoesBlock}\n\nNÍVEIS (calculados pelo sistema):\n${levelsBlock(p, data)}\n\nPLACAR DOS INDICADORES (fato):\n${alinhamento}\n\nANALISTAS:\n${analystsText}\n\nDEBATE:\n${debateText}\n\n` +
         `TRADER SÊNIOR: ${traderText}\n\nEQUIPE DE RISCO E PORTFÓLIO:\n${riskTeam.map(fmtReport).join("\n")}\n\nGESTOR DE RISCO: ${fmtReport(riskManager)}\n\nFATOS DE RISCO:\n${fatosDeRisco}` +
         (indisponiveis.length ? `\n\nAGENTES QUE NÃO RESPONDERAM: ${indisponiveis.join(", ")}. Decida sabendo que falta essa parte.` : ""),
     },

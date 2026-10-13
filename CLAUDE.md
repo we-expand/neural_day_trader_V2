@@ -15,7 +15,22 @@
 
 ## ▶ COMECE AQUI
 
-**[EM ANDAMENTO 2026-10-07] Diagnóstico do LLM Brain + llm-council; pacote
+**[EM ANDAMENTO 2026-10-13] Mesa de Operações (14 agentes + Agente Master) e
+teste "só-LLM" (31 travas de julgamento desligadas, saídas intactas, DEMO).**
+Congelamento de 07/10 levantado pelo Cleber (perdia: -0,4R/entrada em 156).
+Feito: stop conferido pela vela de 1m quando o tick congela (UKOUSD furou o stop
+por ~$5); alvo de scalp limitado a 0,35% (só o alvo); alvo da venda dispara no
+bid do gráfico; mesa que delibera cada entrada (`src/desk*.ts`,
+`METODO_DA_CASA.md`), vetos duros **calculados por código** (a IA inventava veto
+e lia indicador errado), analistas por tempo gráfico (5m/15m/1H), piso de valor
+(R:R ≥ 0,5 e ganho líquido ≥ $1), aprendizado contínuo fase 1-2 (tabela
+`desk_decisions` no Supabase + desfecho contrafactual + `scripts/desk-report.ts`).
+**Pendente do Cleber:** commit + `./restart.sh` (parte está só no disco); decidir
+os "$3 por entrada" (hoje alvo líquido médio +$2,81, mas 25 stops a -$2,93 contra
+8 alvos). Rollback: `MT5_LLM_ONLY_TEST=false` e/ou `MT5_DESK_MODE=off`. Detalhe,
+números e pendências: [SESSAO_2026-10-13_MESA_DE_OPERACOES_E_TESTE_SO_LLM.md](SESSAO_2026-10-13_MESA_DE_OPERACOES_E_TESTE_SO_LLM.md).
+
+**[SUBSTITUÍDO por 2026-10-13, ver acima] Diagnóstico do LLM Brain + llm-council; pacote
 APROVADO pelo Cleber, no disco, commit pendente, restart pendente.** Medido
 (103 entradas da IA desde 22/09, parciais consolidadas): 33% de acerto, -$97;
 22/09 foram 5 entradas/+$1,70 (os 71% contavam parcial como trade). O trade

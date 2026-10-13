@@ -513,7 +513,13 @@ export const config = {
   // normalmente ENCURTA o alvo pra caber e so recusa se nao cobrir o R:R minimo. No teste a recusa e da
   // mesa; o alvo e encurtado mesmo assim, desde que fique >= este piso (% do preco). Abaixo disso o alvo
   // realmente nao cabe e a mesa e avisada.
-  mt5LlmOnlyMinTargetPct: Number(process.env.MT5_LLM_ONLY_MIN_TARGET_PCT ?? 0.12),
+  mt5LlmOnlyMinTargetPct: Number(process.env.MT5_LLM_ONLY_MIN_TARGET_PCT ?? 0.2),
+  // PISO DE VALOR (vale sempre que a mesa esta ligada, nao depende da IA): 13/10 o NAS100 LONG abriu com
+  // alvo de 0,143% contra stop de 0,463% (R:R 0,31:1), ganho esperado de $0,87 e risco de $2,83 -- centavos.
+  // 1) retorno/risco abaixo deste valor e recusado (precisaria acertar ~2 de cada 3 so pra empatar).
+  mt5MinRrAbsolute: Number(process.env.MT5_MIN_RR_ABSOLUTE ?? 0.5),
+  // 2) ganho LIQUIDO esperado no alvo (depois de tamanho, teto de risco, METADE e custo) abaixo disto e recusado.
+  mt5MinExpectedNetRewardUsd: Number(process.env.MT5_MIN_EXPECTED_NET_REWARD_USD ?? 1.0),
   mt5DeskModel: process.env.MT5_DESK_MODEL || "", // "" = mesmo modelo do cerebro principal
   mt5DeskEnableThinking: process.env.MT5_DESK_ENABLE_THINKING === "true",
   mt5DeskMaxTokens: Number(process.env.MT5_DESK_MAX_TOKENS ?? 900),

@@ -334,6 +334,65 @@ export function readTargetRoom(side: "LONG" | "SHORT", alvoPct: number, barreira
   };
 }
 
+export interface HardVeto {
+  id: "ESTOCASTICO_EXTREMO_CONTRA" | "TEMPO_MAIOR_CONTRA" | "EXTREMO_DO_DIA_CONTRA" | "ALVO_NAO_CABE";
+  texto: string;
+}
+
+/** Viés geral de um tempo gráfico: o lado com mais votos entre estocástico, MACD e médias. Empate = NEUTRO. */
+export function timeframeBias(r: TimeframeReadings): Vies {
+  const votes = [r.estocastico.vies, r.macd.vies, r.medias.vies];
+  const alta = votes.filter((v) => v === "ALTA").length;
+  const baixa = votes.filter((v) => v === "BAIXA").length;
+  return alta > baixa ? "ALTA" : baixa > alta ? "BAIXA" : "NEUTRO";
+}
+
+/**
+ * Os 4 vetos duros do método da casa, CALCULADOS POR CÓDIGO. No 1º teste real da mesa (13/10) o
+ * Trader Sênior reconheceu um gatilho válido (estocástico cruzando para baixo em sobrecompra,
+ * VENDA) e barrou por um "veto duro: preço colado no extremo do dia contra o lado" que nenhum
+ * dado sustentava: ele inventou o veto. Agora só valem como veto duro os que esta função listar.
+ *
+ * Só os tempos de 5m, 15m e 1H entram no veto de estocástico (o 4H é contexto, não veto).
+ */
+export function computeHardVetoes(params: {
+  side: "LONG" | "SHORT";
+  readings: TimeframeReadings[];
+  dayRange: DayRangeReading | null;
+  targetRoom: TargetRoomReading;
+}): HardVeto[] {
+  const { side, readings, dayRange, targetRoom } = params;
+  const vetoes: HardVeto[] = [];
+
+  // (a) estocástico em extremo CONTRA o lado: nunca vender em sobrevenda, nunca comprar em sobrecompra
+  const contra = readings.filter((r) => ["5m", "15m", "1H"].includes(r.tf) && r.estocastico.contraIndica === side);
+  if (contra.length > 0) {
+    vetoes.push({
+      id: "ESTOCASTICO_EXTREMO_CONTRA",
+      texto: `estocástico em extremo contra ${side === "SHORT" ? "a venda (sobrevendido)" : "a compra (sobrecomprado)"} no(s) tempo(s) ${contra.map((r) => r.tf).join(", ")}`,
+    });
+  }
+
+  // (b) 1H E 4H, os dois, contra o lado
+  const oposto: Vies = side === "LONG" ? "BAIXA" : "ALTA";
+  const h1 = readings.find((r) => r.tf === "1H");
+  const h4 = readings.find((r) => r.tf === "4H");
+  if (h1 && h4 && timeframeBias(h1) === oposto && timeframeBias(h4) === oposto) {
+    vetoes.push({ id: "TEMPO_MAIOR_CONTRA", texto: `1H e 4H, os dois, apontam ${oposto} contra ${side === "LONG" ? "a compra" : "a venda"}` });
+  }
+
+  // (c) colado no extremo do dia contra o lado (vender na mínima / comprar na máxima)
+  if (dayRange?.contraOExtremo) {
+    vetoes.push({ id: "EXTREMO_DO_DIA_CONTRA", texto: dayRange.texto });
+  }
+
+  // (d) o alvo não cabe antes do próximo nível
+  if (targetRoom.cabe === false) {
+    vetoes.push({ id: "ALVO_NAO_CABE", texto: targetRoom.texto });
+  }
+  return vetoes;
+}
+
 /** Extrai o primeiro objeto JSON de uma resposta de modelo (tolera ```json ... ``` e texto em volta). */
 export function extractJsonObject(raw: string): Record<string, unknown> | null {
   if (!raw) return null;

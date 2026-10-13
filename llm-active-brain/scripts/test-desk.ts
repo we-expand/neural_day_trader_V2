@@ -10,6 +10,8 @@ import {
   readMacd,
   readStochastic,
   readTargetRoom,
+  computeHardVetoes,
+  timeframeBias,
   type MacdLike,
   type StochLike,
 } from "../src/deskReadings.js";
@@ -276,6 +278,68 @@ check("nível já rompido não barra; sem dado não vira conclusão", () => {
   assert.equal(readTargetRoom("LONG", 0.29, []).cabe, null);
   assert.equal(readTargetRoom("LONG", 0.29, [{ nome: "resistência do 5m", distanciaPct: null, rompido: false }]).cabe, null);
   assert.match(readTargetRoom("LONG", 0.29, [{ nome: "resistência do 5m", distanciaPct: 0.5, rompido: false }]).texto, /para cima/);
+});
+
+// ---------------- Vetos duros calculados por código ----------------
+
+const rowTf = (tf: string, st: StochLike | null, m: MacdLike | null, a: ReturnType<typeof avg> | null) => ({
+  tf,
+  estocastico: readStochastic(st),
+  macd: readMacd(m),
+  medias: readAverages(a),
+});
+const folga = readTargetRoom("SHORT", 0.35, [{ nome: "suporte do 5m", distanciaPct: 0.9, rompido: false }]);
+
+check("o caso real XETUSD SHORT (13/10): gatilho A válido, nada colado no extremo => NENHUM veto duro", () => {
+  // estocástico 5m sobrecomprado cruzando para baixo (o melhor gatilho de VENDA); preço acima das médias; posição no meio do dia
+  const readings = [
+    rowTf("5m", stoch(86, 90, "CRUZOU_PARA_BAIXO"), macd(0.05, [0.3, 0.1, 0.05]), avg(0.1, 0.25, 101, 100)),
+    rowTf("1H", stoch(60, 55), macd(0.4, [0.1, 0.2, 0.4]), avg(0.2, 0.3, 101, 100)),
+    rowTf("4H", stoch(48, 52), null, null), // 4H sem direção contra a venda (1H em alta, 4H não)
+  ];
+  const dayRange = readDayRange(100, 200, 50, "SHORT")!; // 33% do range: parte de baixo, mas NÃO colado na mínima
+  assert.equal(dayRange.contraOExtremo, false);
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings, dayRange, targetRoom: folga }), []);
+});
+
+check("o mesmo cenário com 1H E 4H os dois em alta VETA a venda (regra de tempo maior)", () => {
+  const readings = [
+    rowTf("5m", stoch(86, 90, "CRUZOU_PARA_BAIXO"), null, null),
+    rowTf("1H", stoch(60, 55), macd(0.4, [0.1, 0.2, 0.4]), avg(0.2, 0.3, 101, 100)),
+    rowTf("4H", stoch(60, 55), macd(0.4, [0.1, 0.2, 0.4]), avg(0.2, 0.3, 101, 100)),
+  ];
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings, dayRange: null, targetRoom: folga }).map((x) => x.id), ["TEMPO_MAIOR_CONTRA"]);
+});
+
+check("veto: estocástico em extremo contra o lado (vender em sobrevenda / comprar em sobrecompra)", () => {
+  const r = [rowTf("5m", stoch(10, 16), null, null), rowTf("1H", stoch(50, 50.2), null, null)];
+  const v = computeHardVetoes({ side: "SHORT", readings: r, dayRange: null, targetRoom: folga });
+  assert.deepEqual(v.map((x) => x.id), ["ESTOCASTICO_EXTREMO_CONTRA"]);
+  assert.match(v[0].texto, /5m/);
+  // o mesmo estocástico não veta a COMPRA
+  assert.deepEqual(computeHardVetoes({ side: "LONG", readings: r, dayRange: null, targetRoom: folga }), []);
+  // o 4H em extremo é contexto, não veto
+  const so4h = [rowTf("5m", stoch(50, 40), null, null), rowTf("4H", stoch(95, 90), null, null)];
+  assert.deepEqual(computeHardVetoes({ side: "LONG", readings: so4h, dayRange: null, targetRoom: folga }), []);
+});
+
+check("veto: 1H E 4H os dois contra (um só discordando não é veto)", () => {
+  const baixa = (tf: string) => rowTf(tf, stoch(40, 50), macd(-0.5, [-0.1, -0.3, -0.5]), avg(-0.1, -0.3, 99, 100));
+  const alta = (tf: string) => rowTf(tf, stoch(60, 50), macd(0.5, [0.1, 0.3, 0.5]), avg(0.1, 0.3, 101, 100));
+  assert.equal(timeframeBias(baixa("1H")), "BAIXA");
+  const ambos = computeHardVetoes({ side: "LONG", readings: [baixa("1H"), baixa("4H")], dayRange: null, targetRoom: folga });
+  assert.deepEqual(ambos.map((x) => x.id), ["TEMPO_MAIOR_CONTRA"]);
+  assert.deepEqual(computeHardVetoes({ side: "LONG", readings: [baixa("1H"), alta("4H")], dayRange: null, targetRoom: folga }), []);
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings: [baixa("1H"), baixa("4H")], dayRange: null, targetRoom: folga }), []);
+});
+
+check("veto: vender colado na mínima / comprar colado na máxima; e alvo que não cabe", () => {
+  const sobMinima = readDayRange(101, 200, 100, "SHORT")!;
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings: [], dayRange: sobMinima, targetRoom: folga }).map((x) => x.id), ["EXTREMO_DO_DIA_CONTRA"]);
+  const naoCabe = readTargetRoom("SHORT", 0.35, [{ nome: "suporte do 5m", distanciaPct: 0.1, rompido: false }]);
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings: [], dayRange: null, targetRoom: naoCabe }).map((x) => x.id), ["ALVO_NAO_CABE"]);
+  // sem dado de nível: não vira veto
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings: [], dayRange: null, targetRoom: readTargetRoom("SHORT", 0.35, []) }), []);
 });
 
 // ---------------- JSON e veredito do Master ----------------

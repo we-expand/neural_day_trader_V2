@@ -13,6 +13,7 @@ import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGr
 import { checkReasoningConsistency } from "./reasoningValidator.js";
 import { runTradingDesk, getRecentDeskRejection, rememberDeskRejection, type DeskRiskFacts } from "./desk.js";
 import { linkDeskDecisionToTrade } from "./deskStore.js";
+import { estimateCommissionUsd } from "./commissionModel.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 const EXHAUSTION_VETO_SYMBOLS = new Set(["BTCUSD", "BTCXBN", "ETHUSD", "XETUSD"]);
@@ -2942,6 +2943,37 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // alvo, lote). A mesa (desk.ts) julga a proposta pronta. Em "enforce" a
       // decisao do Agente Master vale; em "shadow" ela so e registrada.
       // A mesa so RESTRINGE: aprova, rejeita ou corta o tamanho pela metade.
+      // ---- PISO DE VALOR (mecanico, vale com a mesa ligada, independe da IA) ----
+      // 13/10 o NAS100 LONG foi aprovado com alvo de 0,143% e stop de 0,463% (R:R 0,31:1): ganho de $0,87
+      // para arriscar $2,83. A mesa viu os numeros e aprovou mesmo assim. Agora o codigo recusa antes de
+      // gastar as 16 chamadas de LLM, e de novo depois que a mesa corta o tamanho pela metade.
+      const minValueCheck = (amountForCheck: number): string | null => {
+        if (deskMode === "off" || isFomcBtcPlay) return null;
+        const rrNow = stopPct > 0 ? takeProfitPct / stopPct : 0;
+        if (rrNow < config.mt5MinRrAbsolute) {
+          return (
+            `${symbol}: retorno/risco de ${rrNow.toFixed(2)}:1 (alvo ${(takeProfitPct * 100).toFixed(3)}% contra stop ${(stopPct * 100).toFixed(3)}%) esta abaixo do piso de ` +
+            `${config.mt5MinRrAbsolute.toFixed(1)}:1: precisaria acertar ${((stopPct / (stopPct + takeProfitPct)) * 100).toFixed(0)}% das vezes so pra empatar. Posicao NAO aberta -- ` +
+            `entrada de centavos nao vale o risco. Espere o preco abrir espaco ate o proximo nivel ou avalie outro ativo/lado.`
+          );
+        }
+        const grossReward = amountForCheck * takeProfitPct;
+        const roundTripCost = estimateCommissionUsd(symbol, amountForCheck, fillPrice);
+        const netReward = grossReward - roundTripCost;
+        if (netReward < config.mt5MinExpectedNetRewardUsd) {
+          return (
+            `${symbol}: o ganho LIQUIDO esperado no alvo seria so $${netReward.toFixed(2)} (bruto $${grossReward.toFixed(2)} menos custo $${roundTripCost.toFixed(2)}), ` +
+            `abaixo do minimo de $${config.mt5MinExpectedNetRewardUsd.toFixed(2)} -- o risco de $${(amountForCheck * stopPct).toFixed(2)} nao compensa. Posicao NAO aberta. ` +
+            `Espere uma entrada com espaco pro alvo ou avalie outro ativo/lado.`
+          );
+        }
+        return null;
+      };
+      const minValueRefusal = minValueCheck(amountUsd);
+      if (minValueRefusal) {
+        console.log(`[PISO-DE-VALOR] ${symbol} ${side} recusado antes da mesa: ${minValueRefusal.slice(0, 200)}`);
+        return { error: minValueRefusal };
+      }
       let entryFillPrice = fillPrice;
       const deskSnapshot: Record<string, unknown> = {};
       let deskDecisionId: string | null = null;
@@ -3046,6 +3078,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             lots = Math.max(MIN_LOTS, Math.round((lots * desk.sizeFactor) / MIN_LOTS) * MIN_LOTS);
             amountUsd = lots * LOT_SIZE[symbol] * quote.price;
             actualRiskUsd = amountUsd * stopPct;
+            // Metade do tamanho = metade do ganho: o piso de valor vale de novo com o tamanho final.
+            const minValueAfterHalf = minValueCheck(amountUsd);
+            if (minValueAfterHalf) {
+              console.log(`[PISO-DE-VALOR] ${symbol} ${side} aprovado pela mesa com METADE, mas recusado depois do corte: ${minValueAfterHalf.slice(0, 200)}`);
+              return { error: `A mesa aprovou com METADE do tamanho, mas com a metade ${minValueAfterHalf}` };
+            }
           }
         }
 
