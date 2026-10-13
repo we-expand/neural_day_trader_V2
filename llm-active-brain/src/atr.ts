@@ -89,6 +89,20 @@ const CACHE_TTL_BY_TIMEFRAME: Record<string, number> = {
 
 /** Timeframes suportados pelo endpoint /mt5-candles (ver timeframeMap em supabase/functions/server/index.ts) -- mesmos valores que o campo `timeframe` do Setup do AI Trader (AIConfig) já usa no frontend. */
 /**
+ * Velas de 1m das ultimas ~60 min (inclui a ainda em formacao). Usada pelo job que mede
+ * o desfecho das decisoes da mesa (deskStore.ts). Devolve null sem candle real, nunca fabrica.
+ */
+export async function getRecentOneMinuteCandles(
+  symbol: string
+): Promise<{ timestamp: number; high: number; low: number; close: number }[] | null> {
+  const candles = await fetchRecentCandles(symbol, "1m");
+  if (!candles || candles.length === 0) return null;
+  return candles
+    .filter((c) => [c.high, c.low, c.close].every((v) => Number.isFinite(v) && v > 0))
+    .map((c) => ({ timestamp: c.timestamp, high: c.high, low: c.low, close: c.close }));
+}
+
+/**
  * Ultima vela de 1m (inclui a ainda em formacao) -- usada SO como rede de
  * seguranca do stop quando o tick do ativo esta obsoleto (feed travado, ex.
  * UKOUSD 12/10: tick congelado em 109,029 por 3h enquanto o preco real foi a

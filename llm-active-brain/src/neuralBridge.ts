@@ -41,6 +41,11 @@ function getClient(): SupabaseClient {
   return client;
 }
 
+/** Cliente service_role compartilhado (a mesa grava as decisoes por aqui: ver deskStore.ts). */
+export function getSupabaseClient(): SupabaseClient {
+  return getClient();
+}
+
 let sessionIdPromise: Promise<string> | null = null;
 
 async function getOrCreateSession(): Promise<string> {

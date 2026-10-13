@@ -15,6 +15,7 @@ import { primeQuotes, getQuote as getMt5Quote, getQuoteSingleAttempt } from "./m
 import { startStreamingTicks } from "./streamingTicks.js";
 import { startSpreadCollector } from "./spreadCollector.js";
 import { startMarketWatcher } from "./watcher.js";
+import { startDeskOutcomeJob } from "./deskStore.js";
 import { hasPendingTrigger, runExclusive, takeTrigger } from "./llmQueue.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
@@ -587,6 +588,7 @@ async function main() {
   startStreamingTicks(); // opt-in (STREAMING_TICKS_ENABLED=true), cai pro REST se o tick envelhecer
   if (config.mt5TradingEnabled) startStopWatchdog();
   if (process.env.WATCHER_ENABLED !== "false") startMarketWatcher(drainTriggers); // vigia mecanico, so observador (watcher.ts)
+  startDeskOutcomeJob(); // mede o desfecho (alvo ou stop primeiro) das decisoes da mesa -> aprendizado continuo (deskStore.ts)
   startSpreadCollector(); // spread real medido -> custo (research/COST_SOURCE_OF_TRUTH.md)
   if (config.mt5LiveExecutionEnabled) {
     // Kill-switch mestre ligado -- a partir daqui, QUALQUER usuario que

@@ -56,6 +56,8 @@ import {
 } from "./atr.js";
 import { getMarketNewsBriefing } from "./news.js";
 import { logBrainActivity } from "./neuralBridge.js";
+import { randomUUID } from "node:crypto";
+import { saveDeskDecision } from "./deskStore.js";
 import {
   alignmentSummary,
   extractJsonObject,
@@ -114,6 +116,8 @@ export interface DeskProposal {
   riskFacts: DeskRiskFacts;
   /** Variação do dia dos outros ativos da cesta já cotados neste ciclo (amplitude). */
   basketBreadth: { symbol: string; dayChangePct: number }[];
+  /** Travas mecânicas antigas que teriam barrado esta entrada (só preenchido no teste só-LLM). Vai pro Supabase. */
+  bypassedGates?: string[];
   /** Ensaio (scripts/desk-dry-run.ts): não escreve no painel "Atividade da IA" e grava num arquivo separado. */
   dryRun?: boolean;
 }
@@ -128,6 +132,8 @@ export interface AgentReport {
 }
 
 export interface DeskResult {
+  /** Identificador desta deliberação (linha em desk_decisions); liga a decisão ao trade que ela abrir. */
+  id: string;
   decision: "APPROVE" | "REJECT";
   sizeFactor: 1 | 0.5;
   conviction: number | null;
@@ -792,6 +798,7 @@ export async function runTradingDesk(p: DeskProposal): Promise<DeskResult> {
   }
 
   const result: DeskResult = {
+    id: randomUUID(),
     decision: verdict.decision,
     sizeFactor: verdict.sizeFactor,
     conviction: verdict.conviction,
@@ -815,5 +822,38 @@ export async function runTradingDesk(p: DeskProposal): Promise<DeskResult> {
     message: `Mesa | DECISÃO FINAL do Agente Master para ${p.symbol} ${p.side}: ${resumo}`,
   });
   persist(p, result, config.mt5DeskMode);
+  if (!p.dryRun) {
+    // Supabase: 1 linha por deliberacao (base do aprendizado continuo). Sem await: a decisao nao espera o banco.
+    const stopPrice = p.side === "LONG" ? p.entryPrice * (1 - p.stopPct) : p.entryPrice * (1 + p.stopPct);
+    const targetPrice = p.side === "LONG" ? p.entryPrice * (1 + p.takeProfitPct) : p.entryPrice * (1 - p.takeProfitPct);
+    void saveDeskDecision({
+      id: result.id,
+      sessionId: p.sessionId,
+      userId: p.userId,
+      symbol: p.symbol,
+      side: p.side,
+      setupType: p.setupType,
+      mode: config.mt5DeskMode,
+      llmOnly: p.llmOnly,
+      bypassedGates: p.bypassedGates ?? [],
+      decision: result.decision,
+      sizeFactor: result.sizeFactor,
+      conviction: result.conviction,
+      reason: result.reason,
+      error: result.error ?? null,
+      failedAgents: result.failedAgents,
+      durationMs: result.durationMs,
+      llmCalls: result.llmCalls,
+      model: deskModel(),
+      entryPrice: p.entryPrice,
+      stopPrice,
+      targetPrice,
+      stopPct: p.stopPct,
+      takeProfitPct: p.takeProfitPct,
+      amountUsd: p.amountUsd,
+      riskUsd: p.riskUsd,
+      transcript: result.transcript.map((r) => ({ agent: r.agent, ok: r.ok, ms: r.ms, error: r.error ?? null, json: r.json })),
+    });
+  }
   return result;
 }

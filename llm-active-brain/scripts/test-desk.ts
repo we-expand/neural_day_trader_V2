@@ -13,6 +13,7 @@ import {
   type MacdLike,
   type StochLike,
 } from "../src/deskReadings.js";
+import { baseAgentName, extractStances, resolveCounterfactual, scoreAgents, wilsonInterval, type Candle1m } from "../src/deskScoring.js";
 
 let passed = 0;
 function check(name: string, fn: () => void) {
@@ -307,6 +308,129 @@ check("Master: tamanho só reduz e convicção fica entre 0 e 100", () => {
   assert.equal(normalizeMasterVerdict({ decisao: "APROVAR", conviccao: -3 }).conviction, 0);
   assert.equal(normalizeMasterVerdict({ decisao: "APROVAR", conviccao: "alta" }).conviction, null);
   assert.equal(normalizeMasterVerdict({ decisao: "REJEITAR" }).reason, "sem motivo informado");
+});
+
+// ---------------- Aprendizado: posturas, desfecho contrafactual, placar ----------------
+
+const MIN = 60_000;
+const T0 = 1_800_000_000_000; // instante da decisão
+const c = (minAfter: number, high: number, low: number): Candle1m => ({ timestamp: T0 + minAfter * MIN, high, low });
+const base = { side: "LONG" as const, entryPrice: 100, stopPrice: 99, targetPrice: 101, decidedAtMs: T0 };
+
+check("nome do agente: a réplica não vira outro agente", () => {
+  assert.equal(baseAgentName("Pesquisador Comprador (réplica)"), "Pesquisador Comprador");
+  assert.equal(baseAgentName("Pesquisador Vendedor (réplica 2)"), "Pesquisador Vendedor");
+  assert.equal(baseAgentName("Trader Sênior"), "Trader Sênior");
+});
+
+check("posturas: cada agente, no formato real que ele devolve", () => {
+  const t = [
+    { agent: "Analista de Estocástico", ok: true, json: { apoia_a_proposta: false } },
+    { agent: "Analista de MACD", ok: true, json: { apoia_a_proposta: true } },
+    { agent: "Analista de Notícias", ok: true, json: { vies: "ALTA" } }, // sem o campo: sem posição
+    { agent: "Trader Sênior", ok: true, json: { decisao: "NAO_EXECUTAR" } },
+    { agent: "Risco Agressivo", ok: true, json: { posicao: "APOIA_COM_METADE" } },
+    { agent: "Risco Conservador", ok: true, json: { posicao: "CONTRA" } },
+    { agent: "Gestor de Portfólio", ok: true, json: { parecer: "CABE_NA_CARTEIRA" } },
+    { agent: "Gestor de Risco", ok: true, json: { parecer: "VETA" } },
+    { agent: "Analista de Sentimento", ok: false, json: null }, // não respondeu: sem posição
+  ];
+  const st = extractStances(t, "LONG", "REJECT");
+  assert.deepEqual(st, {
+    "Analista de Estocástico": false,
+    "Analista de MACD": true,
+    "Trader Sênior": false,
+    "Risco Agressivo": true,
+    "Risco Conservador": false,
+    "Gestor de Portfólio": true,
+    "Gestor de Risco": false,
+    "Agente Master": false,
+  });
+  assert.equal(extractStances([], "LONG", "APPROVE")["Agente Master"], true);
+});
+
+check("posturas: debate usa a réplica (a mais nova) e o lado da proposta", () => {
+  const t = [
+    { agent: "Pesquisador Comprador", ok: true, json: { forca_da_tese: 80 } },
+    { agent: "Pesquisador Vendedor", ok: true, json: { forca_da_tese: 30 } },
+    { agent: "Pesquisador Comprador (réplica)", ok: true, json: { forca_da_tese: 40 } },
+    { agent: "Pesquisador Vendedor (réplica)", ok: true, json: { forca_da_tese: 70 } },
+  ];
+  assert.equal(extractStances(t, "LONG", "REJECT")["Debate (comprador x vendedor)"], false); // vendedor terminou mais forte
+  assert.equal(extractStances(t, "SHORT", "REJECT")["Debate (comprador x vendedor)"], true);
+  const empate = [
+    { agent: "Pesquisador Comprador", ok: true, json: { forca_da_tese: 50 } },
+    { agent: "Pesquisador Vendedor", ok: true, json: { forca_da_tese: 50 } },
+  ];
+  assert.equal("Debate (comprador x vendedor)" in extractStances(empate, "LONG", "REJECT"), false); // empate: sem posição
+});
+
+check("desfecho LONG: alvo antes do stop, stop antes do alvo, mesma vela = STOP", () => {
+  const now = T0 + 30 * MIN;
+  assert.equal(resolveCounterfactual({ ...base, nowMs: now, candles: [c(1, 100.4, 99.8), c(2, 101.2, 100.2)] }).status, "TARGET");
+  assert.equal(resolveCounterfactual({ ...base, nowMs: now, candles: [c(1, 100.4, 98.9), c(2, 101.5, 100)] }).status, "STOP");
+  const mesma = resolveCounterfactual({ ...base, nowMs: now, candles: [c(1, 101.5, 98.5)] });
+  assert.equal(mesma.status, "STOP");
+  assert.match(mesma.note, /mesma vela/);
+});
+
+check("desfecho SHORT é o espelho do LONG", () => {
+  const sh = { side: "SHORT" as const, entryPrice: 100, stopPrice: 101, targetPrice: 99, decidedAtMs: T0, nowMs: T0 + 30 * MIN };
+  assert.equal(resolveCounterfactual({ ...sh, candles: [c(1, 100.3, 98.8)] }).status, "TARGET");
+  assert.equal(resolveCounterfactual({ ...sh, candles: [c(1, 101.2, 99.9)] }).status, "STOP");
+});
+
+check("desfecho: a vela em curso na hora da decisão NÃO conta", () => {
+  // vela aberta 1 min ANTES da decisão tinha preço de antes dela: não pode decidir nada
+  const r = resolveCounterfactual({ ...base, nowMs: T0 + 30 * MIN, candles: [c(-1, 105, 90), c(1, 100.5, 99.5)] });
+  assert.notEqual(r.status, "TARGET");
+  assert.notEqual(r.status, "STOP");
+});
+
+check("desfecho: mede máximo a favor e contra, e expira depois do horizonte", () => {
+  const r = resolveCounterfactual({ ...base, nowMs: T0 + 61 * MIN, candles: [c(1, 100.6, 99.7), c(2, 100.4, 99.5)] });
+  assert.equal(r.status, "EXPIRED");
+  assert.equal(r.maxFavorablePct, 0.6);
+  assert.equal(r.maxAdversePct, 0.5);
+});
+
+check("desfecho: ainda em andamento fica PENDING; sem velas nunca inventa", () => {
+  assert.equal(resolveCounterfactual({ ...base, nowMs: T0 + 20 * MIN, candles: [c(1, 100.2, 99.8)] }).status, "PENDING");
+  assert.equal(resolveCounterfactual({ ...base, nowMs: T0 + 1 * MIN, candles: [] }).status, "PENDING"); // cedo demais
+  assert.equal(resolveCounterfactual({ ...base, nowMs: T0 + 70 * MIN, candles: [] }).status, "NO_DATA");
+  // velas que só começam 40 min depois: o começo da janela se perdeu
+  assert.equal(resolveCounterfactual({ ...base, nowMs: T0 + 70 * MIN, candles: [c(40, 105, 90)] }).status, "NO_DATA");
+});
+
+check("desfecho: proposta incoerente (stop do lado errado) = NO_DATA", () => {
+  assert.equal(resolveCounterfactual({ ...base, stopPrice: 101, nowMs: T0 + 30 * MIN, candles: [c(1, 102, 99)] }).status, "NO_DATA");
+  assert.equal(resolveCounterfactual({ ...base, entryPrice: NaN, nowMs: T0 + 30 * MIN, candles: [c(1, 102, 99)] }).status, "NO_DATA");
+});
+
+check("placar: acerta quem apoiou e deu alvo, ou foi contra e deu stop; ignora o resto", () => {
+  const rows = [
+    { stances: { A: true, B: false }, outcome: "TARGET" as const }, // A acertou, B errou (vetou ganho)
+    { stances: { A: true, B: false }, outcome: "STOP" as const }, // A errou (apoiou perda), B acertou
+    { stances: { A: false, B: false }, outcome: "STOP" as const }, // os dois acertaram
+    { stances: { A: true, B: true }, outcome: "EXPIRED" as const }, // não conta
+    { stances: { A: true, B: true }, outcome: "PENDING" as const }, // não conta
+  ];
+  const [first, second] = scoreAgents(rows);
+  const a = scoreAgents(rows).find((x) => x.agent === "A")!;
+  const b = scoreAgents(rows).find((x) => x.agent === "B")!;
+  assert.deepEqual([a.n, a.hits, a.backedAndLost, a.vetoedAndWouldHaveWon], [3, 2, 1, 0]);
+  assert.deepEqual([b.n, b.hits, b.backedAndLost, b.vetoedAndWouldHaveWon], [3, 2, 0, 1]);
+  assert.equal(a.hitPct, 66.7);
+  assert.ok(first && second);
+});
+
+check("intervalo de confiança: com amostra pequena é largo (não vende ruído como habilidade)", () => {
+  assert.equal(wilsonInterval(0, 0), null);
+  const pequeno = wilsonInterval(6, 10)!; // 60% de 10
+  assert.ok(pequeno.high - pequeno.low > 40, JSON.stringify(pequeno));
+  const grande = wilsonInterval(600, 1000)!;
+  assert.ok(grande.high - grande.low < 8, JSON.stringify(grande));
+  assert.ok(grande.low < 60 && grande.high > 60);
 });
 
 console.log(`\n${passed} testes passaram.`);

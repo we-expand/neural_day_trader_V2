@@ -12,6 +12,7 @@ import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
 import { checkReasoningConsistency } from "./reasoningValidator.js";
 import { runTradingDesk, getRecentDeskRejection, rememberDeskRejection, type DeskRiskFacts } from "./desk.js";
+import { linkDeskDecisionToTrade } from "./deskStore.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 const EXHAUSTION_VETO_SYMBOLS = new Set(["BTCUSD", "BTCXBN", "ETHUSD", "XETUSD"]);
@@ -2930,6 +2931,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // A mesa so RESTRINGE: aprova, rejeita ou corta o tamanho pela metade.
       let entryFillPrice = fillPrice;
       const deskSnapshot: Record<string, unknown> = {};
+      let deskDecisionId: string | null = null;
       if (deskMode !== "off" && !isFomcBtcPlay) {
         let todayPnlUsd: number | null = null;
         try {
@@ -2979,6 +2981,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           spreadPct: Number.isFinite(quote.spreadPct) ? quote.spreadPct : null,
           dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
           llmOnly: llmOnlyTest,
+          bypassedGates: [...bypassedGates],
           basketBreadth,
           riskFacts: {
             entriesLast24h,
@@ -2996,7 +2999,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             targetNotes,
           },
         });
+        deskDecisionId = desk.id;
         Object.assign(deskSnapshot, {
+          deskDecisionId: desk.id,
           deskMode,
           llmOnlyTest,
           bypassedGates,
@@ -3161,6 +3166,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         },
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
+      // Aprendizado continuo: liga a decisao da mesa ao trade que ela abriu (sem esperar o banco).
+      if (deskDecisionId) void linkDeskDecisionToTrade(deskDecisionId, tradeId);
       return {
         trade_id: tradeId,
         symbol,
