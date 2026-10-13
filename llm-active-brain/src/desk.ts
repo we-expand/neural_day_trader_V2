@@ -400,7 +400,7 @@ function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeRead
         `Você é o Analista de Estocástico de uma mesa de day trade. Indicador: Estocástico Lento 5,3,3, níveis 20 e 80. ` +
         `A leitura de cada tempo gráfico JÁ FOI FEITA pelo sistema e está correta: não recalcule, não contradiga, não troque sobrecompra por sobrevenda. ` +
         `Seu trabalho é juntar os tempos gráficos e dizer o que o estocástico aponta. ${regraTempos} ` +
-        `Extremo sem cruzamento não é sinal. Cruzamento do %K sobre o %D dentro do extremo é o gatilho. Nunca se vende em sobrevenda nem se compra em sobrecompra. ` +
+        `Extremo sem cruzamento não é sinal por si só, e é VETO contra o lado oposto (nunca se vende em sobrevenda nem se compra em sobrecompra). O melhor gatilho é o cruzamento do %K sobre o %D dentro do extremo; o cruzamento na zona neutra a favor do lado também conta, mais fraco. Se o estocástico está neutro e sem cruzamento, diga que ele NÃO se opõe nem apoia (vies NEUTRO), sem tratar como veto: a decisão cabe aos outros indicadores. ` +
         jsonOnly(schema),
       user: `${head}\n\nLEITURA DO ESTOCÁSTICO POR TEMPO GRÁFICO:\n${readings.map((r) => `${r.tf}: ${r.estocastico.texto}`).join("\n")}`,
     },
@@ -682,10 +682,15 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
       agent: "Trader Sênior",
       system:
         `Você é o Trader Sênior da mesa: décadas de day trade, opera pouco e para acertar. Você julga se a proposta deve ser executada AGORA. ` +
-        `O placar dos indicadores foi calculado pelo sistema e é fato: não o contradiga. Siga o método da casa abaixo. ` +
-        `Se a leitura do tempo maior (1H/4H) vai contra o lado proposto, ou se o estocástico desaconselha o lado, a resposta é NAO_EXECUTAR. ` +
-        `É scalp de alvo curto: o retorno/risco é apertado, então só vale entrar com leitura CLARA. Na dúvida, NAO_EXECUTAR.\n\n${metodo}\n\n` +
-        jsonOnly(`{"decisao":"EXECUTAR"|"NAO_EXECUTAR","conviccao":0-100,"motivo":"2 a 3 frases","o_que_invalida":"o que teria de acontecer no gráfico para você desistir"}`),
+        `O placar dos indicadores foi calculado pelo sistema e é fato: não o contradiga. Siga o método da casa abaixo.\n` +
+        `VETOS DUROS (aí a resposta é NAO_EXECUTAR): (a) estocástico em extremo CONTRA o lado, sem cruzamento a favor (nunca vender em sobrevenda, nunca comprar em sobrecompra); ` +
+        `(b) 1H E 4H, os dois, contra o lado; (c) preço colado no extremo do dia contra o lado, sem rompimento confirmado; (d) o alvo não cabe antes do próximo nível. ` +
+        `Fora desses vetos, JULGUE PELO CONJUNTO: um gatilho claro vale a entrada (veja os GATILHOS VÁLIDOS no método). Um tempo gráfico discordando NÃO é veto: ` +
+        `se os outros apontam o lado, use EXECUTAR_METADE. O mercado raramente alinha tudo: exigir alinhamento perfeito é ficar fora o dia inteiro. ` +
+        `Estocástico neutro sem cruzamento em extremo NÃO impede a entrada se MACD, médias e candle dão o gatilho. ` +
+        `É scalp de alvo curto: o retorno/risco é apertado, então a leitura precisa ser BOA, mas não perfeita. ` +
+        `EXECUTAR = leitura boa; EXECUTAR_METADE = leitura razoável com um ponto contra; NAO_EXECUTAR = veto duro ou leitura de fato ruim.\n\n${metodo}\n\n` +
+        jsonOnly(`{"decisao":"EXECUTAR"|"EXECUTAR_METADE"|"NAO_EXECUTAR","conviccao":0-100,"gatilho":"qual dos gatilhos válidos está presente, ou nenhum","motivo":"2 a 3 frases","o_que_invalida":"o que teria de acontecer no gráfico para você desistir"}`),
       user:
         `${head}\nA proposta defende: ${ladoProposto}.\n\nO QUE O OPERADOR ESCREVEU AO PROPOR: ${p.operatorReasoning.slice(0, 700) || "(sem texto)"}\n\n` +
         `PLACAR DOS INDICADORES (fato):\n${alinhamento}\n\nRELATÓRIOS DOS ANALISTAS:\n${analystsText}\n\nDEBATE:\n${debateText}`,
@@ -760,10 +765,16 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
         (p.llmOnly
           ? `ATENÇÃO: neste teste NÃO existe nenhuma trava mecânica de leitura ou de risco depois de você. Se você aprovar, a ordem sai agora. Só o stop já definido protege a posição. `
           : `As travas mecânicas do motor já deixaram esta proposta passar; você é a camada de julgamento por cima delas. `) +
-        `Como decidir: (1) o placar dos indicadores é fato calculado pelo sistema; (2) o tempo maior manda: se 1H ou 4H desaconselham o lado proposto, REJEITAR; ` +
-        `(3) veto do Gestor de Risco é REJEITAR, a menos que o motivo dele se apoie num fato errado (diga qual); ` +
-        `(4) se o Trader Sênior disse NAO_EXECUTAR, REJEITAR; (5) se o debate não deixou o lado proposto claramente mais forte, REJEITAR; ` +
-        `(6) você pode reduzir o tamanho para METADE, nunca aumentar; (7) na dúvida, REJEITAR: ficar fora é uma decisão correta e não custa nada.\n\n${metodo}\n\n` +
+        `Como decidir: (1) o placar dos indicadores é fato calculado pelo sistema. ` +
+        `(2) VETOS DUROS, que obrigam REJEITAR: estocástico em extremo contra o lado sem cruzamento a favor; 1H E 4H os dois contra o lado; ` +
+        `preço colado no extremo do dia contra o lado sem rompimento; alvo que não cabe antes do próximo nível; veto do Gestor de Risco (a menos que o motivo dele se apoie num fato errado, e diga qual). ` +
+        `(3) SEM veto duro, decida pelo CONJUNTO: se há um gatilho válido e o placar e o debate favorecem o lado, APROVE. ` +
+        `O Trader Sênior pesa muito, mas NAO_EXECUTAR dele com convicção até 70 pode ser vencido se o placar, o debate e a equipe de risco apontam o lado e não há veto duro (aprove com METADE). ` +
+        `Se ele disse EXECUTAR_METADE, aprove com METADE. ` +
+        `(4) Um tempo gráfico ou um indicador discordando não é motivo para rejeitar: nenhuma entrada real tem todos os indicadores alinhados. ` +
+        `(5) Você pode reduzir o tamanho para METADE, nunca aumentar. ` +
+        `(6) Ficar fora é uma decisão válida só quando há veto duro ou a leitura é de fato ruim. O pregão está aberto e a mesa existe para operar bem, não para não operar: ` +
+        `rejeitar boas leituras por excesso de cautela também custa dinheiro. Dúvida pequena = METADE; dúvida grande ou veto duro = REJEITAR.\n\n${metodo}\n\n` +
         jsonOnly(`{"decisao":"APROVAR"|"REJEITAR","tamanho":"INTEIRO"|"METADE","conviccao":0-100,"motivo":"2 a 4 frases","votos_a_favor":["agente"],"votos_contra":["agente"]}`),
       user:
         `${head}\nA proposta defende: ${ladoProposto}.\n\nPLACAR DOS INDICADORES (fato):\n${alinhamento}\n\nANALISTAS:\n${analystsText}\n\nDEBATE:\n${debateText}\n\n` +

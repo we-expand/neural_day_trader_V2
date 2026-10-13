@@ -509,6 +509,11 @@ export const config = {
   // depois quais faziam falta. So vale com mt5DeskMode=enforce e NUNCA com
   // execucao real ligada (ver open_position em tools.ts). Default false.
   mt5LlmOnlyTest: process.env.MT5_LLM_ONLY_TEST === "true",
+  // Teste so-LLM: quando o nivel (S/R, maxima/minima de 24h, range) esta mais perto que o alvo, o motor
+  // normalmente ENCURTA o alvo pra caber e so recusa se nao cobrir o R:R minimo. No teste a recusa e da
+  // mesa; o alvo e encurtado mesmo assim, desde que fique >= este piso (% do preco). Abaixo disso o alvo
+  // realmente nao cabe e a mesa e avisada.
+  mt5LlmOnlyMinTargetPct: Number(process.env.MT5_LLM_ONLY_MIN_TARGET_PCT ?? 0.12),
   mt5DeskModel: process.env.MT5_DESK_MODEL || "", // "" = mesmo modelo do cerebro principal
   mt5DeskEnableThinking: process.env.MT5_DESK_ENABLE_THINKING === "true",
   mt5DeskMaxTokens: Number(process.env.MT5_DESK_MAX_TOKENS ?? 900),

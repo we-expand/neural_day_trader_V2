@@ -45,7 +45,7 @@ export function extractStances(
       if (typeof j.apoia_a_proposta === "boolean" && !neutro) stances[agent] = j.apoia_a_proposta;
     } else if (agent === "Trader Sênior") {
       const d = norm(j.decisao);
-      if (d === "EXECUTAR") stances[agent] = true;
+      if (d === "EXECUTAR" || d === "EXECUTAR_METADE") stances[agent] = true;
       else if (d === "NAO_EXECUTAR") stances[agent] = false;
     } else if (agent === "Risco Agressivo" || agent === "Risco Conservador") {
       const p = norm(j.posicao);

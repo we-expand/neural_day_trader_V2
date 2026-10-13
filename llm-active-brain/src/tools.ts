@@ -2639,9 +2639,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
                 `e o espaco disponivel ate la nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 acima do stop (${(stopPct * 100).toFixed(3)}%). ` +
                 `Posicao NAO aberta -- risco/retorno desfavoravel de partida. Espere o preco se afastar do nivel ou avalie outro ativo/lado.`,
             }); if (__blocked) return __blocked; }
-            // Teste so-LLM: o nivel esta colado demais pro alvo caber. O teto NAO e
-            // aplicado (um alvo de centesimos de % faria o lote explodir); a mesa
-            // recebe a distancia ate o nivel e julga se o preco rompe.
+            // Teste so-LLM: o nivel esta perto demais pro R:R minimo antigo. Em vez de deixar o
+            // alvo passando do nivel (e a mesa vetar por "alvo nao cabe"), encurta o alvo ate o
+            // nivel, como o motor ja faz, desde que fique acima do piso (MT5_LLM_ONLY_MIN_TARGET_PCT).
+            // Abaixo do piso o alvo de verdade nao cabe: mantem o alvo e a mesa e avisada.
+            if (srCappedTakeProfitPct * 100 >= config.mt5LlmOnlyMinTargetPct) {
+              takeProfitPct = srCappedTakeProfitPct;
+              takeProfitCappedBySR = true;
+            }
           } else {
           takeProfitPct = srCappedTakeProfitPct;
           takeProfitCappedBySR = true;
@@ -2680,7 +2685,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
                   `do stop (${(stopPct * 100).toFixed(3)}%). Posicao NAO aberta -- risco/retorno desfavoravel de partida. Espere o preco romper esse ` +
                   `nivel de verdade ou avalie outro ativo/lado.`,
               }); if (__blocked) return __blocked; }
-              // Teste so-LLM: teto NAO aplicado (ver comentario no cap de S/R acima).
+              // Teste so-LLM: encurta o alvo ate o nivel se ficar acima do piso (ver o cap de S/R acima).
+              if (dailyCappedTakeProfitPct * 100 >= config.mt5LlmOnlyMinTargetPct) {
+                takeProfitPct = dailyCappedTakeProfitPct;
+                takeProfitCappedByDailyLevel = true;
+              }
             } else {
             takeProfitPct = dailyCappedTakeProfitPct;
             takeProfitCappedByDailyLevel = true;
@@ -2711,7 +2720,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
                 `acima do stop real (${(stopPct * 100).toFixed(3)}%). Posicao NAO aberta -- alvo por ATR (${(takeProfitPct * 100).toFixed(3)}%) ` +
                 `pediria mais movimento do que o preco ja provou que faz nesta janela. Espere o range se abrir ou avalie outro ativo/lado.`,
             }); if (__blocked) return __blocked; }
-            // Teste so-LLM: teto NAO aplicado (ver comentario no cap de S/R acima).
+            // Teste so-LLM: encurta o alvo ate o nivel se ficar acima do piso (ver o cap de S/R acima).
+            if (rangeCappedTakeProfitPct * 100 >= config.mt5LlmOnlyMinTargetPct) {
+              takeProfitPct = rangeCappedTakeProfitPct;
+              takeProfitCappedByRange = true;
+            }
           } else {
           takeProfitPct = rangeCappedTakeProfitPct;
           takeProfitCappedByRange = true;
