@@ -39,7 +39,10 @@ export function extractStances(
   for (const [agent, entry] of lastByAgent) {
     const j = entry.json as Record<string, unknown>;
     if (agent.startsWith("Analista")) {
-      if (typeof j.apoia_a_proposta === "boolean") stances[agent] = j.apoia_a_proposta;
+      // Um analista que respondeu NEUTRO (ex.: Fundamentalista/Notícias/Sentimento quando nada se aplica)
+      // não tomou posição: contar "neutro" como "foi contra" fazia o acerto dele virar só a taxa de stops.
+      const neutro = norm(j.vies) === "NEUTRO";
+      if (typeof j.apoia_a_proposta === "boolean" && !neutro) stances[agent] = j.apoia_a_proposta;
     } else if (agent === "Trader Sênior") {
       const d = norm(j.decisao);
       if (d === "EXECUTAR") stances[agent] = true;

@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSupabaseClient } from "../src/neuralBridge.js";
 import { resolvePendingDeskOutcomes } from "../src/deskStore.js";
-import { scoreAgents, wilsonInterval } from "../src/deskScoring.js";
+import { extractStances, scoreAgents, wilsonInterval, type TranscriptEntry } from "../src/deskScoring.js";
 
 const MIN_N = 30;
 const hours = Number(process.argv[2] ?? 24);
@@ -33,6 +33,7 @@ interface Row {
   llm_only: boolean;
   bypassed_gates: string[];
   stances: Record<string, boolean>;
+  transcript: TranscriptEntry[] | null;
   outcome_status: string;
   outcome_minutes: number | null;
   trade_id: string | null;
@@ -50,15 +51,22 @@ try {
 
 const { data, error } = await sb
   .from("desk_decisions")
-  .select("created_at, symbol, side, setup_type, decision, conviction, llm_only, bypassed_gates, stances, outcome_status, outcome_minutes, trade_id, reason, error")
+  .select("created_at, symbol, side, setup_type, decision, conviction, llm_only, bypassed_gates, stances, transcript, outcome_status, outcome_minutes, trade_id, reason, error")
   .gte("created_at", since)
   .order("created_at", { ascending: true })
-  .limit(5000);
+  .limit(1500);
 if (error) {
   console.error(`Erro ao ler desk_decisions: ${error.message}\nA migration supabase/migrations/20260930_desk_decisions.sql já foi rodada no SQL Editor?`);
   process.exit(1);
 }
 const rows = (data ?? []) as Row[];
+// As posturas são recalculadas do debate gravado (e não lidas da coluna `stances`): assim a regra
+// "neutro não é posição" vale também para as linhas gravadas antes dessa correção.
+for (const r of rows) {
+  if (Array.isArray(r.transcript) && r.transcript.length > 0) {
+    r.stances = extractStances(r.transcript, r.side as "LONG" | "SHORT", r.decision);
+  }
+}
 
 const pct = (a: number, b: number) => (b > 0 ? `${((100 * a) / b).toFixed(0)}%` : "n/d");
 const ci = (hits: number, n: number) => {

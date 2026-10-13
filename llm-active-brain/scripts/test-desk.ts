@@ -349,6 +349,22 @@ check("posturas: cada agente, no formato real que ele devolve", () => {
   assert.equal(extractStances([], "LONG", "APPROVE")["Agente Master"], true);
 });
 
+check("posturas: analista NEUTRO não tomou posição (não conta como 'foi contra')", () => {
+  const t = [
+    { agent: "Analista Fundamentalista", ok: true, json: { vies: "NEUTRO", apoia_a_proposta: false } },
+    { agent: "Analista de Notícias", ok: true, json: { vies: "NEUTRO", apoia_a_proposta: false } },
+    { agent: "Analista de Sentimento", ok: true, json: { vies: "neutro", apoia_a_proposta: false } },
+    { agent: "Analista de Estocástico", ok: true, json: { vies: "BAIXA", apoia_a_proposta: false } }, // direcional e contra: conta
+    { agent: "Analista de MACD", ok: true, json: { vies: "ALTA", apoia_a_proposta: true } },
+  ];
+  const st = extractStances(t, "LONG", "REJECT");
+  assert.equal("Analista Fundamentalista" in st, false);
+  assert.equal("Analista de Notícias" in st, false);
+  assert.equal("Analista de Sentimento" in st, false);
+  assert.equal(st["Analista de Estocástico"], false);
+  assert.equal(st["Analista de MACD"], true);
+});
+
 check("posturas: debate usa a réplica (a mais nova) e o lado da proposta", () => {
   const t = [
     { agent: "Pesquisador Comprador", ok: true, json: { forca_da_tese: 80 } },
