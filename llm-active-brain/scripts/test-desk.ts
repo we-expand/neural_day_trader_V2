@@ -323,6 +323,20 @@ check("veto: estocástico em extremo contra o lado (vender em sobrevenda / compr
   assert.deepEqual(computeHardVetoes({ side: "LONG", readings: so4h, dayRange: null, targetRoom: folga }), []);
 });
 
+check("veto: MACD do 5m perdendo força no lado da entrada (caso XETUSD 13/10)", () => {
+  // histograma positivo encolhendo = compra cansando; 15m acabou de cruzar para cima não salva
+  const cansando = [
+    rowTf("5m", stoch(50, 45), macd(0.2, [0.6, 0.4, 0.2]), null),
+    rowTf("15m", stoch(50, 45), macd(0.05, [-0.1, 0.05], { crossing: "CRUZOU_PARA_CIMA" }), null),
+  ];
+  assert.deepEqual(computeHardVetoes({ side: "LONG", readings: cansando, dayRange: null, targetRoom: folga }).map((x) => x.id), ["MACD_5M_ESGOTANDO"]);
+  // o mesmo MACD não veta a VENDA (compra cansando favorece vender)
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings: cansando, dayRange: null, targetRoom: folga }), []);
+  // 5m crescendo a favor: sem veto
+  const forte = [rowTf("5m", stoch(50, 45), macd(0.6, [0.2, 0.4, 0.6]), null)];
+  assert.deepEqual(computeHardVetoes({ side: "LONG", readings: forte, dayRange: null, targetRoom: folga }), []);
+});
+
 check("veto: 1H E 4H os dois contra (um só discordando não é veto)", () => {
   const baixa = (tf: string) => rowTf(tf, stoch(40, 50), macd(-0.5, [-0.1, -0.3, -0.5]), avg(-0.1, -0.3, 99, 100));
   const alta = (tf: string) => rowTf(tf, stoch(60, 50), macd(0.5, [0.1, 0.3, 0.5]), avg(0.1, 0.3, 101, 100));

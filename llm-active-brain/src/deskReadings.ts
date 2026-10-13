@@ -335,7 +335,7 @@ export function readTargetRoom(side: "LONG" | "SHORT", alvoPct: number, barreira
 }
 
 export interface HardVeto {
-  id: "ESTOCASTICO_EXTREMO_CONTRA" | "TEMPO_MAIOR_CONTRA" | "EXTREMO_DO_DIA_CONTRA" | "ALVO_NAO_CABE";
+  id: "ESTOCASTICO_EXTREMO_CONTRA" | "MACD_5M_ESGOTANDO" | "TEMPO_MAIOR_CONTRA" | "EXTREMO_DO_DIA_CONTRA" | "ALVO_NAO_CABE";
   texto: string;
 }
 
@@ -384,6 +384,17 @@ export function computeHardVetoes(params: {
   // (c) colado no extremo do dia contra o lado (vender na mínima / comprar na máxima)
   if (dayRange?.contraOExtremo) {
     vetoes.push({ id: "EXTREMO_DO_DIA_CONTRA", texto: dayRange.texto });
+  }
+
+  // (e) MACD do 5m (tempo da entrada) já perdendo força NO LADO da entrada: comprar com o
+  // histograma positivo encolhendo / vender com o negativo subindo é entrar no fim do impulso.
+  // Gatilho vindo de tempo maior (ex.: MACD 15m cruzando) não compensa o 5m virando.
+  const m5 = readings.find((r) => r.tf === "5m")?.macd;
+  if (m5?.perdendoForca && m5.vies === (side === "LONG" ? "ALTA" : "BAIXA")) {
+    vetoes.push({
+      id: "MACD_5M_ESGOTANDO",
+      texto: `MACD do 5m (tempo da entrada) já perdendo força no lado ${side === "LONG" ? "da compra" : "da venda"}: o impulso está cansando, entrada no fim do movimento`,
+    });
   }
 
   // (d) o alvo não cabe antes do próximo nível

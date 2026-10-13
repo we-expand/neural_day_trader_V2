@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { calculateRoundTripCost } from '@/app/services/risk/ExecutionCost.ts';
 import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators, OverlayMode } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate, AxisTick } from 'klinecharts';
 
@@ -5271,6 +5272,9 @@ export function ChartView({
       const rewardPts = rewardPriceDiff / pointSize;
       const riskUsd = riskPriceDiff * units;
       const rewardUsd = rewardPriceDiff * units;
+      // Rótulo do alvo mostra o ganho LÍQUIDO do custo de ida e volta (mesma fonte do P&L do Dashboard).
+      const roundTripCostUsd = calculateRoundTripCost(order.symbol, order.amount, order.price).costUsd;
+      const rewardNetUsd = rewardUsd - roundTripCostUsd;
       // 🐛 FIX 2026-09-05: "pts" pra ativo cripto barato (XLMUSD, pointSize=1)
       // é a própria diferença de preço, tipicamente < 1 -- 2 casas fixas
       // arredondava pra "0.00" mesmo com distância real. Pra forex (pointSize
@@ -5404,8 +5408,8 @@ export function ChartView({
           // VERDE tracejada quando o dia está positivo, exatamente a mesma
           // cor/estilo da linha de Alvo — coladas ficavam indistinguíveis.
           const tpExtendData = isTpNearLivePrice
-            ? `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts  ·  📍 colado no preço atual`
-            : `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardUsd.toFixed(usdPrecision(rewardUsd))}  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
+            ? `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardNetUsd.toFixed(usdPrecision(rewardNetUsd))} líq.  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts  ·  📍 colado no preço atual`
+            : `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardNetUsd.toFixed(usdPrecision(rewardNetUsd))} líq.  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
           const displayTpPrice = order.tp + priceNudge + tpLivePriceNudge;
           if (tpExists) {
             chart.overrideOverlay({ id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
