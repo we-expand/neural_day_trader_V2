@@ -486,6 +486,9 @@ export const config = {
   // (null), mantem o comportamento antigo (ATR puro), nunca fabrica nivel.
   // Fator abaixo mira LOGO ANTES do nivel (nao em cima dele), pra ter mais
   // chance de preencher antes de uma rejeicao/reversao no proprio nivel.
+  // 2026-10-12: extremo do dia (SHORT na minima de 24h / LONG na maxima). DEFAULT = so SOMBRA (loga [SHADOW-EXTREMO-DIA], nao bloqueia): o Cleber quer julgamento, nao regra dura. true = bloqueia.
+  mt5DayExtremeVetoEnabled: (process.env.MT5_DAY_EXTREME_VETO_ENABLED ?? "false") === "true",
+  mt5DayExtremeVetoRangeFrac: Number(process.env.MT5_DAY_EXTREME_VETO_RANGE_FRAC ?? 0.15),
   mt5SrTargetMarginPct: Number(process.env.MT5_SR_TARGET_MARGIN_PCT ?? 0.9),
   // Se o teto de suporte/resistencia deixar o alvo com R:R pior que isto
   // (nivel real perto demais pra dar espaco decente acima do stop), a

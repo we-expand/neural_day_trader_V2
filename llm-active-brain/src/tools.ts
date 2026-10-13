@@ -1719,6 +1719,31 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           };
         }
       }
+      // 🔴 2026-10-12 (pedido do Cleber, trader de anos: "ela aperta venda na
+      // minima do dia -- toda minima do dia tem resistencia, o preco nao
+      // renova a minima na sequencia"). VETO de extremo: SHORT colado na
+      // minima das ultimas 24h (ou LONG colado na maxima) so passa com
+      // setupType="ROMPIMENTO", que ja exige fechamento de vela confirmando
+      // o rompimento (gate proprio abaixo). So RESTRINGE. "Colado" = dentro de
+      // mt5DayExtremeVetoRangeFrac do range de 24h (default 15%). Cada bloqueio
+      // loga [VETO-EXTREMO-DIA] pra medir o contrafactual depois.
+      if (dailyHighLowForTarget && setupType !== "ROMPIMENTO") {
+        const rangePct = ((dailyHighLowForTarget.dailyHigh - dailyHighLowForTarget.dailyLow) / fillPrice) * 100;
+        const distToExtremePct = side === "SHORT" ? dailyHighLowForTarget.distanceToDailyLowPct : dailyHighLowForTarget.distanceToDailyHighPct;
+        if (rangePct > 0 && distToExtremePct <= rangePct * config.mt5DayExtremeVetoRangeFrac) {
+          const extremeName = side === "SHORT" ? "minima" : "maxima";
+          if (!config.mt5DayExtremeVetoEnabled) {
+            console.log(`[SHADOW-EXTREMO-DIA] ${symbol} ${side} NAO bloqueado (modo sombra) -- ${distToExtremePct.toFixed(3)}% da ${extremeName} de 24h, preco ${fillPrice} (${new Date().toISOString()})`);
+          } else {
+          console.log(`[VETO-EXTREMO-DIA] ${symbol} ${side} bloqueado -- ${distToExtremePct.toFixed(3)}% da ${extremeName} de 24h (range ${rangePct.toFixed(3)}%), preco ${fillPrice} (${new Date().toISOString()})`);
+          return {
+            error: `BLOQUEADO (veto de extremo do dia): ${symbol} esta a ${distToExtremePct.toFixed(3)}% da ${extremeName} de 24h (range ${rangePct.toFixed(3)}%). ` +
+              `${side === "SHORT" ? "Vender na minima do dia" : "Comprar na maxima do dia"} costuma bater em ${side === "SHORT" ? "suporte" : "resistencia"} e devolver. ` +
+              `Espere o preco se afastar do extremo, ou, se for rompimento real, use setupType="ROMPIMENTO" (exige fechamento de vela confirmando).`,
+          };
+          }
+        }
+      }
       // 🔴 2026-09-16 (pedido direto do Cleber, ao vivo -- "rompeu, ótimo.
       // Espera o candle fechar, e se ele fechar acima do rompimento, pode
       // dar entrada. Antes disso, ninguém faz nada"): setupType="ROMPIMENTO"
@@ -2894,6 +2919,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           reversalRule: "padrao-candle-confirmado-v2",
           reversalConfirmation: reversalConfirmationForLog,
           dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
+          // 2026-10-12: posicao no range de 24h (0 = na minima, 1 = na maxima) e distancia ao extremo, pra medir depois se entrar colado no extremo perde.
+          dayRangePosition:
+            dailyHighLowForTarget && dailyHighLowForTarget.dailyHigh > dailyHighLowForTarget.dailyLow
+              ? Number(((fillPrice - dailyHighLowForTarget.dailyLow) / (dailyHighLowForTarget.dailyHigh - dailyHighLowForTarget.dailyLow)).toFixed(3))
+              : null,
+          dayExtremeVetoRule: config.mt5DayExtremeVetoEnabled ? `extremo-${config.mt5DayExtremeVetoRangeFrac}-v1` : `sombra-${config.mt5DayExtremeVetoRangeFrac}`,
         },
       });
       if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
