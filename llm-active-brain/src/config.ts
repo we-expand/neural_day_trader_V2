@@ -490,6 +490,10 @@ export const config = {
   // chance de preencher antes de uma rejeicao/reversao no proprio nivel.
   // 2026-10-12: extremo do dia (SHORT na minima de 24h / LONG na maxima). DEFAULT = so SOMBRA (loga [SHADOW-EXTREMO-DIA], nao bloqueia): o Cleber quer julgamento, nao regra dura. true = bloqueia.
   // 2026-10-13: trava de estocastico em extremo CONTRA o lado (SHORT em SOBREVENDIDO / LONG em SOBRECOMPRADO) vale pra todo setup, nao so REVERSAO. Pedido do Cleber. Rollback: false.
+  // 2026-10-13: scalp "poucos pontos" -- teto do ALVO em % do preco (0 = desligado). ~0,29% = ~40 pts na CHINA50. So o alvo; o stop nao muda. Pedido do Cleber.
+  mt5ScalpTargetMaxPct: Number(process.env.MT5_SCALP_TARGET_MAX_PCT ?? 0.29),
+  // R:R minimo aceito quando o alvo foi limitado pelo teto de scalp (alvo pode ficar menor que o stop).
+  mt5ScalpMinRr: Number(process.env.MT5_SCALP_MIN_RR ?? 0.6),
   mt5StochExtremeGateAllSetups: (process.env.MT5_STOCH_EXTREME_GATE_ALL_SETUPS ?? "true") !== "false",
   mt5DayExtremeVetoEnabled: (process.env.MT5_DAY_EXTREME_VETO_ENABLED ?? "false") === "true",
   mt5DayExtremeVetoRangeFrac: Number(process.env.MT5_DAY_EXTREME_VETO_RANGE_FRAC ?? 0.15),

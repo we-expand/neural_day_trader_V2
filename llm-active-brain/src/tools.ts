@@ -2661,11 +2661,30 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // problema. Checagem final, incondicional, cobre QUALQUER causa (S/R,
       // spread, ATR minusculo, fallback) -- alvo sempre >= stop *
       // mt5MinRrAfterSrCap, ou a posicao nao abre.
-      if (!isFomcBtcPlay && takeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+      // 🔴 2026-10-13 (pedido do Cleber, scalp "poucos pontos": ~40 pts na
+      // CHINA50 = ~0,29% do preco, proporcional em todos os ativos; "NAO mexa
+      // no stop, so no alvo"): com targetPoints=POUCOS o alvo (preco do
+      // take-profit) e limitado a mt5ScalpTargetMaxPct % do preco. O stop NAO
+      // muda. O LOTE acompanha o alvo menor (lote = retorno$ / alvo%): o Cleber
+      // aceitou lote maior (2026-10-13); o teto duro de risco por trade
+      // (mt5MaxRiskPctPerTrade) e os tetos de seguranca continuam limitando. Como o alvo pode
+      // ficar menor que o stop (R:R < 1), o gate de R:R minimo usa
+      // mt5ScalpMinRr nesse caso (breakeven de acerto sobe: ~1/(1+R:R)).
+      let takeProfitCappedByScalpPct = false;
+      if (!isFomcBtcPlay && session.userConfig?.targetPoints === "POUCOS" && config.mt5ScalpTargetMaxPct > 0) {
+        const scalpCapPct = config.mt5ScalpTargetMaxPct / 100;
+        if (takeProfitPct > scalpCapPct) {
+          console.log(`[ALVO-SCALP] ${symbol} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(scalpCapPct * 100).toFixed(3)}% (teto de scalp, stop ${(stopPct * 100).toFixed(3)}% intocado)`);
+          takeProfitPct = scalpCapPct;
+          takeProfitCappedByScalpPct = true;
+        }
+      }
+      const minRrForGate = takeProfitCappedByScalpPct ? Math.min(config.mt5MinRrAfterSrCap, config.mt5ScalpMinRr) : config.mt5MinRrAfterSrCap;
+      if (!isFomcBtcPlay && takeProfitPct < stopPct * minRrForGate) {
         return {
           error:
             `${symbol}: alvo calculado (${(takeProfitPct * 100).toFixed(3)}%) ficaria menor que o minimo aceitavel ` +
-            `frente ao stop real (${(stopPct * 100).toFixed(3)}%, R:R minimo exigido ${config.mt5MinRrAfterSrCap.toFixed(1)}:1) -- ` +
+            `frente ao stop real (${(stopPct * 100).toFixed(3)}%, R:R minimo exigido ${minRrForGate.toFixed(1)}:1) -- ` +
             `nao e causado por suporte/resistencia proximo, e sim pelo stop ter sido alargado (seguranca de spread) sem o alvo acompanhar. ` +
             `Posicao NAO aberta. Espere o spread normalizar ou avalie outro ativo/lado.`,
         };
