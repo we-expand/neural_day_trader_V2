@@ -138,6 +138,8 @@ export const config = {
   // ver agent.ts). LLM_ENABLE_THINKING=true mantem o raciocinio ligado --
   // teste do nemotron-3-super-120b-a12b com thinking, pedido do Cleber.
   llmEnableThinking: process.env.LLM_ENABLE_THINKING === "true",
+  // 2026-10-12: teto de tokens de resposta por chamada. Com raciocinio ligado, 4096 estourava (finish_reason=length, nenhuma ferramenta chamada em 3 de 9 ciclos no teste de 27/09).
+  llmMaxTokens: Number(process.env.LLM_MAX_TOKENS ?? 4096),
   agentPrivateKey: requireEnv("AGENT_PRIVATE_KEY") as `0x${string}`,
   rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || undefined,
   // 🔴 2026-08-29 (pedido do Cleber): cesta de hoje tem 8 ativos (5 deles

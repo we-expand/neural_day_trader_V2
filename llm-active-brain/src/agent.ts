@@ -1331,7 +1331,7 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
       // acontecer com 4096. Sem prova de melhora, com prova concreta de
       // regressao (ciclo inteiro abortado sem nenhuma decisao). Voltado pro
       // ultimo valor confirmado funcionando historicamente.
-      max_tokens: 4096,
+      max_tokens: config.llmMaxTokens,
       tools: scopedToolDefinitions(effectiveBasket),
       // 🔴 2026-08-30 (redesenho pós -$135 líquido, sessão e7eef768): "auto" ->
       // "required". Achado real, confirmado em dezenas de ocorrências no log
