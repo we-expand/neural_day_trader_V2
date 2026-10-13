@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
-import { getAtrPercent } from "./atr.js";
+import { getAtrPercent, getLatestOneMinuteCandle } from "./atr.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import { recordPlatformCommission } from "./platformCommissionLedger.js";
 
@@ -1187,7 +1187,7 @@ async function updateStopLoss(tradeId: string, newStopLoss: number): Promise<boo
  */
 export async function enforceMt5StopsAndTargets(
   sessionId: string,
-  getQuote: (symbol: string) => Promise<{ price: number; bid: number; ask: number } | null>
+  getQuote: (symbol: string) => Promise<{ price: number; bid: number; ask: number; stale?: boolean } | null>
 ): Promise<{
   closed: StopEnforcementResult[];
   breakevens: BreakevenMoveResult[];
@@ -1199,7 +1199,7 @@ export async function enforceMt5StopsAndTargets(
   const breakevens: BreakevenMoveResult[] = [];
   const trails: TrailMoveResult[] = [];
   const partials: PartialTpResult[] = [];
-  const quoteCache = new Map<string, { price: number; bid: number; ask: number } | null>();
+  const quoteCache = new Map<string, { price: number; bid: number; ask: number; stale?: boolean } | null>();
 
   for (const pos of positions) {
     // stop 0/negativo = "sem stop" (boleta manual sem SL gravava 0; SHORT com stop 0 fechava em 1s)
@@ -1233,7 +1233,33 @@ export async function enforceMt5StopsAndTargets(
     // stop/alvo/breakeven/trailing abaixo faz o spread aparecer sozinho no
     // PnL flutuante -- uma posicao recem-aberta ja mostra -spread ate o
     // preco andar o suficiente pra cobrir esse custo, igual corretora real.
-    const price = pos.side === "LONG" ? quote.bid : quote.ask;
+    let price = pos.side === "LONG" ? quote.bid : quote.ask;
+    // 🔴 2026-10-12 (achado do Cleber: UKOUSD LONG furou o stop 0,21 -- 64% do
+    // risco -- e seguiu aberta): o tick da MetaAPI ficou congelado 3h em
+    // 109,029 (acima do stop 108,92) enquanto o preco real caia a 108,71. O
+    // watchdog comparava o stop contra esse tick velho e nunca disparava.
+    // Com tick obsoleto, confere contra a ULTIMA VELA de 1m (outra rota, dado
+    // real): se a minima (LONG) / maxima (SHORT) ja cruzou o stop, fecha ao
+    // fechamento da vela. So protege o stop -- nunca abre nem fecha por alvo
+    // com dado velho.
+    if (quote.stale) {
+      const candle = await getLatestOneMinuteCandle(pos.symbol);
+      const candleAgeMs = candle ? Date.now() - candle.timestamp : Infinity;
+      if (candle && candleAgeMs < 5 * 60 * 1000) {
+        const breached = pos.side === "LONG" ? candle.low <= pos.stop_loss : candle.high >= pos.stop_loss;
+        if (breached) {
+          console.warn(
+            `[neuralBridge/mt5] 🛑 ${pos.symbol} ${pos.side}: tick OBSOLETO mas vela de 1m real cruzou o stop ` +
+              `(${pos.stop_loss}; low ${candle.low} / high ${candle.high}) -- fechando no pior entre o close da vela (${candle.close}) e o stop.`
+          );
+          price = pos.side === "LONG" ? Math.min(candle.close, pos.stop_loss) : Math.max(candle.close, pos.stop_loss);
+        }
+      } else {
+        console.warn(
+          `[neuralBridge/mt5] ⚠️ SEM PROTECAO MECANICA: ${pos.symbol} (posicao ${pos.id}) com tick obsoleto E sem vela de 1m recente -- stop nao checavel.`
+        );
+      }
+    }
     // 🔴 2026-09-10 (pedido do Cleber -- medir se a IA esta lendo a direcao
     // certa na entrada, nao so o resultado final): atualiza o maior lucro
     // flutuante (MFE) ja visto por este trade. Roda aqui porque esta funcao
