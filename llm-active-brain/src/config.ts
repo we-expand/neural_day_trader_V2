@@ -490,6 +490,40 @@ export const config = {
   // chance de preencher antes de uma rejeicao/reversao no proprio nivel.
   // 2026-10-12: extremo do dia (SHORT na minima de 24h / LONG na maxima). DEFAULT = so SOMBRA (loga [SHADOW-EXTREMO-DIA], nao bloqueia): o Cleber quer julgamento, nao regra dura. true = bloqueia.
   // 2026-10-13: trava de estocastico em extremo CONTRA o lado (SHORT em SOBREVENDIDO / LONG em SOBRECOMPRADO) vale pra todo setup, nao so REVERSAO. Pedido do Cleber. Rollback: false.
+  // ===== MESA DE OPERACOES + TESTE "SO-LLM" (2026-10-13, pedido do Cleber) =====
+  // Time de agentes (analistas de estocastico/MACD/medias, fundamentalista,
+  // noticias, sentimento, pesquisador comprador x vendedor, trader senior,
+  // equipe de risco, gestor de risco, gestor de portfolio e Agente Master) que
+  // delibera cada entrada antes de a ordem sair -- ver src/desk.ts.
+  // off = motor como sempre foi | shadow = a mesa delibera e registra, mas NAO
+  // decide | enforce = a decisao do Agente Master vale (so RESTRINGE: nunca
+  // cria entrada, so aprova ou rejeita a que o operador propos).
+  mt5DeskMode: ((): "off" | "shadow" | "enforce" => {
+    const v = String(process.env.MT5_DESK_MODE ?? "off").toLowerCase();
+    return v === "shadow" || v === "enforce" ? v : "off";
+  })(),
+  // Teste so-LLM: desliga as travas MECANICAS DE JULGAMENTO de open_position
+  // (leitura de indicador, direcao, confluencia, R:R minimo, limites de risco)
+  // e deixa a mesa decidir sozinha. Cada trava desligada loga
+  // [TRAVA-DESLIGADA] e vai pro snapshot do trade (bypassedGates), pra medir
+  // depois quais faziam falta. So vale com mt5DeskMode=enforce e NUNCA com
+  // execucao real ligada (ver open_position em tools.ts). Default false.
+  mt5LlmOnlyTest: process.env.MT5_LLM_ONLY_TEST === "true",
+  mt5DeskModel: process.env.MT5_DESK_MODEL || "", // "" = mesmo modelo do cerebro principal
+  mt5DeskEnableThinking: process.env.MT5_DESK_ENABLE_THINKING === "true",
+  mt5DeskMaxTokens: Number(process.env.MT5_DESK_MAX_TOKENS ?? 900),
+  mt5DeskTimeframes: (process.env.MT5_DESK_TIMEFRAMES ?? "5m,15m,1H,4H").split(",").map((t) => t.trim()).filter(Boolean),
+  mt5DeskDebateRounds: Number(process.env.MT5_DESK_DEBATE_ROUNDS ?? 1), // rodadas de replica comprador x vendedor (0 = so as teses de abertura)
+  mt5DeskConcurrency: Number(process.env.MT5_DESK_CONCURRENCY ?? 3), // chamadas de LLM simultaneas (limite de taxa do provedor)
+  mt5DeskCallTimeoutMs: Number(process.env.MT5_DESK_CALL_TIMEOUT_MS ?? 60_000),
+  mt5DeskTotalTimeoutMs: Number(process.env.MT5_DESK_TOTAL_TIMEOUT_MS ?? 300_000),
+  // Depois de a mesa REJEITAR um ativo+lado, novas tentativas iguais sao
+  // recusadas na hora por estes minutos (a mesa custa ~14 chamadas de LLM).
+  mt5DeskRejectCooldownMin: Number(process.env.MT5_DESK_REJECT_COOLDOWN_MIN ?? 10),
+  // A deliberacao leva 1-2 min. Se nesse tempo o preco andar mais que esta
+  // fracao da distancia do stop, a entrada e abortada (decisao tomada sobre
+  // um preco que ja nao existe).
+  mt5DeskMaxDriftFracOfStop: Number(process.env.MT5_DESK_MAX_DRIFT_FRAC_OF_STOP ?? 0.5),
   // 2026-10-13: scalp "poucos pontos" -- teto do ALVO em % do preco (0 = desligado). ~0,29% = ~40 pts na CHINA50. So o alvo; o stop nao muda. Pedido do Cleber.
   mt5ScalpTargetMaxPct: Number(process.env.MT5_SCALP_TARGET_MAX_PCT ?? 0.29),
   // R:R minimo aceito quando o alvo foi limitado pelo teto de scalp (alvo pode ficar menor que o stop).
