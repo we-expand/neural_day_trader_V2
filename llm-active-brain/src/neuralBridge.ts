@@ -1310,7 +1310,17 @@ export async function enforceMt5StopsAndTargets(
       else if (pos.take_profit != null && price >= pos.take_profit) reason = "TP";
     } else {
       if (price >= pos.stop_loss) reason = "SL";
-      else if (pos.take_profit != null && price <= pos.take_profit) reason = "TP";
+      // 🔴 2026-10-13 (pedido do Cleber, opcao B -- XETUSD SHORT: o grafico ja
+      // estava 2,6 pts abaixo da linha do alvo e a ordem ainda nao tinha
+      // fechado): o alvo da VENDA agora dispara quando o preco que o GRAFICO
+      // mostra (bid) encosta na linha, nao quando o preco de recompra (ask,
+      // bid + spread) chega la. Antes a venda so fechava depois de o grafico
+      // "passar" a linha pelo tamanho do spread. A SAIDA continua sendo paga ao
+      // preco real (ask): `price` abaixo nao muda, entao o spread segue
+      // descontado do ganho -- so o GATILHO ficou alinhado ao que se ve.
+      // Efeito: captura menos pontos por trade vencedor (~ o spread), mas o
+      // fechamento bate com a linha. Stop NAO mudou.
+      else if (pos.take_profit != null && quote.bid <= pos.take_profit) reason = "TP";
     }
     if (reason) {
       const ok = await closeMt5Position({
