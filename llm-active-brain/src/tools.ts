@@ -2015,15 +2015,26 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // de ser vetados por zona sozinha; a rede de segurança contra exaustão
       // literal em continuação (E7, %K BRUTO >=95/<=5, ver bloco abaixo)
       // continua intocada. Isolado: nenhum outro gate mudou nesta mudança.
-      if (setupType === "REVERSAO" && stochasticLabelForGate) {
+      // 🔴 2026-10-13 (pedido do Cleber, madrugada de teste: AUS200 e CHINA50
+      // SHORT abertos com estocastico 5m SOBREVENDIDO, "ela entra em
+      // sobrecompra/sobrevenda sem saber ler"): o metodo dele e estocastico em
+      // extremo CONTRA o lado nunca e entrada -- em sobrevendido nao vende (so
+      // compra depois do cruzamento pra cima), em sobrecomprado nao compra.
+      // A trava ficava restrita a REVERSAO desde 2026-09-21; agora vale pra
+      // qualquer setup (mt5StochExtremeGateAllSetups, default true). Rollback:
+      // MT5_STOCH_EXTREME_GATE_ALL_SETUPS=false. Loga [VETO-ESTOCASTICO-EXTREMO].
+      if ((setupType === "REVERSAO" || (config.mt5StochExtremeGateAllSetups && !isFomcBtcPlay)) && stochasticLabelForGate) {
         const stochasticContradictsSide = stochasticLabelForGate === contradictoryLabelForSide;
         if (stochasticContradictsSide) {
+          if (setupType !== "REVERSAO") {
+            console.log(`[VETO-ESTOCASTICO-EXTREMO] ${symbol} ${side} bloqueado -- estocastico ${stochasticLabelForGate} (setup=${setupType ?? "nenhum"}) (${new Date().toISOString()})`);
+          }
           const sourceStoch = contradictionSourceIsLongTerm ? stochasticLongTermForReversalCheck : stochasticForReversalCheck;
           const tfLabel = contradictionSourceIsLongTerm ? "1H" : String(openPositionTimeframe);
           const kDisplay = sourceStoch ? ` (k=${sourceStoch.k.toFixed(2)} em ${tfLabel})` : ` (timeframe ${tfLabel})`;
           return {
             error:
-              `${symbol}: setupType="REVERSAO" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
+              `${symbol}: setupType="${setupType ?? "nenhum"}" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
               `${stochasticLabelForGate === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
               `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
               `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}.`,

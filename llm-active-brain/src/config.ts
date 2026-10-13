@@ -489,6 +489,8 @@ export const config = {
   // Fator abaixo mira LOGO ANTES do nivel (nao em cima dele), pra ter mais
   // chance de preencher antes de uma rejeicao/reversao no proprio nivel.
   // 2026-10-12: extremo do dia (SHORT na minima de 24h / LONG na maxima). DEFAULT = so SOMBRA (loga [SHADOW-EXTREMO-DIA], nao bloqueia): o Cleber quer julgamento, nao regra dura. true = bloqueia.
+  // 2026-10-13: trava de estocastico em extremo CONTRA o lado (SHORT em SOBREVENDIDO / LONG em SOBRECOMPRADO) vale pra todo setup, nao so REVERSAO. Pedido do Cleber. Rollback: false.
+  mt5StochExtremeGateAllSetups: (process.env.MT5_STOCH_EXTREME_GATE_ALL_SETUPS ?? "true") !== "false",
   mt5DayExtremeVetoEnabled: (process.env.MT5_DAY_EXTREME_VETO_ENABLED ?? "false") === "true",
   mt5DayExtremeVetoRangeFrac: Number(process.env.MT5_DAY_EXTREME_VETO_RANGE_FRAC ?? 0.15),
   mt5SrTargetMarginPct: Number(process.env.MT5_SR_TARGET_MARGIN_PCT ?? 0.9),
