@@ -47,6 +47,11 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
   movimento só o Fibonacci mede (degraus e resistências para possível reversão).
   Com o Fibonacci desenhado, a expansão também é OPORTUNIDADE: sabendo quantos
   degraus faltam, dá para operar a favor do dia com o espaço medido.
+- Médias em expansão (Cleber): num repique de uma expansão de baixa, se o preço ROMPE a média de 9
+  não é só repique: fique alerta; a compra só vale depois desse rompimento (espelho em alta). A
+  média de 20 fica fora da base do Fibonacci; se o preço chegar nela, já saiu da expansão e o
+  ativo volta ao modo tradicional (compras voltam a fazer sentido). O placar traz a leitura
+  "Médias no 15m/1H".
 - Em expansão A FAVOR do dia, os vetos de curto prazo (estocástico em extremo, MACD
   perdendo força, mínima/máxima do dia) ficam LIBERADOS: em dia de rompimento o
   estocástico cola no extremo, o MACD oscila nos ajustes e a mínima/máxima do dia é
@@ -85,7 +90,8 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
   abre espaço para compra. Em dia de forte alta, o espelho. Sempre observar a
   reação do preço na média antes de entrar. O preço sempre volta para a média e
   oscila perto dela: essa oscilação junto da média é a hora de entrar, e por isso
-  gera mais gatilhos ao longo do dia. É uma COMBINAÇÃO: a média diz o lugar, o
+  gera mais gatilhos ao longo do dia. Quando o ativo se afasta demais da média ele tende a voltar para "pedir a bênção da média"
+  antes de continuar (para cima ou para baixo); o que ele faz ali decide o lado. É uma COMBINAÇÃO: a média diz o lugar, o
   estocástico (nova cruza a favor) confirma a hora; sem a ajuda do estocástico
   não é gatilho.
 - E. Padrão de candle a favor (engolfo, martelo, estrela cadente, torres gêmeas)
@@ -128,3 +134,22 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
 12. É scalp: o alvo é CURTO, e o alvo curto é o que justifica a entrada. Só entra
     se houver espaço livre até o próximo suporte ou resistência para o alvo caber.
 13. Stop é sagrado. A entrada é que tem de ser boa.
+
+## Estudo resumido: médias móveis e Fibonacci (pesquisa de 14/10 + nossos testes)
+
+Fontes são blogs e guias de trading, não pesquisa: valem como método a testar, não como prova.
+
+Médias (9 e 20):
+- Tendência primeiro: a 9 separada da 20 e o preço do lado certo (9 abaixo da 20 e preço abaixo = baixa). Média plana/colada = lateral: não há reentrada em média.
+- A 9 é a zona rasa, a 20 a zona funda. Entra-se DEPOIS que o preço toca a zona e rejeita (candle de rejeição ou padrão, fecha de volta do lado da tendência; volume ajuda). Tocar sem rejeição é faca caindo.
+- Stop além do extremo do recuo; alvo no topo/fundo anterior ou no degrau de Fibonacci.
+- Fecho decisivo além da 9 sem rejeição = alerta (não é só repique). Fecho além da 20 (duas velas) = o recuo falhou e a tendência acabou.
+- Preço muito esticado da média não é entrada: espere a volta à média (ou tire lucro). Só se opera contra o esticado em lateral.
+- Nosso teste (BTC/ETH/SOL, 1H, antes de custos): o 1º toque na 9 DENTRO de uma expansão continua no sentido da tendência em 69-73% das vezes (1 ATR, 12h), contra ~53% fora da expansão. Esticado 2+ ATR volta a tocar a 9 em 86-91% em 12h.
+- Pesquisa acadêmica sobre regras de média: resultados mistos; os custos de operação engolem muito do ganho em mercados eficientes.
+
+Fibonacci (extensão 0 / 61,8% / 100% / 161,8% a partir do fundo/topo rompido):
+- Uso convencional: ALVO e mapa de espaço (parcial nos degraus), não gatilho; ninguém recomenda comprar o rompimento de uma extensão sozinho. Alvo cego no 161,8% sem confluência é operar às cegas.
+- Confluência pesa mais: degrau + média + nível estrutural + tempo maior (15m e 1H).
+- Estudos de retração não acharam diferença estatística entre níveis de Fibonacci e níveis aleatórios; nosso backtest (61,8% -> 100%, cripto 1H) também não bateu o acaso. Portanto o Fibonacci MEDE o espaço; quem dá a HORA é a média + a nova cruza do estocástico.
+- Em expansão, tirar parte dos contratos perto do degrau; reforçar só depois que o preço correu a favor.

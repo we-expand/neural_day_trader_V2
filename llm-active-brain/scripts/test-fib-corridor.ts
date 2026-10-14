@@ -2,7 +2,7 @@
  * Testes do modulo de corredor de Fibonacci (src/fibCorridor.ts). Roda sem rede:
  *   npx tsx scripts/test-fib-corridor.ts
  */
-import { computeFibCorridor, describeFibCorridor, fibLevelsFromAnchors, type FibCandle } from "../src/fibCorridor.js";
+import { computeFibCorridor, describeFibCorridor, describeExpansionAverages, fibLevelsFromAnchors, type FibCandle } from "../src/fibCorridor.js";
 
 let falhas = 0;
 function ok(cond: boolean, msg: string) {
@@ -51,6 +51,17 @@ ok(computeFibCorridor(lateral, { tf: "15m" }) === null, "serie lateral nao tem c
 
 // 5) Pouca vela: devolve null sem quebrar.
 ok(computeFibCorridor(s.slice(0, 3), { tf: "15m" }) === null, "poucas velas = null");
+
+
+// 6) Médias na expansão (regra do Cleber): repique que rompe a 9 = alerta; 20 fora da base = saída da expansão.
+const baixaC = { direcao: "BAIXA" as const, pontoB: 7778.16, tf: "15m" };
+const t1 = describeExpansionAverages(baixaC, 7735, 7730, 7800); // preço 7735 > média de 9 (7730)
+ok(t1.includes("ALERTA") && t1.includes("FORA da base"), "baixa: preço acima da 9 = ALERTA e 20 acima do 0 = fora da base");
+const t2 = describeExpansionAverages(baixaC, 7720, 7730, 7800);
+ok(!t2.includes("ALERTA") && t2.includes("ainda não rompeu a 9"), "baixa: preço abaixo da 9 = sem alerta");
+const t3 = describeExpansionAverages({ direcao: "ALTA", pontoB: 100, tf: "1H" }, 98, 99, 90);
+ok(t3.includes("ALERTA") && t3.includes("FORA da base"), "alta (espelho): preço abaixo da 9 = ALERTA; 20 abaixo do 0 = fora da base");
+ok(describeExpansionAverages(baixaC, 7725, null, undefined) === "", "sem médias = texto vazio");
 
 console.log(falhas === 0 ? "\nTudo passou." : `\n${falhas} falha(s).`);
 process.exit(falhas === 0 ? 0 : 1);

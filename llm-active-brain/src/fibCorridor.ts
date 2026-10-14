@@ -147,3 +147,36 @@ export function describeFibCorridor(c: FibCorridor | null): string {
     : "todos os degraus rompidos: redesenhar em tempo maior";
   return `${c.tf}: expansão de ${c.direcao} (perna ${c.pontoA.toFixed(2)} → ${c.pontoB.toFixed(2)}; 0 em ${c.pontoB.toFixed(2)}). Degraus: ${lv}. ${prox}.`;
 }
+
+/**
+ * Leitura das MEDIAS dentro de uma expansao (Cleber, 14/10). Expansao de BAIXA: o preço nunca anda longe das médias e
+ * o repique que ROMPE a média de 9 não é só repique (a compra só vale depois desse rompimento); a média de 20 fica
+ * fora da base do Fibonacci (acima do 0): se o preço chegar nela já saiu da expansão e o ativo volta ao modo
+ * tradicional. Espelho para ALTA. Texto de fato calculado; sem opinião sobre operar.
+ */
+export function describeExpansionAverages(
+  c: Pick<FibCorridor, "direcao" | "pontoB" | "tf">,
+  price: number,
+  ema9: number | null | undefined,
+  sma20: number | null | undefined,
+): string {
+  const baixa = c.direcao === "BAIXA";
+  const partes: string[] = [];
+  if (ema9 != null && Number.isFinite(ema9)) {
+    const rompeu = baixa ? price > ema9 : price < ema9;
+    partes.push(
+      rompeu
+        ? `ALERTA: o preço ${baixa ? "rompeu para CIMA" : "rompeu para BAIXO"} a média de 9 (${ema9.toFixed(2)}) dentro da expansão de ${c.direcao}: não é só ${baixa ? "repique" : "recuo"}; a entrada ${baixa ? "de compra" : "de venda"} só vale depois desse rompimento`
+        : `preço ${baixa ? "abaixo" : "acima"} da média de 9 (${ema9.toFixed(2)}): ${baixa ? "o repique ainda não rompeu a 9" : "o recuo ainda não rompeu a 9"}; a expansão segue`,
+    );
+  }
+  if (sma20 != null && Number.isFinite(sma20)) {
+    const foraDaBase = baixa ? sma20 > c.pontoB : sma20 < c.pontoB;
+    partes.push(
+      foraDaBase
+        ? `média de 20 (${sma20.toFixed(2)}) está FORA da base do corredor (0 em ${c.pontoB.toFixed(2)}): se o preço chegar nela, já saiu da expansão e o ativo volta ao modo tradicional`
+        : `média de 20 (${sma20.toFixed(2)}) ainda está DENTRO do corredor (0 em ${c.pontoB.toFixed(2)})`,
+    );
+  }
+  return partes.length ? `Médias no ${c.tf}: ${partes.join("; ")}.` : "";
+}

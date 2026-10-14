@@ -15,6 +15,18 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-10-14] Mesa afrouxada + MODO EXPANSÃO ao vivo + notícias a cada 2 min + leitura das médias.**
+Cleber achou a IA restritiva (1 entrada em ~65 deliberações): 12 de 18 aprovações morriam no piso de valor depois do
+corte METADE. Feito: piso proporcional ao METADE, `TEMPO_MAIOR_CONTRA`/`ALVO_NAO_CABE` deixam de ser veto duro, regras
+novas do método (estocástico com estado, rompimento/expansão, notícias, médias, Fibonacci), corredor de Fibonacci 15m/1H
+(`fibCorridor.ts`), modo expansão AO VIVO (alvo no degrau; vetos de curto prazo e piso liberados a favor da expansão),
+vigia de notícias gratuito, `CONTEXTO_DO_DIA.md`, leitura das médias como gatilho D. Backtests (cripto 1H): Fibonacci
+sem vantagem sobre o acaso; toque na média de 9 em expansão continua 69-73% (o achado forte). BUG corrigido: o método
+era lido só até 4.000 caracteres. `.env` novo: risco 0.10, piso 3.6, ganho 7.0, `MT5_EXPANSION_LIVE=true`.
+**Pendente do Cleber:** commit + restart; decidir se o alerta de choque bloqueia entradas; reentrada/reforço seguem em
+sombra. Detalhe completo: [SESSAO_2026-10-14_AFROUXAMENTO_DA_MESA_E_METODO_DA_CASA.md](SESSAO_2026-10-14_AFROUXAMENTO_DA_MESA_E_METODO_DA_CASA.md).
+
+
 **[EM ANDAMENTO 2026-10-13] Mesa de Operações (14 agentes + Agente Master) e
 teste "só-LLM" (31 travas de julgamento desligadas, saídas intactas, DEMO).**
 Congelamento de 07/10 levantado pelo Cleber (perdia: -0,4R/entrada em 156).

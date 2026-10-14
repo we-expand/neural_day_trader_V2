@@ -60,6 +60,7 @@ import { logBrainActivity } from "./neuralBridge.js";
 import { randomUUID } from "node:crypto";
 import { saveDeskDecision } from "./deskStore.js";
 import { getFibLive } from "./fibLive.js";
+import { describeExpansionAverages } from "./fibCorridor.js";
 import { planExpansion } from "./expansionPlan.js";
 import { computeTargetPlan } from "./targetCalculator.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
@@ -528,11 +529,21 @@ function rebuttalSpecs(p: DeskProposal, data: MarketData, alinhamento: string, b
   ];
 }
 
+// 14/10: era 4000 e CORTAVA o metodo no meio (o arquivo passou de 8 mil caracteres). Ajustavel por MT5_DESK_METHOD_MAX_CHARS.
+const METHOD_MAX_CHARS = Math.max(4000, Number(process.env.MT5_DESK_METHOD_MAX_CHARS ?? 16000));
+let lastMethodWarnLen = 0;
 function loadMethod(): string {
   try {
     if (existsSync(METHOD_FILE)) {
       const text = readFileSync(METHOD_FILE, "utf8").trim();
-      if (text.length > 0) return text.slice(0, 4000);
+      if (text.length > 0) {
+        // nunca cortar em silencio: avisa (1x por tamanho) quando o metodo passa de 85% do limite ou e truncado
+        if (text.length > METHOD_MAX_CHARS * 0.85 && text.length !== lastMethodWarnLen) {
+          lastMethodWarnLen = text.length;
+          console.warn(`[MESA] ATENÇÃO: METODO_DA_CASA.md tem ${text.length} caracteres, limite de leitura ${METHOD_MAX_CHARS}${text.length > METHOD_MAX_CHARS ? " -- TRUNCADO: o final NÃO chega aos agentes" : " -- perto do limite"}. Enxugue o texto ou suba MT5_DESK_METHOD_MAX_CHARS.`);
+        }
+        return text.slice(0, METHOD_MAX_CHARS);
+      }
     }
   } catch {
     // cai no texto mínimo abaixo
@@ -683,10 +694,17 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
   const readings = readingsByTimeframe(data);
   // Corredor de Fibonacci (15m e 1H, metodo do Cleber): leitura calculada por codigo; nunca bloqueia a mesa se falhar.
   const fib = await safe(getFibLive(p.symbol));
+  const mediasExp = (() => {
+    const c = fib?.principal;
+    if (!c || !c.emExpansao) return "";
+    const tfAvg = data.perTf.find((t) => t.tf === c.tf)?.avg ?? data.perTf.find((t) => t.tf === "15m")?.avg;
+    return tfAvg ? describeExpansionAverages(c, p.entryPrice, tfAvg.ema9, tfAvg.sma20) : "";
+  })();
   const fibTexto = fib
-    ? `\nCORREDOR DE FIBONACCI (calculado pelo sistema a partir das velas; extensão 0 / 61,8% / 100% / 161,8%): ${fib.texto}`
+    ? `\nCORREDOR DE FIBONACCI (calculado pelo sistema a partir das velas; extensão 0 / 61,8% / 100% / 161,8%): ${fib.texto}${mediasExp ? `\n${mediasExp}` : ""}`
     : "";
-  const alinhamento = alignmentSummary(readings) + fibTexto;
+  const maLeitura = fib?.maTexto ? `\nLEITURA DAS MÉDIAS COMO GATILHO (gatilho D; calculada pelo sistema; combine com a nova cruza do estocástico a favor):\n${fib.maTexto}` : "";
+  const alinhamento = alignmentSummary(readings) + fibTexto + maLeitura;
   const head = header(p, data);
   const metodo = loadMethod();
   const { dayRange, targetRoom, barreiras } = dayAndTargetReadings(p, data);

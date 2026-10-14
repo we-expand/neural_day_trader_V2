@@ -188,3 +188,65 @@ Sem commit: `.env` (local). `SESSAO_2026-10-13_...md` já estava modificado ante
 2. Aviso na tela ao usuário (expansão forte sem causa identificada): não feito (frontend + canal de dados).
 3. Testar o corredor em índices (JPN225/NAS100); decidir se o modo expansão sai da sombra (precisa de dezenas de planos).
 4. Descoberta: o motor abriu uma sessão nova às 16h34 (`bded0510...`); consultas devem usar a sessão RUNNING atual.
+
+---
+
+# Parte 3 (noite): modo expansão ao vivo, notícias, médias e correção do limite do método
+
+## Modo expansão AO VIVO (código em `tools.ts`)
+- Com a entrada A FAVOR de uma expansão (corredor de Fibonacci rompido, degrau pela frente a >= 0,2% do preço), o alvo
+  da ordem vai em cima do PRÓXIMO DEGRAU (em vez do scalp de 0,25%); o stop continua o mesmo; o lote acompanha o alvo.
+  Travas liberadas: R:R mínimo e piso de valor. Na mesa (`deskReadings.ts`) ficam liberados, a favor da expansão, os
+  vetos de estocástico em extremo, MACD esgotando e extremo do dia. Flags: `MT5_EXPANSION_LIVE` (true),
+  `MT5_DESK_EXPANSION_RELEASES_VETOES`, `MT5_EXPANSION_MIN_TARGET_PCT`. Veto contra o corredor
+  (`MT5_DESK_FIB_CORRIDOR_VETO`) está DESLIGADO (backtest sem vantagem sobre o acaso).
+- Reentrada após stop, reforço por degrau e redução perto do degrau continuam só em SOMBRA
+  (`expansionPlan.ts`, `ledger/expansion_shadow.jsonl`, `scripts/expansion-shadow-report.ts` simula também
+  "scalp + reentrada automática").
+
+## Backtests da noite (cripto, 1H, 2 anos, antes de custos)
+- Fibonacci 61,8% -> 100%: 72-84% de acerto contra 74-77% do acaso: sem vantagem relevante.
+- Volta à média de 9 depois de esticar 2+ ATR: 86-91% em 12h (parte estrutural: a média anda até o preço).
+- 1º toque na média de 9 DENTRO de expansão: continua no sentido da tendência em 69-73% (1 ATR, 12h) contra ~53%
+  fora de expansão (viés de pavio/fechamento achado e corrigido antes de reportar). É o achado mais forte do dia:
+  o valor está na reentrada na média (gatilho D), não no degrau como alvo. Falta testar com custos e em índices.
+
+## Notícias
+- `news.ts`: cache de 3 h -> 2 min (`MT5_NEWS_CACHE_SECONDS`), idade em minutos, log só de manchete nova.
+- `newsWatch.ts`: vigia de choque em RSS gratuito (BBC, Al Jazeera, CNBC, MarketWatch, Fed, Google News), ~90 s,
+  classificação por palavra-chave (GRAVE/ALTA), manchete tratada como DADO nunca instrução, `ledger/news_shocks.jsonl`,
+  bloco "VIGIA DE NOTÍCIAS" no cabeçalho da mesa. Só informa; não bloqueia. Sem budget para API paga por enquanto.
+- `CONTEXTO_DO_DIA.md`: o Cleber escreve as notícias que acompanha (internet/rádio); a mesa lê a cada deliberação,
+  ignora se tiver mais de 2 dias (linha `DATA: AAAA-MM-DD`). Preenchido com o CPI/IA de 14/10 (relatado, não verificado).
+- Prompt do Analista de Notícias explica a causa do movimento do dia ou diz "causa desconhecida".
+- Pendente de resposta do Cleber: o alerta de choque deve BLOQUEAR entradas contra o choque por um tempo? Aviso na tela?
+
+## Médias móveis (gatilho D) e estudo resumido
+- `maTrigger.ts`: leitura calculada (15m e 1H): tendência (9 separada da 20 em >= 0,25 ATR), REJEIÇÃO na 9/20 (favorece
+  reentrada a favor), ROMPEU a 9 (alerta, não é só repique), ROMPEU a 20 (saiu da tendência), SEM_TOQUE. Entregue ao
+  placar da mesa junto do corredor de Fibonacci. `describeExpansionAverages` (fibCorridor.ts): 9 rompida e 20 fora
+  da base do corredor = expansão acabando (volta ao modo tradicional).
+- Seção "Estudo resumido: médias móveis e Fibonacci" no `METODO_DA_CASA.md` (pesquisa na internet: Fibonacci mede
+  espaço/alvo, médias dão o lugar, estocástico a hora; estudos de retração não acharam diferença para níveis aleatórios).
+- BUG achado e corrigido: o carregador do método lia só 4.000 caracteres (o arquivo já tinha 8.898), então a mesa não
+  via a metade final. Agora `MT5_DESK_METHOD_MAX_CHARS` (16.000) e aviso no log quando passa de 85% do limite.
+  Regra de manutenção: ao se aproximar do limite, ENXUGAR e reorganizar, não só subir o limite.
+
+## Horários medidos (candles reais da Infinox, 9 dias úteis)
+- Pausa diária de índices (SPX500, NAS100, JPN225): última vela 17h45 BRT, volta 19h00 BRT (18h-19h BRT = 00h-01h do
+  servidor GMT+3); sexta fecha 17h45 e reabre domingo 19h00. UKOUSD (petróleo) volta só às 21h00. A página da Infinox
+  não lista o JPN225; a fonte oficial é a "Especificação" do MT5. Medido, não oficial.
+
+## Posição manual observada (JPN225 SHORT a 66.365,10, alvo 65.763,54, sem stop registrado)
+- Leituras de 5 em 5 min das 17h56 às 18h46: preço congelado em 66.365,60 durante a pausa (-0,5 pt). O 61,8% do 1H
+  calculado pelo código (65.739) fica a ~24 pts do alvo do Cleber. Sem alertas.
+
+## Valores no `.env` (local, fora do git)
+`MT5_MAX_RISK_PCT_PER_TRADE=0.10`, `MT5_MIN_NET_REWARD_PER_REFERENCE_USD=3.6`, `MT5_TARGET_REWARD_USD=7.0`,
+`MT5_DESK_FIB_CORRIDOR_VETO=false`, `MT5_EXPANSION_LIVE=true`.
+
+## Pendências
+1. Commit dos arquivos pendentes e `./restart.sh` (o Cleber está reiniciando).
+2. Decidir: alerta de choque bloqueia entradas? aviso na tela? reentrada/reforço/redução saem da sombra?
+3. Testar o gatilho da média de 9 com custos e em índices antes de torná-lo mais agressivo.
+4. O Cleber vai alimentar mais regras: manter o método curto e legível (limite de leitura 16.000 caracteres).
