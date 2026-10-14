@@ -135,6 +135,39 @@ export async function getOneMinuteCandlesSince(
     .map((c) => ({ high: c.high, low: c.low, close: c.close, timestamp: c.timestamp }));
 }
 
+/**
+ * Velas "profundas" (300) para o corredor de Fibonacci (fibCorridor.ts): o fetch normal traz so 60,
+ * pouco para achar o topo anterior da perna. Cache proprio (15m: 2 min, 1H: 5 min), mesma trava de
+ * concorrencia da MetaAPI e mesma recusa de dado SIMULATED. Devolve null se nao houver dado real.
+ */
+const deepCandlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+export async function getDeepCandles(symbol: string, timeframe: "15m" | "1H", limit = 300): Promise<Candle[] | null> {
+  const key = `${symbol}:${timeframe}:${limit}`;
+  const ttl = timeframe === "15m" ? 2 * 60_000 : 5 * 60_000;
+  const cached = deepCandlesCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;
+  await acquireCandleSlot();
+  try {
+    const res = await fetch(`${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, timeframe, limit }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const result = (await res.json()) as Mt5CandlesResponse;
+    if (result.source === "SIMULATED") return null;
+    const candles = result.candles;
+    if (!Array.isArray(candles) || candles.length < 60) return null;
+    deepCandlesCache.set(key, { candles, fetchedAt: Date.now() });
+    return candles;
+  } catch {
+    return null;
+  } finally {
+    releaseCandleSlot();
+  }
+}
+
 export const SUPPORTED_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H"] as const;
 export type SupportedTimeframe = (typeof SUPPORTED_TIMEFRAMES)[number];
 

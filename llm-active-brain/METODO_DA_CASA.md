@@ -57,6 +57,9 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
 - Se a causa não aparece nas manchetes recebidas, dizer que a causa é
   desconhecida (nunca inventar notícia) e tratar como movimento sem explicação:
   só a favor do dia, e com mais cautela.
+- Sem causa conhecida não se sabe o tamanho do poço. Nesse caso o gráfico é a
+  única medida: rompimento de fundo (ou topo) muito expressivo = movimento
+  gigantesco; o Fibonacci mostra até onde. O usuário deve ser avisado.
 
 ## Gatilhos válidos (basta UM, com o resto não contra)
 
@@ -65,8 +68,33 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
 - C. MACD cruzando ou virando a favor, com o preço do lado certo das médias de 9 e 20.
 - D. Retomada: o preço volta a tocar a média de 9 ou 20 na direção do tempo maior
   (entrada no recuo, não no topo) e o estocástico volta a apontar a favor.
+  Detalhe (Cleber): o preço nunca anda longe das médias; depois de cair (ou subir)
+  muito ele volta a elas, e é ali que compradores e vendedores se encontram. Em
+  dia de forte queda a reentrada é na média de 9 (a de 200 já ficou para trás),
+  depois na de 20. Duas saídas: (1) o preço bate na média e volta = a queda
+  continua, é a venda; (2) o preço ROMPE a média = o dia se reajusta para cima e
+  abre espaço para compra. Em dia de forte alta, o espelho. Sempre observar a
+  reação do preço na média antes de entrar. O preço sempre volta para a média e
+  oscila perto dela: essa oscilação junto da média é a hora de entrar, e por isso
+  gera mais gatilhos ao longo do dia. É uma COMBINAÇÃO: a média diz o lugar, o
+  estocástico (nova cruza a favor) confirma a hora; sem a ajuda do estocástico
+  não é gatilho.
 - E. Padrão de candle a favor (engolfo, martelo, estrela cadente, torres gêmeas)
   num nível que importa (suporte, resistência, média).
+- F. Rompimento de degrau do Fibonacci (dia de expansão): o candle FECHA além de um
+  degrau (61,8%, 100%, 161,8%) no sentido em que o preço corre. Pode entrar a favor,
+  e o padrão de candle a favor também vale. Entra e logo protege o preço de entrada.
+  O desenho é no 15m (do topo/máxima da perna até o fundo/mínima da perna, 0 no
+  fundo rompido); quando o 15m esgota o 161,8%, vale o do 1H. O sistema calcula os
+  degraus e entrega no placar ("CORREDOR DE FIBONACCI"); não os invente.
+- G. Entrada depois do ajuste: em dia de forte movimento o preço sempre faz ajustes
+  (volta à média de 9/20); depois do ajuste, a nova cruza do estocástico a favor do
+  dia confirma a entrada.
+- Alvo em expansão: o alvo vai em cima de um degrau de Fibonacci (muito maior que o
+  scalp curto). Entre um degrau e outro é o corredor; ao chegar perto do fim de um
+  degrau, reduzir contratos. Dentro do corredor a favor, pode-se aumentar posição.
+  (O cálculo e a gestão de alvo por degrau ainda estão em desenvolvimento no
+  sistema; por ora o alvo real continua o do scalp.)
 - Tendência forte esticada (estocástico colado em sobrecompra por muito tempo):
   NÃO se compra o topo; espera-se o recuo e o gatilho D.
 

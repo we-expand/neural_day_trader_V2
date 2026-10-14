@@ -74,6 +74,14 @@ export function readStochastic(s: StochLike | null | undefined): Reading {
   const coladas = Math.abs(s.k - s.d) < STOCH_FLAT_GAP;
 
   if (s.label === "SOBREVENDIDO") {
+    // 14/10 (Cleber): nova cruza PARA BAIXO no fundo do estocastico LIBERA a venda (queda retomando no extremo,
+    // sobretudo em dia de expansao); o veto de "nunca vender em sobrevenda" so vale SEM esse novo cruzamento.
+    if (s.crossing === "CRUZOU_PARA_BAIXO") {
+      return {
+        texto: `SOBREVENDIDO (${nums}) mas o %K ACABOU DE CRUZAR PARA BAIXO do %D: NOVA cruza de venda no fundo, a queda está retomando. Venda LIBERADA por este tempo gráfico (o veto de sobrevenda não vale com cruza nova).`,
+        vies: "BAIXA", gatilho: "VENDA", contraIndica: null,
+      };
+    }
     if (s.crossing === "CRUZOU_PARA_CIMA") {
       return {
         texto: `SOBREVENDIDO (${nums}) e o %K ACABOU DE CRUZAR PARA CIMA do %D: gatilho clássico de COMPRA (fundo confirmado pelo cruzamento). Vender aqui é vender no fundo.`,
@@ -93,6 +101,13 @@ export function readStochastic(s: StochLike | null | undefined): Reading {
   }
 
   if (s.label === "SOBRECOMPRADO") {
+    // 14/10 (Cleber): nova cruza PARA CIMA no topo LIBERA a compra (alta retomando no extremo).
+    if (s.crossing === "CRUZOU_PARA_CIMA") {
+      return {
+        texto: `SOBRECOMPRADO (${nums}) mas o %K ACABOU DE CRUZAR PARA CIMA do %D: NOVA cruza de compra no topo, a alta está retomando. Compra LIBERADA por este tempo gráfico (o veto de sobrecompra não vale com cruza nova).`,
+        vies: "ALTA", gatilho: "COMPRA", contraIndica: null,
+      };
+    }
     if (s.crossing === "CRUZOU_PARA_BAIXO") {
       return {
         texto: `SOBRECOMPRADO (${nums}) e o %K ACABOU DE CRUZAR PARA BAIXO do %D: gatilho clássico de VENDA (topo confirmado pelo cruzamento). Comprar aqui é comprar no topo.`,
@@ -335,7 +350,7 @@ export function readTargetRoom(side: "LONG" | "SHORT", alvoPct: number, barreira
 }
 
 export interface HardVeto {
-  id: "ESTOCASTICO_EXTREMO_CONTRA" | "MACD_5M_ESGOTANDO" | "TEMPO_MAIOR_CONTRA" | "EXTREMO_DO_DIA_CONTRA" | "ALVO_NAO_CABE";
+  id: "ESTOCASTICO_EXTREMO_CONTRA" | "MACD_5M_ESGOTANDO" | "TEMPO_MAIOR_CONTRA" | "EXTREMO_DO_DIA_CONTRA" | "ALVO_NAO_CABE" | "CONTRA_CORREDOR_FIBONACCI";
   texto: string;
 }
 
@@ -360,8 +375,10 @@ export function computeHardVetoes(params: {
   readings: TimeframeReadings[];
   dayRange: DayRangeReading | null;
   targetRoom: TargetRoomReading;
+  /** corredor de Fibonacci principal (fibLive.ts), ou null/ausente quando nao ha expansao */
+  fibCorridor?: { tf: string; direcao: "BAIXA" | "ALTA"; emExpansao: boolean; redesenhar: boolean; proximoTexto: string } | null;
 }): HardVeto[] {
-  const { side, readings, dayRange, targetRoom } = params;
+  const { side, readings, dayRange, targetRoom, fibCorridor } = params;
   const vetoes: HardVeto[] = [];
 
   // (a) estocástico em extremo CONTRA o lado: nunca vender em sobrevenda, nunca comprar em sobrecompra
@@ -395,6 +412,19 @@ export function computeHardVetoes(params: {
     vetoes.push({
       id: "MACD_5M_ESGOTANDO",
       texto: `MACD do 5m (tempo da entrada) já perdendo força no lado ${side === "LONG" ? "da compra" : "da venda"}: o impulso está cansando, entrada no fim do movimento`,
+    });
+  }
+
+  // (f) Corredor de Fibonacci (metodo do Cleber, 14/10): dentro de uma expansao nao se opera a reversao.
+  // Flag MT5_DESK_FIB_CORRIDOR_VETO=true liga o veto; sem ela o corredor e so leitura para a mesa.
+  if (
+    process.env.MT5_DESK_FIB_CORRIDOR_VETO === "true" &&
+    fibCorridor && fibCorridor.emExpansao && !fibCorridor.redesenhar &&
+    ((fibCorridor.direcao === "BAIXA" && side === "LONG") || (fibCorridor.direcao === "ALTA" && side === "SHORT"))
+  ) {
+    vetoes.push({
+      id: "CONTRA_CORREDOR_FIBONACCI",
+      texto: `o preço está em EXPANSÃO de ${fibCorridor.direcao} no ${fibCorridor.tf} (Fibonacci): ${fibCorridor.proximoTexto}. Entrar ${side === "LONG" ? "comprando" : "vendendo"} é operar a reversão dentro do corredor`,
     });
   }
 

@@ -58,6 +58,7 @@ import { getMarketNewsBriefing } from "./news.js";
 import { logBrainActivity } from "./neuralBridge.js";
 import { randomUUID } from "node:crypto";
 import { saveDeskDecision } from "./deskStore.js";
+import { getFibLive } from "./fibLive.js";
 import { computeTargetPlan } from "./targetCalculator.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import {
@@ -656,7 +657,12 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
 
   const data = await gatherMarketData(p.symbol);
   const readings = readingsByTimeframe(data);
-  const alinhamento = alignmentSummary(readings);
+  // Corredor de Fibonacci (15m e 1H, metodo do Cleber): leitura calculada por codigo; nunca bloqueia a mesa se falhar.
+  const fib = await safe(getFibLive(p.symbol));
+  const fibTexto = fib
+    ? `\nCORREDOR DE FIBONACCI (calculado pelo sistema a partir das velas; extensão 0 / 61,8% / 100% / 161,8%): ${fib.texto}`
+    : "";
+  const alinhamento = alignmentSummary(readings) + fibTexto;
   const head = header(p, data);
   const metodo = loadMethod();
   const { dayRange, targetRoom, barreiras } = dayAndTargetReadings(p, data);
@@ -667,12 +673,23 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
       const minNet = Math.max(config.mt5MinExpectedNetRewardUsd, config.mt5MinNetRewardPerReferenceUsd * (p.balance / config.mt5ReferenceCapitalUsd));
       const plan = computeTargetPlan({ side: p.side, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, roundTripCostUsd: costUsd, minNetRewardUsd: minNet, barriers: barreiras });
       if (!existsSync(LEDGER_DIR)) mkdirSync(LEDGER_DIR, { recursive: true });
-      appendFileSync(TARGET_SHADOW_FILE, JSON.stringify({ at: new Date().toISOString(), symbol: p.symbol, side: p.side, entryPrice: p.entryPrice, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, costUsd, minNetUsd: minNet, plan }) + "\n");
+      appendFileSync(TARGET_SHADOW_FILE, JSON.stringify({ fib: fib?.texto ?? null, at: new Date().toISOString(), symbol: p.symbol, side: p.side, entryPrice: p.entryPrice, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, costUsd, minNetUsd: minNet, plan }) + "\n");
     }
   } catch (err) {
     console.warn(`[MESA] calculadora de alvo (sombra) falhou, ignorado: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const vetoes = computeHardVetoes({ side: p.side, readings, dayRange, targetRoom });
+  const fibPrincipal = fib?.principal
+    ? {
+        tf: fib.principal.tf,
+        direcao: fib.principal.direcao,
+        emExpansao: fib.principal.emExpansao,
+        redesenhar: fib.principal.redesenhar,
+        proximoTexto: fib.principal.proximoDegrau
+          ? `próximo degrau ${(fib.principal.proximoDegrau.ratio * 100).toFixed(1)}% em ${fib.principal.proximoDegrau.price.toFixed(2)} (a ${fib.principal.distanciaProximoPct!.toFixed(2)}%)`
+          : "degraus esgotados",
+      }
+    : null;
+  const vetoes = computeHardVetoes({ side: p.side, readings, dayRange, targetRoom, fibCorridor: fibPrincipal });
   const vetoesBlock = vetoes.length
     ? `VETOS DUROS ACIONADOS (calculados pelo sistema; são os ÚNICOS vetos duros que existem):\n${vetoes.map((v) => `- ${v.id}: ${v.texto}`).join("\n")}`
     : `VETOS DUROS ACIONADOS (calculados pelo sistema; são os ÚNICOS vetos duros que existem): NENHUM. Portanto não há veto duro: decida pelo conjunto e pelos gatilhos.`;

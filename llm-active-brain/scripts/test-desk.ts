@@ -1,6 +1,10 @@
 // Testes das funções puras da mesa de operações (src/deskReadings.ts).
 // Sem rede, sem .env. Uso:  npx tsx scripts/test-desk.ts
 import assert from "node:assert/strict";
+// 14/10: TEMPO_MAIOR_CONTRA e veto duro so com a flag; os testes abaixo cobrem o veto LIGADO e depois o padrao (leitura).
+process.env.MT5_DESK_HIGHER_TF_VETO = "true";
+process.env.MT5_DESK_TARGET_ROOM_VETO = "true";
+process.env.MT5_DESK_FIB_CORRIDOR_VETO = "true";
 import {
   alignmentSummary,
   extractJsonObject,
@@ -525,6 +529,42 @@ check("intervalo de confiança: com amostra pequena é largo (não vende ruído 
   const grande = wilsonInterval(600, 1000)!;
   assert.ok(grande.high - grande.low < 8, JSON.stringify(grande));
   assert.ok(grande.low < 60 && grande.high > 60);
+});
+
+check("estocástico: SOBREVENDIDO com NOVA cruza para baixo LIBERA a venda (não é mais contraIndica SHORT)", () => {
+  const r = readStochastic(stoch(12, 18, "CRUZOU_PARA_BAIXO"));
+  assert.equal(r.gatilho, "VENDA");
+  assert.equal(r.contraIndica, null);
+  assert.equal(r.vies, "BAIXA");
+});
+check("estocástico: SOBREVENDIDO sem cruza nova continua vetando a venda", () => {
+  assert.equal(readStochastic(stoch(12, 18)).contraIndica, "SHORT");
+});
+check("estocástico: SOBRECOMPRADO com NOVA cruza para cima LIBERA a compra; sem cruza continua vetando", () => {
+  const r = readStochastic(stoch(88, 82, "CRUZOU_PARA_CIMA"));
+  assert.equal(r.gatilho, "COMPRA");
+  assert.equal(r.contraIndica, null);
+  assert.equal(readStochastic(stoch(88, 92)).contraIndica, "LONG");
+});
+check("corredor de Fibonacci: veto só contra o sentido da expansão e só com a flag", () => {
+  const corredorBaixa = { tf: "1H", direcao: "BAIXA" as const, emExpansao: true, redesenhar: false, proximoTexto: "próximo degrau 61,8% em 65800" };
+  const base = { readings: [] as never[], dayRange: null, targetRoom: folga, fibCorridor: corredorBaixa };
+  assert.deepEqual(computeHardVetoes({ side: "LONG", ...base }).map((x) => x.id), ["CONTRA_CORREDOR_FIBONACCI"]);
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", ...base }), []); // a favor da expansão: sem veto
+  assert.deepEqual(computeHardVetoes({ side: "LONG", ...base, fibCorridor: { ...corredorBaixa, redesenhar: true } }), []); // degraus esgotados
+  const antes = process.env.MT5_DESK_FIB_CORRIDOR_VETO;
+  delete process.env.MT5_DESK_FIB_CORRIDOR_VETO;
+  assert.deepEqual(computeHardVetoes({ side: "LONG", ...base }), []); // sem a flag é só leitura
+  if (antes !== undefined) process.env.MT5_DESK_FIB_CORRIDOR_VETO = antes;
+});
+check("tempo maior e alvo que não cabe: SEM a flag deixam de ser veto duro (só leitura)", () => {
+  const a = process.env.MT5_DESK_HIGHER_TF_VETO, b = process.env.MT5_DESK_TARGET_ROOM_VETO;
+  delete process.env.MT5_DESK_HIGHER_TF_VETO;
+  delete process.env.MT5_DESK_TARGET_ROOM_VETO;
+  const baixa = (tf: string) => rowTf(tf, stoch(40, 50), macd(-0.5, [-0.1, -0.3, -0.5]), avg(-0.1, -0.3, 99, 100));
+  assert.deepEqual(computeHardVetoes({ side: "LONG", readings: [baixa("1H"), baixa("4H")], dayRange: null, targetRoom: folga }), []);
+  if (a !== undefined) process.env.MT5_DESK_HIGHER_TF_VETO = a;
+  if (b !== undefined) process.env.MT5_DESK_TARGET_ROOM_VETO = b;
 });
 
 console.log(`\n${passed} testes passaram.`);
