@@ -686,7 +686,7 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ symbols: [brokerSymbol] }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(20000), // 2026-10-14: 8s -> 20s (MetaAPI levando 4-14s; estourar zerava preço/variação)
     });
 
     if (!res.ok) {

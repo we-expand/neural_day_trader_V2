@@ -303,7 +303,9 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
       }),
-      signal: AbortSignal.timeout(15_000),
+      // 2026-10-14: 15s -> 30s. Medido ao vivo (NAS100 5m): a MetaAPI levou 5,7 a 14,4s por
+      // chamada; com 15s o gráfico caía no timeout de vez em quando e ficava no spinner.
+      signal: AbortSignal.timeout(30_000),
     });
 
     const result = await response.json();
