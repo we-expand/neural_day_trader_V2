@@ -58,6 +58,8 @@ import { getMarketNewsBriefing } from "./news.js";
 import { logBrainActivity } from "./neuralBridge.js";
 import { randomUUID } from "node:crypto";
 import { saveDeskDecision } from "./deskStore.js";
+import { computeTargetPlan } from "./targetCalculator.js";
+import { estimateCommissionUsd } from "./commissionModel.js";
 import {
   alignmentSummary,
   extractJsonObject,
@@ -76,6 +78,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const LEDGER_DIR = join(__dirname, "..", "ledger");
 const DECISIONS_FILE = join(LEDGER_DIR, "desk_decisions.jsonl");
 const DRY_RUN_FILE = join(LEDGER_DIR, "desk_dry_runs.jsonl");
+const TARGET_SHADOW_FILE = join(LEDGER_DIR, "target_shadow.jsonl");
 const METHOD_FILE = join(__dirname, "..", "METODO_DA_CASA.md");
 
 export interface DeskRiskFacts {
@@ -343,7 +346,7 @@ function dayAndTargetReadings(p: DeskProposal, data: MarketData) {
     );
   }
   const targetRoom = readTargetRoom(p.side, p.takeProfitPct * 100, barreiras);
-  return { dayRange, targetRoom };
+  return { dayRange, targetRoom, barreiras };
 }
 
 function levelsBlock(p: DeskProposal, data: MarketData): string {
@@ -653,7 +656,19 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
   const alinhamento = alignmentSummary(readings);
   const head = header(p, data);
   const metodo = loadMethod();
-  const { dayRange, targetRoom } = dayAndTargetReadings(p, data);
+  const { dayRange, targetRoom, barreiras } = dayAndTargetReadings(p, data);
+  // MODO SOMBRA da calculadora de alvo (targetCalculator.ts): só registra, NUNCA altera a decisão.
+  try {
+    if (!p.dryRun) {
+      const costUsd = estimateCommissionUsd(p.symbol, p.amountUsd, p.entryPrice);
+      const minNet = Math.max(config.mt5MinExpectedNetRewardUsd, config.mt5MinNetRewardPerReferenceUsd * (p.balance / config.mt5ReferenceCapitalUsd));
+      const plan = computeTargetPlan({ side: p.side, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, roundTripCostUsd: costUsd, minNetRewardUsd: minNet, barriers: barreiras });
+      if (!existsSync(LEDGER_DIR)) mkdirSync(LEDGER_DIR, { recursive: true });
+      appendFileSync(TARGET_SHADOW_FILE, JSON.stringify({ at: new Date().toISOString(), symbol: p.symbol, side: p.side, entryPrice: p.entryPrice, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, costUsd, minNetUsd: minNet, plan }) + "\n");
+    }
+  } catch (err) {
+    console.warn(`[MESA] calculadora de alvo (sombra) falhou, ignorado: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const vetoes = computeHardVetoes({ side: p.side, readings, dayRange, targetRoom });
   const vetoesBlock = vetoes.length
     ? `VETOS DUROS ACIONADOS (calculados pelo sistema; são os ÚNICOS vetos duros que existem):\n${vetoes.map((v) => `- ${v.id}: ${v.texto}`).join("\n")}`
