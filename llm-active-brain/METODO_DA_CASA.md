@@ -19,6 +19,10 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
    mercado vai. 5m diz quando entrar.
 4. Estocástico embaixo cruzando para cima é compra. Estocástico em cima
    cruzando para baixo é venda. Esse é o melhor gatilho, mas NÃO o único.
+   Por quê: depois de um cruzamento, o estocástico só vira de novo ao chegar no
+   extremo oposto; até lá o preço tende a seguir no mesmo sentido, então cada
+   cruzamento (em cima ou embaixo) é uma chance de pegar muitos pontos. Regra
+   de via geral, não engessada: sentir o mercado.
 5. O estocástico tem ESTADO: %K acima de %D = modo de compra; %K abaixo de %D =
    modo de venda. Vender com o estocástico em modo de compra (ou comprar em modo
    de venda) só depois de um NOVO cruzamento a favor do lado. Vale em todos os
@@ -29,6 +33,30 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
    que as médias estão agora.
 7. MACD: histograma encolhendo é força morrendo. Negativo subindo para zero é a
    queda cansando, não a queda ganhando força.
+
+## Rompimento de topo/fundo (sempre observar, é condição indispensável)
+
+- Antes de olhar qualquer gatilho, ver se o mercado rompeu um topo ou um fundo
+  (estrutura, mínima/máxima do dia ou de 24h, suporte/resistência). Rompeu =
+  modo expansão.
+- Em expansão, o estocástico fica colado no extremo e cruza várias vezes no
+  mesmo lado sem o preço reverter. Esses cruzamentos CONTRA a expansão não são
+  gatilho válido; são ruído. Em dia de forte queda, o cruzamento para cima
+  embaixo não é compra.
+- Em expansão não se opera a reversão: opera-se a favor do dia. Até onde vai o
+  movimento só o Fibonacci mede (degraus e resistências para possível reversão).
+  Com o Fibonacci desenhado, a expansão também é OPORTUNIDADE: sabendo quantos
+  degraus faltam, dá para operar a favor do dia com o espaço medido.
+- Não é regra engessada: sentir o mercado.
+
+## Notícias: entender o porquê do movimento (vale para qualquer ativo)
+
+- Ativo em forte alta ou queda no dia: ver nas manchetes POR QUÊ. Choque
+  geopolítico (guerra, invasão, sanção) ou macro pesado pode derrubar mercados
+  vizinhos em cadeia e até acionar circuit breaker: não se opera reversão.
+- Se a causa não aparece nas manchetes recebidas, dizer que a causa é
+  desconhecida (nunca inventar notícia) e tratar como movimento sem explicação:
+  só a favor do dia, e com mais cautela.
 
 ## Gatilhos válidos (basta UM, com o resto não contra)
 
