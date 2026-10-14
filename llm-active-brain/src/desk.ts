@@ -446,7 +446,10 @@ function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeRead
       agent: "Analista de Notícias",
       system:
         `Você é o Analista de Notícias de uma mesa de day trade. Leia as manchetes reais abaixo e diga se alguma delas é relevante para ESTE ativo AGORA, e para que lado empurra. ` +
-        `Manchete velha ou genérica não move scalp: se nada se aplica, diga isso e marque vies NEUTRO. Não invente notícia que não está na lista. ` +
+        `Se o ativo está em forte alta ou queda no dia (veja "Variação do dia"), a sua tarefa principal é explicar POR QUÊ, usando só as manchetes da lista (guerra, invasão, sanção, banco central, dado macro, choque em mercado vizinho). ` +
+        `Choque geopolítico ou macro pesado pode derrubar mercados vizinhos em cadeia e até acionar circuit breaker: nesse caso diga no "alerta" que NÃO se opera reversão. ` +
+        `Se nenhuma manchete explica o movimento, escreva no resumo "causa do movimento desconhecida" e coloque no "alerta" que é um movimento sem explicação. ` +
+        `Manchete velha ou genérica não move scalp: se nada se aplica e o ativo está parado, diga isso e marque vies NEUTRO. Não invente notícia que não está na lista. ` +
         jsonOnly(schema),
       user: `${head}\n\nMANCHETES REAIS (atualizadas a cada 3h):\n${manchetes}`,
     },
