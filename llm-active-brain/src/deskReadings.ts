@@ -378,7 +378,8 @@ export function computeHardVetoes(params: {
   const h1 = readings.find((r) => r.tf === "1H");
   const h4 = readings.find((r) => r.tf === "4H");
   if (h1 && h4 && timeframeBias(h1) === oposto && timeframeBias(h4) === oposto) {
-    vetoes.push({ id: "TEMPO_MAIOR_CONTRA", texto: `1H e 4H, os dois, apontam ${oposto} contra ${side === "LONG" ? "a compra" : "a venda"}` });
+    // 14/10: so vira veto duro com MT5_DESK_HIGHER_TF_VETO=true (pedido do Cleber: mesa rejeitava todo repique).
+    if (process.env.MT5_DESK_HIGHER_TF_VETO === "true") vetoes.push({ id: "TEMPO_MAIOR_CONTRA", texto: `1H e 4H, os dois, apontam ${oposto} contra ${side === "LONG" ? "a compra" : "a venda"}` });
   }
 
   // (c) colado no extremo do dia contra o lado (vender na mínima / comprar na máxima)
