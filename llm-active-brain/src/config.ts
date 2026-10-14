@@ -1066,7 +1066,7 @@ if (config.tradingEnabled) {
 // divergencia impossivel de passar em silencio de novo.
 const GOVERNANCE_CRITICAL_ENV_PARAMS: Array<{ envVar: string; canonical: string; motivo: string }> = [
   { envVar: "MT5_STOP_ATR_MULTIPLIER", canonical: "2.0", motivo: "decisao do llm-council 2026-09-04/05, ver CLAUDE.md" },
-  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.08", motivo: "decisao do Cleber 2026-10-13 (alvo liquido $3-4), antes 0.06" },
+  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.10", motivo: "decisao do Cleber 2026-10-14 (compensar alvo curto no contrato), antes 0.08" },
   { envVar: "MT5_TAKE_PROFIT_ATR_MULTIPLIER", canonical: "4.0", motivo: "R:R 1:2 pareado com stop 2.0x ATR, ver CLAUDE.md" },
   { envVar: "MT5_STOP_MIN_PCT", canonical: "0.003", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
   { envVar: "MT5_STOP_MAX_PCT", canonical: "0.02", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },

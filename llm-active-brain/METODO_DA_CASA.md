@@ -19,9 +19,12 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
    mercado vai. 5m diz quando entrar.
 4. Estocástico embaixo cruzando para cima é compra. Estocástico em cima
    cruzando para baixo é venda. Esse é o melhor gatilho, mas NÃO o único.
-5. Nunca se vende em sobrevenda. Nunca se compra em sobrecompra. Isso é VETO
-   contra o lado oposto; não é exigência de que o estocástico esteja em extremo.
-   Com o estocástico na zona neutra, a decisão fica com MACD, médias e candle.
+5. O estocástico tem ESTADO: %K acima de %D = modo de compra; %K abaixo de %D =
+   modo de venda. Vender com o estocástico em modo de compra (ou comprar em modo
+   de venda) só depois de um NOVO cruzamento a favor do lado. Vale em todos os
+   tempos gráficos (5m, 15m, 1H), sem exceção, e nenhum outro gatilho (C, D, E)
+   substitui isso. Além disso: nunca se vende em sobrevenda, nunca se compra em
+   sobrecompra.
 6. Direção é o que vem a seguir (a virada que está a caminho), não só o lado em
    que as médias estão agora.
 7. MACD: histograma encolhendo é força morrendo. Negativo subindo para zero é a
@@ -54,6 +57,6 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
 ## Como se opera
 
 11. Poucas entradas, mas para acertar. Entrada sem convicção não se faz.
-12. É scalp: alvo curto. Só entra se houver espaço livre até o próximo
-    suporte ou resistência para o alvo caber.
+12. É scalp: o alvo é CURTO, e o alvo curto é o que justifica a entrada. Só entra
+    se houver espaço livre até o próximo suporte ou resistência para o alvo caber.
 13. Stop é sagrado. A entrada é que tem de ser boa.
