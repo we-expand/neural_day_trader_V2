@@ -161,3 +161,47 @@ trl, verl, peft. Conclusão: nenhum resolve a leitura de estocástico/MACD; vale
   (alerta ~3 h sem aprovação, citando a proporção STOP/ALVO das rejeições); ou agentes falhando em série.
 - Rollback total: `MT5_LLM_ONLY_TEST=false` (religa as 31 travas) e/ou `MT5_DESK_MODE=off`, depois restart.
 - Com poucas entradas é sinal, não veredito. Nada aqui promete lucro.
+
+---
+
+# Adendo (13/10, tarde/noite): alvo líquido de $3–4, rótulo líquido no gráfico e veto de MACD 5m
+
+> Commit e `./restart.sh` feitos pelo Cleber depois deste adendo. Os itens 3 e 4 da seção 8 acima estão resolvidos aqui.
+
+## A. Pedido: capturar $3–4 por entrada e ajustar o rótulo do alvo
+- **Rótulo do alvo no gráfico** (`src/app/components/ChartView.tsx`): passou a mostrar o ganho **líquido** do custo de
+  ida e volta (`+$X líq.`), via `calculateRoundTripCost` (mesma fonte do P&L do Dashboard). Antes mostrava o bruto
+  (ex.: +$4,37 contra $2,75 líquido no XETUSD). Só frontend, sem restart. Não conferido no navegador.
+- **Por que $3–4 líquidos esbarravam no risco:** o lote mira ganho **bruto** de `MT5_TARGET_REWARD_USD` (era 4,0) e o custo
+  tira ~$1,3, deixando ~$2,75. Com alvo 0,35% e stop ~0,46%, ganho bruto $4 já exige arriscar ~$5,3, perto do teto de
+  6% ($6 em $100). Subir o ganho sem subir o teto faria o motor reduzir o lote ou recusar. METADE corta o ganho para ~$2.
+- **Decisão do Cleber:** subir o teto de risco e o alvo (opção 1 proposta; o assistente tinha recomendado a opção 2, manter 6%,
+  pelo critério do congelamento, e avisou que a perda por stop sobe).
+  - `MT5_MAX_RISK_PCT_PER_TRADE` 0,06 → **0,08** ($8 em $100)
+  - `MT5_TARGET_REWARD_USD` 4,0 → **5,5** (≈ $4 líquido em entrada cheia, ≈ $2 em METADE)
+  - Aplicado no `.env` (ignorado pelo git, fica só nesta máquina) **e** nos defaults de `src/config.ts`; o valor canônico do
+    aviso de governança de boot (`GOVERNANCE_CRITICAL_ENV_PARAMS`) foi atualizado para 0,08, evitando alarme falso.
+  - Perda por stop passa a ~$7–8 (76% das saídas recentes foram stop). **Sem validação**; é decisão de capital do Cleber.
+
+## B. Caso XETUSD LONG (19:22 UTC, 2511,33): a mesa entrou com o MACD virando
+- Observação do Cleber: a IA não percebeu que o MACD já estava "virando paraquedas" e a entrada tende a perder.
+- Auditoria (`ledger/desk_decisions.jsonl`): decisão APROVAR em METADE, convicção 55, gatilho **C = MACD 15m cruzou para cima**.
+  O próprio Analista de MACD escreveu que **5m e 1H estavam "perdendo força"**, mas nada no código transformava isso em
+  veto. Estocástico neutro em todos os tempos, 1H/4H sem alinhamento. Posição: preço 2508–2509, ganho máximo (MFE) $0.
+- **Causa:** gatilho de tempo maior (15m) aceito mesmo com o MACD do 5m (tempo da entrada) já cansando no lado da compra.
+- **Correção** (`src/deskReadings.ts`, `computeHardVetoes`): novo veto duro **`MACD_5M_ESGOTANDO`**, calculado por código:
+  5m com `perdendoForca` e `vies` do lado da entrada (LONG com histograma positivo encolhendo; SHORT com negativo subindo)
+  → rejeita. Não veta o lado oposto (compra cansando favorece vender). Cruzamento recente no 5m não conta como "perdendo força".
+  - Restrito ao 5m; incluir o 15m seria uma linha, mas rejeita mais.
+  - Teste novo em `scripts/test-desk.ts`; `npx tsx scripts/test-desk.ts`: **48 testes passam**; `tsc --noEmit` limpo.
+  - A posição XETUSD já aberta não é afetada (veto só vale para entradas novas).
+- **Risco do lado oposto:** o veto reduz aprovações. Critério já combinado: ~3 h sem aprovação = relaxar.
+
+## C. Estado e acompanhamento
+- Commit + restart: feitos. A partir daqui a mesa roda com o veto de MACD 5m, risco 8% e alvo bruto 5,5.
+- Ler depois de algumas dezenas de decisões medidas: `npx tsx scripts/desk-report.ts 12`. Olhar especialmente (1) se
+  as aprovadas andam a favor, (2) quantas rejeições vêm de `MACD_5M_ESGOTANDO` e o que teriam feito (contrafactual),
+  (3) se a perda média por stop ficou em ~$7–8 e o ganho líquido por alvo em ~$3–4.
+- Observação do log: XETUSD devolveu o mesmo preço várias vezes seguidas (aviso de possível feed travado, `mt5Broker`);
+  já havia proteção por vela de 1m quando o tick congela, mas vale reconferir se persistir.
+- Nada aqui promete lucro; subir o risco aumenta a perda por stop.
