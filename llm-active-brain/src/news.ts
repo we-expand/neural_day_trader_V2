@@ -36,7 +36,9 @@ export interface MarketNewsBriefing {
   headlines: NewsHeadline[];
 }
 
-const NEWS_CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3h, pedido explicito do Cleber
+// 14/10 (pedido do Cleber: "se ele ficar esperando de 3 em 3 horas, o mundo acaba em 3 horas"): era 3h, agora 2 min.
+// Ajustavel por MT5_NEWS_CACHE_SECONDS. O RSS gratuito ainda tem atraso proprio da fonte (minutos).
+const NEWS_CACHE_TTL_MS = Math.max(30, Number(process.env.MT5_NEWS_CACHE_SECONDS ?? 120)) * 1000;
 let newsCache: { fetchedAt: number; briefing: MarketNewsBriefing | null } | null = null;
 
 /**
@@ -104,6 +106,12 @@ export async function getMarketNewsBriefing(): Promise<MarketNewsBriefing | null
   }
 }
 
+/** Idade legivel da manchete: minutos ate 2h, horas depois. */
+export function ageLabel(timestamp: number): string {
+  const min = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  return min < 120 ? `${min} min` : `${Math.round(min / 60)}h`;
+}
+
 /** Formata as manchetes num bloco de texto curto pro prompt do ciclo. */
 export function formatNewsBlock(briefing: MarketNewsBriefing): string {
   if (briefing.headlines.length === 0) return "";
@@ -114,8 +122,8 @@ export function formatNewsBlock(briefing: MarketNewsBriefing): string {
     const items = byCategory[cat].slice(0, 4);
     if (items.length === 0) continue;
     const label = cat === "macro" ? "Macro/EUA" : cat === "crypto" ? "Cripto" : "Forex";
-    lines.push(`${label}: ${items.map((h) => `"${h.title}" (${h.source})`).join(" | ")}`);
+    lines.push(`${label}: ${items.map((h) => `"${h.title}" (${h.source}, há ${ageLabel(h.timestamp)})`).join(" | ")}`);
   }
   if (lines.length === 0) return "";
-  return `\n\nNotícias reais do dia (atualizado a cada 3h, contexto -- não é sinal mecânico):\n${lines.join("\n")}`;
+  return `\n\nNotícias reais (RSS, atualizadas a cada poucos minutos; contexto -- não é sinal mecânico):\n${lines.join("\n")}`;
 }

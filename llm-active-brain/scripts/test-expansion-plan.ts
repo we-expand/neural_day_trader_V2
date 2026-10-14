@@ -47,4 +47,8 @@ check("integração: corredor calculado de velas alimenta o plano", () => {
   const p = planExpansion({ side: "SHORT", entryPrice: 850, corridor: c });
   assert.equal(p.ativo, true);
 });
+check("degrau a menos que o mínimo (alvo de centavos) não ativa", () => {
+  // entrada 839 e degrau 838,2: 0,095% < 0,2%
+  assert.equal(planExpansion({ side: "SHORT", entryPrice: 839, corridor: base }).ativo, false);
+});
 console.log(`\n${n} testes passaram.`);

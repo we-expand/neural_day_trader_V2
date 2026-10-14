@@ -433,6 +433,18 @@ export function computeHardVetoes(params: {
   if (targetRoom.cabe === false && process.env.MT5_DESK_TARGET_ROOM_VETO === "true") {
     vetoes.push({ id: "ALVO_NAO_CABE", texto: targetRoom.texto });
   }
+  // MODO EXPANSAO (Cleber, 14/10): com o mercado em expansao e a entrada A FAVOR dela, os vetos de leitura de
+  // curto prazo (estocastico em extremo, MACD esgotando, extremo do dia) ficam LIBERADOS: em dia de rompimento o
+  // estocastico fica colado no extremo, o MACD oscila nos ajustes e a minima/maxima do dia e justamente o que esta
+  // sendo rompido. Nao libera o piso de valor (protecao de dinheiro, em tools.ts). Desliga com
+  // MT5_DESK_EXPANSION_RELEASES_VETOES=false.
+  const emExpansaoAFavor =
+    fibCorridor && fibCorridor.emExpansao && !fibCorridor.redesenhar &&
+    ((fibCorridor.direcao === "BAIXA" && side === "SHORT") || (fibCorridor.direcao === "ALTA" && side === "LONG"));
+  if (emExpansaoAFavor && process.env.MT5_DESK_EXPANSION_RELEASES_VETOES !== "false") {
+    const liberados = new Set<HardVeto["id"]>(["ESTOCASTICO_EXTREMO_CONTRA", "MACD_5M_ESGOTANDO", "EXTREMO_DO_DIA_CONTRA"]);
+    return vetoes.filter((v) => !liberados.has(v.id));
+  }
   return vetoes;
 }
 

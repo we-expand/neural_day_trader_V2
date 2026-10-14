@@ -567,4 +567,23 @@ check("tempo maior e alvo que não cabe: SEM a flag deixam de ser veto duro (só
   if (b !== undefined) process.env.MT5_DESK_TARGET_ROOM_VETO = b;
 });
 
+check("modo expansão: libera estocástico em extremo / MACD esgotando / extremo do dia só a favor da expansão", () => {
+  const readings = [
+    rowTf("5m", stoch(12, 18), macd(-0.1, [-0.5, -0.3, -0.1]), null),
+    rowTf("15m", stoch(10, 14), null, null),
+  ];
+  const corredor = { tf: "1H", direcao: "BAIXA" as const, emExpansao: true, redesenhar: false, proximoTexto: "x" };
+  const sem = computeHardVetoes({ side: "SHORT", readings, dayRange: null, targetRoom: folga }).map((x) => x.id);
+  assert.ok(sem.includes("ESTOCASTICO_EXTREMO_CONTRA"), `sem expansão deveria vetar: ${sem}`);
+  assert.deepEqual(computeHardVetoes({ side: "SHORT", readings, dayRange: null, targetRoom: folga, fibCorridor: corredor }), []);
+  // contra a expansão não libera nada
+  assert.ok(computeHardVetoes({ side: "LONG", readings: [rowTf("5m", stoch(88, 92), null, null)], dayRange: null, targetRoom: folga, fibCorridor: corredor }).some((x) => x.id === "ESTOCASTICO_EXTREMO_CONTRA"));
+  // degraus esgotados: não é expansão utilizável, vetos voltam
+  assert.ok(computeHardVetoes({ side: "SHORT", readings, dayRange: null, targetRoom: folga, fibCorridor: { ...corredor, redesenhar: true } }).length > 0);
+  // flag de desligamento
+  process.env.MT5_DESK_EXPANSION_RELEASES_VETOES = "false";
+  assert.ok(computeHardVetoes({ side: "SHORT", readings, dayRange: null, targetRoom: folga, fibCorridor: corredor }).length > 0);
+  delete process.env.MT5_DESK_EXPANSION_RELEASES_VETOES;
+});
+
 console.log(`\n${passed} testes passaram.`);

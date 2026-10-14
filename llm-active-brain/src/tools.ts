@@ -14,6 +14,8 @@ import { checkReasoningConsistency } from "./reasoningValidator.js";
 import { runTradingDesk, getRecentDeskRejection, rememberDeskRejection, type DeskRiskFacts } from "./desk.js";
 import { linkDeskDecisionToTrade } from "./deskStore.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
+import { getFibLive } from "./fibLive.js";
+import { planExpansion } from "./expansionPlan.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 const EXHAUSTION_VETO_SYMBOLS = new Set(["BTCUSD", "BTCXBN", "ETHUSD", "XETUSD"]);
@@ -2764,8 +2766,31 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           takeProfitCappedByScalpPct = true;
         }
       }
+      // 🔴 2026-10-14 (pedido do Cleber, MODO EXPANSAO): com o mercado em expansao (rompimento de fundo/topo, corredor de
+      // Fibonacci em fibCorridor.ts) e a entrada A FAVOR dela, a regra muda: o alvo vai em cima do PROXIMO DEGRAU de
+      // Fibonacci (nao no scalp curto), o stop continua o mesmo (bateu o stop, a IA reentra no mesmo lado) e as travas do
+      // modo tradicional que bloqueiam (R:R minimo, piso de valor) saem. O tamanho acompanha o alvo (lote = retorno$/alvo%).
+      // Desliga com MT5_EXPANSION_LIVE=false. Degrau a menos de MT5_EXPANSION_MIN_TARGET_PCT (alvo de centavos): nao ativa.
+      let expansionLive = false;
+      let expansionStepLabel: string | null = null;
+      if (!isFomcBtcPlay && process.env.MT5_EXPANSION_LIVE !== "false") {
+        try {
+          const fibNow = await getFibLive(symbol);
+          const plano = planExpansion({ side, entryPrice: quote.price, corridor: fibNow?.principal ?? null });
+          if (plano.ativo && plano.alvo) {
+            takeProfitPct = plano.alvo.distPct / 100;
+            expansionLive = true;
+            expansionStepLabel = `${(plano.alvo.ratio * 100).toFixed(1)}% (${plano.tf}) em ${plano.alvo.price.toFixed(2)}`;
+            console.log(`[MODO-EXPANSAO] ${symbol} ${side}: alvo no degrau ${expansionStepLabel} (${plano.alvo.distPct.toFixed(3)}%), stop ${(stopPct * 100).toFixed(3)}% intocado; travas de R:R e piso de valor liberadas`);
+          } else if (fibNow?.principal) {
+            console.log(`[MODO-EXPANSAO] ${symbol} ${side}: não ativado (${plano.motivo})`);
+          }
+        } catch (err) {
+          console.warn(`[MODO-EXPANSAO] falhou, segue no modo tradicional: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       const minRrForGate = takeProfitCappedByScalpPct ? Math.min(config.mt5MinRrAfterSrCap, config.mt5ScalpMinRr) : config.mt5MinRrAfterSrCap;
-      if (!isFomcBtcPlay && takeProfitPct < stopPct * minRrForGate) {
+      if (!isFomcBtcPlay && !expansionLive && takeProfitPct < stopPct * minRrForGate) {
         { const __blocked = gateResult("RR_MINIMO", {
           error:
             `${symbol}: alvo calculado (${(takeProfitPct * 100).toFixed(3)}%) ficaria menor que o minimo aceitavel ` +
@@ -2948,7 +2973,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // para arriscar $2,83. A mesa viu os numeros e aprovou mesmo assim. Agora o codigo recusa antes de
       // gastar as 16 chamadas de LLM, e de novo depois que a mesa corta o tamanho pela metade.
       const minValueCheck = (amountForCheck: number, floorFactor = 1): string | null => {
-        if (isFomcBtcPlay) return null;
+        if (isFomcBtcPlay || expansionLive) return null;
         const minNetRewardUsd = Math.max(
           config.mt5MinExpectedNetRewardUsd,
           config.mt5MinNetRewardPerReferenceUsd * (balance / config.mt5ReferenceCapitalUsd) * floorFactor
@@ -3242,6 +3267,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         stop_dinamico: !usedFallbackStop,
         stop_pct: (stopPct * 100).toFixed(3) + "%",
         take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
+        modo_expansao: expansionLive,
+        alvo_degrau_fibonacci: expansionStepLabel,
         alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
         alvo_capado_por_suporte_resistencia: takeProfitCappedBySR,
         alvo_capado_por_maxima_minima_24h: takeProfitCappedByDailyLevel,

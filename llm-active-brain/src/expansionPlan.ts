@@ -52,6 +52,8 @@ export function planExpansion(inp: ExpansionInput): ExpansionPlan {
   if (!naDirecao) return { ativo: false, motivo: "o próximo degrau já ficou para trás do preço de entrada" };
 
   const distAlvo = Math.abs(alvoPrice - e);
+  const minAlvoPct = num(process.env.MT5_EXPANSION_MIN_TARGET_PCT, 0.2);
+  if ((distAlvo / e) * 100 < minAlvoPct) return { ativo: false, motivo: `próximo degrau a ${((distAlvo / e) * 100).toFixed(3)}%, menos que o mínimo de ${minAlvoPct}% (alvo de centavos)` };
   const distInval = Math.abs(c.pontoB - e);
   if (!(distInval > 0)) return { ativo: false, motivo: "entrada colada na invalidação" };
 

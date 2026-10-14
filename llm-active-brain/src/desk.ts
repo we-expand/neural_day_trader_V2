@@ -54,7 +54,8 @@ import {
   getVolumeConfirmation,
   type SupportedTimeframe,
 } from "./atr.js";
-import { getMarketNewsBriefing } from "./news.js";
+import { getMarketNewsBriefing, ageLabel } from "./news.js";
+import { getNewsShock, formatShockBlock } from "./newsWatch.js";
 import { logBrainActivity } from "./neuralBridge.js";
 import { randomUUID } from "node:crypto";
 import { saveDeskDecision } from "./deskStore.js";
@@ -283,7 +284,7 @@ async function gatherTimeframe(symbol: string, tf: SupportedTimeframe) {
 
 async function gatherMarketData(symbol: string) {
   const tfs = deskTimeframes();
-  const [perTf, daily, regime, hmm, vix, calendar, newsWindow, news] = await Promise.all([
+  const [perTf, daily, regime, hmm, vix, calendar, newsWindow, news, shock] = await Promise.all([
     Promise.all(tfs.map((tf) => gatherTimeframe(symbol, tf))),
     safe(getDailyHighLow(symbol)),
     safe(getMarketRegime(symbol, "5m")),
@@ -292,8 +293,9 @@ async function gatherMarketData(symbol: string) {
     safe(getUsEconomicCalendar()),
     safe(getActiveHighImpactNewsWindow(config.highImpactNewsGateMinutesBefore, config.highImpactNewsGateMinutesAfter)),
     safe(getMarketNewsBriefing()),
+    safe(getNewsShock()),
   ]);
-  return { perTf, daily, regime, hmm, vix, calendar, newsWindow, news };
+  return { perTf, daily, regime, hmm, vix, calendar, newsWindow, news, shock };
 }
 type MarketData = Awaited<ReturnType<typeof gatherMarketData>>;
 
@@ -313,7 +315,26 @@ function jsonOnly(schema: string): string {
   return `Responda SOMENTE um objeto JSON válido, sem nenhum texto antes ou depois, exatamente neste formato:\n${schema}\nEscreva em português, com frases curtas. Use só fatos que estão no material recebido: se um dado não veio, diga que não veio. Nunca invente número, notícia ou padrão.`;
 }
 
+const DAY_CONTEXT_FILE = join(__dirname, "..", "CONTEXTO_DO_DIA.md");
+/** Contexto de notícias do dia escrito pelo Cleber (CONTEXTO_DO_DIA.md). Ignorado se vazio ou com mais de 2 dias. */
+function loadDayContext(): string {
+  try {
+    if (!existsSync(DAY_CONTEXT_FILE)) return "";
+    const raw = readFileSync(DAY_CONTEXT_FILE, "utf8").replace(/<!--[\s\S]*?-->/g, "").trim();
+    const m = raw.match(/^DATA:\s*(\d{4}-\d{2}-\d{2})/i);
+    if (!m) return "";
+    const ageDays = (Date.now() - Date.parse(`${m[1]}T12:00:00-03:00`)) / 86_400_000;
+    if (!Number.isFinite(ageDays) || ageDays > 2) return "";
+    const body = raw.replace(/^DATA:.*$/im, "").trim();
+    return body ? body.slice(0, 1200) : "";
+  } catch {
+    return "";
+  }
+}
+
 function header(p: DeskProposal, data: MarketData): string {
+  const dayCtx = loadDayContext();
+  const shockBlock = formatShockBlock(data.shock ?? []);
   const rr = p.stopPct > 0 ? p.takeProfitPct / p.stopPct : 0;
   return [
     `ATIVO: ${p.symbol}`,
@@ -321,6 +342,8 @@ function header(p: DeskProposal, data: MarketData): string {
     `Stop a ${pctOf(p.stopPct)} do preço | Alvo a ${pctOf(p.takeProfitPct)} | Retorno/risco ${rr.toFixed(2)}:1 | Scalp (duração esperada: minutos a ~1 hora)`,
     `Setup declarado pelo operador: ${p.setupType ?? "nenhum"}`,
     `Agora: ${nowBrt()} (Brasília)${data.regime ? ` | Sessão: ${data.regime.session}` : ""}${p.dayChangePct != null ? ` | Variação do dia: ${signed(p.dayChangePct)}%` : ""}`,
+    ...(shockBlock ? [shockBlock] : []),
+    ...(dayCtx ? [`CONTEXTO DO DIA (informado pelo operador, notícias que ele acompanha; é fato dele, use junto do gráfico):\n${dayCtx}`] : []),
   ].join("\n");
 }
 
@@ -399,7 +422,7 @@ function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeRead
     ? calendar.highImpactToday.map((e) => `${e.time} ${e.event} (real ${e.actual || "?"}, previsto ${e.forecast || "?"}, anterior ${e.previous || "?"})`).join("; ")
     : "nenhum evento de alto impacto listado para hoje";
   const manchetes = data.news?.headlines?.length
-    ? data.news.headlines.slice(0, 14).map((h) => `[${h.category}, há ${Math.max(0, Math.round((Date.now() - h.timestamp) / 3_600_000))}h] ${h.title} (${h.source})`).join("\n")
+    ? data.news.headlines.slice(0, 14).map((h) => `[${h.category}, há ${ageLabel(h.timestamp)}] ${h.title} (${h.source})`).join("\n")
     : "nenhuma manchete real disponível agora";
   const subindo = p.basketBreadth.filter((b) => b.dayChangePct > 0).length;
   const caindo = p.basketBreadth.filter((b) => b.dayChangePct < 0).length;
@@ -453,7 +476,7 @@ function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeRead
         `Se nenhuma manchete explica o movimento, escreva no resumo "causa do movimento desconhecida" e coloque no "alerta" que é um movimento sem explicação. ` +
         `Manchete velha ou genérica não move scalp: se nada se aplica e o ativo está parado, diga isso e marque vies NEUTRO. Não invente notícia que não está na lista. ` +
         jsonOnly(schema),
-      user: `${head}\n\nMANCHETES REAIS (atualizadas a cada 3h):\n${manchetes}`,
+      user: `${head}\n\nMANCHETES REAIS (RSS, atualizadas a cada poucos minutos; veja a idade de cada uma):\n${manchetes}`,
     },
     {
       key: "analista_sentimento",

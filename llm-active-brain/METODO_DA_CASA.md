@@ -47,6 +47,10 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
   movimento só o Fibonacci mede (degraus e resistências para possível reversão).
   Com o Fibonacci desenhado, a expansão também é OPORTUNIDADE: sabendo quantos
   degraus faltam, dá para operar a favor do dia com o espaço medido.
+- Em expansão A FAVOR do dia, os vetos de curto prazo (estocástico em extremo, MACD
+  perdendo força, mínima/máxima do dia) ficam LIBERADOS: em dia de rompimento o
+  estocástico cola no extremo, o MACD oscila nos ajustes e a mínima/máxima do dia é
+  justamente o que está sendo rompido. Pode entrar no meio do corredor.
 - Não é regra engessada: sentir o mercado.
 
 ## Notícias: entender o porquê do movimento (vale para qualquer ativo)
@@ -57,6 +61,11 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
 - Se a causa não aparece nas manchetes recebidas, dizer que a causa é
   desconhecida (nunca inventar notícia) e tratar como movimento sem explicação:
   só a favor do dia, e com mais cautela.
+- GRÁFICO + NOTÍCIA é o segredo: o gráfico mostra o que o preço faz, a notícia explica o
+  porquê. O "CONTEXTO DO DIA" (quando vier no cabeçalho) são as notícias que o Cleber
+  acompanha: use junto do gráfico. Choque global (pandemia, guerra) = movimento de dias,
+  não se opera o repique; dado macro/inflação azedando o mercado pode ter correção no
+  dia seguinte.
 - Sem causa conhecida não se sabe o tamanho do poço. Nesse caso o gráfico é a
   única medida: rompimento de fundo (ou topo) muito expressivo = movimento
   gigantesco; o Fibonacci mostra até onde. O usuário deve ser avisado.
@@ -87,6 +96,8 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
   O desenho é no 15m (do topo/máxima da perna até o fundo/mínima da perna, 0 no
   fundo rompido); quando o 15m esgota o 161,8%, vale o do 1H. O sistema calcula os
   degraus e entrega no placar ("CORREDOR DE FIBONACCI"); não os invente.
+  Não é preciso esperar um rompimento de degrau: pode-se entrar no MEIO do corredor,
+  a favor da expansão; o alvo é o próximo degrau ainda não rompido.
 - G. Entrada depois do ajuste: em dia de forte movimento o preço sempre faz ajustes
   (volta à média de 9/20); depois do ajuste, a nova cruza do estocástico a favor do
   dia confirma a entrada.

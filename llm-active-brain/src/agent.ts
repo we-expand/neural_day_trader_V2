@@ -104,7 +104,7 @@ houver sinal a ficar parado por cautela excessiva.
 // quando o briefing de noticias for de fato NOVO (cache de 3h em news.ts) --
 // evita gravar a mesma manchete repetida em todo ciclo (podem rodar a cada
 // 10s-poucos-minutos, bem mais frequente que a atualizacao de noticia real).
-let lastLoggedNewsFetchedAt = 0;
+const seenNewsTitles = new Set<string>();
 
 const GENESIS_PROMPT_MT5 = `
 Você é o cérebro de decisão de trading do Neural Day Trader, rodando em modo
@@ -1188,14 +1188,17 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
       const newsBriefing = await getMarketNewsBriefing();
       if (newsBriefing) {
         newsBlock = formatNewsBlock(newsBriefing);
-        if (newsBriefing.fetchedAt !== lastLoggedNewsFetchedAt && newsBriefing.headlines.length > 0) {
-          lastLoggedNewsFetchedAt = newsBriefing.fetchedAt;
+        // so registra o que e NOVO (cache curto: o mesmo fetch pode se repetir sem manchete nova)
+        const novas = newsBriefing.headlines.filter((h) => !seenNewsTitles.has(h.title));
+        if (novas.length > 0) {
+          novas.forEach((h) => seenNewsTitles.add(h.title));
+          if (seenNewsTitles.size > 500) seenNewsTitles.clear();
           logBrainActivity({
             sessionId: mt5Session.sessionId,
             userId: mt5Session.userId,
             cycle,
             type: "news",
-            message: `Leitura de noticias atualizada (${newsBriefing.headlines.length} manchetes reais).${newsBlock}`,
+            message: `Noticias novas (${novas.length} manchete(s) real(is) nova(s)).${formatNewsBlock({ ...newsBriefing, headlines: novas })}`,
             detail: { headlines: newsBriefing.headlines },
           });
         }

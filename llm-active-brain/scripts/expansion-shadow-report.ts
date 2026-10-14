@@ -10,7 +10,7 @@ if (!existsSync(file)) { console.log("sem registros ainda"); process.exit(0); }
 const rows = readFileSync(file, "utf8").trim().split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((r) => r && Date.parse(r.at) >= since);
 console.log(`${rows.length} planos de expansão registrados nas últimas ${hours}h`);
 type Out = "ALVO" | "STOP" | "ABERTO";
-const tot = { n: 0, expA: 0, expS: 0, expPct: 0, scA: 0, scS: 0, scPct: 0, reent: 0 };
+const tot = { n: 0, expA: 0, expS: 0, expPct: 0, scA: 0, scS: 0, scPct: 0, reent: 0, rpPct: 0, rpEntradas: 0 };
 for (const r of rows) {
   if (Date.now() - Date.parse(r.at) < 30 * 60_000) continue; // precisa de tempo para desenrolar
   const candles = await getDeepCandles(r.symbol, "1m", 1000);
@@ -29,11 +29,35 @@ for (const r of rows) {
   };
   const ex = roda(pl.alvo.price, pl.invalidacao.price);
   const sc = roda(short ? e * (1 - r.scalpTargetPct) : e * (1 + r.scalpTargetPct), short ? e * (1 + r.stopPct) : e * (1 - r.stopPct));
+  // SCALP COM REENTRADA AUTOMATICA (Cleber): bateu o stop curto, entra de novo no mesmo lado e segue o movimento; para no
+  // alvo, quando o preco toca o 0 do corredor (invalidacao) ou apos 3 reentradas. Soma o resultado de cada tentativa.
+  const simulaReentrada = (): { pct: number; tentativas: number } => {
+    let pct = 0, tent = 0, ini = 0, ent = e;
+    while (tent < 4 && ini < fut.length) {
+      tent++;
+      const alvo = short ? ent * (1 - r.scalpTargetPct) : ent * (1 + r.scalpTargetPct);
+      const stop = short ? ent * (1 + r.stopPct) : ent * (1 - r.stopPct);
+      let fim = -1, tipo: "ALVO" | "STOP" | "INV" | "ABERTO" = "ABERTO";
+      for (let i = ini; i < fut.length; i++) {
+        const k = fut[i];
+        if (short ? k.high >= pl.invalidacao.price : k.low <= pl.invalidacao.price) { fim = i; tipo = "INV"; break; }
+        if (short ? k.high >= stop : k.low <= stop) { fim = i; tipo = "STOP"; break; }
+        if (short ? k.low <= alvo : k.high >= alvo) { fim = i; tipo = "ALVO"; break; }
+      }
+      if (tipo === "ABERTO") { const u = fut[fut.length - 1].close; pct += ((short ? ent - u : u - ent) / ent) * 100; break; }
+      if (tipo === "ALVO") { pct += r.scalpTargetPct * 100; break; }
+      pct -= (tipo === "INV" ? Math.abs(pl.invalidacao.price - ent) / ent : r.stopPct) * 100;
+      if (tipo === "INV") break;
+      ent = stop; ini = fim + 1; // reentra no preco do stop, na barra seguinte
+    }
+    return { pct, tentativas: tent };
+  };
+  const rp = simulaReentrada();
   const reent = (pl.reentradas as number[]).filter((lvl) => fut.some((k) => (short ? k.low <= lvl : k.high >= lvl))).length;
-  tot.n++; tot.reent += reent;
+  tot.n++; tot.reent += reent; tot.rpPct += rp.pct; tot.rpEntradas += rp.tentativas;
   if (ex.out === "ALVO") tot.expA++; if (ex.out === "STOP") tot.expS++; tot.expPct += ex.pct;
   if (sc.out === "ALVO") tot.scA++; if (sc.out === "STOP") tot.scS++; tot.scPct += sc.pct;
-  console.log(`${r.at.slice(11, 16)}Z ${r.symbol} ${r.side} | expansão: ${ex.out} ${ex.pct.toFixed(2)}% (R:R ${pl.rr.toFixed(2)}, ${reent}/${pl.reentradas.length} reentradas atingidas) | scalp: ${sc.out} ${sc.pct.toFixed(2)}%`);
+  console.log(`${r.at.slice(11, 16)}Z ${r.symbol} ${r.side} | expansão: ${ex.out} ${ex.pct.toFixed(2)}% (R:R ${pl.rr.toFixed(2)}, ${reent}/${pl.reentradas.length} reentradas atingidas) | scalp: ${sc.out} ${sc.pct.toFixed(2)}% | scalp+reentrada auto: ${rp.pct.toFixed(2)}% em ${rp.tentativas} tentativa(s)`);
 }
-console.log(`\nmedidos: ${tot.n} | EXPANSÃO alvo ${tot.expA} / stop ${tot.expS}, soma ${tot.expPct.toFixed(2)}% | SCALP alvo ${tot.scA} / stop ${tot.scS}, soma ${tot.scPct.toFixed(2)}% | reentradas atingidas: ${tot.reent}`);
+console.log(`\nmedidos: ${tot.n} | EXPANSÃO alvo ${tot.expA} / stop ${tot.expS}, soma ${tot.expPct.toFixed(2)}% | SCALP alvo ${tot.scA} / stop ${tot.scS}, soma ${tot.scPct.toFixed(2)}% | SCALP+REENTRADA AUTO soma ${tot.rpPct.toFixed(2)}% em ${tot.rpEntradas} entradas | reentradas planejadas atingidas: ${tot.reent}`);
 console.log("Amostra pequena não decide nada: o backtest de 14/10 não achou vantagem sobre o acaso. Só vale olhar com dezenas de planos.");
