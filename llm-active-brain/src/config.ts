@@ -541,7 +541,7 @@ export const config = {
   // um preco que ja nao existe).
   mt5DeskMaxDriftFracOfStop: Number(process.env.MT5_DESK_MAX_DRIFT_FRAC_OF_STOP ?? 0.5),
   // 2026-10-13: scalp "poucos pontos" -- teto do ALVO em % do preco (0 = desligado). ~0,29% = ~40 pts na CHINA50. So o alvo; o stop nao muda. Pedido do Cleber.
-  mt5ScalpTargetMaxPct: Number(process.env.MT5_SCALP_TARGET_MAX_PCT ?? 0.29),
+  mt5ScalpTargetMaxPct: Number(process.env.MT5_SCALP_TARGET_MAX_PCT ?? 0.25),
   // R:R minimo aceito quando o alvo foi limitado pelo teto de scalp (alvo pode ficar menor que o stop).
   mt5ScalpMinRr: Number(process.env.MT5_SCALP_MIN_RR ?? 0.6),
   mt5StochExtremeGateAllSetups: (process.env.MT5_STOCH_EXTREME_GATE_ALL_SETUPS ?? "true") !== "false",
