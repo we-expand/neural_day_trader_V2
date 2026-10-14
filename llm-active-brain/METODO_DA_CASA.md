@@ -84,7 +84,8 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
 
 ## Como se opera
 
-11. Poucas entradas, mas para acertar. Entrada sem convicção não se faz.
+11. Entre sempre que tiver convicção, não importando o número de entradas
+    diárias, mas com certeza! Entre para matar! Sem convicção não se entra.
 12. É scalp: o alvo é CURTO, e o alvo curto é o que justifica a entrada. Só entra
     se houver espaço livre até o próximo suporte ou resistência para o alvo caber.
 13. Stop é sagrado. A entrada é que tem de ser boa.
