@@ -2947,11 +2947,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 13/10 o NAS100 LONG foi aprovado com alvo de 0,143% e stop de 0,463% (R:R 0,31:1): ganho de $0,87
       // para arriscar $2,83. A mesa viu os numeros e aprovou mesmo assim. Agora o codigo recusa antes de
       // gastar as 16 chamadas de LLM, e de novo depois que a mesa corta o tamanho pela metade.
-      const minValueCheck = (amountForCheck: number): string | null => {
+      const minValueCheck = (amountForCheck: number, floorFactor = 1): string | null => {
         if (isFomcBtcPlay) return null;
         const minNetRewardUsd = Math.max(
           config.mt5MinExpectedNetRewardUsd,
-          config.mt5MinNetRewardPerReferenceUsd * (balance / config.mt5ReferenceCapitalUsd)
+          config.mt5MinNetRewardPerReferenceUsd * (balance / config.mt5ReferenceCapitalUsd) * floorFactor
         );
         const rrNow = stopPct > 0 ? takeProfitPct / stopPct : 0;
         if (deskMode !== "off" && rrNow < config.mt5MinRrAbsolute) {
@@ -3083,7 +3083,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             amountUsd = lots * LOT_SIZE[symbol] * quote.price;
             actualRiskUsd = amountUsd * stopPct;
             // Metade do tamanho = metade do ganho: o piso de valor vale de novo com o tamanho final.
-            const minValueAfterHalf = minValueCheck(amountUsd);
+            const minValueAfterHalf = minValueCheck(amountUsd, desk.sizeFactor);
             if (minValueAfterHalf) {
               console.log(`[PISO-DE-VALOR] ${symbol} ${side} aprovado pela mesa com METADE, mas recusado depois do corte: ${minValueAfterHalf.slice(0, 200)}`);
               return { error: `A mesa aprovou com METADE do tamanho, mas com a metade ${minValueAfterHalf}` };

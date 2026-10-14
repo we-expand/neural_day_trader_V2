@@ -398,7 +398,8 @@ export function computeHardVetoes(params: {
   }
 
   // (d) o alvo não cabe antes do próximo nível
-  if (targetRoom.cabe === false) {
+  // 14/10: deixou de ser veto duro (pedido do Cleber, mesa rejeitava tudo); segue como leitura pra mesa.
+  if (targetRoom.cabe === false && process.env.MT5_DESK_TARGET_ROOM_VETO === "true") {
     vetoes.push({ id: "ALVO_NAO_CABE", texto: targetRoom.texto });
   }
   return vetoes;
