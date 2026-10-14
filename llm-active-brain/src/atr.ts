@@ -119,6 +119,22 @@ export async function getLatestOneMinuteCandle(
   return { high: last.high, low: last.low, close: last.close, timestamp: last.timestamp };
 }
 
+/**
+ * Velas de 1m reais cujo inicio e posterior a `sinceMs` (a vela que contem o
+ * instante da entrada fica de fora: parte da sua faixa e anterior a posicao).
+ * Usada pelo watchdog para ver pavio que cruza o alvo entre dois ticks.
+ */
+export async function getOneMinuteCandlesSince(
+  symbol: string,
+  sinceMs: number
+): Promise<Array<{ high: number; low: number; close: number; timestamp: number }>> {
+  const candles = await fetchRecentCandles(symbol, "1m");
+  if (!candles) return [];
+  return candles
+    .filter((c) => c.timestamp > sinceMs && [c.high, c.low, c.close].every((v) => Number.isFinite(v) && v > 0))
+    .map((c) => ({ high: c.high, low: c.low, close: c.close, timestamp: c.timestamp }));
+}
+
 export const SUPPORTED_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H"] as const;
 export type SupportedTimeframe = (typeof SUPPORTED_TIMEFRAMES)[number];
 

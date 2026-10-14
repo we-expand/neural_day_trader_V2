@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
-import { getAtrPercent, getLatestOneMinuteCandle } from "./atr.js";
+import { getAtrPercent, getLatestOneMinuteCandle, getOneMinuteCandlesSince } from "./atr.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import { recordPlatformCommission } from "./platformCommissionLedger.js";
 
@@ -1327,7 +1327,40 @@ export async function enforceMt5StopsAndTargets(
       // fechamento bate com a linha. Stop NAO mudou.
       else if (pos.take_profit != null && quote.bid <= pos.take_profit) reason = "TP";
     }
+    // 🔴 2026-10-14 (pedido do Cleber, XETUSD LONG: o grafico mostrou pavio ate
+    // 2520,51 com alvo em 2518,30 e a posicao so fechou minutos depois): o tick
+    // e pontual, um pavio que cruza o alvo entre dois ticks nao era visto. Se o
+    // tick nao disparou nada, confere as velas de 1m reais desde a entrada: se a
+    // maxima (LONG) / minima (SHORT) cruzou o alvo, fecha como TP NO PRECO DO
+    // ALVO (nunca num preco melhor que o exibido ao usuario). Se a mesma janela
+    // tambem cruzou o stop atual, a ordem dos dois e desconhecida: nao decide
+    // por vela (fica com a checagem de tick, que ja trata o stop primeiro).
+    let tpFillPrice: number | null = null;
+    if (!reason && pos.take_profit != null && pos.take_profit > 0) {
+      try {
+        const entryMs = new Date(pos.entry_time).getTime();
+        const candles = Number.isFinite(entryMs) ? await getOneMinuteCandlesSince(pos.symbol, entryMs) : [];
+        if (candles.length > 0) {
+          const hiTp = pos.side === "LONG"
+            ? Math.max(...candles.map((c) => c.high)) >= pos.take_profit
+            : Math.min(...candles.map((c) => c.low)) <= pos.take_profit;
+          const hitStop = pos.side === "LONG"
+            ? Math.min(...candles.map((c) => c.low)) <= pos.stop_loss
+            : Math.max(...candles.map((c) => c.high)) >= pos.stop_loss;
+          if (hiTp && !hitStop) {
+            reason = "TP";
+            tpFillPrice = pos.take_profit;
+            console.warn(
+              `[neuralBridge/mt5] 🎯 ${pos.symbol} ${pos.side}: vela de 1m real cruzou o alvo ${pos.take_profit} entre ticks -- fechando no preco do alvo.`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn(`[neuralBridge/mt5] checagem de alvo por vela falhou (${pos.symbol}):`, (e as Error)?.message ?? e);
+      }
+    }
     if (reason) {
+      if (tpFillPrice != null) price = tpFillPrice;
       const ok = await closeMt5Position({
         tradeId: pos.id,
         exitPrice: price,

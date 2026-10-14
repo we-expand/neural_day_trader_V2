@@ -519,6 +519,11 @@ export const config = {
   // 1) retorno/risco abaixo deste valor e recusado (precisaria acertar ~2 de cada 3 so pra empatar).
   mt5MinRrAbsolute: Number(process.env.MT5_MIN_RR_ABSOLUTE ?? 0.5),
   // 2) ganho LIQUIDO esperado no alvo (depois de tamanho, teto de risco, METADE e custo) abaixo disto e recusado.
+  // 2026-10-14 (pedido do Cleber): piso de ganho LIQUIDO por operacao proporcional ao caixa
+  // -- no minimo US$3 liquidos para cada US$100 em caixa (3%). O alvo bruto de referencia
+  // (mt5TargetRewardUsd) tambem escala com o caixa na mesma proporcao.
+  mt5ReferenceCapitalUsd: Number(process.env.MT5_REFERENCE_CAPITAL_USD ?? 100),
+  mt5MinNetRewardPerReferenceUsd: Number(process.env.MT5_MIN_NET_REWARD_PER_REFERENCE_USD ?? 3.0),
   mt5MinExpectedNetRewardUsd: Number(process.env.MT5_MIN_EXPECTED_NET_REWARD_USD ?? 1.0),
   mt5DeskModel: process.env.MT5_DESK_MODEL || "", // "" = mesmo modelo do cerebro principal
   mt5DeskEnableThinking: process.env.MT5_DESK_ENABLE_THINKING === "true",

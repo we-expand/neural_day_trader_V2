@@ -2829,7 +2829,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // em dólar (mt5TargetRewardUsd, ver config.ts) como alvo primário, não
       // mais só risco-% fixo -- lots = alvo_retorno_usd / (takeProfitPct *
       // LOT_SIZE * preço). "forte" escala este alvo de retorno.
-      const targetRewardUsd = config.mt5TargetRewardUsd * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      const targetRewardUsd = config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
       const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
       // 🔴 2026-09-16 (pedido direto do Cleber): jogada FOMC_BTC_PLAY usa
       // sizing por EXPOSIÇÃO NOTIONAL (10% do patrimônio), não por retorno-
@@ -2948,9 +2948,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // para arriscar $2,83. A mesa viu os numeros e aprovou mesmo assim. Agora o codigo recusa antes de
       // gastar as 16 chamadas de LLM, e de novo depois que a mesa corta o tamanho pela metade.
       const minValueCheck = (amountForCheck: number): string | null => {
-        if (deskMode === "off" || isFomcBtcPlay) return null;
+        if (isFomcBtcPlay) return null;
+        const minNetRewardUsd = Math.max(
+          config.mt5MinExpectedNetRewardUsd,
+          config.mt5MinNetRewardPerReferenceUsd * (balance / config.mt5ReferenceCapitalUsd)
+        );
         const rrNow = stopPct > 0 ? takeProfitPct / stopPct : 0;
-        if (rrNow < config.mt5MinRrAbsolute) {
+        if (deskMode !== "off" && rrNow < config.mt5MinRrAbsolute) {
           return (
             `${symbol}: retorno/risco de ${rrNow.toFixed(2)}:1 (alvo ${(takeProfitPct * 100).toFixed(3)}% contra stop ${(stopPct * 100).toFixed(3)}%) esta abaixo do piso de ` +
             `${config.mt5MinRrAbsolute.toFixed(1)}:1: precisaria acertar ${((stopPct / (stopPct + takeProfitPct)) * 100).toFixed(0)}% das vezes so pra empatar. Posicao NAO aberta -- ` +
@@ -2960,10 +2964,10 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const grossReward = amountForCheck * takeProfitPct;
         const roundTripCost = estimateCommissionUsd(symbol, amountForCheck, fillPrice);
         const netReward = grossReward - roundTripCost;
-        if (netReward < config.mt5MinExpectedNetRewardUsd) {
+        if (netReward < minNetRewardUsd) {
           return (
             `${symbol}: o ganho LIQUIDO esperado no alvo seria so $${netReward.toFixed(2)} (bruto $${grossReward.toFixed(2)} menos custo $${roundTripCost.toFixed(2)}), ` +
-            `abaixo do minimo de $${config.mt5MinExpectedNetRewardUsd.toFixed(2)} -- o risco de $${(amountForCheck * stopPct).toFixed(2)} nao compensa. Posicao NAO aberta. ` +
+            `abaixo do minimo de $${minNetRewardUsd.toFixed(2)} (US$${config.mt5MinNetRewardPerReferenceUsd} liquidos por US$${config.mt5ReferenceCapitalUsd} em caixa, proporcional ao saldo de $${balance.toFixed(2)}) -- o risco de $${(amountForCheck * stopPct).toFixed(2)} nao compensa. Posicao NAO aberta. ` +
             `Espere uma entrada com espaco pro alvo ou avalie outro ativo/lado.`
           );
         }
