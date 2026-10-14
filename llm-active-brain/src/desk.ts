@@ -59,6 +59,7 @@ import { logBrainActivity } from "./neuralBridge.js";
 import { randomUUID } from "node:crypto";
 import { saveDeskDecision } from "./deskStore.js";
 import { getFibLive } from "./fibLive.js";
+import { planExpansion } from "./expansionPlan.js";
 import { computeTargetPlan } from "./targetCalculator.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import {
@@ -689,6 +690,22 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
           : "degraus esgotados",
       }
     : null;
+  // MODO SOMBRA do modo expansão (expansionPlan.ts): só registra o que faria, NUNCA altera a decisão nem a ordem.
+  try {
+    if (!p.dryRun && fib?.principal) {
+      const plano = planExpansion({ side: p.side, entryPrice: p.entryPrice, corridor: fib.principal });
+      if (plano.ativo) {
+        if (!existsSync(LEDGER_DIR)) mkdirSync(LEDGER_DIR, { recursive: true });
+        appendFileSync(
+          join(LEDGER_DIR, "expansion_shadow.jsonl"),
+          JSON.stringify({ at: new Date().toISOString(), symbol: p.symbol, side: p.side, entryPrice: p.entryPrice, stopPct: p.stopPct, scalpTargetPct: p.takeProfitPct, plano }) + "\n",
+        );
+        console.log(`[EXPANSAO-SOMBRA] ${p.symbol} ${p.side}: ${plano.motivo}; alvo ${plano.alvo!.price.toFixed(2)} (${plano.alvo!.distPct.toFixed(2)}%), invalidação ${plano.invalidacao!.price.toFixed(2)} (${plano.invalidacao!.distPct.toFixed(2)}%), R:R ${plano.rr!.toFixed(2)}, ${plano.reentradas!.length} reentrada(s) planejada(s)`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[MESA] plano de expansão (sombra) falhou, ignorado: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const vetoes = computeHardVetoes({ side: p.side, readings, dayRange, targetRoom, fibCorridor: fibPrincipal });
   const vetoesBlock = vetoes.length
     ? `VETOS DUROS ACIONADOS (calculados pelo sistema; são os ÚNICOS vetos duros que existem):\n${vetoes.map((v) => `- ${v.id}: ${v.texto}`).join("\n")}`

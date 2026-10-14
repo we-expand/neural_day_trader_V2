@@ -143,3 +143,48 @@ Sem commit: `.env` (local). `SESSAO_2026-10-13_...md` já estava modificado ante
   `.env`. Congelamento de 07/10 já havia sido levantado por ele.
 - Regra do projeto mantida: nada commitado nem reiniciado sem pedido; commits e restart
   executados pelo Cleber.
+
+---
+
+# Parte 2 (tarde/noite): corredor de Fibonacci, testes e modo expansão em sombra
+
+## Regras novas do Cleber (todas em `METODO_DA_CASA.md`)
+- Estocástico tem estado; nova cruza no extremo LIBERA a entrada (agora também no código: `readStochastic`).
+- Rompimento de topo/fundo = modo expansão: não se opera reversão; cruzamentos contra a expansão são ruído.
+- Notícias: entender o porquê do movimento; sem causa conhecida o gráfico é a única medida; avisar o usuário.
+- Gatilhos F (rompimento de degrau do Fibonacci com fechamento de candle, entra e protege), G (entrada após o ajuste
+  com nova cruza) e D ampliado (média de 9/20 como lugar, estocástico como hora; "é combinação").
+- Regra 11: "Entre sempre que tiver convicção... Entre para matar!"; regra 12: alvo curto no scalp.
+- Prompt do Analista de Notícias (`desk.ts`) agora explica a causa do movimento do dia ou diz "causa desconhecida".
+
+## Fibonacci (código)
+- `src/fibCorridor.ts`: perna = máxima da perna (A) até a mínima da perna (B = menor mínimo seguido de repique
+  >= 30% da perna); 0 em B; degraus 61,8% / 100% / 161,8% de extensão (espelho para alta).
+- `src/fibLive.ts` + `getDeepCandles` (atr.ts): 15m (janela 96) e 1H (janela 72), 15m vale até esgotar, depois 1H.
+- Conferência com o desenho do Cleber no JPN225 1H: B=67.107 (dele ~67.113), 61,8% em 65.739 (dele 65.803, ~0,1%).
+- Entregue à mesa como "CORREDOR DE FIBONACCI" no placar. Veto `CONTRA_CORREDOR_FIBONACCI` implementado mas
+  **desligado** (`MT5_DESK_FIB_CORRIDOR_VETO=false`) após os backtests.
+
+## Backtests (Binance 1H, 2 anos, BTC/ETH/SOL, sem look-ahead) -- `scripts/fib-backtest*.ts`
+- Teste 1: após fechar além do 61,8%, o preço toca o 100% em 48h em 87-91% (queda) contra 81-83% do acaso.
+- Teste 2 (com invalidação no 0): alvo antes da invalidação 72-84% contra 74-77% do passeio aleatório; média em R
+  perto de zero, antes de custos. Conclusão: o corredor é um bom MAPA, mas NÃO mostrou vantagem estatística
+  relevante sobre o acaso. Limites: cripto (não índices), perna por regra (não pelo olho do Cleber), sem custos.
+
+## Modo expansão (sombra)
+- `src/expansionPlan.ts`: alvo no próximo degrau, invalidação no 0, reentradas a cada 0,15% (máx. 3), proteção no
+  preço de entrada após a 1ª reentrada, redução de 50% aos 90% do caminho. Só registra
+  (`ledger/expansion_shadow.jsonl`, log `[EXPANSAO-SOMBRA]`); NUNCA altera decisão nem ordem.
+- `scripts/expansion-shadow-report.ts` compara, com velas de 1m, o plano de expansão contra o scalp proposto.
+- Env opcionais: `MT5_EXPANSION_SPACING_PCT`, `MT5_EXPANSION_MAX_REENTRIES`, `MT5_EXPANSION_REDUCE_AT`,
+  `MT5_EXPANSION_REDUCE_FRACTION`.
+
+## Posição manual observada (JPN225 SHORT)
+- 17h52 BRT, entrada 66.365,10, alvo 65.763,54 (sem stop registrado); leitura das 18h01: preço 66.365,60 (empate).
+  O 61,8% do 1H calculado pelo código (65.739) fica a ~24 pts do alvo do Cleber.
+
+## Pendências
+1. `./restart.sh` (Fibonacci, regra de cruza, plano de expansão em sombra) e commit dos arquivos novos.
+2. Aviso na tela ao usuário (expansão forte sem causa identificada): não feito (frontend + canal de dados).
+3. Testar o corredor em índices (JPN225/NAS100); decidir se o modo expansão sai da sombra (precisa de dezenas de planos).
+4. Descoberta: o motor abriu uma sessão nova às 16h34 (`bded0510...`); consultas devem usar a sessão RUNNING atual.

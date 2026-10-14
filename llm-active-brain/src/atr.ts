@@ -141,9 +141,9 @@ export async function getOneMinuteCandlesSince(
  * concorrencia da MetaAPI e mesma recusa de dado SIMULATED. Devolve null se nao houver dado real.
  */
 const deepCandlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
-export async function getDeepCandles(symbol: string, timeframe: "15m" | "1H", limit = 300): Promise<Candle[] | null> {
+export async function getDeepCandles(symbol: string, timeframe: "1m" | "15m" | "1H", limit = 300): Promise<Candle[] | null> {
   const key = `${symbol}:${timeframe}:${limit}`;
-  const ttl = timeframe === "15m" ? 2 * 60_000 : 5 * 60_000;
+  const ttl = timeframe === "1m" ? 30_000 : timeframe === "15m" ? 2 * 60_000 : 5 * 60_000;
   const cached = deepCandlesCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;
   await acquireCandleSlot();
