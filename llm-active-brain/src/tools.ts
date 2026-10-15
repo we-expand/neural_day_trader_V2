@@ -15,6 +15,7 @@ import { runTradingDesk, getRecentDeskRejection, rememberDeskRejection, type Des
 import { linkDeskDecisionToTrade } from "./deskStore.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import { getFibLive } from "./fibLive.js";
+import { getRiskScale } from "./riskScaler.js";
 import { planExpansion } from "./expansionPlan.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
@@ -2904,7 +2905,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // em dólar (mt5TargetRewardUsd, ver config.ts) como alvo primário, não
       // mais só risco-% fixo -- lots = alvo_retorno_usd / (takeProfitPct *
       // LOT_SIZE * preço). "forte" escala este alvo de retorno.
-      const targetRewardUsd = config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1);
+      // 🔴 2026-10-15: escalonador automático de risco (riskScaler.ts). Desligado => 1.0x
+      // (nada muda). Ligado => escala PARA BAIXO o alvo de exposição a partir do tamanho de
+      // hoje enquanto o E[R] real não se prova positivo; o teto duro de risco continua por cima.
+      const riskScale = await getRiskScale();
+      const targetRewardUsd = config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1) * riskScale.scale;
       const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
       // 🔴 2026-09-16 (pedido direto do Cleber): jogada FOMC_BTC_PLAY usa
       // sizing por EXPOSIÇÃO NOTIONAL (10% do patrimônio), não por retorno-
@@ -3752,8 +3757,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const weekendCompensatedRiskPct = isWeekendMode()
         ? baseRiskPct * config.mt5RiskPctPerTradeWeekendMultiplier
         : baseRiskPct;
+      // 🔴 2026-10-15: mesmo escalonador do open_position -- reforço também opera menor
+      // enquanto o E[R] não se prova. Desligado => 1.0x.
+      const pyramidRiskScale = (await getRiskScale()).scale;
       const stopDistancePct = Math.abs(fillPrice - position.stop_loss) / fillPrice;
-      const riskUsd = balance * weekendCompensatedRiskPct;
+      const riskUsd = balance * weekendCompensatedRiskPct * pyramidRiskScale;
       let lots = stopDistancePct > 0 ? riskUsd / stopDistancePct / (LOT_SIZE[position.symbol] * fillPrice) : 0;
       lots = Math.min(lots, config.mt5SafetyMaxLots);
       if (session.userConfig?.maxLotsPerTrade != null) lots = Math.min(lots, session.userConfig.maxLotsPerTrade);

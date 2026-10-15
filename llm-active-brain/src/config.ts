@@ -278,6 +278,14 @@ export const config = {
   // máxima por trade perdedor sobe pra ~6% do saldo (numa conta de $100, até
   // ~$6 por trade).
   mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.08),
+  // 🔴 2026-10-15: escalonador automático de risco (src/riskScaler.ts). DESLIGADO
+  // por padrão -- ligado, escala PARA BAIXO o ALVO de exposição (nunca o teto duro
+  // mt5MaxRiskPctPerTrade acima) a partir do tamanho de hoje: começa em 0,25x e só
+  // sobe de degrau quando o E[R] líquido real das entradas fechadas recentes prova
+  // estar positivo (limite inferior do IC95 > 0). Cai pro piso se a amostra disser
+  // que está perdendo. É "alavancar o que puder" sem apostar a conta num edge não
+  // provado. Rollback: MT5_RISK_SCALER=false (ou omitir).
+  mt5RiskScalerEnabled: String(process.env.MT5_RISK_SCALER ?? "false").toLowerCase() === "true",
   // Teto absoluto de segurança em lotes (sanity check contra valor
   // degenerado, ex: preço anormalmente baixo fazendo o cálculo explodir) --
   // não é o valor normal de operação, é só uma trava de última instância.
