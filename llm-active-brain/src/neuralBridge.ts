@@ -1359,6 +1359,45 @@ export async function enforceMt5StopsAndTargets(
         console.warn(`[neuralBridge/mt5] checagem de alvo por vela falhou (${pos.symbol}):`, (e as Error)?.message ?? e);
       }
     }
+    // 🔴 2026-10-15 (Cleber: "o pavio varou o stop e o stop nao foi acionado -- o que eu vejo no grafico tem que ser
+    // identico ao banco: encostou na linha, aciona"): ate aqui o STOP so era conferido contra o tick pontual (a
+    // cada ~5 s) e, com tick congelado, contra a ultima vela. Um pavio que cruza o stop ENTRE dois ticks e recua
+    // nunca era visto -- o mesmo buraco que o alvo ja tinha fechado em 14/10. Medido em 15/10 com velas de 5m
+    // arquivadas: de 206 posicoes com stop original intacto, 69 tiveram vela cruzando o stop e 12 NAO fecharam
+    // por SL (ex.: NAS100 SHORT 01/10, UKOUSD LONG 12/10). Agora: se o tick nao disparou nada, confere as velas de 1m
+    // reais. Stop ORIGINAL intacto (nem breakeven, nem trailing, nem parcial, nem reforco): janela inteira desde a
+    // entrada. Stop que ja se moveu: so as velas dos ultimos 90 s, porque nao ha registro de QUANDO ele se moveu e
+    // uma vela antiga podia estar do lado "certo" do stop de entao. Fecha NO PRECO DO STOP (a linha que o usuario
+    // ve), como o alvo -- nunca num preco melhor que o exibido. Se a mesma janela cruzou o alvo tambem, vale o
+    // stop (ordem desconhecida = caso pior).
+    if (!reason) {
+      try {
+        const entryMs = new Date(pos.entry_time).getTime();
+        const odist = pos.original_stop_distance;
+        const stopIntact =
+          odist != null && odist > 0 &&
+          Math.abs(Math.abs(pos.entry_price - pos.stop_loss) - odist) <= odist * 0.001 &&
+          !(pos.pyramid_adds_count > 0) && !pos.partial_tp_taken;
+        const since = Number.isFinite(entryMs)
+          ? (stopIntact ? entryMs : Math.max(entryMs, Date.now() - 90_000))
+          : Date.now() - 90_000;
+        const candles = await getOneMinuteCandlesSince(pos.symbol, since);
+        const stopLevel = pos.stop_loss; // ja validado > 0 no topo do laco
+        const crossed = pos.side === "LONG"
+          ? candles.some((c) => c.low <= stopLevel)
+          : candles.some((c) => c.high >= stopLevel);
+        if (crossed) {
+          reason = "SL";
+          tpFillPrice = stopLevel;
+          console.warn(
+            `[neuralBridge/mt5] 🛑 ${pos.symbol} ${pos.side}: vela de 1m real cruzou o stop ${pos.stop_loss} entre ticks ` +
+              `(${stopIntact ? "janela desde a entrada" : "ultimos 90s, stop ja movido"}) -- fechando no preco do stop.`
+          );
+        }
+      } catch (e) {
+        console.warn(`[neuralBridge/mt5] checagem de stop por vela falhou (${pos.symbol}):`, (e as Error)?.message ?? e);
+      }
+    }
     if (reason) {
       if (tpFillPrice != null) price = tpFillPrice;
       const ok = await closeMt5Position({

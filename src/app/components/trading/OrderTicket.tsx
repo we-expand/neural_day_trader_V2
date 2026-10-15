@@ -21,6 +21,7 @@ import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlert
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
 import { computePriceMagnitudePnl, type PendingOrderVisual } from '../../hooks/useApexLogic';
 import { calculateRoundTripCost } from '../../services/risk/ExecutionCost';
+import { evaluateManualOrder, readStochastics, logGuardDecision, type GuardFinding } from '../../services/risk/manualOrderGuard';
 
 type Side = 'BUY' | 'SELL';
 type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
@@ -72,7 +73,7 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, orderHistory, aiConfig, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setOpenPositionStop, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
 
   // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
@@ -166,6 +167,62 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     }
     return Array.from(bySymbol.entries()).map(([sym, count]) => ({ symbol: sym, count }));
   }, [activeOrders, symbol]);
+
+  // 🆕 2026-10-15: stop numa posição JÁ aberta (a linha desenhada no gráfico não é ordem -- ver setOpenPositionStop).
+  const [stopEditId, setStopEditId] = useState<string | null>(null);
+  const [stopEditText, setStopEditText] = useState('');
+
+  function startStopEdit(posId: string, currentSl: number, slIsReal?: boolean) {
+    setStopEditId(posId);
+    setStopEditText(slIsReal && currentSl > 0 ? String(currentSl) : '');
+  }
+
+  function saveStopEdit(posId: string) {
+    if (currentPrice == null) {
+      toast.error('Aguardando preço do ativo…');
+      return;
+    }
+    const value = Number(stopEditText.replace(',', '.'));
+    const result = setOpenPositionStop(posId, value, currentPrice);
+    if (result.success) {
+      toast.success('Stop definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor passa a executá-lo` });
+      setStopEditId(null);
+    } else {
+      toast.error('Stop recusado', { description: result.error });
+    }
+  }
+
+  function renderStopControl(pos: (typeof symbolPositions)[number]) {
+    if (pos.brokerPositionId) return null; // posição real: stop é da corretora
+    if (stopEditId === pos.id) {
+      return (
+        <span className="flex items-center gap-1">
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={stopEditText}
+            onChange={(e) => setStopEditText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveStopEdit(pos.id); if (e.key === 'Escape') setStopEditId(null); }}
+            placeholder={pos.side === 'SHORT' ? 'acima do preço' : 'abaixo do preço'}
+            className="w-20 rounded bg-white/10 px-1 py-0.5 text-[9px] font-mono text-white outline-none"
+          />
+          <button type="button" onClick={() => saveStopEdit(pos.id)} className="text-[9px] font-bold px-1.5 py-1 rounded bg-amber-600 text-white hover:bg-amber-500">OK</button>
+        </span>
+      );
+    }
+    const hasStop = pos.slIsReal && pos.sl > 0;
+    return (
+      <button
+        type="button"
+        onClick={() => startStopEdit(pos.id, pos.sl, pos.slIsReal)}
+        className={`text-[9px] font-bold px-2 py-1 rounded transition-colors ${hasStop ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'}`}
+        title={hasStop ? `Stop em ${formatPrice(pos.sl, symbol)} — clique para mover` : 'Posição SEM stop — clique para definir'}
+      >
+        {hasStop ? 'Stop ✓' : 'Sem stop'}
+      </button>
+    );
+  }
 
   async function handleClosePosition(tradeId: string, brokerPositionId?: string | null) {
     if (brokerPositionId) {
@@ -382,7 +439,68 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     setStopLimitPrice('');
   }
 
-  async function executeOrder(side: Side) {
+  // 🆕 2026-10-15 — guarda-costas (ver services/risk/manualOrderGuard.ts):
+  // alertas pendentes de confirmação do usuário. null = nenhum aberto.
+  const [guardPrompt, setGuardPrompt] = useState<{ side: Side; findings: GuardFinding[] } | null>(null);
+
+  function guardLogBase(side: Side) {
+    return {
+      symbol,
+      side: (side === 'BUY' ? 'LONG' : 'SHORT') as 'LONG' | 'SHORT',
+      orderType,
+      executionMode,
+      entryPrice: isPending || isStopLimit ? triggerNum : (currentPrice ?? 0),
+      stopLoss: slSet ? slNum : undefined,
+      takeProfit: tpSet ? tpNum : undefined,
+      volume,
+    };
+  }
+
+  async function runGuard(side: Side): Promise<GuardFinding[]> {
+    const entryPrice = isPending || isStopLimit ? triggerNum : (currentPrice as number);
+    // P&L realizado hoje no fuso de Brasília (sem horário de verão desde 2019).
+    const todayBrt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const dayStartMs = new Date(`${todayBrt}T00:00:00-03:00`).getTime();
+    const dailyPnl = orderHistory
+      .filter((t) => t.closedAt && t.closedAt >= dayStartMs)
+      .reduce((acc, t) => acc + (t.currentProfit || 0), 0);
+    const notional = asset ? volume * asset.lotSize * entryPrice : 0;
+    const costUsd = asset && entryPrice > 0 ? calculateRoundTripCost(symbol, notional, entryPrice).costUsd : 0;
+    const grossRewardUsd = tpSet ? computePriceMagnitudePnl(Math.abs(tpNum - entryPrice), volume, asset, contractSpec, executionMode) : null;
+    const stoch = await readStochastics(symbol);
+    return evaluateManualOrder({
+      symbol,
+      side: side === 'BUY' ? 'LONG' : 'SHORT',
+      entryPrice,
+      stopLoss: slSet ? slNum : undefined,
+      takeProfit: tpSet ? tpNum : undefined,
+      riskPercent,
+      maxRiskPercent: aiConfig.riskPerTrade,
+      costUsd,
+      grossRewardUsd,
+      balance: portfolio.balance,
+      dailyPnl,
+      dailyLossLimitPct: aiConfig.dailyLossLimit,
+      openPositions: activeOrders.map((o) => ({ symbol: o.symbol, side: o.side })),
+      stoch: stoch.readings,
+      stochUnavailable: stoch.unavailable,
+      now: new Date(),
+    });
+  }
+
+  function cancelGuardPrompt() {
+    if (guardPrompt) void logGuardDecision({ ...guardLogBase(guardPrompt.side), findings: guardPrompt.findings, decision: 'CANCELADA' });
+    setGuardPrompt(null);
+  }
+
+  function confirmGuardPrompt() {
+    if (!guardPrompt) return;
+    const { side, findings } = guardPrompt;
+    setGuardPrompt(null);
+    void executeOrder(side, { confirmedFindings: findings });
+  }
+
+  async function executeOrder(side: Side, opts?: { confirmedFindings?: GuardFinding[] }) {
     // Log explícito de diagnóstico — fica permanente (não é debug temporário):
     // é a única forma de saber, olhando o console, se o clique realmente
     // chegou até aqui e por que parou, sem precisar reproduzir o bug de novo.
@@ -404,6 +522,32 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
       console.warn('[OrderTicket] executeOrder recusado por direção inválida', direction.error);
       toast.error('Ordem recusada', { description: direction.error });
       return;
+    }
+
+    // 🆕 2026-10-15 — guarda-costas: na 1ª passada confere a ordem; com
+    // bloqueio ela não sai, com alerta só sai depois da 2ª confirmação
+    // (confirmGuardPrompt chama executeOrder de novo com os alertas aceitos).
+    if (!opts?.confirmedFindings) {
+      setSubmitting(side);
+      let findings: GuardFinding[];
+      try {
+        findings = await runGuard(side);
+      } finally {
+        setSubmitting(null);
+      }
+      const blocks = findings.filter((f) => f.severity === 'BLOQUEIO');
+      if (blocks.length) {
+        void logGuardDecision({ ...guardLogBase(side), findings, decision: 'BLOQUEADA' });
+        toast.error('Ordem bloqueada pelo guarda-costas', { description: blocks.map((b) => b.text).join(' ') });
+        return;
+      }
+      if (findings.length) {
+        setGuardPrompt({ side, findings });
+        return;
+      }
+      void logGuardDecision({ ...guardLogBase(side), findings, decision: 'ENVIADA_LIMPA' });
+    } else {
+      void logGuardDecision({ ...guardLogBase(side), findings: opts.confirmedFindings, decision: 'ENVIADA_COM_ALERTA' });
     }
 
     setSubmitting(side);
@@ -537,6 +681,39 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
 
   const priceLabel = currentPrice != null ? formatPrice(currentPrice, symbol) : '----.--';
 
+  // 🆕 2026-10-15 — confirmação do guarda-costas. Fica DENTRO da árvore da
+  // boleta (fixed, não portal) pra o clique nela não contar como "clique fora"
+  // e recolher a ficha expandida (ver handlePointerDown acima).
+  const guardPanel = guardPrompt && (
+    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 px-4" data-testid="manual-order-guard">
+      <div className="w-full max-w-sm rounded-xl border border-amber-500/40 bg-slate-950 p-4 shadow-2xl">
+        <div className="mb-2 flex items-center gap-2 text-amber-300">
+          <ShieldAlert className="h-4 w-4" />
+          <span className="text-sm font-black">Guarda-costas: confira antes de enviar</span>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">
+          {guardPrompt.side === 'BUY' ? 'Compra' : 'Venda'} de {volume} lote(s) em {symbol}. Esta ordem fura {guardPrompt.findings.length === 1 ? 'uma regra' : `${guardPrompt.findings.length} regras`}:
+        </p>
+        <ul className="mb-4 space-y-2">
+          {guardPrompt.findings.map((f) => (
+            <li key={f.id} className="flex items-start gap-2 text-xs text-slate-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <span>{f.text}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={cancelGuardPrompt} className="h-10 rounded-lg bg-white/10 text-xs font-bold text-white hover:bg-white/20">
+            Cancelar
+          </button>
+          <button type="button" onClick={confirmGuardPrompt} className="h-10 rounded-lg bg-amber-600 text-xs font-bold text-white hover:bg-amber-500">
+            Enviar mesmo assim
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   // ─────────────────────────── Modo recolhido ───────────────────────────
   if (!expanded) {
     return (
@@ -646,17 +823,21 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                 )}
                 <AnimatedPnl value={pnl} className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
               </div>
-              <button
-                type="button"
-                onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}
-                disabled={(currentPrice == null && !pos.brokerPositionId) || closingTradeId === pos.id}
-                className="text-[9px] font-bold px-2 py-1 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                {closingTradeId === pos.id ? 'Fechando...' : 'Fechar'}
-              </button>
+              <div className="flex items-center gap-1">
+                {renderStopControl(pos)}
+                <button
+                  type="button"
+                  onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}
+                  disabled={(currentPrice == null && !pos.brokerPositionId) || closingTradeId === pos.id}
+                  className="text-[9px] font-bold px-2 py-1 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {closingTradeId === pos.id ? 'Fechando...' : 'Fechar'}
+                </button>
+              </div>
             </div>
           );
         })}
+        {guardPanel}
       </div>
     );
   }
@@ -952,6 +1133,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         </div>
       </div>
       </div>
+      {guardPanel}
     </div>
   );
 }

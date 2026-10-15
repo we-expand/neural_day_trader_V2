@@ -15,6 +15,12 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-10-15] 5 ideias executadas, NENHUMA vantagem nova.** Motor de backtest sem futuro + cofre
+(`llm-active-brain/scripts/lib/harness.ts`, canária barra vazamento); momento intradiário (Gao et al. 2018) sem efeito em
+S&P/Nasdaq/DAX/Nikkei; reversão do Nikkei reprovada no cofre; spread por hora medido (índices 8-10x mais caros
+17h-21h BRT, alts de cripto 0,3-11%); guarda-costas na boleta manual (migration `20261015_manual_order_guard_log.sql`
+pendente). IA desde 01/09: 572 entradas, -$374, todas as semanas negativas. Detalhe: Parte 5 da sessão de 14/10.
+
 **[EM ANDAMENTO 2026-10-14] Mesa afrouxada + MODO EXPANSÃO ao vivo + notícias a cada 2 min + leitura das médias.**
 Cleber achou a IA restritiva (1 entrada em ~65 deliberações): 12 de 18 aprovações morriam no piso de valor depois do
 corte METADE. Feito: piso proporcional ao METADE, `TEMPO_MAIOR_CONTRA`/`ALVO_NAO_CABE` deixam de ser veto duro, regras

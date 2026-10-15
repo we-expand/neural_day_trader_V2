@@ -270,3 +270,86 @@ embutem o fechamento dela (olhar o futuro). Com o nível da vela anterior (o que
 Com o vazamento, a mesma conta dava 69-75% e E[R] positivo — era o artefato. Conclusão: **o toque na média de 9 em
 expansão NÃO tem vantagem**, nem antes nem depois do custo. `METODO_DA_CASA.md` e `CLAUDE.md` corrigidos (só o número;
 nenhuma regra mudou). O `ma-touch-backtest.ts` original tem o mesmo vazamento — não usar o número dele.
+
+---
+
+# Parte 5 (15/10): as 5 ideias fora da caixa
+
+## Registro de hipótese ANTES de abrir o cofre (15/10, escrito antes de rodar)
+No período de pesquisa (Yahoo 1H, ~out/2024 a abr/2026), o momento intradiário do estudo (Gao et al., 2018) NÃO
+apareceu em S&P, Nasdaq e DAX. No Nikkei apareceu o CONTRÁRIO, forte: seguir o sinal "noite + 1ª hora" na última
+meia hora deu 39% de acerto, -0,042%/operação líquido, t = -4,7 (2024, 2025 e 2026 todos negativos).
+**Hipótese D (achada olhando os dados, por isso precisa do cofre):** no Nikkei, operar a última meia hora (15:00-15:30
+JST) CONTRA o sinal "noite + 1ª hora" dá resultado líquido positivo. Critério de aprovação no cofre (últimos 6 meses,
+aberto uma única vez): média líquida > 0 com t > 2. Segunda checagem obrigatória: repetir no CFD JPN225 da Infinox
+(velas de 5m do ohlcv_data), porque o efeito pode ser do leilão de fechamento do índice à vista e não existir no CFD.
+
+**Resultado do cofre (aberto 1 vez, registrado em `llm-active-brain/ledger/cofre_aberturas.jsonl`):** hipótese D
+REPROVADA. Cofre (118 pregões): média líquida -0,000%, t = -0,03, 43% positivas. Na pesquisa a versão D dava só
++0,012% (t = 1,3); o t = -4,7 do sinal A vinha em boa parte do custo cobrado contra ele. Checagem no CFD dispensada.
+
+## Ideia 2 — momento intradiário (Gao, Han, Li e Zhou, 2018): NÃO funciona aqui
+`scripts/intraday-momentum.ts`, Yahoo 1H, última meia hora, custo = spread mediano real da Infinox + 0,005%.
+Período de pesquisa (~350-370 pregões por índice):
+
+| Índice | A noite+1ª hora | B só 1ª hora | C controle (sempre compra) |
+|---|---|---|---|
+| S&P 500 | -0,022% (t -1,8) | -0,013% (t -1,1) | -0,007% (t -0,5) |
+| Nasdaq 100 | -0,011% (t -0,7) | +0,007% (t 0,5) | +0,010% (t 0,7) |
+| DAX | -0,006% (t -0,6) | -0,028% (t -2,9) | -0,005% (t -0,6) |
+| Nikkei | -0,042% (t -4,7) | -0,046% (t -5,1) | -0,014% (t -1,5) |
+
+Nenhuma variante tem resultado líquido positivo e estável. O efeito publicado não aparece em 2024-2026 nestes índices.
+
+## Ideia 4 — motor de backtest sem futuro + cofre (`llm-active-brain/scripts/lib/harness.ts`)
+- A estratégia só decide com as velas fechadas; a CANÁRIA compara cada decisão com e sem o futuro e recusa rodar se
+  mudar. Provado: `scripts/harness-ma-touch.ts --com-vazamento` (o erro de 14/10) é barrado; sem o vazamento refaz o
+  resultado corrigido (sem vantagem).
+- Execução conservadora (stop antes do alvo na mesma vela, gap de stop sai na abertura, limite só se a vela tocar).
+- Cofre: últimos 6 meses fora da pesquisa; abre só com `ABRIR_COFRE=1`; cada abertura fica registrada e repetir avisa.
+- Dados reais: Binance (cripto) e Yahoo (índices), cache local em `.cache/` (fora do git).
+
+## Ideia 3 — custo por hora (Infinox, `market_spread_samples`, 05-15/10, dias úteis, mediana do spread)
+- Baratos o dia todo: NAS100 0,003%, XAUUSD 0,004%, SPX500 0,006%, EURUSD 0,009%, JPN225 0,010%.
+- Caros o dia todo: BTCUSD 0,067%, XETUSD 0,103%, UKOUSD 0,106% (20 a 35x o NAS100).
+- Proibitivos: alts de cripto 0,3% a 11% (DOTUSD 7,4%, FILUSD 11,2%, AVAUSD 5,3%, ADAUSD 2,7%, XRPUSD 1,5%).
+- Janela cara 17h-21h BRT (virada do dia do servidor): GER40 0,004% → 0,033% (8x), UK100 0,008% → 0,075% (10x),
+  AUS200 0,018% → 0,111% (6x), HKG33 2x, JPN225 2-3x às 18-19h, EURUSD 2,7x às 18h, SPX500 2,5x às 18h.
+- Conta que importa: com alvo de scalp de 0,25%, o spread come 1% do alvo no NAS100 e ~40% no XETUSD/UKOUSD.
+
+## Ideia 5 — as entradas manuais têm vantagem? (ai_trades, consolidado por entrada, desde 01/09)
+- Manuais (`is_test_data = false`): 29 entradas, 7 ganhos, -$433 no total, dominado pela semana de 21/09 (-$458).
+  Sem essa semana: 19 entradas, +$25. Amostra pequena demais para dizer qualquer coisa.
+- IA (`is_test_data = true`): 572 entradas, ~37% de ganhos, -$374, resultado médio entre -0,08R e -0,50R por
+  entrada em TODAS as 7 semanas.
+- O diário do Cleber (`diario-do-cleber.jsonl`) tem 13 linhas. Para responder a pergunta é preciso o raciocínio e o
+  desfecho de ~100 entradas manuais: o guarda-costas (ideia 1) passa a gravar isso automaticamente.
+
+## Ideia 1 — guarda-costas da boleta manual
+- `src/app/services/risk/manualOrderGuard.ts` + `OrderTicket.tsx`. Antes de a ordem manual sair confere:
+  BLOQUEIO = perda do dia ≥ `dailyLossLimit` (boleta travada até o dia seguinte, BRT);
+  ALERTA (só sai com "Enviar mesmo assim") = sem stop, risco acima de `riskPerTrade`, posição oposta aberta no mesmo
+  ativo, estocástico 5,3,3 do 5m/1H em extremo contra o lado ou em modo contrário (regra 5), custo ≥ 20% do alvo bruto,
+  horário de spread caro medido (tabela da ideia 3), estocástico sem dado.
+- Cada clique grava em `manual_order_guard_log` (migration `supabase/migrations/20261015_manual_order_guard_log.sql`,
+  pendente de aplicar). Sem a tabela a ordem sai normal e o console avisa.
+- Limitação conhecida: em modo expansão o método libera o estocástico em extremo; o guarda ainda alerta (o usuário
+  confirma). Não testado na tela (dev local exige login); lógica testada fora do navegador.
+
+## Parte 6 (15/10 madrugada): "o pavio varou o stop e o stop não acionou" — sincronia gráfico = banco
+Pedido do Cleber (regra, sem exceção): o que o gráfico mostra tem que ser idêntico ao que o motor executa — encostou na linha, aciona.
+- **Causa no código (`neuralBridge.ts`, `enforceMt5StopsAndTargets`):** o STOP era conferido só contra o tick pontual (~5 s) e, com
+  tick congelado, contra a última vela. Pavio que cruza o stop ENTRE dois ticks e recua nunca era visto (o alvo já tinha a checagem
+  por vela desde 14/10; o stop não).
+- **Medido (velas 5m arquivadas, posições da IA com stop original intacto desde 10/07):** 206 posições com vela disponível; em 69 uma
+  vela cruzou o stop; 57 fecharam por SL e **12 não** (AI_SIGNAL/MANUAL/TP depois do cruzamento). Recentes: NAS100 SHORT de 01/10
+  (cruzou 04:55, fechou à mão 20:18) e UKOUSD LONG de 12/10 (cruzou 21:00, fechou à mão 22:21, -$9,24). Setembro tem casos grandes
+  (UKOUSD -$66, +$80 de um LONG que "passou" o stop).
+- **Correção (no disco, sem restart ainda):** se o tick não disparou, confere as velas de 1m reais; stop ORIGINAL intacto = janela
+  desde a entrada; stop já movido (breakeven/trailing/parcial/reforço) = só os últimos 90 s (não há registro de QUANDO ele moveu).
+  Fecha NO PREÇO DO STOP (a linha que o usuário vê), nunca melhor. Stop e alvo na mesma janela = vale o stop.
+- **Limites honestos:** a vela de 1m vem da mesma rota do motor, não é a mesma fonte exata do gráfico do navegador; só há 60 velas de
+  1m no fetch (um pavio com mais de 60 min sem o motor ligado não é visto); posição MANUAL sem stop (stop_loss=0) continua sem nada
+  para executar — por isso o botão "Sem stop"/"Stop ✓" na boleta (`setOpenPositionStop`, `OrderTicket.tsx`) e o guarda-costas.
+- Esta sessão também: reforço automático no corredor (`expansionAuto.ts`), guarda-costas da boleta (`manualOrderGuard.ts` + migration
+  `20261015_manual_order_guard_log.sql`), motor de backtest sem futuro (`scripts/lib/harness.ts`).

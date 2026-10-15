@@ -3579,6 +3579,32 @@ export function useApexLogic(
   }, [addLog, openManualPosition]);
 
   // Fechamento manual de uma posição DEMO específica (usada pela boleta/lista de posições).
+  // 🆕 2026-10-15 (Cleber: o preço "furou o stop" numa venda manual e nada fechou -- o stop era uma linha
+  // DESENHADA no gráfico; a ordem manual nasceu com stop_loss=0 e não havia como pôr stop numa posição já
+  // aberta). Define/move o stop de uma posição aberta: valida o lado (venda: stop acima do preço; compra:
+  // abaixo), atualiza o estado local e grava em ai_trades (updateTradeStopLoss, auditado pelo
+  // ai_trades_audit_log), de onde o motor (enforceMt5StopsAndTargets / watchdog de 5s) passa a executá-lo.
+  // Posição REAL (broker_position_id) fica de fora: o stop real é da corretora e não passa por aqui.
+  const setOpenPositionStop = useCallback((tradeId: string, newStop: number, currentPrice: number): { success: boolean; error?: string } => {
+    const order = activeOrdersRef.current.find((o) => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada' };
+    if (order.brokerPositionId) return { success: false, error: 'Posição real: o stop é definido na corretora' };
+    if (!(newStop > 0) || !(currentPrice > 0)) return { success: false, error: 'Preço de stop inválido' };
+    const bad = order.side === 'SHORT' ? newStop <= currentPrice : newStop >= currentPrice;
+    if (bad) {
+      return {
+        success: false,
+        error: order.side === 'SHORT'
+          ? `Stop de venda precisa ficar ACIMA do preço atual (${currentPrice})`
+          : `Stop de compra precisa ficar ABAIXO do preço atual (${currentPrice})`,
+      };
+    }
+    setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, sl: newStop, originalSl: newStop, slIsReal: true } : o)));
+    void persistenceRef.current.updateTradeStopLoss(tradeId, newStop);
+    addLog(`🛡️ STOP definido: ${order.symbol} ${order.side} @ ${newStop}`);
+    return { success: true };
+  }, [addLog]);
+
   const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
     if (!order) return;
@@ -3969,6 +3995,7 @@ export function useApexLogic(
     openManualPosition,
     recordLiveManualPosition,
     closeManualPosition,
+    setOpenPositionStop,
     closeLiveManualPosition,
     pendingOrders,
     openManualPendingOrder,
