@@ -55,6 +55,7 @@ interface Entry {
   r: number;
   exitReasons: string[];
   mfeR: number | null;
+  mfeUsd: number;
   snap: Record<string, unknown>;
   session: string | null;
 }
@@ -100,6 +101,7 @@ function consolidate(legs: Leg[]): { entries: Entry[]; excluded: number } {
       r: netUsd / riskUsd,
       exitReasons: [...new Set(g.map((l) => l.exit_reason).filter((x): x is string => !!x))],
       mfeR: mfe > 0 ? mfe / riskUsd : null,
+      mfeUsd: mfe > 0 ? mfe : 0,
       snap: (snapLeg?.indicators_snapshot as Record<string, unknown>) ?? {},
       session: head.session_at_entry,
     });
@@ -197,6 +199,41 @@ async function main() {
     );
     const tail = entries.slice(-10);
     if (tail.length) out.push(`- últimas ${tail.length} entradas: ${tail.map((e) => (e.netUsd > 0 ? "G" : "P")).join("")} (G=ganho, P=perda), ${sgn(tail.reduce((s, e) => s + e.netUsd, 0))} $`);
+
+    // ── Decomposição do resultado líquido (Fase 0, pedido do conselho 14/10) ──
+    // Onde o prejuízo nasce: é CUSTO (atrito garantido), DIREÇÃO (entrada que
+    // nunca andou a favor) ou SAÍDA (andou a favor e devolveu)? Sem isolar a
+    // variável dominante, cortar setup é tiro no escuro. Os três baldes de $ são
+    // disjuntos e somam o P&L líquido total; o custo é linha à parte (bruto −
+    // custo = líquido). Tudo vem do mesmo dado por entrada, nada fabricado.
+    const sum = (list: Entry[], f: (e: Entry) => number) => list.reduce((s, e) => s + f(e), 0);
+    const totalNet = sum(entries, (e) => e.netUsd);
+    const totalCost = sum(entries, (e) => e.costUsd);
+    const totalGross = totalNet + totalCost;
+    const dead = entries.filter((e) => (e.mfeR ?? 0) < 0.2 && e.netUsd <= 0); // nunca andou a favor
+    const gaveBackSet = entries.filter((e) => e.mfeR != null && e.mfeR >= 0.5 && e.netUsd <= 0); // andou >=0,5R e devolveu
+    const deadKeys = new Set(dead);
+    const gaveBackKeys = new Set(gaveBackSet);
+    const core = entries.filter((e) => !deadKeys.has(e) && !gaveBackKeys.has(e)); // o resto (inclui os vencedores)
+    const peakLeft = sum(gaveBackSet, (e) => Math.max(0, e.mfeUsd - e.netUsd)); // pico não realizado = o que a saída deixou na mesa
+    const pct = (n: number) => fmt((100 * n) / entries.length, 0);
+    out.push(
+      "\n## Decomposição do resultado líquido",
+      "",
+      `P&L bruto (antes de custo) $${sgn(totalGross)}  −  custo de execução $${fmt(totalCost)}  =  líquido $${sgn(totalNet)}.`,
+      `O custo sozinho consumiu ${totalGross !== 0 ? fmt((100 * totalCost) / Math.abs(totalGross), 0) : "n/d"}% do bruto (atrito garantido, a única alavanca certa quando o edge ≈ 0).`,
+      "",
+      "Baldes disjuntos (somam o líquido total):",
+      "",
+      "| de onde vem o resultado | n | % das entradas | P&L líquido $ |",
+      "|---|---:|---:|---:|",
+      `| DIREÇÃO: entrada morta (MFE < 0,2R, perdeu) | ${dead.length} | ${pct(dead.length)}% | ${sgn(sum(dead, (e) => e.netUsd))} |`,
+      `| SAÍDA: ganho devolvido (andou ≥0,5R, terminou ≤0) | ${gaveBackSet.length} | ${pct(gaveBackSet.length)}% | ${sgn(sum(gaveBackSet, (e) => e.netUsd))} |`,
+      `| NÚCLEO: o resto (inclui os vencedores) | ${core.length} | ${pct(core.length)}% | ${sgn(sum(core, (e) => e.netUsd))} |`,
+      "",
+      `Ganho devolvido deixou ainda $${fmt(peakLeft)} de pico não realizado na mesa (soma de MFE − resultado nas entradas que devolveram) — é o teto do que uma saída melhor (parcial/trailing) poderia ter capturado, não promessa.`,
+      "Leitura: núcleo muito negativo = o setup não tem lado; entrada-morta dominante = entrada atrasada/sem gatilho; devolvido dominante = problema de saída. Cada um pede remédio diferente.",
+    );
 
     out.push("\n## Onde perde (ordenado do pior para o melhor, por E[R] × n)");
     out.push(bucketTable("Ativo + lado", entries, (e) => `${e.symbol} ${e.side}`));

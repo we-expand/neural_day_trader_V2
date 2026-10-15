@@ -95,9 +95,20 @@ const CACHE_TTL_BY_TIMEFRAME: Record<string, number> = {
 export async function getRecentOneMinuteCandles(
   symbol: string
 ): Promise<{ timestamp: number; high: number; low: number; close: number }[] | null> {
-  const candles = await fetchRecentCandles(symbol, "1m");
-  if (!candles || candles.length === 0) return null;
-  return candles
+  // 🔴 2026-10-15 (Fase 0, fechar o buraco de medição): o desfecho contrafactual
+  // da mesa (deskStore) precisa de velas cobrindo do instante da decisão até ~60
+  // min depois, mas o job só resolve isso minutos/horas mais tarde. O fetch raso
+  // (60 velas = 60 min) perdia o COMEÇO da janela assim que o job demorava a
+  // chegar na decisão -> 44% das deliberações viravam NO_DATA ("não cobrem o
+  // começo da janela") SEM o mercado estar fechado (medido em 14/10). Busca
+  // profunda (400 velas ~6,6 h) cobre o horizonte inteiro + a folga até o job
+  // medir. Cai pro fetch raso se a profunda não vier; nunca fabrica dado (null
+  // continua null, e candle SIMULATED é recusado lá dentro). Mercado de fato
+  // fechado continua dando NO_DATA honesto (não há vela real na janela).
+  const deep = await getDeepCandles(symbol, "1m", 400);
+  const source = deep && deep.length > 0 ? deep : await fetchRecentCandles(symbol, "1m");
+  if (!source || source.length === 0) return null;
+  return source
     .filter((c) => [c.high, c.low, c.close].every((v) => Number.isFinite(v) && v > 0))
     .map((c) => ({ timestamp: c.timestamp, high: c.high, low: c.low, close: c.close }));
 }
