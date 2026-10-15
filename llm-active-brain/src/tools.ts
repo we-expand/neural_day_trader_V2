@@ -2518,12 +2518,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (dia útil) mesmo em fim de semana, reabrindo a mesma armadilha que
       // este piso dedicado foi criado pra fechar.
       const stopMinPctForRegime = isWeekendMode() ? config.mt5StopMinPctWeekend : config.mt5StopMinPct;
+      // 🔴 2026-10-15 (TESTE do Cleber, varredura stop x alvo em scripts/stop-target-sweep.ts): no scalp de dia util o stop
+      // (e a referencia do alvo, abaixo) ganham este fator sobre o stop de hoje. Na varredura de 147 entradas reais, stop
+      // 1,5x-2x com alvo >= 1,5x o stop foi a unica regiao positiva (+0,07 a +0,10R, sem significancia); stop mais
+      // apertado que o atual foi sempre pior. 1 desliga (comportamento antigo). Nunca passa de mt5StopMaxPct.
+      const scalpStopFactor =
+        !isWeekendMode() && session.userConfig?.targetPoints === "POUCOS" && config.mt5ScalpStopFactor > 1 ? config.mt5ScalpStopFactor : 1;
       let stopPct: number | null = atrPctForStop == null
         ? null
         : (() => {
             const dynamicStopPct = atrPctForStop * stopAtrMultiplierForRegime;
             if (dynamicStopPct < stopMinPctForRegime || dynamicStopPct > config.mt5StopMaxPct) return null;
-            return dynamicStopPct;
+            return Math.min(dynamicStopPct * scalpStopFactor, config.mt5StopMaxPct);
           })();
       let usedFallbackStop = stopPct == null;
       if (stopPct == null) stopPct = config.mt5StopFallbackPct;
@@ -2642,7 +2648,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ? stopAtrMultiplierForRegime
         : config.mt5TargetReferenceStopAtrMultiplier;
       const targetReferenceStopPct = !usedFallbackStop
-        ? atrPctForStop! * targetReferenceMultiplierForRegime
+        ? Math.min(atrPctForStop! * targetReferenceMultiplierForRegime * scalpStopFactor, config.mt5StopMaxPct * scalpStopFactor)
         : stopPct;
       // 🔴 2026-09-18 (pedido direto do Cleber: "arriscar 1,5 pra buscar 3"):
       // no fim de semana o alvo passa a ser uma proporção FIXA do stop real
@@ -2809,10 +2815,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // ficar menor que o stop (R:R < 1), o gate de R:R minimo usa
       // mt5ScalpMinRr nesse caso (breakeven de acerto sobe: ~1/(1+R:R)).
       let takeProfitCappedByScalpPct = false;
-      if (!isFomcBtcPlay && session.userConfig?.targetPoints === "POUCOS" && config.mt5ScalpTargetMaxPct > 0) {
-        const scalpCapPct = config.mt5ScalpTargetMaxPct / 100;
+      // 🔴 2026-10-15: com MT5_SCALP_TARGET_STOP_FRACTION > 0 o teto e essa fracao do stop do proprio ativo (R:R igual pra
+      // todos); com 0 vale o teto fixo em % do preco (mt5ScalpTargetMaxPct).
+      const scalpByStopFraction = config.mt5ScalpTargetStopFraction > 0;
+      if (!isFomcBtcPlay && session.userConfig?.targetPoints === "POUCOS" && (scalpByStopFraction || config.mt5ScalpTargetMaxPct > 0)) {
+        const scalpCapPct = scalpByStopFraction ? stopPct * config.mt5ScalpTargetStopFraction : config.mt5ScalpTargetMaxPct / 100;
         if (takeProfitPct > scalpCapPct) {
-          console.log(`[ALVO-SCALP] ${symbol} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(scalpCapPct * 100).toFixed(3)}% (teto de scalp, stop ${(stopPct * 100).toFixed(3)}% intocado)`);
+          console.log(`[ALVO-SCALP] ${symbol} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(scalpCapPct * 100).toFixed(3)}% (${scalpByStopFraction ? `${config.mt5ScalpTargetStopFraction}x o stop do ativo` : "teto fixo de scalp"}, stop ${(stopPct * 100).toFixed(3)}% intocado)`);
           takeProfitPct = scalpCapPct;
           takeProfitCappedByScalpPct = true;
         }
@@ -3081,7 +3090,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           recentTradesThisSymbol = [];
         }
         const targetNotes: string[] = [];
-        if (takeProfitCappedByScalpPct) targetNotes.push(`alvo limitado pelo teto de scalp de ${config.mt5ScalpTargetMaxPct}% do preco`);
+        if (takeProfitCappedByScalpPct) targetNotes.push(scalpByStopFraction ? `alvo limitado a ${config.mt5ScalpTargetStopFraction}x o stop do ativo (scalp)` : `alvo limitado pelo teto de scalp de ${config.mt5ScalpTargetMaxPct}% do preco`);
         if (takeProfitCappedBySR) targetNotes.push("alvo encurtado pra caber antes do suporte/resistencia mais proximo");
         if (takeProfitCappedByDailyLevel) targetNotes.push("alvo encurtado pra caber antes da maxima/minima de 24h");
         if (takeProfitCappedByRange) targetNotes.push("alvo encurtado porque o mercado esta em range estreito");

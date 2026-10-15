@@ -559,6 +559,15 @@ export const config = {
   mt5DeskMaxDriftFracOfStop: Number(process.env.MT5_DESK_MAX_DRIFT_FRAC_OF_STOP ?? 0.5),
   // 2026-10-13: scalp "poucos pontos" -- teto do ALVO em % do preco (0 = desligado). ~0,29% = ~40 pts na CHINA50. So o alvo; o stop nao muda. Pedido do Cleber.
   mt5ScalpTargetMaxPct: Number(process.env.MT5_SCALP_TARGET_MAX_PCT ?? 0.25),
+  // 2026-10-15 (pedido do Cleber: "regular de forma fina pra qualquer ativo"): no scalp o teto do alvo passa a ser esta
+  // FRACAO DO STOP do proprio ativo (stop = 2,0x ATR, ja adaptativo), em vez de % fixo igual pra todos. O teto fixo de 0,25%
+  // dava R:R de ~0,25 (SOLUSD) a ~0,67 (JPN225) e barrava os ativos que mais correm. 0 desliga e volta ao teto fixo
+  // (mt5ScalpTargetMaxPct). Stop intocado. Mantenha >= mt5ScalpMinRr, senao o gate de R:R barra o proprio alvo.
+  mt5ScalpTargetStopFraction: Number(process.env.MT5_SCALP_TARGET_STOP_FRACTION ?? 0),
+  // 2026-10-15 (TESTE, varredura de stop x alvo): no scalp (targetPoints POUCOS, dia util) multiplica o stop dinamico de hoje
+  // (2,0x ATR) e a referencia do alvo por este fator; com o R:R de POUCOS (1,5) o alvo fica em 1,5x o novo stop. >1 liga;
+  // 1 desliga. Combinar com MT5_SCALP_TARGET_MAX_PCT=0 (senao o teto fixo de 0,25% corta o alvo).
+  mt5ScalpStopFactor: Number(process.env.MT5_SCALP_STOP_FACTOR ?? 1),
   // R:R minimo aceito quando o alvo foi limitado pelo teto de scalp (alvo pode ficar menor que o stop).
   mt5ScalpMinRr: Number(process.env.MT5_SCALP_MIN_RR ?? 0.6),
   mt5StochExtremeGateAllSetups: (process.env.MT5_STOCH_EXTREME_GATE_ALL_SETUPS ?? "true") !== "false",
