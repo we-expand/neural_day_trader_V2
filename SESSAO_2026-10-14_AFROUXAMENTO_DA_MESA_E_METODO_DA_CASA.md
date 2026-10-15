@@ -250,3 +250,23 @@ Sem commit: `.env` (local). `SESSAO_2026-10-13_...md` já estava modificado ante
 2. Decidir: alerta de choque bloqueia entradas? aviso na tela? reentrada/reforço/redução saem da sombra?
 3. Testar o gatilho da média de 9 com custos e em índices antes de torná-lo mais agressivo.
 4. O Cleber vai alimentar mais regras: manter o método curto e legível (limite de leitura 16.000 caracteres).
+
+---
+
+# Parte 4 (15/10): gatilho da média de 9 com custo e em índices — o achado forte CAIU
+
+Script novo: `llm-active-brain/scripts/ma-touch-cost-backtest.ts` (cripto pela Binance, índices pelo Yahoo Finance
+^N225/^GSPC/NQ=F/^GDAXI, 1H, 2 anos). Vira trade: ordem na EMA9, stop = alvo = 1 ATR, saída em 12h, custo ida+volta
+descontado (BTC 0,07%, ETH 0,10%, SOL 0,20%, índices 0,03% — premissas).
+
+**Erro no teste de 14/10 achado e corrigido:** o toque e a entrada usavam a EMA9/ATR da PRÓPRIA vela do toque, que já
+embutem o fechamento dela (olhar o futuro). Com o nível da vela anterior (o que se conhece na hora):
+
+| Série | Em expansão: alvo antes do stop | E[R] líquido |
+|---|---|---|
+| BTC / ETH / SOL | 47-53% | -0,09 a -0,19 |
+| Nikkei / S&P / Nasdaq / DAX | 30-45% | -0,19 a -0,46 |
+
+Com o vazamento, a mesma conta dava 69-75% e E[R] positivo — era o artefato. Conclusão: **o toque na média de 9 em
+expansão NÃO tem vantagem**, nem antes nem depois do custo. `METODO_DA_CASA.md` e `CLAUDE.md` corrigidos (só o número;
+nenhuma regra mudou). O `ma-touch-backtest.ts` original tem o mesmo vazamento — não usar o número dele.

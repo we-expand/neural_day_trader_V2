@@ -21,7 +21,7 @@ corte METADE. Feito: piso proporcional ao METADE, `TEMPO_MAIOR_CONTRA`/`ALVO_NAO
 novas do método (estocástico com estado, rompimento/expansão, notícias, médias, Fibonacci), corredor de Fibonacci 15m/1H
 (`fibCorridor.ts`), modo expansão AO VIVO (alvo no degrau; vetos de curto prazo e piso liberados a favor da expansão),
 vigia de notícias gratuito, `CONTEXTO_DO_DIA.md`, leitura das médias como gatilho D. Backtests (cripto 1H): Fibonacci
-sem vantagem sobre o acaso; toque na média de 9 em expansão continua 69-73% (o achado forte). BUG corrigido: o método
+sem vantagem sobre o acaso; toque na média de 9 em expansão: o 69-73% era look-ahead; refeito em 15/10 com custo e índices = sem vantagem (líquido negativo em tudo). BUG corrigido: o método
 era lido só até 4.000 caracteres. `.env` novo: risco 0.10, piso 3.6, ganho 7.0, `MT5_EXPANSION_LIVE=true`.
 **Pendente do Cleber:** commit + restart; decidir se o alerta de choque bloqueia entradas; reentrada/reforço seguem em
 sombra. Detalhe completo: [SESSAO_2026-10-14_AFROUXAMENTO_DA_MESA_E_METODO_DA_CASA.md](SESSAO_2026-10-14_AFROUXAMENTO_DA_MESA_E_METODO_DA_CASA.md).

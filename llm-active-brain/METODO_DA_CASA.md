@@ -112,6 +112,31 @@ de restart. Mantenha curto: cada linha a mais é lida 3 vezes por entrada.
   degrau, reduzir contratos. Dentro do corredor a favor, pode-se aumentar posição.
   (O cálculo e a gestão de alvo por degrau ainda estão em desenvolvimento no
   sistema; por ora o alvo real continua o do scalp.)
+- REENTRADA em expansão (Cleber, 14/10/2026): dentro de um corredor de expansão de Fibonacci, se a
+  IA precisar reentrar a favor (venda numa expansão de baixa; espelho em alta), ela PODE. O mercado só
+  para de verdade numa resistência considerável no PRÓXIMO DEGRAU de Fibonacci ainda não rompido,
+  desenhado no 1H. Hierarquia: (1) a expansão é a base e o mapa (diz até onde: próximo degrau livre);
+  (2) o cruzamento do estocástico no sentido da expansão VALIDA que o mercado não vai repicar contra
+  (não é o motivo da queda, só descarta o repique); (3) média de 9 = momento da reentrada (volta e é
+  rejeitada); média de 20 = fim do corredor, não reentra; (4) rompimento do último candle = gatilho.
+  Nada disso é certeza, é tendência: cada reentrada leva stop próprio (além do extremo do recuo) e o
+  alvo é o próximo degrau livre.
+  AUMENTAR a posição também vale (Cleber: a tendência é forte e deve ser respeitada): dentro do
+  corredor, com a expansão validada pelo estocástico, a IA pode reforçar a posição que já está a favor,
+  não só reentrar depois do alvo. Só depois que o preço correu a favor (nunca para "salvar" posição
+  contra), com o stop da posição já em breakeven ou melhor, e o somatório respeitando o limite de lotes
+  e de posições da conta.
+- Onde entrar (Cleber, 14/10): a entrada vale no COMEÇO do movimento do dia, no "zero" (o ponto 0 do
+  corredor, onde o fundo/topo é rompido): é o início do dia que forma a tendência do dia, e quem entra
+  no zero participa do movimento inteiro (ex.: uma compra no zero pega toda a alta do dia, 1,80%). Entrar
+  no meio ou no fim do corredor pega só um pedaço e arrisca o mesmo stop. Por isso, com a expansão
+  confirmada, a prioridade é entrar cedo no corredor, e o reforço/reentrada serve para recuperar a
+  participação que faltou. (Pendente de confirmar com o Cleber: o que ele chama de "primeiro 500" do dia.)
+- Desenho dinâmico (Cleber): quando um fundo (topo, na alta) importante é rompido, o desenho é refeito
+  a partir dele e o alvo vai para os degraus novos, mais à frente. Num rompimento grande, vale o 1H
+  (alvo bem maior que o do 15m); o 15m manda no curto prazo e, quando esgota, passa ao 1H. Quando o
+  161,8% do 15m e o 61,8% do 1H caem no mesmo lugar, é um alvo forte. O sistema calcula e entrega os
+  degraus; não os invente.
 - Tendência forte esticada (estocástico colado em sobrecompra por muito tempo):
   NÃO se compra o topo; espera-se o recuo e o gatilho D.
 
@@ -145,7 +170,7 @@ Médias (9 e 20):
 - Stop além do extremo do recuo; alvo no topo/fundo anterior ou no degrau de Fibonacci.
 - Fecho decisivo além da 9 sem rejeição = alerta (não é só repique). Fecho além da 20 (duas velas) = o recuo falhou e a tendência acabou.
 - Preço muito esticado da média não é entrada: espere a volta à média (ou tire lucro). Só se opera contra o esticado em lateral.
-- Nosso teste (BTC/ETH/SOL, 1H, antes de custos): o 1º toque na 9 DENTRO de uma expansão continua no sentido da tendência em 69-73% das vezes (1 ATR, 12h), contra ~53% fora da expansão. Esticado 2+ ATR volta a tocar a 9 em 86-91% em 12h.
+- Nosso teste (15/10, BTC/ETH/SOL + Nikkei/S&P/Nasdaq/DAX, 1H, 2 anos, COM custo e SEM olhar o futuro): o 1º toque na 9 dentro de uma expansão NÃO tem vantagem (cripto 47-53%, índices 30-45% de alvo antes do stop; resultado líquido negativo em todos). O 69-73% de 14/10 era erro do teste (usava o fechamento da própria vela do toque). A média é o LUGAR; quem decide a entrada é a combinação do método, não a média sozinha. Esticado 2+ ATR volta a tocar a 9 em 86-91% em 12h.
 - Pesquisa acadêmica sobre regras de média: resultados mistos; os custos de operação engolem muito do ganho em mercados eficientes.
 
 Fibonacci (extensão 0 / 61,8% / 100% / 161,8% a partir do fundo/topo rompido):

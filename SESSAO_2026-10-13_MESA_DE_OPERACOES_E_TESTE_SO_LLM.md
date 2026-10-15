@@ -205,3 +205,69 @@ trl, verl, peft. Conclusão: nenhum resolve a leitura de estocástico/MACD; vale
 - Observação do log: XETUSD devolveu o mesmo preço várias vezes seguidas (aviso de possível feed travado, `mt5Broker`);
   já havia proteção por vela de 1m quando o tick congela, mas vale reconferir se persistir.
 - Nada aqui promete lucro; subir o risco aumenta a perda por stop.
+
+---
+
+# Adendo 2 (14/10, madrugada): alvo por vela, piso de $3 líquidos, alvo de scalp 0,25% e gráfico lento
+
+> Commits já feitos pelo Cleber: `ed0796e86` (alvo por vela + piso de $3) e `934e4b400` (docs). Pendentes de commit
+> no fim desta sessão: `config.ts` (alvo 0,25%) e os dois timeouts de frontend. Acompanhamento de 30 em 30 min foi
+> armado e **suspenso a pedido do Cleber** antes de terminar.
+
+## A. Saúde do motor (00:06) e trades da noite
+Motor vivo, instância única, zero `SEM PROTECAO`/circuit breaker. Mesa: 49 deliberações desde o restart, 47
+rejeições e 2 aprovações (BTCUSD LONG 20:45 UTC, NAS100 SHORT 23:06 UTC, ambas METADE). 2 timeouts da mesa em
+XETUSD SHORT. ~4 h sem aprovação (passou do alerta de 3 h; rejeições vinham de vetos reais por código).
+Trades desde 16:52 UTC: líquido ≈ -$0,52 (XETUSD SHORT TP +2,75; NAS100 LONG TP +0,76; XETUSD LONG manual -2,10;
+BTCUSD LONG SL -1,38; NAS100 SHORT SL -0,55).
+
+## B. "Bateu o alvo e não recolheu" + número do alvo não conferia (XETUSD LONG)
+- Entrada 2512,56, alvo 2518,30, pavio no gráfico até 2520,51; fechou só às 03:33 UTC a 2518,54 (net $1,33: bruto
+  $2,63 menos custo $1,30). Rótulo do gráfico mostrava +$2,53 (bruto), a boleta mostrava líquido (+$0,67).
+- Causa 1: watchdog só comparava o alvo com o tick pontual; pavio entre dois ticks não era visto.
+- Causa 2: a aba do Cleber estava com build antigo (rótulo sem "líq."); o código já mostrava líquido (`84915ab9e`).
+- **Correção:** `neuralBridge.ts` (`enforceMt5StopsAndTargets`) agora olha as velas de 1m reais desde a entrada
+  (`getOneMinuteCandlesSince`, `atr.ts`). Se a máxima (LONG) / mínima (SHORT) cruzou o alvo, fecha como TP **no
+  preço do alvo**. Se a mesma janela cruzou o stop atual, não decide por vela (ordem desconhecida; fica com o tick,
+  que trata o stop primeiro). A vela que contém o instante da entrada fica de fora.
+- Princípio do Cleber: **a plataforma tem que ser cristalina; o valor que o usuário vê tem que ser o que cai no
+  caixa.** Fechar no preço do alvo e rotular em líquido são as duas pontas disso. Ideia aberta: mostrar também
+  "bruto − custo = líquido" no rótulo.
+
+## C. Piso de ganho líquido proporcional ao caixa
+- Pedido: **no mínimo US$3 líquidos (já descontada a comissão) por operação para cada US$100 em caixa,
+  proporcional ao saldo.**
+- `config.ts`: `mt5ReferenceCapitalUsd` (100) e `mt5MinNetRewardPerReferenceUsd` (3). `tools.ts`: piso =
+  `max(mt5MinExpectedNetRewardUsd, 3 × saldo/100)` sobre `(bruto no alvo − estimateCommissionUsd)`; o alvo bruto de
+  referência (`MT5_TARGET_REWARD_USD` 5,5) agora escala com `saldo/100`. O piso vale também com a mesa desligada
+  (o piso de R:R continua só com a mesa).
+- Consequências conhecidas: a aprovação em METADE na prática vira rejeição (a metade rende ~$2,1 líquidos e é
+  recusada depois do corte); o teto de risco de 8% pode bloquear entradas com stop largo; o piso garante o
+  **projetado**, o realizado só chega a $3 se o alvo for atingido (76% das saídas recentes foram stop).
+- Incidente: o primeiro restart (00:43:32) ocorreu 6 s **antes** de eu salvar `tools.ts`/`config.ts` (00:43:38), então
+  o processo carregou o código antigo (JPN225 SHORT e NAS100 SHORT abertos com líquido < $3). Novo restart às
+  00:45:10 carregou o código novo.
+
+## D. Alvo de scalp menor, mesmo stop (opção A)
+Cleber achou os alvos grandes demais e preferiu alvo menor com mais contratos. Escolhida a opção A:
+`MT5_SCALP_TARGET_MAX_PCT` 0,35 → **0,25** (`.env` e default de `config.ts`); stop e teto de risco (8%) intocados.
+Lote sobe sozinho (lote = alvo bruto ÷ (alvo% × preço)). Trade-off dito ao Cleber: stop > ~0,4% vai esbarrar no
+teto de risco e ser recusado pelo piso de $3; R:R com stop 0,5% fica em 0,5:1 (piso). **Falta restart** para valer.
+Olhar depois: nº de recusas `[PISO-DE-VALOR]`, taxa de alvos atingidos (hoje 8 de 33) e perda média por stop (~$7–8).
+
+## E. Gráfico do NAS100 não abria
+Backend OK mas lento: `/mt5-candles-history` 5,7–14,4 s por chamada (janela não importa, piso ~5,7 s); SPX500 estourou
+25 s; `/mt5-prices` 4,5 s com variação +0,33% correta. Relay mostra Londres com `timed out waiting for connection
+status` (instabilidade MetaAPI na conta compartilhada). Na tela: spinner "Carregando candles" e variação +0,00%
+(timeouts do cliente: candles 15 s, preço 8 s). **Correção só de frontend:** candles 15 → 30 s
+(`market-service.ts`), preço único 8 → 20 s (`RealMarketDataService.ts`). Cleber confirmou: "demorou, mas carregou".
+Causa de fundo (MetaAPI lenta / carga do motor na mesma conta) não resolvida; reduzir consultas do motor é opção
+aberta, não feita.
+
+## F. Pendente
+1. Commit de `llm-active-brain/src/config.ts` (alvo 0,25%) e dos 2 arquivos de frontend (timeouts).
+2. `./restart.sh` em `llm-active-brain/` para o alvo de 0,25% (o piso de $3 e o alvo por vela já estão rodando).
+3. Conferir no navegador o rótulo líquido do alvo (hard refresh) e os timeouts novos depois do deploy da Vercel.
+4. Ler `npx tsx scripts/desk-report.ts 12` quando houver dezenas de decisões medidas.
+5. Ainda em aberto da seção 7: XPDUSD/XAUGBP fora de `assetBasket.ts`, retenção de `ai_brain_activity_log`,
+   réplica MetaAPI `backup-new-york` UNDEPLOYED.
