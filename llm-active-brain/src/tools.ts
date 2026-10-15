@@ -1171,15 +1171,65 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // Trava de seguranca do proprio teste: nunca vale com execucao real
       // ligada, e so vale com a mesa em "enforce" (sem ela ninguem julgaria).
       const deskMode = config.mt5DeskMode;
-      const llmOnlyTest = config.mt5LlmOnlyTest && deskMode === "enforce" && !(await isLiveExecutionActive(session.userId));
-      if (config.mt5LlmOnlyTest && !llmOnlyTest && !llmOnlyTestRefusedLogged) {
+      const liveExecActive = await isLiveExecutionActive(session.userId);
+      // 🔴 2026-10-15: no modo "veto" (mesa dissolvida -- 1 LLM + vetos de codigo)
+      // as travas de JULGAMENTO deste case tambem saem da frente, igual ao teste
+      // so-LLM: quem decide passa a ser SO os vetos de codigo (computeHardVetoes,
+      // rodados dentro de runTradingDesk). A diferenca pro enforce e que NAO ha
+      // juri de 14 agentes. Nunca vale com execucao REAL ligada.
+      const llmOnlyTest = ((config.mt5LlmOnlyTest && deskMode === "enforce") || deskMode === "veto") && !liveExecActive;
+      if (config.mt5LlmOnlyTest && !llmOnlyTest && deskMode !== "veto" && !llmOnlyTestRefusedLogged) {
         llmOnlyTestRefusedLogged = true;
         console.warn(
           `[TESTE-SO-LLM] MT5_LLM_ONLY_TEST=true IGNORADO -- ${deskMode !== "enforce" ? `a mesa esta em modo "${deskMode}" (precisa de MT5_DESK_MODE=enforce)` : "execucao REAL esta ligada"}. Travas mecanicas continuam ATIVAS.`,
         );
       }
       const bypassedGates: string[] = [];
+      // 🔴 2026-10-14 (regra do Cleber, sacramentada): em MODO EXPANSAO (corredor de Fibonacci a favor do lado da
+      // entrada, com degrau livre) TUDO que trava a entrada a favor sai da frente -- estocastico colado no extremo
+      // (3-4 dias "estourando" embaixo), MACD/momento contra, extremo do dia, alvo colado em S/R, lateral, veredito de
+      // direcao, R:R. A unica condicao exigida e a que o metodo dele exige: o estocastico do timeframe do corredor
+      // VALIDANDO (venda: %K<=%D; compra: %K>=%D), isto e, o repique contra foi descartado. NAO sai: integridade
+      // (cotacao, spread, 1 lado por simbolo), tetos de risco/exposicao/lote/posicoes, perda diaria, cooldown de
+      // perdas seguidas, janela de evento, e o validador de contradicao do raciocinio. Rollback: MT5_EXPANSION_LIVE=false.
+      const EXPANSION_RELEASED_GATES = new Set([
+        "ESTOCASTICO_EXTREMO", "ESTOCASTICO_RAPIDO_EXTREMO", "MACD_5M_CONTRA", "MOMENTO_IMEDIATO_CONTRA",
+        "VETO_EXTREMO_DIA", "VETO_EXAUSTAO", "ALVO_COLADO_SUPORTE_RESISTENCIA", "ALVO_COLADO_EXTREMO_DIA",
+        "ALVO_RANGE_ESTREITO", "LATERAL_POUCOS_FATORES", "VEREDITO_DIRECAO", "HMM_CONSOLIDACAO", "RR_MINIMO",
+        "ROMPIMENTO_SEM_FECHAMENTO", "CONTRA_TENDENCIA_POUCOS_FATORES", "CONTRA_TENDENCIA_SEM_CONFIRMACAO",
+      ]);
+      let expansionReleaseActive = false;
+      {
+        const relSymbol = String(input.symbol || "").toUpperCase();
+        const relSide = String(input.side || "").toUpperCase();
+        if (process.env.MT5_EXPANSION_LIVE !== "false" && relSymbol && (relSide === "SHORT" || relSide === "LONG")) {
+          try {
+            const fibRel = await getFibLive(relSymbol);
+            const cor = fibRel?.principal ?? null;
+            const aFavor =
+              !!cor && cor.emExpansao && !cor.redesenhar && !!cor.proximoDegrau &&
+              ((cor.direcao === "BAIXA" && relSide === "SHORT") || (cor.direcao === "ALTA" && relSide === "LONG"));
+            if (cor && aFavor) {
+              const stRel = await getSlowStochastic(relSymbol, cor.tf as import("./atr.js").SupportedTimeframe);
+              const validado = !!stRel && (relSide === "SHORT" ? stRel.k <= stRel.d : stRel.k >= stRel.d);
+              if (validado) {
+                expansionReleaseActive = true;
+                console.log(`[EXPANSAO-LIBERA] ${relSymbol} ${relSide}: corredor ${cor.tf} a favor (proximo degrau ${(cor.proximoDegrau!.ratio * 100).toFixed(1)}% em ${cor.proximoDegrau!.price.toFixed(2)}), estocastico ${cor.tf} validando (K ${stRel?.k} / D ${stRel?.d}) -- travas de julgamento liberadas`);
+              } else {
+                console.log(`[EXPANSAO-LIBERA] ${relSymbol} ${relSide}: corredor ${cor.tf} a favor, mas o estocastico do ${cor.tf} ainda NAO valida (K ${stRel?.k} / D ${stRel?.d}) -- travas seguem normais`);
+              }
+            }
+          } catch (err) {
+            console.warn(`[EXPANSAO-LIBERA] leitura do corredor falhou, travas seguem normais: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
       const gateResult = <T extends { error: string }>(gateId: string, blocked: T): T | null => {
+        if (expansionReleaseActive && EXPANSION_RELEASED_GATES.has(gateId)) {
+          bypassedGates.push(gateId);
+          console.log(`[EXPANSAO-LIBERA] ${gateId} ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")} liberada: ${blocked.error.slice(0, 160)}`);
+          return null;
+        }
         if (!llmOnlyTest) return blocked;
         bypassedGates.push(gateId);
         console.log(`[TRAVA-DESLIGADA] ${gateId} ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")}: ${blocked.error.slice(0, 220)}`);
@@ -3089,7 +3139,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           deskError: desk.error ?? null,
         });
 
-        if (deskMode === "enforce") {
+        if (deskMode === "enforce" || deskMode === "veto") {
           if (desk.decision !== "APPROVE") {
             rememberDeskRejection(session.sessionId, symbol, side, desk.reason);
             // preco/stop/alvo no log: permite medir depois o que a entrada rejeitada teria feito.
@@ -3127,7 +3177,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const freshFillPrice = side === "LONG" ? freshQuote.ask : freshQuote.bid;
         const driftFracOfStop = fillPrice > 0 && stopPct > 0 ? Math.abs(freshFillPrice - fillPrice) / (fillPrice * stopPct) : 0;
         deskSnapshot.deskPriceDriftFracOfStop = Number(driftFracOfStop.toFixed(3));
-        if (deskMode === "enforce" && driftFracOfStop > config.mt5DeskMaxDriftFracOfStop) {
+        if ((deskMode === "enforce" || deskMode === "veto") && driftFracOfStop > config.mt5DeskMaxDriftFracOfStop) {
           console.log(`[MESA-PRECO-ANDOU] ${symbol} ${side} de ${fillPrice} para ${freshFillPrice} (${(driftFracOfStop * 100).toFixed(0)}% da distancia do stop) -- entrada abortada (${new Date().toISOString()})`);
           return {
             error:
@@ -3646,11 +3696,44 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // apontar exaustao contra o lado (mesmo com lucro real e outros
       // fatores alinhados -- perseguir o topo/fundo com posicao maior e
       // exatamente o oposto de "perder pouco, ganhar muito").
-      const exhaustionAgainst = !!(
+      let exhaustionAgainst = !!(
         stochasticForIncrease &&
         ((position.side === "LONG" && stochasticForIncrease.label === "SOBRECOMPRADO") ||
           (position.side === "SHORT" && stochasticForIncrease.label === "SOBREVENDIDO"))
       );
+      // 🔴 2026-10-14 (regra do Cleber, sacramentada): em EXPANSAO de Fibonacci a favor da posicao, o estocastico
+      // fica colado no extremo e isso NAO e exaustao (METODO_DA_CASA.md) -- esse bloqueio impedia todo reforco
+      // justamente no corredor. Com o corredor (15m, ou 1H quando o 15m esgota) a favor e com degrau livre, o
+      // estocastico no TIMEFRAME DO CORREDOR so precisa VALIDAR (venda: %K abaixo de %D; compra: %K acima de %D,
+      // ou seja, o repique contra esta descartado). O corredor entra como fator a favor. As demais travas
+      // (lucro real > spread, teto de reforcos, stop em breakeven, exposicao correlacionada) seguem intactas.
+      // Desliga com MT5_EXPANSION_LIVE=false (volta ao bloqueio por exaustao).
+      if (process.env.MT5_EXPANSION_LIVE !== "false") {
+        try {
+          const fibInc = await getFibLive(position.symbol);
+          const cor = fibInc?.principal ?? null;
+          const aFavorCorredor =
+            !!cor && cor.emExpansao && !cor.redesenhar && !!cor.proximoDegrau &&
+            ((cor.direcao === "BAIXA" && position.side === "SHORT") || (cor.direcao === "ALTA" && position.side === "LONG"));
+          if (cor && aFavorCorredor && cor.proximoDegrau) {
+            const stochCor = await getSlowStochastic(position.symbol, cor.tf as import("./atr.js").SupportedTimeframe);
+            const validado = !!stochCor && (position.side === "SHORT" ? stochCor.k <= stochCor.d : stochCor.k >= stochCor.d);
+            if (!validado) {
+              return {
+                error:
+                  `Reforco de ${position.symbol} recusado: ha corredor de Fibonacci a favor (${cor.tf}), mas o Estocastico do ${cor.tf} ainda esta em modo ` +
+                  `${position.side === "SHORT" ? "de compra (%K acima de %D)" : "de venda (%K abaixo de %D)"} -- o repique contra ainda NAO foi descartado. ` +
+                  `Espere o cruzamento a favor (metodo do Cleber: o estocastico valida que nao vai repicar).`,
+              };
+            }
+            exhaustionAgainst = false;
+            alignedFactors.push(`corredor de Fibonacci ${cor.direcao} (${cor.tf}), proximo degrau ${(cor.proximoDegrau.ratio * 100).toFixed(1)}% em ${cor.proximoDegrau.price.toFixed(2)}, estocastico validando`);
+            console.log(`[MODO-EXPANSAO] ${position.symbol} ${position.side}: reforco liberado pelo corredor ${cor.tf} (estocastico K ${stochCor?.k} / D ${stochCor?.d})`);
+          }
+        } catch (err) {
+          console.warn(`[MODO-EXPANSAO] reforco: leitura do corredor falhou, segue a regra tradicional: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       if (alignedFactors.length < 1 || exhaustionAgainst) {
         return {
           error:

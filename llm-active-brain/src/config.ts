@@ -497,10 +497,19 @@ export const config = {
   // delibera cada entrada antes de a ordem sair -- ver src/desk.ts.
   // off = motor como sempre foi | shadow = a mesa delibera e registra, mas NAO
   // decide | enforce = a decisao do Agente Master vale (so RESTRINGE: nunca
-  // cria entrada, so aprova ou rejeita a que o operador propos).
-  mt5DeskMode: ((): "off" | "shadow" | "enforce" => {
+  // cria entrada, so aprova ou rejeita a que o operador propos) |
+  // veto = 🔴 2026-10-15 (conselho + decisao do Cleber): DISSOLVE o juri de 14
+  //   agentes + Master. 1 LLM (o cerebro) propoe e quem DECIDE sao os vetos
+  //   duros CALCULADOS POR CODIGO (computeHardVetoes) -- sem nenhuma chamada de
+  //   LLM de mesa. Motivo medido em 14/10: o juri rejeitava 30 que dariam alvo
+  //   e 30 que dariam stop (cara ou coroa), conviccao >=80 acertava 33%, a
+  //   custa de 14 chamadas de LLM e 1-2 min por entrada. No modo veto as travas
+  //   de JULGAMENTO de open_position tambem saem (igual ao teste so-LLM): o
+  //   gate passa a ser SO os vetos de codigo. A linha em desk_decisions
+  //   continua gravada = a mesa vira log paralelo. Rollback: MT5_DESK_MODE=enforce.
+  mt5DeskMode: ((): "off" | "shadow" | "enforce" | "veto" => {
     const v = String(process.env.MT5_DESK_MODE ?? "off").toLowerCase();
-    return v === "shadow" || v === "enforce" ? v : "off";
+    return v === "shadow" || v === "enforce" || v === "veto" ? v : "off";
   })(),
   // Teste so-LLM: desliga as travas MECANICAS DE JULGAMENTO de open_position
   // (leitura de indicador, direcao, confluencia, R:R minimo, limites de risco)

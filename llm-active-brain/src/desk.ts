@@ -441,7 +441,7 @@ function analystSpecs(p: DeskProposal, data: MarketData, readings: TimeframeRead
         system:
           `Você é o Analista do gráfico de ${t.tf} de uma mesa de day trade. Você olha SÓ o ${t.tf}: estocástico lento (5,3,3; níveis 20 e 80), MACD (12,26,9), médias de 9 e 20, tendência, candles e níveis. ` +
           `${maior} As leituras abaixo JÁ FORAM FEITAS pelo sistema e estão corretas: não recalcule, não contradiga e NUNCA troque sobrecompra por zona neutra nem o contrário (se a leitura diz SOBRECOMPRADO, o estocástico está sobrecomprado). ` +
-          `Extremo sem cruzamento não é sinal por si só, e é VETO contra o lado oposto (nunca se vende em sobrevenda nem se compra em sobrecompra). O melhor gatilho é o cruzamento do %K sobre o %D dentro do extremo; ` +
+          `Extremo sem cruzamento não é sinal por si só, e é VETO contra o lado oposto (nunca se vende em sobrevenda nem se compra em sobrecompra). EXCEÇÃO (regra do Cleber): se o placar traz um CORREDOR DE FIBONACCI em expansão A FAVOR do lado da proposta, o estocástico colado no extremo NÃO é veto nem contra-argumento (em expansão ele fica dias no extremo); o que vale é ele estar do lado da expansão (venda: %K abaixo de %D = o repique contra foi descartado). O melhor gatilho é o cruzamento do %K sobre o %D dentro do extremo; ` +
           `o cruzamento na zona neutra a favor do lado conta, mais fraco. MACD: histograma encolhendo é força morrendo. ` +
           `Diga o que ESTE tempo gráfico aponta e se apoia a proposta. Se nada aponta, vies NEUTRO. ` +
           jsonOnly(schema),
@@ -676,6 +676,43 @@ function persist(p: DeskProposal, result: DeskResult, mode: string): void {
 // A deliberação
 // ---------------------------------------------------------------------------
 
+/**
+ * Modo "veto" (2026-10-15): SEM juri de LLM. 1 LLM (o cerebro) ja propos a
+ * entrada; aqui so os VETOS DUROS CALCULADOS POR CODIGO (computeHardVetoes)
+ * decidem -- se algum acionar, REJEITA; senao, APROVA com tamanho inteiro.
+ * Nenhuma chamada de LLM, nenhum agente. Falha ao calcular os vetos (sem dado
+ * de mercado) => REJEITA (fail-safe: nunca abre as cegas). A linha gravada em
+ * desk_decisions pelo runTradingDesk segue sendo o log paralelo da mesa.
+ */
+async function deliberateCodeOnly(p: DeskProposal): Promise<{ decision: "APPROVE" | "REJECT"; sizeFactor: 1; conviction: null; reason: string; error?: string }> {
+  try {
+    const data = await gatherMarketData(p.symbol);
+    const readings = readingsByTimeframe(data);
+    const fib = await safe(getFibLive(p.symbol));
+    const fibPrincipal = fib?.principal
+      ? {
+          tf: fib.principal.tf,
+          direcao: fib.principal.direcao,
+          emExpansao: fib.principal.emExpansao,
+          redesenhar: fib.principal.redesenhar,
+          proximoTexto: fib.principal.proximoDegrau
+            ? `próximo degrau ${(fib.principal.proximoDegrau.ratio * 100).toFixed(1)}% em ${fib.principal.proximoDegrau.price.toFixed(2)} (a ${fib.principal.distanciaProximoPct!.toFixed(2)}%)`
+            : "degraus esgotados",
+        }
+      : null;
+    const { dayRange, targetRoom } = dayAndTargetReadings(p, data);
+    const vetoes = computeHardVetoes({ side: p.side, readings, dayRange, targetRoom, fibCorridor: fibPrincipal });
+    console.log(`[MESA/veto] ${p.symbol} ${p.side} | vetos duros calculados: ${vetoes.length ? vetoes.map((v) => v.id).join(", ") : "nenhum"}`);
+    if (vetoes.length) {
+      return { decision: "REJECT", sizeFactor: 1, conviction: null, reason: `Veto duro de código: ${vetoes.map((v) => `${v.id} (${v.texto})`).join("; ")}` };
+    }
+    return { decision: "APPROVE", sizeFactor: 1, conviction: null, reason: "sem veto duro de código: entrada liberada (modo veto, sem júri de LLM)" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { decision: "REJECT", sizeFactor: 1, conviction: null, reason: `modo veto: não deu para calcular os vetos de código (${message}) -- entrada não sai`, error: message };
+  }
+}
+
 async function deliberate(p: DeskProposal, deadline: number, transcript: AgentReport[]): Promise<{ decision: "APPROVE" | "REJECT"; sizeFactor: 1 | 0.5; conviction: number | null; reason: string; error?: string }> {
   const checkTime = () => {
     if (Date.now() > deadline) throw new DeskTimeoutError("tempo da mesa esgotado");
@@ -900,7 +937,7 @@ export async function runTradingDesk(p: DeskProposal): Promise<DeskResult> {
 
   let verdict: Awaited<ReturnType<typeof deliberate>>;
   try {
-    verdict = await deliberate(p, deadline, transcript);
+    verdict = config.mt5DeskMode === "veto" ? await deliberateCodeOnly(p) : await deliberate(p, deadline, transcript);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     verdict = { decision: "REJECT", sizeFactor: 1, conviction: null, reason: `a mesa não conseguiu deliberar (${message}): sem decisão, a entrada não sai`, error: message };

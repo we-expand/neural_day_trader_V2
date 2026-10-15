@@ -539,6 +539,20 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    mecanicamente open_position quando side contradiz stochasticLabel dessa
    forma (SHORT+SOBREVENDIDO ou LONG+SOBRECOMPRADO), mas o objetivo aqui é
    você nunca propor isso, não só depender do bloqueio.
+   **EXCEÇÃO ABSOLUTA -- MODO EXPANSÃO DE FIBONACCI (regra do Cleber,
+   14/10/2026): quando o placar traz um CORREDOR DE FIBONACCI em expansão
+   (rompimento de fundo/topo, com degrau livre à frente), TUDO o que está
+   acima sobre extremo NÃO vale mais. Em expansão de BAIXA o Estocástico
+   fica SOBREVENDIDO por dias -- isso NÃO é "já caiu demais, vai repicar", e
+   NUNCA é motivo para abrir LONG contra a expansão nem para deixar de
+   vender. O mercado tende a só parar no próximo degrau. O que vale: o
+   Estocástico do timeframe do corredor com %K abaixo de %D (venda) = repique
+   contra descartado -> venda a favor, reforce e reentre (espelho em alta).
+   Em expansão a favor, o código libera as travas de julgamento (extremo,
+   MACD, momento, extremo do dia, R:R, alvo colado) e põe o alvo no degrau.
+   Se uma entrada a favor foi recusada, tente o PRÓXIMO ativo da cesta que
+   também esteja no corredor -- não encerre o ciclo com stop() depois de
+   uma recusa só.**
    **Desde 2026-09-27: cada leitura "stochastic"/"stochasticLongTerm" traz o
    campo "directionalHint" com a implicação direcional JÁ PRONTA (zona +
    cruzamento). Ao citar Estocástico no raciocínio, copie o directionalHint
@@ -660,7 +674,14 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
      o código recusa se faltar qualquer um dos dois, ou se o Estocástico
      estiver em extremo NO SENTIDO do próprio movimento (isso é exaustão, não
      continuidade -- reforçar aí é perseguir o topo/fundo, o oposto do
-     mandato). Cada reforço trava o stop em breakeven-ou-melhor na hora --
+     mandato). **EXCEÇÃO (método do Cleber, 14/10): dentro de um CORREDOR DE
+     EXPANSÃO DE FIBONACCI a favor da posição (placar "CORREDOR DE FIBONACCI",
+     com degrau livre à frente), o Estocástico colado no extremo NÃO é
+     exaustão -- o reforço é permitido e ESPERADO, desde que o Estocástico do
+     timeframe do corredor esteja a favor (venda: %K abaixo de %D) = o repique
+     contra foi descartado. O mercado tende a só parar no próximo degrau.
+     Também vale REENTRAR (open_position) a favor depois do alvo, quando um
+     candle romper o extremo do anterior e a média de 20 não foi tocada.** Cada reforço trava o stop em breakeven-ou-melhor na hora --
      o lote original nunca volta a ficar exposto por causa do reforço. Máximo
      ${MAX_PYRAMID_ADDS} reforços por posição. NÃO é pra "recuperar" posição
      perdedora nem "dobrar a aposta" -- é exclusivamente pra tendências que

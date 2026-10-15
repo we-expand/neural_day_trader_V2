@@ -5,9 +5,11 @@
  * a posicao pode ser REFORCADA a cada X pontos a favor (corredor entre degraus), PROTEGIDA (stop no preco de entrada)
  * e REDUZIDA perto do fim do degrau. A invalidacao e estrutural: o preco voltar a tocar o 0 do corredor.
  *
- * MODO SOMBRA: so registra em ledger/expansion_shadow.jsonl. O backtest de 14/10 (BTC/ETH/SOL, 1H) nao achou vantagem
- * estatistica relevante sobre o passeio aleatorio, entao NADA aqui deve operar de verdade antes de o relatorio
- * (scripts/expansion-shadow-report.ts) acumular dias de dado a favor.
+ * ESTADO (14/10, decisao do Cleber: nunca modo sombra): o ALVO no degrau esta AO VIVO (tools.ts, MT5_EXPANSION_LIVE) e o
+ * REFORCO/REENTRADA ao vivo passa pela LLM (increase_position/open_position, tools.ts), liberados quando o corredor esta a
+ * favor e o estocastico do timeframe do corredor valida. A lista `reentradas` abaixo segue sendo so um registro em
+ * ledger/expansion_shadow.jsonl para medicao -- nao e gatilho. Aviso mantido: o backtest de 14/10 (BTC/ETH/SOL, 1H) nao achou
+ * vantagem sobre o passeio aleatorio; a decisao de operar mesmo assim e do Cleber (DEMO).
  */
 import type { FibCorridor } from "./fibCorridor.js";
 
