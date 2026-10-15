@@ -7,6 +7,7 @@ import type {
 import { config } from "./config.js";
 import { hasPendingTrigger, type WatcherTrigger } from "./llmQueue.js";
 import { scopedToolDefinitions, executeTool, MAX_PYRAMID_ADDS, type ExecuteToolSession } from "./tools.js";
+import { autoReinforceInExpansion } from "./expansionAuto.js";
 import { appendLedger } from "./ledger.js";
 import { account, getBalanceEth } from "./wallet.js";
 import { getBalanceUsd } from "./economy.js";
@@ -1086,6 +1087,14 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
       }
     } catch (err) {
       console.error("[agent] falha ao checar stop/alvo mecanico (nao bloqueia o ciclo):", err instanceof Error ? err.message : err);
+    }
+    // 🆕 2026-10-15 (pedido do Cleber: carregar no corredor de Fibonacci): reforco sistematico, por codigo, com todas as
+    // travas do increase_position. Ver src/expansionAuto.ts. Nunca lanca excecao (nao bloqueia o ciclo).
+    try {
+      const autoNotes = await autoReinforceInExpansion(mt5Session, cycle);
+      if (autoNotes.length > 0) stopSummary += " Reforcos automaticos no corredor de Fibonacci (por codigo): " + autoNotes.join("; ") + ".";
+    } catch (err) {
+      console.warn("[EXPANSAO-AUTO] falha geral (ciclo segue):", err instanceof Error ? err.message : err);
     }
     // 🔴 2026-08-30 (handoff "Parte B", memoria de trades): fire-and-forget --
     // uma excecao nao capturada aqui abortaria o ciclo inteiro antes de
