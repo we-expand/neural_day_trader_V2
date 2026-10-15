@@ -15,6 +15,18 @@
 
 ## ▶ COMECE AQUI
 
+**[EM TESTE 2026-10-15 12:26 BRT] Scalp com stop 1,5× e alvo 1,5× o novo stop.** Madrugada de 15/10: −$13,3 (LLM −$5,34,
+manual −$6,90, CHINA50 sozinho −$6,96). Custo não é o problema: bruto desde 22/09 ≈ −$80 contra custo ≈ −$76, e janela de
+horário não ajuda (spread caro só em ativos que a IA quase não opera). O Cleber decidiu: produto aceita qualquer ativo (não
+tirar da cesta), motor é o produto, julga com ~10 entradas. Defeito achado: stop adaptativo ao ATR, mas teto de alvo fixo em
+0,25% → R:R de 0,25 a 0,67 conforme o ativo. Varredura em 147 entradas reais (`scripts/stop-target-sweep.ts`, velas de 5m):
+opção A (alvo 0,6× stop) = −0,22R, desligada; stop apertado e alvo pequeno sempre piores; só stop 1,5–2× com alvo ≥1,5× fica
+positivo (+0,07 a +0,10R, **sem significância**). Ligado: `MT5_SCALP_STOP_FACTOR=1.5`, `MT5_SCALP_TARGET_MAX_PCT=0`. **Critério
+(a partir de 12:26 BRT, 10 entradas consolidadas): abortar se E[R] < −0,3R ou acerto < 30%; manter se ≥ −0,15R.** Conferir:
+`npx tsx scripts/error-report.ts --since=2026-10-15T15:26:00Z`. Pendente: confirmar stop/alvo na 1ª entrada nova; stop do
+reforço (`increase_position`) fica do lado da perda (1 caso). Detalhe: [SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md](SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md)
+e [SESSAO_2026-10-15_TESTE_STOP_1-5X_ALVO_1-5X.md](SESSAO_2026-10-15_TESTE_STOP_1-5X_ALVO_1-5X.md).
+
 **[2026-10-15] 5 ideias executadas, NENHUMA vantagem nova.** Motor de backtest sem futuro + cofre
 (`llm-active-brain/scripts/lib/harness.ts`, canária barra vazamento); momento intradiário (Gao et al. 2018) sem efeito em
 S&P/Nasdaq/DAX/Nikkei; reversão do Nikkei reprovada no cofre; spread por hora medido (índices 8-10x mais caros
