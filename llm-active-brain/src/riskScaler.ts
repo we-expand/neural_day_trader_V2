@@ -37,7 +37,7 @@ export interface RiskTier {
 // Escada: começa em 1/4 do tamanho de hoje e sobe só com prova crescente.
 // Limiares pensados para uma conta pequena em DEMO; revisáveis via .env se quiser.
 export const RISK_TIERS: readonly RiskTier[] = [
-  { scale: 0.25, minN: 0, minCiLow: -Infinity, label: "piso (não provado / perdendo)" },
+  { scale: Number(process.env.MT5_RISK_SCALER_FLOOR ?? 0.25), minN: 0, minCiLow: -Infinity, label: "piso (não provado / perdendo)" },
   { scale: 0.5, minN: 40, minCiLow: 0.0, label: "parou de sangrar (IC95 baixo > 0,00 em 40+)" },
   { scale: 0.75, minN: 80, minCiLow: 0.05, label: "edge fraco provado (IC95 baixo > +0,05 em 80+)" },
   { scale: 1.0, minN: 150, minCiLow: 0.1, label: "edge sólido (IC95 baixo > +0,10 em 150+)" },
