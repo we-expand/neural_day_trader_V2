@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -954,7 +954,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 3 componentes do consenso sempre no mesmo grafico que o metodo pede.
       const trend15mForDirection = timeframe === "15m" ? trend : await getTrendInfo(symbol, "15m");
       const immediateMomentum5m = await getImmediateMomentum(symbol, "5m");
-      const marketDirection = computeMarketDirection(trend5mForDirection, trendLongTerm, immediateMomentum5m, hmmRegime, trend15mForDirection, Number.isFinite(quote.changePercent) ? quote.changePercent : null);
+      const marketDirection = computeMarketDirection(trend5mForDirection, trendLongTerm, immediateMomentum5m, hmmRegime, trend15mForDirection, Number.isFinite(quote.changePercent) ? quote.changePercent : null, await getHigherTimeframeChain(symbol));
       // 🔴 2026-09-07 (pedido direto do Cleber): EMA9/SMA20/SMA200 são as
       // três médias mais observadas pelo mercado -- preço longe demais delas
       // tende a reverter em direção a elas (mean reversion). Só CONTEXTO/
@@ -1810,7 +1810,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
       const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
-      const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal, lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null);
+      const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal, lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null, await getHigherTimeframeChain(symbol));
       // 🔴 2026-09-23 (conselho + teste de 3 anos Binance, pedido do Cleber):
       // VETO de SHORT em BTC/ETH entre 17h e 20h de Brasilia quando o dia ja
       // caiu >= 2%. Nesse contexto o SHORT acertou so 39% (BTC) / 43% (ETH),

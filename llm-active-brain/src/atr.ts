@@ -499,6 +499,12 @@ export async function getImmediateMomentum(
 // consistencia. Opcional (paramentro pode vir null de callers antigos ainda
 // nao atualizados) pra nao quebrar assinatura -- mas ambos os callers reais
 // (get_mt5_quote e open_position em tools.ts) ja passam o valor.
+export async function getHigherTimeframeChain(symbol: string): Promise<{ macd1h: MacdResult | null; macd4h: MacdResult | null }> {
+  // 2026-10-16 (Cleber): SO a 1H define o lado; a 4H nao entra (macd4h fica null). Mantido o formato pra nao mexer nos call sites.
+  const macd1h = await getMacd(symbol, "1H").catch(() => null);
+  return { macd1h, macd4h: null };
+}
+
 export interface MarketDirectionResult {
   /** Veredito unico: ALTA/BAIXA = todos os sinais disponiveis concordam; DIVERGENTE = tem sinal real dos dois lados; INDEFINIDO = nenhum sinal com opiniao real agora. */
   consensus: "ALTA" | "BAIXA" | "DIVERGENTE" | "INDEFINIDO";
@@ -525,37 +531,66 @@ export function computeMarketDirection(
   _immediateMomentum5m: ImmediateMomentumInfo | null,
   _hmmRegime: HmmRegimeResult | null,
   _trend15m: TrendInfo | null = null,
-  dayChangePct: number | null = null
+  dayChangePct: number | null = null,
+  chain: { macd1h: MacdResult | null; macd4h: MacdResult | null } | null = null
 ): MarketDirectionResult {
   const dayRead: "ALTA" | "BAIXA" | null =
     dayChangePct == null || !Number.isFinite(dayChangePct) || Math.abs(dayChangePct) < DAY_CHANGE_NEUTRAL_BAND_PCT
       ? null
       : dayChangePct > 0 ? "ALTA" : "BAIXA";
   const read5m = trend5m?.label === "ALTA" || trend5m?.label === "BAIXA" ? trend5m.label : null;
-  const read1h = trendLongTerm?.label === "ALTA" || trendLongTerm?.label === "BAIXA" ? trendLongTerm.label : null;
-  // 2026-09-23 (noite): dia% SAI do voto (so aparece no resumo). Teste em 3 anos
-  // de Binance: depois de dia <= -2%, SHORT acerta 39-43% -- votar 'dia caiu =
-  // vende' era o oposto do que o dado mostra. Veredito = 5m + 1H concordando.
-  const reads = [read5m, read1h];
-  const votesAlta = reads.filter((r) => r === "ALTA").length;
-  const votesBaixa = reads.filter((r) => r === "BAIXA").length;
+  const labelRead1h = trendLongTerm?.label === "ALTA" || trendLongTerm?.label === "BAIXA" ? trendLongTerm.label : null;
+  // 2026-10-16 (Cleber): o lado vem da CADEIA de tempos maiores, lida pelo MACD (nao pelo rotulo de preco de 24 velas):
+  // 4H e 1H sao o mesmo movimento em escalas diferentes (um e continuacao do outro), nao dois votos independentes.
+  // 1H e 4H pro mesmo lado = tendencia unica; 1H contra 4H = mercado bagunçado (DIVERGENTE: so REVERSAO confirmada);
+  // so um deles com direcao = segue esse; nenhum = INDEFINIDO. Sem MACD disponivel cai no rotulo antigo.
+  const macdSide = (m: MacdResult | null | undefined): "ALTA" | "BAIXA" | null => (m?.label === "ALTA" || m?.label === "BAIXA" ? m.label : null);
+  const m1h = macdSide(chain?.macd1h);
+  const m4h = macdSide(chain?.macd4h);
+  const chainAvailable = !!(chain && (chain.macd1h || chain.macd4h));
+  let read1h: "ALTA" | "BAIXA" | null = labelRead1h;
+  let chainConflict = false;
+  if (chainAvailable && process.env.MT5_DIRECTION_CHAIN_MACD !== "false") {
+    if (m1h && m4h) {
+      if (m1h === m4h) read1h = m1h;
+      else { read1h = null; chainConflict = true; }
+    } else read1h = m1h ?? m4h;
+  }
+  // 2026-10-16 (pedido do Cleber): a 1H DECIDE O LADO sozinha. O 5m deixou de votar: serve so de CONSULTA pra timing da
+  // entrada (aparece no resumo como "5m a favor/contra"), nao muda o veredito. Antes (5m + 1H concordando) a LLM misturava
+  // as duas escalas. 1H lateral = INDEFINIDO (sem lado imposto). Contra a 1H so com setupType=REVERSAO confirmado (gate em tools.ts).
+  // Rollback: MT5_DIRECTION_BY_1H=false volta ao voto 5m + 1H de antes.
+  const votesAlta = read1h === "ALTA" ? 1 : 0;
+  const votesBaixa = read1h === "BAIXA" ? 1 : 0;
   const signalsUsed = votesAlta + votesBaixa;
-  const summary = `dia ${dayChangePct != null && Number.isFinite(dayChangePct) ? `${dayChangePct.toFixed(2)}%` : "n/d"} (${dayRead ?? "neutro"}), 5m ${read5m ?? "neutro"}, 1H ${read1h ?? "neutro"}`;
+  const entry5m = read5m == null ? "5m neutro" : read1h == null ? `5m ${read5m}` : read5m === read1h ? `5m ${read5m} (a favor da 1H)` : `5m ${read5m} (contra a 1H, so consulta)`;
+  const chainTxt = chainAvailable ? ` [MACD 1H ${m1h ?? "neutro"}, MACD 4H ${m4h ?? "neutro"}]` : "";
+  const summary = `1H ${read1h ?? (chainConflict ? "contra a 4H" : "lateral")}${chainTxt} (define o lado); ${entry5m}; dia ${dayChangePct != null && Number.isFinite(dayChangePct) ? `${dayChangePct.toFixed(2)}%` : "n/d"} (${dayRead ?? "neutro"})`;
 
   let consensus: MarketDirectionResult["consensus"];
   let agreement: string;
-  if (signalsUsed === 0) {
-    consensus = "INDEFINIDO";
-    agreement = `Veredito rapido: ${summary} -- nenhuma leitura com direcao agora.`;
-  } else if (votesAlta >= 2 && read1h !== "BAIXA") { // 2 = 5m e 1H concordam
-    consensus = "ALTA";
-    agreement = `Veredito rapido: ${summary} -- maioria ALTA e 1H nao contraria.`;
-  } else if (votesBaixa >= 2 && read1h !== "ALTA") {
-    consensus = "BAIXA";
-    agreement = `Veredito rapido: ${summary} -- maioria BAIXA e 1H nao contraria.`;
-  } else {
+  if (process.env.MT5_DIRECTION_BY_1H === "false") {
+    const reads = [read5m, read1h];
+    const oldAlta = reads.filter((r) => r === "ALTA").length;
+    const oldBaixa = reads.filter((r) => r === "BAIXA").length;
+    const used = oldAlta + oldBaixa;
+    if (used === 0) return { consensus: "INDEFINIDO", agreement: `Veredito rapido: ${summary} -- nenhuma leitura com direcao agora.`, votesAlta: 0, votesBaixa: 0, signalsUsed: 0 };
+    if (oldAlta >= 2 && read1h !== "BAIXA") return { consensus: "ALTA", agreement: `Veredito rapido: ${summary} -- maioria ALTA e 1H nao contraria.`, votesAlta: oldAlta, votesBaixa: oldBaixa, signalsUsed: used };
+    if (oldBaixa >= 2 && read1h !== "ALTA") return { consensus: "BAIXA", agreement: `Veredito rapido: ${summary} -- maioria BAIXA e 1H nao contraria.`, votesAlta: oldAlta, votesBaixa: oldBaixa, signalsUsed: used };
+    return { consensus: "DIVERGENTE", agreement: `Veredito rapido: ${summary} -- SEM maioria clara (ou 1H vetando), exija confirmacao extra antes de continuacao.`, votesAlta: oldAlta, votesBaixa: oldBaixa, signalsUsed: used };
+  }
+  if (chainConflict) {
     consensus = "DIVERGENTE";
-    agreement = `Veredito rapido: ${summary} -- SEM maioria clara (ou 1H vetando), exija confirmacao extra antes de continuacao.`;
+    agreement = `Lado pela cadeia 4H/1H: ${summary} -- 1H e 4H discordam (mercado bagunçado): so REVERSAO confirmada, na duvida fica fora.`;
+  } else if (read1h === "ALTA") {
+    consensus = "ALTA";
+    agreement = `Lado pela 1H: ${summary}. Operar so COMPRA (ou REVERSAO confirmada); o 5m e so consulta de entrada.`;
+  } else if (read1h === "BAIXA") {
+    consensus = "BAIXA";
+    agreement = `Lado pela 1H: ${summary}. Operar so VENDA (ou REVERSAO confirmada); o 5m e so consulta de entrada.`;
+  } else {
+    consensus = "INDEFINIDO";
+    agreement = `Lado pela 1H: ${summary} -- 1H sem direcao, sem lado imposto.`;
   }
 
   return { consensus, agreement, votesAlta, votesBaixa, signalsUsed };

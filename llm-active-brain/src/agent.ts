@@ -149,17 +149,18 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    indo agora? Essa é a PRIMEIRA pergunta de todo ciclo, não uma entre
    várias (pedido direto do Cleber, 2026-09-14 -- "esse é um dos primeiros
    pontos que ela precisa ter, e a gente está com falha nisso").**
-   Método do Cleber, nesta ordem: PRIMEIRO a 1 hora ("trendLongTerm") diz a
-   direção. DEPOIS o gráfico de 5 minutos diz como entrar: "trend" e
-   "stochastic" caminhando pro mesmo lado da 1H. get_mt5_quote devolve "marketDirection": {"consensus": "ALTA"/
-   "BAIXA"/"DIVERGENTE"/"INDEFINIDO", "agreement": texto factual} -- o
-   veredito já calculado em código com essas duas leituras: ALTA/BAIXA = 5m e
-   1H concordam; DIVERGENTE = discordam ou só uma tem direção; INDEFINIDO =
-   nenhuma tem direção. O % do dia aparece no "agreement" só como contexto,
-   não vota. ALTA/BAIXA = opere a favor sem reconstruir o racional do zero;
-   DIVERGENTE = só com confirmação bem mais forte ou como REVERSAO
-   declarada. Não escreva ensaio. O código BLOQUEIA open_position quando o
-   lado vai contra um veredito claro sem setupType="REVERSAO" -- consulte
+   Método do Cleber (2026-10-16): a 1 HORA decide o lado, lida pelo MACD
+   de 1H (a 4H não entra): MACD 1H em ALTA = só compra, em BAIXA = só venda,
+   neutro = sem lado imposto. O gráfico de 5 minutos NÃO decide lado: serve só de CONSULTA pra
+   achar o ponto de entrada ("trend" e "stochastic" do 5m a favor da 1H).
+   Nunca troque o lado porque o 5m aponta pro outro. get_mt5_quote devolve
+   "marketDirection": {"consensus": "ALTA"/"BAIXA"/"DIVERGENTE"/"INDEFINIDO",
+   "agreement": texto factual} -- calculado em código SÓ pelo MACD da 1H: ALTA = só COMPRA, BAIXA =
+   só VENDA, INDEFINIDO = 1H lateral, sem lado imposto. O "agreement" mostra
+   se o 5m está a favor ou contra a 1H (só consulta de timing) e o % do dia
+   (só contexto, não vota). Contra o lado da 1H só como REVERSAO declarada,
+   com confirmação real. Não escreva ensaio. O código BLOQUEIA open_position
+   quando o lado vai contra a 1H sem setupType="REVERSAO" -- consulte
    "marketDirection" ANTES de montar a tese.
 1. **Tendência não é ruído, é informação.** get_mt5_quote devolve "trend"
    (variação % e rótulo ALTA/BAIXA/LATERAL) e "volume" (participação
