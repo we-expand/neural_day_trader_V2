@@ -15,6 +15,23 @@
 
 ## ▶ COMECE AQUI
 
+**[EM ANDAMENTO 2026-10-16] Agente de alvo AO VIVO (não é mais sombra) + perfil do dia + limitador de 429. Commit entregue ao
+Cleber, motor reiniciado 12:54Z, 1º `[ALVO-AGENTE]` AINDA NÃO CONFIRMADO ao vivo.** Madrugada 15→16/10: 5 de 5 entradas acertaram
+o lado (MFE médio +US$1,01) e as 5 fecharam no stop, 0 TP: alvo de 0,41–0,67% longe do espaço real (log sombra já dizia
+`floorTargetFits:false`). Agora (`targetCalculator.ts`, `dayProfile.ts` novo, `tools.ts`): alvo = menor entre o proposto, o
+próximo nível, o Fibonacci diário (máx×mín de 24h; a favor da perna só extensões, contra só retrações), o alcance do Setup
+(`targetPoints`: POUCOS ≈ 1 vela de 15m, MÉDIO 0,6× e MUITOS 1,0× a pernada típica) e o espaço do range diário (ADR). Não
+cabe/não paga o piso → **não opera**, também no modo expansão; em POUCOS o modo expansão nem ativa. Scalp: stop encurta junto
+(R:R 1,0, piso = spread e 0,6× vela 15m) e o lote sobe p/ manter o ganho-alvo (US$4–5), sob todos os tetos de risco. Replay do
+log sombra: 43% dos alvos cortados, 39% das propostas recusadas → espere MENOS entradas. Escalonador `MT5_RISK_SCALER_FLOOR=1.0`
+(`.env`). **429 do provedor** (NVIDIA, limite por MINUTO) derrubava a mesa desde 06:00Z: limitador 30 chamadas/min +
+retry paciente (`MT5_DESK_MAX_CALLS_PER_MIN`); 0 erros 429 depois. Modo expansão ativa só com rompimento e aí MACD/estocástico
+ficam liberados (regra do Cleber, mantida); fora dele os vetos valem. BTCUSD LONG 11:30Z entrou em expansão legítima (alvo 1,83%);
+Cleber fechou à mão. Pendente: confirmar `[ALVO-AGENTE]` na 1ª entrada; veto do Gestor de Risco por drawdown diário (7,85%)
+segura entradas — decisão do Cleber; limiares (0,8×/1,0×/0,6×/piso 25% ADR) são julgamento, sem validação. Rollback:
+`MT5_TARGET_AGENT_LIVE=false`, `MT5_SCALP_STOP_FOLLOWS_TARGET=false`, `MT5_DESK_MAX_CALLS_PER_MIN=0`. Teste de 15/10 (stop 1,5×)
+fica CONTAMINADO a partir daqui (alvo/stop/lote mudaram).
+
 **[EM TESTE 2026-10-15 12:26 BRT] Scalp com stop 1,5× e alvo 1,5× o novo stop.** Madrugada de 15/10: −$13,3 (LLM −$5,34,
 manual −$6,90, CHINA50 sozinho −$6,96). Custo não é o problema: bruto desde 22/09 ≈ −$80 contra custo ≈ −$76, e janela de
 horário não ajuda (spread caro só em ativos que a IA quase não opera). O Cleber decidiu: produto aceita qualquer ativo (não
@@ -24,7 +41,12 @@ opção A (alvo 0,6× stop) = −0,22R, desligada; stop apertado e alvo pequeno 
 positivo (+0,07 a +0,10R, **sem significância**). Ligado: `MT5_SCALP_STOP_FACTOR=1.5`, `MT5_SCALP_TARGET_MAX_PCT=0`. **Critério
 (a partir de 12:26 BRT, 10 entradas consolidadas): abortar se E[R] < −0,3R ou acerto < 30%; manter se ≥ −0,15R.** Conferir:
 `npx tsx scripts/error-report.ts --since=2026-10-15T15:26:00Z`. Pendente: confirmar stop/alvo na 1ª entrada nova; stop do
-reforço (`increase_position`) fica do lado da perda (1 caso). Detalhe: [SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md](SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md)
+reforço (`increase_position`) fica do lado da perda (1 caso). **Tarde de 15/10:** zero entradas até 17:49. Causas: piso de
+valor US$3,60 barrou 7 de 14 tentativas; Mac dormiu de 14:40 a 17:43 (tampa fechada — o motor roda NO Mac, celular só mostra
+o painel; manter na tomada + `caffeinate -s -i`); DNS/NVIDIA fora ao acordar (mesa do EURUSD estourou em 823s). Piso baixado
+3,6→2,5 (`MT5_MIN_NET_REWARD_PER_REFERENCE_USD`, `.env`, restart 17:49); 1ª entrada pós-restart: XETUSD SHORT 0,1 lote às
+20:55Z (tamanho = 0,25× do escalonador × forte 2× × mesa METADE 0,5×; risco US$1,37). Horas 14:40-17:43 não contam no
+teste. Detalhe: [SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md](SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md)
 e [SESSAO_2026-10-15_TESTE_STOP_1-5X_ALVO_1-5X.md](SESSAO_2026-10-15_TESTE_STOP_1-5X_ALVO_1-5X.md).
 
 **[2026-10-15] 5 ideias executadas, NENHUMA vantagem nova.** Motor de backtest sem futuro + cofre
