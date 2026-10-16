@@ -541,11 +541,11 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         toast.error('Ordem bloqueada pelo guarda-costas', { description: blocks.map((b) => b.text).join(' ') });
         return;
       }
-      if (findings.length) {
-        setGuardPrompt({ side, findings });
-        return;
-      }
-      void logGuardDecision({ ...guardLogBase(side), findings, decision: 'ENVIADA_LIMPA' });
+      // 2026-10-16 (pedido do Cleber): os ALERTAS nao interrompem mais a boleta.
+      // So o BLOQUEIO (limite de perda diaria, tratado acima) trava a ordem. Os
+      // alertas continuam calculados e REGISTRADOS em manual_order_guard_log para
+      // auditoria/analise, mas a ordem sai direto, sem a 2a confirmacao.
+      void logGuardDecision({ ...guardLogBase(side), findings, decision: findings.length ? 'ENVIADA_COM_ALERTA' : 'ENVIADA_LIMPA' });
     } else {
       void logGuardDecision({ ...guardLogBase(side), findings: opts.confirmedFindings, decision: 'ENVIADA_COM_ALERTA' });
     }
