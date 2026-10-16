@@ -32,6 +32,8 @@ export interface TargetCalcInput {
   extraTargetsPct?: number[];
   /** Margem antes do nível: o alvo tem de ficar a esta fração da distância até o nível (0,9 = 10% antes). */
   fitFraction?: number;
+  /** Tetos extras do perfil do dia (pernada tipica, espaco do range diario), em fracao do preco. */
+  caps?: { nome: string; targetPct: number }[];
 }
 
 export interface TargetCandidate {
@@ -53,6 +55,8 @@ export interface TargetPlan {
   nearestBarrier: { nome: string; distanciaPct: number } | null;
   /** Maior alvo (fração) que cabe antes do próximo nível, já com a margem. null = sem dado. */
   maxFitTargetPct: number | null;
+  /** O que fixou o teto do alvo (nivel ou teto do perfil do dia); null = nada limitou. */
+  limitedBy: string | null;
   /** Menor alvo (fração) que paga o piso líquido (com custo). */
   floorTargetPct: number;
   floorTargetFits: boolean | null;
@@ -68,7 +72,7 @@ export function computeTargetPlan(input: TargetCalcInput): TargetPlan {
   const fitFraction = input.fitFraction ?? 0.9;
   const valid = [stopPct, proposedTargetPct, amountUsd].every((v) => Number.isFinite(v) && v > 0);
   if (!valid) {
-    return { nearestBarrier: null, maxFitTargetPct: null, floorTargetPct: NaN, floorTargetFits: null, candidates: [], verdict: "SEM_DADO", summary: "entrada inválida: sem cálculo." };
+    return { nearestBarrier: null, maxFitTargetPct: null, limitedBy: null, floorTargetPct: NaN, floorTargetFits: null, candidates: [], verdict: "SEM_DADO", summary: "entrada inválida: sem cálculo." };
   }
 
   const ahead = input.barriers
@@ -76,7 +80,14 @@ export function computeTargetPlan(input: TargetCalcInput): TargetPlan {
     .sort((a, b) => (a.distanciaPct as number) - (b.distanciaPct as number));
   const nearest = ahead.length ? { nome: ahead[0].nome, distanciaPct: ahead[0].distanciaPct as number } : null;
   const hasLevelData = input.barriers.some((b) => b.rompido || (b.distanciaPct != null && Number.isFinite(b.distanciaPct)));
-  const maxFit = nearest ? (nearest.distanciaPct / 100) * fitFraction : hasLevelData ? Number.POSITIVE_INFINITY : null;
+  let maxFit = nearest ? (nearest.distanciaPct / 100) * fitFraction : hasLevelData ? Number.POSITIVE_INFINITY : null;
+  let limitedBy: string | null = nearest ? `${nearest.nome} a ${nearest.distanciaPct.toFixed(3)}%` : null;
+  for (const cap of input.caps ?? []) {
+    if (Number.isFinite(cap.targetPct) && cap.targetPct > 0 && (maxFit == null || cap.targetPct < maxFit)) {
+      maxFit = cap.targetPct;
+      limitedBy = cap.nome;
+    }
+  }
 
   const floorTargetPct = (minNetRewardUsd + roundTripCostUsd) / amountUsd;
   const floorFits = maxFit == null ? null : floorTargetPct <= maxFit;
@@ -120,7 +131,7 @@ export function computeTargetPlan(input: TargetCalcInput): TargetPlan {
     summary = `o piso líquido de $${minNetRewardUsd.toFixed(2)} exige alvo ≥ ${pct(floorTargetPct)} e isso CABE${nearest ? ` (o próximo nível, ${nearest.nome}, está a ${nearest.distanciaPct.toFixed(3)}%)` : " (nenhum nível barra)"}.`;
   } else {
     verdict = "NAO_VALE";
-    summary = `o piso líquido de $${minNetRewardUsd.toFixed(2)} exige alvo ≥ ${pct(floorTargetPct)}, mas o próximo nível (${nearest!.nome}) está a ${nearest!.distanciaPct.toFixed(3)}%: o alvo que paga o piso NÃO cabe sem romper o nível.`;
+    summary = `o piso líquido de $${minNetRewardUsd.toFixed(2)} exige alvo ≥ ${pct(floorTargetPct)}, mas o alvo máximo que cabe é ${pct(maxFit as number)} (limite: ${limitedBy}): o alvo que paga o piso NÃO cabe.`;
   }
-  return { nearestBarrier: nearest, maxFitTargetPct: maxFit != null && Number.isFinite(maxFit) ? maxFit : null, floorTargetPct, floorTargetFits: floorFits, candidates, verdict, summary };
+  return { nearestBarrier: nearest, maxFitTargetPct: maxFit != null && Number.isFinite(maxFit) ? maxFit : null, limitedBy, floorTargetPct, floorTargetFits: floorFits, candidates, verdict, summary };
 }

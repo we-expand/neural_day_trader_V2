@@ -63,6 +63,7 @@ import { getFibLive } from "./fibLive.js";
 import { describeExpansionAverages } from "./fibCorridor.js";
 import { planExpansion } from "./expansionPlan.js";
 import { computeTargetPlan } from "./targetCalculator.js";
+import { getDayProfile, fibDailyBarriers, profileTargetCaps } from "./dayProfile.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import {
   alignmentSummary,
@@ -126,8 +127,12 @@ export interface DeskProposal {
   basketBreadth: { symbol: string; dayChangePct: number }[];
   /** Travas mecânicas antigas que teriam barrado esta entrada (só preenchido no teste só-LLM). Vai pro Supabase. */
   bypassedGates?: string[];
+  /** Alvo de Lucro do Setup do usuario (POUCOS = scalp, MÉDIO, MUITOS); null = nao escolheu. Define o alcance do alvo (dayProfile.ts). */
+  targetPoints?: string | null;
   /** Ensaio (scripts/desk-dry-run.ts): não escreve no painel "Atividade da IA" e grava num arquivo separado. */
   dryRun?: boolean;
+  /** Preenchido pela mesa (calculadora de alvo, targetCalculator.ts): maior alvo que cabe antes do próximo nível. tools.ts aplica. */
+  targetPlan?: { avgRange15mPct: number | null; limitedBy: string | null; profileText: string | null; maxFitTargetPct: number | null; floorTargetPct: number; verdict: string; nearest: string | null; summary: string };
 }
 
 export interface AgentReport {
@@ -150,6 +155,8 @@ export interface DeskResult {
   failedAgents: string[];
   durationMs: number;
   llmCalls: number;
+  /** Plano do agente de alvo (targetCalculator.ts) calculado nesta deliberação. */
+  targetPlan?: DeskProposal["targetPlan"];
   /** Preenchido quando a mesa não conseguiu deliberar (a decisão então é REJECT por segurança). */
   error?: string;
 }
@@ -186,6 +193,24 @@ const limit = createLimiter(Math.max(1, config.mt5DeskConcurrency));
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Espacamento por minuto (janela deslizante de 60s): reserva a vaga e espera se a janela estiver cheia.
+const callTimes: number[] = [];
+async function paceCall(deadline: number): Promise<void> {
+  const max = config.mt5DeskMaxCallsPerMin;
+  if (!(max > 0)) return;
+  for (;;) {
+    const now = Date.now();
+    while (callTimes.length && now - callTimes[0] >= 60_000) callTimes.shift();
+    if (callTimes.length < max) {
+      callTimes.push(now);
+      return;
+    }
+    const wait = 60_000 - (now - callTimes[0]) + 50;
+    if (now + wait > deadline - 3000) return; // sem tempo: deixa a chamada seguir (e o 429 trata)
+    await sleep(wait);
+  }
+}
+
 interface AgentSpec {
   key: string;
   agent: string;
@@ -205,13 +230,14 @@ async function callAgent(spec: AgentSpec, deadline: number): Promise<AgentReport
   const maxTokens = config.mt5DeskEnableThinking ? Math.max(config.mt5DeskMaxTokens, 6000) : config.mt5DeskMaxTokens;
   let lastError = "sem resposta";
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
     const remaining = deadline - Date.now();
     if (remaining < 3000) {
       lastError = "tempo da mesa esgotado";
       break;
     }
     try {
+      await paceCall(deadline);
       const resp = await limit(() => {
         llmCallsThisRun++;
         return deskClient.chat.completions.create(
@@ -239,7 +265,7 @@ async function callAgent(spec: AgentSpec, deadline: number): Promise<AgentReport
         const headers = err.headers as Record<string, string> | undefined;
         const retryAfter = Number(headers?.["retry-after"]);
         lastError = "limite de taxa do provedor (429)";
-        await sleep(Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5, 15) * 1000);
+        await sleep((Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5 * attempt, 20) + Math.random() * 3) * 1000);
         continue;
       }
       lastError = err instanceof Error ? err.message : String(err);
@@ -350,6 +376,12 @@ function header(p: DeskProposal, data: MarketData): string {
 
 function readingsByTimeframe(data: MarketData): TimeframeReadings[] {
   return data.perTf.map((t) => ({ tf: t.tf, estocastico: readStochastic(t.stoch), macd: readMacd(t.macd), medias: readAverages(t.avg) }));
+}
+
+function legFractionFor(targetPoints: string | null | undefined): number {
+  if (targetPoints === "POUCOS") return config.mt5TargetLegFractionPoucos;
+  if (targetPoints === "MUITOS") return config.mt5TargetLegFractionMuitos;
+  return config.mt5TargetLegFractionMedio;
 }
 
 function dayAndTargetReadings(p: DeskProposal, data: MarketData) {
@@ -741,21 +773,37 @@ async function deliberate(p: DeskProposal, deadline: number, transcript: AgentRe
     ? `\nCORREDOR DE FIBONACCI (calculado pelo sistema a partir das velas; extensão 0 / 61,8% / 100% / 161,8%): ${fib.texto}${mediasExp ? `\n${mediasExp}` : ""}`
     : "";
   const maLeitura = fib?.maTexto ? `\nLEITURA DAS MÉDIAS COMO GATILHO (gatilho D; calculada pelo sistema; combine com a nova cruza do estocástico a favor):\n${fib.maTexto}` : "";
-  const alinhamento = alignmentSummary(readings) + fibTexto + maLeitura;
+  const dayProfile = await safe(getDayProfile(p.symbol, p.entryPrice));
+  const perfilTexto = dayProfile ? `\nPERFIL DO DIA E DO ATIVO (calculado pelo sistema a partir das velas; pernadas, volatilidade média, range normal e Fibonacci diário): ${dayProfile.texto}` : "";
+  const alinhamento = alignmentSummary(readings) + fibTexto + maLeitura + perfilTexto;
   const head = header(p, data);
   const metodo = loadMethod();
-  const { dayRange, targetRoom, barreiras } = dayAndTargetReadings(p, data);
-  // MODO SOMBRA da calculadora de alvo (targetCalculator.ts): só registra, NUNCA altera a decisão.
+  const { dayRange, targetRoom, barreiras: levelBarriers } = dayAndTargetReadings(p, data);
+  const barreiras = dayProfile ? [...levelBarriers, ...fibDailyBarriers(dayProfile, p.side)] : levelBarriers;
+  // CALCULADORA DE ALVO (targetCalculator.ts) AO VIVO (16/10, pedido do Cleber: "nunca modo sombra"): o plano vai em
+  // p.targetPlan e tools.ts limita o alvo ao que cabe antes do próximo nível. O log em ledger/target_shadow.jsonl continua.
   try {
-    if (!p.dryRun) {
+    {
       const costUsd = estimateCommissionUsd(p.symbol, p.amountUsd, p.entryPrice);
       const minNet = Math.max(config.mt5MinExpectedNetRewardUsd, config.mt5MinNetRewardPerReferenceUsd * (p.balance / config.mt5ReferenceCapitalUsd));
-      const plan = computeTargetPlan({ side: p.side, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, roundTripCostUsd: costUsd, minNetRewardUsd: minNet, barriers: barreiras });
+      const plan = computeTargetPlan({ side: p.side, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, roundTripCostUsd: costUsd, minNetRewardUsd: minNet, barriers: barreiras, caps: dayProfile ? profileTargetCaps(dayProfile, p.side, legFractionFor(p.targetPoints), p.targetPoints === "POUCOS") : undefined });
+      p.targetPlan = {
+        avgRange15mPct: dayProfile?.avgRange15mPct ?? null,
+        limitedBy: plan.limitedBy,
+        profileText: dayProfile?.texto ?? null,
+        maxFitTargetPct: plan.maxFitTargetPct,
+        floorTargetPct: plan.floorTargetPct,
+        verdict: plan.verdict,
+        nearest: plan.limitedBy,
+        summary: plan.summary,
+      };
+      if (!p.dryRun) {
       if (!existsSync(LEDGER_DIR)) mkdirSync(LEDGER_DIR, { recursive: true });
       appendFileSync(TARGET_SHADOW_FILE, JSON.stringify({ fib: fib?.texto ?? null, at: new Date().toISOString(), symbol: p.symbol, side: p.side, entryPrice: p.entryPrice, stopPct: p.stopPct, proposedTargetPct: p.takeProfitPct, amountUsd: p.amountUsd, costUsd, minNetUsd: minNet, plan }) + "\n");
+      }
     }
   } catch (err) {
-    console.warn(`[MESA] calculadora de alvo (sombra) falhou, ignorado: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[MESA] calculadora de alvo falhou, ignorado: ${err instanceof Error ? err.message : String(err)}`);
   }
   const fibPrincipal = fib?.principal
     ? {
@@ -953,6 +1001,7 @@ export async function runTradingDesk(p: DeskProposal): Promise<DeskResult> {
     failedAgents: transcript.filter((r) => !r.ok).map((r) => r.agent),
     durationMs: Date.now() - startedAt,
     llmCalls: llmCallsThisRun,
+    ...(p.targetPlan ? { targetPlan: p.targetPlan } : {}),
     ...(verdict.error ? { error: verdict.error } : {}),
   };
 

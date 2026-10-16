@@ -2524,15 +2524,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // apertado que o atual foi sempre pior. 1 desliga (comportamento antigo). Nunca passa de mt5StopMaxPct.
       const scalpStopFactor =
         !isWeekendMode() && session.userConfig?.targetPoints === "POUCOS" && config.mt5ScalpStopFactor > 1 ? config.mt5ScalpStopFactor : 1;
-      let stopPct: number | null = atrPctForStop == null
+      const stopPctRaw: number | null = atrPctForStop == null
         ? null
         : (() => {
             const dynamicStopPct = atrPctForStop * stopAtrMultiplierForRegime;
             if (dynamicStopPct < stopMinPctForRegime || dynamicStopPct > config.mt5StopMaxPct) return null;
             return Math.min(dynamicStopPct * scalpStopFactor, config.mt5StopMaxPct);
           })();
-      let usedFallbackStop = stopPct == null;
-      if (stopPct == null) stopPct = config.mt5StopFallbackPct;
+      let usedFallbackStop = stopPctRaw == null;
+      let stopPct: number = stopPctRaw ?? config.mt5StopFallbackPct;
       // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, primeiros 3 trades
       // reais depois do redesenho R:R 1:2 -- ver mt5SpreadStopSafetyMultiplier
       // em config.ts pro detalhe completo): 2 de 3 trades (XRPUSD LONG)
@@ -2833,7 +2833,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // Desliga com MT5_EXPANSION_LIVE=false. Degrau a menos de MT5_EXPANSION_MIN_TARGET_PCT (alvo de centavos): nao ativa.
       let expansionLive = false;
       let expansionStepLabel: string | null = null;
-      if (!isFomcBtcPlay && process.env.MT5_EXPANSION_LIVE !== "false") {
+      if (!isFomcBtcPlay && process.env.MT5_EXPANSION_LIVE !== "false" && session.userConfig?.targetPoints !== "POUCOS") {
         try {
           const fibNow = await getFibLive(symbol);
           const plano = planExpansion({ side, entryPrice: quote.price, corridor: fibNow?.principal ?? null });
@@ -3036,8 +3036,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 13/10 o NAS100 LONG foi aprovado com alvo de 0,143% e stop de 0,463% (R:R 0,31:1): ganho de $0,87
       // para arriscar $2,83. A mesa viu os numeros e aprovou mesmo assim. Agora o codigo recusa antes de
       // gastar as 16 chamadas de LLM, e de novo depois que a mesa corta o tamanho pela metade.
-      const minValueCheck = (amountForCheck: number, floorFactor = 1): string | null => {
-        if (isFomcBtcPlay || expansionLive) return null;
+      const minValueCheck = (amountForCheck: number, floorFactor = 1, force = false): string | null => {
+        if (isFomcBtcPlay || (expansionLive && !force)) return null;
         const minNetRewardUsd = Math.max(
           config.mt5MinExpectedNetRewardUsd,
           config.mt5MinNetRewardPerReferenceUsd * (balance / config.mt5ReferenceCapitalUsd) * floorFactor
@@ -3119,6 +3119,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           spreadPct: Number.isFinite(quote.spreadPct) ? quote.spreadPct : null,
           dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
           llmOnly: llmOnlyTest,
+          targetPoints: session.userConfig?.targetPoints ?? null,
           bypassedGates: [...bypassedGates],
           basketBreadth,
           riskFacts: {
@@ -3176,6 +3177,63 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             if (minValueAfterHalf) {
               console.log(`[PISO-DE-VALOR] ${symbol} ${side} aprovado pela mesa com METADE, mas recusado depois do corte: ${minValueAfterHalf.slice(0, 200)}`);
               return { error: `A mesa aprovou com METADE do tamanho, mas com a metade ${minValueAfterHalf}` };
+            }
+          }
+        }
+
+        // 🔴 2026-10-16 (pedido do Cleber): AGENTE DE ALVO AO VIVO. Madrugada de 15-16/10: 5 de 5 entradas acertaram o lado
+        // (MFE medio +$1,01) e as 5 fecharam no stop, 0 TP -- o alvo (0,41%-0,67%) ficava muito alem do espaco real ate o
+        // proximo nivel (o log sombra ja dizia floorTargetFits:false) e o lucro devolvia. Agora o alvo e o MENOR entre o
+        // proposto e o que CABE antes do proximo nivel (targetCalculator.ts, margem de 10%). Se com esse alvo o piso de valor
+        // ou o R:R minimo nao fecham, a entrada NAO sai: perna pequena nao paga a conta. Modo expansao tem alvo proprio (degrau).
+        // Rollback: MT5_TARGET_AGENT_LIVE=false.
+        if (process.env.MT5_TARGET_AGENT_LIVE !== "false" && !isFomcBtcPlay && desk.targetPlan?.maxFitTargetPct != null) {
+          const fitPct = desk.targetPlan.maxFitTargetPct;
+          deskSnapshot.targetAgent = { proposedPct: takeProfitPct, maxFitPct: fitPct, verdict: desk.targetPlan.verdict, nearest: desk.targetPlan.nearest };
+          if (fitPct > 0 && takeProfitPct > fitPct) {
+            console.log(`[ALVO-AGENTE] ${symbol} ${side} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(fitPct * 100).toFixed(3)}% (cabe antes de ${desk.targetPlan.nearest}); stop ${(stopPct * 100).toFixed(3)}% intocado`);
+            takeProfitPct = fitPct;
+            // Scalp: o stop encurta junto com o alvo (R:R desejado), senao alvo curto + stop largo nao fecha o R:R minimo.
+            if (process.env.MT5_SCALP_STOP_FOLLOWS_TARGET !== "false" && session.userConfig?.targetPoints === "POUCOS" && !isWeekendMode()) {
+              const noiseFloor = (desk.targetPlan.avgRange15mPct ?? 0) / 100 * config.mt5ScalpStopFloorRange15;
+              const stopFloor = Math.max(minStopForSpread, noiseFloor);
+              const wantedStop = Math.max(takeProfitPct / config.mt5ScalpAgentStopRr, stopFloor);
+              if (wantedStop < stopPct) {
+                console.log(`[ALVO-AGENTE] ${symbol} ${side} stop ${(stopPct * 100).toFixed(3)}% -> ${(wantedStop * 100).toFixed(3)}% (alvo ${(takeProfitPct * 100).toFixed(3)}% / R:R ${config.mt5ScalpAgentStopRr}; piso ${(stopFloor * 100).toFixed(3)}% = max(spread, ${config.mt5ScalpStopFloorRange15}x vela 15m))`);
+                deskSnapshot.targetAgentStop = { fromPct: stopPct, toPct: wantedStop, floorPct: stopFloor };
+                stopPct = wantedStop;
+                actualRiskUsd = amountUsd * stopPct;
+              }
+            }
+            // O GANHO em $ por entrada fica (alvo curto = mais contratos): lote = ganho-alvo / (alvo% x contrato x preco),
+            // mantendo o corte de tamanho da mesa. So SOBE o lote; todos os tetos continuam por cima (lotes de seguranca,
+            // lotes do Setup, risco por trade, notional e exposicao correlacionada). Se um teto segurar, o piso de valor decide.
+            const oneLotUsd = LOT_SIZE[symbol] * quote.price;
+            const wantedLots = Math.round((targetRewardUsd * desk.sizeFactor) / (takeProfitPct * oneLotUsd) / MIN_LOTS) * MIN_LOTS;
+            if (wantedLots > lots) {
+              const corrRoomUsd = correlatedGroup.length > 1
+                ? config.mt5MaxCorrelatedNotionalUsd - openPositions.filter((o) => correlatedGroup.includes(o.symbol) && o.side === side).reduce((sum, o) => sum + Number(o.quantity), 0)
+                : Number.POSITIVE_INFINITY;
+              const ceilings = [
+                config.mt5SafetyMaxLots,
+                session.userConfig?.maxLotsPerTrade ?? Number.POSITIVE_INFINITY,
+                balance * config.mt5MaxRiskPctPerTrade / stopPct / oneLotUsd,
+                config.mt5MaxNotionalUsd / oneLotUsd,
+                corrRoomUsd / oneLotUsd,
+              ];
+              const maxLotsAllowed = Math.floor(Math.min(...ceilings) / MIN_LOTS) * MIN_LOTS;
+              const newLots = Math.max(lots, Math.min(wantedLots, maxLotsAllowed));
+              if (newLots > lots) {
+                console.log(`[ALVO-AGENTE] ${symbol} ${side} lote ${lots} -> ${newLots} (queria ${wantedLots}) pra manter o ganho-alvo com o alvo menor; risco ${(newLots * oneLotUsd * stopPct).toFixed(2)} USD`);
+                lots = newLots;
+                amountUsd = lots * oneLotUsd;
+                actualRiskUsd = amountUsd * stopPct;
+              }
+            }
+            const refusalAfterTarget = minValueCheck(amountUsd, desk.sizeFactor, true); // force: vale tambem no modo expansao (se nao cabe, nao opera)
+            if (refusalAfterTarget) {
+              console.log(`[ALVO-AGENTE] ${symbol} ${side} recusado: com o alvo que cabe, ${refusalAfterTarget.slice(0, 200)}`);
+              return { error: `Agente de alvo: o proximo nivel (${desk.targetPlan.nearest}) so deixa espaco pra um alvo de ${(fitPct * 100).toFixed(3)}%, e com ele ${refusalAfterTarget}` };
             }
           }
         }

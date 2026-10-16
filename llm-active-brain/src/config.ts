@@ -535,6 +535,16 @@ export const config = {
   // alvo de 0,143% contra stop de 0,463% (R:R 0,31:1), ganho esperado de $0,87 e risco de $2,83 -- centavos.
   // 1) retorno/risco abaixo deste valor e recusado (precisaria acertar ~2 de cada 3 so pra empatar).
   mt5MinRrAbsolute: Number(process.env.MT5_MIN_RR_ABSOLUTE ?? 0.5),
+  // 2026-10-16 (pedido do Cleber): o alvo obedece o Setup do usuario (targetPoints). Fracao da PERNADA TIPICA do ativo (mediana das
+  // pernadas de 15m, dayProfile.ts) que o alvo pode ocupar: POUCOS = scalp (multiplo do range medio da vela de 15m: 1,0 = ~1 vela), MEDIO = medio, MUITOS = a pernada inteira.
+  // Sao limiares de julgamento, nao validados estatisticamente.
+  mt5TargetLegFractionPoucos: Number(process.env.MT5_TARGET_LEG_FRACTION_POUCOS ?? 1.0),
+  mt5TargetLegFractionMedio: Number(process.env.MT5_TARGET_LEG_FRACTION_MEDIO ?? 0.6),
+  mt5TargetLegFractionMuitos: Number(process.env.MT5_TARGET_LEG_FRACTION_MUITOS ?? 1.0),
+  // 2026-10-16: no scalp (POUCOS), quando o agente de alvo corta o alvo, o stop encurta junto: stop = alvo / R:R desejado, sem ficar abaixo do
+  // piso de spread nem de `FLOOR_RANGE15` x o range medio da vela de 15m (ruido). Rollback: MT5_SCALP_STOP_FOLLOWS_TARGET=false.
+  mt5ScalpAgentStopRr: Number(process.env.MT5_SCALP_AGENT_STOP_RR ?? 1.0),
+  mt5ScalpStopFloorRange15: Number(process.env.MT5_SCALP_STOP_FLOOR_RANGE15 ?? 0.6),
   // 2) ganho LIQUIDO esperado no alvo (depois de tamanho, teto de risco, METADE e custo) abaixo disto e recusado.
   // 2026-10-14 (pedido do Cleber): piso de ganho LIQUIDO por operacao proporcional ao caixa
   // -- no minimo US$3 liquidos para cada US$100 em caixa (3%). O alvo bruto de referencia
@@ -548,6 +558,9 @@ export const config = {
   mt5DeskTimeframes: (process.env.MT5_DESK_TIMEFRAMES ?? "5m,15m,1H,4H").split(",").map((t) => t.trim()).filter(Boolean),
   mt5DeskDebateRounds: Number(process.env.MT5_DESK_DEBATE_ROUNDS ?? 1), // rodadas de replica comprador x vendedor (0 = so as teses de abertura)
   mt5DeskConcurrency: Number(process.env.MT5_DESK_CONCURRENCY ?? 3), // chamadas de LLM simultaneas (limite de taxa do provedor)
+  // 2026-10-16: o provedor (NVIDIA, camada gratuita) limita por MINUTO (429 intermitente, sem retry-after). A mesa gasta ~16-33 chamadas por
+  // deliberacao: este teto (janela deslizante de 60s) espaca as chamadas; 0 = sem espacamento. Rollback: MT5_DESK_MAX_CALLS_PER_MIN=0.
+  mt5DeskMaxCallsPerMin: Number(process.env.MT5_DESK_MAX_CALLS_PER_MIN ?? 30),
   mt5DeskCallTimeoutMs: Number(process.env.MT5_DESK_CALL_TIMEOUT_MS ?? 60_000),
   mt5DeskTotalTimeoutMs: Number(process.env.MT5_DESK_TOTAL_TIMEOUT_MS ?? 300_000),
   // Depois de a mesa REJEITAR um ativo+lado, novas tentativas iguais sao
