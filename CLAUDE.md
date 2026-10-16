@@ -15,6 +15,25 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-10-16, tarde] "A LLM não abre NENHUMA posição" (Cleber alarmado ~13h44): 3 causas, 3 ações. Detalhe completo em
+[SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md](SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md).** Zero
+entradas no dia tinha 2 causas simultâneas (nenhuma bug): (1) o **agente de alvo ao vivo** (ligado de manhã, ver bloco abaixo)
+recusava por projeto — mas só bloqueou 1 entrada no dia; (2) **NVIDIA engasgando** era a causa dominante: 29 falhas em 22 ciclos
+(12 conexão, 8×429, 9×502/3/4), a maioria das candidatas morria no provedor antes da Mesa. Agravante de raiz: a **Mesa gasta ~36
+chamadas de LLM por entrada**, então satura qualquer provedor. **Ações (commits/comandos entregues ao Cleber):** (A) **agente de
+alvo vira AVISO, não bloqueia** (`tools.ts`, commit `bf0216882` já pushado; rollback p/ bloqueio `MT5_TARGET_AGENT_ENFORCE=true`);
+(B) **modelo NVIDIA trocado** `nemotron-3-super-120b-a12b` → **`nemotron-3.5-super-vl-120b-a12b`** (`LLM_MODEL` no
+`llm-active-brain/.env`, linha antiga comentada; cobre cérebro+Mesa+validador porque `MT5_DESK_MODEL` está vazio). Teste ao vivo:
+o 3-super dava 429 em 2/3 chamadas, o 3.5-super-vl respondeu 3/3 sem 429 e com tool-calling correto; **confirmado após restart
+(~14:09 local): ~2h de motor, 0 erros de 429, Mesas completas sem engasgo**; (C) **alertas do guarda da boleta manual deixam de
+interromper** (`OrderTicket.tsx:544`, só o BLOQUEIO de perda diária trava; alertas seguem gravados em `manual_order_guard_log`;
+pedido explícito do Cleber — commit pendente, é frontend/Vercel, sem restart). **Achado de método, decisão do Cleber de NÃO
+mexer:** com a NVIDIA resolvida, o motor seguiu 0 aberturas por **seletividade legítima** (veto duro `ESTOCASTICO_EXTREMO_CONTRA`
+em 5m+15m+1H) — recomendei estreitar p/ só 5m, Cleber decidiu manter (afrouxar iria contra a regra dele). Os 6 vetos duros estão
+mapeados no .md da sessão. "11/dia" segue irreal (teto medido ~2-6/dia, ver pendência 0). **Pendente:** rodar commit da boleta +
+push; confirmar 1ª entrada aberta de verdade sob o modelo novo; enxugar a Mesa (36 chamadas/entrada) é o conserto de raiz, não
+feito; se NVIDIA der 429 de novo, testar outro modelo da chave antes de cair pro Ollama.
+
 **[EM ANDAMENTO 2026-10-16] Agente de alvo AO VIVO (não é mais sombra) + perfil do dia + limitador de 429. Commit entregue ao
 Cleber, motor reiniciado 12:54Z, 1º `[ALVO-AGENTE]` AINDA NÃO CONFIRMADO ao vivo.** Madrugada 15→16/10: 5 de 5 entradas acertaram
 o lado (MFE médio +US$1,01) e as 5 fecharam no stop, 0 TP: alvo de 0,41–0,67% longe do espaço real (log sombra já dizia
