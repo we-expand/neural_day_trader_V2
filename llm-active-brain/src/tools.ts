@@ -3230,10 +3230,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
                 actualRiskUsd = amountUsd * stopPct;
               }
             }
-            const refusalAfterTarget = minValueCheck(amountUsd, desk.sizeFactor, true); // force: vale tambem no modo expansao (se nao cabe, nao opera)
+            // 2026-10-16 (pedido do Cleber): o agente de alvo AVISA, nao BLOQUEIA.
+            // Antes, quando o alvo que cabe nao pagava o piso de valor/R:R, a entrada
+            // era recusada aqui. Agora so registra o aviso (log + snapshot) e deixa a
+            // entrada seguir com o alvo que cabe e o stop que acompanha -- a decisao de
+            // entrar continua sendo da mesa/LLM, nao deste agente. Rollback do aviso->bloqueio:
+            // MT5_TARGET_AGENT_ENFORCE=true.
+            const refusalAfterTarget = minValueCheck(amountUsd, desk.sizeFactor, true); // force: vale tambem no modo expansao
             if (refusalAfterTarget) {
-              console.log(`[ALVO-AGENTE] ${symbol} ${side} recusado: com o alvo que cabe, ${refusalAfterTarget.slice(0, 200)}`);
-              return { error: `Agente de alvo: o proximo nivel (${desk.targetPlan.nearest}) so deixa espaco pra um alvo de ${(fitPct * 100).toFixed(3)}%, e com ele ${refusalAfterTarget}` };
+              deskSnapshot.targetAgentWarning = `o proximo nivel (${desk.targetPlan.nearest}) so deixa espaco pra um alvo de ${(fitPct * 100).toFixed(3)}%: ${refusalAfterTarget.slice(0, 180)}`;
+              if (process.env.MT5_TARGET_AGENT_ENFORCE === "true") {
+                console.log(`[ALVO-AGENTE] ${symbol} ${side} recusado (enforce): com o alvo que cabe, ${refusalAfterTarget.slice(0, 200)}`);
+                return { error: `Agente de alvo: o proximo nivel (${desk.targetPlan.nearest}) so deixa espaco pra um alvo de ${(fitPct * 100).toFixed(3)}%, e com ele ${refusalAfterTarget}` };
+              }
+              console.log(`[ALVO-AGENTE] ${symbol} ${side} AVISO (nao bloqueia): com o alvo que cabe, ${refusalAfterTarget.slice(0, 200)}`);
             }
           }
         }
