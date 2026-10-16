@@ -191,6 +191,11 @@ async function tick(): Promise<void> {
     for (const symbol of active) {
       const q = await getQuote(symbol).catch(() => null);
       if (!q || q.stale) continue;
+      // 2026-10-16 (pedido do Cleber): mercado fechado/feed parado nunca gera gatilho. O corte "stale" do broker e 120s;
+      // aqui o vigia e mais estrito (tick com mais de 60s = ativo parado), pra nao gastar o slot unico do LLM.
+      // Cripto 24/7 tem tick de poucos segundos, entao nao e afetada. Rollback: MT5_WATCHER_MAX_TICK_AGE_S=0.
+      const maxTickAgeS = Number(process.env.MT5_WATCHER_MAX_TICK_AGE_S ?? 60);
+      if (maxTickAgeS > 0 && q.tickAgeSeconds != null && q.tickAgeSeconds > maxTickAgeS) continue;
       const state = getState(symbol);
       if (Date.now() - state.indicatorsAt >= INDICATOR_REFRESH_MS) {
         await refreshIndicators(symbol, q.price, state);

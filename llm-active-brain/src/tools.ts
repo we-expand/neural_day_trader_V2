@@ -3194,7 +3194,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             console.log(`[ALVO-AGENTE] ${symbol} ${side} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(fitPct * 100).toFixed(3)}% (cabe antes de ${desk.targetPlan.nearest}); stop ${(stopPct * 100).toFixed(3)}% intocado`);
             takeProfitPct = fitPct;
             // Scalp: o stop encurta junto com o alvo (R:R desejado), senao alvo curto + stop largo nao fecha o R:R minimo.
-            if (process.env.MT5_SCALP_STOP_FOLLOWS_TARGET !== "false" && session.userConfig?.targetPoints === "POUCOS" && !isWeekendMode()) {
+            // 2026-10-16 (pedido do Cleber): no fim de semana o stop TAMBEM acompanha o alvo (qualquer Alvo de Lucro do Setup).
+            // O alvo e o que se calcula primeiro (nivel/Fibonacci/pernada/ADR); o stop e derivado dele. Sem isso, alvo curto + stop
+            // de 0,95x ATR dava R:R 0,37 e barrava toda entrada de cripto. Rollback: MT5_WEEKEND_STOP_FOLLOWS_TARGET=false.
+            const weekendStopFollows = isWeekendMode() && process.env.MT5_WEEKEND_STOP_FOLLOWS_TARGET !== "false";
+            if (process.env.MT5_SCALP_STOP_FOLLOWS_TARGET !== "false" && ((session.userConfig?.targetPoints === "POUCOS" && !isWeekendMode()) || weekendStopFollows)) {
               const noiseFloor = (desk.targetPlan.avgRange15mPct ?? 0) / 100 * config.mt5ScalpStopFloorRange15;
               const stopFloor = Math.max(minStopForSpread, noiseFloor);
               const wantedStop = Math.max(takeProfitPct / config.mt5ScalpAgentStopRr, stopFloor);
