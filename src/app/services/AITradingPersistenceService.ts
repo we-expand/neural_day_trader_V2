@@ -73,6 +73,47 @@ export interface AITrade {
   exit_reason?: 'TP' | 'SL' | 'MANUAL' | 'TIMEOUT' | 'AI_SIGNAL';
   created_at?: string;
   updated_at?: string;
+  // Grupo de Pyramiding (migration 20260819_add_pyramid_group_columns.sql) —
+  // pyramid_group_id aponta pro id (DB) do trade RAIZ do grupo; ausente na
+  // própria raiz. Sem isto o ai-runner não tinha como saber quais trades
+  // formam um grupo de pyramiding, bloqueando qualquer fechamento (mesmo
+  // parcial) desse grupo no servidor.
+  pyramid_group_id?: string | null;
+  pyramid_layer?: number | null;
+  // 🔴 2026-09-09: id REAL da posição na MetaAPI — só preenchido quando o
+  // trade foi executado de verdade na corretora (boleta manual em LIVE, ver
+  // OrderTicket.tsx), nunca em trade simulado (DEMO). Mesma convenção já
+  // usada em ai_trades pelo llm-active-brain (broker_position_id).
+  broker_position_id?: string | null;
+  // 🔴 2026-09-11: booleano EXPLÍCITO real vs simulado (migration
+  // 20260911_add_is_live_execution_to_ai_trades.sql), nunca mais inferir só
+  // por broker_position_id ser nulo ou não. Usado pra filtrar o que aparece
+  // no Dashboard quando o usuário está conectado a corretora real (ver
+  // useApexLogic.ts) -- uma entrada simulada da IA nunca deve se misturar
+  // com dinheiro de verdade na tela.
+  is_live_execution?: boolean;
+}
+
+/**
+ * Ordem pendente DEMO (limit/stop) persistida — ver
+ * `supabase/migrations/20260826_add_ai_pending_orders.sql`. `session_id` é
+ * opcional de propósito: a ordem pendente é uma intenção do usuário, não
+ * uma métrica de sessão, e precisa sobreviver a Iniciar/Parar IA.
+ */
+export interface AIPendingOrder {
+  id?: string;
+  user_id: string;
+  session_id?: string | null;
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  order_type: 'LIMIT' | 'STOP';
+  volume: number;
+  trigger_price: number;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  status: 'PENDING' | 'FILLED' | 'CANCELLED';
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface PortfolioSnapshot {
@@ -114,7 +155,8 @@ export type DecisionVetoStage =
   | 'CORRELATION_GUARD'
   | 'MARKET_MODE_REGIME_MISMATCH'
   | 'MARKET_MODE_COUNTER_NO_EXTREME'
-  | 'MIN_TRADE_SIZE';
+  | 'MIN_TRADE_SIZE'
+  | 'MACD_MOMENTUM_FADING';
 
 export interface AIDecision {
   id?: string;
@@ -192,9 +234,44 @@ class AITradingPersistenceService {
         .select()
         .single();
 
+      // 🔴 2026-09-07 (Cleber: "não existe nada em programação que podemos
+      // fazer para iniciar somente uma única sessão?" -- existe: migration
+      // 20260907_enforce_single_running_session_per_user.sql cria um índice
+      // único parcial em (user_id, mode) WHERE status='RUNNING'. Isso torna
+      // fisicamente impossível 2 sessões RUNNING do mesmo usuário/modo no
+      // banco, não importa qual bug de corrida no cliente tente criar uma
+      // 2ª (aba nova, clique duplo, F5 no timing errado). Sem tratar aqui,
+      // essa trava vira um erro genérico pro usuário toda vez que o cliente
+      // tentar recriar uma sessão que já existe -- tratado como caso
+      // NORMAL: adota a sessão RUNNING que já existe (a real) em vez de
+      // falhar, mesma semântica que getActiveSession() já usa em todo o
+      // resto do app.
+      if (error?.code === '23505') {
+        console.warn(`${this.LOG_PREFIX} ⚠️ Sessão RUNNING já existe pra este usuário/modo (trava de banco) -- adotando a existente em vez de duplicar.`);
+        return this.getActiveSession(data.user_id!);
+      }
       if (error) throw error;
 
       console.log(`${this.LOG_PREFIX} ✅ Sessão criada:`, session.id);
+
+      // 🔴 FIX 2026-08-25 (achado do Cleber: Curva de Equity não representava
+      // fielmente o reinício em $100): sem snapshot no instante de criação da
+      // sessão, o primeiro ponto real da curva (`ai_portfolio_snapshots`) só
+      // aparecia no primeiro fechamento de trade — minutos/horas depois, já
+      // com equity movida. A curva nunca visualmente "começava" no valor real
+      // de início. Ancora explicitamente aqui.
+      await this.saveSnapshot({
+        session_id: session.id,
+        user_id: session.user_id,
+        balance: session.initial_balance,
+        equity: session.initial_equity,
+        margin: 0,
+        open_positions: 0,
+        total_pnl: 0,
+        drawdown: 0,
+        timestamp: session.created_at || new Date().toISOString(),
+      });
+
       return session as AISession;
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao criar sessão:`, error);
@@ -226,6 +303,52 @@ class AITradingPersistenceService {
   }
 
   /**
+   * "Desligar IA" -- 🔴 2026-08-31 (pedido do Cleber, achado ao vivo):
+   * NUNCA usar endSession() aqui. endSession marca status='COMPLETED',
+   * que tira a sessão do alcance de getOrCreateMt5Session/
+   * listEligibleMt5Sessions (llm-active-brain) -- o motor para de ver
+   * QUALQUER posição dela (nem pra fechar), e no próximo ciclo cria uma
+   * sessão nova zerada em $100, orfanizando pra sempre tudo que estava
+   * aberto (bug real, confirmado: 5 posições BTCUSD presas assim, ver
+   * handoff 2026-08-31). Comportamento esperado (igual ao motor mecânico
+   * antigo): desligar só bloqueia ENTRADA nova -- posições já abertas
+   * continuam sendo monitoradas de verdade (breakeven/trailing/SL/TP) até
+   * fecharem sozinhas. status='STOPPED' é reconhecido nos dois lados
+   * (Dashboard via getActiveSession acima, motor via
+   * listEligibleMt5Sessions) sem encerrar nada.
+   */
+  async stopSession(sessionId: string): Promise<boolean> {
+    return this.updateSession(sessionId, { status: 'STOPPED' } as Partial<AISession>);
+  }
+
+  /**
+   * "Ligar IA" de novo sobre uma sessão que só estava STOPPED (não
+   * COMPLETED) -- resume a MESMA sessão (saldo/posições/histórico
+   * contínuos), em vez de criar uma nova do zero.
+   */
+  async resumeSession(sessionId: string): Promise<boolean> {
+    return this.updateSession(sessionId, { status: 'RUNNING' } as Partial<AISession>);
+  }
+
+  /**
+   * 🔴 2026-09-15 (achado do Cleber: BTCUSD LONG real sumiu do Dashboard
+   * após "Reinicialização Total" enquanto a posição continuava aberta de
+   * verdade no banco): checagem usada por `endSession` -- a mesma regra
+   * que `resetLlmActiveBrainSession` já aplicava pra sessão NOVA nunca se
+   * aplicava a este `endSession`, que fecha a sessão ATUAL incondicional.
+   */
+  async hasOpenTrades(sessionId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('ai_trades')
+      .select('id')
+      .eq('session_id', sessionId)
+      .eq('status', 'OPEN')
+      .limit(1);
+    if (error) throw error;
+    return (data || []).length > 0;
+  }
+
+  /**
    * Finalizar sessão
    */
   async endSession(
@@ -241,6 +364,123 @@ class AITradingPersistenceService {
       ended_at: new Date().toISOString(),
       status: 'COMPLETED',
     });
+  }
+
+  /**
+   * 🔴 2026-08-31 (pedido do Cleber): "Reinicialização Total" do AI Trader
+   * precisa resetar TAMBÉM a sessão do LLM Active Brain (strategy_name
+   * `LLM_ACTIVE_BRAIN_MT5`, ver `llm-active-brain/src/neuralBridge.ts`
+   * `getOrCreateMt5Session`) -- até aqui esse botão só resetava o estado do
+   * motor mecânico antigo no navegador, sem nenhum efeito na sessão real
+   * que o LLM Brain opera no servidor. Sem isto, uma sessão que zerou o
+   * saldo (crédito negativo) ficava travada pra sempre -- risco por trade
+   * calculado sobre saldo negativo nunca cabe no lote mínimo, então NENHUMA
+   * posição nova consegue abrir até uma sessão nova existir.
+   *
+   * 🔴 2026-08-31 (decisão definitiva do Cleber): motor mecânico
+   * DESATIVADO (cron `ai-runner-tick` desligado). A sessão nova agora nasce
+   * com `status: 'RUNNING'` DE PROPÓSITO -- é o que faz `getActiveSession()`
+   * (usado por Dashboard/AI Trader/Gráfico/Header via useApexLogic.ts)
+   * enxergar esta sessão como "a sessão ativa do usuário" e passar a exibir
+   * posição/patrimônio/histórico REAIS do LLM Brain nos mesmos painéis que
+   * antes mostravam o motor mecânico -- sem precisar duplicar nenhuma UI.
+   * Ver mesma mudança espelhada em `llm-active-brain/src/neuralBridge.ts`
+   * (`getOrCreateMt5Session`/`listEligibleMt5Sessions`).
+   */
+  async resetLlmActiveBrainSession(userId: string, resetBalanceUsd: number): Promise<{ success: boolean; newSessionId: string | null }> {
+    const STRATEGY_NAME = 'LLM_ACTIVE_BRAIN_MT5';
+    // Mesma cesta de `llm-active-brain/src/assetBasket.ts` (MT5_ASSET_BASKET)
+    // -- duplicado aqui de propósito: este arquivo roda no browser, aquele
+    // roda no processo Node do LLM Brain, sem import compartilhado entre os
+    // dois hoje.
+    const MT5_ASSET_BASKET = [
+      'BTCUSD', 'XETUSD', 'DOGUSD', 'DOTUSD', 'XRPUSD', 'BTCXBN',
+      'ADAUSD', 'LNKUSD', 'UNIUSD',
+    ];
+    try {
+      const { data: existing, error: findError } = await supabase
+        .from('ai_sessions')
+        .select('id, initial_balance')
+        .eq('user_id', userId)
+        .eq('strategy_name', STRATEGY_NAME)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (findError) throw findError;
+
+      // 🔴 2026-09-15 (achado do Cleber: "a ferramenta tinha que voltar pros
+      // $100 e já calcular de acordo com a posição aberta, ela tá deletando
+      // a posição e reiniciando os $100"): a versão anterior (2026-09-11)
+      // travava o reset inteiro quando havia posição OPEN -- corrigia o
+      // sumiço da posição, mas o preço era o reset nunca acontecer de
+      // verdade (saldo continuava carregando TODO o histórico da sessão
+      // antiga, não voltava pra $100). O que o Cleber pede é as duas coisas
+      // ao mesmo tempo: baseline zera pra $100 de verdade, E a posição
+      // aberta continua rodando (sem fechar, sem duplicar, sem sumir) --
+      // agora ela é REALOCADA (`UPDATE ai_trades.session_id`) da sessão
+      // antiga pra nova antes da antiga ser encerrada. Nunca fecha a
+      // posição, nunca reescreve preço/PnL/status dela -- só o vínculo de
+      // sessão muda, e a tabela `ai_trades_audit_log` (trigger AFTER
+      // UPDATE) já registra esse UPDATE automaticamente, sem precisar de
+      // UPDATE silencioso nenhum.
+      let openTradeIds: string[] = [];
+      if (existing?.id) {
+        const { data: openTrades, error: openError } = await supabase
+          .from('ai_trades')
+          .select('id')
+          .eq('session_id', existing.id)
+          .eq('status', 'OPEN');
+        if (openError) throw openError;
+        openTradeIds = (openTrades || []).map((t: any) => t.id);
+
+        // Fecha a sessão antiga com o saldo real (initial_balance + soma de
+        // net_pnl dos trades fechados) -- nunca sobrescreve, só encerra.
+        // Baseado só nos trades JÁ FECHADOS -- a posição aberta (se houver)
+        // é realocada abaixo, não entra nesta conta da sessão antiga.
+        const { data: trades, error: tradesError } = await supabase
+          .from('ai_trades')
+          .select('net_pnl')
+          .eq('session_id', existing.id)
+          .eq('status', 'CLOSED');
+        if (tradesError) throw tradesError;
+        const netPnl = (trades || []).reduce((sum, t: any) => sum + (Number(t.net_pnl) || 0), 0);
+        const finalBalance = Number(existing.initial_balance ?? 50) + netPnl;
+        await this.endSession(existing.id, finalBalance, finalBalance);
+      }
+
+      const { data: newSession, error: createError } = await supabase
+        .from('ai_sessions')
+        .insert([{
+          user_id: userId,
+          strategy_name: STRATEGY_NAME,
+          mode: 'DEMO',
+          symbols: MT5_ASSET_BASKET,
+          initial_balance: resetBalanceUsd,
+          initial_equity: resetBalanceUsd,
+          status: 'RUNNING',
+          config: {
+            source: 'Reset via botão "Reinicialização Total" (AI Trader)',
+          },
+        }])
+        .select('id')
+        .single();
+      if (createError) throw createError;
+
+      if (openTradeIds.length > 0) {
+        const { error: migrateError } = await supabase
+          .from('ai_trades')
+          .update({ session_id: newSession.id })
+          .in('id', openTradeIds);
+        if (migrateError) throw migrateError;
+        console.log(`${this.LOG_PREFIX} 🔀 ${openTradeIds.length} posição(ões) aberta(s) realocada(s) pra sessão nova (continuam rodando, sem fechar).`);
+      }
+
+      console.log(`${this.LOG_PREFIX} ✅ Sessão do LLM Active Brain resetada para $${resetBalanceUsd}`);
+      return { success: true, newSessionId: newSession.id };
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao resetar sessão do LLM Active Brain:`, error);
+      return { success: false, newSessionId: null };
+    }
   }
 
   /**
@@ -264,15 +504,43 @@ class AITradingPersistenceService {
   }
 
   /**
-   * Buscar sessão ativa (última sessão RUNNING)
+   * Buscar sessão ativa (última sessão RUNNING ou STOPPED).
+   *
+   * 🔴 2026-08-31 (pedido do Cleber, achado ao vivo): inclui STOPPED de
+   * propósito -- "Desligar IA" (stopSession, abaixo) não encerra mais a
+   * sessão, só bloqueia entrada nova (ver mesma mudança em
+   * llm-active-brain/src/neuralBridge.ts listEligibleMt5Sessions). Sem
+   * incluir aqui, o Dashboard parava de mostrar a sessão (e as posições
+   * ainda abertas nela) assim que a IA era desligada, mesmo com o motor
+   * ainda monitorando de verdade no servidor até elas fecharem sozinhas.
    */
   async getActiveSession(userId: string): Promise<AISession | null> {
     try {
+      // 🔴 2026-08-31 (achado ao vivo): motor mecânico foi desligado
+      // definitivamente, mas o botão "Ligar IA" (startLogic, useApexLogic.ts)
+      // ainda cria sessões órfãs strategy_name='Apex AI' — sem preferência
+      // aqui, uma dessas sessões órfãs (mais recente por started_at) passava
+      // a mascarar a sessão real do LLM Brain (LLM_ACTIVE_BRAIN_MT5) em todo
+      // o Dashboard/AITrader/Gráfico/Header. Sempre prioriza o motor único
+      // atual quando ele tiver sessão RUNNING/STOPPED, mesmo que mais antiga.
+      const { data: llmSession, error: llmError } = await supabase
+        .from('ai_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('strategy_name', 'LLM_ACTIVE_BRAIN_MT5')
+        .in('status', ['RUNNING', 'STOPPED'])
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (llmSession) return llmSession as AISession;
+      if (llmError && llmError.code !== 'PGRST116') throw llmError;
+
       const { data, error } = await supabase
         .from('ai_sessions')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'RUNNING')
+        .in('status', ['RUNNING', 'STOPPED'])
         .order('started_at', { ascending: false })
         .limit(1)
         .single();
@@ -281,6 +549,46 @@ class AITradingPersistenceService {
       return data as AISession | null;
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar sessão ativa:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 🔴 2026-08-25: Salva a configuração atual da IA na sessão.
+   * Chamado automaticamente sempre que o usuário muda ANY parâmetro de config.
+   * Permite que a próxima sessão carregue com os mesmos settings.
+   *
+   * IMPORTANTE: este método usa `updateSession` sob o capô, que já trata
+   * `updated_at` — evita chamar sem limite em loops, use throttling se necessário.
+   */
+  async saveSessionConfig(sessionId: string, config: any): Promise<boolean> {
+    if (!config) return false;
+    return this.updateSession(sessionId, { config });
+  }
+
+  /**
+   * Buscar a última sessão encerrada (COMPLETED) de um modo específico.
+   * Usado pra dar continuidade de capital: sem isso, toda sessão nova (depois
+   * de "Desligar AI" ou fechar a aba) recomeçava do saldo inicial padrão,
+   * descartando o resultado real acumulado — pedido explícito do Cleber em
+   * 2026-08-20 pra poder validar a evolução real da IA ao longo do tempo.
+   */
+  async getLastCompletedSession(userId: string, mode: 'DEMO' | 'LIVE' = 'DEMO'): Promise<AISession | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('mode', mode)
+        .eq('status', 'COMPLETED')
+        .order('ended_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      return data as AISession | null;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar última sessão encerrada:`, error);
       return null;
     }
   }
@@ -402,6 +710,52 @@ class AITradingPersistenceService {
   }
 
   /**
+   * Grava um marcador de "reset de histórico" (achado 2026-08-21: o botão
+   * Resetar zerava saldo/orderHistory local mas nunca este marcador, então o
+   * card de Performance (que hidrata TODO o histórico do usuário via
+   * `getUserTrades`, sem filtro de sessão) continuava mostrando trades de
+   * semanas atrás mesmo depois de "começar do zero" — inclusive dois trades
+   * comprovadamente contaminados por bugs antigos já corrigidos no motor,
+   * nunca corrigidos no banco). Não apaga nada em `ai_trades` (auditoria
+   * append-only se mantém intacta) — só marca "a partir daqui é o que conta
+   * pra performance exibida".
+   */
+  async recordHistoryReset(userId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('ai_history_resets')
+        .insert({ user_id: userId });
+      if (error) throw error;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao gravar marcador de reset de histórico:`, error);
+    }
+  }
+
+  /**
+   * Timestamp do reset de histórico mais recente do usuário, ou null se
+   * nunca resetou. Usado só por quem hidrata "performance desde o começo
+   * atual" (`getUserTradeHistory` em useAIPersistence.ts) — o log de
+   * auditoria (`OperationLogs.tsx`, via `getUserTrades` direto) continua
+   * mostrando o histórico vitalício de propósito, resets não o afetam.
+   */
+  async getLastHistoryResetAt(userId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_history_resets')
+        .select('reset_at')
+        .eq('user_id', userId)
+        .order('reset_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.reset_at ?? null;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar marcador de reset de histórico:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Buscar trades abertos da sessão
    */
   async getOpenTrades(sessionId: string): Promise<AITrade[]> {
@@ -418,6 +772,121 @@ class AITradingPersistenceService {
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar trades abertos:`, error);
       return [];
+    }
+  }
+
+  // ==========================================================================
+  // PENDING ORDERS (limit/stop DEMO postados no gráfico)
+  // ==========================================================================
+
+  /**
+   * Salvar ordem pendente ao ser criada.
+   */
+  async savePendingOrder(order: AIPendingOrder): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_pending_orders')
+        .insert([order])
+        .select('id')
+        .single();
+
+      if (error) throw error;
+
+      console.log(`${this.LOG_PREFIX} ✅ Ordem pendente salva:`, data.id);
+      return data.id;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao salvar ordem pendente:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Buscar ordens pendentes ainda abertas (status PENDING) do usuário —
+   * fonte de verdade pra hidratar o gráfico depois de reload/troca de aba.
+   */
+  async getOpenPendingOrders(userId: string): Promise<AIPendingOrder[]> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_pending_orders')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'PENDING')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return (data || []) as AIPendingOrder[];
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar ordens pendentes:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Reposicionar gatilho (arrastar a linha no gráfico).
+   */
+  async updatePendingOrderPrice(orderId: string, triggerPrice: number): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_pending_orders')
+        .update({ trigger_price: triggerPrice, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao reposicionar ordem pendente:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Edição completa da ordem pendente (modo edição da boleta — preço,
+   * SL/TP e volume juntos), diferente de `updatePendingOrderPrice` (só
+   * arrasto no gráfico). Cada campo é opcional pra permitir editar só o
+   * que mudou sem reenviar os outros.
+   */
+  async updatePendingOrderDetails(orderId: string, updates: {
+    triggerPrice?: number;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+    volume?: number;
+  }): Promise<boolean> {
+    try {
+      const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (updates.triggerPrice !== undefined) payload.trigger_price = updates.triggerPrice;
+      if (updates.stopLoss !== undefined) payload.stop_loss = updates.stopLoss;
+      if (updates.takeProfit !== undefined) payload.take_profit = updates.takeProfit;
+      if (updates.volume !== undefined) payload.volume = updates.volume;
+
+      const { error } = await supabase
+        .from('ai_pending_orders')
+        .update(payload)
+        .eq('id', orderId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao editar ordem pendente:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Marcar ordem pendente como cancelada (clique direito) ou disparada
+   * (preço cruzou o gatilho, virou posição em `ai_trades`).
+   */
+  async updatePendingOrderStatus(orderId: string, status: 'FILLED' | 'CANCELLED'): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_pending_orders')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao atualizar status da ordem pendente:`, error);
+      return false;
     }
   }
 
@@ -458,6 +927,35 @@ class AITradingPersistenceService {
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar snapshots:`, error);
       return [];
+    }
+  }
+
+  /**
+   * 🔴 FIX 2026-09-03 (achado: Dashboard mostrando saldo "resetado" em $100
+   * de manhã, sem nenhuma operação visível): `ai_portfolio_snapshots` só é
+   * gravado pelo navegador aberto (`useApexLogic.ts`), nunca pelo motor
+   * headless (`neuralBridge.ts`, `llm-active-brain/`) que segue operando a
+   * sessão a noite inteira sozinho. Sem nenhuma aba aberta, o último
+   * snapshot existente fica preso no valor gravado na CRIAÇÃO da sessão
+   * (ver `createSession` acima) -- não é ausência de snapshot, é snapshot
+   * stale, que ignora todo PnL realizado desde então. Fonte de verdade real
+   * pra saldo é sempre `ai_trades` (soma de `net_pnl` dos trades fechados),
+   * nunca o snapshot cacheado -- mesmo cálculo já usado em
+   * `resetLlmActiveBrainSession` acima.
+   */
+  async getSessionRealizedPnl(sessionId: string): Promise<number> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_trades')
+        .select('net_pnl')
+        .eq('session_id', sessionId)
+        .eq('status', 'CLOSED');
+
+      if (error) throw error;
+      return (data || []).reduce((sum, t: any) => sum + (Number(t.net_pnl) || 0), 0);
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao calcular PnL realizado da sessão:`, error);
+      return 0;
     }
   }
 
@@ -577,6 +1075,102 @@ class AITradingPersistenceService {
     } catch (error) {
       console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar backtests:`, error);
       return [];
+    }
+  }
+
+  // ==========================================================================
+  // USER AI CONFIG (persistência da configuração da IA por usuário —
+  // sobrevive a fechar aba/trocar de navegador, ver `ai_user_config`)
+  // ==========================================================================
+
+  /**
+   * Buscar a última configuração da IA salva pelo usuário. Retorna null se
+   * o usuário nunca salvou nenhuma (primeiro uso — cai no default do código).
+   */
+  async getUserAIConfig(userId: string): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_user_config')
+        .select('config')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data?.config ?? null;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao buscar configuração da IA do usuário:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Salvar (upsert) a configuração da IA do usuário — sobrescreve a coluna
+   * `config` inteira com o que for passado. Usar só quando o snapshot em
+   * memória é conhecidamente completo e fresco (ex: logo após hidratar do
+   * próprio Supabase, pra criar a linha na 1ª vez). Pra edição incremental
+   * de campo (Setup UI), usar `patchUserAIConfig` — ver comentário lá.
+   */
+  async saveUserAIConfig(userId: string, config: any): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('ai_user_config')
+        .upsert(
+          { user_id: userId, config, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao salvar configuração da IA do usuário:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Aplicar só os campos alterados na configuração da IA do usuário — busca
+   * o `config` mais recente no Supabase e faz merge por cima, em vez de
+   * sobrescrever a coluna inteira com o snapshot em memória do cliente.
+   *
+   * Por quê (achado 2026-09-03, 2ª ocorrência de um bug já visto em
+   * 2026-09-02): `saveUserAIConfig` sobrescrevia a coluna inteira com
+   * `aiConfig` do estado em memória da aba, disparado por um efeito que
+   * rodava a CADA mudança de config. Uma aba aberta antes de um ajuste feito
+   * direto via SQL (ex: `dailyLossLimit` 5%→15%) continuava com o valor
+   * velho em memória; a próxima edição do usuário NAQUELA aba — mesmo em um
+   * campo totalmente diferente — regravava o objeto inteiro, revertendo o
+   * ajuste do SQL sem nenhum aviso. Corrigido fazendo merge no servidor: lê
+   * o `config` mais recente do banco e sobrepõe só os campos que o usuário
+   * de fato mudou nesta chamada (`partialConfig`), nunca o snapshot completo
+   * potencialmente desatualizado. Ainda existe uma janela de corrida
+   * pequena (leitura→escrita não é atômica), mas o campo que corrompeu
+   * (`dailyLossLimit`/`marketMode`) só é sobrescrito quando o usuário edita
+   * ESSE campo especificamente, não mais em qualquer edição não relacionada.
+   */
+  async patchUserAIConfig(userId: string, partialConfig: Record<string, any>): Promise<boolean> {
+    try {
+      const { data: existing, error: fetchError } = await supabase
+        .from('ai_user_config')
+        .select('config')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      const mergedConfig = { ...(existing?.config ?? {}), ...partialConfig };
+
+      const { error } = await supabase
+        .from('ai_user_config')
+        .upsert(
+          { user_id: userId, config: mergedConfig, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro ao aplicar patch de configuração da IA do usuário:`, error);
+      return false;
     }
   }
 

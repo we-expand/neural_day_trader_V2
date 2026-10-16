@@ -1,0 +1,1133 @@
+import "dotenv/config";
+import { baseSepolia } from "viem/chains";
+
+// Guardrail de design: este projeto so conhece uma chain, e e testnet.
+// Nao existe opcao de configurar mainnet aqui de proposito.
+export const CHAIN = baseSepolia;
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `Variavel de ambiente ${name} ausente. Copie .env.example para .env e preencha.`
+    );
+  }
+  return value;
+}
+
+// Provedor de LLM: endpoint compativel com a API da OpenAI, trocavel por
+// env var pra nao depender de um unico free tier (ja migramos NVIDIA ->
+// Groq por 403 misterioso, Groq -> NVIDIA por cota diaria curta demais pro
+// modo continuo, NVIDIA de volta -> Groq/Cerebras em 2026-08-29 quando o
+// endpoint de chat completions da NVIDIA ficou fora do ar, Groq -> Gemini
+// no mesmo dia quando a cota diaria do Groq esgotou de novo mesmo com
+// modelo menor, e Gemini -> SambaNova quando nem Cerebras (pede cartao) nem
+// Gemini (conta Google do Cleber bloqueada) deram certo - ver CONTEXT.md).
+type LlmProvider = "nvidia" | "groq" | "cerebras" | "gemini" | "sambanova" | "ollama";
+
+const LLM_PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: string; apiKeyEnv: string }> = {
+  nvidia: {
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    // 🔴 2026-08-29 (achado do Cleber): "openai/gpt-oss-120b" especificamente
+    // trava o endpoint de chat completions da NVIDIA (testado 2x, HTTP 000
+    // apos 25-60s, sem resposta nenhuma). NAO e a API da NVIDIA fora do ar
+    // -- o NEXUS (nexus-brain) usa a MESMA API com OUTRO modelo e funciona
+    // normal. Trocado pro mesmo modelo do NEXUS, testado e confirmado (HTTP
+    // 200, ~0.7s, tool-calling funcionando): "nvidia/nemotron-3-nano-30b-a3b".
+    model: "nvidia/nemotron-3-nano-30b-a3b",
+    apiKeyEnv: "NVIDIA_API_KEY",
+  },
+  groq: {
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "openai/gpt-oss-120b",
+    apiKeyEnv: "GROQ_API_KEY",
+  },
+  // 2026-08-29: Cerebras hospeda o MESMO modelo (openai/gpt-oss-120b) com
+  // free tier de cota diaria bem maior que o do Groq pra esse modelo,
+  // pensado pra inferencia continua/alta frequencia. Precisa de conta
+  // gratuita em cloud.cerebras.ai (chave gerada la, nao pode ser criada por
+  // automacao).
+  cerebras: {
+    baseUrl: "https://api.cerebras.ai/v1",
+    model: "gpt-oss-120b",
+    apiKeyEnv: "CEREBRAS_API_KEY",
+  },
+  // 2026-08-29: Google AI Studio (nao Vertex AI/GCP billing) -- tier
+  // gratuito historicamente NAO pede cartao de credito (confirmado pelo
+  // Cleber que o Cerebras pedia, Gemini via aistudio.google.com nao pede).
+  // Endpoint compativel com a API da OpenAI, cota bem mais folgada que o
+  // free tier do Groq pro modelo Flash.
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    model: "gemini-2.0-flash",
+    apiKeyEnv: "GEMINI_API_KEY",
+  },
+  // 2026-08-29: SambaNova Cloud -- historicamente sem cartao de credito no
+  // tier gratuito (cloud.sambanova.ai), endpoint compativel com OpenAI,
+  // hospeda modelos abertos com tool-calling (Llama 3.3 70B confirmado
+  // suportado na doc oficial deles). Confirmar o nome exato do modelo via
+  // GET /v1/models com a chave real antes de rodar em modo continuo --
+  // catalogo deles muda; "Meta-Llama-3.3-70B-Instruct" e o nome documentado
+  // no momento desta escrita, pode ter mudado.
+  sambanova: {
+    baseUrl: "https://api.sambanova.ai/v1",
+    model: "Meta-Llama-3.3-70B-Instruct",
+    apiKeyEnv: "SAMBANOVA_API_KEY",
+  },
+  // 2026-09-01 (achado ao vivo): todo provedor gratuito na nuvem (NVIDIA
+  // aposentou o modelo em uso, Groq com teto de 8000 TPM + cota diaria curta
+  // demais pro modo continuo) esbarrou em algum limite real no mesmo dia --
+  // rodar local elimina cota/rate-limit por definicao (so usa CPU/GPU/RAM
+  // da propria maquina, que ja roda este processo). Ollama expoe endpoint
+  // compativel com a API da OpenAI em localhost:11434/v1, sem autenticacao
+  // de verdade (apiKeyEnv aponta pra um valor fixo no .env so pra satisfazer
+  // o SDK, o Ollama ignora). Qwen3 8B escolhido apos pesquisa (2026-09-01):
+  // suporte nativo a tool-calling, ~4.9GB em Q4_K_M (cabe nos 16GB do Mac
+  // M2 Pro que roda este processo), melhor equilibrio de raciocinio entre
+  // as opcoes testadas pra esse tamanho de RAM.
+  ollama: {
+    baseUrl: "http://localhost:11434/v1",
+    // 🔴 2026-09-01 (achado ao vivo, critico): Ollama trunca o contexto em
+    // ~2048 tokens por padrao (num_ctx), silenciosamente -- confirmado
+    // mandando o prompt real (27K caracteres, ~8400 tokens) e recebendo de
+    // volta "prompt_tokens":2050 (cortado) com o modelo raciocinando sobre
+    // fragmentos soltos do prompt, sem entender o proprio papel. NUNCA usar
+    // um nome de modelo Ollama "cru" (ex: "qwen3.5:4b") direto -- sempre um
+    // modelo customizado com `PARAMETER num_ctx 16384` (Modelfile, criado
+    // via `ollama create <nome> -f Modelfile`).
+    // 🔴 2026-09-01 (troca pedido do Cleber: mais velocidade, cesta de 9
+    // ativos precisa de ciclos mais rapidos): testado lado a lado com o
+    // mesmo prompt real (8400 tokens) -- "qwen3-trading" (8B, Modelfile
+    // dedicado) levou 58s na 1a chamada fria; "qwen35-trading" (Qwen3.5 4B,
+    // mesmo esquema de Modelfile) levou 30s, ~2x mais rapido, raciocinio e
+    // tool_call igualmente corretos no teste. qwen3-trading continua criado
+    // no Ollama local como fallback de qualidade se a velocidade deixar de
+    // ser a prioridade.
+    // 🔴 2026-09-22 (achado ao vivo, grave): Mac com RAM/swap praticamente
+    // esgotados (swap ~95% usado) -- processo do LLM Brain entrando em
+    // crash-loop (SIGKILL, codigo 137) a cada 15-30min a noite inteira,
+    // religado pelo watchdog.sh sem nunca sobreviver o suficiente pra
+    // terminar um ciclo. Trocado pra "qwen3-1.7b-trading" (1,4GB, menos da
+    // metade do qwen35-trading de 3,4GB) a pedido do Cleber -- prioriza
+    // estabilidade (processo nao ser morto por OOM) sobre qualidade de
+    // raciocinio; e um modelo objetivamente menos inteligente que o
+    // qwen35-trading (4B), tradeoff consciente enquanto a causa raiz de
+    // memoria nao e resolvida. Se recriar do zero: `ollama pull qwen3:1.7b`
+    // + Modelfile com `FROM qwen3:1.7b` + `PARAMETER num_ctx 32768` +
+    // `PARAMETER num_keep 12000`, depois `ollama create qwen3-1.7b-trading
+    // -f Modelfile.qwen3-1.7b-trading` (ja feito nesta sessao, modelo
+    // existe local). Reverter pra "qwen35-trading" se a pressao de memoria
+    // for resolvida por outro caminho (fechar apps/mais RAM).
+    model: "qwen3-1.7b-trading",
+    apiKeyEnv: "OLLAMA_API_KEY",
+  },
+};
+
+const llmProvider = (process.env.LLM_PROVIDER || "nvidia") as LlmProvider;
+if (!LLM_PROVIDER_DEFAULTS[llmProvider]) {
+  throw new Error(`LLM_PROVIDER invalido: "${llmProvider}". Use "nvidia", "groq", "cerebras", "gemini", "sambanova" ou "ollama".`);
+}
+const llmProviderDefaults = LLM_PROVIDER_DEFAULTS[llmProvider];
+
+export const config = {
+  llmProvider,
+  llmApiKey: requireEnv(llmProviderDefaults.apiKeyEnv),
+  llmBaseUrl: process.env.LLM_BASE_URL || llmProviderDefaults.baseUrl,
+  llmModel: process.env.LLM_MODEL || llmProviderDefaults.model,
+  // 2026-09-27: nemotron da NVIDIA desliga o thinking por padrao (latencia,
+  // ver agent.ts). LLM_ENABLE_THINKING=true mantem o raciocinio ligado --
+  // teste do nemotron-3-super-120b-a12b com thinking, pedido do Cleber.
+  llmEnableThinking: process.env.LLM_ENABLE_THINKING === "true",
+  // 2026-10-12: teto de tokens de resposta por chamada. Com raciocinio ligado, 4096 estourava (finish_reason=length, nenhuma ferramenta chamada em 3 de 9 ciclos no teste de 27/09).
+  llmMaxTokens: Number(process.env.LLM_MAX_TOKENS ?? 4096),
+  agentPrivateKey: requireEnv("AGENT_PRIVATE_KEY") as `0x${string}`,
+  rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || undefined,
+  // 🔴 2026-08-29 (pedido do Cleber): cesta de hoje tem 8 ativos (5 deles
+  // novos, com missao explicita de reconhecimento no prompt -- ver
+  // agent.ts) -- 15 -> 25 pra sobrar espaco real pra list_open_positions +
+  // get_mt5_quote de cada um dos 8 + log_thought detalhado por ativo novo +
+  // possiveis open_position/close_position + stop, sem esbarrar no teto.
+  maxIterations: Number(process.env.MAX_ITERATIONS ?? 25),
+  maxTxValueEth: Number(process.env.MAX_TX_VALUE_ETH ?? 0.0002),
+  // Modo continuo: roda varios ciclos de decisao em sequencia, ate atingir
+  // maxCycles ou uma condicao de parada (sem saldo em nenhuma das duas
+  // "moedas" por rodadas consecutivas).
+  continuousMode: process.env.CONTINUOUS_MODE === "true",
+  // 🔴 2026-08-29 (pedido do Cleber): 30 -> 10, pra reduzir o tempo de reacao
+  // da LLM em relacao ao mercado -- boa parte dos 30s antigos era espera
+  // ociosa (a chamada ao Nemotron responde em ~0.7s, o ciclo inteiro com
+  // poucas iteracoes de tool-calling termina bem antes do delay configurado).
+  // Risco monitorado: cota de free tier do provedor de LLM (ja trocamos de
+  // provedor 5x por esgotamento de cota, ver LLM_PROVIDER acima) -- se
+  // aparecerem 429 recorrentes no log apos essa mudanca, e sinal de subir
+  // esse valor de novo.
+  cycleDelaySeconds: Number(process.env.CYCLE_DELAY_SECONDS ?? 10),
+  maxCycles: Number(process.env.MAX_CYCLES ?? 100),
+  // 🔴 2026-08-29 (pedido do Cleber): "não precisamos utilizar a Binance...
+  // com a nossa cesta de ativos... como se estivesse no lugar do motor que a
+  // gente tinha desenvolvido". A partir daqui o agente opera sobre a MESMA
+  // cesta/preço/execução do motor mecânico do Neural Day Trader (MT5 via
+  // Infinox, ver mt5Broker.ts) — Binance/cripto deixa de ser usado por
+  // padrão (código antigo mantido só pro experimento já rodado, não apagado).
+  tradingEnabled: process.env.ENABLE_TRADING === "true",
+  binanceApiKey: process.env.BINANCE_API_KEY ?? "",
+  binanceSecretKey: process.env.BINANCE_SECRET_KEY ?? "",
+  binanceTestnet: process.env.BINANCE_TESTNET !== "false",
+  maxOrderUsd: Number(process.env.MAX_ORDER_USD ?? 5),
+  maxLiveBudgetUsd: Number(process.env.MAX_LIVE_BUDGET_USD ?? 5),
+  // Trading MT5 (cesta real do motor mecânico) — ligado por padrão. Único
+  // caminho de trading real deste agente a partir de 2026-08-29.
+  mt5TradingEnabled: process.env.MT5_TRADING_ENABLED !== "false",
+  // 🔴 2026-08-29 (pedido do Cleber): sizing por EXPOSIÇÃO-ALVO EM DÓLAR,
+  // não mais lotes livres escolhidos pelo LLM. Causa raiz do achado
+  // "SOL/XET capturam muito pouco $": o LLM escolhia um número de lotes
+  // (0,01-0,02) igual pra qualquer símbolo, sem noção de que 0,02 lote de
+  // BTCUSD (~$77.600) e 0,02 lote de SOLUSD (~$103) são exposições em dólar
+  // MUITO diferentes (LOT_SIZE=1 pros 3 -- ver assetBasket.ts). O código
+  // agora calcula o lote sozinho: lots = mt5TargetNotionalUsd / (LOT_SIZE *
+  // preço), arredondado pro incremento mínimo (MIN_LOTS) -- SOL/XET passam
+  // a abrir MUITO mais lotes que antes pra alcançar o MESMO $ de exposição
+  // que o BTC, exatamente o "entrar com a mão mais pesada" pedido. BTCUSD
+  // já bate perto do alvo com o próprio lote mínimo (0,01 ≈ $775-780), então
+  // não muda muito pra ele -- o alvo foi calibrado logo acima disso de
+  // propósito, pra não forçar BTC pra baixo do menor contrato real.
+  //
+  // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde, perde
+  // pouco, quando ganha, ganha muito" / "não pode quebrar o caixa do
+  // usuário"): mt5TargetNotionalUsd (notional FIXO em dólar, $1200-1800)
+  // REMOVIDO -- nunca olhava o saldo real da conta. Numa conta de $50 isso
+  // era 24x-36x de alavancagem implícita; um stop de só 0,79% sobre $1200
+  // já produziu -$16,05 num único trade (quase 1/3 da conta), e o piso de
+  // lote mínimo (MIN_LOTS) sozinho já força ~$780 de notional em BTCUSD
+  // (0,01 lote * ~$78.000), incompatível com qualquer teto de risco
+  // razoável pra uma conta pequena. Sizing agora é % de risco do SALDO REAL
+  // (ver getMt5AccountBalance em neuralBridge.ts e open_position em
+  // tools.ts): notional = (saldo_atual * risco%) / distância_do_stop%.
+  // Risco default 1% do saldo em posição "normal" (≈$0,50 numa conta de
+  // $50), mt5HeavyMultiplier (abaixo) escala o risco em "forte" (1,5% ≈
+  // $0,75), nunca o notional direto. Alavanca de "mão mais pesada":
+  // open_position aceita size:"forte", que multiplica o RISCO-alvo (não
+  // mais o notional) por este fator.
+  // 🔴 2026-09-07 (pedido direto do Cleber, mesmo dia do gate de confianca
+  // minima acima em tools.ts -- "carregue mais na mao nas entradas, se tera
+  // confianca nao tera problema"): subido de 1.5x pra 2.0x. Justificativa
+  // real: toda entrada aceita agora exige confidence>=80% (gate obrigatorio
+  // em open_position, tools.ts) -- ou seja, TODA entrada que passa ja e alta
+  // conviccao por definicao, entao "forte" deveria pesar mais quando usado.
+  // Continua limitado por baixo pelo teto duro de risco da conta
+  // (mt5MaxRiskPctPerTrade abaixo) -- nunca ultrapassa esse limite, so
+  // aproxima mais dele quando o setup justificar.
+  mt5HeavyMultiplier: Number(process.env.MT5_HEAVY_MULTIPLIER ?? 2.0),
+  // Risco-alvo por trade em posição "normal", como fração do saldo REAL da
+  // sessão (não do caixa total da plataforma, só desta conta/sessão MT5).
+  // 1% numa conta de $50 = ~$0,50 de perda esperada se o stop bater --
+  // cresce/encolhe automaticamente junto com o saldo real (ganhou, o
+  // próximo risco em $ é maior; perdeu, encolhe), sem precisar reconfigurar
+  // manualmente a cada patamar de conta.
+  mt5RiskPctPerTrade: Number(process.env.MT5_RISK_PCT_PER_TRADE ?? 0.01),
+  // 🔴 2026-09-05 (pedido direto do Cleber -- "não dá pra ganhar só
+  // $0,00025 por entrada, tem que render de $2 a $3 por entrada; ativo mais
+  // barato precisa ser mais carregado na mão"): sizing de open_position
+  // deixou de ser SÓ risco-% fixo (formula acima) e passou a mirar este
+  // retorno REAL em dólar como alvo primário -- lots = alvo_retorno_usd /
+  // (takeProfitPct * LOT_SIZE * preço). Isso carrega mais a mão
+  // automaticamente em ativos "baratos" (onde o mesmo % de movimento vale
+  // menos dólar por lote), sem precisar de tabela por símbolo. O teto de
+  // risco (mt5MaxRiskPctPerTrade abaixo) continua como LIMITE DURO por cima
+  // -- se o lote necessário pra alcançar este retorno estourar o teto de
+  // risco da conta, o código recua pro tamanho máximo que o risco permite
+  // (retorno fica menor que o alvo NESSE caso, nunca ultrapassa risco
+  // seguro). "forte" (mt5HeavyMultiplier) escala este alvo de retorno, não
+  // mais o risco direto.
+  // 🔴 2026-09-07 (pedido direto do Cleber, reforçando o pedido de 2026-09-05
+  // acima -- "a IA tem que capturar de $3 a $5 por operação"): $2,5 default
+  // ficava abaixo do piso que ele pediu. Subido pro meio da faixa ($4) --
+  // "forte" (mt5HeavyMultiplier, 2x) mira $8. Mecanismo em si (lots = alvo/
+  // (takeProfitPct * LOT_SIZE * preço), teto duro de risco por cima) já
+  // resolve o "FRA40 15 pontos é pouco, outro ativo 15 pontos é muito" --
+  // sizing já compensa automaticamente ativos com stop/alvo apertado
+  // carregando mais lote, sem tabela por símbolo. O caso real do FRA40
+  // (captura de só $1,12) foi limitado pelo teto de risco (mt5MaxRiskPctPerTrade)
+  // numa conta pequena, não falta de lógica -- ver rewardCappedByRisk em
+  // tools.ts (aviso já reportado nesse caso).
+  mt5TargetRewardUsd: Number(process.env.MT5_TARGET_REWARD_USD ?? 5.5),
+  // Teto DURO de risco por trade (como fração do saldo real) -- se o lote
+  // mínimo do símbolo (MIN_LOTS/LOT_SIZE em assetBasket.ts) força um risco
+  // maior que isso mesmo no menor lote possível, open_position BLOQUEIA a
+  // entrada em vez de abrir maior "porque o piso obriga" (achado real do
+  // BTCUSD: 0,01 lote força ~$780 de notional, incompatível com risco
+  // pequeno numa conta de $50 mesmo com stop apertado). 2x o risco "forte"
+  // (1,5%) dá alguma folga pro arredondamento de MIN_LOTS sem abrir a porta
+  // pra um risco descontrolado.
+  // 🔴 2026-09-07, tarde: subido de 3% pra 5% (dar folga pro alvo de $4-8 de
+  // mt5TargetRewardUsd acima). 🔴 2026-09-07, noite: REVERTIDO pra 3% a
+  // pedido direto do Cleber -- teto duro de risco por trade volta ao valor
+  // de 02/09 (sessão de referência de 80% de acerto), mesmo mantendo o
+  // mecanismo de mira em $4-8 de mt5TargetRewardUsd. Consequência conhecida
+  // (avisada e aceita): numa conta pequena o alvo de $4-8 pode ser cortado
+  // com mais frequência pelo teto de 3% (ver rewardCappedByRisk em
+  // tools.ts, caso real do FRA40 que capturou só $1,12) -- perda máxima por
+  // trade também volta a ficar mais contida (~3% do saldo, não ~5%).
+  // 🔴 2026-09-09: subido 3% -> 6% a pedido explicito do Cleber, PRA TESTE
+  // (valor reduzido de 8% pra 6% no mesmo dia, ainda como teste, nao decisao
+  // definitiva) -- ciente do precedente de governanca do mesmo dia (override
+  // de 9% nao registrado causou dias de divergencia silenciosa). Desta vez o
+  // valor é a decisão formal (não residuo esquecido) -- default do código
+  // atualizado direto, e a lista GOVERNANCE_CRITICAL_ENV_PARAMS abaixo
+  // reflete o novo canônico pra não gerar alarme falso. Efeito real: perda
+  // máxima por trade perdedor sobe pra ~6% do saldo (numa conta de $100, até
+  // ~$6 por trade).
+  mt5MaxRiskPctPerTrade: Number(process.env.MT5_MAX_RISK_PCT_PER_TRADE ?? 0.08),
+  // 🔴 2026-10-15: escalonador automático de risco (src/riskScaler.ts). DESLIGADO
+  // por padrão -- ligado, escala PARA BAIXO o ALVO de exposição (nunca o teto duro
+  // mt5MaxRiskPctPerTrade acima) a partir do tamanho de hoje: começa em 0,25x e só
+  // sobe de degrau quando o E[R] líquido real das entradas fechadas recentes prova
+  // estar positivo (limite inferior do IC95 > 0). Cai pro piso se a amostra disser
+  // que está perdendo. É "alavancar o que puder" sem apostar a conta num edge não
+  // provado. Rollback: MT5_RISK_SCALER=false (ou omitir).
+  mt5RiskScalerEnabled: String(process.env.MT5_RISK_SCALER ?? "false").toLowerCase() === "true",
+  // Teto absoluto de segurança em lotes (sanity check contra valor
+  // degenerado, ex: preço anormalmente baixo fazendo o cálculo explodir) --
+  // não é o valor normal de operação, é só uma trava de última instância.
+  mt5SafetyMaxLots: Number(process.env.MT5_SAFETY_MAX_LOTS ?? 20),
+  // 🔴 2026-08-29 (achado da auditoria pós-noite): o "stop" e o "alvo" antes
+  // só existiam como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a
+  // cada ciclo se fechava, e pelo menos 2x deixou a perda correr MUITO além
+  // do alvo declarado (0.5%) antes de agir: uma posição BTCUSD chegou a
+  // -3.5% (-$5,96, sozinha quase o prejuízo líquido da noite inteira) e
+  // outra a -3.5%/-$3,50 (ver SESSAO_2026-08-29_AUDITORIA_...). Estes dois
+  // valores agora viram um stop/alvo MECÂNICO (preço gravado no trade na
+  // abertura, fechado por código -- ver enforceMt5StopsAndTargets em
+  // neuralBridge.ts), não sugestão pro modelo.
+  //
+  // 🔴 2026-08-29 (pedido do Cleber, mesma sessão): % fixo virou DINÂMICO --
+  // calculado por símbolo a partir do ATR real (ver atr.ts), não um número
+  // igual pra BTCUSD/XETUSD/SOLUSD independente da volatilidade de cada um.
+  // stopLoss = ATR% * mt5StopAtrMultiplier, takeProfit = ATR% *
+  // mt5TakeProfitAtrMultiplier (2x o do stop -- mesmo espírito de R:R de
+  // pelo menos 1:2 que o motor mecânico já usa, "stop sempre 2×ATR" no
+  // CLAUDE.md, aqui o stop e 1.5x ATR e o alvo 3x ATR, R:R 1:2). Clamps
+  // (mt5StopMinPct/mt5StopMaxPct) evitam stop degenerado (ATR indisponível,
+  // símbolo anormalmente parado ou anormalmente errático) -- fora desse
+  // range, ou se o ATR não vier de dado real, cai pro mt5StopFallbackPct
+  // fixo (mesmo valor que era o único modo antes), nunca fica sem stop.
+  // 🔴 2026-08-30 (redesenho pós -$135 líquido / 1,7% de acerto, sessão
+  // e7eef768): 1.5 -> 2.0. Diagnóstico via SQL direto (ver assetBasket.ts,
+  // remoção de SOLUSD) confirmou dois problemas concorrentes com o desenho
+  // "giro rápido" de 2026-08-29: (1) ZERO das 66 posições fechadas bateram
+  // take-profit -- o alvo nunca é alcançado, só stop ou fechamento manual
+  // (2) o stop apertado (0,2%-2%, R:R ~1:1,13) é vulnerável demais a ruído
+  // de tick-a-tick + custo de spread pago 2x (entrada e saída), sem sobrar
+  // margem real pra qualquer edge direcional que exista se expressar.
+  // Voltando pro stop mais largo (respira mais o ruído) + alvo assimétrico
+  // (ver mt5TakeProfitAtrMultiplier abaixo) -- MESMA convenção de R:R 1:2 que
+  // o motor mecânico principal do produto já usa (CLAUDE.md, "stop sempre
+  // 2×ATR").
+  // 🔴 2026-09-04 (revertido pelo conselho llm-council + achado real): os
+  // dois cortes abaixo (2.0x -> 1.3x -> 0.65x, todos no mesmo dia 04/09)
+  // coincidiram com a taxa de acerto caindo de 80% (02/09) pra 33% (04/09),
+  // com o detalhe mais grave visto via SQL: no dia de 80%, as saidas por
+  // stop (SL) tinham PnL de GRUPO POSITIVO (+$2,37 -- eram trailing/
+  // breakeven protegendo lucro, nao perda real); depois dos cortes, SL
+  // passou a ser perda real de verdade (-$22,99 em 03/09, -$34,51 em 04/09).
+  // Leitura do conselho: um stop mais apertado tem mais chance de ser
+  // atingido por RUIDO normal antes do preco "decidir" a direcao, trocando
+  // "trailing protegendo lucro" por "perda real". Alem disso, ~10 commits
+  // mexendo em stop/trailing/alvo no mesmo dia 04/09 invalidam qualquer
+  // leitura estatistica isolada sobre qual corte especifico causou o que --
+  // por isso a decisao foi reverter pro UNICO valor com leitura limpa (2.0x,
+  // dia 02/09) em vez de tentar adivinhar um meio-termo sem dado.
+  // Revertido tambem: a decoupling de mt5TargetReferenceStopAtrMultiplier
+  // (existia so pra sustentar o corte de stop sem encolher o alvo junto) --
+  // com o stop de volta a 2.0x, alvo e stop voltam a usar a MESMA referencia
+  // de ATR, sem multiplicador congelado separado.
+  // Pendente de decisao do Cleber (nao mexido nesta sessao, ver handoff):
+  // se vale testar um valor intermediario (ex: 1.5x-1.7x) DEPOIS de rodar
+  // 2.0x por 5 dias/40+ trades estavel -- nao antes.
+  mt5StopAtrMultiplier: Number(process.env.MT5_STOP_ATR_MULTIPLIER ?? 2.0),
+  // 🔴 2026-09-11 (pedido direto do Cleber -- "o stop está muito grande, pro
+  // modelo fim de semana"): stop DEDICADO de fim de semana, ISOLADO do
+  // mt5StopAtrMultiplier de dia útil acima -- NÃO reabre o corte de
+  // 2026-09-04 (2.0x -> 1.3x -> 0.65x) que derrubou a taxa de acerto de
+  // 80%->33% (ver comentário longo acima); aquele corte era GLOBAL (todo
+  // dia), este é isolado ao regime de fim de semana (isWeekendMode(),
+  // atr.ts/assetBasket.ts), que já opera só cripto com liquidez global
+  // menor -- mesmo raciocínio de regime dedicado já usado pro alvo
+  // (mt5TakeProfitAtrMultiplierWeekend). O alvo de fim de semana passa a
+  // usar este mesmo multiplicador como referência de risco (ver
+  // targetReferenceMultiplierForRegime em tools.ts), então o R:R de fim de
+  // semana continua positivo (2.5/1.5 ≈ 1,67:1) em vez de encolher só o
+  // stop e deixar o R:R degradar. Sem validação estatística ainda -- precisa
+  // de amostra rodando (mesma disciplina de 5 dias úteis/40+ trades já usada
+  // no projeto) antes de julgar efeito real.
+  // 🔴 2026-09-18 (pedido direto do Cleber, âncora concreta: XETUSD LONG
+  // aberto com stop de 11,03 pts / 0,419% -- ele pediu o equivalente a ~7
+  // pts, ou seja 0,266%, mantido percentual/por ATR pros demais ativos):
+  // 1.5x -> 0.95x. Continua ISOLADO ao fim de semana; o stop de dia útil
+  // (mt5StopAtrMultiplier, 2.0x) segue intocado. Decisão explícita dele de
+  // testar primeiro no fim de semana e, se funcionar, avaliar dia útil
+  // depois. Este corte exige o piso dedicado abaixo
+  // (mt5StopMinPctWeekend) -- sem ele, 0,266% cai abaixo do piso de dia
+  // útil (0,300%) e o stop cairia no fallback de 0,500%, ficando MAIOR que
+  // antes (mesma armadilha já documentada no caso NAS100 de 2026-09-04).
+  mt5StopAtrMultiplierWeekend: Number(process.env.MT5_STOP_ATR_MULTIPLIER_WEEKEND ?? 0.95),
+  // 🔴 2026-09-07 (pedido direto do Cleber): distância (em multiplos de ATR)
+  // acima da qual o preço é considerado "esticado" longe de EMA9/SMA20/SMA200
+  // -- ver getMovingAverageDistance (atr.ts). 3.0x ATR é um limiar
+  // conservador (só marca extremos reais, não qualquer afastamento normal do
+  // dia a dia) -- é só um AVISO no get_mt5_quote pro LLM ponderar, nunca uma
+  // trava mecânica (Cleber foi explícito: "é um sinal de atenção e não uma
+  // regra").
+  mt5MaExtensionAtrMultiplier: Number(process.env.MT5_MA_EXTENSION_ATR_MULTIPLIER ?? 3.0),
+  // Referencia de risco para o CALCULO DO ALVO (tools.ts) -- revertida pra
+  // ser IGUAL ao mt5StopAtrMultiplier acima (2.0x), eliminando a referencia
+  // congelada separada que só existia para sustentar o corte de stop
+  // revertido acima. So usada quando ha ATR real disponivel -- sem ATR
+  // (fallback), o alvo continua sendo calculado sobre o stopPct real, igual
+  // sempre foi.
+  mt5TargetReferenceStopAtrMultiplier: Number(process.env.MT5_TARGET_REFERENCE_STOP_ATR_MULTIPLIER ?? 2.0),
+  // 🔴 2026-08-29 (pedido do Cleber, mudança de filosofia pós-otimizações do
+  // dia): 3 -> 1.5 -- VOLTA a ser gatilho de saída MECÂNICO de verdade (ver
+  // enforceMt5StopsAndTargets em neuralBridge.ts), mas agora com alvo CURTO
+  // por design, não o teto de 2R que tinha sido removido antes. Pedido
+  // explícito: "entra na operação, deixa correr um alvo pequeno, recolhe e
+  // parte pra outra" -- em vez de tentar deixar um vencedor correr
+  // indefinidamente com o trailing (o que só fez sentido enquanto havia
+  // volume/tendência real sustentando o movimento), a estratégia agora é
+  // giro: capturar um alvo pequeno e reciclar o capital pra próxima entrada.
+  // 1.5x ATR = MESMA distância do stop (R:R ~1:1) -- alvo pequeno de
+  // propósito, alcançável rápido, não uma aposta em tendência longa.
+  //
+  // 🔴 2026-08-29 (pedido do Cleber, mesmo dia): 1.5 -> 1.7, um pouco só, pra
+  // já contemplar o SPREAD depois que entrada/saída passaram a preencher no
+  // bid/ask real (ver mt5Broker.ts/tools.ts) em vez do mid -- sem esse
+  // reajuste, o giro rapido bateria o alvo mas ainda saisse com PnL liquido
+  // negativo (spread pago na entrada + na saida) mesmo "acertando" o alvo.
+  // 🔴 2026-08-30 (mesmo redesenho): 1.7 -> 4.0. Com stop em 2.0x ATR (acima),
+  // isso da R:R 1:2 (4.0/2.0) -- abandona deliberadamente a filosofia "giro
+  // rápido, alvo curto" (testada de verdade em 66 trades reais na sessão
+  // e7eef768, resultado: 0 TP hits, -$135 líquido, 1,7%-3% de acerto) em
+  // favor do MESMO R:R que o motor mecânico principal já usa e que a
+  // pesquisa de julho/agosto deste projeto já estabeleceu como a referência
+  // de disciplina do produto (ver CLAUDE.md, "Cérebro de decisão da IA").
+  // Alvo mais largo tambem sobra mais margem acima do custo de spread
+  // pago 2x (entrada+saida) -- no desenho anterior, o spread sozinho podia
+  // consumir uma fração grande demais de um alvo de 1,7% ATR.
+  mt5TakeProfitAtrMultiplier: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER ?? 4.0),
+  // 🔴 2026-09-05: alvo dedicado de fim de semana (2.5x ATR) foi testado e
+  // REVERTIDO no mesmo dia a pedido direto do Cleber -- tinha voltado a ser
+  // IGUAL ao do dia útil (4.0x ATR, mesmo R:R 1:2, stop 2.0x ATR intocado).
+  // 🔴 2026-09-11 (pedido direto do Cleber, mesmo valor da tentativa
+  // anterior): reintroduzido -- fim de semana tem volume estruturalmente
+  // menor (só cripto, liquidez global mais baixa, ver `isWeekend` em
+  // atr.ts/agent.ts), então o motor deve mirar um alvo MENOR (menos pontos,
+  // captura mais rápida) em vez de continuar pedindo o mesmo movimento de
+  // preço do dia útil. Stop (mt5StopAtrMultiplier) continua INTOCADO --
+  // nunca repetir o corte de stop de 2026-09-04 (derrubou acerto de
+  // 80%->33%, ver CLAUDE.md). R:R fim de semana passa a ser 2.5/2.0=1.25:1
+  // (mais curto que o 4.0/2.0=2:1 do dia útil, ainda positivo). O sizing de
+  // abertura (rawLotsPreCap em open_position, mira mt5TargetRewardUsd em
+  // dólar fixo) já compensa automaticamente um takeProfitPct menor com MAIS
+  // lotes -- não precisa de nenhum multiplicador de risco% extra pra manter
+  // o retorno em dólar por trade "condizente" com o alvo mais curto; o teto
+  // duro de risco (mt5MaxRiskPctPerTrade) continua limitando por cima, sem
+  // mudança.
+  mt5TakeProfitAtrMultiplierWeekend: Number(process.env.MT5_TAKE_PROFIT_ATR_MULTIPLIER_WEEKEND ?? 2.5),
+  // 🔴 2026-09-18 (pedido direto do Cleber, junto do corte de stop de fim de
+  // semana): "arriscar 1,5 pra buscar 3" -- R:R 2:1 no fim de semana, medido
+  // contra o stop REAL da entrada, não contra referência de ATR. Com o stop
+  // em ~0,266%, o alvo sai em ~0,532%. Aplicado só quando isWeekendMode();
+  // dia útil segue exatamente como estava (targetPoints do Setup / referência
+  // congelada mt5TargetReferenceStopAtrMultiplier). Sobrepõe o targetPoints
+  // do Setup DENTRO do fim de semana de propósito: o pedido foi uma proporção
+  // explícita, e com targetPoints=POUCOS (1.5) o alvo sairia em 1,5:1, abaixo
+  // do que ele pediu. O cap por suporte/resistência real e o piso
+  // mt5MinRrAfterSrCap continuam valendo por cima, sem mudança.
+  mt5WeekendRiskRewardRatio: Number(process.env.MT5_WEEKEND_RISK_REWARD_RATIO ?? 2.0),
+  // 🔴 2026-09-05: revertido junto com o alvo acima -- sem alvo mais curto no
+  // fim de semana, não havia R:R menor pra compensar. Multiplicador ficou em
+  // 1.0 (no-op).
+  // 🔴 2026-09-11: continua em 1.0 de propósito, mesmo com o alvo de fim de
+  // semana voltando a ser mais curto -- ver comentário acima: a
+  // compensação de tamanho já é automática via mt5TargetRewardUsd
+  // (open_position), este multiplicador de risco% é de uma geração anterior
+  // do sizing (pré-2026-09-05) e ligá-lo de novo dobraria a compensação
+  // (mais lotes pelo alvo menor E mais risco% por cima, sem necessidade).
+  mt5RiskPctPerTradeWeekendMultiplier: Number(process.env.MT5_RISK_PCT_PER_TRADE_WEEKEND_MULTIPLIER ?? 1.0),
+  // 🔴 2026-08-30 (mesmo redesenho): 0.002 -> 0.003 -- piso um pouco mais
+  // largo, margem extra de segurança contra whipsaw por ruído puro em
+  // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:
+  // stop apertado demais bate por ruído antes de qualquer tese ter chance).
+  mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.003),
+  // 🔴 2026-09-18 (mesmo pedido do corte de stop de fim de semana acima):
+  // piso DEDICADO ao fim de semana. O piso de dia útil (0,300%) é maior que
+  // o próprio stop alvo do fim de semana (~0,266% no XETUSD de referência),
+  // então sem este piso separado o stop dinâmico seria descartado por estar
+  // "fora do range" e cairia no fallback de 0,500% -- ficando MAIOR que
+  // antes do corte, o oposto do pedido. 0,200% preserva margem real contra
+  // whipsaw por ruído puro (o guard de spread, mt5SpreadStopSafetyMultiplier,
+  // continua alargando por cima quando o spread exige). Dia útil INTOCADO.
+  mt5StopMinPctWeekend: Number(process.env.MT5_STOP_MIN_PCT_WEEKEND ?? 0.002),
+  mt5StopMaxPct: Number(process.env.MT5_STOP_MAX_PCT ?? 0.02),
+  mt5StopFallbackPct: Number(process.env.MT5_STOP_FALLBACK_PCT ?? 0.005),
+  // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+  // redesenho R:R 1:2): 2 dos primeiros 3 trades reais (XRPUSD LONG) bateram
+  // stop em 64s e 14s -- nao por movimento de preco, mas porque o stop
+  // calculado (0,500% fallback) era MENOR que o proprio spread do ativo
+  // (~1,47%). fillPrice = ask (LONG) e o preco de fechamento e o bid
+  // (enforceMt5StopsAndTargets) -- se stopPct < spreadPct, a posicao ja
+  // nasce abaixo do proprio stop, ANTES de qualquer movimento real. O aviso
+  // de SPREAD ALTO em tools.ts so alertava sobre o ALVO precisar ser maior,
+  // nunca sobre o STOP -- por isso o modelo raciocinava (errado) que R:R 1:2
+  // "mitigava" o custo do spread. Fix: stop nunca fica menor que
+  // spreadPct * mt5SpreadStopSafetyMultiplier (margem REAL alem do custo de
+  // ida-e-volta do spread, nao so empatar) -- ver open_position em tools.ts.
+  mt5SpreadStopSafetyMultiplier: Number(process.env.MT5_SPREAD_STOP_SAFETY_MULTIPLIER ?? 1.5),
+  // 🔴 2026-09-02 (pedido direto do Cleber, achado ao vivo: alvo de 4x ATR
+  // do EURUSD aberto na sessao 1d73c50a pedia 0,71% de movimento com a
+  // resistencia real a so 0,08% de distancia -- alvo cego a estrutura real
+  // do preco, quase impossivel de alcancar sem romper o nivel primeiro).
+  // O alvo (takeProfitPct, calculado por ATR acima) agora e CAPADO pela
+  // distancia real ate o proximo suporte/resistencia (getSupportResistance
+  // em atr.ts, mesmo candle oficial que MACD/Estocastico ja usam) na
+  // direcao do trade -- nunca pede pro preco correr alem do nivel real mais
+  // proximo. Aplica pra TODOS os ativos da cesta (nao so EURUSD), sempre
+  // que houver candle real suficiente pra calcular o nivel; sem candle real
+  // (null), mantem o comportamento antigo (ATR puro), nunca fabrica nivel.
+  // Fator abaixo mira LOGO ANTES do nivel (nao em cima dele), pra ter mais
+  // chance de preencher antes de uma rejeicao/reversao no proprio nivel.
+  // 2026-10-12: extremo do dia (SHORT na minima de 24h / LONG na maxima). DEFAULT = so SOMBRA (loga [SHADOW-EXTREMO-DIA], nao bloqueia): o Cleber quer julgamento, nao regra dura. true = bloqueia.
+  // 2026-10-13: trava de estocastico em extremo CONTRA o lado (SHORT em SOBREVENDIDO / LONG em SOBRECOMPRADO) vale pra todo setup, nao so REVERSAO. Pedido do Cleber. Rollback: false.
+  // ===== MESA DE OPERACOES + TESTE "SO-LLM" (2026-10-13, pedido do Cleber) =====
+  // Time de agentes (analistas de estocastico/MACD/medias, fundamentalista,
+  // noticias, sentimento, pesquisador comprador x vendedor, trader senior,
+  // equipe de risco, gestor de risco, gestor de portfolio e Agente Master) que
+  // delibera cada entrada antes de a ordem sair -- ver src/desk.ts.
+  // off = motor como sempre foi | shadow = a mesa delibera e registra, mas NAO
+  // decide | enforce = a decisao do Agente Master vale (so RESTRINGE: nunca
+  // cria entrada, so aprova ou rejeita a que o operador propos) |
+  // veto = 🔴 2026-10-15 (conselho + decisao do Cleber): DISSOLVE o juri de 14
+  //   agentes + Master. 1 LLM (o cerebro) propoe e quem DECIDE sao os vetos
+  //   duros CALCULADOS POR CODIGO (computeHardVetoes) -- sem nenhuma chamada de
+  //   LLM de mesa. Motivo medido em 14/10: o juri rejeitava 30 que dariam alvo
+  //   e 30 que dariam stop (cara ou coroa), conviccao >=80 acertava 33%, a
+  //   custa de 14 chamadas de LLM e 1-2 min por entrada. No modo veto as travas
+  //   de JULGAMENTO de open_position tambem saem (igual ao teste so-LLM): o
+  //   gate passa a ser SO os vetos de codigo. A linha em desk_decisions
+  //   continua gravada = a mesa vira log paralelo. Rollback: MT5_DESK_MODE=enforce.
+  mt5DeskMode: ((): "off" | "shadow" | "enforce" | "veto" => {
+    const v = String(process.env.MT5_DESK_MODE ?? "off").toLowerCase();
+    return v === "shadow" || v === "enforce" || v === "veto" ? v : "off";
+  })(),
+  // Teste so-LLM: desliga as travas MECANICAS DE JULGAMENTO de open_position
+  // (leitura de indicador, direcao, confluencia, R:R minimo, limites de risco)
+  // e deixa a mesa decidir sozinha. Cada trava desligada loga
+  // [TRAVA-DESLIGADA] e vai pro snapshot do trade (bypassedGates), pra medir
+  // depois quais faziam falta. So vale com mt5DeskMode=enforce e NUNCA com
+  // execucao real ligada (ver open_position em tools.ts). Default false.
+  mt5LlmOnlyTest: process.env.MT5_LLM_ONLY_TEST === "true",
+  // Teste so-LLM: quando o nivel (S/R, maxima/minima de 24h, range) esta mais perto que o alvo, o motor
+  // normalmente ENCURTA o alvo pra caber e so recusa se nao cobrir o R:R minimo. No teste a recusa e da
+  // mesa; o alvo e encurtado mesmo assim, desde que fique >= este piso (% do preco). Abaixo disso o alvo
+  // realmente nao cabe e a mesa e avisada.
+  mt5LlmOnlyMinTargetPct: Number(process.env.MT5_LLM_ONLY_MIN_TARGET_PCT ?? 0.2),
+  // PISO DE VALOR (vale sempre que a mesa esta ligada, nao depende da IA): 13/10 o NAS100 LONG abriu com
+  // alvo de 0,143% contra stop de 0,463% (R:R 0,31:1), ganho esperado de $0,87 e risco de $2,83 -- centavos.
+  // 1) retorno/risco abaixo deste valor e recusado (precisaria acertar ~2 de cada 3 so pra empatar).
+  mt5MinRrAbsolute: Number(process.env.MT5_MIN_RR_ABSOLUTE ?? 0.5),
+  // 2026-10-16 (pedido do Cleber): o alvo obedece o Setup do usuario (targetPoints). Fracao da PERNADA TIPICA do ativo (mediana das
+  // pernadas de 15m, dayProfile.ts) que o alvo pode ocupar: POUCOS = scalp (multiplo do range medio da vela de 15m: 1,0 = ~1 vela), MEDIO = medio, MUITOS = a pernada inteira.
+  // Sao limiares de julgamento, nao validados estatisticamente.
+  mt5TargetLegFractionPoucos: Number(process.env.MT5_TARGET_LEG_FRACTION_POUCOS ?? 1.0),
+  mt5TargetLegFractionMedio: Number(process.env.MT5_TARGET_LEG_FRACTION_MEDIO ?? 0.6),
+  mt5TargetLegFractionMuitos: Number(process.env.MT5_TARGET_LEG_FRACTION_MUITOS ?? 1.0),
+  // 2026-10-16: no scalp (POUCOS), quando o agente de alvo corta o alvo, o stop encurta junto: stop = alvo / R:R desejado, sem ficar abaixo do
+  // piso de spread nem de `FLOOR_RANGE15` x o range medio da vela de 15m (ruido). Rollback: MT5_SCALP_STOP_FOLLOWS_TARGET=false.
+  mt5ScalpAgentStopRr: Number(process.env.MT5_SCALP_AGENT_STOP_RR ?? 1.0),
+  mt5ScalpStopFloorRange15: Number(process.env.MT5_SCALP_STOP_FLOOR_RANGE15 ?? 0.6),
+  // 2) ganho LIQUIDO esperado no alvo (depois de tamanho, teto de risco, METADE e custo) abaixo disto e recusado.
+  // 2026-10-14 (pedido do Cleber): piso de ganho LIQUIDO por operacao proporcional ao caixa
+  // -- no minimo US$3 liquidos para cada US$100 em caixa (3%). O alvo bruto de referencia
+  // (mt5TargetRewardUsd) tambem escala com o caixa na mesma proporcao.
+  mt5ReferenceCapitalUsd: Number(process.env.MT5_REFERENCE_CAPITAL_USD ?? 100),
+  mt5MinNetRewardPerReferenceUsd: Number(process.env.MT5_MIN_NET_REWARD_PER_REFERENCE_USD ?? 3.0),
+  mt5MinExpectedNetRewardUsd: Number(process.env.MT5_MIN_EXPECTED_NET_REWARD_USD ?? 1.0),
+  mt5DeskModel: process.env.MT5_DESK_MODEL || "", // "" = mesmo modelo do cerebro principal
+  mt5DeskEnableThinking: process.env.MT5_DESK_ENABLE_THINKING === "true",
+  mt5DeskMaxTokens: Number(process.env.MT5_DESK_MAX_TOKENS ?? 900),
+  mt5DeskTimeframes: (process.env.MT5_DESK_TIMEFRAMES ?? "5m,15m,1H,4H").split(",").map((t) => t.trim()).filter(Boolean),
+  mt5DeskDebateRounds: Number(process.env.MT5_DESK_DEBATE_ROUNDS ?? 1), // rodadas de replica comprador x vendedor (0 = so as teses de abertura)
+  mt5DeskConcurrency: Number(process.env.MT5_DESK_CONCURRENCY ?? 3), // chamadas de LLM simultaneas (limite de taxa do provedor)
+  // 2026-10-16: o provedor (NVIDIA, camada gratuita) limita por MINUTO (429 intermitente, sem retry-after). A mesa gasta ~16-33 chamadas por
+  // deliberacao: este teto (janela deslizante de 60s) espaca as chamadas; 0 = sem espacamento. Rollback: MT5_DESK_MAX_CALLS_PER_MIN=0.
+  mt5DeskMaxCallsPerMin: Number(process.env.MT5_DESK_MAX_CALLS_PER_MIN ?? 30),
+  mt5DeskCallTimeoutMs: Number(process.env.MT5_DESK_CALL_TIMEOUT_MS ?? 60_000),
+  mt5DeskTotalTimeoutMs: Number(process.env.MT5_DESK_TOTAL_TIMEOUT_MS ?? 300_000),
+  // Depois de a mesa REJEITAR um ativo+lado, novas tentativas iguais sao
+  // recusadas na hora por estes minutos (a mesa custa ~14 chamadas de LLM).
+  mt5DeskRejectCooldownMin: Number(process.env.MT5_DESK_REJECT_COOLDOWN_MIN ?? 10),
+  // A deliberacao leva 1-2 min. Se nesse tempo o preco andar mais que esta
+  // fracao da distancia do stop, a entrada e abortada (decisao tomada sobre
+  // um preco que ja nao existe).
+  mt5DeskMaxDriftFracOfStop: Number(process.env.MT5_DESK_MAX_DRIFT_FRAC_OF_STOP ?? 0.5),
+  // 2026-10-13: scalp "poucos pontos" -- teto do ALVO em % do preco (0 = desligado). ~0,29% = ~40 pts na CHINA50. So o alvo; o stop nao muda. Pedido do Cleber.
+  mt5ScalpTargetMaxPct: Number(process.env.MT5_SCALP_TARGET_MAX_PCT ?? 0.25),
+  // 2026-10-15 (pedido do Cleber: "regular de forma fina pra qualquer ativo"): no scalp o teto do alvo passa a ser esta
+  // FRACAO DO STOP do proprio ativo (stop = 2,0x ATR, ja adaptativo), em vez de % fixo igual pra todos. O teto fixo de 0,25%
+  // dava R:R de ~0,25 (SOLUSD) a ~0,67 (JPN225) e barrava os ativos que mais correm. 0 desliga e volta ao teto fixo
+  // (mt5ScalpTargetMaxPct). Stop intocado. Mantenha >= mt5ScalpMinRr, senao o gate de R:R barra o proprio alvo.
+  mt5ScalpTargetStopFraction: Number(process.env.MT5_SCALP_TARGET_STOP_FRACTION ?? 0),
+  // 2026-10-15 (TESTE, varredura de stop x alvo): no scalp (targetPoints POUCOS, dia util) multiplica o stop dinamico de hoje
+  // (2,0x ATR) e a referencia do alvo por este fator; com o R:R de POUCOS (1,5) o alvo fica em 1,5x o novo stop. >1 liga;
+  // 1 desliga. Combinar com MT5_SCALP_TARGET_MAX_PCT=0 (senao o teto fixo de 0,25% corta o alvo).
+  mt5ScalpStopFactor: Number(process.env.MT5_SCALP_STOP_FACTOR ?? 1),
+  // R:R minimo aceito quando o alvo foi limitado pelo teto de scalp (alvo pode ficar menor que o stop).
+  mt5ScalpMinRr: Number(process.env.MT5_SCALP_MIN_RR ?? 0.6),
+  mt5StochExtremeGateAllSetups: (process.env.MT5_STOCH_EXTREME_GATE_ALL_SETUPS ?? "true") !== "false",
+  mt5DayExtremeVetoEnabled: (process.env.MT5_DAY_EXTREME_VETO_ENABLED ?? "false") === "true",
+  mt5DayExtremeVetoRangeFrac: Number(process.env.MT5_DAY_EXTREME_VETO_RANGE_FRAC ?? 0.15),
+  mt5SrTargetMarginPct: Number(process.env.MT5_SR_TARGET_MARGIN_PCT ?? 0.9),
+  // Se o teto de suporte/resistencia deixar o alvo com R:R pior que isto
+  // (nivel real perto demais pra dar espaco decente acima do stop), a
+  // entrada e RECUSADA em vez de aceitar uma aposta com risco/retorno ruim
+  // so porque "o ATR mandou entrar" -- mesmo espirito do gate de spread
+  // acima (nao abre posicao com matematica desfavoravel de partida).
+  // 🔴 2026-09-22 (diagnostico com dado real, pedido do Cleber "pode
+  // atacar"): piso subido de 1.0 -> 1.5. Motivo e ARITMETICA, nao palpite --
+  // com o win rate real medido (41,8% em 213 trades ate 15/09), o R:R de
+  // breakeven e 1.39:1; um piso de 1.0 autorizava entradas nascendo em
+  // 1,07:1 (XETUSD 19/09 e 21/09, ambas perderam), matematicamente
+  // perdedoras de partida. Corte medido no historico (12 dias, saidas
+  // SL/TP): trades que terminaram com R:R efetivo < 1.5 acertaram 6,3%
+  // (16 trades, -$35,96); os com R:R >= 1.5 acertaram 45,1%. Ressalva
+  // honesta registrada: esse corte usa o stop ATUAL do banco, que o
+  // trailing reescreve (neuralBridge.ts:1151), entao nao e exatamente o R:R
+  // de abertura -- o sinal e forte mas nao e prova limpa. Efeito esperado:
+  // MENOS entradas (recusa as de matematica ruim), nao mais acerto por si.
+  mt5MinRrAfterSrCap: Number(process.env.MT5_MIN_RR_AFTER_SR_CAP ?? 1.5),
+  // 🔴 2026-09-05 (pedido direto do Cleber, achado ao vivo -- XLMUSD SHORT
+  // com stop bem além do pavio da última alta real, "o stop tem que ser da
+  // altura do candle", "o pavio do candle"): igual o alvo já era capado pela
+  // distância real até S/R (acima), o STOP por ATR também é cego à
+  // estrutura -- pode mandar a invalidação técnica bem além do topo/fundo
+  // real mais próximo (o pavio que de fato invalidaria o trade), deixando o
+  // risco maior que o necessário sem nenhum ganho de proteção real. Aqui o
+  // stop é capado pela distância até o nível oposto ao lado do trade
+  // (resistência pra SHORT, suporte pra LONG) SEMPRE que esse nível fica
+  // MAIS PERTO que o stop por ATR -- só aperta, nunca alarga (nunca deixa o
+  // stop mais arriscado do que o ATR já calculou). Fator > 1.0 mira um pouco
+  // ALÉM do pavio (não em cima dele), pra não ser pego por um wick de ruído
+  // exatamente no nível. Nunca aperta abaixo do piso de segurança do spread
+  // (minStopForSpread) nem do mínimo absoluto (mt5StopMinPct) -- ver uso em
+  // tools.ts (open_position). O alvo (takeProfitPct) não é afetado por este
+  // cap -- continua usando a referência de risco congelada (ver comentário
+  // de mt5TargetReferenceStopAtrMultiplier).
+  mt5SrStopMarginPct: Number(process.env.MT5_SR_STOP_MARGIN_PCT ?? 1.15),
+  // 🔴 2026-09-05 (pedido direto do Cleber, achado ao vivo -- XETUSD LONG com
+  // alvo de +11pts quando a máxima/mínima real da janela recente mal cobria
+  // ~17pts de amplitude: "ela tem que ter noção se o mercado está largo ou
+  // estreito"). getMarketRegime (atr.ts) agora expõe `range` (amplitude real
+  // recente, mesmo candle oficial, comparada à própria média histórica do
+  // símbolo -- ESTREITO/NORMAL/AMPLO). Quando o regime vem ESTREITO e não há
+  // rompimento confirmado na direção do trade, o alvo por ATR também é
+  // capado pela amplitude real observada (não só por S/R pontual) -- evita
+  // pedir pro preço percorrer mais do que ele já provou que percorre nesta
+  // janela. Fator > 1.0 dá uma folga real acima da amplitude observada (não
+  // trava o alvo exatamente no teto do range). Sem candle real suficiente
+  // pra calcular `range` (null), mantém o comportamento antigo -- nunca
+  // fabrica amplitude. Ver uso em tools.ts (open_position).
+  mt5RangeTargetMarginPct: Number(process.env.MT5_RANGE_TARGET_MARGIN_PCT ?? 1.2),
+  // 🔴 2026-08-29 (mesmo pedido): "ela não pode ter alvos longos num dia em
+  // que o dia não tem volume" -- em dia/momento de baixa participação (ver
+  // getVolumeConfirmation em atr.ts, proxy real de tickVolume da MetaAPI), o
+  // alvo normal ainda pode ser grande demais pra esse ativo alcançar rápido.
+  // Quando o volume recente está ABAIXO da própria média de 1h (ratio < 1,
+  // não é "elevated"), o alvo (não o stop -- risco continua igual) encolhe
+  // por este fator extra na abertura da posição (tools.ts open_position).
+  mt5LowVolumeTakeProfitMultiplier: Number(process.env.MT5_LOW_VOLUME_TAKE_PROFIT_MULTIPLIER ?? 0.6),
+  // 🔴 2026-08-29 (pedido do Cleber): breakeven MECÂNICO -- assim que o
+  // preço andar a favor `mt5BreakevenTriggerR` vezes a distância original do
+  // stop (0.5 = meio caminho até bater o stop, na direção contrária), o
+  // código move o stop_loss pro preço de entrada. Dali em diante o pior
+  // caso da posição vira ~$0 em vez do stop cheio -- mesmo espírito do
+  // "breakeven em 0,5R" que o motor mecânico já usa (ver CLAUDE.md,
+  // 2026-08-28). Só anda pra frente (nunca afrouxa um stop já em
+  // breakeven) -- ver enforceMt5StopsAndTargets em neuralBridge.ts.
+  // 🔴 2026-09-27 (proposta de payoff assimetrico aprovada pelo Cleber, ver
+  // analises/PROPOSTA_2026-09-27_PAYOFF_ASSIMETRICO.md): gatilho do breakeven
+  // baixa de 0.5R para 0.35R -- trava o pior caso em ~$0 mais cedo, pra que
+  // as perdas fiquem pequenas sem mexer no alvo dos vencedores.
+  // 🔴 2026-10-07 (llm-council + aprovacao do Cleber): 0.35R -> 1.0R. Medido
+  // nas 67 entradas reais em cripto de 22/09 a 07/10: 17 andaram >= 0,35R a
+  // favor e sairam no zero/negativo; nas MESMAS entradas (caminho Binance,
+  // custo descontado, stop 1R / alvo 1,5R) o breakeven em 0,35R da 15% de
+  // acerto e -0,20R por trade, em 0,5R da 31% e -0,03R, em 1,0R da 45% e
+  // -0,01R. Nao e prova de lucro (n=67), e reversao de um ajuste que tirava
+  // os ganhos antes da hora. Ver research/experiments/2026-10-07-tendencia-
+  // 1h-entrada-5m/verdict.md. O .env precisa trazer o MESMO valor.
+  mt5BreakevenTriggerR: Number(process.env.MT5_BREAKEVEN_TRIGGER_R ?? 1.0),
+  // 🔴 2026-08-30 (achado ao vivo, pedido explicito do Cleber -- "chegou a
+  // ganhar $3, saiu a -$0,10, isso nao pode acontecer"): o trailing em
+  // enforceMt5StopsAndTargets usava a MESMA distancia do stop de abertura
+  // (mt5StopAtrMultiplier, 2.0x ATR) pro trailing continuo pos-breakeven.
+  // Como o breakeven dispara com so mt5BreakevenTriggerR (0.5x = 1x ATR de
+  // lucro), existia uma faixa morta entre 1x e 2x ATR de lucro em que o
+  // trailing calculado (preco - 2x ATR) NUNCA ficava mais protetor que o
+  // breakeven (preco de entrada) -- o stop simplesmente nao subia, apesar do
+  // preco continuar correndo a favor. Foi exatamente o caso real: BTCUSD
+  // SHORT chegou a +$3 (dentro dessa faixa morta), reverteu, e foi fechado
+  // no breakeven + custo de spread (-$0,19) sem nunca ter protegido nenhum
+  // fragmento do lucro que passou por ali. Multiplicador dedicado, mais
+  // apertado que o stop inicial, faz o trailing comecar a proteger lucro
+  // real assim que o preco sair do breakeven, em vez de exigir dobrar a
+  // distancia do stop original antes de mexer. Sem validacao estatistica de
+  // que isso melhora o liquido -- e correcao de mecanica de protecao de
+  // lucro, nao alegacao de edge.
+  mt5TrailAtrMultiplier: Number(process.env.MT5_TRAIL_ATR_MULTIPLIER ?? 0.8),
+  // 🔴 2026-09-04 (achado real via SQL, sessão 02/09: 14 vitórias/4 perdas,
+  // ganho médio $1,70 vs perda média $3,97 -- assimetria errada apesar de
+  // 78% de acerto): o trail acima (mt5TrailAtrMultiplier) protege bem no
+  // início, mas continua igualmente apertado pra sempre -- em quase todo
+  // vencedor o `r_multiple_realized` (distância percorrida / distância do
+  // stop original) ficou entre 0,6 e 1,0, mesmo quando o take_profit
+  // configurado implicava R:R de 5:1 a 12:1 pro mesmo trade. O trail fechava
+  // o lucro MUITO antes de chegar perto do alvo real -- take_profit virava
+  // decorativo. A partir de mt5TrailWidenTriggerR de lucro (em unidades do
+  // stop original), passa a usar mt5TrailAtrMultiplierWide (mais largo) em
+  // vez do multiplicador apertado -- deixa o vencedor correr rumo ao alvo
+  // depois que já garantiu lucro real, só protege MAIS platô à frente, nunca
+  // afrouxa um stop já mais protetor (mesma trava de enforceMt5StopsAndTargets).
+  // Sem validação estatística de melhora no líquido ainda -- é correção de
+  // mecânica (capturar mais do R:R já configurado), não alegação de edge.
+  mt5TrailWidenTriggerR: Number(process.env.MT5_TRAIL_WIDEN_TRIGGER_R ?? 1.0),
+  mt5TrailAtrMultiplierWide: Number(process.env.MT5_TRAIL_ATR_MULTIPLIER_WIDE ?? 2.2),
+  // 🔴 2026-09-04 (mesmo achado acima): parcial de lucro real ao atingir
+  // mt5PartialTpTriggerR -- realiza mt5PartialTpFraction da posição (fecha
+  // parcial, registrado como trade CLOSED novo, nunca UPDATE silencioso no
+  // original -- ver convenção "Corrigir registro financeiro corrompido nunca
+  // é um UPDATE silencioso" em CLAUDE.md) e deixa o restante correr com o
+  // trail largo acima. Garante lucro real cedo sem sacrificar o "deixar
+  // correr" no restante. `false` desliga sem remover o mecanismo.
+  mt5PartialTpEnabled: (process.env.MT5_PARTIAL_TP_ENABLED ?? "true") === "true",
+  mt5PartialTpTriggerR: Number(process.env.MT5_PARTIAL_TP_TRIGGER_R ?? 1.0),
+  mt5PartialTpFraction: Number(process.env.MT5_PARTIAL_TP_FRACTION ?? 0.4),
+  // Teto ABSOLUTO de segurança em notional -- desde 2026-08-31 (sizing por %
+  // de risco do saldo real, ver mt5RiskPctPerTrade acima) o notional
+  // calculado normalmente fica bem abaixo disto (dezenas de dólares numa
+  // conta de $50) -- este valor é só um sanity check de última instância
+  // contra cálculo degenerado (ex: preço anormalmente baixo fazendo o lote
+  // explodir), não um alvo de operação.
+  mt5MaxNotionalUsd: Number(process.env.MT5_MAX_NOTIONAL_USD ?? 2200),
+  // 🔴 2026-08-29 (otimização urgente pós-perda do dia: -$119 realizados,
+  // 96% concentrados em 56 trades depois do aumento de exposição/remoção do
+  // teto de TP). Achado real no log de trades: BTCUSD, XETUSD e SOLUSD são
+  // cripto correlacionada (mesmo regime de mercado) -- o agente empilhou
+  // SHORT nos 3 ao mesmo tempo (até o teto de 3/símbolo em cada um) bem no
+  // meio de um rali de horas que atingiu os 3 juntos, o que é UMA aposta
+  // direcional triplicada, não 3 independentes. Este teto limita a exposição
+  // TOTAL do mesmo lado (LONG ou SHORT) somada em todo o grupo correlacionado
+  // (ver getCorrelatedGroup em assetBasket.ts) -- 2x o "forte" de um símbolo
+  // sozinho dá espaço real pra operar mais de um ativo do grupo sem permitir
+  // a mesma aposta triplicada de hoje.
+  mt5MaxCorrelatedNotionalUsd: Number(process.env.MT5_MAX_CORRELATED_NOTIONAL_USD ?? 2700),
+  // 🔴 2026-09-05 (pedido direto do Cleber, achado real via SQL do balanço de
+  // 8 dias em CLAUDE.md): dias de PIOR PnL líquido foram sistematicamente os
+  // de MAIOR frequência de trades (ex: 21 trades em 04/09 vs. 11 em 03/09,
+  // sem a assertividade acompanhar) -- teto DURO de entradas NOVAS numa
+  // janela deslizante de 24h, independente da "Cadência de Entrada" do Setup
+  // (que só espaça ciclos de avaliação, não limita o total). Só limita
+  // ABERTURA de posição nova -- nunca bloqueia fechamento, breakeven,
+  // trailing ou realização parcial de posição já aberta (mesmo espírito do
+  // daily loss limit acima).
+  // 🔴 2026-09-07 (pedido direto do Cleber, revertendo o "15-16" de
+  // 2026-09-05 acima): o teto virou o próprio gargalo -- travava testes de
+  // mudanças recém-aplicadas (fix do gate de fechamento discricionário,
+  // FRA40 na cesta) porque o contador ainda carregava entradas de ontem
+  // (fim de semana, teto=24) contra o teto novo de dia útil (16), sem
+  // margem nenhuma pra operar. Decisão explícita do Cleber: frequência não é
+  // o objetivo do produto, assertividade é -- "pouco importa quantas
+  // entradas ela fará" contanto que ganhe. Subido bem acima do necessário
+  // (60) pra parar de ser gargalo prático nos próximos dias de teste;
+  // mantido como número finito (não removido) só como rede de segurança
+  // contra loop de código desgovernado, não como alvo de frequência.
+  mt5MaxEntriesPer24h: Number(process.env.MT5_MAX_ENTRIES_PER_24H ?? 60),
+  // 🔴 2026-09-06 (pedido direto do Cleber): módulo de fim de semana --
+  // enquanto `isWeekendMode()` (assetBasket.ts) está ativo, o teto acima (16,
+  // calibrado com dado de DIA ÚTIL) é substituído por este, mais alto --
+  // Cleber quer o motor ATIVO no fim de semana, buscando ~20 entradas/24h
+  // (cesta continua 100% manual, só o teto de frequência muda). Sem dado
+  // estatístico de fim de semana ainda por trás deste número -- é o teto que
+  // ele pediu explicitamente, não uma alegação de edge. Reavaliar com
+  // amostra de fins de semana reais.
+  // 🔴 2026-09-07: alinhado ao mesmo motivo do teto de dia útil acima (60) --
+  // mantido igual ao de dia útil pra não reabrir o mesmo gargalo quando a
+  // virada de dia útil->fim de semana acontecer com o contador ainda alto.
+  mt5MaxEntriesPer24hWeekend: Number(process.env.MT5_MAX_ENTRIES_PER_24H_WEEKEND ?? 60),
+  // 2026-09-12 (pedido direto do Cleber): gate de confiança mínima pra abrir
+  // posição (MIN_CONFIDENCE_FOR_OPEN_POSITION em tools.ts, fixo em 80%) cai
+  // pra este valor mais baixo enquanto isWeekendMode() está ativo -- liquidez
+  // menor no fim de semana já reduz a chance de confluência forte o
+  // suficiente pra passar de 80%, travando o motor perto do teto de
+  // frequência. Dia útil continua exigindo 80%, intocado. Sem validação
+  // estatística ainda -- é o valor que ele pediu explicitamente, reavaliar
+  // com amostra de fins de semana sob este gate.
+  // 🔴 2026-09-18 (pedido direto do Cleber, mesmo dia do design de "modo
+  // fim de semana" -- ver comentario de volume ignorado em tools.ts): 70 ->
+  // 65 -> 60 (2 ajustes no mesmo pedido, ele mesmo revisou em tempo real
+  // antes de aplicar). Justificativa dele: fim de semana e mais previsivel
+  // (cesta so cripto, sem os gates de forex/indice) e e a UNICA janela onde
+  // ele quer mais volume de operacoes -- comeca em 60%, com aviso explicito
+  // dele de subir de novo "se tiver muitos problemas". Dia util continua em
+  // 70 (o valor que acabei de reverter de 80 -> 70 hoje mesmo), intocado.
+  // Isolado ao fim de semana por design (isWeekendMode()), nao empilha com
+  // a mudanca de dia util.
+  mt5MinConfidenceForOpenPositionWeekend: Number(process.env.MT5_MIN_CONFIDENCE_WEEKEND ?? 60),
+  // 2026-09-15 (pedido direto do Cleber): todos os dias, das 17h às 23h
+  // Brasília, o gate de "volume elevado" (VOLUME_ELEVATED_RATIO em atr.ts,
+  // usado em open_position pra exigir confirmação extra em entrada contra a
+  // tendência, ver princípio 1c em agent.ts) fica mais permissivo -- fora
+  // dessa janela volta ao valor normal (1.05). Nenhuma outra regra muda
+  // nessa janela (R:R, stop, confiança mínima etc continuam intocados) --
+  // é só o limiar de volume. Sem validação estatística ainda, é a janela e o
+  // valor que ele pediu explicitamente; reavaliar com amostra rodando sob
+  // este gate. Valor pedido explicitamente pelo Cleber: 60% do normal
+  // (1.05 -> 0.63) -- ajustado nesta mesma sessão depois de ver o dado real
+  // (113 leituras de 17h-20h28 Brasília hoje, média de participação real
+  // 0.549x; com 0.63 passam ~40% das leituras, contra ~50% em 0.525).
+  // 2026-09-16 (pedido direto do Cleber): baixado de 60% pra 40% do normal
+  // (0.63 -> 0.42). Sem validação estatística ainda -- reavaliar com amostra
+  // rodando sob este novo valor.
+  mt5VolumeElevatedRatioEvening: Number(process.env.MT5_VOLUME_ELEVATED_RATIO_EVENING ?? 0.42),
+  // 2026-09-22 (pedido direto do Cleber): o threshold de volume elevado
+  // FORA da janela noturna (00h-17h Brasília) era fixo em 1.05 direto no
+  // codigo (atr.ts, VOLUME_ELEVATED_RATIO), sem variavel de ambiente --
+  // Cleber percebeu volume mais baixo num horario do meio do dia e pediu
+  // pra poder regular esse valor sem precisar editar codigo toda vez.
+  // Exposto aqui com o MESMO default de sempre (1.05), so ajustavel via
+  // .env agora. Sem validacao estatistica ainda -- so infraestrutura de
+  // ajuste, valor so muda se o Cleber setar explicitamente no .env.
+  mt5VolumeElevatedRatio: Number(process.env.MT5_VOLUME_ELEVATED_RATIO ?? 1.05),
+  // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
+  // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
+  // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO
+  // lado, no MESMO símbolo, contra uma tendência que já tinha virado contra
+  // ele -- sem nenhum mecanismo que o fizesse parar e reavaliar. Depois de
+  // `mt5LossStreakThreshold` fechamentos consecutivos por STOP_LOSS no mesmo
+  // símbolo+lado, novas entradas nesse símbolo+lado ficam bloqueadas por
+  // `mt5LossStreakCooldownMinutes` -- o lado oposto (ou outro símbolo)
+  // continua livre, isso não pausa o agente inteiro, só impede reentrar
+  // teimosamente numa mesma tese que acabou de ser invalidada 2x seguidas.
+  // 🔴 2026-08-30 (pedido do Cleber, monitoramento ao vivo): afrouxado um
+  // pouco -- threshold 2->3 e cooldown 30->20min. Motivo: com threshold=2 a
+  // cesta inteira (10 ativos) ficou 1h+ com so 1 posicao aberta porque quase
+  // todo simbolo tinha acabado de bater 2 perdas seguidas em algum lado e
+  // ficava travado por meia hora, mesmo com sinal novo aparecendo. Ainda e
+  // uma trava real (3 perdas seguidas no mesmo simbolo+lado ainda bloqueia),
+  // so um pouco menos agressiva. Sem validacao estatistica de que isso
+  // melhora o resultado liquido -- e afrouxamento de frequencia, nao alegacao
+  // de edge.
+  // 🔴 2026-08-31 (ajuste pós-paralisia): 3->5 (threshold) e 20->5min (cooldown).
+  // Razão: com threshold=3, apenas 3 perdas consecutivas já bloqueavam o ativo
+  // por 20min, deixando o agente paralisado. Novo: 5 perdas pra ativar bloqueio,
+  // e só 5min de espera (Fase 2: menos conservador, mais experimental).
+  mt5LossStreakThreshold: Number(process.env.MT5_LOSS_STREAK_THRESHOLD ?? 5),
+  mt5LossStreakCooldownMinutes: Number(process.env.MT5_LOSS_STREAK_COOLDOWN_MINUTES ?? 5),
+  // 🔴 2026-09-09 (pedido direto do Cleber -- Classificador de Regime de
+  // Mercado via HMM). SÓ CONTEXTO por padrão (hmmRegime em get_mt5_quote,
+  // sempre ativo, nunca desligável -- é dado real, não trava). Bloqueio
+  // MECÂNICO opcional (recusa setupType ROMPIMENTO/CRUZAMENTO_MEDIAS durante
+  // CONSOLIDACAO_BAIXA_VOL, ver open_position em tools.ts) fica DESLIGADO até
+  // haver amostra real validando a classificação -- mesmo padrão de
+  // ASSET_SCORECARD_ACTIVE já usado neste projeto (infra pronta, efeito
+  // desligado até o dado justificar ligar).
+  hmmRegimeGateActive: process.env.HMM_REGIME_GATE_ACTIVE === "true",
+  hmmRegimeGateMinConfidence: Number(process.env.HMM_REGIME_GATE_MIN_CONFIDENCE ?? 0.65),
+  // 🔴 2026-09-27 (pedido do Cleber -- "duas IAs diferentes", regulagem de fim
+  // de semana separada da de dia útil; dia útil NUNCA muda, fica gated por
+  // isWeekendMode() em tools.ts). Achado real via SQL do fim de semana
+  // 25-27/09: XETUSD sozinho foi 76% do prejuízo (-$24 de -$31,63, 14 trades),
+  // perdendo nos DOIS lados (LONG e SHORT) -- não é viés direcional, é
+  // ROMPIMENTO/CRUZAMENTO_MEDIAS sendo aprovado num regime que o próprio
+  // reasoning da IA já classificava como consolidação/lateral. O gate acima
+  // existe desde 09-09 pra bloquear exatamente isso mas está desligado pra
+  // TODO o motor (sem amostra que validasse). Em vez de ligar geral (violaria
+  // o congelamento de dia útil em vigor desde 22/09), liga só no fim de
+  // semana, onde o dado real já mostra o problema -- dia útil continua
+  // usando hmmRegimeGateActive (hoje false) sem nenhuma mudança.
+  hmmRegimeGateActiveWeekend: process.env.HMM_REGIME_GATE_ACTIVE_WEEKEND !== "false",
+  // 🔴 2026-09-27: piso de fatores de confluência exigidos em mercado LATERAL
+  // no fim de semana (tools.ts) -- era 1 (decisão de 09-05), revertido pra 2
+  // (igual dia útil) pelo mesmo achado de XETUSD acima. Configurável aqui
+  // pra poder recalibrar isolado do dia útil, que continua hardcoded em 2.
+  mt5LateralConfluenceFactorsWeekend: Number(process.env.MT5_LATERAL_CONFLUENCE_FACTORS_WEEKEND ?? 2),
+  // 🔴 2026-09-11 (llm-council convocado pelo Cleber, sessão de 30h negativa
+  // -$32,81/44 trades/payoff 0,60:1): dado real (SQL) mostrou 19 fechamentos
+  // discricionários (AI_SIGNAL) em 44 trades, 42,1% de acerto, -$14,79 --
+  // pior que deixar SL/TP mecânico decidir (TP mecânico: 100% de acerto,
+  // +$11,74 no mesmo período), incluindo 8 casos com lucro flutuante real
+  // (MFE positivo) devolvido por fechamento manual da própria IA. Veredito
+  // unânime do conselho (5 conselheiros + 5 revisões cruzadas): suspender a
+  // autoridade de fechamento discricionário por um período de teste fixo
+  // (5 dias úteis OU 40 trades fechados, o que vier depois -- mesmo piso
+  // estatístico já usado antes neste projeto), medir payoff/win-rate contra
+  // esta sessão, e só reabilitar com prova de que bate o mecânico. Protocolo
+  // de decisão: payoff ratio > 1,0:1 E win rate >= 45% sustentados -> pode
+  // reabilitar; senão, volta ao conselho antes de qualquer novo ajuste.
+  // Flag única, reversível em 1 linha -- não fecha close_position inteiro
+  // (o rechecagem mecânica de SL/TP no início da função continua intocada),
+  // só nega a AVALIAÇÃO discricionária que vem depois dela.
+  // 🔴 2026-09-15 (achado do Cleber, ao vivo: UKOUSD LONG lucrativo, MFE
+  // $6,79, fechado via AI_SIGNAL em 107,612 com alvo em 108,875 -- exatamente
+  // o padrao que o llm-council de 2026-09-11 tinha provado ser pior que o
+  // mecanico): a linha abaixo estava com a polaridade INVERTIDA -- `!==
+  // "false"` deixa a trava LIGADA (fechamento discricionario ATIVO) por
+  // padrao quando a env var nao esta setada, exatamente o oposto do veredito
+  // do conselho (suspender por padrao, so reabilitar apos prova estatistica).
+  // Corrigido pra opt-in explicito: precisa de
+  // AI_SIGNAL_DISCRETIONARY_CLOSE_ENABLED=true no .env pra reabilitar.
+  aiSignalDiscretionaryCloseEnabled: process.env.AI_SIGNAL_DISCRETIONARY_CLOSE_ENABLED === "true",
+  // 🔴 2026-09-11 (mesmo llm-council): 223 ocorrências de cotação stale +
+  // 163 de rate-limit em 30h/44 trades -- quando get_mt5_quote (ferramenta)
+  // cai no fallback (trend/volume/MACD/estocástico/regime = null), o aviso
+  // injetado no prompt dizia literalmente "você PODE tentar entrar mesmo
+  // assim, confie no stop mecânico" -- convite explícito pra decidir sem
+  // nenhum indicador real. Unânime nas 5 revisões cruzadas: isto é bug de
+  // integridade de dado, não parâmetro de tuning -- trava dura, sem exceção.
+  // Ver staleQuoteToolCycleBySymbol / open_position em tools.ts.
+  blockEntryOnStaleIndicators: process.env.BLOCK_ENTRY_ON_STALE_INDICATORS !== "false",
+  // 🔴 2026-09-16 (pedido direto do Cleber -- Super Quarta/FOMC: "mercado
+  // fica completamente inquieto... a forma de operar muda, mais cautelosa").
+  // Achado real da sessão (SQL): 8/8 trades fechados desde o restart saíram
+  // por STOP, zero por alvo -- padrão de whipsaw típico de véspera de FOMC,
+  // com a IA invertendo direção 3x no mesmo ativo (UKOUSD) em ~7h. Trava
+  // MECÂNICA (não é só contexto): bloqueia ABERTURA de posição nova numa
+  // janela em torno de qualquer evento de alto impacto (impact="high" no
+  // calendário real, ver getUsEconomicCalendar/atr.ts) do dia -- decisão de
+  // juros, discurso do Fed, NFP, CPI etc, não só FOMC. Nunca fecha posição
+  // já aberta, só impede entrada nova (mesmo padrão de teto de frequência).
+  // Janela default (antes/depois de CADA evento de alto impacto, união dos
+  // dois se houver mais de um próximo -- ex: decisão+coletiva do Fed no
+  // mesmo dia): 20min antes + 60min depois. Pesquisado ao vivo nesta sessão
+  // (FOMC 16/09/2026: decisão 14h ET/18h UTC, coletiva do novo chair do Fed
+  // 14h30 ET/18h30 UTC, duração média real ~1h) -- produz exatamente
+  // 14:40-16:30 Brasília pedido pelo Cleber para hoje, mas a regra é
+  // genérica: vale pra QUALQUER dia com evento de alto impacto, não só hoje.
+  highImpactNewsGateActive: process.env.HIGH_IMPACT_NEWS_GATE_ACTIVE !== "false",
+  highImpactNewsGateMinutesBefore: Number(process.env.HIGH_IMPACT_NEWS_GATE_MINUTES_BEFORE ?? 20),
+  highImpactNewsGateMinutesAfter: Number(process.env.HIGH_IMPACT_NEWS_GATE_MINUTES_AFTER ?? 60),
+  // 🔴 2026-09-16 (mesmo pedido -- achado real: SPX500 LONG aberto com
+  // setupType=ROMPIMENTO usando `brokeAboveResistance`, que é calculado em
+  // cima do ÚLTIMO candle buscado, possivelmente ainda em formação -- ver
+  // getSupportResistance/atr.ts. Cleber, ao vivo: "rompeu, ótimo. Espera o
+  // candle fechar, e se ele fechar acima do rompimento, pode dar entrada.
+  // Antes disso, ninguém faz nada."). Trava MECÂNICA: setupType="ROMPIMENTO"
+  // só é aceito em open_position se o ÚLTIMO CANDLE JÁ FECHADO (não o mais
+  // recente buscado, que pode estar em formação) fechou além do nível
+  // estabelecido -- ver closedAboveResistance/closedBelowSupport em
+  // SupportResistance (atr.ts). Default ligado (sem opt-out silencioso,
+  // igual blockEntryOnStaleIndicators acima) -- é correção de integridade
+  // de sinal, não parâmetro de tuning.
+  breakoutRequireClosedCandleConfirmation: process.env.BREAKOUT_REQUIRE_CLOSED_CANDLE !== "false",
+  // 🔴 2026-09-22 (pedido direto do Cleber -- "a LLM tem que estar atenta ao
+  // MACD, principalmente no grafico de 5 minutos"): trava dura em
+  // open_position contra entrar quando o MACD 5m (FIXO em 5m, independente do
+  // timeframe operacional) esta virando/cruzando CONTRA o lado. Ver uso em
+  // tools.ts. Desligavel via MACD_5M_TURN_GATE=false.
+  macd5mTurnGateEnabled: process.env.MACD_5M_TURN_GATE !== "false",
+  // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
+  // diário... atualizando 5x ao dia... isso indica o apetite a risco do
+  // mercado"). VIX real (nunca fabricado -- ver tratamento do valor
+  // "Fallback (Estimativa)" como indisponível em getVixContext/atr.ts).
+  // Cache de 288min (24h/5 = exatamente "5x ao dia" pedido). Contexto
+  // informativo no prompt (mesmo padrão de agenda econômica) + efeito
+  // MECÂNICO real (não só narrativo, pedido explícito: "se não vai
+  // perder"): VIX ELEVADO/ALTO soma ao piso de confiança mínima exigido em
+  // open_position, exigindo mais convicção real pra abrir posição quando o
+  // apetite a risco do mercado está baixo.
+  vixCacheTtlMinutes: Number(process.env.VIX_CACHE_TTL_MINUTES ?? 288),
+  vixMinConfidenceBonusElevated: Number(process.env.VIX_MIN_CONFIDENCE_BONUS_ELEVADO ?? 2),
+  vixMinConfidenceBonusAlto: Number(process.env.VIX_MIN_CONFIDENCE_BONUS_ALTO ?? 5),
+  // 🔴 2026-09-16 (pedido direto do Cleber, mesma Super Quarta/FOMC): jogada
+  // específica em BTCUSD logo após o discurso do Fed terminar (assim que a
+  // janela de highImpactNewsGate acima FECHAR) -- 1500 pontos de distância
+  // pro stop e pro alvo (R:R 1:1, decisão explícita do Cleber, não é bug),
+  // expondo 10% do patrimônio em notional (não % de risco -- ver override em
+  // open_position/tools.ts, setupType="FOMC_BTC_PLAY"). A IA ainda precisa
+  // validar confluência técnica real antes de abrir (Cleber escolheu essa
+  // opção explicitamente -- não é gatilho incondicional); isto só destrava o
+  // símbolo/alvo/sizing especiais para essa janela pós-evento, nunca abre
+  // sozinho. Restrito a modo DEMO (Cleber pediu explicitamente "não LIVE
+  // ainda") -- bloqueado se isLiveExecutionActive() for true. Sem validação
+  // estatística nenhuma -- é uma tese discricionária do Cleber pro evento de
+  // hoje, não edge comprovado.
+  fomcBtcPlayEnabled: process.env.FOMC_BTC_PLAY_ENABLED !== "false",
+  fomcBtcPlaySymbol: process.env.FOMC_BTC_PLAY_SYMBOL ?? "BTCUSD",
+  fomcBtcPlayTargetPoints: Number(process.env.FOMC_BTC_PLAY_TARGET_POINTS ?? 1500),
+  fomcBtcPlayStopPoints: Number(process.env.FOMC_BTC_PLAY_STOP_POINTS ?? 1500),
+  fomcBtcPlayExposurePct: Number(process.env.FOMC_BTC_PLAY_EXPOSURE_PCT ?? 0.10),
+  // Ponte pro Neural Day Trader: grava cada posição aberta/fechada pelo
+  // agente como trade virtual isolado em ai_trades/ai_sessions daquele
+  // projeto, pra aparecer na plataforma (Dashboard) em vez de só no ledger
+  // local deste repo. Nunca bloqueia nem derruba o agente se falhar.
+  neuralBridgeEnabled: process.env.NEURAL_BRIDGE_ENABLED === "true",
+  neuralSupabaseUrl: process.env.NEURAL_SUPABASE_URL ?? "",
+  neuralSupabaseAnonKey: process.env.NEURAL_SUPABASE_ANON_KEY ?? "",
+  neuralSupabaseServiceRoleKey: process.env.NEURAL_SUPABASE_SERVICE_ROLE_KEY ?? "",
+  neuralUserId: process.env.NEURAL_USER_ID ?? "",
+  // 🔴 2026-08-30 (pedido do Cleber): camada de validacao SEMANTICA do
+  // reasoning, alem da trava por palavra-chave (NEGATION_CUES/REVERSAL_CUES
+  // em tools.ts). Achado real da sessao: 3 variacoes diferentes de
+  // contradicao ("como teste", "ainda nao ocorreu", "nao ha razao para
+  // entrar") apareceram na MESMA sessao e precisaram ser adicionadas uma a
+  // uma na lista fixa -- ela nunca cobre todas as formas possiveis do
+  // modelo se contradizer em linguagem natural. Ver reasoningValidator.ts.
+  // Desligavel sem custo nenhum (nao chama API nenhuma quando false).
+  //
+  // 🔴 2026-09-02 (achado ao vivo, medido diretamente contra o servidor):
+  // com provedor "ollama" o llama-server roda com `-np 1` (1 slot, sem
+  // paralelismo real) e é o MESMO processo/modelo do ciclo principal --
+  // uma chamada de teste isolada do validador (prompt bem menor que o real)
+  // levou **73 segundos** pra responder. Mesmo com o timeout subido de 8s
+  // pra 25s mais cedo hoje, a chamada real (concorrendo pelo unico slot com
+  // o ciclo principal) continuou batendo "Request was aborted" em 100% dos
+  // casos -- ou seja, o validador nunca chega a rodar de verdade nesta
+  // configuracao, so adiciona ~25s de espera morta a cada open/close antes
+  // de cair no fail-open de sempre. Desligado por default quando o modelo
+  // do validador é o mesmo do cerebro principal (o caso comum hoje, ollama
+  // local) -- a trava por palavra-chave (NEGATION_CUES/REVERSAL_CUES em
+  // tools.ts, sincrona, sem custo de rede) continua ativa de qualquer jeito.
+  // Ligar de novo (`MT5_REASONING_VALIDATOR_ENABLED=true`) só faz sentido
+  // com um modelo de validacao DIFERENTE e mais rapido (outro provedor via
+  // MT5_REASONING_VALIDATOR_MODEL, nao o mesmo Ollama sobrecarregado).
+  mt5ReasoningValidatorEnabled: (process.env.MT5_REASONING_VALIDATOR_ENABLED ?? String(llmProvider !== "ollama")) === "true",
+  // 🔴 2026-08-30: nao existe hoje, em nenhum provedor ja configurado neste
+  // projeto (ver LLM_PROVIDER_DEFAULTS acima), um modelo obviamente mais
+  // barato/rapido que o principal disponivel pronto pra uso -- default cai
+  // pro MESMO modelo do cerebro principal (llmModel) como fail-safe.
+  // Limitacao conhecida: isso NAO garante que o validador seja mais
+  // barato/rapido que a decisao principal, so garante que funciona com a
+  // mesma chave/endpoint ja configurados. Trocar via env var assim que um
+  // modelo mais leve for confirmado disponivel no provedor em uso.
+  mt5ReasoningValidatorModel: process.env.MT5_REASONING_VALIDATOR_MODEL || process.env.LLM_MODEL || llmProviderDefaults.model,
+  // 🔴 2026-09-08 (pedido direto do Cleber, após aviso de risco do llm-council
+  // rodado nesta sessão -- ver CLAUDE.md): chave MESTRA da execução REAL na
+  // Infinox via MetaAPI (ver liveExecution.ts). Default FALSE de propósito --
+  // nunca liga sozinho, mesmo com broker_credentials conectado. Só true
+  // depois do Cleber revisar o código e decidir explicitamente (não é
+  // decisão que o código deva tomar sozinho).
+  mt5LiveExecutionEnabled: process.env.MT5_LIVE_EXECUTION_ENABLED === "true",
+  // 🔴 2026-09-11 (achado real, pedido do Cleber): ERA um teto de perda em
+  // DOLAR ABSOLUTO fixo ($3 pra toda conta, calibrado só pra uma conta de
+  // teste de ~$22-57) -- quebrava pra qualquer outro saldo: trava cedo
+  // demais numa conta grande (flutuação normal já dispara o breaker) ou
+  // tarde demais numa conta pequena que deposite mais que o valor de teste.
+  // Cada usuário vai entrar com saldo diferente, então o teto precisa ser
+  // % do saldo REAL dele, não um número fixo igual pra todo mundo. Checado
+  // em open_position (tools.ts) contra o saldo REAL da MetaAPI antes de
+  // qualquer ordem real nova -- acima disso, circuit breaker.
+  mt5LiveAbsoluteLossLimitPct: Number(process.env.MT5_LIVE_ABSOLUTE_LOSS_LIMIT_PCT ?? 10),
+};
+
+if (config.mt5LiveExecutionEnabled) {
+  if (!config.neuralBridgeEnabled || !config.neuralSupabaseUrl || !config.neuralSupabaseAnonKey || !config.neuralSupabaseServiceRoleKey || !config.neuralUserId) {
+    throw new Error(
+      "MT5_LIVE_EXECUTION_ENABLED=true exige NEURAL_BRIDGE_ENABLED=true e todas as NEURAL_SUPABASE_*/NEURAL_USER_ID preenchidas -- execucao real precisa da mesma ponte de sessao."
+    );
+  }
+  if (!Number.isFinite(config.mt5LiveAbsoluteLossLimitPct) || config.mt5LiveAbsoluteLossLimitPct <= 0) {
+    throw new Error("MT5_LIVE_ABSOLUTE_LOSS_LIMIT_PCT precisa ser um numero positivo quando a execucao real esta ligada.");
+  }
+}
+
+if (!Number.isFinite(config.maxIterations) || config.maxIterations <= 0) {
+  throw new Error("MAX_ITERATIONS precisa ser um numero positivo.");
+}
+if (!Number.isFinite(config.maxTxValueEth) || config.maxTxValueEth <= 0) {
+  throw new Error("MAX_TX_VALUE_ETH precisa ser um numero positivo.");
+}
+if (config.maxTxValueEth > 0.01) {
+  // Trava dura: mesmo que alguem edite o .env, o codigo nao deixa passar
+  // de uma fracao minima de ETH de testnet por transacao.
+  throw new Error(
+    "MAX_TX_VALUE_ETH acima do teto permitido (0.01). Isso e testnet, nao precisa de mais que isso."
+  );
+}
+if (!Number.isFinite(config.cycleDelaySeconds) || config.cycleDelaySeconds < 5) {
+  throw new Error("CYCLE_DELAY_SECONDS precisa ser um numero >= 5.");
+}
+if (!Number.isFinite(config.maxCycles) || config.maxCycles <= 0) {
+  throw new Error("MAX_CYCLES precisa ser um numero positivo.");
+}
+if (config.maxCycles > 20_000) {
+  // 🔴 2026-08-29 (pedido do Cleber): rodar o fim de semana inteiro
+  // (sexta-noite -> segunda-manhã, ~60h) com CYCLE_DELAY_SECONDS=30 precisa
+  // de bem mais que os 1000 ciclos originais (~20 000 cobrem folgadamente
+  // mesmo com iterações mais longas por ciclo). Teto subiu de 1000 -> 20 000,
+  // mas continua sendo uma trava dura -- nunca vira loop realmente infinito.
+  throw new Error("MAX_CYCLES acima do teto permitido (20000).");
+}
+if (config.tradingEnabled) {
+  if (!config.binanceApiKey || !config.binanceSecretKey) {
+    throw new Error(
+      "ENABLE_TRADING=true mas BINANCE_API_KEY/BINANCE_SECRET_KEY nao estao preenchidos no .env."
+    );
+  }
+  if (!Number.isFinite(config.maxOrderUsd) || config.maxOrderUsd <= 0) {
+    throw new Error("MAX_ORDER_USD precisa ser um numero positivo.");
+  }
+  if (!Number.isFinite(config.maxLiveBudgetUsd) || config.maxLiveBudgetUsd <= 0) {
+    throw new Error("MAX_LIVE_BUDGET_USD precisa ser um numero positivo.");
+  }
+  if (config.maxLiveBudgetUsd > 5) {
+    // Trava dura: o orcamento combinado pra este experimento e US$5. Nenhuma
+    // variavel de ambiente consegue ultrapassar isso em modo LIVE.
+    throw new Error(
+      "MAX_LIVE_BUDGET_USD acima do teto combinado para este experimento (US$5)."
+    );
+  }
+  if (config.maxOrderUsd > config.maxLiveBudgetUsd) {
+    throw new Error("MAX_ORDER_USD nao pode ser maior que MAX_LIVE_BUDGET_USD.");
+  }
+}
+
+// 🔴 2026-09-09 (fix de governanca, llm-council): achado real -- o .env
+// (nao versionado no git) sobrepunha silenciosamente os parametros de
+// risco/stop documentados como decisao vigente no CLAUDE.md, e ficou
+// divergente por DIAS sem ninguem notar (stop 1.0x ATR em vez de 2.0x,
+// risco maximo por trade 9% em vez dos 3% que o Cleber decidiu em
+// 2026-09-07) -- a sessao de 2026-09-08/09 rodou inteira sob o valor
+// errado. Este e o MESMO padrao que ja causou o colapso de acerto
+// 80%->33% em 2026-09-04 (stop cortado sem registrar/reverter). Em vez de
+// confiar em ninguem lembrar de revisar o .env manualmente, o processo
+// agora AVISA EM VOZ ALTA no log a cada boot sempre que um parametro desta
+// lista estiver sobreposto por variavel de ambiente -- nao bloqueia o
+// boot (pode ser um teste deliberado e documentado), mas torna a
+// divergencia impossivel de passar em silencio de novo.
+const GOVERNANCE_CRITICAL_ENV_PARAMS: Array<{ envVar: string; canonical: string; motivo: string }> = [
+  { envVar: "MT5_STOP_ATR_MULTIPLIER", canonical: "2.0", motivo: "decisao do llm-council 2026-09-04/05, ver CLAUDE.md" },
+  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.10", motivo: "decisao do Cleber 2026-10-14 (compensar alvo curto no contrato), antes 0.08" },
+  { envVar: "MT5_TAKE_PROFIT_ATR_MULTIPLIER", canonical: "4.0", motivo: "R:R 1:2 pareado com stop 2.0x ATR, ver CLAUDE.md" },
+  { envVar: "MT5_STOP_MIN_PCT", canonical: "0.003", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+  { envVar: "MT5_STOP_MAX_PCT", canonical: "0.02", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+  { envVar: "MT5_STOP_FALLBACK_PCT", canonical: "0.005", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+];
+
+const governanceDivergences = GOVERNANCE_CRITICAL_ENV_PARAMS.filter(
+  (p) => process.env[p.envVar] !== undefined && process.env[p.envVar] !== p.canonical
+);
+if (governanceDivergences.length > 0) {
+  console.warn(
+    "\n🔴🔴🔴 AVISO DE GOVERNANCA -- .env esta sobrepondo parametro(s) de risco/stop " +
+      "considerados decisao vigente do projeto. Isto e EXATAMENTE o padrao que ja " +
+      "causou colapso de acerto (80%->33% em 2026-09-04). Confirme que isto e um " +
+      "teste deliberado e documentado, NAO um residuo esquecido de sessao anterior:\n"
+  );
+  for (const d of governanceDivergences) {
+    console.warn(
+      `   - ${d.envVar}=${process.env[d.envVar]} (valor vigente esperado: ${d.canonical} -- ${d.motivo})`
+    );
+  }
+  console.warn(
+    "   Se isto NAO for intencional, remova a linha do .env e reinicie o processo.\n"
+  );
+}

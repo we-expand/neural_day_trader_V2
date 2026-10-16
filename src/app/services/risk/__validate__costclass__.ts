@@ -63,13 +63,15 @@ function assertTrue(label: string, condition: boolean) {
   assertTrue('fallback é explicitamente sinalizado (nunca se passa por classe real)', desconhecido.source === 'FALLBACK');
 }
 
-// ─── CASO 4: alvo é 3,75×ATR e o gate mede contra ELE, não contra 1 barra ───
+// ─── CASO 4: alvo é 6,0×ATR (antes 3,75×ATR) e o gate mede contra ELE ───
+// 🔴 2026-08-26: stop aumentado de 1.5×ATR → 2.0×ATR, alvo de 2.5× → 3.0×
+// Motivo: Kelly fracionário correto com 65% win rate, reduz ruído.
 {
   const atr = 100;
   const pointValue = 1;
   const t = resolveAtrTargets(atr, pointValue, 'TREND');
-  assertTrue('stop = 1,5×ATR', t.stopPoints === 150);
-  assertTrue('alvo = 2,5× o stop = 3,75×ATR', t.targetPoints === 375);
+  assertTrue('stop = 2,0×ATR', t.stopPoints === 200);
+  assertTrue('alvo = 3,0× o stop = 6,0×ATR', t.targetPoints === 600);
 
   // SCALP tem teto explícito — o cap não pode ser esquecido pelo gate de custo,
   // senão ele mediria viabilidade contra um alvo que o motor não vai usar.
@@ -81,19 +83,20 @@ function assertTrue(label: string, condition: boolean) {
 // ─── CASO 5: o denominador certo muda o veredito onde importa ──────────────
 // Números reais de produção (ai_decisions, 2026-08-17): XAUUSD com custo
 // 0,0077% e ATR de 1 barra 0,0422% era REPROVADO (razão 18,2% > 12%). Medido
-// contra o alvo real do trade (3,75×ATR = 0,158%), a razão cai pra 4,9% e o
-// mesmo setup é VIÁVEL — sem mexer em nenhum limiar.
+// contra o alvo real do trade (6,0×ATR = 0,253%, antes 3,75×ATR), a razão cai
+// pra 3,1% e o mesmo setup é VIÁVEL — sem mexer em nenhum limiar.
+// 🔴 2026-08-26: alvo agora 6,0×ATR (em vez de 3,75×ATR).
 {
   const custo = 0.0077;
   const atrBarra = 0.0422;
-  const alvo = atrBarra * 3.75;
+  const alvo = atrBarra * 6.0;
 
   const antigo = evaluateCostViability(custo, atrBarra);
   const novo = evaluateCostViability(custo, alvo);
 
   assertTrue('denominador antigo (1 barra) reprovava XAUUSD real', !antigo.approved);
   assertTrue('denominador correto (alvo do trade) aprova o mesmo setup', novo.approved);
-  assertTrue('a razão cai exatamente 3,75x (nenhum limiar foi tocado)', Math.abs(antigo.costAsPercentOfMovement / novo.costAsPercentOfMovement - 3.75) < 1e-9);
+  assertTrue('a razão cai exatamente 6,0x (nenhum limiar foi tocado)', Math.abs(antigo.costAsPercentOfMovement / novo.costAsPercentOfMovement - 6.0) < 1e-9);
 }
 
 console.log(`\n${passed} passaram, ${failed} falharam.`);

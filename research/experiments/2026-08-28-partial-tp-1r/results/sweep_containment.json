@@ -1,0 +1,218 @@
+[
+  {
+    "breakevenR": 0.3,
+    "partialPercent": "sem_parcial",
+    "n": 126,
+    "skippedCount": 46,
+    "net": 16.7757,
+    "winRate": 40.5,
+    "partialFires": 0
+  },
+  {
+    "breakevenR": 0.4,
+    "partialPercent": "sem_parcial",
+    "n": 126,
+    "skippedCount": 46,
+    "net": 14.1906,
+    "winRate": 40.5,
+    "partialFires": 0
+  },
+  {
+    "breakevenR": 0.5,
+    "partialPercent": "sem_parcial",
+    "n": 126,
+    "skippedCount": 46,
+    "net": 10.9773,
+    "winRate": 40.5,
+    "partialFires": 0
+  },
+  {
+    "breakevenR": 0.6,
+    "partialPercent": "sem_parcial",
+    "n": 126,
+    "skippedCount": 46,
+    "net": 7.1595,
+    "winRate": 41.3,
+    "partialFires": 0
+  },
+  {
+    "breakevenR": 0.75,
+    "partialPercent": "sem_parcial",
+    "n": 126,
+    "skippedCount": 46,
+    "net": 3.9421,
+    "winRate": 41.3,
+    "partialFires": 0
+  },
+  {
+    "breakevenR": 1,
+    "partialPercent": "sem_parcial",
+    "n": 126,
+    "skippedCount": 46,
+    "net": 2.6622,
+    "winRate": 42.1,
+    "partialFires": 0
+  },
+  {
+    "breakevenR": 0.3,
+    "partialPercent": 0.3,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 17.2369,
+    "winRate": 75.4,
+    "partialFires": 52
+  },
+  {
+    "breakevenR": 0.3,
+    "partialPercent": 0.5,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 17.5444,
+    "winRate": 76.2,
+    "partialFires": 52
+  },
+  {
+    "breakevenR": 0.3,
+    "partialPercent": 0.7,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 17.8518,
+    "winRate": 76.2,
+    "partialFires": 52
+  },
+  {
+    "breakevenR": 0.4,
+    "partialPercent": 0.3,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 15.5887,
+    "winRate": 74.6,
+    "partialFires": 50
+  },
+  {
+    "breakevenR": 0.4,
+    "partialPercent": 0.5,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 16.5207,
+    "winRate": 74.6,
+    "partialFires": 50
+  },
+  {
+    "breakevenR": 0.4,
+    "partialPercent": 0.7,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 17.4528,
+    "winRate": 74.6,
+    "partialFires": 50
+  },
+  {
+    "breakevenR": 0.5,
+    "partialPercent": 0.3,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 12.8952,
+    "winRate": 70.6,
+    "partialFires": 45
+  },
+  {
+    "breakevenR": 0.5,
+    "partialPercent": 0.5,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 14.1737,
+    "winRate": 70.6,
+    "partialFires": 45
+  },
+  {
+    "breakevenR": 0.5,
+    "partialPercent": 0.7,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 15.4523,
+    "winRate": 70.6,
+    "partialFires": 45
+  },
+  {
+    "breakevenR": 0.6,
+    "partialPercent": 0.3,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 8.3832,
+    "winRate": 63.5,
+    "partialFires": 36
+  },
+  {
+    "breakevenR": 0.6,
+    "partialPercent": 0.5,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 9.1989,
+    "winRate": 63.5,
+    "partialFires": 36
+  },
+  {
+    "breakevenR": 0.6,
+    "partialPercent": 0.7,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 10.0147,
+    "winRate": 63.5,
+    "partialFires": 36
+  },
+  {
+    "breakevenR": 0.75,
+    "partialPercent": 0.3,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 5.3572,
+    "winRate": 58.7,
+    "partialFires": 30
+  },
+  {
+    "breakevenR": 0.75,
+    "partialPercent": 0.5,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 6.3007,
+    "winRate": 58.7,
+    "partialFires": 30
+  },
+  {
+    "breakevenR": 0.75,
+    "partialPercent": 0.7,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 7.2441,
+    "winRate": 58.7,
+    "partialFires": 30
+  },
+  {
+    "breakevenR": 1,
+    "partialPercent": 0.3,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 4.0025,
+    "winRate": 54,
+    "partialFires": 24
+  },
+  {
+    "breakevenR": 1,
+    "partialPercent": 0.5,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 4.896,
+    "winRate": 54,
+    "partialFires": 24
+  },
+  {
+    "breakevenR": 1,
+    "partialPercent": 0.7,
+    "n": 126,
+    "skippedCount": 46,
+    "net": 5.7896,
+    "winRate": 54,
+    "partialFires": 24
+  }
+]

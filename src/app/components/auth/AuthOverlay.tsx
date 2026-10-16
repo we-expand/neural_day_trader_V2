@@ -8,11 +8,15 @@ import {
   X,
   AlertCircle,
   Zap,
-  Trash2
+  Trash2,
+  Fingerprint
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { startAuthentication } from '@simplewebauthn/browser';
 import { supabase } from '../../../lib/supabaseClient';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+
+const WEBAUTHN_FUNCTIONS_BASE = `https://${projectId}.supabase.co/functions/v1/webauthn`;
 
 interface AuthOverlayProps {
   onAuthenticated: (user: any) => void;
@@ -39,9 +43,16 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
   const [password, setPassword] = useState('');
   const [userName, setUserName] = useState('');
   const [userLastName, setUserLastName] = useState('');
-  
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+
   // Latência real do servidor de auth (medida, não decorativa — ver measurePing abaixo)
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+
+  // Login por biometria (Passkey/WebAuthn)
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricSupported] = useState(
+    () => typeof window !== 'undefined' && !!window.PublicKeyCredential
+  );
 
   // --- Logic Helpers ---
 
@@ -133,6 +144,62 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
       }
   };
 
+  // Login por biometria (Passkey/WebAuthn real — Face ID/Touch ID/Windows
+  // Hello do próprio dispositivo). A chave privada nunca sai do
+  // dispositivo; o servidor só verifica a assinatura contra a chave
+  // pública já cadastrada. Sem senha nenhuma nesse caminho.
+  const handleBiometricLogin = async () => {
+    if (!email) return;
+    setBiometricLoading(true);
+    setHasError(false);
+    setErrorMessage("");
+    try {
+      const optionsRes = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/authenticate-options`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email }),
+      });
+      const optionsBody = await optionsRes.json();
+      if (!optionsRes.ok) throw new Error(optionsBody?.error || 'Falha ao iniciar login biométrico');
+
+      const assertion = await startAuthentication(optionsBody.options);
+
+      const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_BASE}/authenticate-verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email, response: assertion }),
+      });
+      const verifyBody = await verifyRes.json();
+      if (!verifyRes.ok || !verifyBody?.token_hash) {
+        throw new Error(verifyBody?.error || 'Biometria não reconhecida');
+      }
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: verifyBody.token_hash,
+        type: 'magiclink',
+      });
+
+      if (error || !data.session) {
+        throw new Error(error?.message || 'Falha ao criar sessão após verificação biométrica');
+      }
+
+      toast.success("Autenticado!", { description: "Entrando na plataforma..." });
+      setTimeout(() => {
+        onAuthenticated({ email, name: data.user?.user_metadata?.name || 'Trader' });
+      }, 300);
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        toast.error("Biometria cancelada", { description: "Nenhuma passkey foi confirmada." });
+      } else {
+        setHasError(true);
+        setErrorMessage("Biometria Falhou");
+        toast.error("Não foi possível entrar com biometria", { description: err?.message || 'Tente novamente ou use a senha.' });
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
+
   // Force Activation via Backend
   const handleForceActivation = async () => {
     if (!email || !password) return;
@@ -141,15 +208,22 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
     setErrorMessage("");
 
     try {
+        const body: any = {
+            email,
+            password,
+            firstName: userName || 'Trader',
+            lastName: userLastName || ''
+        };
+
+        // B2: Programa de Parceiros IB — passar o referralCode se existir
+        if (referralCode) {
+            body.referralCode = referralCode;
+        }
+
         const response = await fetch(`https://${projectId}.supabase.co/functions/v1/server/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-            body: JSON.stringify({
-                email,
-                password,
-                firstName: userName || 'Trader',
-                lastName: userLastName || ''
-            })
+            body: JSON.stringify(body)
         });
         const data = await response.json();
         if (!response.ok) {
@@ -259,6 +333,16 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
     }
   };
 
+  // Capturar ?ref= da URL (Programa de Parceiros IB — B2)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref) {
+      setReferralCode(ref);
+      console.log('[AuthOverlay] Referral code capturado:', ref);
+    }
+  }, []);
+
   // Latência real medida contra o servidor de auth (Supabase) — antes era um
   // "Latency: 12ms" fixo no rodapé, nunca medido de verdade (auditoria
   // 2026-07-29). `HEAD` numa rota leve só pra medir round-trip; falha de rede
@@ -321,7 +405,7 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                 <span className="text-xs font-medium tracking-[0.2em] text-slate-400 uppercase">Neural Day Trader</span>
             </div>
             {step > 0 && (
-                <button onClick={() => setStep(0)} className="text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-widest">
+                <button type="button" onClick={() => setStep(0)} className="text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-widest">
                     Cancelar
                 </button>
             )}
@@ -417,10 +501,11 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                         </div>
 
                         <div className="mt-12 flex justify-between items-center">
-                             <button onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
+                             <button type="button" onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
                                 <ChevronLeft className="w-6 h-6" />
                              </button>
-                             <button 
+                             <button
+                                type="button"
                                 onClick={handleNext}
                                 disabled={!email}
                                 className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 ${email ? 'bg-white text-black scale-100' : 'bg-slate-900 text-slate-700 scale-90'}`}
@@ -428,13 +513,30 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 <ArrowRight className="w-5 h-5" />
                              </button>
                         </div>
-                        
+
+                        {!isSignUp && biometricSupported && (
+                            <button
+                                type="button"
+                                onClick={handleBiometricLogin}
+                                disabled={!email || biometricLoading}
+                                className="mt-6 w-full flex items-center justify-center gap-2 border border-slate-800 hover:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 hover:text-white text-sm rounded-lg py-3 transition-colors"
+                            >
+                                {biometricLoading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Fingerprint className="w-4 h-4" />
+                                )}
+                                Entrar com biometria
+                            </button>
+                        )}
+
                         <div className="mt-8 text-center flex flex-col gap-4">
-                            <button 
+                            <button
+                                type="button"
                                 onClick={() => { setIsSignUp(!isSignUp); setHasError(false); setShowSignUpHint(false); setErrorMessage(""); }}
                                 className={`text-xs uppercase tracking-widest transition-all duration-300 ${
-                                    showSignUpHint 
-                                    ? 'text-blue-400 font-bold scale-110 animate-pulse' 
+                                    showSignUpHint
+                                    ? 'text-blue-400 font-bold scale-110 animate-pulse'
                                     : 'text-slate-500 hover:text-blue-400'
                                 }`}
                             >
@@ -483,10 +585,11 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                         </div>
 
                         <div className="mt-12 flex justify-between items-center">
-                             <button onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
+                             <button type="button" onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
                                 <ChevronLeft className="w-6 h-6" />
                              </button>
-                             <button 
+                             <button
+                                type="button"
                                 onClick={handleNext}
                                 disabled={!userName}
                                 className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 ${userName ? 'bg-white text-black scale-100' : 'bg-slate-900 text-slate-700 scale-90'}`}
@@ -494,9 +597,10 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 <ArrowRight className="w-5 h-5" />
                              </button>
                         </div>
-                        
+
                         <div className="mt-8 text-center flex flex-col gap-4">
-                            <button 
+                            <button
+                                type="button"
                                 onClick={() => { setIsSignUp(!isSignUp); setHasError(false); setShowSignUpHint(false); setErrorMessage(""); }}
                                 className={`text-xs uppercase tracking-widest transition-all duration-300 ${
                                     showSignUpHint 
@@ -574,10 +678,11 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                         </div>
 
                         <div className="mt-12 flex justify-between items-center">
-                             <button onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
+                             <button type="button" onClick={handleBack} className="text-slate-500 hover:text-white transition-colors p-2 -ml-2">
                                 <ChevronLeft className="w-6 h-6" />
                              </button>
-                             <button 
+                             <button
+                                type="button"
                                 onClick={submitAuth}
                                 disabled={loading || !password}
                                 className={`px-6 py-3 rounded-full flex items-center gap-3 transition-all duration-500 ${password ? 'bg-white text-black' : 'bg-slate-900 text-slate-700'}`}
@@ -599,7 +704,8 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
                                 
                                 {/* Option A: DELETE ACCOUNT (If password forgotten or stuck) */}
                                 {errorMessage === "Senha Incorreta" && (
-                                    <button 
+                                    <button
+                                        type="button"
                                         onClick={handleDeleteUser}
                                         disabled={deleting}
                                         className="text-[10px] text-red-500 hover:text-red-400 uppercase tracking-widest transition-colors flex items-center justify-center gap-2 mx-auto font-bold border border-red-500/20 px-4 py-2 rounded-full hover:bg-red-500/10"
@@ -611,7 +717,8 @@ export function AuthOverlay({ onAuthenticated }: AuthOverlayProps) {
 
                                 {/* Option B: Force Activation (if stuck pending) */}
                                 {errorMessage === "Conta Pendente" && (
-                                    <button 
+                                    <button
+                                        type="button"
                                         onClick={handleForceActivation}
                                         disabled={activating || !password}
                                         className="text-[10px] text-amber-500 hover:text-amber-400 uppercase tracking-widest transition-colors flex items-center justify-center gap-2 animate-pulse font-bold mx-auto border border-amber-500/20 px-4 py-2 rounded-full"

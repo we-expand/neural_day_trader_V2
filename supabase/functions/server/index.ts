@@ -2,14 +2,22 @@
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+// ✅ 2026-09-02: versão fixa (era '@2' flutuante) — o deploy sem Docker
+// (bundler remoto da Supabase) passou a resolver a última 2.x publicada no
+// JSR, que hoje aponta pra um '@supabase/auth-js@2.114.0' que ainda não
+// existe no npm (só '2.114.0-canary.0'), quebrando o bundle com
+// "Could not find npm package '@supabase/auth-js' matching '2.114.0'".
+// Fixado na mesma versão já usada e comprovadamente estável em
+// kv_store_resilient.tsx, evitando depender da ponta móvel do JSR de novo.
+import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
 import { translateEvent } from './translations.ts';
 import { createInvestingEvents } from './investing-events-pt.ts';
 import { translateEconomicEvents } from './translate-events.ts';
 import * as kv from './kv_store_resilient.tsx'; // 🔄 RESILIENT: auto-retry para operações do banco
 import { synthesizeSpeech, validateGoogleTTSKey } from './tts-google.ts';
 import { transcribeAudio, validateGoogleSTTKey } from './stt-google.ts';
-import { processUserQuestion, generateAlertResponse } from './neural-assistant.ts';
+import { isLedgerTrackedAction, buildExecutionLedgerRow } from './brokerExecutionLedger.ts';
+import { estimatePlatformCommissionUsd } from './platformCommission.ts';
 
 const app = new Hono().basePath('/server');
 
@@ -280,32 +288,177 @@ const METAAPI_CLIENT_API_BASE = 'https://mt-client-api-v1.new-york.agiliumtrade.
 
 // Cada conta MetaAPI é hospedada numa região específica (new-york, london, singapore, vint-hill...).
 // Chamar o client-api com a região errada trava/retorna 504. Descobrimos a região certa consultando
-// a provisioning API (que devolve o campo "region" da conta) e cacheamos por accountId.
-const metaApiRegionCache = new Map<string, string>();
+// a provisioning API e cacheamos por accountId, com TTL curto (connectionStatus muda ao vivo).
+//
+// 🐛 BUG REAL corrigido em 2026-09-16: o código lia `account.regions` (array) pra decidir a
+// região — esse campo NUNCA existiu no payload real da provisioning API. O nome real vem em
+// `account.region` (string, ex. "london") e a réplica de failover (adicionada 2026-09-11) vem
+// em `account.accountReplicas[].region` ("backup-new-york"), cada uma com seu próprio
+// `connectionStatus`. Como `regions` sempre virava `[]`, a checagem `regions.includes('new-york')`
+// nunca era verdadeira — o código sempre usava a região PRIMÁRIA, mesmo com ela `DISCONNECTED` e
+// a réplica `CONNECTED` (confirmado ao vivo: primária "london" DISCONNECTED, réplica
+// "backup-new-york" CONNECTED, causando 504 em todo símbolo não-cripto). Corrigido pra checar
+// `connectionStatus` de verdade e preferir qualquer réplica CONNECTED quando a primária não está.
+// 🔁 2026-09-16 (pedido do Cleber: "tem que funcionar como uma suíte — quando uma região não
+// funciona, a outra tem que entrar no mesmo instante"): o cache abaixo guarda TODAS as regiões
+// candidatas (primária + réplicas), na ordem de preferência (CONNECTED primeiro), não só a
+// escolhida — e um `reportMetaApiRegionFailure` deixa qualquer chamador derrubar a região do
+// topo NA HORA (sem esperar o TTL de 60s) assim que uma chamada real bate 504/502/503/timeout
+// nela, promovendo a próxima candidata pro topo imediatamente para TODOS os chamadores
+// seguintes (o cache é compartilhado). `metaApiFetchWithFailover` usa isso pra tentar a região
+// seguinte DENTRO da mesma requisição, sem esperar o próximo ciclo.
+type MetaApiRegionCandidate = { region: string; connectionStatus?: string };
+const METAAPI_REGION_CACHE_TTL_MS = 60_000;
+const METAAPI_RETRYABLE_STATUS = new Set([502, 503, 504, 522, 524]);
 
-async function getMetaApiClientApiBase(token: string, accountId: string): Promise<string> {
-    const cached = metaApiRegionCache.get(accountId);
-    if (cached) return cached;
+// ✅ 2026-09-28: cache real no Postgres (compartilhado de verdade entre TODAS
+// as instâncias/isolates da Edge Function) — antes era uma `Map` em memória,
+// válida só dentro de uma instância; sob carga, cada isolate novo refazia a
+// consulta à API de provisionamento da MetaAPI (confirmado ao vivo: 40+
+// chamadas idênticas em <2s), sobrecarregando ainda mais a conta
+// compartilhada. Ver 20260928_add_metaapi_region_cache_table.sql. Mesmo
+// padrão do semáforo de dado histórico (metaapi_historical_fetch_slots).
+function getMetaApiRegionCacheDbClient() {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseServiceKey) return null;
+    return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+async function readMetaApiRegionCache(accountId: string): Promise<MetaApiRegionCandidate[] | null> {
+    const client = getMetaApiRegionCacheDbClient();
+    if (!client) return null;
+    try {
+        const { data, error } = await client
+            .from('metaapi_region_cache')
+            .select('candidates, expires_at')
+            .eq('account_id', accountId)
+            .maybeSingle();
+        if (error || !data) return null;
+        if (new Date(data.expires_at).getTime() <= Date.now()) return null;
+        return data.candidates as MetaApiRegionCandidate[];
+    } catch (err) {
+        console.warn('[METAAPI] ⚠️ Falha ao ler cache de região compartilhado, seguindo sem cache:', (err as any)?.message ?? err);
+        return null;
+    }
+}
+
+async function writeMetaApiRegionCache(accountId: string, candidates: MetaApiRegionCandidate[]): Promise<void> {
+    const client = getMetaApiRegionCacheDbClient();
+    if (!client) return;
+    try {
+        await client.from('metaapi_region_cache').upsert({
+            account_id: accountId,
+            candidates,
+            expires_at: new Date(Date.now() + METAAPI_REGION_CACHE_TTL_MS).toISOString(),
+        });
+    } catch (err) {
+        console.warn('[METAAPI] ⚠️ Falha ao gravar cache de região compartilhado (segue funcionando sem cache):', (err as any)?.message ?? err);
+    }
+}
+
+async function resolveMetaApiRegionCandidates(token: string, accountId: string): Promise<MetaApiRegionCandidate[]> {
+    const cached = await readMetaApiRegionCache(accountId);
+    if (cached && cached.length > 0) return cached;
 
     try {
         const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
             headers: { 'auth-token': token, 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(8000),
         });
         if (res.ok) {
             const account = await res.json();
-            const region = account?.region || (Array.isArray(account?.regions) ? account.regions[0] : null);
-            if (region) {
-                const base = `https://mt-client-api-v1.${region}.agiliumtrade.ai`;
-                metaApiRegionCache.set(accountId, base);
-                console.log(`[METAAPI] 🌍 Região detectada para conta ${accountId}: ${region}`);
-                return base;
+            const replicas: Array<{ region?: string; connectionStatus?: string }> = Array.isArray(account?.accountReplicas) ? account.accountReplicas : [];
+            const all = [
+                { region: account?.region as string | undefined, connectionStatus: account?.connectionStatus as string | undefined },
+                ...replicas,
+            ].filter((c): c is MetaApiRegionCandidate => !!c.region);
+
+            // CONNECTED primeiro, preservando a ordem relativa entre elas (e entre as não-conectadas).
+            const candidates = [...all].sort((a, b) => {
+                const aConn = a.connectionStatus === 'CONNECTED' ? 0 : 1;
+                const bConn = b.connectionStatus === 'CONNECTED' ? 0 : 1;
+                return aConn - bConn;
+            });
+
+            if (candidates.length > 0) {
+                await writeMetaApiRegionCache(accountId, candidates);
+                console.log(`[METAAPI] 🌍 Regiões da conta ${accountId} (ordem de preferência): ${candidates.map((c) => `${c.region}:${c.connectionStatus || '?'}`).join(', ')}`);
+                return candidates;
             }
         }
     } catch (err) {
-        console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta, usando new-york como padrão:', err);
+        console.warn('[METAAPI] ⚠️ Falha ao detectar região da conta:', err);
     }
 
-    return METAAPI_CLIENT_API_BASE;
+    return cached ?? [];
+}
+
+// Derruba a região do topo NA HORA (chamado quando um fetch real bate erro de infra nela) —
+// promove a próxima candidata pro topo, valendo pra TODOS os chamadores seguintes, sem esperar
+// o TTL. Reordena em vez de descartar: se essa região voltar a ficar boa, uma nova consulta à
+// provisioning API (após o TTL) pode trazê-la de volta pro topo naturalmente. Escreve direto no
+// cache compartilhado (Postgres) — vale pra todas as instâncias, não só a que detectou a falha.
+async function reportMetaApiRegionFailure(accountId: string, failedRegion: string): Promise<void> {
+    const cached = await readMetaApiRegionCache(accountId);
+    if (!cached || cached.length <= 1) return;
+    const idx = cached.findIndex((c) => c.region === failedRegion);
+    if (idx <= 0) return; // já não é o topo, ou não achado — nada a fazer
+    const [failed] = cached.splice(idx, 1);
+    cached.push({ ...failed, connectionStatus: 'DISCONNECTED' });
+    console.warn(`[METAAPI] 🔻 Região "${failedRegion}" falhou (conta ${accountId}) — promovendo "${cached[0].region}" imediatamente.`);
+    await writeMetaApiRegionCache(accountId, cached);
+}
+
+async function resolveMetaApiRegion(token: string, accountId: string): Promise<string | null> {
+    const candidates = await resolveMetaApiRegionCandidates(token, accountId);
+    return candidates[0]?.region ?? null;
+}
+
+async function getMetaApiClientApiBase(token: string, accountId: string): Promise<string> {
+    const region = await resolveMetaApiRegion(token, accountId);
+    return region ? `https://mt-client-api-v1.${region}.agiliumtrade.ai` : METAAPI_CLIENT_API_BASE;
+}
+
+// Envelope de failover instantâneo pra chamadas reais ao client-api/market-data-api: tenta a
+// região do topo e, se a resposta for um erro de INFRA (504/502/503/timeout — nunca 4xx de
+// negócio, tipo símbolo inexistente), reporta a falha (derruba do topo na hora) e tenta a
+// próxima região candidata dentro da MESMA requisição, sem esperar o usuário tentar de novo.
+async function metaApiFetchWithFailover(
+    token: string,
+    accountId: string,
+    kind: 'client' | 'market-data',
+    buildPath: (base: string) => string,
+    init: RequestInit,
+): Promise<Response> {
+    const candidates = await resolveMetaApiRegionCandidates(token, accountId);
+    const hosts = candidates.length > 0 ? candidates.map((c) => c.region) : [kind === 'client' ? 'new-york' : 'new-york'];
+
+    let lastRes: Response | null = null;
+    let lastErr: unknown = null;
+    for (let i = 0; i < hosts.length; i++) {
+        const region = hosts[i];
+        const base = kind === 'client'
+            ? `https://mt-client-api-v1.${region}.agiliumtrade.ai`
+            : `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
+        try {
+            const res = await fetch(buildPath(base), init);
+            if (METAAPI_RETRYABLE_STATUS.has(res.status) && i < hosts.length - 1) {
+                await reportMetaApiRegionFailure(accountId, region);
+                lastRes = res;
+                continue;
+            }
+            return res;
+        } catch (err) {
+            lastErr = err;
+            if (i < hosts.length - 1) {
+                await reportMetaApiRegionFailure(accountId, region);
+                continue;
+            }
+        }
+    }
+    if (lastRes) return lastRes;
+    throw lastErr;
 }
 
 // 🕯️ Candles históricos (OHLCV) vivem numa API **separada** da de tick/execução
@@ -317,27 +470,10 @@ async function getMetaApiClientApiBase(token: string, accountId: string): Promis
 // /mt5-candles-history sempre 404ava, mascarado até então porque o gráfico
 // caía num fallback sintético local sem avisar).
 async function getMetaApiMarketDataApiBase(token: string, accountId: string): Promise<string> {
-    const cached = metaApiRegionCache.get(`md:${accountId}`);
-    if (cached) return cached;
-
-    try {
-        const res = await fetch(`https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/${accountId}`, {
-            headers: { 'auth-token': token, 'Accept': 'application/json' },
-        });
-        if (res.ok) {
-            const account = await res.json();
-            const region = account?.region || (Array.isArray(account?.regions) ? account.regions[0] : null);
-            if (region) {
-                const base = `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
-                metaApiRegionCache.set(`md:${accountId}`, base);
-                return base;
-            }
-        }
-    } catch (err) {
-        console.warn('[METAAPI] ⚠️ Falha ao detectar região (market-data) da conta, usando new-york como padrão:', err);
-    }
-
-    return 'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai';
+    // Mesma resolução de região do client-api acima (mesmo bug corrigido junto) — mantém as
+    // duas APIs (tick/execução e candles) sempre na mesma região CONNECTED da conta.
+    const region = await resolveMetaApiRegion(token, accountId);
+    return region ? `https://mt-market-data-client-api-v1.${region}.agiliumtrade.ai` : 'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai';
 }
 
 /**
@@ -461,7 +597,7 @@ app.use(
 // Auto-Confirm Sign Up Route
 app.post("/signup", async (c) => {
     try {
-        const { email, password, name, firstName, lastName } = await c.req.json();
+        const { email, password, name, firstName, lastName, referralCode } = await c.req.json();
         
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -516,6 +652,30 @@ app.post("/signup", async (c) => {
                             }
                         );
                         if (updateError) return c.json({ error: "Falha ao ativar conta existente." }, 500);
+
+                        // B2: Partner referral pra usuário reativado (mesmo que signup novo)
+                        if (referralCode && updatedUser.user?.id) {
+                            try {
+                                const { data: partnerAccount } = await supabaseAdmin
+                                    .from('partner_accounts')
+                                    .select('id')
+                                    .eq('referral_code', referralCode)
+                                    .single();
+
+                                if (partnerAccount?.id) {
+                                    await supabaseAdmin
+                                        .from('partner_referrals')
+                                        .insert({
+                                            partner_id: partnerAccount.id,
+                                            referred_user_id: updatedUser.user.id
+                                        })
+                                        .then(() => console.log('[signup] Partner referral criado para usuário reativado'));
+                                }
+                            } catch (e) {
+                                console.warn('[signup] Erro ao criar referral para reactivation:', e);
+                            }
+                        }
+
                         return c.json({ user: updatedUser.user, message: "Sua conta antiga foi localizada e ativada com sucesso!" });
                     } else {
                         return c.json({ error: "Este e-mail já está registrado e ativo. Por favor, faça login." }, 409);
@@ -523,6 +683,47 @@ app.post("/signup", async (c) => {
                 }
             }
             return c.json({ error: error.message }, 400);
+        }
+
+        // B2: Programa de Parceiros IB — criar partner_referral se referralCode foi passado
+        if (referralCode && data.user?.id) {
+            try {
+                // Validar se o código existe em partner_accounts
+                const { data: partnerAccount, error: partnerError } = await supabaseAdmin
+                    .from('partner_accounts')
+                    .select('id, user_id')
+                    .eq('referral_code', referralCode)
+                    .single();
+
+                if (partnerError && partnerError.code !== 'PGRST116') {
+                    // PGRST116 = "no rows" (código não existe) — isso é esperado se for inválido
+                    console.warn('[signup] Erro ao buscar partner_account:', partnerError);
+                } else if (partnerAccount && partnerAccount.id) {
+                    // Referral code é válido — criar a linha em partner_referrals
+                    const { error: refError } = await supabaseAdmin
+                        .from('partner_referrals')
+                        .insert({
+                            partner_id: partnerAccount.id,
+                            referred_user_id: data.user.id,
+                            // Outros campos preenchidos com NULL ou defaults do schema:
+                            // broker_linked_at, first_trade_at, subscribed_at (B3 — ainda não implementado)
+                            // status = 'PENDING' (default)
+                        });
+
+                    if (refError) {
+                        console.warn('[signup] Erro ao criar partner_referral:', refError);
+                        // Não falhar o signup todo por causa disso — usuário foi criado com sucesso,
+                        // só a atribuição de parceiro falhou. Log pra investigar depois.
+                    } else {
+                        console.log('[signup] Partner referral criado:', { partner_id: partnerAccount.id, referred_user_id: data.user.id });
+                    }
+                } else {
+                    console.log('[signup] Referral code inválido ou não encontrado:', referralCode);
+                }
+            } catch (err: any) {
+                console.warn('[signup] Erro inesperado ao processar referral:', err.message);
+                // Continuar mesmo se isso falhar — signup em si foi bem-sucedido
+            }
         }
 
         return c.json({ user: data.user, message: "Conta criada com sucesso." });
@@ -950,27 +1151,6 @@ app.post("/transaction", async (c) => {
     }
 });
 
-// Telemetry Track Route
-app.post("/telemetry/track", async (c) => {
-    try {
-        const body = await c.req.json();
-        const { fingerprint } = body;
-        
-        if (!fingerprint) {
-            return c.json({ error: "Missing fingerprint data" }, 400);
-        }
-
-        // Use high-resolution timestamp for ordering
-        const key = `access_log:${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-        
-        await kv.set(key, fingerprint);
-        
-        return c.json({ status: "tracked", id: key });
-    } catch (e: any) {
-        return c.json({ error: e.message }, 500);
-    }
-});
-
 // MT5 Token Management Routes
 // 🔒 PATCH DE SEGURANÇA (Fase 1): antes aceitava qualquer userId no body/query sem checar
 // quem estava chamando (IDOR — dava pra ler/sobrescrever o token de qualquer usuário).
@@ -1085,6 +1265,25 @@ app.post('/broker/credentials', async (c) => {
             return c.json({ error: 'Erro ao salvar credenciais' }, 500);
         }
 
+        // B3: Programa de Parceiros IB — registrar broker_linked_at
+        // Atualizar partner_referrals onde este usuário foi indicado
+        try {
+            const { error: updateError } = await supabaseAdmin
+                .from('partner_referrals')
+                .update({ broker_linked_at: new Date().toISOString() })
+                .eq('referred_user_id', authenticatedUserId)
+                .is('broker_linked_at', null); // Só atualiza se ainda não foi setado
+
+            if (updateError) {
+                console.warn('[BROKER] Erro ao registrar broker_linked_at:', updateError);
+                // Não falhar o endpoint por causa disso — credenciais foram salvas ok
+            } else {
+                console.log('[BROKER] broker_linked_at registrado para user:', authenticatedUserId);
+            }
+        } catch (err: any) {
+            console.warn('[BROKER] Erro inesperado ao registrar broker_linked_at:', err.message);
+        }
+
         return c.json({ success: true, message: 'Credenciais salvas com segurança' });
     } catch (e: any) {
         console.error('[BROKER] Erro em /broker/credentials POST:', e);
@@ -1143,13 +1342,19 @@ app.delete('/broker/credentials', async (c) => {
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
         const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
 
-        // Derruba a conta na MetaAPI antes de apagar a credencial, pra não deixá-la
-        // hospedada (e sendo cobrada) órfã sem ninguém pra desligar depois.
-        const existing = await loadDecryptedBrokerCredentials(authenticatedUserId);
-        if (existing) {
-            await undeployBrokerAccount(existing.token, existing.accountId);
-        }
-
+        // 🔴 2026-09-08/09 (achado real, grave): esta conta MetaAPI é a MESMA
+        // conta dedicada que o streaming-relay usa pra transmitir preço em
+        // tempo real pra TODA a plataforma (não é uma conta exclusiva deste
+        // usuário) — chamar `undeploy` aqui, como este endpoint sempre fez,
+        // derrubaria o streaming de preço de todos os usuários só porque UM
+        // usuário clicou em "desconectar". Foi por isso que a desconexão da
+        // conta LIVE em 2026-09-08 precisou ser feita via SQL direto (sem
+        // passar por este endpoint) — a suposição original do comentário
+        // removido ("conta exclusiva, sem ninguém pra desligar depois") não
+        // vale pra esta plataforma. NUNCA fazer undeploy aqui — só remove a
+        // credencial. Uma conta que fica deployed sem uso não quebra nada
+        // (ensureAccountDeployed é idempotente), só o streaming-relay
+        // continua precisando dela de qualquer forma.
         const { error } = await supabaseAdmin
             .from('broker_credentials')
             .delete()
@@ -1324,7 +1529,10 @@ app.post('/broker/execute', async (c) => {
             const prices = [];
             for (const symbol of symbols) {
                 try {
-                    const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick`, {
+                    // keepSubscription=true: mesmo fix do achado de 2026-09-07 na rota
+                    // /mt5-prices (ver comentário lá) -- sem isso a assinatura da MetaAPI
+                    // expira em 12min e o tick fica parado.
+                    const res = await fetch(`${clientApiBase}/users/current/accounts/${accountId}/symbols/${symbol}/current-tick?keepSubscription=true`, {
                         headers: metaApiHeaders,
                     });
                     if (!res.ok) continue;
@@ -1470,6 +1678,65 @@ app.post('/broker/execute', async (c) => {
                 success: false,
                 error: tradeResult.message || `MetaApi HTTP ${tradeRes.status}`,
             }, 502);
+        }
+
+        // Ledger de execução real (2026-08-18) — grava só aqui, no servidor, com
+        // service_role. É o único ponto por onde toda ordem de mercado real
+        // passa (auto-execução do Estágio 3 e a boleta manual chamam ambas
+        // este mesmo handler), e é o insumo de volume do Programa de
+        // Parceiros IB. Ver supabase/migrations/20260818_broker_order_executions.sql.
+        // Falha ao gravar o ledger NUNCA derruba a resposta pro usuário — a
+        // ordem já foi executada de verdade na corretora quando chegamos
+        // aqui; um erro de log não pode virar um erro de trade.
+        if (isLedgerTrackedAction(action)) {
+            const row = buildExecutionLedgerRow({
+                userId: authenticatedUserId,
+                brokerAccountId: accountId,
+                action,
+                symbol: body.symbol,
+                volume: body.volume,
+                orderId: tradeResult.orderId,
+                positionId: tradeResult.positionId,
+                comment: body.comment,
+            });
+            if (row) {
+                const supabaseUrl = Deno.env.get('SUPABASE_URL');
+                const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+                if (supabaseUrl && supabaseServiceKey) {
+                    // AWAIT de propósito, não fire-and-forget: uma Edge Function pode
+                    // encerrar o isolate assim que a resposta é enviada, derrubando
+                    // qualquer promise pendente sem log de erro nenhum. É uma query
+                    // única, latência desprezível perto da chamada já feita à
+                    // corretora — vale a garantia de que o volume não se perde.
+                    const { error: ledgerError } = await createClient(supabaseUrl, supabaseServiceKey)
+                        .from('broker_order_executions')
+                        .insert(row);
+                    if (ledgerError) {
+                        console.error('[BROKER] ⚠️ Falha ao gravar ledger de execução:', ledgerError.message);
+                    } else {
+                        // B3: Programa de Parceiros IB — registrar first_trade_at
+                        // Atualizar partner_referrals onde este usuário foi indicado
+                        try {
+                            const sb = createClient(supabaseUrl, supabaseServiceKey);
+                            const { error: firstTradeError } = await sb
+                                .from('partner_referrals')
+                                .update({ first_trade_at: new Date().toISOString() })
+                                .eq('referred_user_id', authenticatedUserId)
+                                .is('first_trade_at', null); // Só atualiza se ainda não foi setado
+
+                            if (firstTradeError) {
+                                console.warn('[BROKER] Erro ao registrar first_trade_at:', firstTradeError);
+                            } else {
+                                console.log('[BROKER] first_trade_at registrado para user:', authenticatedUserId);
+                            }
+                        } catch (err: any) {
+                            console.warn('[BROKER] Erro inesperado ao registrar first_trade_at:', err.message);
+                        }
+                    }
+                } else {
+                    console.error('[BROKER] ⚠️ Ledger de execução não gravado: variáveis de ambiente do Supabase ausentes');
+                }
+            }
         }
 
         return c.json({
@@ -1673,6 +1940,146 @@ app.post("/user-data", async (c) => {
     }
 });
 
+// 🔴 2026-09-11 (pedido do Cleber: "todo usuário tem que pagar comissão,
+// computada e gerenciada pelo sistema, visível na Tesouraria Global"):
+// agregado REAL de comissão de execução em `ai_trades.commission`, servidor
+// (service role, nunca RLS de usuário comum -- é dado de TODOS os usuários,
+// não só o do admin logado). Cálculo real feito no motor
+// (llm-active-brain/src/commissionModel.ts), esta rota só soma o que já foi
+// gravado -- nunca fabrica número aqui. `commission=0` legítimo (trade
+// fechado antes do fix, ou LIVE, cuja cobrança real ainda não existe) conta
+// normalmente na soma -- não é escondido nem extrapolado.
+app.get("/admin/commission-summary", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey!);
+
+        const { data, error } = await supabaseAdmin
+            .from('ai_trades')
+            .select('id, commission, net_pnl, pnl, broker_position_id, entry_time, symbol, quantity')
+            .eq('status', 'CLOSED')
+            .not('commission', 'is', null);
+
+        if (error) {
+            console.error('[ADMIN] Erro ao agregar comissão:', error);
+            return c.json({ error: 'Erro ao consultar ai_trades' }, 500);
+        }
+
+        const rows = data ?? [];
+        // broker_position_id preenchido = execução REAL confirmada na MetaAPI
+        // (ver liveExecution.ts); null = DEMO/simulado. Único jeito confiável
+        // de separar os dois hoje -- não existe coluna dedicada.
+        const demoRows = rows.filter((r) => !r.broker_position_id);
+        const liveRows = rows.filter((r) => !!r.broker_position_id);
+        const sum = (arr: typeof rows, field: 'commission' | 'net_pnl' | 'pnl') =>
+            arr.reduce((acc, r) => acc + (Number(r[field]) || 0), 0);
+
+        const now = Date.now();
+        const last30d = rows.filter((r) => r.entry_time && now - new Date(r.entry_time).getTime() <= 30 * 24 * 60 * 60 * 1000);
+
+        // 🔴 2026-09-11 (pedido do Cleber: "esse dinheiro tem que ser
+        // gerenciado, tem que ter um caixa que faz a contabilidade") -- a
+        // partir da migration `20260911_platform_commission_ledger.sql`, o
+        // caixa real é a tabela `platform_commission_ledger` (1 lançamento
+        // por trade LIVE fechado, taxa travada no momento -- ver
+        // `llm-active-brain/src/platformCommissionLedger.ts`). Trades LIVE
+        // fechados ANTES da migration não têm lançamento (não dá pra
+        // reconstruir com integridade sem fabricar `closed_at`/taxa
+        // retroativa) -- por isso ainda calculamos on-the-fly (função
+        // legada abaixo) só para ESSES, e somamos com o caixa real. Uma vez
+        // que a amostra pré-ledger sair da janela relevante, este fallback
+        // pode ser removido.
+        const { data: ledgerRows, error: ledgerError } = await supabaseAdmin
+            .from('platform_commission_ledger')
+            .select('trade_id, symbol, notional_usd, accrued_usd, closed_at')
+            .order('closed_at', { ascending: true });
+        if (ledgerError) {
+            console.error('[ADMIN] Erro ao consultar platform_commission_ledger:', ledgerError);
+        }
+        const ledgerTradeIds = new Set((ledgerRows ?? []).map((r) => r.trade_id));
+
+        const platformCommissionBySymbol = new Map<string, { trades: number; notionalUsd: number; accruedUsd: number }>();
+        let platformCommissionAccruedUsd = 0;
+        const addToBySymbol = (symbol: string, notionalUsd: number, accruedUsd: number) => {
+            platformCommissionAccruedUsd += accruedUsd;
+            const key = symbol || 'DESCONHECIDO';
+            const entry = platformCommissionBySymbol.get(key) ?? { trades: 0, notionalUsd: 0, accruedUsd: 0 };
+            entry.trades += 1;
+            entry.notionalUsd += notionalUsd;
+            entry.accruedUsd += accruedUsd;
+            platformCommissionBySymbol.set(key, entry);
+        };
+        // 1) Caixa real (ledger travado no fechamento).
+        for (const r of ledgerRows ?? []) {
+            addToBySymbol(r.symbol, Number(r.notional_usd) || 0, Number(r.accrued_usd) || 0);
+        }
+        // 2) Fallback legado: trades LIVE fechados sem lançamento no ledger
+        // (fechados antes desta migration existir) -- recalculado on-the-fly,
+        // mesma taxa, nunca gravado retroativamente na tabela.
+        // 🔴 achado desta rodada: `ai_trades.id` não vinha na query original
+        // (só campos agregados) -- sem ele não dá pra cruzar com o ledger por
+        // trade, cairia em double-count de todo trade LIVE já lançado. Corrigido
+        // abaixo, no select.
+        for (const r of liveRows) {
+            if (ledgerTradeIds.has((r as any).id)) continue; // já contado via ledger
+            const notional = Number(r.quantity) || 0;
+            const accrued = estimatePlatformCommissionUsd(r.symbol, notional);
+            addToBySymbol(r.symbol, notional, accrued);
+        }
+        const platformCommissionByAsset = Array.from(platformCommissionBySymbol.entries())
+            .map(([symbol, v]) => ({ symbol, ...v }))
+            .sort((a, b) => b.accruedUsd - a.accruedUsd);
+
+        // Fluxo de caixa real da comissão própria: saldo acumulado por dia,
+        // só a partir do ledger de verdade (pré-ledger não tem data de
+        // lançamento granular confiável pra série temporal).
+        const dailyMap = new Map<string, number>();
+        for (const r of ledgerRows ?? []) {
+            const day = String(r.closed_at).slice(0, 10);
+            dailyMap.set(day, (dailyMap.get(day) ?? 0) + (Number(r.accrued_usd) || 0));
+        }
+        let running = 0;
+        const platformCommissionCashFlow = Array.from(dailyMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([day, dayTotal]) => {
+                running += dayTotal;
+                return { day, dayTotalUsd: dayTotal, cumulativeUsd: running };
+            });
+
+        return c.json({
+            totalClosedTrades: rows.length,
+            demo: {
+                trades: demoRows.length,
+                totalCommissionUsd: sum(demoRows, 'commission'),
+                totalNetPnlUsd: sum(demoRows, 'net_pnl'),
+                totalGrossPnlUsd: sum(demoRows, 'pnl'),
+            },
+            live: {
+                trades: liveRows.length,
+                totalCommissionUsd: sum(liveRows, 'commission'),
+                totalNetPnlUsd: sum(liveRows, 'net_pnl'),
+                totalGrossPnlUsd: sum(liveRows, 'pnl'),
+                // Receita própria da casa sobre volume real (accrued), por
+                // ativo -- ver comentário acima e platformCommission.ts.
+                platformCommissionAccruedUsd,
+                platformCommissionByAsset,
+                platformCommissionCashFlow,
+                note: 'Valor ACUMULADO no caixa contábil (platform_commission_ledger) sobre volume real já executado (taxa por ativo calibrada por pesquisa de mercado real, ver platformCommission.ts) -- ainda não existe mecanismo de cobrança efetiva (fatura/débito em conta/gateway de pagamento), então este número é o que deveria ter sido cobrado, não o que já foi recebido.',
+            },
+            last30Days: {
+                trades: last30d.length,
+                totalCommissionUsd: sum(last30d, 'commission'),
+            },
+        });
+    } catch (e: any) {
+        console.error('[ADMIN] Erro em /admin/commission-summary:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
 // Get All User Data (Admin)
 app.get("/user-data", async (c) => {
     const adminCheck = await requireAdmin(c);
@@ -1817,6 +2224,200 @@ app.get("/user-data/export/csv", async (c) => {
 });
 
 // ==================== END USER DATA ROUTES ====================
+
+// ==================== TELEMETRY ROUTES (IP / Geolocalização / Dispositivo / Presença) ====================
+// Implementa o que estava pendente desde a auditoria 2026-08-03 (UserTracker.tsx
+// pronto mas nunca ligado): base legal é o aceite dos Termos de Uso no cadastro
+// (decisão do Cleber, 2026-09-09), sem banner de opt-in separado. Geolocalização
+// é resolvida AQUI no servidor (nunca no browser) -- o IP do usuário nunca é
+// enviado a um terceiro a partir do client, só server-to-server.
+const TELEMETRY_ACTION = 'telemetry_heartbeat';
+const TELEMETRY_ONLINE_WINDOW_MS = 5 * 60 * 1000; // "online agora" = heartbeat nos últimos 5min
+
+function getRealClientIp(c: any): string | null {
+    // Supabase Edge Functions rodam atrás de proxy -- x-forwarded-for é a fonte
+    // real, nunca confiar em IP que o client mandar no body.
+    const xff = c.req.header('x-forwarded-for');
+    if (xff) return xff.split(',')[0].trim();
+    const cfConnectingIp = c.req.header('cf-connecting-ip');
+    if (cfConnectingIp) return cfConnectingIp.trim();
+    const realIp = c.req.header('x-real-ip');
+    if (realIp) return realIp.trim();
+    return null;
+}
+
+// Registra um heartbeat de telemetria (chamado pelo UserTracker.tsx a cada
+// visita/periodicamente enquanto o usuário está com o app aberto)
+app.post("/telemetry/track", async (c) => {
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const authHeader = c.req.header('Authorization') || '';
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+        if (!token || !supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: 'Não autenticado' }, 401);
+        }
+
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Nunca confiar em user_id/email vindos do body -- sempre resolver a
+        // partir do JWT real da sessão.
+        const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+        const authUser = userData?.user;
+        if (userError || !authUser) {
+            return c.json({ error: 'Sessão inválida' }, 401);
+        }
+
+        const body = await c.req.json().catch(() => ({}));
+        const device = body?.device || {};
+
+        const ip = getRealClientIp(c);
+        const userAgentHeader = c.req.header('user-agent') || device.browser || null;
+
+        // Geolocalização por IP, resolvida no servidor (best-effort -- se falhar,
+        // grava o resto mesmo assim, nunca bloqueia por causa de um terceiro fora
+        // do nosso controle).
+        let geo: { city?: string; region?: string; country?: string; isp?: string } = {};
+        if (ip) {
+            try {
+                const geoResp = await fetch(`https://ipapi.co/${ip}/json/`, {
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (geoResp.ok) {
+                    const geoData = await geoResp.json();
+                    if (!geoData.error) {
+                        geo = {
+                            city: geoData.city,
+                            region: geoData.region,
+                            country: geoData.country_name,
+                            isp: geoData.org,
+                        };
+                    }
+                }
+            } catch (geoErr) {
+                console.warn('[TELEMETRY] Falha ao resolver geolocalização (não bloqueia):', geoErr);
+            }
+        }
+
+        const { error: insertError } = await supabaseAdmin.from('user_activity').insert({
+            user_id: authUser.id,
+            action: TELEMETRY_ACTION,
+            ip_address: ip,
+            user_agent: userAgentHeader,
+            metadata: {
+                email: authUser.email,
+                ip,
+                ...geo,
+                device: {
+                    os: device.os || null,
+                    browser: device.browser || null,
+                    screen: device.screen || null,
+                    connection: device.connection || null,
+                    language: device.language || null,
+                },
+            },
+        });
+
+        if (insertError) {
+            console.error('[TELEMETRY] Erro ao gravar heartbeat:', insertError);
+            return c.json({ error: insertError.message }, 500);
+        }
+
+        return c.json({ success: true });
+    } catch (e: any) {
+        console.error('[TELEMETRY] Erro inesperado:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// Lista o último heartbeat de telemetria de cada usuário (Admin only) --
+// usado pelo dossiê em Inteligência de Usuários e pela tela LGPD.
+app.get("/telemetry/users", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: "Configuração incompleta." }, 500);
+        }
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Pega os heartbeats mais recentes (teto pra não escanear a tabela
+        // inteira) e reduz pro último de cada usuário no lado do servidor.
+        const { data: rows, error } = await supabaseAdmin
+            .from('user_activity')
+            .select('user_id, ip_address, user_agent, metadata, created_at')
+            .eq('action', TELEMETRY_ACTION)
+            .order('created_at', { ascending: false })
+            .limit(5000);
+
+        if (error) return c.json({ error: error.message }, 500);
+
+        const latestByUser = new Map<string, any>();
+        for (const row of rows || []) {
+            if (!latestByUser.has(row.user_id)) {
+                latestByUser.set(row.user_id, row);
+            }
+        }
+
+        const now = Date.now();
+        const telemetry = Array.from(latestByUser.values()).map((row: any) => {
+            const lastSeenAt = row.created_at;
+            const isOnline = lastSeenAt ? (now - new Date(lastSeenAt).getTime()) < TELEMETRY_ONLINE_WINDOW_MS : false;
+            return {
+                userId: row.user_id,
+                email: row.metadata?.email || null,
+                ip: row.ip_address || row.metadata?.ip || null,
+                city: row.metadata?.city || null,
+                region: row.metadata?.region || null,
+                country: row.metadata?.country || null,
+                isp: row.metadata?.isp || null,
+                device: row.metadata?.device || null,
+                userAgent: row.user_agent || null,
+                lastSeenAt,
+                isOnline,
+            };
+        });
+
+        return c.json({ telemetry });
+    } catch (e: any) {
+        console.error('[TELEMETRY] Erro ao listar:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// Apaga todo o histórico de telemetria de um usuário (Admin only, LGPD --
+// direito de exclusão, mesma disciplina das rotas /user-data).
+app.delete("/telemetry/:userId", async (c) => {
+    const adminCheck = await requireAdmin(c);
+    if (!adminCheck.ok) return adminCheck.response;
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !supabaseServiceKey) {
+            return c.json({ error: "Configuração incompleta." }, 500);
+        }
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const userId = c.req.param('userId');
+
+        const { error } = await supabaseAdmin
+            .from('user_activity')
+            .delete()
+            .eq('user_id', userId)
+            .eq('action', TELEMETRY_ACTION);
+
+        if (error) return c.json({ error: error.message }, 500);
+
+        return c.json({ success: true, message: 'Telemetria do usuário removida (LGPD)' });
+    } catch (e: any) {
+        console.error('[TELEMETRY] Erro ao apagar:', e);
+        return c.json({ error: e.message }, 500);
+    }
+});
+
+// ==================== END TELEMETRY ROUTES ====================
 
 // 🔧 DEBUG: Ver estrutura RAW dos eventos
 app.get("/debug-raw-events", async (c) => {
@@ -3881,10 +4482,72 @@ app.delete('/clear-metaapi-token', async (c) => {
 // ========================================
 // 📊 ROTA: MT5 REAL-TIME PRICES (METAAPI)
 // ========================================
-// 🔍 2026-07-15: mesma lista de `CRYPTO_CFD_AVAILABLE.infinox` em
-// src/app/config/brokerRegistry.ts (não importável aqui, Edge Function é
-// isolada do bundle do frontend) — usada só pro log de debug temporário abaixo.
-const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD']);
+// ✅ 2026-08-20: mantida em sincronia manual com `CRYPTO_CFD_AVAILABLE.infinox`
+// em src/app/config/brokerRegistry.ts (não importável aqui, Edge Function é
+// isolada do bundle do frontend). Até 2026-08-20 só era usada pro log de
+// debug abaixo (por isso ficou incompleta/desatualizada sem quebrar nada);
+// agora também decide a metodologia de variação (ver bloco "24h rolante"
+// abaixo) — se um símbolo novo for adicionado no broker registry do
+// frontend, replicar aqui também.
+const CRYPTO_CFD_SYMBOLS = new Set(['BTCUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'BATUSD', 'XBNUSD', 'XBNUSDCRP', 'XETUSD', 'XETUSDCRP', 'XLCUSD', 'XLCUSDCRP', 'BTCUSDCRP', 'BTCEUR', 'BTCBNB', 'BTCETH', 'BTCLTC', 'DOGEUSD', 'LINKUSD', 'XETEUR', 'XETXBN', 'XETXLC', 'UNIUSD', 'XLMUSD', 'ATOMUSD', 'NEARUSD', 'SANDUSD', 'ALGOUSD', 'SHIBUSD', 'AVAXUSD', 'ETCUSD', 'GRTUSD', 'TRXUSD', 'FILUSD', 'ZECUSD', 'XTZUSD', 'CRVUSD', 'NEOUSD', 'SUSHIUSD', 'IOTAUSD', 'ONEUSD', 'INCUSD']);
+
+// ✅ 2026-08-31 (3ª parte): Cleber reportou preço/variação "muito errados"
+// contra o site da Binance mesmo depois do fix de granularidade de vela —
+// causa raiz real (não candle noise): BTCUSD sempre foi cotado pelo TICK do
+// broker (Infinox via MetaAPI, `tickerData.bid/ask`), nunca pela Binance —
+// preço de CFD numa corretora e preço da Binance são cotações de VENUES
+// diferentes, nunca serão idênticas por definição, só parecidas dentro do
+// spread. Cleber pediu explicitamente identidade com a Binance pro BTCUSD
+// (ele já assumia que a fonte era a Binance). Decisão de produto já estava
+// registrada como pendente ("roteamento de cripto") — resolvida agora só
+// pro BTCUSD (o símbolo reportado): busca preço+variação 24h DIRETO da
+// Binance pública (`/api/v3/ticker/24hr`), sem CORS aqui porque é chamada
+// servidor-servidor (Edge Function), não do browser — as tentativas antigas
+// de Binance direto que morreram em produção (ver `RealMarketDataService.ts`)
+// eram todas do CLIENTE, problema que não existe aqui. Fallback pro fluxo
+// MetaAPI de sempre se a Binance falhar (nunca deixa o preço quebrado).
+const BINANCE_DIRECT_SYMBOL_MAP: Record<string, string> = {
+    'BTCUSD': 'BTCUSDT',
+};
+
+async function fetchBinanceDirectPrice(symbol: string): Promise<{
+    symbol: string;
+    price: number;
+    change: number;
+    changePercent: number;
+    bid: number;
+    ask: number;
+    timestamp: string;
+    source: string;
+} | null> {
+    const binancePair = BINANCE_DIRECT_SYMBOL_MAP[symbol];
+    if (!binancePair) return null;
+
+    try {
+        const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binancePair}`);
+        if (!res.ok) {
+            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: Binance direto falhou (HTTP ${res.status}), caindo pro fluxo MetaAPI.`);
+            return null;
+        }
+        const b = await res.json();
+        const price = parseFloat(b.lastPrice);
+        if (!(price > 0)) return null;
+
+        return {
+            symbol,
+            price,
+            change: parseFloat(b.priceChange) || 0,
+            changePercent: parseFloat(b.priceChangePercent) || 0,
+            bid: parseFloat(b.bidPrice) || price,
+            ask: parseFloat(b.askPrice) || price,
+            timestamp: new Date(b.closeTime || Date.now()).toISOString(),
+            source: 'binance',
+        };
+    } catch (err) {
+        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: Binance direto deu erro, caindo pro fluxo MetaAPI:`, err);
+        return null;
+    }
+}
 
 // 🔍 2026-07-15: AUDJPY reportado com % levemente errada (-0.05% no app vs
 // -0.08% no MT5 real, preço batendo) — mesma família de sintoma do SOL/ADA,
@@ -3942,6 +4605,113 @@ type CachedPriceEntry = { data: Record<string, unknown>; expiresAt: number };
 const priceCache = new Map<string, CachedPriceEntry>();
 const inFlightPriceFetches = new Map<string, Promise<Record<string, unknown>>>();
 const priceCacheKvKey = (symbol: string) => `mt5price_cache_${symbol}`;
+
+// 🔴 2026-09-04 (pesquisa profunda sobre rate-limit/feed travado, pedido do
+// Cleber): a MetaAPI documenta um teto HARD e explícito de "5 concurrent
+// historical market data requests" POR CONTA (nao por processo, nao muda por
+// plano pago -- confirmado contra a doc oficial: metaapi.cloud/docs/client/
+// rateLimiting/, sem qualquer tier diferenciado pra esse limite especifico).
+// `mapWithConcurrency(symbols, 8, fetchOnePrice)` logo abaixo processa ate 8
+// simbolos em paralelo, e CADA fetchOnePrice chama fetchCandles() (a funcao
+// que efetivamente bate no endpoint de historical-market-data) -- ou seja,
+// so esta rota, sozinha, ja pode disparar ate 8 requisicoes concorrentes de
+// candle, 3 ACIMA do teto real da conta inteira. Somado ao llm-active-brain
+// (processo Node separado, semaforo proprio de ate 3 requisicoes
+// concorrentes em atr.ts, MAX_CONCURRENT_CANDLE_REQUESTS) rodando ao mesmo
+// tempo contra a MESMA conta, o pico combinado passava facilmente de 10+
+// concorrentes -- explica os 429/SIMULATED cronicos documentados no
+// CLAUDE_HISTORY.md havia meses, nunca com causa raiz unificada antes.
+// Fix: semaforo local (mesmo padrao ja usado em atr.ts) especificamente em
+// torno do fetch() de historical-market-data desta rota, DESACOPLADO da
+// concorrencia de 8 usada pro fetch de tick (mais barato, outro bucket de
+// credito na MetaAPI, nao sujeito a este teto de 5). Limite de 2 aqui +
+// reducao do semaforo do llm-active-brain de 3->2 no mesmo commit deixa o
+// pior caso combinado em 4 concorrentes, com folga de 1 sob o teto real de 5
+// mesmo se ambos dispararem no mesmo instante.
+// 🔴 2026-09-14 (achado real, pedido do Cleber -- conta MetaAPI DEDICADA
+// ainda estourando o teto, confirmado ao vivo: erro da propria MetaAPI
+// "concurrentRequestCount: 6" contra maximo 5, mesmo com este semaforo
+// "limitando" a 2): o limite acima era exatamente o problema descrito no
+// comentario antigo -- LOCAL por isolate/processo, nao global de verdade.
+// Sob carga o Supabase escala pra varias instancias desta Edge Function em
+// paralelo, cada uma com sua PROPRIA copia de `activeHistoricalDataRequests`,
+// sem saber da concorrencia real das outras -- o codigo "achava" que
+// limitava a 2, mas 3 instancias saturadas ao mesmo tempo already somava 6.
+// Fix real: semaforo distribuido via Postgres (compartilhado de verdade
+// entre todas as instancias), usando `pg_advisory_xact_lock` pra serializar
+// as tentativas de aquisicao globalmente -- ver migration
+// 20260914_add_metaapi_historical_slot_semaphore.sql (tabela
+// `metaapi_historical_fetch_slots` + funcoes `acquire_historical_fetch_slot`/
+// `release_historical_fetch_slot`). Vagas mais velhas que
+// `HISTORICAL_SLOT_TTL_SECONDS` sao limpas sozinhas (protege contra
+// instancia que crashou sem liberar).
+const MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS = 2;
+const HISTORICAL_SLOT_TTL_SECONDS = 30;
+const HISTORICAL_SLOT_POLL_MS = 150;
+
+function getHistoricalSlotDbClient() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  return createClient(supabaseUrl!, supabaseServiceKey!);
+}
+
+async function tryAcquireHistoricalFetchSlotDb(): Promise<string | null> {
+  const client = getHistoricalSlotDbClient();
+  const { data, error } = await client.rpc('acquire_historical_fetch_slot', {
+    p_max: MAX_CONCURRENT_HISTORICAL_DATA_REQUESTS,
+    p_ttl_seconds: HISTORICAL_SLOT_TTL_SECONDS,
+  });
+  if (error) {
+    console.error('[HistoricalSlot] ⚠️ Falha ao consultar semaforo distribuido, liberando sem limite nesta tentativa:', error.message);
+    // Fail-open: nunca deixa o semaforo derrubar a rota inteira -- pior caso
+    // vira o comportamento antigo (sem limite nesta chamada), nao um erro.
+    return 'fail-open';
+  }
+  return (data as string | null) ?? null;
+}
+
+async function acquireHistoricalDataSlot(): Promise<string> {
+  for (;;) {
+    const id = await tryAcquireHistoricalFetchSlotDb();
+    if (id) return id;
+    await new Promise((resolve) => setTimeout(resolve, HISTORICAL_SLOT_POLL_MS));
+  }
+}
+
+// 🔴 2026-09-04 (mesmo dia, achado do Cleber ao vivo no Navegador de
+// Ativos): reduzir o semáforo pra 2 (fix acima) resolveu o 429 crônico da
+// MetaAPI, mas criou uma regressão nova — com só 2 vagas pra até 8 símbolos
+// concorrentes por chunk (`mapWithConcurrency(symbols, 8, fetchOnePrice)`),
+// os símbolos que caem no fim da fila do semáforo podem esperar dezenas de
+// segundos pela vaga (fila FIFO sem teto de espera), MUITO além dos 10s de
+// timeout do fetch no cliente (`RealMarketDataService.ts`) — o chunk INTEIRO
+// aborta e todos os ~40 símbolos daquele lote caem no fallback Yahoo (que
+// não cobre o catálogo Infinox), aparecendo como "Sem dados" no Navegador de
+// Ativos. Fix: variante com orçamento de espera — se a vaga não abrir dentro
+// de `budgetMs`, desiste do candle (variação% fica 0/indisponível nesse
+// ciclo) mas o TICK (preço atual, já buscado antes, sem depender deste
+// semáforo) sempre retorna na hora. Preço aparece rápido sempre; variação%
+// pode demorar 1 ciclo de polling a mais sob concorrência alta — troca
+// deliberada (Cleber: "dados têm que entrar rapidamente assim que o usuário
+// acionar o navegador de ativos").
+async function acquireHistoricalDataSlotWithBudget(budgetMs: number): Promise<string | null> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const id = await tryAcquireHistoricalFetchSlotDb();
+    if (id) return id;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, HISTORICAL_SLOT_POLL_MS));
+  }
+}
+
+async function releaseHistoricalDataSlot(slotId: string): Promise<void> {
+  if (slotId === 'fail-open') return; // nunca foi uma vaga real, nada a liberar
+  const client = getHistoricalSlotDbClient();
+  const { error } = await client.rpc('release_historical_fetch_slot', { p_id: slotId });
+  if (error) {
+    console.error('[HistoricalSlot] ⚠️ Falha ao liberar vaga do semaforo distribuido (auto-expira em', HISTORICAL_SLOT_TTL_SECONDS, 's):', error.message);
+  }
+}
 
 app.post('/mt5-prices', async (c) => {
     try {
@@ -4043,13 +4813,21 @@ app.post('/mt5-prices', async (c) => {
         
         console.log(`[MT5 PRICES] Símbolos:`, symbols.join(', '));
 
-        // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
-        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
-
         // Buscar preços de todos os símbolos, com concorrência limitada (ver
         // mapWithConcurrency acima — evita rate-limit por excesso de chamadas
         // simultâneas à mesma conta MetaAPI compartilhada dentro de um chunk).
-        const results = await mapWithConcurrency(symbols, 8, async (symbol: string) => {
+        //
+        // 🔁 2026-08-25: extraído pra função nomeada (era arrow function inline
+        // dentro do mapWithConcurrency) — sem mudar NADA do corpo, só pra poder
+        // reusar a mesma lógica de fetch num retry (ver abaixo). Achado real:
+        // Dashboard reportado com vários ativos zerados mesmo já com o cache
+        // compartilhado + dedupe de chamada concorrente (L1/L2 acima) — a causa
+        // era a própria MetaAPI rejeitando (HTTP 429) uma FRAÇÃO dos símbolos
+        // dentro de um único lote sob carga (até 8 símbolos concorrentes × 2
+        // chamadas cada — tick + candle — nunca tinham retry: o símbolo que
+        // falhasse ficava sem preço até o próximo ciclo de polling do cliente
+        // tentar de novo, minutos depois, e às vezes falhava de novo).
+        const fetchOnePrice = async (symbol: string) => {
                 // Cache compartilhado entre TODOS os usuários (ver comentário acima da
                 // rota) — se outro usuário já buscou esse símbolo há pouco, reaproveita
                 // sem bater na corretora de novo.
@@ -4082,14 +4860,49 @@ app.post('/mt5-prices', async (c) => {
                         console.warn(`[MT5 PRICES] ⚠️ ${symbol}: leitura do cache KV falhou, buscando direto da corretora:`, kvError);
                     }
 
-                    // 1️⃣ Buscar TICKER (preço atual)
-                    const tickerUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick`;
-                    const tickerRes = await fetch(tickerUrl, {
-                        headers: {
-                            'auth-token': metaapiToken,
-                            'Accept': 'application/json'
+                    // ✅ 2026-08-31 (3ª parte): símbolos mapeados pra Binance direta
+                    // (hoje só BTCUSD, ver `BINANCE_DIRECT_SYMBOL_MAP`) pulam o tick/candle
+                    // do broker inteiramente — preço e variação idênticos ao que a Binance
+                    // mostra, por vir da mesma fonte. Se a Binance falhar, cai pro fluxo
+                    // MetaAPI de sempre logo abaixo (nunca fica sem preço).
+                    if (BINANCE_DIRECT_SYMBOL_MAP[symbol]) {
+                        const binanceResult = await fetchBinanceDirectPrice(symbol);
+                        if (binanceResult) {
+                            const cacheExpiresAt = Date.now() + PRICE_CACHE_TTL_MS;
+                            priceCache.set(symbol, { data: binanceResult, expiresAt: cacheExpiresAt });
+                            try {
+                                await kv.set(priceCacheKvKey(symbol), { data: binanceResult, expiresAt: cacheExpiresAt });
+                            } catch (kvError) {
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: escrita no cache KV (Binance direto) falhou:`, kvError);
+                            }
+                            return binanceResult;
                         }
-                    });
+                    }
+
+                    // 1️⃣ Buscar TICKER (preço atual)
+                    // ✅ 2026-09-07 (achado real: Cleber reportou "LLM não abre posição" —
+                    // UKOUSD/SPX500/NAS100/etc com tick de HORAS de idade mesmo sendo
+                    // consultados a cada ciclo do llm-active-brain). Causa raiz confirmada
+                    // contra a doc oficial da MetaAPI: current-tick SEM keepSubscription=true
+                    // dá uma assinatura de só 12min — sem alguém repuxando o MESMO símbolo
+                    // dentro dessa janela, a assinatura expira e o preço fica parado até a
+                    // próxima chamada "acordar" de novo (o que pode nunca acontecer de fato
+                    // pra símbolo pouco consultado, MESMO com o motor pedindo cotação a cada
+                    // ciclo -- o ciclo do LLM (minutos) já é mais lento que os 12min de folga
+                    // em situações de rede lenta/fila). keepSubscription=true mantém a
+                    // assinatura viva de forma persistente -- corretora empurra tick novo
+                    // continuamente, sem esse buraco de 12min.
+                    // 🔁 2026-09-16: falha de infra (504/502/503/timeout) na região do topo
+                    // agora tenta a próxima região candidata NA MESMA requisição (ver
+                    // metaApiFetchWithFailover acima) — "suíte" de verdade, sem esperar o
+                    // usuário recarregar ou o TTL de cache de região expirar.
+                    const tickerRes = await metaApiFetchWithFailover(
+                        metaapiToken,
+                        metaapiAccountId,
+                        'client',
+                        (base) => `${base}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick?keepSubscription=true`,
+                        { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } },
+                    );
                     
                     if (!tickerRes.ok) {
                         console.warn(`[MT5 PRICES] ⚠️ ${symbol}: Ticker failed (${tickerRes.status})`);
@@ -4116,8 +4929,29 @@ app.post('/mt5-prices', async (c) => {
                     // mt-client-api-v1), endpoint /historical-market-data/.../candles,
                     // carrega PRA TRÁS a partir de `startTime`. Ver getMetaApiMarketDataApiBase.
                     const now = new Date();
-                    const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
-                    const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/1d/candles`;
+
+                    // ✅ 2026-08-20: cripto usa janela ROLANTE de 24h (candles de 1h),
+                    // não o fechamento D1 do broker (21:00 UTC) usado por todo o resto.
+                    // Achado real (Cleber, mesmo dia): BTCUSD mostrava +4.11% (D1) vs
+                    // +10.89% na Binance (rolagem 24h) NO MESMO MINUTO — divergência
+                    // grande o bastante pra parecer bug pra qualquer usuário comparando
+                    // com Binance/CoinGecko, mesmo o D1 sendo tecnicamente "correto" pela
+                    // convenção do broker. Decisão de produto: cripto sempre 24/7 (sem a
+                    // pausa diária que justificava D1 pros CFD tradicionais), então
+                    // rolagem 24h real é a metodologia que bate com a expectativa do
+                    // usuário. CFD tradicionais continuam em D1 (ver bloco `else` abaixo).
+                    const isCrypto24h = CRYPTO_CFD_SYMBOLS.has(symbol);
+                    // ✅ 2026-08-31: referência de 24h era em velas de 1h (janela de
+                    // imprecisão de até ~1h contra a referência exata e contínua que a
+                    // Binance usa) — em dia de BTC andando de lado (variação < 0,1%), essa
+                    // imprecisão já bastava pra trocar o SINAL da variação exibida (Cleber
+                    // reportou +0,04% na plataforma vs -0,26% na Binance no mesmo instante).
+                    // Trocado pra velas de 5min (12x mais granular), depois (mesmo dia,
+                    // resíduo confirmado ao vivo) pra 1min — reduz a janela de imprecisão
+                    // de ~1h pra ~1min, não elimina (ainda é discreto, Binance é contínuo),
+                    // mas reduz bastante a chance de cruzar o zero por causa só da
+                    // granularidade da referência.
+                    const candlesPath = `/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${isCrypto24h ? '1m' : '1d'}/candles`;
                     // ✅ 2026-07-15 (4ª parte): `limit=2` funcionou pra praticamente todo
                     // ativo por meses (posição fixa `length-2` = candle de ontem fechado).
                     // Só o BTCUSD (mercado 24/7, sem a pausa diária que CFD tradicional tem)
@@ -4129,25 +4963,105 @@ app.post('/mt5-prices', async (c) => {
                     // pro que já funciona) e só faz uma 2ª tentativa com janela maior quando a
                     // primeira vier curta (<2 candles) — isolado pro caso real, sem tocar no
                     // caminho que já era correto pra todo o resto.
-                    async function fetchCandles(limit: number) {
-                        const res = await fetch(
-                            `${candlesUrl}?startTime=${now.toISOString()}&limit=${limit}`,
-                            {
-                                headers: {
-                                    'auth-token': metaapiToken,
-                                    'Accept': 'application/json'
-                                }
-                            }
-                        );
-                        if (!res.ok) return { ok: false, candles: null as any[] | null };
-                        const json = await res.json();
-                        return { ok: true, candles: Array.isArray(json) ? json : null };
+                    async function fetchCandles(limit: number, startTime: Date = now) {
+                        // Semaforo global desta Edge Function (ver comentario acima da rota)
+                        // -- so este bloco bate no endpoint de historical-market-data, que e
+                        // o sujeito ao teto real de 5 concorrentes por conta da MetaAPI.
+                        // Orçamento de espera (não indefinido, ver comentário 2026-09-04
+                        // acima de acquireHistoricalDataSlotWithBudget): se a vaga não
+                        // liberar a tempo, desiste do candle nesse ciclo em vez de segurar
+                        // o preço (tick) inteiro na fila — o preço já foi buscado acima e
+                        // precisa voltar rápido pro Navegador de Ativos/Dashboard.
+                        const slotId = await acquireHistoricalDataSlotWithBudget(1200);
+                        if (!slotId) {
+                            return { ok: false, candles: null as any[] | null };
+                        }
+                        try {
+                            // 🔁 2026-09-16: mesmo failover instantâneo de região do ticker
+                            // acima (ver metaApiFetchWithFailover) — 504/502/503/timeout na
+                            // região do topo tenta a próxima candidata na mesma requisição.
+                            const res = await metaApiFetchWithFailover(
+                                metaapiToken,
+                                metaapiAccountId,
+                                'market-data',
+                                (base) => `${base}${candlesPath}?startTime=${startTime.toISOString()}&limit=${limit}`,
+                                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } },
+                            );
+                            if (!res.ok) return { ok: false, candles: null as any[] | null };
+                            const json = await res.json();
+                            return { ok: true, candles: Array.isArray(json) ? json : null };
+                        } finally {
+                            await releaseHistoricalDataSlot(slotId);
+                        }
                     }
 
                     let change = 0;
                     let changePercent = 0;
                     let candlesUsedForDebug: any[] | null = null;
                     let previousCandleForDebug: any = null;
+
+                    if (isCrypto24h) {
+                        // ✅ 2026-08-31 (2ª parte): a API de candles históricos limita o
+                        // `limit` por chamada (~1000) — 25h em velas de 1min seriam 1500,
+                        // não cabe num request só. Em vez de puxar a janela de 25h inteira
+                        // só pra achar 1 vela perto do alvo, busca direto ancorado no
+                        // horário-alvo (now-24h) com uma janela pequena ao redor — mais
+                        // barato e permite granularidade de 1min (era 5min), reduzindo
+                        // ainda mais a chance de cruzar o zero por imprecisão de janela.
+                        const target24hAgo = now.getTime() - 24 * 60 * 60 * 1000;
+                        // startTime é o fim da janela retornada (candles terminam antes
+                        // dele) — pede meia hora depois do alvo pra garantir que o alvo
+                        // caia dentro do lote de 60 velas de 1min (~1h de cobertura).
+                        const anchor = new Date(target24hAgo + 30 * 60 * 1000);
+                        const rolling = await fetchCandles(60, anchor);
+
+                        if (rolling.ok && rolling.candles && rolling.candles.length >= 1) {
+                            const candles = rolling.candles;
+
+                            let closest: any = null;
+                            let closestDiffMs = Infinity;
+                            for (const cd of candles) {
+                                const t = cd?.time ? new Date(cd.time).getTime() : null;
+                                if (t === null) continue;
+                                const diff = Math.abs(t - target24hAgo);
+                                if (diff < closestDiffMs) {
+                                    closestDiffMs = diff;
+                                    closest = cd;
+                                }
+                            }
+
+                            candlesUsedForDebug = candles;
+                            previousCandleForDebug = closest;
+
+                            // Vela mais próxima de "agora - 24h" precisa estar a no máximo
+                            // 1h de distância do alvo (folga pra gap de rate-limit da conta
+                            // compartilhada) — senão a referência não representa de verdade
+                            // a janela de 24h e é melhor não mostrar variação do que mostrar
+                            // uma calculada contra hora errada.
+                            const CLOSEST_TOLERANCE_MS = 60 * 60 * 1000;
+                            if (closest && closestDiffMs <= CLOSEST_TOLERANCE_MS) {
+                                const referencePrice = closest.open || closest.close || 0;
+                                if (referencePrice > 0 && currentPrice > 0) {
+                                    const computedChange = currentPrice - referencePrice;
+                                    const computedChangePercent = (computedChange / referencePrice) * 100;
+
+                                    // Cripto é mais volátil que CFD tradicional — clamp mais
+                                    // largo (±50%) só como rede de segurança contra bug de
+                                    // referência, não como limite de movimento real esperado.
+                                    if (Math.abs(computedChangePercent) <= 50) {
+                                        change = computedChange;
+                                        changePercent = computedChangePercent;
+                                    } else {
+                                        console.warn(`[MT5 PRICES] ⚠️ ${symbol}: variação 24h implausível (${computedChangePercent.toFixed(2)}%) — referência provavelmente errada, mantendo change 0.`);
+                                    }
+                                }
+                            } else {
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: sem vela de 1min perto o bastante de -24h (mais próxima a ${(closestDiffMs / 60_000).toFixed(1)}min), change ficará 0.`);
+                            }
+                        } else {
+                            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles 1min HTTP falhou, change ficará 0`);
+                        }
+                    } else {
 
                     const firstTry = await fetchCandles(2);
 
@@ -4269,7 +5183,9 @@ app.post('/mt5-prices', async (c) => {
                     } else {
                         console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candles HTTP falhou, change ficará 0`);
                     }
-                    
+
+                    } // fim do else (CFD tradicional, D1) — ver `if (isCrypto24h)` acima
+
                     console.log(`[MT5 PRICES] ✅ ${symbol}: $${currentPrice.toFixed(5)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
 
                     // 🔍 2026-07-16: console.log não é acessível pelas ferramentas de
@@ -4329,7 +5245,48 @@ app.post('/mt5-prices', async (c) => {
 
                 inFlightPriceFetches.set(symbol, fetchPromise);
                 return fetchPromise;
-        });
+        };
+
+        // 🔴 2026-09-04 (mesmo dia, achado ao vivo depois do fix do orçamento
+        // de candle acima): a suposição de que o TICK ficava num bucket de
+        // crédito separado, não sujeito ao teto de 5 concorrentes da MetaAPI,
+        // era ERRADA -- corrigido em 2026-09-06 depois de achar ao vivo (log
+        // real da Edge Function) 161 erros "Ticker failed (429)" em ~3h30,
+        // incluindo rajadas de dezenas no mesmo milissegundo (GOLD/DJI/NQ),
+        // coincidindo com o relato do Cleber de gráfico/dashboard travando.
+        // Concorrência de 20 gera exatamente esse tipo de rajada quando um
+        // chunk grande (ex: "resto do catálogo" do InfinoxAssetsBrowser, ~200
+        // símbolos, ver commit ce9dc3e75) chega com cache frio. Baixado pra 5
+        // -- mesmo teto documentado da conta, para tick E candle.
+        const results = await mapWithConcurrency(symbols, 5, fetchOnePrice);
+
+        // 🔁 2026-08-25: retry único pros símbolos que falharam na 1ª tentativa
+        // (HTTP 429/504 da própria MetaAPI sob carga, não erro do nosso lado —
+        // ver comentário acima de `fetchOnePrice`). Breve espera antes de tentar
+        // de novo (dá tempo da rajada que causou o 429 passar) + concorrência
+        // menor (4, metade da 1ª tentativa) — reduz ainda mais a chance de gerar
+        // uma 2ª rajada em cima da conta já sob pressão. Symbols que também
+        // falharem no retry mantêm o resultado de erro original (client trata
+        // isso normalmente — mantém o último preço real conhecido, ver
+        // RealMarketDataService.ts).
+        const failedIndexes = results
+            .map((r, i) => (r.price === null ? i : -1))
+            .filter(i => i !== -1);
+
+        if (failedIndexes.length > 0) {
+            console.log(`[MT5 PRICES] 🔁 Retry: ${failedIndexes.length}/${symbols.length} símbolo(s) falharam na 1ª tentativa, tentando de novo em 700ms...`);
+            await new Promise(resolve => setTimeout(resolve, 700));
+            const retrySymbols = failedIndexes.map(i => symbols[i]);
+            const retryResults = await mapWithConcurrency(retrySymbols, 4, fetchOnePrice);
+            let recovered = 0;
+            failedIndexes.forEach((origIndex, k) => {
+                if (retryResults[k].price !== null) {
+                    results[origIndex] = retryResults[k];
+                    recovered++;
+                }
+            });
+            console.log(`[MT5 PRICES] 🔁 Retry recuperou ${recovered}/${failedIndexes.length} símbolo(s).`);
+        }
 
         const successCount = results.filter(r => r.price !== null).length;
         console.log(`[MT5 PRICES] 📊 Resultado: ${successCount}/${symbols.length} ativos obtidos`);
@@ -4515,28 +5472,47 @@ app.post('/mt5-candles', async (c) => {
         
         const mt5Timeframe = timeframeMap[timeframe] || '1h';
         const candleLimit = limit || 1000;
-        
+
         // Calcular intervalo de tempo
         const endTime = new Date();
-        const startTime = new Date(endTime.getTime() - (candleLimit * 60 * 60 * 1000)); // Aproximação
-        
-        // Descobrir a região certa da conta (evita 504 por chamar o datacenter errado)
-        const clientApiBase = await getMetaApiClientApiBase(metaapiToken, metaapiAccountId);
-        const candlesUrl = `${clientApiBase}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/candles`;
 
-        console.log(`[MT5 CANDLES] URL: ${candlesUrl}`);
+        // 🔴 2026-08-29: endpoint correto de candle histórico é o de
+        // MARKET DATA (historical-market-data), não o de trading (client
+        // API) -- a rota antiga chamava `/symbols/{s}/candles` no host de
+        // trading, que a MetaAPI sempre devolve 404 (path não existe ali),
+        // fazendo TODO ciclo cair silenciosamente em SIMULATED. Mesmo host
+        // e mesmo path que `/mt5-candles-history` já usa corretamente
+        // (ver getMetaApiMarketDataApiBase acima), só que aqui carregando
+        // pra trás a partir de "agora" em vez de um range explícito.
+        const candlesPath = `/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
+
+        console.log(`[MT5 CANDLES] Path: ${candlesPath}`);
         console.log(`[MT5 CANDLES] Timeframe: ${mt5Timeframe}, Limit: ${candleLimit}`);
-        
-        const response = await fetch(
-            `${candlesUrl}?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}&timeframe=${mt5Timeframe}`,
-            {
-                headers: {
-                    'auth-token': metaapiToken,
-                    'Accept': 'application/json'
-                }
-            }
-        );
-        
+
+        // 🔴 2026-09-04: mesmo semaforo global de historical-market-data usado
+        // em /mt5-prices (ver comentario acima daquela rota) -- esta rota bate
+        // no MESMO endpoint/teto de conta da MetaAPI (5 concorrentes), chamada
+        // tanto pelo llm-active-brain quanto por outros consumidores. Sem
+        // compartilhar o semaforo, as duas rotas desta MESMA Edge Function
+        // poderiam somar concorrencia acima do teto real mesmo cada uma
+        // "respeitando" o proprio limite isolado.
+        const mt5CandlesSlotId = await acquireHistoricalDataSlot();
+        let response: Response;
+        try {
+            // 🔁 2026-09-16: failover instantâneo de região (ver metaApiFetchWithFailover
+            // acima) — é literalmente a rota que o Gráfico chama pra desenhar candle;
+            // é aqui que "gráfico não abre" acontecia quando a região primária caía.
+            response = await metaApiFetchWithFailover(
+                metaapiToken,
+                metaapiAccountId,
+                'market-data',
+                (base) => `${base}${candlesPath}?startTime=${endTime.toISOString()}&limit=${Math.min(candleLimit, 1000)}`,
+                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }, signal: AbortSignal.timeout(8000) },
+            );
+        } finally {
+            await releaseHistoricalDataSlot(mt5CandlesSlotId);
+        }
+
         if (!response.ok) {
             const errorText = await response.text();
             console.error(`[MT5 CANDLES] ❌ HTTP ${response.status}: ${errorText}`);
@@ -4689,7 +5665,8 @@ app.post('/mt5-candles-history', async (c) => {
         if (!metaapiAccountId || metaapiAccountId.length < 10) {
             try {
                 const accountsRes = await fetch('https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts', {
-                    headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }
+                    headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' },
+                    signal: AbortSignal.timeout(8000)
                 });
                 if (accountsRes.ok) {
                     const accounts = await accountsRes.json();
@@ -4720,8 +5697,7 @@ app.post('/mt5-candles-history', async (c) => {
         // API de candles é separada da de tick/execução (host diferente) e o
         // endpoint carrega PRA TRÁS a partir de `startTime` (não um range) —
         // ver getMetaApiMarketDataApiBase acima.
-        const marketDataApiBase = await getMetaApiMarketDataApiBase(metaapiToken, metaapiAccountId);
-        const candlesUrl = `${marketDataApiBase}/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
+        const candlesPath = `/users/current/accounts/${metaapiAccountId}/historical-market-data/symbols/${symbol}/timeframes/${mt5Timeframe}/candles`;
 
         const requestedStart = new Date(startTime).getTime();
         const requestedEnd = new Date(endTime).getTime();
@@ -4805,22 +5781,84 @@ app.post('/mt5-candles-history', async (c) => {
         let iterations = 0;
         const MAX_ITERATIONS = 60; // trava de segurança (não bate a corretora indefinidamente)
         const effectiveStart = cacheUsable ? liveFetchStart : requestedStart;
+        // ✅ 2026-09-02: flag de staleness — investigação em EURUSD/1H achou
+        // candle de ~3 semanas sendo servido com success:true sem aviso.
+        // Causa: uma ÚNICA falha transitória (429/504 da conta MetaAPI
+        // compartilhada, ou o timeout de 8s abaixo) na paginação fazia a
+        // rota desistir na hora e devolver só `cachedCandles`, indistinguível
+        // de uma resposta 100% ao vivo pro chamador. Agora: (1) retry com
+        // backoff curto antes de desistir de uma página — sobrevive à falha
+        // transitória em vez de capitular na 1ª; (2) se mesmo assim a busca
+        // ao vivo não progredir nada (`allCandles` continua vazio), marca
+        // `stale: true` na resposta em vez de mascarar como sucesso normal.
+        let liveFetchFailed = false;
+        const PAGE_RETRIES = 2;
+        const PAGE_RETRY_DELAYS_MS = [400, 1200];
 
         while (cursor > effectiveStart && iterations < MAX_ITERATIONS) {
             iterations++;
 
-            const response = await fetch(
-                `${candlesUrl}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
-                { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } }
-            );
+            // ✅ 2026-08-22: timeout explícito — sem isso, sob a conta MetaAPI
+            // compartilhada saturada (429/504, risco crônico documentado no
+            // CLAUDE.md) um `fetch` sem `AbortSignal` fica pendurado até o
+            // timeout de rede padrão (pode passar de 1min), e isso dentro de
+            // um loop sequencial de paginação empilha — mesmo problema já
+            // corrigido no caminho de tick ao vivo (RealMarketDataService.ts,
+            // fetchMT5Data) em 2026-07-23, nunca aplicado aqui.
+            let response: Response | null = null;
+            let lastPageError: string | null = null;
+            for (let attempt = 0; attempt <= PAGE_RETRIES; attempt++) {
+                // Mesmo semaforo global de historical-market-data de /mt5-prices e
+                // /mt5-candles (ver comentario acima da rota /mt5-prices) -- esta
+                // paginação, embora sequencial DENTRO de si mesma, ainda pode
+                // rodar ao mesmo tempo que outra chamada desta rota (2 usuários
+                // fazendo backtest) ou das outras duas rotas, contra a MESMA
+                // conta MetaAPI.
+                const pageSlotId = await acquireHistoricalDataSlot();
+                try {
+                    // 🔁 2026-09-16: failover instantâneo de região (ver
+                    // metaApiFetchWithFailover acima) — cada tentativa de retry já usa a
+                    // região mais recente do cache, então uma falha de infra na região do
+                    // topo muda de região DENTRO desta própria paginação, não só na
+                    // próxima chamada à rota.
+                    const candidate = await metaApiFetchWithFailover(
+                        metaapiToken,
+                        metaapiAccountId,
+                        'market-data',
+                        (base) => `${base}${candlesPath}?startTime=${new Date(cursor).toISOString()}&limit=1000`,
+                        { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' }, signal: AbortSignal.timeout(8000) },
+                    );
+                    if (candidate.ok) {
+                        response = candidate;
+                        break;
+                    }
+                    lastPageError = `HTTP ${candidate.status}`;
+                    // 429/502/503/504 são tipicamente transitórios (rate-limit
+                    // ou saturação momentânea da conta) — vale tentar de novo;
+                    // outros códigos (4xx de request malformado) não vão se
+                    // resolver com retry, mas o custo de tentar é baixo e
+                    // mantém o comportamento antigo como pior caso.
+                } catch (fetchErr: any) {
+                    lastPageError = fetchErr?.message || 'network error';
+                } finally {
+                    await releaseHistoricalDataSlot(pageSlotId);
+                }
+                if (attempt < PAGE_RETRIES) {
+                    await new Promise(resolve => setTimeout(resolve, PAGE_RETRY_DELAYS_MS[attempt]));
+                }
+            }
 
-            if (!response.ok) {
-                const errorText = await response.text();
+            if (!response) {
+                liveFetchFailed = true;
+                if (allCandles.length > 0 || cachedCandles.length > 0) {
+                    console.warn(`[MT5 CANDLES HISTORY] ⚠️ Falha persistente (${PAGE_RETRIES + 1} tentativas) na página ${iterations} (${symbol}/${mt5Timeframe}): ${lastPageError} — devolvendo parcial/cache com stale:true.`);
+                    break;
+                }
                 return c.json({
                     success: false,
                     error: 'METAAPI_ERROR',
-                    message: `MetaAPI retornou HTTP ${response.status} — não há dado real disponível para ${symbol} nesse intervalo.`,
-                    detail: errorText
+                    message: `MetaAPI falhou após ${PAGE_RETRIES + 1} tentativas — não há dado real disponível para ${symbol} nesse intervalo.`,
+                    detail: lastPageError
                 }, 502);
             }
 
@@ -4912,9 +5950,14 @@ app.post('/mt5-candles-history', async (c) => {
             }
         }
 
+        // stale: true quando a busca ao vivo falhou persistentemente e a
+        // resposta é só o que já estava no cache (pode ter dias/semanas) —
+        // cliente deve tratar isso como aviso, não como preço/candle atual.
+        const stale = liveFetchFailed && allCandles.length === 0;
         return c.json({
             success: true,
             source: allCandles.length > 0 ? (cachedCandles.length > 0 ? 'metaapi+cache' : 'metaapi') : 'cache',
+            stale,
             symbol,
             timeframe: mt5Timeframe,
             count: formattedCandles.length,
@@ -5344,6 +6387,22 @@ const NEWS_FEEDS_EN: NewsFeedConfig[] = [
   { url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html', category: 'macro', source: 'CNBC' },
 ];
 
+// 🔴 2026-09-22 (pedido do Cleber): o LLM Brain opera cesta com ativos
+// asiáticos (JPN225/HKG33/CHINA50/AUS200/USDTWD/USDSGD...) e precisa de
+// contexto de notícia da região, não só EUA/global. Testado ao vivo antes
+// de adicionar (nunca fabricar fonte): Nikkei Asia RSS (404, descontinuado)
+// e SCMP (redirect não devolve RSS válido) descartados; Channel News Asia
+// (Singapura, veículo real, RSS confirmado com conteúdo de mercado da
+// região) é a única fonte de Ásia que respondeu com dado real. Categoria
+// 'macro' (o schema atual não distingue região, só categoria) -- a fonte
+// (source: 'Channel News Asia') já deixa a origem regional identificável
+// pra quem ler. Só entra no agregado quando `includeAsia=1` é pedido
+// explicitamente (llm-active-brain), pra não mudar o que o Dashboard/NEXUS
+// já mostram pro usuário comum.
+const NEWS_FEEDS_ASIA: NewsFeedConfig[] = [
+  { url: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml', category: 'macro', source: 'Channel News Asia' },
+];
+
 // ✅ 2026-07-20: em vez de traduzir manchete em inglês pro português (sempre
 // perde qualidade — "$70K" virava "$ 70 mil", tom de tradução automática),
 // usa as mesmas editoras só que na versão que JÁ publica nativamente em
@@ -5424,7 +6483,8 @@ app.get('/news/aggregate', async (c) => {
   try {
     const targetLang = (c.req.query('lang') || 'pt').split('-')[0].toLowerCase();
     const isNativePt = targetLang === 'pt';
-    const feeds = isNativePt ? NEWS_FEEDS_PT : NEWS_FEEDS_EN;
+    const includeAsia = c.req.query('includeAsia') === '1';
+    const feeds = [...(isNativePt ? NEWS_FEEDS_PT : NEWS_FEEDS_EN), ...(includeAsia ? NEWS_FEEDS_ASIA : [])];
 
     const perFeed = await Promise.allSettled(
       feeds.map(async (feed) => {
@@ -5534,6 +6594,75 @@ app.get('/health', (c) => {
   });
 });
 
+// ========================================
+// 📊 ROTA: BINANCE SERVER-SIDE PROXY (sem CORS, sem fabricar dado)
+// ========================================
+// ✅ 2026-08-20: as 3 fontes de Binance direta do CLIENT (api.binance.com +
+// 2 proxies CORS, ver DirectBinanceService.ts) estão mortas em produção
+// desde 2026-07-10 (CORS/403 bloqueado no domínio do navegador) — afeta
+// TODA cripto sem CFD confirmado na Infinox (ETHUSD, MATICUSD, LTCUSD,
+// BCHUSD e qualquer futura). O bloqueio é de NAVEGADOR (CORS), não existe
+// pro servidor — rota chama a Binance direto, sem proxy nenhum, sem
+// intermediário que possa devolver corpo de erro disfarçado de sucesso.
+// Diferente da rota legada `/real/binance/:symbol` abaixo (usada só pelo
+// ApiTester, não pelo pipeline real), esta NUNCA fabrica preço/variação —
+// convenção do projeto (CLAUDE.md: "nunca fabricar dado"). Em qualquer
+// falha, responde erro explícito; quem chama decide o fallback (cache
+// local via getFallbackOrLastKnown, nunca dado sintético aqui).
+app.get('/binance-ticker/:symbol', async (c) => {
+  const symbol = c.req.param('symbol').toUpperCase().trim();
+
+  try {
+    const binanceResponse = await fetch(
+      `https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`,
+      { method: 'GET', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) }
+    );
+
+    if (!binanceResponse.ok) {
+      const errorText = await binanceResponse.text();
+      console.warn(`[BINANCE-PROXY] ⚠️ ${symbol}: Binance respondeu ${binanceResponse.status}: ${errorText.slice(0, 200)}`);
+      return c.json({ error: true, symbol, status: binanceResponse.status, message: 'Binance API error' }, 502);
+    }
+
+    const data = await binanceResponse.json();
+    const price = parseFloat(data.lastPrice);
+    const change = parseFloat(data.priceChange);
+    const changePercent = parseFloat(data.priceChangePercent);
+
+    if (!isFinite(price) || !isFinite(change) || !isFinite(changePercent)) {
+      console.warn(`[BINANCE-PROXY] ⚠️ ${symbol}: resposta sem campos numéricos válidos: ${JSON.stringify(data).slice(0, 200)}`);
+      return c.json({ error: true, symbol, message: 'Resposta da Binance sem dado numérico válido' }, 502);
+    }
+
+    console.log(`[BINANCE-PROXY] ✅ ${symbol}: $${price.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
+
+    return c.json({
+      symbol,
+      source: 'binance',
+      price,
+      open: parseFloat(data.openPrice),
+      bid: parseFloat(data.bidPrice),
+      ask: parseFloat(data.askPrice),
+      high: parseFloat(data.highPrice),
+      low: parseFloat(data.lowPrice),
+      volume: parseFloat(data.volume),
+      change,
+      changePercent,
+      timestamp: data.closeTime,
+      isRealData: true,
+    });
+  } catch (error: any) {
+    console.error(`[BINANCE-PROXY] ❌ ${symbol}: erro inesperado:`, error?.message || error);
+    return c.json({ error: true, symbol, message: error?.message || 'Erro desconhecido' }, 500);
+  }
+});
+
+// ⚠️ LEGADO — usada só por ApiTester.tsx (debug manual), NÃO pelo pipeline
+// real de preço. Mantida como está pra não quebrar a ferramenta de debug,
+// mas o fallback "Dados simulados realistas baseados em preços reais
+// conhecidos" abaixo FABRICA preço (ex: BTCUSDT hardcoded em $104.400,
+// desatualizado) — nunca usar como fonte pro app real. Ver `/binance-ticker`
+// acima pro pipeline real, que nunca fabrica dado.
 // Binance Crypto Data - REAL API Integration (v3.0 - LIVE DATA)
 app.get('/real/binance/:symbol', async (c) => {
   try {
@@ -5693,6 +6822,18 @@ app.get('/real/yahoo/:symbol', async (c) => {
       'COCUSD': 'CC=F',  // Cocoa
       'COFUSD': 'KC=F',  // Coffee
       'WHEUSD': 'ZW=F',  // Wheat
+      // ✅ 2026-09-07 (achado do Cleber, rodapé mostrando "$---" pra Sugar e
+      // Copper): SUGUSD já caía corretamente no Yahoo (confirmado indisponível
+      // na Infinox, ver UNAVAILABLE em brokerRegistry.ts), mas faltava aqui no
+      // mapa -- sem entrada, caía no ticker literal "SUGUSD" (`|| symbol`
+      // abaixo), que não existe no Yahoo, sempre HTTP 404. Testado direto
+      // contra a API do Yahoo antes de aplicar: SB=F (Sugar #11 futures) e
+      // HG=F (Copper futures) respondem preço real. COPUSD é símbolo novo
+      // (Copper nunca esteve no catálogo/ticker do rodapé) -- confirmado 404
+      // na Infinox também (testado via /mt5-prices), adicionado ao
+      // UNAVAILABLE de brokerRegistry.ts junto com este mapa.
+      'SUGUSD': 'SB=F',  // Sugar
+      'COPUSD': 'HG=F',  // Copper
       // Ações americanas já usam o próprio símbolo como ticker do Yahoo (AAPL,
       // MSFT, GOOGL...) — não precisam de entrada no map, caem no `|| symbol`.
     };
@@ -6161,53 +7302,6 @@ app.post("/stt/transcribe", async (c) => {
     console.error('[STT] ❌ Erro ao transcrever áudio:', error);
     return c.json({ 
       error: 'Erro ao transcrever áudio', 
-      details: error.message 
-    }, 500);
-  }
-});
-
-// ========================================
-// 🤖 NEURAL ASSISTANT (Luna) - Chat Conversacional
-// ========================================
-
-// Endpoint: Processar pergunta do usuário e gerar resposta contextual
-app.post("/assistant/chat", async (c) => {
-  try {
-    const { question, context } = await c.req.json();
-    
-    if (!question || typeof question !== 'string' || question.trim().length === 0) {
-      return c.json({ error: 'Pergunta inválida ou vazia' }, 400);
-    }
-
-    console.log('[ASSISTANT] 🤖 Processando pergunta:', {
-      question: question.substring(0, 50) + '...',
-      hasContext: !!context
-    });
-
-    // Processar pergunta usando sistema de personalidade
-    const response = await processUserQuestion(question, context || {});
-
-    console.log('[ASSISTANT] ✅ Resposta gerada:', {
-      emotion: response.emotion,
-      textLength: response.text.length,
-      hasSuggestions: !!response.suggestions
-    });
-
-    return c.json({
-      success: true,
-      response: response.text,
-      emotion: response.emotion,
-      suggestions: response.suggestions || [],
-      assistant: {
-        name: 'Luna',
-        avatar: '🌙'
-      }
-    });
-
-  } catch (error: any) {
-    console.error('[ASSISTANT] ❌ Erro ao processar pergunta:', error);
-    return c.json({ 
-      error: 'Erro ao processar pergunta', 
       details: error.message 
     }, 500);
   }

@@ -7,6 +7,7 @@ import { RiskThermometer } from './dashboard/RiskThermometer';
 import { CorrelationMatrix } from './dashboard/CorrelationMatrix';
 import { LiquidityDetectorCard } from './dashboard/LiquidityDetectorCard';
 import { AIStuckBanner } from './dashboard/AIStuckBanner';
+import { AIPredictiveCard } from './dashboard/AIPredictiveCard';
 
 // ✅ 2026-07-23: CorrelationMatrix (candles de ~16 ativos) e LiquidityDetectorCard
 // (candles 1H + até 5 anos de 1D) são os consumidores mais pesados de candle da
@@ -108,6 +109,16 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: string) => void 
               <LazyMount>
                 <CorrelationMatrix />
               </LazyMount>
+            </div>
+
+            <div className="col-span-1 xl:col-span-12 min-h-[360px]">
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden h-full shadow-lg">
+                <div className="h-full p-4 overflow-y-auto custom-scrollbar">
+                  <LazyMount>
+                    <AIPredictiveCard />
+                  </LazyMount>
+                </div>
+              </div>
             </div>
 
             <div className="col-span-1 xl:col-span-12 min-h-[420px]">

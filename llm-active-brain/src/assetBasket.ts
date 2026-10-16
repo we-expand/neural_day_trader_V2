@@ -1,0 +1,433 @@
+/**
+ * Cesta usada pelo cérebro LLM ativo no trilho MT5 (2026-08-29+).
+ *
+ * 🔴 2026-08-29 (pedido do Cleber, mesmo dia): cesta trocada pra rodar HOJE
+ * com estes 8 símbolos especificamente (confirmados pelo Cleber como
+ * existentes na Infinox/MetaTrader com esta MESMA nomenclatura, e testados
+ * ao vivo contra /mt5-prices por este agente antes de entrar aqui -- todos
+ * devolveram bid/ask reais). Forex tirado por completo por enquanto -- só
+ * cripto/cross hoje. Objetivo: o agente analisar esta cesta específica hoje
+ * pra informar a operação de amanhã.
+ *
+ * 🔴 2026-08-30 (pedido do Cleber): XPTUSD (platina) removido da cesta.
+ * Investigação da sessão anterior (SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD_
+ * ANORMAL.md) já tinha neutralizado o dano (trava de tick obsoleto bloqueava
+ * abertura e tirava o tick morto do histórico), mas o ativo seguia ocupando
+ * um slot da cesta e gerando warning todo fim de semana sem nunca poder
+ * operar de verdade (mercado de metal fechado, feed morto ~30h). Sem motivo
+ * pra manter na cesta.
+ *
+ * 🔴 2026-08-30 (redesenho pós "1,7% de acerto, -$124/-$135 líquido, sessão
+ * e7eef768"): SOLUSD removido -- diagnóstico via SQL direto em `ai_trades`
+ * (não suposição) mostrou SOLUSD sozinho respondendo por 13/66 trades da
+ * sessão, 0 VITÓRIAS, -$77,67 (57% de TODO o prejuízo líquido da noite).
+ * Padrão observado em 10 dos 13 trades: fechamento por stop em MENOS DE 1
+ * MINUTO após a abertura (17-50s), perda quase idêntica a cada vez (~0,50%-
+ * 0,55%, ~$6), em AMBAS as direções (5 LONG perdedores, 8 SHORT perdedores --
+ * não é viés de lado, é o símbolo). Nenhum outro símbolo da cesta mostrou
+ * esse padrão (BTCUSD e BTCXBN tiveram pelo menos 1 vitória cada, XRPUSD/
+ * DOGUSD tiveram perdas pequenas, não $6 batendo quase toda vez). Isso é
+ * consistente com o stop dinâmico (calculado por ATR de candle de 5m) sendo
+ * SISTEMATICAMENTE apertado demais pro ruído de tick-a-tick real de SOLUSD
+ * nesta corretora/feed especificamente -- o candle de 5m não captura a
+ * volatilidade de curtíssimo prazo que bate o stop antes de qualquer tese
+ * direcional ter chance real de se confirmar. Removido pendente de
+ * investigação dedicada (comparar ATR-do-candle vs volatilidade real de tick
+ * a tick pra este símbolo especificamente antes de reintroduzir) -- ver
+ * SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md.
+ */
+/**
+ * 🔴 2026-08-30 (pedido do Cleber, mesma sessao de monitoramento): 4 simbolos
+ * adicionados -- SOLUSD, ADAUSD, LNKUSD, UNIUSD. Todos testados AO VIVO
+ * contra /mt5-prices antes de entrar aqui, todos devolveram bid/ask reais
+ * (LNKUSD confirmado como nomenclatura certa da corretora -- "LINKUSD" da
+ * 404). SOLUSD MERECE ATENCAO: foi removido desta cesta mais cedo hoje por
+ * ter respondido por 57% de todo o prejuizo da sessao anterior (13 trades,
+ * 0 vitorias, stop batendo em <1min sistematicamente em ambas direcoes --
+ * ver comentario historico abaixo). Causa nunca foi investigada a fundo,
+ * so removido por precaucao. Reintroduzido agora a pedido explicito do
+ * Cleber -- MACD/Estocastico reais e o validador semantico contra dado real
+ * (ambos adicionados nesta mesma sessao) podem mudar o comportamento, mas
+ * isso NAO foi validado especificamente pra SOLUSD ainda. Monitorar de perto.
+ *
+ * 🔴 2026-08-31 (monitoramento 5min, sessão `aa279c75...`): SOLUSD removido
+ * DE NOVO -- 2ª ocorrência do MESMO padrão. Diagnóstico via SQL direto em
+ * `ai_trades` (não suposição): SOLUSD sozinho respondeu por -$48,77 de
+ * -$56,46 do PnL total da sessão (86%), em só 4 trades, 0 vitórias -- todas
+ * SHORT, todas batendo stop. MACD/Estocástico reais e validador semântico
+ * (adicionados na sessão anterior, motivo pelo qual foi reintroduzido) NÃO
+ * mudaram o padrão -- confirma que o problema não é qualidade de sinal, é
+ * estrutural pro símbolo (mesma hipótese já registrada acima: ATR de candle
+ * 5m não captura a volatilidade de tick real desta corretora pra SOLUSD).
+ * Não reintroduzir sem investigação dedicada comparando ATR-candle vs
+ * volatilidade tick-a-tick real do símbolo.
+ */
+/**
+ * 🔴 2026-08-31 (à noite, pedido explícito do Cleber): cesta ampliada além de
+ * cripto -- ele configurou ~10 ativos no Setup do AI Trader (EURUSD, XAUUSD,
+ * UKOUSD, GER40, SPX500, NAS100, COFUSD, COCUSD, UK100, além das criptos) e
+ * a interseção com a cesta fixa (só 9 criptos) reduzia a cesta REAL a um
+ * único símbolo (BTCUSD), travando o motor numa cesta muito menor do que o
+ * usuário pediu -- mesma classe de problema já documentada no CLAUDE.md
+ * ("cesta poluída"). 7 dos 9 símbolos não-cripto testados AO VIVO contra
+ * `/mt5-prices` (mesmo pipeline do motor mecânico antigo) devolveram bid/ask
+ * reais e frescos: EURUSD, XAUUSD, UKOUSD, GER40, SPX500, NAS100, UK100.
+ * COFUSD e COCUSD devolveram HTTP 404 nesta corretora/conta -- NÃO
+ * adicionados (não dá pra operar um símbolo que a corretora não reconhece;
+ * ver `research`/histórico se o Cleber quiser investigar o nome certo).
+ * `lotSize` de cada um vem de `assetDatabase.ts` (fonte JÁ CORRIGIDA do bug
+ * de PnL 20x do NAS100 em 2026-08-27 -- $1/ponto, não o E-mini $20/ponto de
+ * `infinoxContractSpecs.ts`), não de suposição.
+ */
+/**
+ * 🔴 2026-09-01 (revertido -- achado real, apontado pelo Cleber): a cesta
+ * reduzida a 4 símbolos (registrada aqui mais cedo hoje pra caber no teto
+ * de tokens da Groq) ficou obsoleta assim que o motor passou a rodar em
+ * Ollama local (sem esse teto) -- e criou um problema novo: com só 4
+ * ativos, e 2 deles (BTCUSD, UKOUSD) estruturalmente bloqueados pelo piso
+ * de risco mínimo nesta conta pequena (ver erro "Risco minimo possivel..."
+ * em tools.ts -- lote mínimo de BTCUSD/UKOUSD já excede o teto de 3% de
+ * risco por trade no preço/stop de hoje, matemática confirmada correta,
+ * não é bug), sobrava pouquíssima chance de qualquer entrada abrir --
+ * zero posições em ~16h de motor ligado. Restaurado pra 9 símbolos
+ * (interseção com `activeAssets` do Setup no Supabase) -- mais ativos
+ * avaliados por ciclo = mais chance de algum passar no piso de risco E
+ * ter sinal real, exatamente como funcionava antes da redução de hoje.
+ */
+/**
+ * 🔴 2026-09-02 (pedido do Cleber): reduzida de 16 pra 10 símbolos --
+ * suspeita de que o motor (ciclo de 10s, `get_mt5_quote` sem cache pra
+ * tick/preço) está disputando rate-limit da conta MetaAPI compartilhada
+ * contra o próprio Gráfico do Cleber (achado ao vivo: gráfico intermitente,
+ * preço "oscilando pra zerado", boleta recusando ordem por falta de preço
+ * confiável -- mesmo com ele sozinho numa aba, o motor headless é o
+ * segundo consumidor pesado e contínuo da mesma conta). Cortados os 6 mais
+ * recentes/menos testados: DOTUSD, ADAUSD, LNKUSD, UNIUSD (adicionados
+ * 2026-08-30) e UKOUSD/UK100 (UKOUSD já documentado como estruturalmente
+ * bloqueado pelo piso de risco mínimo nesta conta pequena, ver comentário
+ * de 2026-09-01 acima -- avaliar esse símbolo todo ciclo sem nunca poder
+ * operar era carga desperdiçada). Mantidos os 10 com maior amostra/melhor
+ * histórico: os 5 cripto validados (BTCUSD, XETUSD, DOGUSD, XRPUSD,
+ * BTCXBN) + EURUSD, XAUUSD, GER40, SPX500, NAS100. Sem validação
+ * estatística de melhora no líquido -- é mitigação de carga na API, não
+ * mudança de estratégia. Reverter se não resolver a intermitência do
+ * gráfico (não é o motivo mais provável nesse caso).
+ */
+/**
+ * 🔴 2026-09-03 (pedido explícito do Cleber): troca DOGUSD/XRPUSD por
+ * UKOUSD/UK100. ATENÇÃO -- UKOUSD já foi documentado em 2026-09-01 (ver
+ * comentário acima) como estruturalmente bloqueado pelo piso de risco
+ * mínimo desta conta pequena: o lote mínimo do símbolo já excede o teto de
+ * 3% de risco por trade (`mt5MaxRiskPctPerTrade`) no preço/stop de hoje --
+ * não é bug, é matemática de conta pequena. Reintroduzido mesmo assim por
+ * pedido explícito; provavelmente continua recusando entrada em
+ * `open_position` até o capital alocado aumentar ou o teto de risco subir.
+ */
+/**
+ * 🔴 2026-09-04 (revertido no mesmo dia, pedido do Cleber): DOTUSD, ADAUSD,
+ * LNKUSD, UNIUSD foram reintroduzidos brevemente depois do upgrade de
+ * confiabilidade/IPv4 dedicado na conta MetaAPI, mas confirmado ao vivo logo
+ * em seguida que a MetaAPI tem um teto HARD de 5 requisições concorrentes de
+ * dado histórico (candle) por conta ("TooManyRequestsError... maximum of 5
+ * concurrent historical market data requests", 8 concorrentes medidas com
+ * a cesta de 14) -- mais símbolos na cesta = mais risco de estourar esse
+ * teto e cair em fallback SIMULATED, independente do upgrade de
+ * confiabilidade (que resolve outro tipo de problema, não este limite).
+ * Voltado pra 10 símbolos. Não reintroduzir sem uma estratégia real de
+ * limitar requisições concorrentes de candle (ex: fila/semáforo no cliente).
+ */
+/**
+ * 🔴 2026-09-04 (noite, pedido explicito do Cleber -- entrando no fim de
+ * semana): cesta trocada pra SO cripto (16 simbolos) -- forex/indices fecham
+ * no fim de semana (`isForexMarketOpen`/`WEEKEND_CLOSED_SYMBOLS` abaixo,
+ * confirmado ao vivo hoje: todos os 7 nao-cripto ficaram com tick congelado
+ * simultaneamente por volta de 21h40 UTC de sexta, horario batendo com o
+ * fechamento real do pregao -- nao era bug, era o mercado fechando mesmo).
+ * Operar cripto no fim de semana evita ficar com metade da cesta morta (tick
+ * obsoleto, sem chance de abrir posicao) por ~2 dias inteiros. Os 6 simbolos
+ * novos (TRXUSD, ATMUSD, XLMUSD, FILUSD, BNBUSD, AVAUSD) foram TESTADOS AO
+ * VIVO contra /mt5-prices antes de entrar aqui (bid/ask reais confirmados,
+ * mesmo padrao de validacao das cestas anteriores) -- candidatos que
+ * devolveram HTTP 404 nesta corretora (LTCUSD, BCHUSD, AVXUSD, MATUSD,
+ * POLUSD, NEAUSD, SHIUSD, PEPUSD, APTUSD) NAO foram adicionados. Lembrar:
+ * essa mudanca no array so tem efeito de verdade se `activeAssets` em
+ * `ai_user_config` (Supabase) tambem for atualizado -- `getUserTradingConfig`
+ * usa o array salvo la, com este MT5_ASSET_BASKET so como fallback (ver
+ * `tools.ts:495`).
+ */
+/**
+ * 🔴 2026-09-05 (revertido no mesmo dia, pedido direto do Cleber): a troca
+ * automática por horário foi desfeita -- qual cesta operar é decisão do
+ * usuário via Setup (`activeAssets` em `ai_user_config`, ver `tools.ts:495`),
+ * nunca algo que o código deve decidir sozinho trocando o array por baixo.
+ * `MT5_ASSET_BASKET` volta a ser um array único fixo (universo POSSÍVEL de
+ * símbolos, cripto + forex/índices) -- serve só de fallback quando o usuário
+ * não configurou nada em `activeAssets`, e de referência de "todos os
+ * símbolos que o motor sabe operar" nos prompts/validações. `isWeekendMode`
+ * abaixo continua existindo (infraestrutura de detecção de horário), mas
+ * hoje não decide mais qual cesta usar -- fica pronta pra um "modo fim de
+ * semana" comportamental (não de seleção de ativos) a ser desenhado depois.
+ */
+// 🔴 2026-09-06 (achado real, Cleber: "não está fazendo entradas, deveria ter
+// mais"): configurou 16 criptos em `activeAssets` (Setup), mas só 3
+// (BTCUSD/XETUSD/BTCXBN) apareciam na cesta efetiva -- `getUserTradingConfig`
+// (neuralBridge.ts) intersecta `activeAssets` com ESTE array como "universo
+// possível"; os 13 altcoins abaixo já tinham `lotSize` calibrado em
+// `LOT_SIZE` logo adiante (preparado antes, nunca commitado aqui) mas
+// ficavam fora da interseção por não estarem listados aqui -- filtrados
+// silenciosamente, sem erro, sem log. Confirmados reais agora via
+// /mt5-prices (preço + candle, todos válidos) antes de adicionar.
+//
+// 🔴 2026-09-07 (achado real, log: "Setup configurou 14 ativo(s), mas 4 não
+// existe(m) em MT5_ASSET_BASKET": FRA40/HK50/CHINA50/JP225 ignorados todo
+// ciclo): testado ao vivo contra o broker via `getQuoteSingleAttempt` antes
+// de adicionar (nunca supor). FRA40 é real com o nome literal, mesmo grupo
+// EU_INDICES do GER40 já calibrado ($1/ponto CFD retail, fix do bug de PnL
+// 20x do NAS100) -- adicionado. HK50 e JP225 SÓ existem sob os nomes reais
+// da corretora, HKG33 e JPN225 (confirmado: "HK50"/"JP225" literais
+// devolvem NULL) -- mesmo padrão de alias já catalogado pra outros símbolos
+// neste projeto (brokerRegistry.ts). CHINA50 é real com o nome literal.
+// 🔴 2026-09-08 (pedido do Cleber: "o que o usuario configura tem que valer
+// 100%"): HKG33/JPN225/AUS200/CHINA50 adicionados. Os 4 confirmados reais ao
+// vivo contra /mt5-prices antes de adicionar (bid/ask reais). Diferente do
+// grupo GER40/SPX500/NAS100/UK100/FRA40 (CFD retail $1/ponto USD), estes 4
+// têm `tickValue`/`pointValue` reais em moeda ESTRANGEIRA em
+// `infinoxContractSpecs.ts` (AUS200 10 AUD, JPN225 5 JPY, HKG33 10 HKD,
+// CHINA50 10 CNY) -- LOT_SIZE=1 aqui teria repetido o MESMO bug de PnL 20x
+// do NAS100 (2026-08-27), agora por câmbio em vez de contrato E-mini errado.
+// Convertido pra USD usando a cotação AUDUSD/USDJPY/USDHKD/USDCNH REAL desta
+// mesma corretora no momento da adição (também confirmada ao vivo, ver
+// LOT_SIZE abaixo) -- não é live/dinâmico (câmbio pode driftar com o tempo),
+// é uma aproximação MUITO melhor que assumir $1/ponto direto, mas revisitar
+// periodicamente se o câmbio se mover de forma relevante.
+export const MT5_ASSET_BASKET = [
+  "BTCUSD", "XETUSD", "BTCXBN",
+  "DOGUSD", "DOTUSD", "XRPUSD", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
+  "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
+  "AUS200", "JPN225", "HKG33", "CHINA50",
+  // 🔴 2026-09-22 (pedido direto do Cleber -- "mais indices asiaticos"):
+  // lista oficial de simbolos da conta (MetaAPI /symbols, 364 simbolos)
+  // confirmou que NAO existe nenhum outro indice asiatico nesta corretora
+  // (Singapura/India/Taiwan/Coreia/China-H: todos 404; HK50ft e o mesmo Hang
+  // Seng do HKG33, redundante). Alternativa aprovada: pares de moeda que
+  // operam na sessao asiatica. Todos confirmados ao vivo antes de adicionar
+  // (spec MetaAPI: contractSize 100000 / XAUJPY 100, minVolume 0.01,
+  // tradeMode FULL; cotacao real via /mt5-prices). USDHKD ficou de fora
+  // (tradeMode DISABLED na corretora). USDTWD = unica exposicao a Taiwan
+  // disponivel -- spread ~0.10% (10x um par principal) e so negocia no
+  // horario de Taipei (~01h-08h UTC), fora disso a trava de tick obsoleto
+  // bloqueia sozinha.
+  "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
+  "USDCNH", "USDSGD", "USDTWD", "XAUJPY",
+  // 🔴 2026-09-24: AUDNZD pedido no Setup do Cleber e descartado em silencio
+  // (aviso do neuralBridge). Confirmado real ao vivo via /mt5-prices. BVSPX
+  // (Ibovespa, tambem pedido) NAO entra ainda: existe na corretora, mas o
+  // pointValue/moeda de cotacao dele em infinoxContractSpecs.ts e "aprox."
+  // (INDICES_US generico) -- sem valor confirmado o PnL sairia errado (mesma
+  // classe do bug de PnL 20x do NAS100). Confirmar spec real antes de adicionar.
+  "AUDNZD",
+  // 🔴 2026-09-28: XAGUSD (prata) pedido no Setup do Cleber. Confirmado real
+  // ao vivo via /mt5-prices ($61,105) + spec real em infinoxContractSpecs.ts
+  // (METAL_SILVER, contractSize=5000) -- ver LOT_SIZE abaixo. COFUSD/ETHUSD/
+  // LINKUSD tambem pedidos no mesmo Setup, mas ficam de fora: COFUSD e 404
+  // nesta corretora (mesmo achado ja catalogado em 2026-08-31); ETHUSD e
+  // LINKUSD sao nomes que nao existem aqui -- os reais (XETUSD/LNKUSD) ja
+  // estao nesta cesta.
+  "XAGUSD",
+];
+
+/**
+ * `lotSize` de cada símbolo. Os 5 já validados em sessões anteriores mantêm
+ * o valor confirmado; os novos (DOGUSD, DOTUSD, XRPUSD, BTCXBN) seguem o
+ * MESMO padrão (lotSize=1) dos demais cripto/cross desta cesta -- não há
+ * entrada equivalente no catálogo estático do app pra confirmar contra
+ * (esses símbolos com esta nomenclatura exata não estão em
+ * `assetDatabase.ts`), então usa o padrão já validado em vez de inventar um
+ * valor. Se o tamanho de posição parecer estranho pra algum desses,
+ * revisitar.
+ */
+export const LOT_SIZE: Record<string, number> = {
+  BTCUSD: 1,
+  XETUSD: 1,
+  DOGUSD: 1,
+  DOTUSD: 1,
+  XRPUSD: 1,
+  BTCXBN: 1,
+  SOLUSD: 1,
+  ADAUSD: 1,
+  LNKUSD: 1,
+  UNIUSD: 1,
+  // 🔴 2026-09-04: mesmo padrao dos demais cripto/cross acima (lotSize=1) --
+  // sem entrada equivalente em assetDatabase.ts pra confirmar contra, mesma
+  // justificativa ja documentada pros outros altcoins desta cesta.
+  TRXUSD: 1,
+  ATMUSD: 1,
+  XLMUSD: 1,
+  FILUSD: 1,
+  BNBUSD: 1,
+  AVAUSD: 1,
+  // Valores REAIS de `assetDatabase.ts` (repo principal) -- mesma fonte que
+  // corrigiu o bug de PnL 20x do NAS100 (2026-08-27): CFD retail $1/ponto
+  // pra índices, não o contrato E-mini da CME. amountUsd = lots * LOT_SIZE *
+  // preço, mesma fórmula já usada pra cripto -- generaliza corretamente pra
+  // qualquer classe desde que LOT_SIZE seja o contractSize real.
+  EURUSD: 100000,
+  XAUUSD: 100,
+  // 🔴 2026-09-28: contractSize real de infinoxContractSpecs.ts (METAL_SILVER).
+  XAGUSD: 5000,
+  UKOUSD: 1000,
+  GER40: 1,
+  SPX500: 1,
+  NAS100: 1,
+  UK100: 1,
+  // 🔴 2026-09-07: mesmo grupo EU_INDICES do GER40 (CFD retail $1/ponto,
+  // confirmado real contra o broker antes de adicionar -- ver comentário em
+  // MT5_ASSET_BASKET acima).
+  FRA40: 1,
+  // 🔴 2026-09-08: pointValue real (infinoxContractSpecs.ts) convertido pra
+  // USD com a cotação REAL AUDUSD/USDJPY/USDHKD/USDCNH desta corretora,
+  // confirmada ao vivo em 2026-09-08 (ver comentário em MT5_ASSET_BASKET):
+  //   AUS200:  10 AUD/ponto * 0.72157 (AUDUSD)      = 7.2157
+  //   JPN225:   5 JPY/ponto / 153.583 (USDJPY)       = 0.03256
+  //   HKG33:   10 HKD/ponto / 7.83921 (USDHKD)       = 1.2756
+  //   CHINA50: 10 CNY/ponto / 6.709 (USDCNH)         = 1.4905
+  AUS200: 7.2157,
+  JPN225: 0.03256,
+  HKG33: 1.2756,
+  CHINA50: 1.4905,
+  // 🔴 2026-09-22: LOT_SIZE aqui e "notional em USD por lote / preco", pra
+  // que amountUsd = lots * LOT_SIZE * preco seja o notional REAL em USD e o
+  // PnL do motor ((exit-entry) * amountUsd/entry) saia em USD de verdade --
+  // mesmo cuidado do JPN225 acima (evitar o bug de PnL 20x do NAS100, agora
+  // por moeda de cotacao). Cotacao real desta corretora em 2026-09-22 23:36
+  // UTC (USDJPY 157.456, AUDUSD 0.71129, USDCNH 6.69607, USDSGD 1.27506,
+  // USDTWD 31.713):
+  //   Base USD (USDxxx): notional = 100000 USD -> 100000 / preco
+  //   Cotado em USD (xxxUSD): 100000 (igual EURUSD)
+  //   Cotado em JPY (xxxJPY): 100000 / USDJPY = 635.1 (vale pra AUD/NZD/EUR/
+  //     GBP-JPY: notional = 100000 * xxxUSD, dividido por xxxJPY = /USDJPY)
+  //   XAUJPY: 100 oz / USDJPY = 0.6351
+  // Aproximacao estatica (erro proporcional ao drift da moeda de cotacao vs
+  // USD) -- revisitar se USDJPY/USDCNH/USDSGD/USDTWD andarem muito.
+  USDJPY: 635.1,
+  AUDUSD: 100000,
+  NZDUSD: 100000,
+  AUDJPY: 635.1,
+  NZDJPY: 635.1,
+  EURJPY: 635.1,
+  GBPJPY: 635.1,
+  USDCNH: 14934,
+  USDSGD: 78428,
+  USDTWD: 3153.3,
+  XAUJPY: 0.6351,
+  // 🔴 2026-09-24: AUDNZD = 100000 AUD por lote; notional USD = 100000 * AUDUSD
+  // (0.70334, cotacao real 2026-09-24) = 70334 -> / preco AUDNZD (1.23876) = 56776.
+  // Aproximacao estatica, revisitar se AUDUSD andar muito.
+  AUDNZD: 56776,
+};
+
+export const MIN_LOTS = 0.01;
+
+/**
+ * 🔴 2026-08-31: cripto opera 24/7, mas os 7 CFDs não-cripto adicionados
+ * hoje (forex/metal/energia/índices) fecham no fim de semana como qualquer
+ * CFD via MetaAPI/Infinox -- mesmo horário que `isCfdMarketOpen()` em
+ * `src/app/utils/marketHours.ts` (repo principal). Aplicado a TODOS os
+ * não-cripto (não só forex) porque índices/metal/energia seguem
+ * aproximadamente a mesma janela de fim de semana nesta corretora -- horário
+ * exato de pregão de cada bolsa (ex: SPX500 09:30-16:00 ET) não é modelado
+ * aqui de propósito: a trava de tick obsoleto (`STALE_TICK_MS` em
+ * `mt5Broker.ts`, já validada ao vivo pro caso do XPTUSD) cobre isso de
+ * forma orientada a dado real, sem precisar fabricar uma tabela de horários
+ * por bolsa que arriscaria ficar errada/desatualizada.
+ */
+// 🔴 2026-09-08: FRA40 estava faltando aqui (achado de carona -- tinha sido
+// adicionado ao MT5_ASSET_BASKET em 2026-09-07 mas ficou fora desta lista,
+// deixando `isSymbolTradable` tratá-lo como "sempre aberto" tipo cripto).
+// AUS200/JPN225/HKG33/CHINA50 adicionados junto (mesmo padrão: CFD via
+// MetaAPI/Infinox fecha fim de semana).
+const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
+  "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
+  "AUS200", "JPN225", "HKG33", "CHINA50",
+  "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
+  "USDCNH", "USDSGD", "USDTWD", "XAUJPY", "AUDNZD",
+]);
+
+/**
+ * 🔴 2026-09-05 (janela redefinida, pedido direto do Cleber): "modo fim de
+ * semana" liga sexta 18:00 Brasília, desliga domingo 19:00 Brasília --
+ * Brasília = UTC-3 sempre (sem horário de verão), então em UTC isso é sexta
+ * >= 21:00 e domingo < 22:00. Valor anterior (sex 22:00 UTC / dom 23:00 UTC,
+ * i.e. sex 19h/dom 20h Brasília) ficava 1h depois do que o Cleber queria dos
+ * dois lados -- ajustado aqui. Esta é a MESMA janela que `isWeekendNow` em
+ * atr.ts usa (duplicada lá de propósito, sem import circular -- ver
+ * comentário lá) -- se mudar aqui, mudar lá também.
+ * 🔴 2026-09-18 (pedido direto do Cleber, mesmo dia do desenho do modo fim
+ * de semana): inicio adiantado de 18:00 -> 17:00 Brasília, toda sexta,
+ * permanente (nao so hoje). Fim (domingo 19:00 Brasília) intocado.
+ */
+const WEEKEND_START_UTC_MINUTES = 20 * 60; // sexta 17:00 Brasília
+const WEEKEND_END_UTC_MINUTES = 22 * 60; // domingo 19:00 Brasília
+
+export function isWeekendMode(now: Date = new Date()): boolean {
+  const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
+  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  if (utcDay === 6) return true; // Sábado inteiro
+  if (utcDay === 0) return totalMinutes < WEEKEND_END_UTC_MINUTES; // Domingo antes das 19h Brasília
+  if (utcDay === 5) return totalMinutes >= WEEKEND_START_UTC_MINUTES; // Sexta a partir das 17h Brasília
+  return false;
+}
+
+/** Fecha: Sexta 17:00 Brasília. Abre: Domingo 19:00 Brasília. Inverso de isWeekendMode. */
+export function isForexMarketOpen(now: Date = new Date()): boolean {
+  return !isWeekendMode(now);
+}
+
+export function isSymbolTradable(symbol: string, now: Date = new Date()): boolean {
+  if (!WEEKEND_CLOSED_SYMBOLS.has(symbol)) return true; // cripto: sempre
+  return isForexMarketOpen(now);
+}
+
+/**
+ * Grupos de ativos correlacionados. Achado real (2026-08-29): stackear a
+ * MESMA aposta direcional em vários cripto ao mesmo tempo (ex: SHORT em
+ * BTCUSD+XETUSD+SOLUSD simultâneo) não é diversificação, é triplicar
+ * (quintuplicar, aqui) o mesmo risco -- `getCorrelatedGroup` devolve o grupo
+ * do símbolo (ou o próprio símbolo isolado se não tiver grupo), pra
+ * `open_position` somar a exposição do GRUPO inteiro no mesmo lado antes de
+ * liberar mais uma entrada.
+ *
+ * 🔴 2026-08-29 (cesta de hoje): BTCUSD/XETUSD/DOGUSD/DOTUSD/XRPUSD/BTCXBN
+ * são todos cripto (ou cross de cripto) -- mesmo grupo. 2026-08-30: SOLUSD/
+ * ADAUSD/LNKUSD/UNIUSD adicionados ao mesmo grupo (mesma lógica -- todos
+ * cripto, mesmo risco correlacionado de mercado).
+ */
+// 🔴 2026-08-31: GER40/SPX500/NAS100/UK100 são índices de ações de bolsas
+// diferentes, mas andam juntos em risk-on/risk-off macro global -- mesmo
+// grupo. EURUSD, XAUUSD e UKOUSD ficam isolados (só 1 símbolo cada nova
+// classe, sem outro par pra correlacionar de verdade ainda).
+const CORRELATED_GROUPS: string[][] = [
+  [
+    "BTCUSD", "XETUSD", "DOGUSD", "DOTUSD", "XRPUSD", "BTCXBN", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
+    "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
+  ],
+  // 🔴 2026-09-08: FRA40 (faltando, mesmo achado de carona do WEEKEND_CLOSED_
+  // SYMBOLS acima) + AUS200/JPN225/HKG33/CHINA50 (novos) entram no mesmo
+  // grupo -- todos índices de bolsa, mesmo risco correlacionado risk-on/
+  // risk-off macro global dos demais.
+  ["GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50"],
+  // 🔴 2026-09-22 (pares asiaticos): agrupados pelo lado REAL da exposicao
+  // de moeda, pra LONG/LONG no mesmo grupo ser de fato a mesma aposta.
+  // LONG em qualquer xxxJPY = vendido em iene (inclui XAUJPY).
+  ["USDJPY", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY", "XAUJPY"],
+  // LONG = vendido em dolar contra moeda de risco do Pacifico.
+  ["AUDUSD", "NZDUSD"],
+  // LONG = comprado em dolar contra moeda asiatica.
+  ["USDCNH", "USDSGD", "USDTWD"],
+];
+
+export function getCorrelatedGroup(symbol: string): string[] {
+  return CORRELATED_GROUPS.find((group) => group.includes(symbol)) ?? [symbol];
+}

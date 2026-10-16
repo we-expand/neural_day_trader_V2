@@ -73,6 +73,16 @@ export interface TradeVisual {
   closedAt?: number; // Timestamp when the trade was closed
   tp: number;
   sl: number;
+  // 🔴 2026-09-11: `sl`/`tp` caem pro próprio `entry_price` (ver useApexLogic.ts)
+  // quando a posição não tem stop/alvo real definido — mas o MESMO valor
+  // também acontece de propósito quando o breakeven move o stop pra cima da
+  // entrada (proteção real, não ausência de stop). ChartView.tsx usava
+  // `sl !== price` pra inferir "sem stop", escondendo por engano a linha do
+  // stop de breakeven. Estes 2 flags carregam a origem real (stop_loss/
+  // take_profit != null no banco) pra decidir se desenha sem precisar
+  // adivinhar pelo valor numérico.
+  slIsReal?: boolean;
+  tpIsReal?: boolean;
   // Distância original de SL na entrada (nunca sobrescrita depois, ao contrário
   // de `sl`, que o loop de P&L reescreve a cada tick em modo DINAMICO). Ver
   // bug do SL Dinâmico fantasma (2026-08-03): usar `sl` para recalcular a
@@ -89,6 +99,10 @@ export interface TradeVisual {
   // `pyramidLayer` = 1 pra posição original, 2+ pras entradas adicionadas.
   pyramidGroupId?: string;
   pyramidLayer?: number;
+  // 🔴 2026-09-09: id REAL da posição na MetaAPI — presente só quando esta
+  // posição foi executada de verdade na corretora (LIVE), null/undefined em
+  // trade simulado (DEMO). Usado pra fechamento real pela boleta.
+  brokerPositionId?: string | null;
   leverage: number;
   ai_confidence: number;
   timestamp: number;
@@ -98,6 +112,15 @@ export interface TradeVisual {
     rsi: number;
     macd: string;
     trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    // 🆕 2026-08-24: regime de mercado medido na entrada (auditoria pedida
+    // pelo Cleber depois de ver SOLUSD fechar 15/15 no stop num dia
+    // lateralizado — antes esse dado só era gravado quando o gate VETAVA
+    // o trade, nunca na entrada executada). Ver SESSAO_2026-08-24_REGIME_NA_ENTRADA.md.
+    regime?: string | null;
+    contextClassification?: string;
+    structureBias?: string;
+    adx?: number | null;
+    atrExpansionRatio?: number | null;
   };
 }
 
@@ -116,11 +139,20 @@ export interface PortfolioState {
   dayAnchorUtcDay?: number;   // Date.UTC do dia a que dayAnchorEquity/dayAnchorBalance se referem
   maxDrawdownReached?: number; // pior drawdown já atingido (só métrica/histórico,
                                // NUNCA usado como gate — o gate usa currentDrawdown)
+  // 🔴 2026-09-09 (pedido do Cleber, comparando com o terminal MT5): margem
+  // REAL da conta MetaAPI — só preenchido quando há broker conectado (ver
+  // reconcile() em useApexLogic.ts); undefined em DEMO (sem margem real pra
+  // mostrar, nunca fabricada).
+  margin?: number;
+  freeMargin?: number;
+  marginLevel?: number;
 }
 
 export interface AIConfig {
   direction: 'AUTO' | 'LONG' | 'SHORT';
-  marketMode: 'TREND' | 'RANGE' | 'SCALP' | 'COUNTER';
+  // null = Automático (a IA decide a favor OU contra a tendência conforme o
+  // sinal, sem gate mecânico de direção) -- ver 'Fluxo de Operação' no Setup.
+  marketMode: 'TREND' | 'RANGE' | 'SCALP' | 'COUNTER' | null;
   targetPoints: 'MÉDIO' | 'CURTO' | 'LONGO' | 'POUCOS' | 'MUITOS';
   stopLossMode: 'DINAMICO' | 'FIXO';
   allocatedCapital: number;
@@ -138,6 +170,12 @@ export interface AIConfig {
   timeframe: string; // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
   newsFilter: boolean; // Filtro de notícias econômicas
   dailyLossLimit: number; // Limite de perda diária (%)
+  // 2026-08-31: cadência de avaliação de entrada nova do LLM Brain (motor
+  // principal) — AGRESSIVA avalia todo ciclo, NORMAL 1 a cada 2 ciclos,
+  // CONSERVADORA 1 a cada 4. Lido por getUserTradingConfig em
+  // llm-active-brain/src/neuralBridge.ts. Nunca pausa monitoramento de
+  // stop/breakeven/trailing de posições já abertas, só restringe entrada nova.
+  cadence: 'CONSERVADORA' | 'NORMAL' | 'AGRESSIVA';
   metaApiToken?: string; // Token do MetaApi para integração MT5
   // Estratégia ativa (pronta ou customizada) — o motor de decisão passa a
   // rodar exatamente essa estratégia via evaluateStrategyAt, a mesma função

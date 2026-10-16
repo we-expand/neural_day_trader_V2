@@ -1,0 +1,70 @@
+{
+  "aviso": "regime só gravado por trade desde 2026-08-24 — amostra pequena, leitura inicial",
+  "n_total_com_regime_e_dinamico": 6,
+  "TENDENCIA": {
+    "n": 5,
+    "net_A_teto": 0.38023905591797047,
+    "net_B_sem_teto": 0.38023905591797047,
+    "delta": 0,
+    "melhoraram": 0,
+    "pioraram": 0
+  },
+  "INDEFINIDO": {
+    "n": 1,
+    "net_A_teto": -0.6602298961551725,
+    "net_B_sem_teto": -0.6602298961551725,
+    "delta": 0,
+    "melhoraram": 0,
+    "pioraram": 0
+  },
+  "detail": [
+    {
+      "id": "6066f3ed-836f-41eb-afca-e2288606856e",
+      "symbol": "SOLUSD",
+      "regime": "TENDENCIA",
+      "adx": 40.51,
+      "netA": 0.7347792837246447,
+      "netB": 0.7347792837246447
+    },
+    {
+      "id": "0dede5c7-18ab-4243-8fc6-d45ec2deedf8",
+      "symbol": "SOLUSD",
+      "regime": "TENDENCIA",
+      "adx": 51.87,
+      "netA": 0.9979077986033125,
+      "netB": 0.9979077986033125
+    },
+    {
+      "id": "6f7d85af-e865-40da-979f-c2e6c826f0d9",
+      "symbol": "ETHUSD",
+      "regime": "TENDENCIA",
+      "adx": 35.15,
+      "netA": 0.444219386623387,
+      "netB": 0.444219386623387
+    },
+    {
+      "id": "0318b787-2738-42f7-85bc-a0b2e96c1206",
+      "symbol": "ETHUSD",
+      "regime": "TENDENCIA",
+      "adx": 37.47,
+      "netA": -0.7505961654964066,
+      "netB": -0.7505961654964066
+    },
+    {
+      "id": "9a2ed065-27d0-4b36-b770-f48d0643e302",
+      "symbol": "SOLUSD",
+      "regime": "TENDENCIA",
+      "adx": 54.18,
+      "netA": -1.0460712475369671,
+      "netB": -1.0460712475369671
+    },
+    {
+      "id": "7ad5272c-68ff-4638-a6b3-5a45d2874411",
+      "symbol": "SOLUSD",
+      "regime": "INDEFINIDO",
+      "adx": 18.81,
+      "netA": -0.6602298961551725,
+      "netB": -0.6602298961551725
+    }
+  ]
+}

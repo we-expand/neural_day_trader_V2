@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { calculateRoundTripCost } from '@/app/services/risk/ExecutionCost.ts';
 import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators, OverlayMode } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate, AxisTick } from 'klinecharts';
 
@@ -244,7 +245,10 @@ if (!isIndicatorRegistered('STOCH_SLOW')) {
     shortName: 'STOCH LENTO',
     series: 'normal' as any,
     precision: 2,
-    calcParams: [14, 3, 3],
+    // 🔴 2026-10-07 (pedido do Cleber): o gráfico do app TEM que mostrar o mesmo Estocástico do
+    // MT5 dele e do motor (llm-active-brain/src/atr.ts: STOCH_PERIOD=5, suavização 3, %D 3,
+    // SMA, Low/High, níveis 20/80 -- conferido em print do MT5). Antes: 14,3,3, outro indicador.
+    calcParams: [5, 3, 3],
     shouldOhlc: false,
     // 🔧 FIX: sem range fixo o painel auto-escalava pro range real de %K/%D no
     // recorte visível (podendo mostrar algo como "10 a 70"), em vez da escala
@@ -462,21 +466,33 @@ import { useBacktestLiveProgress } from '@/app/hooks/useBacktestLiveProgress';
 import { useStrategies } from '@/app/hooks/useStrategies';
 import { useChartPreferences } from '@/app/hooks/useChartPreferences';
 import { useFavoriteChartSetup, readCachedFavoriteChartSetup } from '@/app/hooks/useFavoriteChartSetup';
+import { useChartSessionState, readCachedChartSessionState } from '@/app/hooks/useChartSessionState';
 import { useChartTemplates, type ChartTemplateConfig } from '@/app/hooks/useChartTemplates';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
-import { fetchCandles, fetchCandlesQuick, fetchCandlesCacheOnly } from '@/app/services/market-service';
+import { fetchCandles } from '@/app/services/market-service';
+import { lastCompletedSessionPivots, type SessionPivotsResult } from '@/app/services/analysis/sessionPivots';
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
+import { getContractSpec } from '@/config/contractSpecs'; // 💰 pipSize real por ativo (pts de risco/alvo)
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
 import { toast } from 'sonner';
 import { backtestDataService, BacktestDataUnavailableError } from '@/app/services/BacktestDataService';
-import { analyzeSmc, type SmcZone } from '@/app/services/smc';
+import { analyzeSmc, type SmcZone, type Candle } from '@/app/services/smc';
 import { OrderTicket } from '@/app/components/trading/OrderTicket';
 import type { TradeVisual, PendingOrderVisual } from '@/app/hooks/useApexLogic';
+
+// 🚀 PERF 2026-09-23 (Cleber: "gráfico demora demais pra entrar"): teto de
+// candles pedido só na 1ª pintura de um símbolo/timeframe — cabe numa única
+// página do backend (Binance/MetaAPI paginam em blocos de 1000), em vez do
+// teto padrão de 2.000/5 anos que força 2 chamadas sequenciais contra a
+// conta MetaAPI COMPARTILHADA antes do gráfico aparecer. Ver
+// `fetchCandles`/`resolveLookbackMs` em market-service.ts e o uso deste
+// valor dentro do effect de fetchData mais abaixo.
+const FAST_FIRST_PAINT_MAX_CANDLES = 800;
 
 // 🎯 CUSTOM OVERLAY: Point Marker (Ponto 1x1)
 const PointMarkerOverlay: OverlayTemplate = {
@@ -513,6 +529,66 @@ try {
   console.warn('[ChartView] ⚠️ Overlay já registrado ou erro:', e);
 }
 
+// 🎯 CUSTOM OVERLAY: linha de posição (entrada/SL/TP/pendente) com etiqueta
+// no CORPO do gráfico, não no eixo Y. O overlay nativo 'horizontalStraightLine'
+// não desenha nenhuma figura de texto (só a linha) — o campo `text` passado
+// pra ele era descartado silenciosamente. 'simpleTag' desenha texto, mas só
+// dentro da faixa estreita do eixo de preço, truncando qualquer rótulo longo
+// (ex: "SL 2440.00 · −$24.68 · 26.14 pts"). Este overlay usa a largura cheia
+// do painel pra caber o rótulo completo.
+const PositionLabelLineOverlay: OverlayTemplate = {
+  name: 'positionLabelLine',
+  totalStep: 2,
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: true,
+  needDefaultYAxisFigure: true,
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
+    const y = coordinates[0].y;
+    const label = typeof overlay.extendData === 'function' ? overlay.extendData(overlay) : (overlay.extendData ?? '');
+    return [
+      { type: 'line', attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] } },
+      {
+        type: 'text',
+        ignoreEvent: true,
+        // Alinhado à esquerda, com respiro depois da barra de ferramentas de
+        // desenho (que fica sobreposta na borda esquerda do canvas).
+        attrs: { x: 56, y: y - 4, text: label, align: 'left', baseline: 'bottom' },
+      },
+    ];
+  },
+};
+
+try {
+  registerOverlay(PositionLabelLineOverlay);
+} catch (e) {
+  console.warn('[ChartView] ⚠️ Overlay de linha de posição já registrado ou erro:', e);
+}
+
+// 🎯 CUSTOM OVERLAY (2026-10-08, pedido do Cleber): linha de PIVÔ do último pregão (P, R1-R3, S1-S3), a mesma que
+// o indicador Order Block Finder desenha no MT5 dele. Rótulo no lado DIREITO do painel -- os rótulos de posição
+// (entrada/SL/TP) ficam à esquerda e não podem colidir. Ver services/analysis/sessionPivots.ts.
+const SessionPivotLineOverlay: OverlayTemplate = {
+  name: 'sessionPivotLine',
+  totalStep: 2,
+  needDefaultPointFigure: false,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: true,
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
+    const y = coordinates[0].y;
+    const label = typeof overlay.extendData === 'string' ? overlay.extendData : '';
+    return [
+      { type: 'line', attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] } },
+      { type: 'text', ignoreEvent: true, attrs: { x: bounding.width - 6, y: y - 3, text: label, align: 'right', baseline: 'bottom' } },
+    ];
+  },
+};
+
+try {
+  registerOverlay(SessionPivotLineOverlay);
+} catch (e) {
+  console.warn('[ChartView] ⚠️ Overlay de pivô do pregão já registrado ou erro:', e);
+}
+
 // 🎯 CUSTOM OVERLAY: Fibonacci Extension (Extensão de Fibonacci com 3 pontos)
 const FibonacciExtensionOverlay: OverlayTemplate = {
   name: 'fibonacciExtension',
@@ -522,7 +598,20 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay, precision }: any) => {
     const figures: any[] = [];
-    
+
+    // 🔧 FIX: tamanho/cor eram hardcoded na figure, ignorando overlay.styles.line —
+    // isso deixava o clique direito → Estilo (handleDrawingStyleChange, que chama
+    // overrideOverlay({ styles: { line: { size, color } } })) sem nenhum efeito
+    // visual nesta ferramenta específica, mesmo funcionando pra todas as outras.
+    // Agora lê o style real do overlay (setado na criação com default 4, e depois
+    // editável pelo usuário via o mesmo menu de contexto usado nos outros desenhos)
+    // — linha base e linhas de nível sempre do MESMO tamanho, igual pedido.
+    const lineSize = overlay.styles?.line?.size ?? 4;
+    // Só força uma cor única em cima da paleta por nível quando o usuário
+    // explicitamente escolheu uma cor no Estilo — sem isso, mantém a paleta
+    // padrão (cada nível com sua cor, convenção visual do Fibonacci).
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
+
     if (coordinates.length >= 2) {
       // Desenhar linha entre os pontos
       for (let i = 0; i < coordinates.length - 1; i++) {
@@ -536,24 +625,26 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
           },
           styles: {
             style: 'solid',
-            color: overlay.styles?.line?.color || '#2962FF'
+            color: colorOverride || '#2962FF',
+            size: lineSize
           }
         });
       }
-      
+
       // Se temos 3 pontos, calcular e desenhar níveis de extensão
       if (coordinates.length === 3) {
         const [pointA, pointB, pointC] = coordinates;
         const range = Math.abs(pointB.y - pointA.y);
-        
+
         // Níveis de extensão Fibonacci: 0.618, 1.0, 1.618, 2.618
         const levels = [0.618, 1.0, 1.618, 2.618];
         const direction = pointB.y > pointA.y ? 1 : -1;
-        
+
         levels.forEach((level, index) => {
           const y = pointC.y + (range * level * direction);
           const colors = ['#26a69a', '#2962FF', '#f23645', '#ff9800'];
-          
+          const levelColor = colorOverride || colors[index] || '#808080';
+
           figures.push({
             type: 'line',
             attrs: {
@@ -564,11 +655,13 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
             },
             styles: {
               style: 'dashed',
-              color: colors[index] || '#808080',
-              dashValue: [4, 4]
+              color: levelColor,
+              dashValue: [4, 4],
+              // 🎯 mesma espessura da linha base A→B→C, acima
+              size: lineSize
             }
           });
-          
+
           // Label com o nível
           figures.push({
             type: 'text',
@@ -578,14 +671,14 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
               text: `${(level * 100).toFixed(1)}%`
             },
             styles: {
-              color: colors[index] || '#808080',
+              color: levelColor,
               size: 12
             }
           });
         });
       }
     }
-    
+
     return figures;
   }
 };
@@ -771,7 +864,7 @@ const RectShapeOverlay: OverlayTemplate = {
     const [a, b] = coordinates;
     const color = overlay.styles?.rect?.color || 'rgba(59,130,246,0.15)';
     const borderColor = overlay.styles?.rect?.borderColor || '#3b82f6';
-    return {
+    const rect = {
       type: 'rect',
       attrs: {
         x: Math.min(a.x, b.x),
@@ -781,6 +874,22 @@ const RectShapeOverlay: OverlayTemplate = {
       },
       styles: { style: 'stroke_fill', color, borderColor, borderSize: 1 }
     };
+    // 🆕 2026-08-24: rótulo opcional (usado pelas zonas de Order Block do
+    // S/R do gráfico, ver renderSrOverlays) — string livre em extendData,
+    // desenhada no canto superior-esquerdo da caixa. Retrocompatível: sem
+    // extendData (uso normal como ferramenta de desenho manual), comportamento
+    // idêntico ao original (só o retângulo).
+    if (typeof overlay.extendData === 'string' && overlay.extendData) {
+      return [
+        rect,
+        {
+          type: 'text',
+          attrs: { x: Math.min(a.x, b.x) + 4, y: Math.min(a.y, b.y) + 2, align: 'left', baseline: 'top', text: overlay.extendData },
+          styles: { color: '#ffffff', size: 10, backgroundColor: borderColor, paddingLeft: 4, paddingRight: 4, paddingTop: 1, paddingBottom: 1 }
+        }
+      ];
+    }
+    return rect;
   }
 };
 
@@ -842,14 +951,18 @@ const FibCirclesOverlay: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates }: any) => {
+  createPointFigures: ({ coordinates, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
     const baseR = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+    // 🔧 FIX: mesmo ajuste do fibonacciExtension acima — espessura/cor lidas do
+    // overlay.styles (editável via clique direito → Estilo), não hardcoded.
+    const borderSize = overlay.styles?.line?.size ?? 4;
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
     return FIB_RATIOS.map((ratio, i) => ({
       type: 'circle',
       attrs: { x: a.x, y: a.y, r: baseR * ratio },
-      styles: { style: 'stroke', borderColor: FIB_COLORS[i], borderSize: 1 }
+      styles: { style: 'stroke', borderColor: colorOverride || FIB_COLORS[i], borderSize }
     }));
   }
 };
@@ -862,22 +975,27 @@ const FibFanOverlay: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates, bounding }: any) => {
+  createPointFigures: ({ coordinates, bounding, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
     const figures: any[] = [];
+    // 🔧 FIX: mesmo ajuste do fibonacciExtension acima — espessura/cor lidas do
+    // overlay.styles (editável via clique direito → Estilo), não hardcoded.
+    const lineSize = overlay.styles?.line?.size ?? 4;
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
     [0.382, 0.5, 0.618, 1].forEach((ratio, i) => {
       const target = { x: b.x, y: a.y + (b.y - a.y) * ratio };
       const end = extendLineRight(a, target, bounding.width);
+      const levelColor = colorOverride || FIB_COLORS[i + 1];
       figures.push({
         type: 'line',
         attrs: { coordinates: [a, end] },
-        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: FIB_COLORS[i + 1], dashedValue: [4, 4] }
+        styles: { style: ratio === 1 ? 'solid' : 'dashed', color: levelColor, size: lineSize, dashedValue: [4, 4] }
       });
       figures.push({
         type: 'text',
         attrs: { x: end.x - 4, y: end.y, align: 'right', baseline: 'bottom', text: `${(ratio * 100).toFixed(1)}%` },
-        styles: { color: FIB_COLORS[i + 1], size: 10, backgroundColor: 'transparent' }
+        styles: { color: levelColor, size: 10, backgroundColor: 'transparent' }
       });
     });
     return figures;
@@ -892,12 +1010,16 @@ const FibArcsOverlay: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates }: any) => {
+  createPointFigures: ({ coordinates, overlay }: any) => {
     if (coordinates.length < 2) return [];
     const [a, b] = coordinates;
     const baseR = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
     // arco abre pro lado de onde veio o movimento (acima se b está abaixo de a, e vice-versa)
     const opensUp = b.y >= a.y;
+    // 🔧 FIX: mesmo ajuste do fibonacciExtension acima — espessura/cor lidas do
+    // overlay.styles (editável via clique direito → Estilo), não hardcoded.
+    const lineSize = overlay.styles?.line?.size ?? 4;
+    const colorOverride: string | undefined = overlay.styles?.line?.color;
     return [0.382, 0.5, 0.618, 1].map((ratio, i) => ({
       type: 'arc',
       attrs: {
@@ -908,7 +1030,7 @@ const FibArcsOverlay: OverlayTemplate = {
         endAngle: opensUp ? Math.PI * 2 : Math.PI
       },
       // 🔧 o overlay nativo 'arc' usa style/color/size (LineType), não borderColor/borderSize
-      styles: { style: 'solid', color: FIB_COLORS[i + 1], size: 1 }
+      styles: { style: 'solid', color: colorOverride || FIB_COLORS[i + 1], size: lineSize }
     }));
   }
 };
@@ -1024,8 +1146,46 @@ const TrendAngleOverlay: OverlayTemplate = {
   }
 };
 
+// 📝 Anotação de Texto real: overlay nativo de 1 ponto, ancorado a preço/tempo (não um
+// <div> HTML em pixel fixo). Antes ('text'/'anchored-text') criava um card HTML solto
+// (`chartTexts` state) posicionado em pixel cru da tela -- não acompanhava zoom/pan do
+// candle (ficava "flutuando" no lugar errado assim que o gráfico rolava) e não tinha
+// edição depois de criado (só apagar com duplo-clique e recriar do zero). Este overlay
+// usa `dataIndex`/`value` como os demais desenhos -- se move com o candle certo, sobrevive
+// a snapshot/restauração de timeframe (ver `userDrawingsSnapshotRef`) e é editável de novo
+// clicando nele (mesmo padrão de clique-pra-editar do `InfoLineOverlay` acima).
+const TextAnnotationOverlay: OverlayTemplate = {
+  name: 'textAnnotation',
+  totalStep: 2, // 🔧 totalStep = pontos + 1 (1 ponto -> 2)
+  needDefaultPointFigure: true,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: ({ coordinates, overlay }: any) => {
+    if (coordinates.length < 1) return [];
+    const { x, y } = coordinates[0];
+    const text = typeof overlay.extendData === 'string' ? overlay.extendData : '';
+    if (!text) {
+      return [{
+        type: 'text',
+        ignoreEvent: true,
+        attrs: { x, y: y - 4, align: 'left', baseline: 'bottom', text: 'clique para escrever' },
+        styles: { color: 'rgba(148,163,184,0.7)', size: 10, backgroundColor: 'transparent' }
+      }];
+    }
+    return [{
+      type: 'text',
+      attrs: { x, y: y - 4, align: 'left', baseline: 'bottom', text },
+      styles: {
+        color: '#ffffff', size: 13, backgroundColor: 'rgba(30,41,59,0.92)',
+        paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4, borderRadius: 4
+      }
+    }];
+  }
+};
+
 const CUSTOM_DRAWING_OVERLAYS: OverlayTemplate[] = [
   InfoLineOverlay,
+  TextAnnotationOverlay,
   TrendAngleOverlay,
   PitchforkOverlay,
   RectShapeOverlay,
@@ -1070,22 +1230,12 @@ type DrawingTool =
   | 'annotation'
   | 'icons'
   | 'measure'
-  | 'zoom'
+  | 'zoom_in'
+  | 'zoom_out'
   | 'magnet'
   | 'lock'
   | 'hide'
   | 'remove';
-
-interface LiquidityZone {
-  id: string;
-  price: number;
-  strength: number;
-  type: 'support' | 'resistance';
-  touches: number;
-  volume: number;
-  distance: number;
-  significance: 'critical' | 'strong' | 'moderate' | 'weak';
-}
 
 interface TradingSignal {
   type: 'BUY' | 'SELL' | 'NEUTRAL';
@@ -1213,7 +1363,7 @@ const INDICATORS: IndicatorConfig[] = [
     description: '%K suavizado por SMA + %D — diferente do KDJ acima (que usa suavização exponencial e tem uma 3ª linha J)',
     category: 'momentum',
     klinechartsName: 'STOCH_SLOW',
-    defaultParams: [14, 3, 3],
+    defaultParams: [5, 3, 3],
     isPaneIndicator: true
   },
   {
@@ -1359,21 +1509,53 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice } = useTradingContext();
   const { user } = useAuth();
 
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
 
   const VALID_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'];
   const [timeframe, setTimeframe] = useState<Timeframe>(() => {
-    // 🆕 Lido de forma SÍNCRONA (cache local) pra já nascer com o timeframe do
-    // setup favorito do usuário, sem precisar de um 2º dispose()+init() do
-    // chart via setState assíncrono depois do mount (ver useFavoriteChartSetup.ts).
-    const cached = readCachedFavoriteChartSetup(user?.id);
-    const tf = cached?.timeframe as Timeframe | undefined;
+    // 🆕 Lido de forma SÍNCRONA (cache local) pra já nascer com o timeframe certo,
+    // sem precisar de um 2º dispose()+init() do chart via setState assíncrono
+    // depois do mount. Estado de sessão (sobrevive a trocar de seção do app,
+    // ver useChartSessionState.ts) tem prioridade sobre o setup favorito --
+    // é o que o usuário estava vendo há segundos, mais recente que o favorito.
+    const sessionCached = readCachedChartSessionState(user?.id);
+    const favoriteCached = readCachedFavoriteChartSetup(user?.id);
+    const tf = (sessionCached?.timeframe ?? favoriteCached?.timeframe) as Timeframe | undefined;
     return tf && VALID_TIMEFRAMES.includes(tf) ? tf : '1H';
   });
   const [currentPrice, setCurrentPrice] = useState<number | null>(null); // 🔥 Null até carregar dados reais
+  // Ref sempre atualizada — os handlers de arraste dos overlays de ordem
+  // pendente são criados dentro de renderPositionOverlays (só reexecuta
+  // quando activeOrders/pendingOrders/selectedSymbol mudam), então fechariam
+  // sobre um currentPrice desatualizado se lessem o state direto.
+  const currentPriceRef = useRef<number | null>(null);
+  useEffect(() => {
+    currentPriceRef.current = currentPrice;
+  }, [currentPrice]);
+  // 🐛 FIX 2026-09-02 (achado do Cleber: "linhas de posição às vezes aparecem
+  // às vezes não", confirmado com print mostrando UKOUSD com posição real
+  // aberta e sem nenhuma linha nem alerta na tela): o `fetchData`/setInterval
+  // de refresh de dados (mais abaixo, dependências `[timeframe,
+  // selectedSymbol]`) fecha sobre `activeOrders`/`pendingOrders` do render em
+  // que foi criado e nunca é recriado quando essas mudam — só quando
+  // timeframe/símbolo trocam. A cada tick desse interval,
+  // `renderPositionOverlays` era chamado com esse `activeOrders` CONGELADO
+  // (podia ser `[]` de antes de qualquer posição existir), apagando as linhas
+  // desenhadas certas pelo outro efeito (reativo de verdade, mais abaixo) —
+  // dependendo de qual dos dois rodou por último, a linha aparecia ou sumia.
+  // Refs sempre atualizadas resolvem: o fetch periódico lê o valor real mais
+  // recente em vez do congelado no fechamento.
+  const activeOrdersRef = useRef<TradeVisual[]>(activeOrders);
+  useEffect(() => {
+    activeOrdersRef.current = activeOrders;
+  }, [activeOrders]);
+  const pendingOrdersRef = useRef<PendingOrderVisual[]>(pendingOrders);
+  useEffect(() => {
+    pendingOrdersRef.current = pendingOrders;
+  }, [pendingOrders]);
   const [displayedPrice, setDisplayedPrice] = useState<number | null>(null); // Preço exibido (throttled para UI)
   // 🆕 Watchdog de preço "desatualizado" -- ver comentário completo no callback de
   // subscribeToSymbol mais abaixo. Sem isso, uma falha silenciosa no pipeline de preço
@@ -1391,7 +1573,7 @@ export function ChartView({
   const [selectedSymbol, setSelectedSymbol] = useState(selectedAsset || 'BTCUSD'); // 🔥 Inicializar com ativo global
   const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>('Todos'); // 🆕 Filtro de categoria
   const [activeTool, setActiveTool] = useState<DrawingTool>('crosshair');
-  const [liquidityZones, setLiquidityZones] = useState<LiquidityZone[]>([]);
+  const [orderBlockZones, setOrderBlockZones] = useState<SmcZone[]>([]);
   const [tradingSignal, setTradingSignal] = useState<TradingSignal>({
     type: 'NEUTRAL',
     strength: 0,
@@ -1401,8 +1583,31 @@ export function ChartView({
   });
   const [chartData, setChartData] = useState<KLineData[]>([]);
   const chartDataRef = useRef<KLineData[]>([]); // 🆕 Ref para evitar loop infinito no useEffect
+  // 🔴 FIX 2026-08-27 (achado do Cleber, com vídeo: cronômetro de candle
+  // saltando ~10min em <2s reais). Causa raiz: o cronômetro (efeito "Candle
+  // countdown" abaixo) lia `chartDataRef.current[last].timestamp` direto —
+  // mas esse ref é escrito tanto pelo fetch REAL (linha ~5703, dado confiável
+  // do servidor) quanto pelo tick local de "virada de vela" sintética (linha
+  // ~5997, um CHUTE de que passou exatamente 1 intervalo desde a última vela,
+  // usado só pra não esperar até 30s pelo refresh do servidor). Quando o
+  // fetch real seguinte trazia a vela verdadeira com um timestamp diferente
+  // do chute local (broker não necessariamente alinhado ao múltiplo exato de
+  // UTC assumido), o cronômetro saltava de forma descontínua e confusa.
+  // Corrigido: âncora separada, escrita SÓ pelo fetch real — o cronômetro
+  // nunca mais fabrica progresso a partir do chute local (mesma disciplina
+  // de "nunca fabricar dado" já documentada em CLAUDE.md pra preço/indicador).
+  const lastRealCandleTimestampRef = useRef<number | null>(null);
   const chartUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Debounce de updateData
   const [dataSource, setDataSource] = useState<'metaapi' | 'generated' | 'loading'>('loading');
+  // 🐛 FIX 2026-09-02: quando /mt5-candles-history falha uma vez (ex: rate-limit
+  // 429/504 da conta MetaAPI compartilhada, ver "Risco crônico conhecido" no
+  // CLAUDE.md), o gráfico ficava em branco pra sempre — `dataSource` era setado
+  // mas nunca lido em nenhum lugar da UI, sem retry nem mensagem, só o próximo
+  // auto-refresh de 30s (silencioso) podia recuperar. Agora: retry com backoff
+  // dentro do próprio fetch + estado visível pro usuário nunca ver um "branco mudo".
+  const [candlesLoading, setCandlesLoading] = useState(true);
+  const [candlesLoadFailed, setCandlesLoadFailed] = useState(false);
+  const fetchChartDataRef = useRef<(() => void) | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
   // 🆕 Maximizar a tela do Gráfico — usa a Fullscreen API real do navegador (o gráfico
@@ -1422,16 +1627,26 @@ export function ChartView({
   // depois que o navegador com certeza já terminou a transição -- 2 `requestAnimationFrame`
   // encadeados garantem que rodamos depois do próximo ciclo completo de layout+paint.
   const forceLayoutResettleAfterFullscreenChange = () => {
+    const resettle = () => {
+      try {
+        chartInstanceRef.current?.resize();
+      } catch (_) {
+        // silencioso -- mesma tolerância do resto dos resizes no arquivo
+      }
+      window.dispatchEvent(new Event('resize'));
+    };
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          chartInstanceRef.current?.resize();
-        } catch (_) {
-          // silencioso -- mesma tolerância do resto dos resizes no arquivo
-        }
-        window.dispatchEvent(new Event('resize'));
-      });
+      requestAnimationFrame(resettle);
     });
+    // 🐛 FIX: no macOS, o Chrome/Safari anima a entrada/saída de fullscreen nativo
+    // com um slide de várias centenas de ms -- 2 requestAnimationFrame (~32ms) some
+    // MUITO antes dessa animação terminar, então o resize acima roda com o container
+    // ainda no tamanho antigo, deixando o canvas do gráfico desalinhado/cortado à
+    // direita até o próximo evento de resize (relatado: "desenquadra do lado
+    // direito" ao restaurar da tela cheia). Reforça com resizes atrasados que cobrem
+    // a duração real da animação do SO.
+    setTimeout(resettle, 350);
+    setTimeout(resettle, 700);
   };
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -1461,6 +1676,29 @@ export function ChartView({
   const [showBacktestReplay, setShowBacktestReplay] = useState(false); // 🆕 Controle do Backtest/Replay
   const [showBacktestConfig, setShowBacktestConfig] = useState(false); // 🆕 Modal de configuração do Backtest
   const [showStrategyBuilder, setShowStrategyBuilder] = useState(false); // 🆕 Construtor de estratégias
+  // 🔧 FIX replay de mercado: o fetch/auto-refresh de dado AO VIVO (abaixo) não
+  // sabia da existência do Replay — continuava reaplicando candle real por
+  // cima a cada 30s, brigando com o candle do replay. Ref (não state) porque é
+  // lido dentro do setInterval de auto-refresh, criado 1x no mount do efeito.
+  const showBacktestReplayRef = useRef(false);
+  useEffect(() => {
+    showBacktestReplayRef.current = showBacktestReplay;
+  }, [showBacktestReplay]);
+  // Ao fechar o replay, os candles reais do dia (ao vivo) precisam substituir
+  // por completo os candles do replay já desenhados — força o próximo fetch
+  // real a fazer `applyNewData` (reset total) em vez de `updateData`
+  // incremental (que ia misturar candle de replay com candle ao vivo).
+  const forceFullReloadAfterReplayRef = useRef(false);
+  // 🐛 FIX "não aparece gráfico nenhum, fica piscando o candle" no Replay:
+  // `onCandlesUpdate` disparava a CADA candle revelado (1x/segundo ou mais
+  // rápido, conforme a velocidade) mandando `applyNewData` de novo — que é
+  // um reset completo (assíncrono) da klinecharts. Chamar isso em sequência
+  // rápida empilhava resets concorrentes, cada um interrompendo o anterior
+  // antes de terminar de pintar — o candle "piscava" e o gráfico nunca
+  // chegava a ficar estável na tela. Rastreia quantos candles do replay já
+  // foram aplicados como dataset inicial pra, a partir da 2ª chamada, usar
+  // `updateData` (1 candle, sem reset) em vez de `applyNewData` de novo.
+  const replayAppliedCountRef = useRef(0);
 
   // Entrada vinda de fora (ex: botão "Criar personalizada" na tela de IA) — abre
   // o construtor direto, sem passar pela tela de config de backtest.
@@ -1482,6 +1720,12 @@ export function ChartView({
   // aplicado automaticamente na 1ª carga do gráfico (ver useEffect de init mais abaixo).
   const { favoriteSetup, saveFavoriteSetup } = useFavoriteChartSetup();
   const favoriteSetupAppliedRef = useRef(false);
+  // 🆕 Estado "ao vivo" do gráfico (sessionStorage) — ver useChartSessionState.ts.
+  // `sessionStateAppliedRef` segue o mesmo padrão do favorito: aplica só na 1ª
+  // carga da montagem, nunca de novo a cada refresh de 30s.
+  const { readSessionState, saveSessionState } = useChartSessionState();
+  const sessionStateAppliedRef = useRef(false);
+  const initialRestoreDoneRef = useRef(false);
   // 🆕 Templates nomeados (CRUD completo — salvar/carregar/remover, menu "Templates"
   // do botão direito). `pendingTemplateApplyRef` existe porque "Carregar" pode exigir
   // trocar o timeframe primeiro (dispose()+init() do chart) -- nesse caso os
@@ -1491,6 +1735,14 @@ export function ChartView({
   const [templatesExpanded, setTemplatesExpanded] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
   const pendingTemplateApplyRef = useRef<ChartTemplateConfig | null>(null);
+  // 🐛 FIX (relatado pelo Cleber): trocar de timeframe depois de carregar um template
+  // nomeado fazia o template "desaparecer" -- o chart é dispose()+init() na troca de
+  // timeframe (mesmo caminho de "Carregar" que já precisa de pendingTemplateApplyRef),
+  // mas nada guardava QUAL template estava ativo pra reaplicar os indicadores depois.
+  // `activeTemplateConfigRef` guarda o último template carregado via "Carregar"; o
+  // clique manual no seletor de timeframe usa ele pra popular pendingTemplateApplyRef
+  // de novo (com o timeframe novo), reaproveitando o mesmo mecanismo de reaplicação.
+  const activeTemplateConfigRef = useRef<ChartTemplateConfig | null>(null);
   // 🆕 Toggle de grade de fundo (guias horizontais/verticais) — persistido localmente
   // (preferência de exibição, não precisa ser por usuário+ativo no Supabase como o S/R).
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(() => {
@@ -1582,8 +1834,17 @@ export function ChartView({
   
   // 🆕 TEXTO NO GRÁFICO - Estados para adicionar texto
   const [isAddingText, setIsAddingText] = useState(false); // Modo de adicionar texto
-  const [textInput, setTextInput] = useState(''); // Texto sendo digitado
-  const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null); // Posição do texto
+  // 🔧 FIX: o overlay 'emojiMarker' era criado SEM points (totalStep:1), esperando o próximo
+  // clique pra se posicionar — mas o EmojiPicker é um <div> `position:fixed` flutuando visualmente
+  // POR CIMA do canvas do gráfico (mesma área de tela). Confirmado ao vivo: o marcador nascia
+  // grudado onde o EMOJI foi escolhido no picker (canto esquerdo), não onde o usuário clicava
+  // de fato no candle — o clique de escolher o emoji contava como o "clique de posicionamento".
+  // Fix: mesmo padrão já usado no modo Texto (`isAddingText`/`textPosition`) — guarda o emoji
+  // escolhido, espera de verdade o PRÓXIMO clique dentro do container do chart (`onClick` do
+  // `chartContainerRef`, que já ignora cliques na picker por ela ficar fora dessa árvore/mesmo
+  // fechada nesse momento) e só then cria o overlay já com `points` explícitos convertidos de
+  // pixel pra dado real via `chart.convertFromPixel`.
+  const [pendingEmoji, setPendingEmoji] = useState<string | null>(null);
 
   // 🆕 Editor de texto da "Linha com Informações" — clique na linha abre este input
   const [infoLineEditor, setInfoLineEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
@@ -1591,6 +1852,48 @@ export function ChartView({
   const infoLineCancelledRef = useRef(false); // 🛡️ evita o onBlur salvar de novo depois do Esc já ter cancelado
   const infoLineInputRef = useRef<HTMLInputElement>(null);
   const infoLineTextRef = useRef(''); // espelha infoLineText p/ o listener de clique-fora ler o valor mais recente
+
+  // 🔧 FIX: Anotação de Texto (botão "T" da toolbar) era um <div> HTML solto em pixel cru
+  // da tela (`chartTexts`/`textPosition` antigos) — não acompanhava zoom/pan do candle e não
+  // dava pra editar depois de criado, só apagar com duplo-clique. Agora usa o overlay nativo
+  // `textAnnotation` (registrado acima, mesmo mecanismo do `infoLine`): clique no gráfico cria
+  // o ponto ancorado a preço/tempo, este editor abre na hora pra digitar, e clicar de novo no
+  // texto já criado reabre o mesmo editor pra corrigir — edição de verdade, não só apagar.
+  const [textAnnotationEditor, setTextAnnotationEditor] = useState<{ overlayId: string; x: number; y: number } | null>(null);
+  const [textAnnotationText, setTextAnnotationText] = useState('');
+  const textAnnotationCancelledRef = useRef(false);
+  const textAnnotationInputRef = useRef<HTMLInputElement>(null);
+  const textAnnotationTextRef = useRef('');
+
+  useEffect(() => {
+    if (!textAnnotationEditor) return;
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      if (textAnnotationInputRef.current && !textAnnotationInputRef.current.contains(event.target as Node)) {
+        const trimmed = textAnnotationTextRef.current.trim();
+        try {
+          if (trimmed) {
+            chartInstanceRef.current?.overrideOverlay({
+              id: textAnnotationEditor.overlayId,
+              extendData: trimmed
+            });
+          } else {
+            // Texto vazio ao clicar fora -- descarta o marcador em vez de deixar um
+            // "clique para escrever" fantasma perdido no gráfico.
+            chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+            userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+          }
+        } catch (err) {
+          console.error('[ChartView] ❌ Error saving text annotation (click outside):', err);
+        }
+        textAnnotationCancelledRef.current = true;
+        setTextAnnotationEditor(null);
+        setTextAnnotationText('');
+        setIsAddingText(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDownOutside, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
+  }, [textAnnotationEditor]);
 
   // 🔧 FIX: "só entra dando Enter" — clicar no canvas do gráfico (klinecharts previne o
   // comportamento padrão do mousedown pra permitir arrastar/desenhar), então o navegador
@@ -1619,8 +1922,6 @@ export function ChartView({
     document.addEventListener('pointerdown', handlePointerDownOutside, true);
     return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true);
   }, [infoLineEditor]);
-  const [chartTexts, setChartTexts] = useState<Array<{ id: string; text: string; x: number; y: number }>>([]); // Textos no gráfico
-  
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartIdRef = useRef<string>('chart-' + Math.random().toString(36).substring(7));
   const chartInstanceRef = useRef<any>(null);
@@ -1645,8 +1946,100 @@ export function ChartView({
   }, [showGridOverlay]);
   const assetListRef = useRef<HTMLDivElement>(null); // 🆕 Ref para o asset list
   const isInitialLoadRef = useRef<boolean>(true); // 🆕 Rastrear se é primeira carga (para evitar auto-scroll infinito)
+  // 🔴 2026-09-03 (achado ao vivo, pedido explícito do Cleber: "isso não pode
+  // ficar desse jeito, o usuário não pode passar por isso"): `candlesLoading`/
+  // `candlesLoadFailed` cobriam o gráfico INTEIRO com spinner/erro em TODA
+  // falha, mesmo quando já havia um gráfico real, funcionando, na tela --
+  // uma única instabilidade transitória da conta MetaAPI compartilhada
+  // (rate-limit crônico já documentado no projeto, achado ao vivo: NAS100
+  // devolvendo 504/tick obsoleto minutos depois de outros símbolos já terem
+  // se recuperado) apagava um gráfico que o usuário já estava vendo e o
+  // prendia atrás de uma tela preta até o próximo retry ter sucesso. Este
+  // ref marca quando o símbolo/timeframe atual JÁ renderizou candles reais
+  // pelo menos uma vez -- usado abaixo pra nunca mais esconder esse gráfico
+  // atrás do overlay bloqueante, só porque um refresh seguinte falhou.
+  const hasEverRenderedCandlesRef = useRef<boolean>(false);
   const srOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids dos overlays de Suporte/Resistência ativos no gráfico
+  // 🐛 FIX 2026-09-02: assinatura das zonas atualmente desenhadas — permite pular o
+  // clear+recreate completo em renderSrOverlays quando as zonas não mudaram desde o
+  // último refresh (ver comentário grande na função, era a causa real do "pisca" das
+  // caixas de S/R a cada 30s mesmo depois do fix de updateData incremental).
+  const srOverlaySignatureRef = useRef<string>('');
+  // 🆕 2026-10-08: pivôs do último pregão (P, R1-R3, S1-S3) -- ligados ao MESMO toggle "Suporte/Resistência".
+  const pivotOverlayIdsRef = useRef<string[]>([]);
+  const pivotSignatureRef = useRef<string>('');
+  const sessionPivotsCacheRef = useRef<Map<string, { result: SessionPivotsResult | null; fetchedAt: number }>>(new Map());
   const positionOverlayIdsRef = useRef<string[]>([]); // 🆕 Ids das linhas de posição aberta (entrada/SL/TP) desenhadas no gráfico
+  const signalOverlayIdRef = useRef<string | null>(null); // 🆕 Id do marcador de Trading Signal atual (evita acumular um novo a cada refresh de 30s)
+  // 🔧 FIX: troca de timeframe/símbolo faz dispose()+init() do chart (mesmo padrão documentado
+  // acima pros overlays de posição) — mas os desenhos do usuário (trendline, fibonacci, shapes,
+  // texto ancorado, emoji...) nunca tinham um mecanismo de captura/restauração equivalente.
+  // Confirmado ao vivo: desenhar uma linha de tendência e trocar de timeframe (ex: 5m→1H) apaga
+  // o desenho pra sempre, sem nenhum aviso. `userDrawingOverlayIdsRef` rastreia os ids criados
+  // pela toolbar (único jeito de enumerar depois, já que a klinecharts não expõe getOverlays()
+  // em lote — só getOverlayById por id conhecido); `userDrawingsSnapshotRef` guarda uma cópia
+  // serializável (name/points/styles/extendData/lock/visible) tirada logo antes do dispose(),
+  // recriada com createOverlay() depois que o chart novo termina de carregar o dataset.
+  const userDrawingOverlayIdsRef = useRef<string[]>([]);
+  const userDrawingsSnapshotRef = useRef<Array<{ name: string; points: any; styles: any; extendData: any; lock: boolean; visible: boolean }>>([]);
+  // 🔧 FIX: a "DrawingContextToolbar" (menu de Mover/Estilo/Travar/Apagar) abria
+  // automaticamente no PRIMEIRO clique em cima de um desenho -- inclusive o clique que
+  // TERMINA de desenhar a linha (2º clique de uma Linha de Tendência, por exemplo) -- e
+  // ficava fixa no topo-centro do gráfico até o usuário clicar num espaço vazio ou apagar
+  // o desenho. Cleber reportou que isso atrapalha o trade (fica em cima do painel de
+  // compra/venda). Novo comportamento: 1º clique num desenho só SELECIONA (linha fica
+  // levemente mais grossa, um sinal visual discreto de "isto está acionado"); só um 2º
+  // clique NO MESMO desenho já selecionado abre o menu, perto de onde foi clicado (não
+  // mais fixo no topo-centro, que ficava em cima do painel BTCUSD/SELL/BUY). `selectedDrawingIdRef`
+  // existe porque o `onClick` de cada overlay é capturado no momento da CRIAÇÃO (a
+  // klinecharts não recria o callback a cada render) -- comparar contra o state
+  // `selectedDrawing` ali dentro leria sempre o valor "congelado" de quando o desenho foi
+  // criado, nunca o estado real depois de cliques seguintes; um ref sempre lê o valor atual.
+  const selectedDrawingIdRef = useRef<string | null>(null);
+  const originalOverlayStylesRef = useRef<Record<string, any>>({});
+  // Espelha `showContextToolbar` pro onClick do overlay (capturado na criação, closure
+  // congelada) sempre ler o valor real -- mesmo motivo do `selectedDrawingIdRef` acima.
+  const showContextToolbarRef = useRef(false);
+
+  const applyDrawingSelectionHighlight = (id: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    try {
+      const ov = chart.getOverlayById(id);
+      if (!ov) return;
+      const styles = ov.styles || {};
+      originalOverlayStylesRef.current[id] = styles;
+      const bump = (obj: any, key: string, delta: number) => (obj ? { ...obj, [key]: (obj[key] ?? 2) + delta } : obj);
+      chart.overrideOverlay({
+        id,
+        styles: {
+          ...styles,
+          line: bump(styles.line, 'size', 2),
+          rect: bump(styles.rect, 'borderSize', 2),
+          circle: bump(styles.circle, 'borderSize', 2),
+          polygon: bump(styles.polygon, 'borderSize', 2)
+        }
+      });
+    } catch (e) {
+      console.warn('[ChartView] ⚠️ Falha ao destacar desenho selecionado:', e);
+    }
+  };
+
+  const clearDrawingSelectionHighlight = (id: string | null) => {
+    if (!id) return;
+    const chart = chartInstanceRef.current;
+    const original = originalOverlayStylesRef.current[id];
+    delete originalOverlayStylesRef.current[id];
+    if (!chart || !original) return;
+    try {
+      chart.overrideOverlay({ id, styles: original });
+    } catch (e) {
+      // Desenho pode já ter sido apagado (ex: pelo botão "Apagar") -- nada a restaurar.
+    }
+  };
+  useEffect(() => {
+    showContextToolbarRef.current = showContextToolbar;
+  }, [showContextToolbar]);
   // 🆕 Cache da estrutura de longo prazo (SMC, 1D/~5 anos) por símbolo — mesma ideia do
   // Detector de Liquidez do Dashboard: sem isso, S/R só enxerga a janela curta do gráfico
   // e nunca acha zona real acima/abaixo quando o preço está longe de qualquer extremo recente.
@@ -1666,7 +2059,8 @@ export function ChartView({
     { id: 'icons' as DrawingTool, icon: Smile, label: 'Ícones', shortcut: 'Alt + I' },
     'separator',
     { id: 'measure' as DrawingTool, icon: Ruler, label: 'Medir', shortcut: 'Alt + M' },
-    { id: 'zoom' as DrawingTool, icon: ZoomIn, label: 'Zoom', shortcut: 'Alt + Z' },
+    { id: 'zoom_in' as DrawingTool, icon: ZoomIn, label: 'Aproximar (Zoom +)', shortcut: 'Alt + Z' },
+    { id: 'zoom_out' as DrawingTool, icon: ZoomOut, label: 'Afastar (Zoom −)', shortcut: 'Alt + X' },
     'separator',
     { id: 'magnet' as DrawingTool, icon: MagnetIcon, label: 'Modo Magnético', shortcut: 'Alt + G' },
     { id: 'lock' as DrawingTool, icon: Lock, label: 'Travar Desenhos', shortcut: 'Alt + L' },
@@ -2396,13 +2790,15 @@ export function ChartView({
     }
   }, [selectedAsset]);
 
-  // 🆕 EFFECT: Gerenciar cursor dot no modo ponto (DESABILITADO)
+  // 🆕 EFFECT: Gerenciar cursor dot no modo ponto
+  // 🔧 FIX: estava desligado de propósito ("DESABILITADO para evitar IframeMessageAbortError")
+  // — mas o cursor já é escondido (`cursor: none`) por handleCrosshairModeChange assim que
+  // o modo Ponto é selecionado, então sem este efeito o usuário ficava sem NENHUM cursor
+  // visível (nem seta, nem bolinha). Confirmado ao vivo: hover no gráfico em modo Ponto não
+  // mostrava nada. Reativado — não usa nenhum `setState`/postMessage, só manipulação direta
+  // do DOM via listener nativo, então não é a causa plausível do IframeMessageAbortError
+  // citado (esse erro é de comunicação entre iframes/postMessage, não de mousemove local).
   useEffect(() => {
-    // 🔥 DESABILITADO para evitar IframeMessageAbortError
-    console.log('[ChartView] ⚠️ Cursor dot DESABILITADO');
-    return;
-    
-    /* CÓDIGO ORIGINAL - COMENTADO
     if (crosshairMode !== 'point' || !chartContainerRef.current) return;
 
     console.log('[ChartView] 🔵 useEffect: Criando bolinha para modo ponto');
@@ -2458,7 +2854,6 @@ export function ChartView({
       document.removeEventListener('mouseup', handleMouseUp);
       dot.remove();
     };
-    */
   }, [crosshairMode]);
 
   // 🆕 Ícones de editar ("⚙") e fechar ("✕") que aparecem na legenda do indicador, direto
@@ -2763,7 +3158,20 @@ export function ChartView({
     if (isMovingAverageIndicator(indicator)) {
       // 🆕 Médias móveis (MA/EMA/SMA/WMA) carregam Método/Aplicar a/Deslocar/Estilo (e todas
       // as linhas/períodos já configurados) já na criação — ver registerMovingAverageIndicator.
-      Object.assign(config, buildMAChartConfig(indicator.klinechartsName, getMASettings(indicator)));
+      // 🐛 FIX (bug real relatado pelo Cleber, achado com dado do Supabase: template salvo
+      // com "EMA + 2 simples" voltava só com 1 simples): `getMASettings` SÓ COMPUTA um
+      // default na hora, nunca escreve em `indicatorMASettings`/`indicatorMASettingsRef` --
+      // isso só acontecia em `addMALineDirect` (2ª instância em diante, via "Adicionar
+      // outra média"). A 1ª instância de uma MA, criada por este caminho (toggle normal do
+      // indicador, `toggleIndicator`/`changeIndicatorPlacement`), nunca ganhava uma chave
+      // no estado -- `captureCurrentChartConfig` serializava `indicatorMASettings` sem essa
+      // chave, e template/favorito salvo perdia essa instância inteira ao recarregar
+      // (confirmado direto no banco: template salvo tinha só "ema"/"ma__2", sem "ma").
+      // Fix: grava a settings computada no estado igual `addMALineDirect` já faz.
+      const initialSettings = getMASettings(indicator);
+      indicatorMASettingsRef.current = { ...indicatorMASettingsRef.current, [indicator.id]: initialSettings };
+      setIndicatorMASettings(prev => ({ ...prev, [indicator.id]: initialSettings }));
+      Object.assign(config, buildMAChartConfig(indicator.klinechartsName, initialSettings));
     } else {
       const params = getIndicatorParams(indicator);
       if (params.length > 0) {
@@ -2923,6 +3331,68 @@ export function ChartView({
     }
   };
 
+  // 🆕 POSIÇÃO de scroll horizontal do gráfico, guardada como ÂNCORA
+  // (candle + coordenada X em pixels onde ele está na tela). Ver o comentário
+  // longo em ChartTemplateConfig (useChartTemplates.ts): a klinecharts guarda o
+  // scroll em `_lastBarRightSideDiffBarCount`, que não é público, e reconstruir
+  // esse valor a partir de `getVisibleRange()` erra meia barra por vez porque a
+  // lib arredonda (`realTo = round(diff + total + 0.5)`) — medido no browser:
+  // a posição escorregava 1 barra a CADA restauração, e como o refresh de 30s
+  // restaura, o gráfico ia andando sozinho. Ancorar em pixel é exato.
+  const readChartScrollPosition = (chart: any): { anchorTimestamp: number; anchorX: number } | null => {
+    if (!chart) return null;
+    try {
+      const dataList = chart.getDataList();
+      const range = chart.getVisibleRange();
+      const total = dataList?.length ?? 0;
+      if (!range || total === 0) return null;
+      // Candle encostado na borda direita da janela visível — é o que o usuário
+      // percebe como "onde eu deixei o gráfico".
+      const anchorIndex = Math.max(0, Math.min(Math.round(range.realTo), total) - 1);
+      const anchor = dataList[anchorIndex];
+      if (!anchor?.timestamp) return null;
+      const px = chart.convertToPixel({ timestamp: anchor.timestamp }, { paneId: 'candle_pane' });
+      const x = Array.isArray(px) ? px[0]?.x : px?.x;
+      if (typeof x !== 'number' || !isFinite(x)) return null;
+      return { anchorTimestamp: anchor.timestamp, anchorX: x };
+    } catch (_) {
+      return null;
+    }
+  };
+
+  // Contraparte de `readChartScrollPosition`: rola o quanto for preciso pra que o
+  // candle-âncora volte à MESMA coordenada X. Duração 0 — restaurar posição não
+  // é animação. Aplicar sempre DEPOIS do barSpace (o zoom muda quantos pixels
+  // vale cada barra, logo muda o X do mesmo candle).
+  const applyChartScrollPosition = (chart: any, anchorTimestamp: number, anchorX: number) => {
+    if (!chart) return;
+    try {
+      // 🐛 FIX (bug real relatado pelo Cleber: gráfico abrindo com só a última vela
+      // visível, resto da tela em branco): o estado de sessão salva `anchorTimestamp`
+      // sem o SÍMBOLO — ao trocar de ativo (ou reabrir a página com sessão de outro
+      // símbolo salva), este timestamp antigo é reaplicado sobre o dataset novo. Se
+      // ele cai fora do range de candles carregado agora, `convertToPixel` extrapola
+      // pra um pixel fora da tela e `scrollByDistance` empurra o viewport inteiro pra
+      // longe dos dados reais. Guarda: só restaura se o timestamp existir de fato
+      // dentro do range carregado; fora disso, mantém a posição já definida por
+      // scrollToRealTime() em vez de arriscar um scroll absurdo.
+      const dataList = chart.getDataList();
+      const first = dataList?.[0]?.timestamp;
+      const last = dataList?.[dataList.length - 1]?.timestamp;
+      if (typeof first !== 'number' || typeof last !== 'number' || anchorTimestamp < first || anchorTimestamp > last) {
+        console.warn('[ChartView] ⚠️ Âncora de scroll fora do range carregado, ignorando restauração de posição');
+        return;
+      }
+      const px = chart.convertToPixel({ timestamp: anchorTimestamp }, { paneId: 'candle_pane' });
+      const x = Array.isArray(px) ? px[0]?.x : px?.x;
+      if (typeof x !== 'number' || !isFinite(x)) return;
+      const distance = anchorX - x;
+      if (Math.abs(distance) > 0.01) chart.scrollByDistance(distance, 0);
+    } catch (error) {
+      console.warn('[ChartView] ⚠️ Não foi possível restaurar a posição de scroll:', error);
+    }
+  };
+
   // 🆕 Captura o setup atual do gráfico (indicadores + parâmetros, grade, S/R,
   // timeframe, zoom/scroll) — usado tanto por "Salvar como favorita" quanto por
   // "Templates › Salvar". barSpace/offsetRightDistance são os únicos dois valores
@@ -2936,7 +3406,10 @@ export function ChartView({
       try { barSpace = chart.getBarSpace(); } catch (_) {}
       try { offsetRightDistance = chart.getOffsetRightDistance(); } catch (_) {}
     }
+    const viewport = readChartScrollPosition(chart);
     return {
+      anchorTimestamp: viewport?.anchorTimestamp ?? null,
+      anchorX: viewport?.anchorX ?? null,
       timeframe,
       indicatorIds: Array.from(activeIndicators),
       indicatorParamsById,
@@ -2949,6 +3422,84 @@ export function ChartView({
     };
   };
 
+  // 🆕 Autosave do estado de sessão (sessionStorage) a cada mudança de indicador/
+  // timeframe/grade/S/R — é o que faz o gráfico sobreviver a trocar de seção do
+  // app sem exigir nenhuma ação manual do usuário (ver useChartSessionState.ts).
+  // Roda depois da 1ª restauração da sessão/favorito (refs acima), senão o efeito
+  // reescreveria a sessão com o estado em branco ANTES do useEffect de init aplicar
+  // o que tinha sido salvo.
+  // 🐛 FIX (bug real relatado pelo Cleber: trocar de TIMEFRAME "perdia" o setup,
+  // não obedecendo ao que tinha acabado de ser salvo/adicionado): este save era
+  // DEBOUNCED (300ms via setTimeout), pensado só pra não gravar a cada tecla. Só
+  // que trocar de timeframe RECRIA o chart (dispose+init, ver efeito de init logo
+  // abaixo) e relê este MESMO sessionStorage pra restaurar os indicadores -- se a
+  // troca de timeframe acontecesse a menos de 300ms de ter adicionado/editado um
+  // indicador (comum, é só um clique), a leitura pegava o snapshot ANTIGO (sem a
+  // mudança) e reconstruía o gráfico em cima dele, descartando a mudança recente
+  // de vez -- mesma causa raiz do bug já corrigido de "some ao trocar de seção"
+  // (aquele cobria só o desmonte real do componente; troca de timeframe não
+  // desmonta, só reinicializa o chart dentro do mesmo componente montado, então
+  // aquele fix não alcançava este caso). `sessionStorage.setItem` é síncrono e
+  // barato (poucos KB) -- não há motivo real pra debounce aqui. Fix: grava na
+  // hora, sem timer, eliminando a janela de corrida por completo.
+  useEffect(() => {
+    if (!initialRestoreDoneRef.current) return;
+    saveSessionState(user?.id, captureCurrentChartConfig());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndicators, indicatorParamsById, indicatorPlacement, indicatorMASettings, timeframe, showGridOverlay, showSrOverlay, user?.id]);
+
+  // 🐛 FIX (bug real relatado pelo Cleber: média móvel recém-adicionada "sumia" ao
+  // trocar de seção do app -- ex: Gráfico -> Dashboard -> Gráfico -- e voltar): o
+  // autosave acima é DEBOUNCED (300ms) de propósito, pra não gravar no sessionStorage
+  // a cada tecla/clique. Mas `ChartView` é DESMONTADO a cada troca de seção (SPA, ver
+  // comentário em useChartSessionState.ts) -- o cleanup do efeito de autosave só fazia
+  // `clearTimeout`, cancelando o save pendente sem nunca escrevê-lo. Se o usuário
+  // trocasse de seção em menos de 300ms depois de adicionar/editar um indicador
+  // (comum -- é só um clique), o sessionStorage ficava com o estado de ANTES dessa
+  // última mudança, e ela "sumia" ao voltar. Fix: efeito separado, com cleanup que só
+  // roda no DESMONTE de verdade (deps `[]`), gravando de forma síncrona e imediata
+  // (sem debounce) o estado mais recente via ref -- garante que a última mudança
+  // sempre sobrevive à troca de seção, mesmo que tenha acontecido um instante antes.
+  const captureCurrentChartConfigRef = useRef(captureCurrentChartConfig);
+  const userIdRef = useRef(user?.id);
+  useEffect(() => {
+    captureCurrentChartConfigRef.current = captureCurrentChartConfig;
+    userIdRef.current = user?.id;
+  });
+
+  // 🆕 Persistência do VIEWPORT (zoom + scroll horizontal). O autosave de sessão acima
+  // só dispara quando muda indicador/timeframe/grade/S-R — dar zoom não mexe em nenhum
+  // desses, então o zoom só era gravado no desmonte do componente. Isso bastava pra
+  // troca de seção, mas não pra recarregar a página nem pra qualquer caminho que não
+  // passe pelo cleanup. Aqui o zoom/scroll é gravado assim que o usuário para de
+  // mexer (debounce curto — onZoom/onScroll disparam a cada frame do gesto).
+  const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistChartViewportRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    persistChartViewportRef.current = () => {
+      if (!initialRestoreDoneRef.current) return;
+      if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
+      viewportSaveTimerRef.current = setTimeout(() => {
+        saveSessionState(userIdRef.current, captureCurrentChartConfigRef.current());
+      }, 250);
+    };
+  });
+  useEffect(() => {
+    return () => {
+      // 🐛 Um save de viewport agendado (debounce de 250ms) que dispare DEPOIS do
+      // desmonte leria um chart já `dispose()`ado e sobrescreveria com lixo o
+      // snapshot bom gravado logo abaixo. Cancela antes de gravar o definitivo.
+      if (viewportSaveTimerRef.current) {
+        clearTimeout(viewportSaveTimerRef.current);
+        viewportSaveTimerRef.current = null;
+      }
+      if (initialRestoreDoneRef.current) {
+        saveSessionState(userIdRef.current, captureCurrentChartConfigRef.current());
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 🆕 Remove todos os indicadores ativos do chart (mas não mexe no state React --
   // quem chama é responsável por atualizar activeIndicators/etc depois). Usado antes
   // de aplicar um template pra não deixar instância órfã de um indicador que o
@@ -2960,6 +3511,11 @@ export function ChartView({
         try { removeIndicatorInstance(chart, indicator); } catch (_) {}
       }
     });
+    // 🐛 FIX: `removeIndicatorInstance` já limpa `maInstancesRef.current[id]` pra cada
+    // indicador conhecido, mas se sobrar qualquer resíduo (ex: indicador removido do
+    // catálogo desde então) as próximas instâncias de MA recriadas por
+    // `applyChartTemplateConfig` herdariam instâncias fantasma. Zera tudo aqui.
+    maInstancesRef.current = {};
   };
 
   // 🆕 Aplica um ChartTemplateConfig salvo diretamente no chart (via API do klinecharts,
@@ -2975,41 +3531,73 @@ export function ChartView({
       const indicatorConfig = INDICATORS.find(ind => ind.id === id);
       if (!indicatorConfig) return; // indicador removido/renomeado desde o save
       const placement = templateConfig.indicatorPlacement[id] ?? (indicatorConfig.isPaneIndicator ? 'pane' : 'overlay');
-      const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
       if (isMovingAverageIndicator(indicatorConfig)) {
-        const raw = (templateConfig.indicatorMASettings[id] as any) ?? getMASettings(indicatorConfig);
-        // Templates salvos antes do suporte a múltiplas linhas guardavam {period, color,
-        // lineStyle, lineWidth} direto no objeto -- migra pro formato novo {lines: [...]}
-        // na hora de carregar, sem quebrar template antigo.
-        const settings: MAUISettings = Array.isArray(raw?.lines)
-          ? raw
-          : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
-        Object.assign(config, buildMAChartConfig(indicatorConfig.klinechartsName, settings));
-        // 🐛 FIX (achado real, relatado pelo Cleber): mais embaixo, `setIndicatorMASettings`
-        // usava `templateConfig.indicatorMASettings` DIRETO (o `raw` de cima, não migrado) --
-        // pra um setup favorito salvo em formato antigo, o GRÁFICO desenhava com o `settings`
-        // migrado (período correto, ex. 20) mas o estado React que alimenta o editor ficava
-        // com o objeto bruto sem `.lines`. Consequência: abrir o editor de uma média já
-        // carregada de um setup salvo mostrava parâmetro errado/default, e clicar Salvar
-        // sobrescrevia a média correta do gráfico pela errada do editor (ex. 20 -> 200).
-        // Guarda aqui o MESMO `settings` migrado que foi de fato desenhado, pra estado e
-        // gráfico nunca mais divergirem.
-        migratedMASettings[id] = settings;
+        // 🐛 FIX (bug real relatado pelo Cleber: 2 médias móveis iguais salvas em
+        // template, só 1 sobrevivia): `templateConfig.indicatorIds` só tem UMA entrada
+        // por TIPO de indicador ("ma"), nunca uma por instância ("ma__2") -- só
+        // `indicatorMASettings` guarda todas as instâncias (ver `addMALineDirect`, que
+        // grava cada instância extra sob a chave `${id}__${n}`). Antes este loop lia
+        // só `templateConfig.indicatorMASettings[id]` (a 1ª instância) e recriava um
+        // único indicador -- as extras ficavam salvas no banco mas nunca eram lidas.
+        // Fix: descobre TODAS as chaves de `indicatorMASettings` que pertencem a este
+        // indicador (a própria `id`, ou `${id}__N`) e recria uma instância por chave,
+        // igual ao fluxo de "Adicionar outra média" (`addMALineDirect`).
+        const instanceIds = Object.keys(templateConfig.indicatorMASettings)
+          .filter(key => key === id || key.startsWith(`${id}__`));
+        if (instanceIds.length === 0) instanceIds.push(id);
+
+        let created = false;
+        instanceIds.forEach((instanceId, variantIndex) => {
+          const raw = (templateConfig.indicatorMASettings[instanceId] as any) ?? getMASettings(indicatorConfig);
+          // Templates salvos antes do suporte a múltiplas linhas guardavam {period, color,
+          // lineStyle, lineWidth} direto no objeto -- migra pro formato novo {lines: [...]}
+          // na hora de carregar, sem quebrar template antigo.
+          const settings: MAUISettings = Array.isArray(raw?.lines)
+            ? raw
+            : { shift: raw.shift ?? 0, method: raw.method ?? 'SIMPLE', appliedPrice: raw.appliedPrice ?? 'CLOSE', lines: [{ period: raw.period ?? 20, color: raw.color ?? '#f97316', lineStyle: raw.lineStyle ?? 'solid', lineWidth: raw.lineWidth ?? 1 }] };
+          // 🐛 FIX (achado real, relatado pelo Cleber): `setIndicatorMASettings` usava
+          // `templateConfig.indicatorMASettings` DIRETO (o `raw` de cima, não migrado) --
+          // pra um setup favorito salvo em formato antigo, o GRÁFICO desenhava com o
+          // `settings` migrado (período correto, ex. 20) mas o estado React que alimenta
+          // o editor ficava com o objeto bruto sem `.lines`. Guarda aqui o MESMO `settings`
+          // migrado que foi de fato desenhado, pra estado e gráfico nunca mais divergirem.
+          migratedMASettings[instanceId] = settings;
+
+          const variantKlinechartsName = MA_VARIANT_KLINECHARTS_NAME(indicatorConfig.klinechartsName, variantIndex);
+          const config: any = { name: variantKlinechartsName, id: instanceId, ...buildMAChartConfig(variantKlinechartsName, settings) };
+          try {
+            let paneId: string;
+            if (placement === 'pane') {
+              paneId = variantIndex === 0 ? `pane_${id}` : `pane_${id}_extra_${variantIndex + 1}`;
+              chart.createIndicator(config, false, { id: paneId });
+            } else {
+              paneId = 'candle_pane';
+              chart.createIndicator(config, true, { id: paneId });
+            }
+            if (variantIndex === 0) indicatorPaneIdRef.current[id] = paneId;
+            maInstancesRef.current[id] = [...(maInstancesRef.current[id] ?? []), { instanceId, klinechartsName: variantKlinechartsName, paneId }];
+            created = true;
+          } catch (error) {
+            console.error('[ChartView] ❌ Erro aplicando instância de média móvel do template:', instanceId, error);
+          }
+        });
+        if (created) appliedIds.push(id);
       } else {
+        const config: any = { name: indicatorConfig.klinechartsName, id: indicatorConfig.id };
         const params = templateConfig.indicatorParamsById[id] ?? indicatorConfig.defaultParams ?? [];
         if (params.length > 0) config.calcParams = params;
-      }
-      try {
-        if (placement === 'pane') {
-          chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
-          indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
-        } else {
-          chart.createIndicator(config, true, { id: 'candle_pane' });
-          indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+        try {
+          if (placement === 'pane') {
+            chart.createIndicator(config, false, { id: `pane_${indicatorConfig.id}` });
+            indicatorPaneIdRef.current[indicatorConfig.id] = `pane_${indicatorConfig.id}`;
+          } else {
+            chart.createIndicator(config, true, { id: 'candle_pane' });
+            indicatorPaneIdRef.current[indicatorConfig.id] = 'candle_pane';
+          }
+          appliedIds.push(id);
+        } catch (error) {
+          console.error('[ChartView] ❌ Erro aplicando indicador do template:', indicatorConfig.id, error);
         }
-        appliedIds.push(id);
-      } catch (error) {
-        console.error('[ChartView] ❌ Erro aplicando indicador do template:', indicatorConfig.id, error);
       }
     });
 
@@ -3039,15 +3627,26 @@ export function ChartView({
       if (templateConfig.barSpace !== null && templateConfig.barSpace !== undefined) {
         let barSpaceToApply = templateConfig.barSpace;
         if (containerWidth > 0 && candleCount > 0) {
-          // Nunca deixa menos de ~60 candles cabendo na largura atual (ou todos os
-          // candles carregados, se houver menos que isso) -- evita o "zoom" salvo
-          // de outra sessão encolher demais o conteúdo visível.
-          const minVisibleCandles = Math.min(candleCount, 60);
+          // 🐛 FIX (2026-08-20): o piso original era 60 candles visíveis -- mas o
+          // barSpace máximo que a própria klinecharts permite já resulta em bem
+          // menos que 60 candles cabendo na tela em qualquer largura razoável de
+          // container. Ou seja, esse piso brigava com zoom legítimo: todo template
+          // salvo com o usuário zoomado além de ~60 candles era desfeito ao
+          // carregar, obrigando reajustar o zoom manualmente toda vez (bug
+          // relatado pelo Cleber). Piso reduzido pra só proteger o caso
+          // degenerado (poucos candles visíveis a ponto de não dar pra ler nada),
+          // não pra limitar zoom de verdade.
+          const minVisibleCandles = Math.min(candleCount, 5);
           const maxBarSpaceToFill = containerWidth / minVisibleCandles;
           barSpaceToApply = Math.min(barSpaceToApply, maxBarSpaceToFill);
         }
         chart.setBarSpace(barSpaceToApply);
       }
+      // ⚠️ ORDEM IMPORTA: `setOffsetRightDistance` recalcula internamente a posição
+      // de scroll (`_lastBarRightSideDiffBarCount = offset / barSpace`), ou seja
+      // devolve o gráfico pro tempo real. Por isso ele vem ANTES da restauração da
+      // posição real, e só existe pra manter a folga configurada de templates
+      // antigos (salvos antes da âncora de posição existir).
       if (templateConfig.offsetRightDistance !== null && templateConfig.offsetRightDistance !== undefined) {
         // Folga à direita do último candle nunca maior que ~15% da largura do
         // container -- um offset gigante herdado de outra sessão empurra os
@@ -3055,6 +3654,11 @@ export function ChartView({
         // branco indevida.
         const maxOffset = containerWidth > 0 ? containerWidth * 0.15 : templateConfig.offsetRightDistance;
         chart.setOffsetRightDistance(Math.min(templateConfig.offsetRightDistance, maxOffset));
+      }
+
+      // 🆕 Posição real onde o usuário deixou o gráfico (ver readChartScrollPosition).
+      if (templateConfig.anchorTimestamp && typeof templateConfig.anchorX === 'number') {
+        applyChartScrollPosition(chart, templateConfig.anchorTimestamp, templateConfig.anchorX);
       }
     } catch (error) {
       console.warn('[ChartView] ⚠️ Não foi possível restaurar zoom/posição do template:', error);
@@ -3166,6 +3770,71 @@ export function ChartView({
     { id: 'volume', label: 'Volume', icon: Activity },
     { id: 'support_resistance', label: 'S&R', icon: Target },
   ];
+
+  // 🔧 FIX: extraído do inline que só existia dentro de `handleDrawingToolSelect` — o
+  // desenho recriado na restauração pós-troca de timeframe/símbolo (ver
+  // `userDrawingsSnapshotRef`) nunca recebia ESTE `onClick`, então clicar num desenho
+  // (Fibonacci, trendline, forma...) depois de trocar de timeframe não fazia mais nada
+  // (nem selecionava, nem abria o menu de Mover/Estilo/Travar/Apagar). Mesma lógica de
+  // antes, só fatorada pra ser reaproveitada nos dois lugares que criam overlay
+  // (`createOverlay` inicial da toolbar e a recriação no restore).
+  const buildDrawingOnClickHandler = (overlayName: string) => (event: any) => {
+    if (overlayName === 'infoLine') {
+      const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
+      setInfoLineText(existingText);
+      infoLineTextRef.current = existingText;
+      setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
+    } else {
+      const clickedId = event.overlay.id;
+      // 🔧 FIX: 1º clique só seleciona + destaca (linha fica levemente mais grossa);
+      // só um 2º clique NO MESMO desenho já selecionado abre o menu -- ver comentário
+      // completo na declaração de `selectedDrawingIdRef` acima. Isso também resolve o
+      // menu abrindo sozinho no clique que TERMINA de desenhar (esse clique final é o
+      // "1º clique" deste desenho, então agora só seleciona).
+      if (selectedDrawingIdRef.current && selectedDrawingIdRef.current !== clickedId) {
+        clearDrawingSelectionHighlight(selectedDrawingIdRef.current);
+      }
+      if (selectedDrawingIdRef.current === clickedId && showContextToolbarRef.current) {
+        // Já selecionado e com o menu aberto -- clicar de novo FECHA o menu (mesmo
+        // gesto abre/fecha), mantendo o destaque de "selecionado".
+        setShowContextToolbar(false);
+      } else if (selectedDrawingIdRef.current === clickedId) {
+        // Já selecionado, menu fechado -- este clique é o "acionar" pedido pelo Cleber:
+        // abre o menu perto de onde o usuário clicou (não mais fixo no topo-centro,
+        // que ficava em cima do painel de compra/venda).
+        const chartRect = chartContainerRef.current?.getBoundingClientRect();
+        if (chartRect) {
+          const TOOLBAR_WIDTH = 420;
+          const TOOLBAR_HEIGHT = 56;
+          // 🔧 event.x/event.y da klinecharts são relativos ao CONTAINER do gráfico
+          // (mesma convenção já usada pelo infoLineEditor/textAnnotationEditor, ambos
+          // `position:absolute` DENTRO do container) -- mas este menu usa
+          // `position:fixed` (coordenada de viewport), então precisa somar
+          // chartRect.left/top pra converter, senão abre fora do lugar.
+          const rawX = chartRect.left + (event.x ?? chartRect.width / 2) + 12;
+          const rawY = chartRect.top + (event.y ?? 50) - TOOLBAR_HEIGHT - 12;
+          setContextToolbarPosition({
+            x: Math.min(Math.max(rawX, chartRect.left + 8), chartRect.right - TOOLBAR_WIDTH - 8),
+            y: Math.min(Math.max(rawY, chartRect.top + 8), chartRect.bottom - TOOLBAR_HEIGHT - 8)
+          });
+        }
+        setShowContextToolbar(true);
+      } else {
+        // Seleciona um desenho novo (ou troca de um pra outro) -- só destaca, o menu
+        // fica oculto por padrão (comportamento pedido: "via de regra ela fica oculta").
+        selectedDrawingIdRef.current = clickedId;
+        applyDrawingSelectionHighlight(clickedId);
+        setSelectedDrawing({
+          id: clickedId,
+          type: event.overlay.name,
+          isLocked: !!event.overlay.lock,
+          isHidden: event.overlay.visible === false
+        });
+        setShowContextToolbar(false);
+      }
+    }
+    return true;
+  };
 
   // 🆕 HANDLE DRAWING TOOL SELECT
   const handleDrawingToolSelect = (tool: string) => {
@@ -3305,42 +3974,25 @@ export function ChartView({
       // Informações, nem a toolbar de contexto de Bloquear/Ocultar/Estilo/Duplicar/Copiar).
       // O jeito real de ouvir clique em overlay é o handler onClick por instância, atribuído
       // na própria criação (ver Overlay.onClick na tipagem da lib).
+      // 🆕 Linhas de nível do Fibonacci (overlay nativo 'fibonacciLine'/'fibonacciExtension')
+      // pedidas 4x mais grossas pelo Cleber -- default da klinecharts é line.size=1.
+      const isFibonacciNativeOverlay = overlayType === 'fibonacciLine' || overlayType === 'fibonacciExtension';
+
       const overlayId = chartInstanceRef.current.createOverlay({
         name: overlayType,
         groupId: USER_DRAWINGS_GROUP,
+        ...(isFibonacciNativeOverlay ? { styles: { line: { size: 4 } } } : {}),
         // 🆕 Modo Magnético (ver toggle no DrawingToolbar) -- weak_magnet faz os pontos
         // do desenho encaixarem no OHLC do candle mais próximo em vez de ficarem soltos
         // em qualquer coordenada crua do mouse. Suporte nativo da klinecharts.
         mode: magnetActive ? OverlayMode.WeakMagnet : OverlayMode.Normal,
-        onClick: (event: any) => {
-          if (overlayType === 'infoLine') {
-            const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
-            setInfoLineText(existingText);
-            infoLineTextRef.current = existingText;
-            setInfoLineEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
-          } else {
-            setSelectedDrawing({
-              id: event.overlay.id,
-              type: event.overlay.name,
-              isLocked: !!event.overlay.lock,
-              isHidden: event.overlay.visible === false
-            });
-            const chartRect = chartContainerRef.current?.getBoundingClientRect();
-            if (chartRect) {
-              setContextToolbarPosition({
-                x: chartRect.left + chartRect.width / 2 - 200,
-                y: chartRect.top + 50
-              });
-            }
-            setShowContextToolbar(true);
-          }
-          return true;
-        }
+        onClick: buildDrawingOnClickHandler(overlayType)
       });
       
       if (overlayId) {
         console.log('[ChartView] ✅ Overlay created with ID:', overlayId);
-        
+        userDrawingOverlayIdsRef.current.push(overlayId); // 🔧 FIX: rastreia pra sobreviver a troca de timeframe/símbolo
+
         // Mensagens específicas para diferentes ferramentas
         if (tool === 'point-marker') {
           // Não mostrar toast aqui porque já mostramos quando ativou o modo ponto
@@ -3752,26 +4404,22 @@ export function ChartView({
     }
   };
 
-  // 🆕 Emoji escolhido no picker → próximo clique no gráfico ancora o emoji ali
+  // 🆕 Emoji escolhido no picker → próximo clique DE VERDADE no gráfico ancora o emoji ali
+  // 🔧 FIX: antes criava o overlay na hora (sem `points`), contando com o próprio clique de
+  // escolher o emoji no picker pra completar o desenho — como o picker fica visualmente por
+  // cima do canvas, o marcador nascia grudado onde o emoji foi escolhido, não onde o usuário
+  // realmente clicava depois. Agora só guarda o emoji pendente; a criação real acontece no
+  // onClick do container do chart (ver `pendingEmoji` mais abaixo), com `points` explícitos.
   const handleEmojiSelect = (emoji: string) => {
     if (!chartInstanceRef.current) {
       toast.error('Aguarde o carregamento do gráfico');
       return;
     }
-    try {
-      chartInstanceRef.current.createOverlay({
-        name: 'emojiMarker',
-        groupId: USER_DRAWINGS_GROUP,
-        extendData: emoji
-      });
-      toast.success(`${emoji} selecionado`, {
-        description: 'Clique no gráfico para posicionar',
-        duration: 2500
-      });
-    } catch (error) {
-      console.error('[ChartView] ❌ Error creating emoji marker:', error);
-      toast.error('Erro ao criar marcador');
-    }
+    setPendingEmoji(emoji);
+    toast.success(`${emoji} selecionado`, {
+      description: 'Clique no gráfico para posicionar',
+      duration: 2500
+    });
   };
 
   // 🆕 CONTEXT TOOLBAR HANDLERS
@@ -3780,6 +4428,9 @@ export function ChartView({
 
     try {
       chartInstanceRef.current.removeOverlay(selectedDrawing.id);
+      userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== selectedDrawing.id); // 🔧 FIX: mantém o rastreamento coerente
+      delete originalOverlayStylesRef.current[selectedDrawing.id]; // apagado -- nada a restaurar depois
+      if (selectedDrawingIdRef.current === selectedDrawing.id) selectedDrawingIdRef.current = null;
       setShowContextToolbar(false);
       setSelectedDrawing(null);
       toast.success('Desenho removido');
@@ -3840,6 +4491,29 @@ export function ChartView({
     }
   };
 
+  const handleDrawingGotoPrice = (price: number) => {
+    if (!chartInstanceRef.current || !selectedDrawing) return;
+
+    try {
+      const chart = chartInstanceRef.current;
+      const original = chart.getOverlayById(selectedDrawing.id);
+      if (!original) {
+        toast.error('Desenho não encontrado');
+        return;
+      }
+      // Achata a linha na horizontal: todos os pontos recebem o mesmo preço,
+      // mantendo o(s) tempo/dataIndex original(is) de cada ponto.
+      const flattenedPoints = (original.points ?? []).map((p: any) => ({
+        ...p,
+        value: price
+      }));
+      chart.overrideOverlay({ id: selectedDrawing.id, points: flattenedPoints });
+    } catch (error) {
+      console.error('[ChartView] ❌ Error moving drawing to price:', error);
+      toast.error('Erro ao mover desenho para o preço');
+    }
+  };
+
   const handleDrawingDuplicate = () => {
     if (!chartInstanceRef.current || !selectedDrawing) return;
 
@@ -3856,13 +4530,16 @@ export function ChartView({
         dataIndex: typeof p.dataIndex === 'number' ? p.dataIndex + 5 : undefined,
         value: p.value
       }));
-      chart.createOverlay({
+      const dupId = chart.createOverlay({
         name: original.name,
         groupId: USER_DRAWINGS_GROUP,
         points: shiftedPoints,
         styles: original.styles,
         extendData: original.extendData
       });
+      if (dupId) {
+        userDrawingOverlayIdsRef.current.push(dupId as string); // 🔧 FIX: rastreia pra sobreviver a troca de timeframe/símbolo
+      }
       toast.success('Desenho duplicado');
     } catch (error) {
       console.error('[ChartView] ❌ Error duplicating drawing:', error);
@@ -3927,6 +4604,8 @@ export function ChartView({
       // 🔧 FIX: remove SÓ os desenhos do usuário (groupId) — antes o removeOverlay()
       // sem argumento apagava também os overlays de sistema (linhas de S/R, sinais).
       chart.removeOverlay({ groupId: USER_DRAWINGS_GROUP });
+      userDrawingOverlayIdsRef.current = []; // 🔧 FIX: limpa o rastreamento junto — senão a próxima troca de timeframe "ressuscitava" desenhos apagados
+      userDrawingsSnapshotRef.current = [];
 
       console.log('[ChartView] ✅ All user drawings removed successfully');
     } catch (error) {
@@ -3959,24 +4638,49 @@ export function ChartView({
   };
 
   // Candle countdown
-  useEffect(() => {
-    const intervals: Record<Timeframe, number> = {
-      '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000,
-      '1H': 3600000, '2H': 7200000, '4H': 14400000,
-      '1D': 86400000, '1W': 604800000, '1M': 2592000000,
-    };
+  const TIMEFRAME_INTERVALS_MS: Record<Timeframe, number> = {
+    '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000,
+    '1H': 3600000, '2H': 7200000, '4H': 14400000,
+    '1D': 86400000, '1W': 604800000, '1M': 2592000000,
+  };
 
+  useEffect(() => {
     const updateCountdown = () => {
-      const now = Date.now();
-      const interval = intervals[timeframe];
-      const elapsed = now % interval;
-      setCandleCountdown(interval - elapsed);
+      const interval = TIMEFRAME_INTERVALS_MS[timeframe];
+
+      // Ancora o cronômetro no timestamp real do último candle recebido do
+      // servidor (Binance/MetaAPI), não em Date.now() % interval — o boundary
+      // assumido em UTC puro diverge do fechamento real quando o candle vem
+      // de um servidor MT5 em outro fuso.
+      //
+      // 🔴 FIX 2026-08-27: antes lia `chartDataRef.current[last].timestamp`,
+      // que também é escrito pelo "chute" de virada de vela local (não é dado
+      // do servidor, ver comentário na declaração de `lastRealCandleTimestampRef`)
+      // — as duas fontes discordando entre si é o que causava o cronômetro
+      // saltar minutos de forma descontínua. Agora só a âncora confirmada por
+      // fetch real é usada.
+      const anchor = lastRealCandleTimestampRef.current;
+      if (anchor === null) {
+        setCandleCountdown(interval);
+        return;
+      }
+
+      const elapsedSinceOpen = Date.now() - anchor;
+      if (elapsedSinceOpen >= interval) {
+        // Já deveria ter virado, mas o próximo candle real ainda não chegou
+        // (fetch periódico/streaming) — nunca fabricar o próximo boundary por
+        // adivinhação: trava em 00:00 até a âncora real confirmar a virada,
+        // em vez de contar pra frente sobre um período que ainda não existe.
+        setCandleCountdown(0);
+        return;
+      }
+      setCandleCountdown(interval - elapsedSinceOpen);
     };
 
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
-  }, [timeframe]);
+  }, [timeframe, chartData]);
 
   const formatCountdown = (ms: number) => {
     const s = Math.floor(ms / 1000);
@@ -4017,60 +4721,31 @@ export function ChartView({
     return sum / period;
   };
 
-  // Detect Liquidity Zones from real price action
-  const detectLiquidityZones = (data: KLineData[], priceAtCalculation: number): LiquidityZone[] => { // 🔥 FIX: Receber price como parâmetro para evitar loop
+  // 🆕 2026-08-24: Suporte/Resistência do gráfico virou o motor de Order
+  // Block (Smart Money Concepts) — pesquisa do Cleber testou a lógica do
+  // indicador de terceiro "Order Block Finder" (MT5) como estratégia de
+  // ENTRADA e não achou edge estatístico (ver
+  // research/experiments/2026-08-24-order-block-fade/verdict.md), mas o
+  // padrão visual em si (zona onde já houve reação de preço antes) é
+  // exatamente o que o Cleber queria ver desenhado no gráfico, como
+  // referência — não como sinal de trade. Substitui o clustering de preço
+  // antigo (`detectLiquidityZones`, heurística sem base em price action
+  // real) pelo motor SMC já existente e testado (`src/app/services/smc`).
+  const detectOrderBlockZones = (data: Candle[], symbol: string, tf: string): SmcZone[] => {
     if (data.length < 20) return [];
-    
-    const zones: LiquidityZone[] = [];
-    const priceMap = new Map<string, { count: number; volume: number; prices: number[] }>();
-    
-    // Group prices by rounded levels
-    data.forEach((candle) => {
-      const roundedHigh = (Math.round(candle.high / (priceAtCalculation * 0.001)) * (priceAtCalculation * 0.001)).toFixed(5);
-      const roundedLow = (Math.round(candle.low / (priceAtCalculation * 0.001)) * (priceAtCalculation * 0.001)).toFixed(5);
-      
-      [roundedHigh, roundedLow].forEach(level => {
-        if (!priceMap.has(level)) {
-          priceMap.set(level, { count: 0, volume: 0, prices: [] });
-        }
-        const entry = priceMap.get(level)!;
-        entry.count++;
-        entry.volume += candle.volume || 0;
-        entry.prices.push(candle.high, candle.low);
-      });
-    });
-    
-    // Convert to zones and filter significant ones
-    const sortedEntries = Array.from(priceMap.entries())
-      .filter(([_, data]) => data.count >= 3)
-      .sort((a, b) => b[1].volume - a[1].volume)
-      .slice(0, 8);
-    
-    sortedEntries.forEach(([priceStr, data], index) => {
-      const price = parseFloat(priceStr);
-      const distance = ((price - priceAtCalculation) / priceAtCalculation) * 100;
-      const isSupport = price < priceAtCalculation;
-      const strength = Math.min((data.count / 10) * 100, 100);
-      
-      let significance: 'critical' | 'strong' | 'moderate' | 'weak';
-      if (strength >= 80) significance = 'critical';
-      else if (strength >= 60) significance = 'strong';
-      else if (strength >= 40) significance = 'moderate';
-      else significance = 'weak';
-      
-      zones.push({
-        id: `zone-${index}`,
-        price,
-        strength,
-        type: isSupport ? 'support' : 'resistance',
-        touches: data.count,
-        volume: data.volume,
-        distance,
-        significance
-      });
-    });
-    
-    return zones.sort((a, b) => b.price - a.price);
+    return analyzeSmc(data, symbol, tf).orderBlocks.filter((z) => !z.mitigated);
+  };
+
+  // Quanto estender a caixa do Order Block adiante do último candle
+  // carregado, em ms — 20 barras do timeframe atual, mesmo efeito visual do
+  // indicador original (a zona "flutua" à frente do preço).
+  const timeframeToMs = (tf: string): number => {
+    const match = /^(\d+)([mHDW])$/.exec(tf) || /^(\d+)([mhdw])$/i.exec(tf);
+    if (!match) return 15 * 60_000; // fallback: 15min
+    const n = parseInt(match[1], 10);
+    const unit = match[2].toLowerCase();
+    const unitMs = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : 604_800_000;
+    return n * unitMs;
   };
 
   const MACRO_SR_WINDOW_DAYS = 1825; // ~5 anos, mesma janela do Detector de Liquidez do Dashboard
@@ -4099,9 +4774,7 @@ export function ChartView({
         volume: c.volume
       }));
       const analysis = analyzeSmc(candles, symbol, '1d');
-      const zones = [...analysis.orderBlocks, ...analysis.fairValueGaps, ...analysis.liquidityPools].filter(
-        (z) => !z.mitigated
-      );
+      const zones = analysis.orderBlocks.filter((z) => !z.mitigated);
       macroSrZonesRef.current.set(symbol, { zones, fetchedAt: Date.now() });
       return zones;
     } catch (err) {
@@ -4112,51 +4785,30 @@ export function ChartView({
     }
   };
 
-  // 🆕 Combina as zonas de S/R detectadas na janela curta do gráfico com as zonas
-  // macro (SMC, longo prazo) — sempre priorizando as mais PRÓXIMAS do preço atual em
-  // cada lado (suporte abaixo / resistência acima), não as de maior força/volume, que é
-  // o que fazia as linhas aparecerem longe demais do preço.
-  const buildSrZonesWithMacro = (
-    intradayZones: LiquidityZone[],
-    macroZones: SmcZone[],
-    currentPrice: number
-  ): LiquidityZone[] => {
-    const macroAsLiquidity: LiquidityZone[] = macroZones.map((z, i) => {
-      const price = (z.priceLow + z.priceHigh) / 2;
-      const isSupport = price < currentPrice;
-      const distance = ((price - currentPrice) / currentPrice) * 100;
-      let significance: LiquidityZone['significance'];
-      if (z.strength >= 80) significance = 'critical';
-      else if (z.strength >= 60) significance = 'strong';
-      else if (z.strength >= 40) significance = 'moderate';
-      else significance = 'weak';
-      return {
-        id: `macro-${z.id}-${i}`,
-        price,
-        strength: z.strength,
-        type: isSupport ? 'support' : 'resistance',
-        touches: 1,
-        volume: 0,
-        distance,
-        significance
-      };
+  // Combina os order blocks da janela curta (candles carregados no gráfico)
+  // com os order blocks macro (SMC 1D, ~5 anos) — mantém as zonas como
+  // RETÂNGULOS (não colapsa num preço médio como a versão antiga fazia),
+  // já que é exatamente essa forma que o Cleber pediu pra replicar. Descarta
+  // duplicata (zonas de fontes diferentes cujo range se sobrepõe) e mantém a
+  // de maior força; corta pro teto de zonas visíveis pra não poluir o gráfico.
+  const MAX_ORDER_BLOCK_ZONES = 10;
+  const combineOrderBlockZones = (intradayZones: SmcZone[], macroZones: SmcZone[]): SmcZone[] => {
+    const combined = [...intradayZones, ...macroZones].sort((a, b) => b.strength - a.strength);
+    const deduped: SmcZone[] = [];
+    combined.forEach((zone) => {
+      // 🐛 FIX: comparava sobreposição de preço contra TODAS as zonas já aceitas, sem
+      // checar o tipo — uma zona de resistência (bearish, acima do preço) podia ser
+      // descartada como "duplicata" de uma zona de suporte (bullish, abaixo do preço)
+      // mais forte cujo range (principalmente as macro de 1D/~5 anos, bem largas) por
+      // acaso se sobrepunha, mesmo os dois sendo tipos opostos e níveis reais distintos.
+      // Isso explicava zonas de venda desaparecendo por completo do gráfico. Dedup
+      // agora só compara zonas do MESMO tipo entre si.
+      const isDuplicate = deduped.some(
+        (existing) => existing.type === zone.type && zone.priceLow <= existing.priceHigh && zone.priceHigh >= existing.priceLow
+      );
+      if (!isDuplicate) deduped.push(zone);
     });
-
-    const combined = [...intradayZones, ...macroAsLiquidity];
-
-    // Descarta duplicatas (zonas de fontes diferentes representando o mesmo nível,
-    // dentro de 0.15% de preço uma da outra) — mantém a de maior força.
-    const deduped: LiquidityZone[] = [];
-    combined
-      .sort((a, b) => b.strength - a.strength)
-      .forEach((zone) => {
-        const isDuplicate = deduped.some(
-          (existing) => Math.abs(existing.price - zone.price) / currentPrice < 0.0015
-        );
-        if (!isDuplicate) deduped.push(zone);
-      });
-
-    return deduped;
+    return deduped.slice(0, MAX_ORDER_BLOCK_ZONES);
   };
 
   // Generate Trading Signal based on technical analysis
@@ -4243,14 +4895,45 @@ export function ChartView({
     return { type, strength, reasons, rsi, trend };
   };
 
-  // 🆕 Desenha (ou limpa) as linhas de Suporte/Resistência direto no gráfico.
+  // 🆕 2026-08-24: Desenha (ou limpa) as zonas de Order Block (Smart Money
+  // Concepts) direto no gráfico — substitui as linhas finas de S/R antigas
+  // por RETÂNGULOS que replicam o "Order Block Finder" (indicador MT5 de
+  // terceiro que o Cleber pediu pra trazer pro produto, ver
+  // research/experiments/2026-08-24-order-block-fade/hypothesis.md). É
+  // exibição de referência visual, não sinal de entrada — o backtest da
+  // mesma sessão não achou edge estatístico usando essa zona como gatilho
+  // de trade (verdict.md do mesmo experimento).
+  //
+  // Zona bearish (order_block_bearish, formada antes de rompimento de
+  // baixa) fica acima do preço subsequente = resistência/supply → azul,
+  // mesma leitura do indicador original. Zona bullish (order_block_bullish,
+  // formada antes de rompimento de alta) fica abaixo = suporte/demand →
+  // verde. Cada zona se estende do candle de origem até `extendMs` à frente
+  // do último candle carregado (mesmo efeito visual do indicador: a caixa
+  // "flutua" adiante no tempo).
+  //
   // Sempre limpa os overlays anteriores antes de criar os novos — evita
-  // vazamento de linhas de um ativo pro outro e permite ligar/desligar via
+  // vazamento de zona de um ativo pro outro e permite ligar/desligar via
   // recriação (klinecharts nesta versão não tem flag nativa de visibilidade).
   const MAX_SR_OVERLAYS = 6;
-  const renderSrOverlays = (zones: LiquidityZone[], visible: boolean) => {
+  const renderSrOverlays = (zones: SmcZone[], visible: boolean, lastCandleTimestamp: number, extendMs: number) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
+
+    // 🐛 FIX 2026-09-02 (achado do Cleber: "gráfico continua dando refresh sozinho,
+    // na cara do usuário" mesmo após o fix de candles incrementais do dia anterior):
+    // esta função roda a CADA fetchData, inclusive nos refreshs automáticos de 30s
+    // (chamada em fetchData, não só na 1ª carga) — e sempre removia TODOS os overlays
+    // de S/R e recriava do zero, mesmo quando as zonas detectadas eram exatamente as
+    // mesmas do ciclo anterior (o caso comum, já que Order Blocks só mudam quando um
+    // nível novo é formado/rompido). Esse clear+recreate constante é visível como um
+    // pisca das caixas/linhas de S/R a cada 30s — a causa real que sobrevivia ao fix
+    // de updateData incremental (que só resolve o reset do dataset de candles, não
+    // este overlay). Corrigido pulando o redesenho quando a assinatura das zonas
+    // (mesmos ids, mesma ordem) não mudou desde o último render.
+    const signature = !visible ? '' : zones.slice(0, MAX_SR_OVERLAYS).map(z => z.id).join('|');
+    if (signature === srOverlaySignatureRef.current) return;
+    srOverlaySignatureRef.current = signature;
 
     srOverlayIdsRef.current.forEach((id) => {
       try {
@@ -4263,40 +4946,147 @@ export function ChartView({
 
     if (!visible || zones.length === 0) return;
 
-    // 🔥 FIX: prioriza as zonas mais PRÓXIMAS do preço atual (não as de maior força/volume)
-    // — é isso que garante que as linhas desenhadas sejam projeções relevantes pro próximo
-    // movimento, não níveis distantes que o preço só tocaria depois de um movimento grande.
-    const supports = zones.filter((z) => z.type === 'support').sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance)).slice(0, MAX_SR_OVERLAYS / 2);
-    const resistances = zones.filter((z) => z.type === 'resistance').sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance)).slice(0, MAX_SR_OVERLAYS / 2);
-    const selected = [...supports, ...resistances];
+    // Prioriza as zonas mais FORTES (já vem ordenado/deduplicado por
+    // combineOrderBlockZones) — corta pro teto de zonas visíveis. 🐛 FIX: um corte
+    // cego por força (zones.slice) podia devolver só resistência ou só suporte quando
+    // um lado tinha zonas sistematicamente mais fortes que o outro (comum: mercado em
+    // tendência clara) — a metade mais fraca do lado oposto nunca aparecia no gráfico,
+    // mesmo existindo e sendo real. Agora reserva metade do teto pra cada lado.
+    const resistanceZones = zones.filter((z) => z.type === 'order_block_bearish');
+    const supportZones = zones.filter((z) => z.type !== 'order_block_bearish');
+    const halfCap = Math.ceil(MAX_SR_OVERLAYS / 2);
+    const selected = [
+      ...resistanceZones.slice(0, halfCap),
+      ...supportZones.slice(0, halfCap)
+    ].slice(0, MAX_SR_OVERLAYS);
+    const zoneEndTime = lastCandleTimestamp + extendMs;
 
     selected.forEach((zone) => {
-      const isSupport = zone.type === 'support';
-      const isCritical = zone.significance === 'critical' || zone.significance === 'strong';
-      const overlayId = `sr_${zone.type}_${zone.price.toFixed(5)}`;
+      const isResistance = zone.type === 'order_block_bearish'; // formado antes de rompimento de baixa = fica acima = resistência
+      const overlayId = `ob_${zone.id}`;
+      const color = isResistance ? 'rgba(59,130,246,0.18)' : 'rgba(34,197,94,0.18)';
+      const borderColor = isResistance ? '#3b82f6' : '#22c55e';
+      const label = `${isResistance ? 'R' : 'S'} OB ${((zone.priceHigh + zone.priceLow) / 2).toFixed(2)}`;
 
       try {
         chart.createOverlay({
-          name: 'horizontalStraightLine',
+          name: 'rectShape',
           id: overlayId,
-          points: [{ value: zone.price }],
-          styles: {
-            // Laranja pontilhado pros dois lados (suporte e resistência) — cor
-            // e verde/vermelho sólido eram fáceis de confundir com as linhas
-            // de posição/SL/TP da boleta (mesmo verde de COMPRA, mesmo
-            // vermelho de VENDA). Mantém só a espessura pra sinalizar força.
-            line: { color: '#f97316', style: 'dashed', size: isCritical ? 2 : 1 },
-            text: {
-              color: '#ffffff',
-              backgroundColor: 'rgba(249,115,22,0.85)',
-              size: 11
-            }
-          },
-          text: `${isSupport ? 'S' : 'R'} ${zone.price.toFixed(2)} · ${zone.touches}x`
+          lock: true,
+          points: [
+            { timestamp: zone.startTime, value: zone.priceHigh },
+            { timestamp: Math.max(zoneEndTime, zone.startTime + extendMs), value: zone.priceLow }
+          ],
+          styles: { rect: { color, borderColor } },
+          extendData: label
         });
         srOverlayIdsRef.current.push(overlayId);
       } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar zona de Order Block:', e);
+      }
+
+      // 🆕 Linha horizontal clássica de S/R, na borda da zona voltada pro preço
+      // (resistência: base do retângulo; suporte: topo) — o Cleber pediu de
+      // volta além do retângulo, que sozinho não deixa claro qual preço exato
+      // é o nível de reação.
+      const lineId = `ob_line_${zone.id}`;
+      const lineLevel = isResistance ? zone.priceLow : zone.priceHigh;
+      try {
+        chart.createOverlay({
+          name: 'horizontalStraightLine',
+          id: lineId,
+          lock: true,
+          points: [{ value: lineLevel }],
+          styles: { line: { color: borderColor, style: 'dashed', size: 4 } },
+          extendData: label
+        });
+        srOverlayIdsRef.current.push(lineId);
+      } catch (e) {
         console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de S/R:', e);
+      }
+    });
+  };
+
+  // 🆕 2026-10-08 (pedido do Cleber): pivôs clássicos do último pregão concluído, as "resistências pesadas" do
+  // MT5 dele (indicador Order Block Finder, ShowPivot). Lógica pura em services/analysis/sessionPivots.ts --
+  // o motor vai importar de lá, pra o gráfico e a IA verem os mesmos níveis. Só o UKOUSD está calibrado contra
+  // o MT5; os demais saem com asterisco (virada padrão do dia do servidor, a confirmar com o Cleber).
+  const SESSION_PIVOT_REFRESH_MS = 5 * 60 * 1000;
+  const loadSessionPivots = async (symbol: string): Promise<SessionPivotsResult | null> => {
+    const cached = sessionPivotsCacheRef.current.get(symbol);
+    if (cached && Date.now() - cached.fetchedAt < SESSION_PIVOT_REFRESH_MS) return cached.result;
+    try {
+      // Janela CURTA (6 dias de 1H): os pivôs só precisam do último pregão. `fetchCandles` pede até 5 anos e
+      // disputava vaga com o carregamento do próprio gráfico na conta MetaAPI compartilhada (a 1ª versão desta
+      // função usava ele e as linhas não apareciam). Mesmo serviço do S/R macro (BacktestDataService): Binance
+      // para cripto, MetaAPI para o resto, com retry.
+      const hourMs = 3_600_000;
+      const end = new Date(Math.floor(Date.now() / hourMs) * hourMs + hourMs);
+      const start = new Date(end.getTime() - 6 * 24 * hourMs);
+      const response = await backtestDataService.fetchHistoricalData(symbol, start, end, '1h');
+      const candles1h = response.candles
+        .map((c) => {
+          const t: unknown = c.time;
+          const ms = typeof t === 'string' ? Date.parse(t) : typeof t === 'number' && t < 1e12 ? t * 1000 : (t as number);
+          return { timestamp: ms, open: c.open, high: c.high, low: c.low, close: c.close };
+        });
+      const result = lastCompletedSessionPivots(candles1h, symbol, Date.now());
+      console.log(`[ChartView] 📍 Pivôs do pregão ${symbol}:`, result ? `${result.candlesUsed} velas, R1 ${result.pivots.r1.toFixed(3)}, P ${result.pivots.pivot.toFixed(3)}, S1 ${result.pivots.s1.toFixed(3)}${result.calibrated ? '' : ' (não calibrado)'}` : `sem pregão concluído com candles suficientes (${candles1h.length} velas de 1H recebidas)`);
+      sessionPivotsCacheRef.current.set(symbol, { result, fetchedAt: Date.now() });
+      return result;
+    } catch (err) {
+      if (!(err instanceof BacktestDataUnavailableError)) {
+        console.warn('[ChartView] ⚠️ Falha ao buscar candles de 1H para os pivôs do pregão:', err);
+      }
+      return cached?.result ?? null;
+    }
+  };
+
+  const renderSessionPivots = (symbol: string, result: SessionPivotsResult | null, visible: boolean) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const signature = !visible || !result ? '' : `${symbol}|${result.sessionEnd}|${result.high}|${result.low}|${result.close}`;
+    if (signature === pivotSignatureRef.current) return; // nada mudou: não pisca a cada refresh de 30s
+    pivotSignatureRef.current = signature;
+
+    pivotOverlayIdsRef.current.forEach((id) => {
+      try {
+        chart.removeOverlay(id);
+      } catch (e) {
+        // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+      }
+    });
+    pivotOverlayIdsRef.current = [];
+    if (!visible || !result) return;
+
+    const star = result.calibrated ? '' : ' *';
+    const decimals = result.pivots.pivot >= 1000 ? 2 : result.pivots.pivot >= 10 ? 3 : 5;
+    const levels: Array<{ key: string; name: string; value: number; color: string; dash: boolean }> = [
+      { key: 'r3', name: 'R3', value: result.pivots.r3, color: '#ef4444', dash: true },
+      { key: 'r2', name: 'R2', value: result.pivots.r2, color: '#ef4444', dash: true },
+      { key: 'r1', name: 'R1', value: result.pivots.r1, color: '#ef4444', dash: false },
+      { key: 'pivot', name: 'P', value: result.pivots.pivot, color: '#c0c0c0', dash: false },
+      { key: 's1', name: 'S1', value: result.pivots.s1, color: '#22c55e', dash: false },
+      { key: 's2', name: 'S2', value: result.pivots.s2, color: '#22c55e', dash: true },
+      { key: 's3', name: 'S3', value: result.pivots.s3, color: '#22c55e', dash: true },
+    ];
+    levels.forEach((lv) => {
+      const id = `pivot_${lv.key}`;
+      try {
+        chart.createOverlay({
+          name: 'sessionPivotLine',
+          id,
+          lock: true,
+          points: [{ value: lv.value }],
+          styles: {
+            line: { color: lv.color, style: lv.dash ? 'dashed' : 'solid', size: 1 },
+            text: { color: lv.color, size: 11, backgroundColor: 'transparent', borderSize: 0 },
+          },
+          extendData: `${lv.name} ${lv.value.toFixed(decimals)}${star}`,
+        });
+        pivotOverlayIdsRef.current.push(id);
+      } catch (e) {
+        console.warn('[ChartView] ⚠️ Não foi possível desenhar o pivô do pregão:', lv.name, e);
       }
     });
   };
@@ -4309,107 +5099,412 @@ export function ChartView({
   const renderPositionOverlays = (orders: TradeVisual[], symbol: string, pending: PendingOrderVisual[] = []) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
+    // 🔴 2026-09-02: chart pode existir (recém dispose()+init()) antes dos
+    // candles chegarem — `activeOrders`/`pendingOrders` mudam de referência a
+    // cada tick de preço (~1s) e podiam disparar este efeito nessa janela,
+    // desenhando a guide de entrada num gráfico ainda sem nenhuma vela
+    // (relatado ao vivo: tela mostra só a linha de entrada, sem candle, por
+    // um instante antes do gráfico real aparecer). `chartDataRef` é a mesma
+    // fonte de verdade usada em toda a atualização de preço ao vivo (linha
+    // ~6091, ~6370) — se ainda não tem candle, ainda não é hora de desenhar
+    // overlay nenhuma; o `fetchData()` já chama esta função de novo assim
+    // que os candles chegam (linha ~6113).
+    if (chartDataRef.current.length === 0) return;
 
-    positionOverlayIdsRef.current.forEach((id) => {
+    const symbolOrders = orders.filter((o) => o.symbol === symbol);
+
+    // 🔴 2026-08-28/29: antes disto removia TODAS as overlays de posição e
+    // recriava do zero a cada render — mesmo quando só o P&L ao vivo (tick de
+    // preço, ~1s) mudava e nada da posição em si (entrada/SL/TP) tinha
+    // mudado. O gráfico observa `activeOrders` por referência e essa troca
+    // acontece a cada tick, então as linhas piscavam (remove+recria)
+    // continuamente. Agora só remove/recria o que realmente saiu (posição
+    // fechada) ou entrou (posição nova); pra ordens que continuam abertas,
+    // atualiza a overlay existente no lugar via overrideOverlay (mesmo
+    // padrão já usado no resto do arquivo pra desenhos do usuário).
+    const currentIds = new Set(symbolOrders.map((o) => o.id));
+    // 🔴 2026-08-31: a regex só reconhecia prefixos `position_(entry|sl|tp)_`
+    // — ids de ordem PENDENTE (`pending_${id}`, criados no bloco abaixo) não
+    // batiam, então `orderId` ficava igual ao id inteiro (`pending_123`), que
+    // nunca está em `currentIds` (que só tem ids de posição aberta). Resultado:
+    // toda linha de ordem pendente era marcada "não existe mais" e
+    // removida+recriada A CADA render (a cada tick de P&L, ~1s) — o piscar
+    // intermitente reportado pelo Cleber. Ordens pendentes têm seu próprio
+    // ciclo de vida (criadas 1x, sem override — ver bloco `pending.forEach`
+    // abaixo), então não pertencem a esta checagem: ignora ids `pending_*` aqui.
+    const idsToRemove = positionOverlayIdsRef.current.filter((id) => {
+      if (id.startsWith('pending_')) return false;
+      const orderId = id.replace(/^position_(entry|sl|tp)_/, '');
+      return !currentIds.has(orderId);
+    });
+    idsToRemove.forEach((id) => {
       try {
         chart.removeOverlay(id);
       } catch (e) {
         // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
       }
     });
-    positionOverlayIdsRef.current = [];
+    positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => !idsToRemove.includes(id));
 
-    const symbolOrders = orders.filter((o) => o.symbol === symbol);
-    if (symbolOrders.length === 0) return;
+    // 🔴 2026-09-09 (pedido explícito do Cleber: 2 posições reais no MESMO
+    // preço de entrada faziam as linhas ficarem exatamente uma em cima da
+    // outra, escondendo uma delas por completo): agrupa por preço de
+    // entrada idêntico e desloca visualmente cada linha extra por um
+    // pequeno número de "pontos" do próprio ativo (nunca muda o preço real
+    // mostrado no texto da label, só a POSIÇÃO da linha na tela) — a
+    // primeira do grupo fica exatamente no preço real, as demais alternam
+    // acima/abaixo (+1, -1, +2, -2 "nudges"). Grupos de tamanho 1 (o caso
+    // normal, sem colisão) nunca são deslocados.
+    const entryPriceGroups = new Map<string, string[]>();
+    symbolOrders.forEach((o) => {
+      const key = o.price.toFixed(6);
+      const list = entryPriceGroups.get(key);
+      if (list) list.push(o.id);
+      else entryPriceGroups.set(key, [o.id]);
+    });
+    const priceNudgeStepByOrderId = new Map<string, number>();
+    entryPriceGroups.forEach((ids) => {
+      if (ids.length <= 1) return;
+      ids.forEach((id, idx) => {
+        if (idx === 0) return; // primeira fica no preço real, sem deslocar
+        const magnitude = Math.ceil(idx / 2);
+        const sign = idx % 2 === 1 ? 1 : -1;
+        priceNudgeStepByOrderId.set(id, magnitude * sign);
+      });
+    });
 
     symbolOrders.forEach((order) => {
       const isLong = order.side === 'LONG';
       const entryId = `position_entry_${order.id}`;
+      const slId = `position_sl_${order.id}`;
+      const tpId = `position_tp_${order.id}`;
+      const entryExists = positionOverlayIdsRef.current.includes(entryId);
+      const slExists = positionOverlayIdsRef.current.includes(slId);
+      const tpExists = positionOverlayIdsRef.current.includes(tpId);
+
+      // Unidades da posição (mesma conta usada no PNL LOOP de useApexLogic.ts
+      // pra P&L ao vivo): amount é o valor em dólar da posição, amount/preço
+      // dá as "unidades" que convertem distância de preço em dólar.
+      const units = order.amount / order.price;
+      // 🔴 2026-09-09 (achado ao vivo do Cleber: linha "Alvo" desenhada em
+      // cima da própria Entrada, sempre "+$0.00 · 0.00 pts", tampando a
+      // linha de Entrada com P&L ao vivo): `sl`/`tp` em useApexLogic.ts
+      // (reconcile()) caem pro próprio `entry_price` quando a posição não
+      // tem stop/alvo real definido (ex: posição aberta direto no MT5, sem
+      // SL/TP, depois só registrada aqui) — não é ausência (0/null), é o
+      // MESMO valor da entrada. `> 0` sozinho não pega esse caso porque o
+      // preço de entrada também é > 0. Comparar contra `order.price` fecha
+      // o buraco sem mudar o comportamento normal (stop/alvo real nunca
+      // bate exatamente com o preço de entrada).
+      // 🔴 2026-09-11 (achado do Cleber: stop de breakeven — movido de
+      // propósito pra cima da entrada pra travar risco zero, ver
+      // neuralBridge.ts `alreadyAtBreakeven` — ficava invisível, indistinguível
+      // de "sem stop"): antes, `sl !== order.price` era a única forma de
+      // inferir "sem stop real" (posições sem SL/TP caem pro próprio
+      // entry_price em useApexLogic.ts), mas o MESMO valor acontece de
+      // propósito no breakeven — as duas situações têm o preço idêntico e
+      // eram indistinguíveis só pelo número. `slIsReal`/`tpIsReal` (populados
+      // na origem, a partir de `stop_loss`/`take_profit != null` no banco)
+      // carregam a diferença real; mantém o fallback antigo só pra
+      // `TradeVisual` que por algum motivo não passou pelos pontos de
+      // mapeamento atualizados (nunca deveria acontecer, mas evita regressão
+      // silenciosa se algum caminho for esquecido).
+      const hasSl = order.sl > 0 && (order.slIsReal ?? order.sl !== order.price);
+      const hasTp = order.tp > 0 && (order.tpIsReal ?? order.tp !== order.price);
+      // Diferença bruta de preço (usada pro $ real, que não depende de convenção
+      // de "ponto") separada do "ponto" exibido na label, que precisa respeitar
+      // a definição por ativo (pipSize real do forex, não a diferença crua de
+      // preço) — ver contractSpecs.ts: pointValue/tickValue já embutem essa
+      // conversão (ex: EURUSD, tickSize=0.00001 mas 1 "ponto" cotado = 0.0001,
+      // a pedido do Cleber depois de reportar "0.01 pts" pra 100 pips de EURUSD).
+      const riskPriceDiff = hasSl ? Math.abs(order.price - order.sl) : 0;
+      const rewardPriceDiff = hasTp ? Math.abs(order.tp - order.price) : 0;
+      // 🐛 FIX 2026-09-05 (achado do Cleber, mesmo bug do candle achatado):
+      // as labels de Entrada/Stop/Alvo abaixo usavam .toFixed(2) fixo pro
+      // PREÇO -- pra ativo de preço baixo (XLMUSD ~$0.18) isso arredondava
+      // entrada/stop/alvo pro MESMO número (0.18), fazendo a label parecer
+      // "zerada" mesmo com níveis reais e distintos por trás. Usa a mesma
+      // precisão por ativo do header/candle (getPrecisionForSymbol).
+      const labelPricePrecision = getPrecisionForSymbol(order.symbol, order.price);
+      const contractSpec = getContractSpec(order.symbol);
+      const pointSize = contractSpec.tickSize * (contractSpec.pointValue / contractSpec.tickValue) || 1;
+      // Deslocamento visual (ver grupo de preços idênticos acima) — 3 "pontos"
+      // do próprio ativo por nudge, o suficiente pra separar as linhas na
+      // tela sem afastar visualmente demais do preço real. Só afeta ONDE a
+      // linha é desenhada (`points`), nunca o preço mostrado no texto da
+      // label (que sempre usa order.price/sl/tp reais).
+      const priceNudge = (priceNudgeStepByOrderId.get(order.id) ?? 0) * pointSize * 3;
+      const displayEntryPrice = order.price + priceNudge;
+      // Quando o stop foi movido pra cima da própria entrada (breakeven, ver
+      // comentário de 2026-09-11 acima), a linha nasceria exatamente
+      // sobreposta à de Entrada — desloca um pouco (mesma técnica de "nudge"
+      // usada pras entradas duplicadas) só pra enxergar as duas linhas, sem
+      // nunca mudar o preço real mostrado no texto da label.
+      const isBreakevenStop = hasSl && order.sl === order.price;
+      // 🔴 2026-09-11 (pedido do Cleber: "precisa aparecer" — nudge fixo de
+      // pontos ficava minúsculo demais pra separar as linhas em ativo de
+      // preço alto, ex: 20 "pontos" em BTCUSD ~$79.000 some no meio da
+      // escala do preço): deslocamento agora é uma FRAÇÃO do próprio preço
+      // (0,06%), então escala junto com a magnitude do ativo em vez de um
+      // valor absoluto fixo — separa de forma visível tanto em BTCUSD
+      // (~$79.000, nudge ~$47) quanto em ativo barato (XLMUSD ~$0,18, nudge
+      // ~$0,0001, ainda proporcionalmente visível na régua do próprio
+      // ativo). Sempre um deslocamento puramente visual — a label continua
+      // mostrando o preço real do stop, nunca o deslocado.
+      const breakevenNudge = isBreakevenStop ? order.price * 0.0006 * (isLong ? -1 : 1) : 0;
+      // 🔴 2026-09-11 (pedido do Cleber, achado ao vivo por vídeo: 2 linhas
+      // verdes tracejadas coladas, sem forma de saber se são a mesma coisa
+      // ou 2 níveis diferentes): o breakeven acima só resolve Stop-em-cima-
+      // da-Entrada — o mesmo problema acontece quando o Alvo (verde, mesma
+      // cor da linha de preço atual quando o dia está positivo) ou o Stop
+      // ficam colados na LINHA DE PREÇO ATUAL (`priceMark.last` nativo da
+      // klinecharts, também tracejada) — indistinguíveis a olho nu, mesmo
+      // sendo 2 níveis reais diferentes (ex: alvo raso, quase batendo).
+      // `livePrice` é o mesmo tick usado no P&L ao vivo da linha de Entrada
+      // logo abaixo — hoisted aqui pra ficar disponível nos blocos de SL/TP.
+      const livePrice = order.currentPrice ?? order.price;
+      const nearPriceThreshold = order.price * 0.0006; // mesmo limiar do breakeven acima
+      const isSlNearLivePrice = hasSl && !isBreakevenStop && Math.abs(order.sl - livePrice) < nearPriceThreshold;
+      const isTpNearLivePrice = hasTp && Math.abs(order.tp - livePrice) < nearPriceThreshold;
+      const slLivePriceNudge = isSlNearLivePrice ? order.price * 0.0006 * (isLong ? -1 : 1) : 0;
+      const tpLivePriceNudge = isTpNearLivePrice ? order.price * 0.0006 * (isLong ? 1 : -1) : 0;
+      const riskPts = riskPriceDiff / pointSize;
+      const rewardPts = rewardPriceDiff / pointSize;
+      const riskUsd = riskPriceDiff * units;
+      const rewardUsd = rewardPriceDiff * units;
+      // Rótulo do alvo mostra o ganho LÍQUIDO do custo de ida e volta (mesma fonte do P&L do Dashboard).
+      const roundTripCostUsd = calculateRoundTripCost(order.symbol, order.amount, order.price).costUsd;
+      const rewardNetUsd = rewardUsd - roundTripCostUsd;
+      // 🐛 FIX 2026-09-05: "pts" pra ativo cripto barato (XLMUSD, pointSize=1)
+      // é a própria diferença de preço, tipicamente < 1 -- 2 casas fixas
+      // arredondava pra "0.00" mesmo com distância real. Pra forex (pointSize
+      // = 1 pip, valores tipicamente na casa de dezenas) 2 casas continua
+      // certo -- usa mais casas só quando o valor em pontos é genuinamente
+      // pequeno.
+      const ptsPrecision = (v: number) => (Math.abs(v) > 0 && Math.abs(v) < 1 ? 4 : 2);
+      // 🐛 FIX 2026-09-05: mesmo raciocínio pro "$" -- posição de notional
+      // pequeno (ex: 1 lote XLMUSD ~$0.18) tem risco/retorno real na casa de
+      // frações de centavo, 2 casas fixas arredondava pra "$0.00" mesmo
+      // sendo um valor real.
+      const usdPrecision = (v: number) => (Math.abs(v) > 0 && Math.abs(v) < 0.01 ? 4 : 2);
+      const rr = hasSl && hasTp && riskPriceDiff > 0 ? rewardPriceDiff / riskPriceDiff : null;
+
       try {
         // P&L ao vivo na própria linha da posição — reflete o preço atual do
         // tick (order.currentPrice, atualizado a cada ciclo do PNL LOOP em
         // useApexLogic.ts) e o P&L em dólar já calculado lá (currentProfit).
         // Pontos = distância favorável ao lado da posição (positivo quando o
         // preço se move a favor, negativo contra), não a diferença bruta.
-        const livePrice = order.currentPrice ?? order.price;
+        // (`livePrice` hoisted acima, também usado pelo nudge de SL/TP perto
+        // da linha de preço atual)
         const pointsFavorable = isLong ? livePrice - order.price : order.price - livePrice;
         const pnl = order.currentProfit ?? 0;
         const pnlSign = pnl >= 0 ? '+' : '';
         const pointsSign = pointsFavorable >= 0 ? '+' : '';
-        const liveStats = ` · ${pnlSign}$${pnl.toFixed(2)} (${pointsSign}${pointsFavorable.toFixed(2)} pts)`;
+        const liveStats = ` · ${pnlSign}$${pnl.toFixed(usdPrecision(pnl))} (${pointsSign}${pointsFavorable.toFixed(ptsPrecision(pointsFavorable))} pts)`;
+        const rrLabel = rr != null ? ` · R:R 1:${rr.toFixed(1)}` : '';
+        // 🔴 2026-09-11 (pedido do Cleber: o nudge visual sozinho não bastou —
+        // em certos níveis de zoom as 2 linhas continuam parecendo 1 só):
+        // o texto da própria linha de Entrada também avisa quando o stop está
+        // travado em cima dela, pra não depender só de enxergar 2 traços
+        // separados na tela.
+        const breakevenSuffix = isBreakevenStop ? ' · 🔒 SL NO BREAKEVEN (em cima da entrada)' : '';
+        const entryExtendData = `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(labelPricePrecision)}${rrLabel}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}${breakevenSuffix}`;
 
-        chart.createOverlay({
-          name: 'horizontalStraightLine',
-          id: entryId,
-          points: [{ value: order.price }],
-          styles: {
-            line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
-            text: {
-              color: '#ffffff',
-              backgroundColor: isLong ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
-              size: 11,
+        // 🔴 2026-08-29: atualiza a overlay existente no lugar (preço +
+        // texto de P&L ao vivo) em vez de remove+recria — é isto que
+        // elimina o piscar a cada tick, já que o `points`/`extendData` mudam
+        // sem a linha sumir do gráfico entre um frame e outro.
+        if (entryExists) {
+          chart.overrideOverlay({ id: entryId, points: [{ value: displayEntryPrice }], extendData: entryExtendData });
+        } else {
+          chart.createOverlay({
+            name: 'positionLabelLine',
+            id: entryId,
+            points: [{ value: displayEntryPrice }],
+            styles: {
+              line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
+              text: {
+                color: '#ffffff',
+                backgroundColor: isLong ? 'rgba(34,197,94,0.92)' : 'rgba(239,68,68,0.92)',
+                borderColor: isLong ? '#16a34a' : '#dc2626',
+                borderSize: 1,
+                borderRadius: 3,
+                paddingLeft: 6,
+                paddingRight: 6,
+                paddingTop: 3,
+                paddingBottom: 3,
+                size: 11,
+                weight: 'bold',
+              },
             },
-          },
-          text: `${isLong ? '▲ COMPRA' : '▼ VENDA'} ${order.price.toFixed(2)}${order.reasoning === 'Ordem manual do usuário' ? ' · MANUAL' : ''}${liveStats}`,
-        });
-        positionOverlayIdsRef.current.push(entryId);
+            extendData: entryExtendData,
+          });
+          positionOverlayIdsRef.current.push(entryId);
+        }
       } catch (e) {
         console.warn('[ChartView] ⚠️ Não foi possível desenhar linha de entrada da posição:', e);
       }
 
-      if (order.sl > 0) {
-        const slId = `position_sl_${order.id}`;
+      if (hasSl) {
         try {
-          chart.createOverlay({
-            name: 'horizontalStraightLine',
-            id: slId,
-            points: [{ value: order.sl }],
-            styles: {
-              line: { color: '#ef4444', style: 'dashed', size: 1 },
-              text: { color: '#ffffff', backgroundColor: 'rgba(239,68,68,0.7)', size: 10 },
-            },
-            text: `SL ${order.sl.toFixed(2)}`,
-          });
-          positionOverlayIdsRef.current.push(slId);
+          // 🔴 2026-09-11 (pedido do Cleber: "preciso visualizar que o stop
+          // está ali"): breakeven (stop == entrada) tinha risco $0/0 pts — dado
+          // real, mas o rótulo antigo ("⛔ Stop ... −$0.00 · 0.00 pts") não
+          // deixava claro que é PROTEÇÃO ativa, parecia erro/ausência de
+          // dado. Label dedicado só pra este caso.
+          // 🔴 2026-09-11 (pedido do Cleber, achado por vídeo: 2 linhas
+          // verdes/vermelhas tracejadas coladas na linha de preço atual,
+          // sem forma de saber se eram o mesmo nível ou 2 diferentes) — igual
+          // ao breakeven acima, mas pra proximidade com o preço AO VIVO em
+          // vez da entrada.
+          const slExtendData = isBreakevenStop
+            ? `🔒 Stop no Breakeven ${order.sl.toFixed(labelPricePrecision)}  ·  risco travado em $0,00`
+            : isSlNearLivePrice
+            ? `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts  ·  📍 colado no preço atual`
+            : `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
+          const displaySlPrice = order.sl + priceNudge + breakevenNudge + slLivePriceNudge;
+          if (slExists) {
+            chart.overrideOverlay({ id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
+          } else {
+            chart.createOverlay({
+              name: 'positionLabelLine',
+              id: slId,
+              points: [{ value: displaySlPrice }],
+              styles: {
+                line: { color: isBreakevenStop ? '#f59e0b' : '#ef4444', style: 'dashed', size: (isBreakevenStop || isSlNearLivePrice) ? 1.5 : 1 },
+                text: {
+                  color: '#ffffff',
+                  backgroundColor: isBreakevenStop ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.85)',
+                  borderColor: isBreakevenStop ? '#d97706' : '#dc2626',
+                  borderSize: 1,
+                  borderRadius: 3,
+                  paddingLeft: 5,
+                  paddingRight: 5,
+                  paddingTop: 2,
+                  paddingBottom: 2,
+                  size: 10,
+                },
+              },
+              // Custo em dólar sempre negativo (é o que se perde se o stop for
+              // atingido) + distância em pontos, pra visualizar risco real sem
+              // precisar calcular de cabeça.
+              extendData: slExtendData,
+            });
+            positionOverlayIdsRef.current.push(slId);
+          }
         } catch (e) {
           // silencioso — mesma tolerância do resto dos overlays de sistema
         }
+      } else if (slExists) {
+        try { chart.removeOverlay(slId); } catch (e) { /* ignora */ }
+        positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => id !== slId);
       }
 
-      if (order.tp > 0) {
-        const tpId = `position_tp_${order.id}`;
+      if (hasTp) {
         try {
-          chart.createOverlay({
-            name: 'horizontalStraightLine',
-            id: tpId,
-            points: [{ value: order.tp }],
-            styles: {
-              line: { color: '#22c55e', style: 'dashed', size: 1 },
-              text: { color: '#ffffff', backgroundColor: 'rgba(34,197,94,0.7)', size: 10 },
-            },
-            text: `TP ${order.tp.toFixed(2)}`,
-          });
-          positionOverlayIdsRef.current.push(tpId);
+          // 🔴 2026-09-11: mesmo nudge/aviso do Stop acima, pro Alvo — a
+          // linha de preço atual (klinecharts nativa, `priceMark.last`) fica
+          // VERDE tracejada quando o dia está positivo, exatamente a mesma
+          // cor/estilo da linha de Alvo — coladas ficavam indistinguíveis.
+          const tpExtendData = isTpNearLivePrice
+            ? `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardNetUsd.toFixed(usdPrecision(rewardNetUsd))} líq.  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts  ·  📍 colado no preço atual`
+            : `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardNetUsd.toFixed(usdPrecision(rewardNetUsd))} líq.  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
+          const displayTpPrice = order.tp + priceNudge + tpLivePriceNudge;
+          if (tpExists) {
+            chart.overrideOverlay({ id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
+          } else {
+            chart.createOverlay({
+              name: 'positionLabelLine',
+              id: tpId,
+              points: [{ value: displayTpPrice }],
+              styles: {
+                line: { color: '#22c55e', style: 'dashed', size: isTpNearLivePrice ? 1.5 : 1 },
+                text: {
+                  color: '#ffffff',
+                  backgroundColor: 'rgba(34,197,94,0.85)',
+                  borderColor: '#16a34a',
+                  borderSize: 1,
+                  borderRadius: 3,
+                  paddingLeft: 5,
+                  paddingRight: 5,
+                  paddingTop: 2,
+                  paddingBottom: 2,
+                  size: 10,
+                },
+              },
+              // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
+              extendData: tpExtendData,
+            });
+            positionOverlayIdsRef.current.push(tpId);
+          }
         } catch (e) {
           // silencioso — mesma tolerância do resto dos overlays de sistema
         }
+      } else if (tpExists) {
+        try { chart.removeOverlay(tpId); } catch (e) { /* ignora */ }
+        positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => id !== tpId);
       }
     });
 
     // Linhas tracejadas (cor neutra) pra ordem pendente ainda não disparada.
-    pending.filter((o) => o.symbol === symbol).forEach((order) => {
+    // Arrastável (reposiciona o gatilho) e cancelável com clique direito —
+    // sem isso a ordem só podia ser criada e esperada até disparar, sem
+    // nenhuma forma de ajustar ou desistir dela depois de postada.
+    // 🔴 2026-08-31: remove só as pendentes que saíram de verdade (cancelada/
+    // disparada) — antes este bloco recriava TODAS incondicionalmente a cada
+    // render (mesmo padrão de piscar do fix acima, só que sempre, não só
+    // quando havia posição aberta em paralelo).
+    const pendingSymbolOrders = pending.filter((o) => o.symbol === symbol);
+    const currentPendingIds = new Set(pendingSymbolOrders.map((o) => `pending_${o.id}`));
+    const pendingIdsToRemove = positionOverlayIdsRef.current.filter(
+      (id) => id.startsWith('pending_') && !currentPendingIds.has(id)
+    );
+    pendingIdsToRemove.forEach((id) => {
+      try { chart.removeOverlay(id); } catch (e) { /* ignora */ }
+    });
+    positionOverlayIdsRef.current = positionOverlayIdsRef.current.filter((id) => !pendingIdsToRemove.includes(id));
+
+    pendingSymbolOrders.forEach((order) => {
       const isBuy = order.side === 'LONG';
       const pendingId = `pending_${order.id}`;
+      if (positionOverlayIdsRef.current.includes(pendingId)) {
+        try {
+          chart.overrideOverlay({ id: pendingId, points: [{ value: order.triggerPrice }] });
+        } catch (e) {
+          // silencioso — mesma tolerância do resto dos overlays de sistema
+        }
+        return;
+      }
       try {
         chart.createOverlay({
-          name: 'horizontalStraightLine',
+          name: 'positionLabelLine',
           id: pendingId,
           points: [{ value: order.triggerPrice }],
           styles: {
             line: { color: '#94a3b8', style: 'dashed', size: 1 },
             text: { color: '#0f172a', backgroundColor: 'rgba(148,163,184,0.9)', size: 10 },
           },
-          text: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(2)}`,
+          extendData: `${order.orderType} ${isBuy ? 'COMPRA' : 'VENDA'} ${order.triggerPrice.toFixed(getPrecisionForSymbol(order.symbol, order.triggerPrice))}  ·  arraste pra mover · clique direito pra cancelar`,
+          onPressedMoveEnd: (event) => {
+            const newPrice = event.overlay?.points?.[0]?.value;
+            const price = currentPriceRef.current;
+            if (typeof newPrice !== 'number' || price == null) return false;
+            const result = updateManualPendingOrderPrice(order.id, newPrice, price);
+            if (!result.success) {
+              toast.error(result.error ?? 'Não foi possível mover a ordem');
+              // Overlay já foi redesenhado no valor errado pelo próprio klinecharts —
+              // força a re-renderização no valor antigo (a única fonte de verdade
+              // continua sendo o pendingOrders do TradingContext).
+              renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+            }
+            return false;
+          },
+          onRightClick: () => {
+            cancelManualPendingOrder(order.id);
+            toast.success('Ordem pendente cancelada');
+            return true;
+          },
         });
         positionOverlayIdsRef.current.push(pendingId);
       } catch (e) {
@@ -4439,8 +5534,17 @@ export function ChartView({
   // efeito de fetch de candles, via showSrOverlayRef pra sempre ler o valor
   // mais recente sem precisar recriar o gráfico inteiro a cada toggle).
   useEffect(() => {
-    renderSrOverlays(liquidityZones, showSrOverlay);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- liquidityZones intencionalmente fora: já é redesenhado no momento do cálculo
+    const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
+    if (!lastCandle) return;
+    const extendMs = timeframeToMs(timeframe) * 20;
+    renderSrOverlays(orderBlockZones, showSrOverlay, lastCandle.timestamp, extendMs);
+    // 🆕 2026-10-08: os pivôs do pregão acompanham o mesmo toggle.
+    const pivotSymbolAtToggle = selectedSymbol;
+    loadSessionPivots(pivotSymbolAtToggle).then((pv) => {
+      if (pivotSymbolAtToggle !== selectedSymbol) return;
+      renderSessionPivots(pivotSymbolAtToggle, pv, showSrOverlay);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- orderBlockZones intencionalmente fora: já é redesenhado no momento do cálculo
   }, [showSrOverlay]);
 
   // ❌ REMOVIDO: useEffect que buscava preços de API externa
@@ -4477,12 +5581,26 @@ export function ChartView({
     // reset movido pra ANTES do `return` -- roda sempre, de verdade, a cada
     // troca de símbolo/timeframe, antes até de `fetchData()` ser chamado.
     isInitialLoadRef.current = true;
+    hasEverRenderedCandlesRef.current = false;
+    // 🐛 BUG REAL irmão do acima (mesma causa, achado em 2026-08-20): troca de
+    // símbolo/timeframe recria o chart do zero (dispose()+init()), então ele
+    // nasce sem nenhum indicador. `sessionStateAppliedRef`/`favoriteSetupAppliedRef`
+    // são guardas "aplica só 1x" que nunca resetavam depois da 1ª carga —
+    // então na 1ª troca de ativo dentro da mesma sessão, o bloco de restauração
+    // (mais abaixo) via a guarda já `true` e pulava a reaplicação: indicadores
+    // (ex: MACD) somem ao trocar de ativo e nunca mais voltam sozinhos, nem
+    // trocando de novo. Reset aqui, no mesmo ponto que já reseta
+    // `isInitialLoadRef` por este exato motivo — roda a cada troca de
+    // símbolo/timeframe, antes de `fetchData()`.
+    sessionStateAppliedRef.current = false;
+    favoriteSetupAppliedRef.current = false;
     // 🛡️ Limpa o buffer de candles da carga anterior — sem isso, o tick de streaming
     // que chega ANTES do histórico novo carregar via um candle velho (de outro
     // símbolo/timeframe) no ref, passava na checagem length > 0 e aplicava
     // chart.updateData num gráfico vazio → um único candle gigante na tela até o
     // applyNewData do fetch substituir tudo ("gráfico buga e depois volta").
     chartDataRef.current = [];
+    lastRealCandleTimestampRef.current = null; // 🔴 FIX cronômetro: âncora também reseta na troca de símbolo/timeframe
     console.log('[ChartView] 🔄 Flag isInitialLoad resetada (novo símbolo/timeframe)');
 
     // 🎯 Eixo de PREÇO com mais marcações — versão anterior nunca funcionava:
@@ -4653,6 +5771,19 @@ export function ChartView({
       }
 
       console.log('[ChartView] ✅ Chart object created successfully:', chart);
+
+      // 🔴 FIX 2026-08-28: dispose()+init() acima recria o chart do zero — todo
+      // overlay desenhado nele (inclusive as linhas de entrada/SL/TP de
+      // posição aberta) é destruído junto. Mas `positionOverlayIdsRef` não era
+      // limpo aqui, então na próxima chamada de renderPositionOverlays() o
+      // código achava que a linha "já existe" (entryExists/slExists/tpExists
+      // true, baseado no ref antigo) e só chamava overrideOverlay() — que não
+      // faz nada num id que não existe mais no chart novo. Resultado: a linha
+      // simplesmente sumia e nunca mais voltava, mesmo com a posição
+      // continuando aberta de verdade. Limpar o ref aqui força o próximo
+      // render a recriar do zero (createOverlay) em vez de tentar atualizar
+      // um overlay fantasma.
+      positionOverlayIdsRef.current = [];
 
       // 🎯 Ativa os eixos densos — `id` é obrigatório (sem ele, setPaneOptions
       // não faz NADA, ver comentário acima de onde o eixo é registrado).
@@ -4890,6 +6021,13 @@ export function ChartView({
 
       console.log('[ChartView] ✅ Styles applied successfully');
       chartInstanceRef.current = chart;
+      // Nova instância de chart (troca de símbolo/timeframe) não tem overlay nenhum —
+      // força renderSrOverlays a desenhar de novo mesmo que as zonas sejam as mesmas
+      // do símbolo/timeframe anterior (assinatura por id pode colidir entre eles).
+      srOverlaySignatureRef.current = '__new_chart__';
+      pivotSignatureRef.current = '__new_chart__'; // chart novo não tem os pivôs: força redesenhar
+      pivotOverlayIdsRef.current = [];
+      signalOverlayIdRef.current = null;
 
       // 🧹 LIMPAR TODOS OS OVERLAYS (Remove bolinha preta misteriosa e qualquer overlay residual)
       chart.removeOverlay();
@@ -4913,9 +6051,12 @@ export function ChartView({
       // tratado pelo onClick por instância, atribuído na criação de cada overlay
       // (ver handleDrawingToolSelect).
 
-      // Fechar toolbar ao clicar no gráfico (não em overlay)
+      // Fechar toolbar e desselecionar (removendo o destaque) ao clicar no gráfico fora de
+      // qualquer overlay
       chart.subscribeAction('onClick', (data: any) => {
         if (!data?.overlay) {
+          clearDrawingSelectionHighlight(selectedDrawingIdRef.current);
+          selectedDrawingIdRef.current = null;
           setShowContextToolbar(false);
           setSelectedDrawing(null);
         }
@@ -4926,11 +6067,13 @@ export function ChartView({
         if (!isInitialLoadRef.current) {
           console.log('[ChartView] 🖱️ Usuário scrollou manualmente - auto-scroll desabilitado');
         }
+        persistChartViewportRef.current();
       });
       
       // 🆕 Detectar zoom do usuário
       chart.subscribeAction('onZoom', () => {
         console.log('[ChartView] 🔍 Usuário deu zoom');
+        persistChartViewportRef.current();
       });
 
       // 🆕 Ícones "⚙"/"✕" na legenda do indicador (ver INDICATOR_SETTINGS_ICON/
@@ -4974,20 +6117,49 @@ export function ChartView({
       // troca de símbolo/timeframe — ver fix logo abaixo, dentro de fetchData.
       let didCleanMysteryOverlay = false;
 
+      // 🔁 Retry com backoff (2s/4s/8s) só pra a busca de candles falhar de vez —
+      // separado do auto-refresh de 30s (que continua existindo pra atualização
+      // periódica normal, não pra recuperar de falha). Cancelado no cleanup deste
+      // effect (troca de símbolo/timeframe/unmount) via `cancelled`.
+      let cancelled = false;
+      let retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      const CANDLE_RETRY_DELAYS_MS = [2000, 4000, 8000];
+      // 🐛 FIX 2026-09-02 (parte 2): o auto-refresh de 30s chamava fetchData()
+      // sem argumento (volta pro retryAttempt=0) mesmo com um retry já em
+      // andamento -- se cada tentativa demora vários segundos pra dar timeout
+      // (MetaAPI lenta/rate-limited), o ciclo completo de 3 tentativas pode
+      // passar de 30s e o auto-refresh reseta tudo antes de exibir o erro
+      // "Tentar de novo", prendendo o usuário no spinner pra sempre durante
+      // instabilidade prolongada. Esta flag faz o auto-refresh pular um tick
+      // quando já existe um ciclo de fetch/retry em andamento.
+      let fetchInProgress = false;
+      // 🔄 Controle de dataset incremental (ver fix "refresh visível" logo abaixo,
+      // dentro de fetchData): só a 1ª carga usa applyNewData (reset completo);
+      // os refreshs de 30s seguintes usam updateData (sem reset de viewport).
+      let hasAppliedFullDatasetRef = { current: false };
+      let lastAppliedCandleTimestampRef = { current: 0 };
+
       // Fetch real data
-      // 🚀 PERF: 3 modos, do mais rápido pro mais completo. 'cache' nunca toca a
-      // MetaAPI (só lê ohlcv_data via Supabase) — instantâneo quando o símbolo já
-      // foi visitado antes, mas pode faltar a barra mais recente ou vir vazio (0
-      // chamadas úteis) na primeira vez que alguém abre aquele símbolo/timeframe.
-      // 'quick' busca uma janela pequena ao vivo (cabe numa única página da
-      // MetaAPI) — sempre completa e atualizada, mas depende da latência normal
-      // de 1 chamada (3-8s documentado). 'deep' busca os 5 anos completos (usado
-      // no auto-refresh de 30s e, uma vez, em background após o 'quick' inicial,
-      // pra preencher o histórico profundo sem bloquear a tela). Mesmo pipeline
-      // pros 3 modos — já era chamado repetidamente a cada 30s sem problema,
-      // então repetir mais cedo com modos diferentes é seguro.
-      const fetchData = async (mode: 'cache' | 'quick' | 'deep' = 'deep') => {
-        console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe, 'mode:', mode);
+      const fetchData = async (retryAttempt = 0) => {
+        console.log('[ChartView] 🔄 Fetching candles for', selectedSymbol, 'timeframe:', timeframe, 'attempt', retryAttempt);
+        fetchInProgress = true;
+        // 🐛 FIX 2026-09-02 (3ª causa do "gráfico dando refresh sozinho"):
+        // `setCandlesLoading(true)` aqui rodava em TODA chamada de fetchData
+        // com retryAttempt=0 — inclusive o auto-refresh de 30s (que sempre
+        // chama fetchData() sem argumento, ou seja, retryAttempt=0 de novo).
+        // Isso acendia o spinner "Carregando candles..." por cima do gráfico
+        // a cada 30 segundos, mesmo em operação 100% normal sem nenhuma
+        // falha — visível como o próprio "pisca"/"refresh sozinho" relatado,
+        // independente dos dois fixes anteriores (dataset incremental +
+        // overlays de S/R), que não tocavam neste spinner. Loading visível
+        // só faz sentido na 1ª carga de verdade (ainda sem nenhum candle no
+        // chart) ou numa tentativa de RETRY depois de falha real — nunca no
+        // auto-refresh silencioso de rotina.
+        const isFastFirstPaint = retryAttempt === 0 && isInitialLoadRef.current;
+        if (isFastFirstPaint) {
+          setCandlesLoading(true);
+          setCandlesLoadFailed(false);
+        }
 
         try {
           // 🚀 PERF: candles e marketData (preço/variação do dia) vêm de fontes
@@ -4995,20 +6167,75 @@ export function ChartView({
           // roteamento + Edge Function) — disparar em paralelo em vez de sequencial
           // corta o tempo de carregamento do gráfico quase pela metade (cada um
           // podia levar segundos sozinho, principalmente cold start de Edge Function).
-          // No modo 'cache' pulamos essa busca (ela sempre vai ao vivo) — não faz
-          // sentido pagar o custo dela só pra um render que pode ser descartado
-          // segundos depois pelo 'quick'.
-          const marketDataPromise = mode === 'cache'
-            ? Promise.resolve(null)
-            : getRealMarketData(selectedSymbol).catch(error => {
-                console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
-                return null;
+          const marketDataPromise = getRealMarketData(selectedSymbol).catch(error => {
+            console.warn('[ChartView] ⚠️ Erro ao buscar dados reais, usando candles:', error);
+            return null;
+          });
+          // 🚀 PERF 2026-09-23 (Cleber: "gráfico demora demais pra entrar"): a 1ª
+          // pintura de um símbolo/timeframe pede só 1 página de candles
+          // (FAST_FIRST_PAINT_MAX_CANDLES, teto que cabe numa única chamada ao
+          // backend) em vez do teto padrão de 5 anos/2.000 candles — corta pela
+          // metade (ou mais) o número de chamadas contra a conta MetaAPI
+          // COMPARTILHADA antes do gráfico aparecer. O histórico completo (zoom-out
+          // até 5 anos) é buscado logo depois, em 2º plano, sem bloquear a 1ª
+          // exibição — ver `extendHistoryInBackground` mais abaixo, disparado só
+          // quando `isFastFirstPaint` é true.
+          let candles = await fetchCandles(
+            selectedSymbol,
+            timeframe,
+            200,
+            isFastFirstPaint ? FAST_FIRST_PAINT_MAX_CANDLES : undefined
+          );
+          if (cancelled) return;
+
+          // 🐛 BUG REAL achado nesta sessão (Cleber: Fibonacci "invertida, indo pro lado
+          // completamente errado" ao trocar de timeframe): `fetchCandles` busca sempre um
+          // número FIXO de candles (default 200) independente do timeframe — 200 candles de
+          // 1m cobrem só ~3h de histórico real, enquanto 200 candles de 1D cobrem ~200 dias.
+          // Um desenho feito num timeframe de janela larga (ex: 1D) tem pontos com timestamp
+          // ANTERIOR ao candle mais antigo carregado no timeframe novo, mais estreito (ex:
+          // 1m) — a klinecharts não tem como posicionar um ponto fora do dataset carregado,
+          // então CLAMPA (`binarySearchNearest`) esse ponto pro candle mais antigo disponível,
+          // uma posição arbitrária que não é a real. Com 3 pontos (A/B/C), só 1 ou 2 ficarem
+          // presos nessa borda distorce a forma inteira — inclusive parecendo "espelhada"/do
+          // lado errado, mesmo a matemática do desenho (direção dos níveis) estando correta.
+          // Fix: antes de restaurar, checa se algum ponto salvo é mais antigo que o candle
+          // mais antigo já carregado — se for, busca candles extras (mesmo símbolo/timeframe,
+          // limite maior) só o suficiente pra cobrir esse ponto, teto de segurança 5000
+          // candles (mesmo `MAX_CANDLES` já usado como teto em outros lugares do projeto,
+          // ver market-service.ts) pra nunca disparar uma busca desproporcional.
+          if (userDrawingsSnapshotRef.current.length > 0 && candles.length > 0) {
+            let earliestDrawingTs = Infinity;
+            userDrawingsSnapshotRef.current.forEach(saved => {
+              if (!Array.isArray(saved.points)) return;
+              saved.points.forEach((p: any) => {
+                if (typeof p?.timestamp === 'number' && p.timestamp < earliestDrawingTs) {
+                  earliestDrawingTs = p.timestamp;
+                }
               });
-          const candles = mode === 'cache'
-            ? await fetchCandlesCacheOnly(selectedSymbol, timeframe)
-            : mode === 'quick'
-              ? await fetchCandlesQuick(selectedSymbol, timeframe)
-              : await fetchCandles(selectedSymbol, timeframe);
+            });
+            const earliestLoadedTs = candles[0].timestamp;
+            if (Number.isFinite(earliestDrawingTs) && earliestDrawingTs < earliestLoadedTs) {
+              try {
+                const msPerCandle = timeframeToMs(timeframe);
+                const gapMs = earliestLoadedTs - earliestDrawingTs;
+                // +20 candles de margem -- desenho pode ter sido feito um pouco antes do
+                // 1º candle visível na época, evita ficar exatamente na borda de novo.
+                const extraCandlesNeeded = Math.ceil(gapMs / msPerCandle) + 20;
+                const neededLimit = Math.min(candles.length + extraCandlesNeeded, 5000);
+                if (neededLimit > candles.length) {
+                  console.log('[ChartView] 📐 Desenho salvo é anterior ao candle mais antigo carregado — buscando', neededLimit, 'candles pra cobrir a posição real');
+                  const extended = await fetchCandles(selectedSymbol, timeframe, neededLimit);
+                  if (!cancelled && extended.length > candles.length) {
+                    candles = extended;
+                  }
+                }
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao estender candles pra cobrir desenho salvo (segue com o dataset padrão):', e);
+              }
+            }
+          }
+          if (cancelled) return;
 
           console.log('[ChartView] 📦 Received data:', {
             candles: candles?.length || 0,
@@ -5029,10 +6256,32 @@ export function ChartView({
           }
           
           if (!candles || candles.length === 0) {
-            console.error('[ChartView] ❌ No candles received, chart will remain empty');
+            if (retryAttempt < CANDLE_RETRY_DELAYS_MS.length) {
+              const delay = CANDLE_RETRY_DELAYS_MS[retryAttempt];
+              console.warn(`[ChartView] ⚠️ Sem candles ainda, tentando de novo em ${delay}ms (tentativa ${retryAttempt + 1}/${CANDLE_RETRY_DELAYS_MS.length})`);
+              retryTimeoutId = setTimeout(() => {
+                if (!cancelled) fetchData(retryAttempt + 1);
+              }, delay);
+              return;
+            }
+            console.error('[ChartView] ❌ No candles received after retries, chart will remain empty until next auto-refresh');
             setDataSource('loading');
+            setCandlesLoading(false);
+            setCandlesLoadFailed(true);
+            // 🐛 FIX 2026-09-03: sem isto, isInitialLoadRef.current continua `true`
+            // pra sempre (só vira `false` no caminho de SUCESSO, mais abaixo) —
+            // todo auto-refresh de 30s seguinte então recai na guarda
+            // `retryAttempt === 0 && isInitialLoadRef.current` (linha ~5751) e
+            // reacende o spinner cheio "Carregando candles..." do zero, mesmo
+            // já tendo acabado de mostrar a tela de erro "Tentar de novo" —
+            // na prática, símbolo que falha uma vez (ex: timeout crônico da
+            // MetaAPI compartilhada) nunca mais sai do ciclo spinner→erro→
+            // spinner, parecendo travado pra sempre em "demorando pra carregar".
+            isInitialLoadRef.current = false;
+            fetchInProgress = false;
             return;
           }
+          setCandlesLoadFailed(false);
 
           console.log('[ChartView] ✅ CHECKPOINT 1: Candles received, count:', candles.length);
           console.log('[ChartView] 📈 Processing', candles.length, 'candles');
@@ -5095,9 +6344,25 @@ export function ChartView({
               resetTime = resetTime - 86400000;
             }
             
+            // 🔥 FIX 2026-08-20: em timeframes onde o carimbo de tempo das velas
+            // não alinha com resetTime (ex: 1D/1W da Binance começam à 00:00 UTC,
+            // não 06:00 UTC), `find(c => c.timestamp >= resetTime)` nunca casava
+            // e caía em `candles[0].open` — a vela MAIS ANTIGA de todo o
+            // histórico carregado (até ~5 anos), fazendo a variação "de hoje"
+            // exibir na verdade a variação desde uma data muito mais antiga
+            // (achado real: ETH mostrando ~18% "hoje" que era variação de dias/
+            // semanas). Fix: se não houver vela após o reset, usar o close da
+            // última vela ANTES do reset (a mais próxima do instante real),
+            // nunca a mais antiga do array inteiro.
             const firstCandleAfterReset = candles.find(c => c.timestamp >= resetTime);
-            const openPriceFromCandles = firstCandleAfterReset ? firstCandleAfterReset.open : candles[0].open;
-            
+            let openPriceFromCandles: number;
+            if (firstCandleAfterReset) {
+              openPriceFromCandles = firstCandleAfterReset.open;
+            } else {
+              const lastCandleBeforeReset = [...candles].reverse().find(c => c.timestamp <= resetTime);
+              openPriceFromCandles = lastCandleBeforeReset ? lastCandleBeforeReset.close : lastCandle.open;
+            }
+
             const changeFromCandles = safeCurrentPrice - openPriceFromCandles;
             const changePercentFromCandles = (changeFromCandles / openPriceFromCandles) * 100;
             
@@ -5155,30 +6420,58 @@ export function ChartView({
           console.log('[ChartView] 🔍 First 3 candles (exact format):', JSON.stringify(candles.slice(0, 3), null, 2));
           console.log('[ChartView] 🔍 Last candle (exact format):', JSON.stringify(candles[candles.length - 1], null, 2));
 
-          // 🔧 FIX: applyNewData reseta o offset/viewport internamente (ChartStore.clear()
-          // + resetOffsetRightDistance()), mesmo fora da primeira carga. Salvamos a posição
-          // do usuário antes e restauramos depois, pra não "puxar" o gráfico de volta.
-          let savedOffsetRightDistance: number | null = null;
-          if (!isInitialLoadRef.current) {
-            try {
-              savedOffsetRightDistance = chart.getOffsetRightDistance();
-            } catch (e) {
-              console.warn('[ChartView] ⚠️ Could not read offset before refresh:', e);
-            }
+          // 🐛 FIX 2026-09-02 (achado do Cleber: "o gráfico fica dando refresh
+          // sozinho, não pode ficar dando na cara do usuário"): mesmo restaurando
+          // scroll/barSpace depois, `applyNewData` sempre faz um reset completo
+          // do ChartStore (limpa e reconstrói o dataset inteiro) a cada 30s —
+          // isso é visível como um "pisca"/redesenho perceptível mesmo com a
+          // posição sendo restaurada logo em seguida, porque o reset e a
+          // restauração acontecem em passos separados, não atomicamente.
+          // `chart.updateData()` é a API da própria klinecharts feita pra
+          // atualização em tempo real (tick novo / vela em formação) — atualiza
+          // ou anexa uma vela SEM tocar em ChartStore.clear()/offset/scroll,
+          // logo sem nenhum reset visível. Só a PRIMEIRA carga (troca de
+          // símbolo/timeframe, sem dataset ainda no chart) usa `applyNewData`
+          // de verdade; todo refresh de 30s seguinte vira atualização
+          // incremental das velas novas/em formação desde o último fetch.
+          const isFullResetAfterReplay = forceFullReloadAfterReplayRef.current;
+          if (!hasAppliedFullDatasetRef.current || isFullResetAfterReplay) {
+            // 🐛 FIX CRÍTICO: `chart.applyNewData()` é ASSÍNCRONO por dentro
+            // (`chartStore.addData(...).then()` — confirmado lendo o código-fonte
+            // da klinecharts, node_modules/klinecharts/dist/index.esm.js). Um
+            // `scrollToRealTime()`/`setOffsetRightDistance()` chamado logo em
+            // seguida, de forma síncrona, rodava ANTES da promise terminar — e
+            // era sobrescrito/ignorado quando ela de fato resolvia (o reset de
+            // scroll da própria klinecharts vence por rodar depois). Isso
+            // explica por que os fixes anteriores (ancorar candle à esquerda,
+            // scrollToRealTime pós-Replay) pareciam não ter efeito nenhum.
+            // Correção: usar o parâmetro `callback` do applyNewData, que só
+            // dispara de verdade depois que os dados terminaram de ser
+            // aplicados internamente.
+            chart.applyNewData(candles, undefined, () => {
+              if (isFullResetAfterReplay) {
+                // Sair do Replay: devolve a viewport pro comportamento normal
+                // (candle mais recente perto da borda direita, dado real) —
+                // sem isso o eixo de preço ficava deformado por alguns
+                // segundos, preso na faixa do ativo do replay.
+                try {
+                  chart.scrollToRealTime();
+                } catch (e) {
+                  try { chart.scrollToDataIndex(candles.length - 1); } catch (e2) { /* não crítico */ }
+                }
+              }
+            });
+            console.log('[ChartView] ✅ chart.applyNewData completed (primeira carga)!');
+            hasAppliedFullDatasetRef.current = true;
+            forceFullReloadAfterReplayRef.current = false;
+          } else {
+            const incremental = candles.filter(c => c.timestamp >= lastAppliedCandleTimestampRef.current);
+            incremental.forEach(c => chart.updateData(c));
+            console.log('[ChartView] 🔄 chart.updateData incremental:', incremental.length, 'vela(s) — sem reset de viewport');
           }
+          lastAppliedCandleTimestampRef.current = lastCandle.timestamp;
+          hasEverRenderedCandlesRef.current = true;
 
-          chart.applyNewData(candles);
-          console.log('[ChartView] ✅ chart.applyNewData completed!');
-
-          if (savedOffsetRightDistance !== null) {
-            try {
-              chart.setOffsetRightDistance(savedOffsetRightDistance);
-              console.log('[ChartView] 🔧 Posição do usuário restaurada após refresh');
-            } catch (e) {
-              console.warn('[ChartView] ⚠️ Could not restore offset after refresh:', e);
-            }
-          }
-          
           // 🔍 DEBUG: Verificar se os dados foram aplicados
           try {
             const dataList = chart.getDataList();
@@ -5222,18 +6515,193 @@ export function ChartView({
             console.log('[ChartView] ⏭️ Skipping auto-scroll - não é primeira carga (mantendo posição do usuário)');
           }
 
-          // 🆕 Aplica o setup favorito do usuário (indicadores + parâmetros, grade, S/R)
-          // uma única vez por montagem do componente — não repete a cada refresh de 30s
-          // nem a cada troca de símbolo/timeframe (favoriteSetupAppliedRef nunca reseta).
-          // Construído direto do objeto salvo (nunca via getIndicatorParams/getMASettings,
-          // que leem o state React — assíncrono demais pra estar pronto aqui).
-          if (favoriteSetup && !favoriteSetupAppliedRef.current) {
+          // 🚀 PERF 2026-09-23: a 1ª pintura usou só FAST_FIRST_PAINT_MAX_CANDLES
+          // (1 página) pra aparecer rápido — completa o histórico de zoom-out (até
+          // 5 anos, teto padrão) em 2º plano, sem travar a exibição inicial e sem
+          // resetar a posição/zoom que o usuário já está vendo. Reaproveita
+          // `readChartScrollPosition`/`applyChartScrollPosition` (mesmo par já usado
+          // pra restaurar sessão salva depois de um `applyNewData`, ver acima) —
+          // não crítico: qualquer falha aqui só significa que o zoom-out completo
+          // só fica disponível na próxima troca de símbolo/timeframe, sem quebrar
+          // o gráfico já exibido.
+          if (isFastFirstPaint) {
+            setTimeout(async () => {
+              if (cancelled) return;
+              try {
+                const fullCandles = await fetchCandles(selectedSymbol, timeframe, 200);
+                if (cancelled || fullCandles.length <= candles.length) return;
+                const chartNow = chartInstanceRef.current;
+                if (!chartNow) return;
+                const savedScroll = readChartScrollPosition(chartNow);
+                chartNow.applyNewData(fullCandles, undefined, () => {
+                  if (savedScroll) {
+                    applyChartScrollPosition(chartNow, savedScroll.anchorTimestamp, savedScroll.anchorX);
+                  }
+                });
+                const lastFull = fullCandles[fullCandles.length - 1];
+                if (lastFull) lastAppliedCandleTimestampRef.current = lastFull.timestamp;
+                console.log('[ChartView] 📚 Histórico completo estendido em 2º plano:', fullCandles.length, 'candles (era', candles.length, ')');
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao estender histórico em 2º plano (gráfico continua exibindo a janela rápida):', e);
+              }
+            }, 1200);
+          }
+
+          // Marca que a restauração inicial (sessão ou favorito, com ou sem dado salvo)
+          // já rodou -- é o gate que libera o autosave de sessão logo abaixo, pra não
+          // sobrescrever um estado salvo com o gráfico ainda em branco ANTES deste
+          // bloco aplicar o que tinha sido restaurado.
+          initialRestoreDoneRef.current = true;
+
+          // 🐛 BUG REAL achado nesta sessão (causa raiz #2 do Fibonacci sumindo ao trocar
+          // de timeframe, além do problema de dataIndex já corrigido acima): este cleanup
+          // de "bolinha preta misteriosa" (chart.removeOverlay() SEM argumento, apaga
+          // TODOS os overlays) rodava DEPOIS do bloco de restauração de desenhos do
+          // usuário logo abaixo — a Fibonacci restaurada era criada e, no MESMO ciclo de
+          // `fetchData`, apagada de novo por este removeOverlay() genérico, antes do
+          // usuário sequer ver. Movido pra ANTES da restauração — continua rodando só uma
+          // vez por troca de timeframe/símbolo (`didCleanMysteryOverlay`), mas agora limpa
+          // o residual do chart ANTIGO antes dos desenhos do usuário serem recriados no
+          // chart NOVO, em vez de apagar os que acabaram de nascer.
+          if (!didCleanMysteryOverlay) {
+            chart.removeOverlay();
+            didCleanMysteryOverlay = true;
+            console.log('[ChartView] 🧹 Overlays cleared after data load (só na 1ª carga)');
+          }
+
+          // 🔧 FIX: numa MONTAGEM NOVA de verdade (navegou pra outra aba e voltou), o ref
+          // acima nasce vazio — ele só sobrevive a troca de timeframe/símbolo dentro da
+          // MESMA montagem. Semeia com o que foi salvo no sessionStorage no desmonte
+          // anterior (ver cleanup do effect) antes do bloco de restauração logo abaixo
+          // rodar — sem isso, desenho manual (Fibonacci, trendline...) sumia ao trocar de
+          // seção da plataforma mesmo já tendo o mecanismo de snapshot em memória.
+          if (userDrawingsSnapshotRef.current.length === 0) {
+            const savedSession = readSessionState(user?.id);
+            if (savedSession?.userDrawings?.length) {
+              userDrawingsSnapshotRef.current = savedSession.userDrawings as any;
+            }
+          }
+
+          // 🔧 FIX: recria os desenhos do usuário capturados no snapshot antes do dispose()
+          // (ver cleanup do effect, onde `userDrawingsSnapshotRef` é preenchido). Sem isso,
+          // trendline/fibonacci/shapes/texto/emoji desenhados manualmente somem pra sempre
+          // a cada troca de timeframe/símbolo — bug real confirmado ao vivo.
+          //
+          // 🐛 BUG REAL achado nesta sessão (Cleber reportou: Fibonacci especificamente não
+          // segurava ao trocar de TIMEFRAME, mesmo com este mecanismo já existindo desde
+          // 2026-08-31): o comentário acima estava ERRADO — `dataIndex` NÃO é preservável
+          // entre timeframes diferentes. `dataIndex` é a posição do candle dentro do array
+          // carregado; ele só corresponde ao MESMO instante de tempo quando o dataset não
+          // muda de granularidade (troca de símbolo mantendo o timeframe, caso que este
+          // mecanismo sempre testou). Ao trocar de timeframe (ex: 5m→1H) o número total de
+          // candles muda inteiramente — um `dataIndex` de milhares (comum no timeframe mais
+          // granular) simplesmente não existe no array novo, menor, e a klinecharts não
+          // desenha a figura (silencioso, sem erro). Um trendline entre 2 candles próximos do
+          // fim do gráfico às vezes ainda calha de cair dentro do range novo por coincidência;
+          // uma Extensão de Fibonacci (3 pontos espalhados por um movimento inteiro) quase
+          // sempre estoura o range — por isso o Cleber via especificamente o Fibonacci sumir.
+          // Fix real: `getOverlayById` (na captura, no cleanup do effect) já devolve pontos
+          // no formato `{ dataIndex, timestamp, value }` (tipo `Point` nativo da klinecharts,
+          // ver `node_modules/klinecharts/dist/index.d.ts`) — ao recriar, descartamos o
+          // `dataIndex` velho e mandamos só `timestamp`+`value`; a própria lib recalcula o
+          // `dataIndex` certo contra o dataset NOVO já carregado por `applyNewData` acima,
+          // igual ela já faz ao converter overlay por timestamp em outros pontos do código
+          // (ver `chart.convertToPixel({ timestamp })`).
+          if (userDrawingsSnapshotRef.current.length > 0) {
+            const restored: string[] = [];
+            userDrawingsSnapshotRef.current.forEach(saved => {
+              try {
+                const remappedPoints = Array.isArray(saved.points)
+                  ? saved.points.map((p: any) => ({ timestamp: p.timestamp, value: p.value }))
+                  : saved.points;
+                const newId = chart.createOverlay({
+                  name: saved.name,
+                  groupId: USER_DRAWINGS_GROUP,
+                  points: remappedPoints,
+                  styles: saved.styles,
+                  extendData: saved.extendData,
+                  lock: saved.lock,
+                  visible: saved.visible,
+                  // 🔧 FIX: sem isso, o desenho recriado após trocar de timeframe/símbolo
+                  // ficava sem NENHUM clique funcional — nem selecionava, nem abria o menu
+                  // de Mover/Estilo/Travar/Apagar (o Cleber pediu justamente esse menu pra
+                  // Fibonacci). Mesmo handler usado na criação original via toolbar.
+                  onClick: buildDrawingOnClickHandler(saved.name)
+                });
+                if (newId) restored.push(newId as string);
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao restaurar desenho do usuário:', saved.name, e);
+              }
+            });
+            userDrawingOverlayIdsRef.current = restored;
+            console.log('[ChartView] 🔄', restored.length, 'desenho(s) do usuário restaurado(s) após troca de timeframe/símbolo');
+          }
+          // 🔧 FIX: sem isso, `fetchData` (chamado de novo a cada refresh de 30s dentro da
+          // MESMA montagem/timeframe, ver setInterval) via rodar este bloco de novo com o
+          // snapshot antigo ainda em mãos — recriando os MESMOS desenhos por cima a cada
+          // 30s (duplicata visível, acumulando desenhos repetidos com o passar do tempo).
+          // Uma vez restaurado, o snapshot não serve mais até a PRÓXIMA troca real de
+          // timeframe/símbolo (que já preenche `userDrawingsSnapshotRef` de novo, ver
+          // cleanup do effect).
+          userDrawingsSnapshotRef.current = [];
+
+          // 🆕 Restaura o estado "ao vivo" da sessão (indicadores/timeframe de segundos
+          // atrás, antes do usuário trocar de seção do app) — tem prioridade sobre o
+          // setup favorito, por ser mais recente. Uma única vez por montagem, mesma
+          // regra do setup favorito logo abaixo (nunca repete a cada refresh de 30s).
+          const sessionState = readSessionState(user?.id);
+          if (sessionState && !sessionStateAppliedRef.current) {
+            sessionStateAppliedRef.current = true;
+            favoriteSetupAppliedRef.current = true; // não aplica os dois — sessão vence
+            try {
+              // 🐛 FIX (relatado pelo Cleber): o zoom não "segurava" ao trocar de seção
+              // nem ao carregar template — este caminho descartava de propósito
+              // barSpace/offsetRightDistance do estado de sessão, devolvendo o gráfico
+              // pro zoom padrão da lib mesmo tendo o valor salvo em mãos. O estado de
+              // sessão é justamente "como o gráfico estava segundos atrás", então o
+              // viewport faz parte dele (diferente do setup favorito logo abaixo, que
+              // é preferência genérica e continua sem posição fixa).
+              //
+              // 🐛 FIX 2026-09-02 (achado do Cleber: gráfico abre mostrando candles de
+              // dias atrás em vez do preço atual, toda vez que entra na página ou troca
+              // de seção e volta): `anchorTimestamp`/`anchorX` guardam a posição EXATA
+              // de scroll de quando o usuário parou de olhar — se em algum momento ele
+              // rolou pro passado (pra olhar um padrão) e não voltou pro tempo real
+              // antes de trocar de seção, essa posição no passado ficava presa pra
+              // sempre, reaplicada em toda montagem futura. Decisão do Cleber: o
+              // gráfico deve sempre abrir no preço atual por padrão — indicadores/
+              // timeframe/zoom (barSpace) continuam sendo restaurados, só a âncora de
+              // scroll não.
+              //
+              // 🐛 FIX 2026-09-02 (2ª parte, achado nesta sessão): nular só
+              // `anchorTimestamp`/`anchorX` não bastava — `offsetRightDistance`
+              // TAMBÉM guarda posição de scroll, não só margem visual (ver comentário
+              // grande em `applyChartTemplateConfig`, onde ele recalcula
+              // `_lastBarRightSideDiffBarCount = offset / barSpace` internamente).
+              // Uma sessão salva de quando o usuário tinha rolado pro passado carrega
+              // um `offsetRightDistance` que reflete aquela posição antiga — aplicá-lo
+              // aqui reintroduzia o EXATO mesmo bug (candles de dias atrás) por uma
+              // porta que o fix acima não fechou, sobrescrevendo o scrollToRealTime()
+              // que já tinha rodado logo acima. `barSpace` (zoom) sozinho não move a
+              // posição, então continua restaurado — só a dupla que afeta posição
+              // (anchor + offset) é nulada, igual ao setup favorito já faz mais abaixo.
+              applyChartTemplateConfig(chart, { ...sessionState, anchorTimestamp: null, anchorX: null, offsetRightDistance: null });
+              console.log('[ChartView] 🔄 Estado de sessão restaurado:', sessionState.indicatorIds, 'barSpace:', sessionState.barSpace);
+            } catch (error) {
+              console.error('[ChartView] ❌ Erro restaurando estado de sessão:', error);
+            }
+          } else if (favoriteSetup && !favoriteSetupAppliedRef.current) {
+            // 🆕 Aplica o setup favorito do usuário (indicadores + parâmetros, grade, S/R)
+            // uma única vez por montagem do componente — não repete a cada refresh de 30s
+            // nem a cada troca de símbolo/timeframe (favoriteSetupAppliedRef nunca reseta).
+            // Construído direto do objeto salvo (nunca via getIndicatorParams/getMASettings,
+            // que leem o state React — assíncrono demais pra estar pronto aqui).
             favoriteSetupAppliedRef.current = true;
             try {
               // Setup favorito não guarda barSpace/offsetRightDistance (é "como eu gosto
               // de ver qualquer gráfico", não uma posição fixa) — undefined preserva o
               // scroll automático já feito acima (scrollToRealTime).
-              applyChartTemplateConfig(chart, { ...favoriteSetup, barSpace: null, offsetRightDistance: null });
+              applyChartTemplateConfig(chart, { ...favoriteSetup, barSpace: null, offsetRightDistance: null, anchorTimestamp: null, anchorX: null });
               console.log('[ChartView] ⭐ Setup favorito aplicado:', favoriteSetup.indicatorIds);
             } catch (error) {
               console.error('[ChartView] ❌ Erro aplicando setup favorito:', error);
@@ -5248,7 +6716,9 @@ export function ChartView({
             const templateToApply = pendingTemplateApplyRef.current;
             pendingTemplateApplyRef.current = null;
             try {
-              applyChartTemplateConfig(chart, templateToApply);
+              // 🐛 FIX 2026-09-02: mesma decisão do estado de sessão acima — nunca
+              // restaura a âncora de scroll salva no template, só indicadores/zoom.
+              applyChartTemplateConfig(chart, { ...templateToApply, anchorTimestamp: null, anchorX: null });
               console.log('[ChartView] 📐 Template pendente aplicado após troca de timeframe');
             } catch (error) {
               console.error('[ChartView] ❌ Erro aplicando template pendente:', error);
@@ -5256,8 +6726,19 @@ export function ChartView({
           }
 
           // 🎯 Configurar precisão de preço para exibição correta na régua
-          chart.setPriceVolumePrecision(2, 0); // 2 casas decimais para preço, 0 para volume
-          console.log('[ChartView] 🎯 Precision set to 2 decimal places');
+          // 🐛 FIX 2026-09-05 (achado do Cleber, print de XLMUSD com candle
+          // "achatado"): precisão fixa em 2 casas arredondava TODO ativo de
+          // preço baixo (XLMUSD ~$0.18, ADAUSD, etc) pro mesmo valor
+          // repetido candle a candle -- a variação real só aparece na 4ª/5ª
+          // casa decimal, então o candle real (que tem corpo/pavio de
+          // verdade) virava uma linha achatada na tela, mesmo com dado
+          // correto por trás. Usa a MESMA função de precisão por ativo já
+          // usada no header de preço (getPrecisionForSymbol,
+          // priceFormatter.ts) em vez de um número fixo -- klinecharts passa
+          // a arredondar (e desenhar) com a mesma precisão real do ativo.
+          const lastClosePrice = candles && candles.length > 0 ? candles[candles.length - 1].close : 0;
+          chart.setPriceVolumePrecision(getPrecisionForSymbol(selectedSymbol, lastClosePrice), 0);
+          console.log('[ChartView] 🎯 Precision set to', getPrecisionForSymbol(selectedSymbol, lastClosePrice), 'decimal places for', selectedSymbol);
           
           // ✅ Sobrescrever formatação de números do eixo Y (remover separador de milhares)
           chart.setStyles({
@@ -5270,20 +6751,7 @@ export function ChartView({
             }
           });
           console.log('[ChartView] 📊 Y-axis number format customized (no thousands separator)');
-          
-          // 🔧 FIX GRAVE: chart.removeOverlay() SEM argumento apaga TODOS os overlays —
-          // esse código rodava a cada ciclo do auto-refresh de 30s (fetchData é chamado em
-          // loop, ver setInterval logo abaixo), então TODO desenho do usuário (linhas,
-          // textos anexados na Linha com Informações, formas, garfos...) sumia sozinho a
-          // cada 30 segundos, mesmo sem o usuário tocar em nada. Agora só limpa a "bolinha
-          // preta misteriosa" residual UMA VEZ, na primeira carga desta troca de
-          // símbolo/timeframe — nunca mais nos refreshs automáticos seguintes.
-          if (!didCleanMysteryOverlay) {
-            chart.removeOverlay();
-            didCleanMysteryOverlay = true;
-            console.log('[ChartView] 🧹 Overlays cleared after data load (só na 1ª carga)');
-          }
-          
+
           console.log('[ChartView] ✅ Data applied successfully!');
           console.log('[ChartView] 🎉 Chart fully initialized and ready!');
           console.log('[ChartView] 📊 Chart should now display', candles.length, 'candles from', new Date(candles[0].timestamp).toLocaleString(), 'to', new Date(candles[candles.length - 1].timestamp).toLocaleString());
@@ -5323,17 +6791,22 @@ export function ChartView({
           }
           
           setDataSource('metaapi');
+          setCandlesLoading(false);
+          setCandlesLoadFailed(false);
+          fetchInProgress = false;
 
           // Store chart data and analyze
           setChartData(candles);
           chartDataRef.current = candles; // 🔄 Sincronizar ref para uso no useEffect de atualização de preço
+          // 🔴 FIX cronômetro: âncora do countdown só avança com dado REAL do servidor.
+          lastRealCandleTimestampRef.current = lastCandle.timestamp;
           
-          // Detect liquidity zones - 🔥 FIX: Passar preço atual como parâmetro
-          const currentPriceForZones = lastCandle.close;
-          const zones = detectLiquidityZones(candles, currentPriceForZones);
-          setLiquidityZones(zones);
-          renderSrOverlays(zones, showSrOverlayRef.current);
-          console.log('[ChartView] 🎯 Detected', zones.length, 'liquidity zones');
+          // Detecta zonas de Order Block (SMC) na janela curta carregada no gráfico
+          const zones = detectOrderBlockZones(candles, selectedSymbol, timeframe);
+          const extendMs = timeframeToMs(timeframe) * 20;
+          setOrderBlockZones(zones);
+          renderSrOverlays(zones, showSrOverlayRef.current, lastCandle.timestamp, extendMs);
+          console.log('[ChartView] 🎯 Detected', zones.length, 'order block zones');
 
           // 🐛 FIX: troca de timeframe/ativo dispara dispose()+init() do chart
           // (linhas acima) — um chart novo não tem overlay nenhum, e o
@@ -5343,7 +6816,17 @@ export function ChartView({
           // linha sumir do gráfico até a próxima mudança em activeOrders. O
           // S/R acima já não tinha esse problema por já redesenhar aqui —
           // mesma correção, mesmo ponto (chart pronto, dados já aplicados).
-          renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+          // 🐛 2026-09-02: usa os refs (sempre atualizados), não o
+          // `activeOrders`/`pendingOrders` fechados no momento em que este
+          // fetchData foi criado (ver comentário grande em activeOrdersRef).
+          renderPositionOverlays(activeOrdersRef.current, selectedSymbol, pendingOrdersRef.current);
+
+          // 🆕 2026-10-08: pivôs do último pregão (mesmo toggle do S/R); busca 1H em 2º plano, sem bloquear o gráfico.
+          const pivotSymbolAtFetch = selectedSymbol;
+          loadSessionPivots(pivotSymbolAtFetch).then((pv) => {
+            if (pivotSymbolAtFetch !== selectedSymbol) return; // ativo já trocou, descarta
+            renderSessionPivots(pivotSymbolAtFetch, pv, showSrOverlayRef.current);
+          });
 
           // 🆕 Busca a estrutura de longo prazo (SMC, 1D/~5 anos) em paralelo e, quando
           // chegar, re-desenha o S/R combinando com a janela curta acima — sem isso as
@@ -5353,10 +6836,10 @@ export function ChartView({
           fetchMacroSrZones(macroSymbolAtFetch).then((macroZones) => {
             if (macroSymbolAtFetch !== selectedSymbol) return; // ativo já trocou, descarta
             if (macroZones.length === 0) return;
-            const merged = buildSrZonesWithMacro(zones, macroZones, currentPriceForZones);
-            setLiquidityZones(merged);
-            renderSrOverlays(merged, showSrOverlayRef.current);
-            console.log('[ChartView] 🎯 S/R combinado com estrutura macro (SMC):', merged.length, 'zonas');
+            const merged = combineOrderBlockZones(zones, macroZones);
+            setOrderBlockZones(merged);
+            renderSrOverlays(merged, showSrOverlayRef.current, lastCandle.timestamp, extendMs);
+            console.log('[ChartView] 🎯 Order Blocks combinados com estrutura macro (SMC):', merged.length, 'zonas');
           });
           
           // Generate trading signal
@@ -5365,16 +6848,31 @@ export function ChartView({
           console.log('[ChartView] 📊 Trading Signal:', signal.type, 'Strength:', signal.strength);
           
           // 🆕 ADD TRADING SIGNALS AS OVERLAYS
+          // 🐛 FIX 2026-09-02 (achado colateral do "refresh visível", nunca corrigido até
+          // agora): este bloco roda a cada fetchData, inclusive nos refreshs automáticos
+          // de 30s, e sempre criava um overlay NOVO (`signal-${Date.now()}`) sem nunca
+          // remover o anterior — o marcador ▲/▼ se acumulava indefinidamente na mesma
+          // vela ao longo do tempo. Corrigido removendo o marcador anterior antes de
+          // criar o novo.
+          if (signalOverlayIdRef.current) {
+            try {
+              chart.removeOverlay(signalOverlayIdRef.current);
+            } catch (e) {
+              // overlay pode já ter sido removido (troca de ativo, dispose) — ignora
+            }
+            signalOverlayIdRef.current = null;
+          }
           if (signal.type !== 'NEUTRAL' && signal.strength >= 50) {
             console.log('[ChartView] 🎯 Adding', signal.type, 'signal marker to chart');
-            
+
             // Create overlay at the last candle position
             const lastCandleIndex = candles.length - 1;
             const signalPrice = lastCandle.close;
-            
+
             try {
               // Create simple HTML overlay div for signal
               const overlayId = `signal-${Date.now()}`;
+              signalOverlayIdRef.current = overlayId;
               chart.createOverlay({
                 name: 'text',
                 id: overlayId,
@@ -5407,23 +6905,38 @@ export function ChartView({
             name: error instanceof Error ? error.name : 'Unknown'
           });
           console.error('[ChartView] 🔍 This error is preventing the chart from loading!');
+          if (cancelled) return;
+          if (retryAttempt < CANDLE_RETRY_DELAYS_MS.length) {
+            const delay = CANDLE_RETRY_DELAYS_MS[retryAttempt];
+            console.warn(`[ChartView] ⚠️ Erro na busca, tentando de novo em ${delay}ms (tentativa ${retryAttempt + 1}/${CANDLE_RETRY_DELAYS_MS.length})`);
+            retryTimeoutId = setTimeout(() => {
+              if (!cancelled) fetchData(retryAttempt + 1);
+            }, delay);
+            return;
+          }
           setDataSource('loading');
+          setCandlesLoading(false);
+          setCandlesLoadFailed(true);
+          fetchInProgress = false;
         }
       };
+      fetchChartDataRef.current = () => fetchData(0);
 
-      // 🚀 PERF: 'cache' primeiro (pode pintar a tela quase na hora se o símbolo
-      // já foi visitado antes), depois 'quick' (sempre ao vivo e completo, corrige
-      // qualquer defasagem do cache), depois 'deep' em background pra preencher o
-      // histórico de 5 anos sem travar a tela — ver comentário na declaração de
-      // fetchData acima.
-      fetchData('cache').then(() => fetchData('quick')).then(() => {
-        fetchData('deep');
-      });
+      fetchData();
 
       // 🔄 AUTO-REFRESH: Atualizar candles a cada 30 segundos
       const refreshInterval = setInterval(() => {
+        if (showBacktestReplayRef.current) {
+          // Replay de mercado ativo: não deixar o refresh de dado AO VIVO
+          // sobrescrever os candles do replay (ver ref acima).
+          return;
+        }
+        if (fetchInProgress) {
+          console.log('[ChartView] ⏭️ Auto-refresh pulado: retry de candles ainda em andamento');
+          return;
+        }
         console.log('[ChartView] 🔄 Auto-refreshing candles...');
-        fetchData('deep');
+        fetchData();
       }, 30000); // 30 segundos
 
       // Handle resize
@@ -5458,6 +6971,44 @@ export function ChartView({
         window.removeEventListener('resize', handleResize);
         resizeObserver?.disconnect();
         clearInterval(refreshInterval); // 🔄 Limpar intervalo de refresh
+        cancelled = true;
+        if (retryTimeoutId) clearTimeout(retryTimeoutId); // 🔄 Cancela retry de candle pendente
+        // 🔧 FIX: captura os desenhos do usuário ANTES do dispose() (troca de símbolo/
+        // timeframe roda este cleanup antes de recriar o chart do zero) — sem isso,
+        // trendline/fibonacci/shapes/texto ancorado/emoji desenhados pelo usuário eram
+        // destruídos pra sempre a cada troca, sem nenhum aviso (confirmado ao vivo:
+        // desenhar uma linha e trocar de timeframe apagava a linha). Restauração real
+        // acontece depois que o chart novo termina de aplicar o dataset (ver bloco perto
+        // de `sessionStateAppliedRef.current = true`).
+        try {
+          if (chartInstanceRef.current) {
+            const snapshot = userDrawingOverlayIdsRef.current
+              .map(id => chartInstanceRef.current.getOverlayById(id))
+              .filter(Boolean)
+              .map((o: any) => ({
+                name: o.name,
+                points: o.points,
+                styles: o.styles,
+                extendData: o.extendData,
+                lock: !!o.lock,
+                visible: o.visible !== false
+              }));
+            userDrawingsSnapshotRef.current = snapshot;
+            console.log('[ChartView] 📸 Snapshot de', snapshot.length, 'desenho(s) do usuário antes do dispose');
+            // 🔧 FIX: além do ref em memória (só sobrevive a troca de timeframe/símbolo
+            // DENTRO da mesma montagem), grava também no sessionStorage — sem isso, um
+            // desenho manual (ex: expansão de Fibonacci) some pra sempre ao navegar pra
+            // outra aba da plataforma (ChartView desmonta de verdade, o ref morre junto).
+            // Reaproveita o mesmo mecanismo já usado pra indicadores/timeframe (ver
+            // useChartSessionState.ts) — mescla no config completo pra não perder o
+            // resto do estado de sessão já salvo.
+            if (initialRestoreDoneRef.current) {
+              saveSessionState(userIdRef.current, { ...captureCurrentChartConfigRef.current(), userDrawings: snapshot });
+            }
+          }
+        } catch (e) {
+          console.warn('[ChartView] ⚠️ Falha ao capturar snapshot de desenhos do usuário:', e);
+        }
         try {
           dispose(chartId);
         } catch (e) {
@@ -5507,10 +7058,17 @@ export function ChartView({
     console.log(`[ChartView] 📡 Iniciando polling de preço para ${selectedSymbol}`);
 
     // Subscribe ao preço em tempo real (mesmo pipeline real usado no resto do app)
-    // Intervalo de 2s: getRealMarketData já cacheia por símbolo por 2s, então
-    // isso não gera chamada de rede nova a cada tick — só reflete o cache mais
-    // recente com mais frequência, suavizando a animação sem sobrecarregar a
-    // conta MetaAPI compartilhada (é 1 único símbolo, não um lote).
+    // Intervalo padrão de 2s (ver watchdog abaixo, calibrado em cima desse valor).
+    // ✅ 2026-08-31: BTCUSD cota direto da Binance em `/mt5-prices` (não mais
+    // via conta MetaAPI compartilhada, ver server/index.ts) — sem o motivo
+    // original de manter o intervalo largo (proteger aquela conta), então usa
+    // um polling mais curto (1,5s) só pra ele, reduzindo a defasagem visível
+    // contra a página ao vivo da Binance (Cleber reportou preço/% "muito
+    // errados" mesmo com a rota já correta — BTC se move rápido o bastante
+    // pra 2s de defasagem parecer "errado" a olho nu comparando com uma
+    // aba da Binance sempre atualizando). Resto dos símbolos mantém os 2s de
+    // sempre.
+    const priceIntervalMs = selectedSymbol === 'BTCUSD' ? 1500 : 2000;
     const unsubscribe = subscribeToSymbol(selectedSymbol, (marketData) => {
       // 🛡️ GUARDA: getFallbackOrLastKnown pode devolver isRealData:false com
       // price:0 (nunca teve dado real ainda, ou falha transitória) — sem essa
@@ -5587,8 +7145,23 @@ export function ChartView({
         const deviatesTooMuch = lastCandle.close > 0 &&
           Math.abs(newPrice - lastCandle.close) / lastCandle.close > 0.10;
 
-        const updatedCandle = deviatesTooMuch
-          ? { ...lastCandle, open: newPrice, high: newPrice, low: newPrice, close: newPrice }
+        // 🕐 Detecta virada de candle localmente a partir do MESMO timestamp
+        // que alimenta o cronômetro (lastCandle.timestamp), em vez de esperar
+        // o refresh de 30s trazer o candle novo do servidor — sem isso, o
+        // candle "velho" seguia sendo esticado por até 30s depois do
+        // cronômetro chegar a zero, ficando visualmente fora de sincronia.
+        const intervalMs = TIMEFRAME_INTERVALS_MS[timeframe];
+        const candleTurnedOver = !deviatesTooMuch &&
+          Date.now() - lastCandle.timestamp >= intervalMs;
+
+        const updatedCandle = (deviatesTooMuch || candleTurnedOver)
+          ? {
+              ...lastCandle,
+              timestamp: candleTurnedOver
+                ? lastCandle.timestamp + intervalMs
+                : lastCandle.timestamp,
+              open: newPrice, high: newPrice, low: newPrice, close: newPrice
+            }
           : {
               ...lastCandle,
               close: newPrice,
@@ -5605,9 +7178,13 @@ export function ChartView({
         }
 
         try {
-          // Atualizar o array inteiro
           const updatedData = [...chartDataRef.current];
-          updatedData[updatedData.length - 1] = updatedCandle;
+          if (candleTurnedOver) {
+            // Novo candle: acrescenta ao array em vez de sobrescrever o último.
+            updatedData.push(updatedCandle);
+          } else {
+            updatedData[updatedData.length - 1] = updatedCandle;
+          }
           chartDataRef.current = updatedData;
 
           // 🔥 DEBOUNCE: Agrupar atualizações para não sobrecarregar o gráfico
@@ -5630,7 +7207,7 @@ export function ChartView({
           console.error('[ChartView] ❌ ERROR ao processar candle:', err);
         }
       }
-    }, 2000);
+    }, priceIntervalMs);
 
     // Cleanup ao desmontar
     return () => {
@@ -5641,7 +7218,20 @@ export function ChartView({
         chartUpdateTimeoutRef.current = null;
       }
     };
-  }, [selectedSymbol]);
+    // 🐛 FIX 2026-09-15 (formação de candle quebrada no 4H, achado ao vivo):
+    // `timeframe` faltava aqui -- o closure de `intervalMs`
+    // (TIMEFRAME_INTERVALS_MS[timeframe], usado pra decidir "candle virou")
+    // ficava CONGELADO no timeframe que estava selecionado quando este efeito
+    // rodou pela última vez (só reagia a troca de símbolo). Trocar de
+    // timeframe (ex: 5m -> 4H) SEM trocar de ativo mantinha a assinatura
+    // antiga viva: o motor de tick continuava "virando candle" a cada 5min
+    // (intervalo velho) meses depois de o usuário já estar olhando pra
+    // barras de 4H, empurrando candles espúrios (open=high=low=close=preço
+    // do momento, timestamp = último + 5min, não +4h) pro meio da série real
+    // de 4H -- exatamente o tipo de OHLC impossível (low > high) visto no
+    // print do Cleber. Agora o efeito também reinicia quando o timeframe
+    // muda, recalculando `intervalMs` do zero.
+  }, [selectedSymbol, timeframe]);
 
   // 🆕 Watchdog de "preço desatualizado" -- o polling de 2s acima nunca para de rodar
   // mesmo quando toda tentativa falha (getRealMarketData cai pro último valor real em
@@ -5918,6 +7508,18 @@ export function ChartView({
         handleCrosshairModeChange('arrow');
         return;
       }
+
+      // + / = = Zoom in, - = Zoom out (sem modificador, atalho direto de zoom do gráfico)
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        chartInstanceRef.current?.zoomAtCoordinate(1.25, undefined, 200);
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        chartInstanceRef.current?.zoomAtCoordinate(0.8, undefined, 200);
+        return;
+      }
     };
 
     document.addEventListener('keydown', handleKeyboardShortcuts);
@@ -6146,7 +7748,7 @@ export function ChartView({
           />
           
           {/* Modal estilo TradingView */}
-          <div ref={assetListRef} className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[980px] h-[680px] border border-gray-700 bg-[#131722] flex flex-col rounded-lg shadow-2xl z-[100]">
+          <div ref={assetListRef} className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-1.5rem)] max-w-[980px] h-[calc(100vh-4rem)] max-h-[680px] border border-gray-700 bg-[#131722] flex flex-col rounded-lg shadow-2xl z-[100]">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <h2 className="text-lg font-semibold text-white">Pesquisa de Símbolo</h2>
@@ -6274,7 +7876,7 @@ export function ChartView({
                   <ChevronDown className="w-4 h-4 text-gray-400" />
                 </div>
                 <div className="text-xs text-gray-500 text-left">
-                  {liveAssets.find(a => a.symbol === selectedSymbol)?.name || 'Bitcoin'}
+                  {liveAssets.find(a => a.symbol === selectedSymbol)?.name || selectedSymbol}
                 </div>
               </button>
             </div>
@@ -6347,8 +7949,8 @@ export function ChartView({
         </div>
 
         {/* Timeframes Bar */}
-        <div 
-          className="h-12 border-b border-gray-800 px-6 flex items-center gap-4 bg-[#0a0a0a]"
+        <div
+          className="h-12 border-b border-gray-800 px-3 md:px-6 flex items-center gap-4 bg-[#0a0a0a] overflow-x-auto overflow-y-hidden"
         >
           <div 
             className="flex items-center gap-2"
@@ -6360,7 +7962,15 @@ export function ChartView({
               {(timeframeExpanded ? timeframes : visibleTimeframes).map(tf => (
                 <button
                   key={tf}
-                  onClick={() => setTimeframe(tf)}
+                  onClick={() => {
+                    // Se há um template nomeado ativo, reaplica ele (com o timeframe novo)
+                    // depois da troca -- sem isso o template "sumia" ao trocar de timeframe
+                    // manualmente, porque a troca faz dispose()+init() do chart.
+                    if (activeTemplateConfigRef.current) {
+                      pendingTemplateApplyRef.current = { ...activeTemplateConfigRef.current, timeframe: tf };
+                    }
+                    setTimeframe(tf);
+                  }}
                   className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${
                     timeframe === tf 
                       ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
@@ -6442,9 +8052,13 @@ export function ChartView({
               // 🔧 FIX: Medir e Zoom eram decorativos (este callback era só console.log)
               if (tool === 'measure') {
                 handleDrawingToolSelect('measure');
-              } else if (tool === 'zoom') {
+              } else if (tool === 'zoom_in' || tool === 'zoom_out') {
+                // 🆕 Zoom In e Zoom Out (antes só existia "Zoom", que só aproximava).
+                // `zoomAtCoordinate` com escala <1 afasta, >1 aproxima; sem coordenada
+                // a própria klinecharts usa o centro da área visível.
                 try {
-                  chartInstanceRef.current?.zoomAtCoordinate(1.25, undefined, 200);
+                  chartInstanceRef.current?.zoomAtCoordinate(tool === 'zoom_in' ? 1.25 : 0.8, undefined, 200);
+                  persistChartViewportRef.current();
                 } catch (e) {
                   console.warn('[ChartView] ⚠️ Zoom falhou:', e);
                 }
@@ -6483,13 +8097,76 @@ export function ChartView({
                 paddingLeft: '0px', // 🎯 Sem padding - deixamos o yAxis size controlar
               }}
               onClick={(e) => {
-                // 🆕 MODO TEXTO: Clicar no gráfico abre input de texto
-                if (isAddingText) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const y = e.clientY - rect.top;
-                  setTextPosition({ x, y });
-                  console.log('[ChartView] 📝 Posição do texto:', { x, y });
+                // 🔧 FIX: MODO TEXTO agora cria o overlay nativo `textAnnotation` (ancorado a
+                // preço/tempo, mesmo mecanismo do emoji/demais desenhos) em vez do <div> HTML
+                // solto em pixel de tela de antes -- ver comentário completo na declaração de
+                // `textAnnotationEditor`. O editor abre na hora, no mesmo lugar do clique.
+                if (isAddingText && chartInstanceRef.current) {
+                  try {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const point = chartInstanceRef.current.convertFromPixel(
+                      [{ x, y }],
+                      { paneId: 'candle_pane' }
+                    );
+                    const resolved = Array.isArray(point) ? point[0] : point;
+                    const overlayId = chartInstanceRef.current.createOverlay({
+                      name: 'textAnnotation',
+                      groupId: USER_DRAWINGS_GROUP,
+                      points: [{ dataIndex: resolved?.dataIndex, value: resolved?.value }],
+                      extendData: '',
+                      onClick: (event: any) => {
+                        const existingText = typeof event.overlay?.extendData === 'string' ? event.overlay.extendData : '';
+                        setTextAnnotationText(existingText);
+                        textAnnotationTextRef.current = existingText;
+                        setTextAnnotationEditor({ overlayId: event.overlay.id, x: event.x ?? 0, y: event.y ?? 0 });
+                        return true;
+                      }
+                    });
+                    if (overlayId) {
+                      userDrawingOverlayIdsRef.current.push(overlayId);
+                      setTextAnnotationText('');
+                      textAnnotationTextRef.current = '';
+                      setTextAnnotationEditor({ overlayId, x, y });
+                    }
+                  } catch (err) {
+                    console.error('[ChartView] ❌ Error placing text annotation:', err);
+                    toast.error('Erro ao criar anotação de texto');
+                  } finally {
+                    setIsAddingText(false);
+                  }
+                }
+
+                // 🔧 FIX: emoji pendente (ver `handleEmojiSelect`) só vira overlay real AQUI —
+                // no primeiro clique de verdade dentro do container do gráfico, nunca no clique
+                // do picker. Converte pixel→dado real via `convertFromPixel` (mesma API já usada
+                // em outros pontos do arquivo) pra o marcador nascer exatamente sob o cursor.
+                if (pendingEmoji && chartInstanceRef.current) {
+                  try {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const point = chartInstanceRef.current.convertFromPixel(
+                      [{ x, y }],
+                      { paneId: 'candle_pane' }
+                    );
+                    const resolved = Array.isArray(point) ? point[0] : point;
+                    const emojiOverlayId = chartInstanceRef.current.createOverlay({
+                      name: 'emojiMarker',
+                      groupId: USER_DRAWINGS_GROUP,
+                      points: [{ dataIndex: resolved?.dataIndex, value: resolved?.value }],
+                      extendData: pendingEmoji
+                    });
+                    if (emojiOverlayId) {
+                      userDrawingOverlayIdsRef.current.push(emojiOverlayId); // 🔧 FIX: rastreia pra sobreviver a troca de timeframe/símbolo
+                    }
+                  } catch (err) {
+                    console.error('[ChartView] ❌ Error placing emoji marker:', err);
+                    toast.error('Erro ao posicionar marcador');
+                  } finally {
+                    setPendingEmoji(null);
+                  }
                 }
               }}
             >
@@ -6561,39 +8238,81 @@ export function ChartView({
               </div>
             )}
 
-            {/* 📝 INPUT DE TEXTO FLUTUANTE */}
-            {textPosition && (
+            {/* 📝 EDITOR DA ANOTAÇÃO DE TEXTO — abre ao criar uma nova ou ao clicar numa já
+                existente (overlay `textAnnotation`, ancorado a preço/tempo, ver comentário
+                completo na declaração de `textAnnotationEditor` acima). Mesmo padrão de
+                salvar-ao-sair do editor de "Linha com Informações" logo acima. */}
+            {textAnnotationEditor && (
               <div
                 className="absolute z-[80]"
-                style={{
-                  left: textPosition.x,
-                  top: textPosition.y,
-                }}
+                style={{ left: textAnnotationEditor.x, top: textAnnotationEditor.y }}
               >
                 <input
+                  ref={textAnnotationInputRef}
                   type="text"
-                  value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
+                  value={textAnnotationText}
+                  onChange={(e) => {
+                    setTextAnnotationText(e.target.value);
+                    textAnnotationTextRef.current = e.target.value;
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && textInput.trim()) {
-                      // Adicionar texto ao gráfico
-                      const newText = {
-                        id: Date.now().toString(),
-                        text: textInput,
-                        x: textPosition.x,
-                        y: textPosition.y
-                      };
-                      setChartTexts([...chartTexts, newText]);
-                      setTextInput('');
-                      setTextPosition(null);
-                      setIsAddingText(false);
-                      console.log('[ChartView] ✅ Texto adicionado:', newText);
+                    if (e.key === 'Enter') {
+                      textAnnotationCancelledRef.current = true;
+                      const trimmed = textAnnotationText.trim();
+                      try {
+                        if (trimmed) {
+                          chartInstanceRef.current?.overrideOverlay({
+                            id: textAnnotationEditor.overlayId,
+                            extendData: trimmed
+                          });
+                          toast.success('Anotação salva');
+                        } else {
+                          chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+                          userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+                        }
+                      } catch (err) {
+                        console.error('[ChartView] ❌ Error saving text annotation:', err);
+                        toast.error('Erro ao salvar anotação');
+                      }
+                      setTextAnnotationEditor(null);
+                      setTextAnnotationText('');
                     } else if (e.key === 'Escape') {
-                      // Cancelar
-                      setTextInput('');
-                      setTextPosition(null);
-                      setIsAddingText(false);
+                      textAnnotationCancelledRef.current = true;
+                      // Esc numa anotação recém-criada e ainda vazia descarta o marcador
+                      // fantasma; numa já existente, só fecha sem alterar o texto salvo.
+                      if (!textAnnotationText.trim()) {
+                        try {
+                          chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+                          userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+                        } catch (err) {
+                          console.error('[ChartView] ❌ Error discarding empty text annotation:', err);
+                        }
+                      }
+                      setTextAnnotationEditor(null);
+                      setTextAnnotationText('');
                     }
+                  }}
+                  onBlur={() => {
+                    if (textAnnotationCancelledRef.current) {
+                      textAnnotationCancelledRef.current = false;
+                      return;
+                    }
+                    const trimmed = textAnnotationText.trim();
+                    try {
+                      if (trimmed) {
+                        chartInstanceRef.current?.overrideOverlay({
+                          id: textAnnotationEditor.overlayId,
+                          extendData: trimmed
+                        });
+                      } else {
+                        chartInstanceRef.current?.removeOverlay(textAnnotationEditor.overlayId);
+                        userDrawingOverlayIdsRef.current = userDrawingOverlayIdsRef.current.filter(id => id !== textAnnotationEditor.overlayId);
+                      }
+                    } catch (err) {
+                      console.error('[ChartView] ❌ Error saving text annotation on blur:', err);
+                    }
+                    setTextAnnotationEditor(null);
+                    setTextAnnotationText('');
                   }}
                   autoFocus
                   placeholder="Digite o texto..."
@@ -6601,35 +8320,6 @@ export function ChartView({
                 />
               </div>
             )}
-
-            {/* 📝 TEXTOS NO GRÁFICO */}
-            {chartTexts.map((txt) => (
-              <div
-                key={txt.id}
-                className="absolute z-[60] text-white text-sm font-medium px-2 py-1 bg-black/50 border border-white/20 rounded pointer-events-auto cursor-move select-none"
-                style={{
-                  left: txt.x,
-                  top: txt.y,
-                }}
-                draggable
-                onDragEnd={(e) => {
-                  const rect = chartContainerRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    const newX = e.clientX - rect.left;
-                    const newY = e.clientY - rect.top;
-                    setChartTexts(chartTexts.map(t => 
-                      t.id === txt.id ? { ...t, x: newX, y: newY } : t
-                    ));
-                  }
-                }}
-                onDoubleClick={() => {
-                  // Remover texto ao dar duplo clique
-                  setChartTexts(chartTexts.filter(t => t.id !== txt.id));
-                }}
-              >
-                {txt.text}
-              </div>
-            ))}
 
             {/* 🖌️ CANVAS DE DESENHO LIVRE (Modo Apresentação + Borracha) */}
             {(activeTool === 'presentation' || activeTool === 'eraser') && (
@@ -6667,22 +8357,70 @@ export function ChartView({
             )}
             </div>
 
-            {/* 🔥 CANDLE COUNTDOWN -- fica FORA da div do chartContainerRef de propósito:
-                aquela div leva innerHTML='' toda vez que o gráfico reinicializa (troca de
-                timeframe/símbolo, ver efeito de init do klinecharts), o que arranca do DOM
-                qualquer filho renderizado pelo React ali dentro sem o React saber -- o nó
-                fica "órfão" (nunca aparece na tela). Posição FIXA logo abaixo da boleta
-                (OrderTicket, top-[17px] right-[99px] alguns px abaixo) -- pedido do Cleber:
-                a 1ª versão acompanhava a linha pontilhada de preço via convertToPixel, mas
-                ficava instável/pulando a cada variação de preço. */}
-            <div
-              className="absolute top-[142px] right-[99px] bg-blue-500/20 backdrop-blur-sm border border-blue-500/40 rounded px-2 py-0.5 z-[60] pointer-events-none flex items-center gap-1"
-            >
-              <Clock className="w-2.5 h-2.5 text-blue-400" />
-              <span className="text-[10px] font-mono font-bold text-blue-400 tracking-tight">
-                {formatCountdown(candleCountdown)}
-              </span>
-            </div>
+            {/* 🐛 FIX 2026-09-02: antes o gráfico ficava mudo (canvas em branco, sem
+                nenhum aviso) enquanto os candles não chegavam ou quando a busca falhava
+                de vez (rate-limit da conta MetaAPI compartilhada) — só o auto-refresh
+                silencioso de 30s podia recuperar, sem o usuário saber se estava
+                travado ou só carregando. Precisa ficar FORA da div que a klinecharts
+                controla diretamente (ref={chartContainerRef}) — como filho dela, a
+                klinecharts limpa/reordena o DOM por fora do React e este overlay nunca
+                chegava a aparecer de verdade (mesmo motivo já documentado acima pros
+                chips de indicador). */}
+            {/* 🔴 2026-09-03 (pedido explícito do Cleber: "isso não pode ficar desse
+                jeito, o usuário não pode passar por isso"): as duas telas abaixo só
+                bloqueiam o gráfico INTEIRO quando ele nunca renderizou candle
+                nenhum ainda pra este símbolo/timeframe (`!hasEverRenderedCandlesRef`)
+                -- achado ao vivo: uma instabilidade transitória da conta MetaAPI
+                compartilhada (rate-limit crônico já documentado no projeto) apagava
+                um gráfico que o usuário JÁ estava vendo, funcionando, e o prendia
+                atrás de uma tela preta até o próximo retry funcionar. Agora, se o
+                gráfico já tem dado real na tela, uma falha de refresh seguinte vira
+                só um badge pequeno e não-bloqueante (abaixo) -- o usuário nunca mais
+                perde a visão do que já carregou por causa de uma falha transitória. */}
+            {candlesLoading && !hasEverRenderedCandlesRef.current && (
+              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 pointer-events-none">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-neutral-300">Carregando candles de {selectedSymbol}...</span>
+              </div>
+            )}
+            {!candlesLoading && candlesLoadFailed && !hasEverRenderedCandlesRef.current && (
+              <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70">
+                <span className="text-sm text-neutral-300 text-center max-w-xs">
+                  Não foi possível carregar os candles reais de {selectedSymbol} agora
+                  (provável instabilidade temporária na fonte de dados).
+                </span>
+                <button
+                  onClick={() => fetchChartDataRef.current?.()}
+                  className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
+                >
+                  Tentar de novo
+                </button>
+              </div>
+            )}
+            {/* 🆕 2026-09-03: badge pequeno, não-bloqueante — cobre o caso em que o
+                gráfico já tem candle real na tela (`hasEverRenderedCandlesRef`) e um
+                refresh SEGUINTE falhou/está em retry. Nunca esconde o gráfico já
+                carregado; só avisa e oferece reconectar manualmente. */}
+            {(candlesLoading || candlesLoadFailed) && hasEverRenderedCandlesRef.current && (
+              <div className="absolute top-3 right-3 z-[60] flex items-center gap-2 bg-black/80 border border-neutral-700 rounded-full px-3 py-1.5 shadow-lg">
+                {candlesLoading ? (
+                  <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                )}
+                <span className="text-xs text-neutral-300">
+                  {candlesLoading ? 'Reconectando...' : `Dados de ${selectedSymbol} desatualizados`}
+                </span>
+                {candlesLoadFailed && (
+                  <button
+                    onClick={() => fetchChartDataRef.current?.()}
+                    className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    Tentar de novo
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* ❌ Removido o box flutuante em HTML que replicava editar/remover por
                 indicador no canto direito do gráfico — duplicava os ícones "⚙"/"✕" que a
@@ -6894,8 +8632,38 @@ export function ChartView({
                 suspeita forte de alguma camada do gráfico (canvas de crosshair/
                 desenho, gerenciada fora do React pela klinecharts) capturando o
                 clique por cima. Isto elimina essa hipótese de vez. */}
-            <div className="absolute top-[17px] right-[99px] z-[220] pointer-events-auto">
-              <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
+            <div className="absolute top-[17px] right-[99px] z-[220] flex flex-col items-end gap-2">
+              <div className="pointer-events-auto">
+                <OrderTicket symbol={selectedSymbol} currentPrice={currentPrice} />
+              </div>
+
+              {/* 🔥 CANDLE COUNTDOWN -- contador regressivo de quanto falta pro candle
+                  atual do timeframe selecionado fechar e o próximo começar. Vive no
+                  mesmo wrapper flex da boleta (não mais em offset fixo tipo top-[142px])
+                  de propósito: com posições abertas em outros ativos a boleta cresce
+                  (banners de aviso empilhados no topo), e um offset fixo fazia esse
+                  contador ficar escondido atrás da boleta mais alta -- some visualmente
+                  mesmo estando no DOM. Com flex-col ele sempre fica colado embaixo da
+                  altura real da boleta, recolhida ou expandida. */}
+              <div className="pointer-events-none inline-flex flex-col bg-black/90 backdrop-blur-sm border border-white/10 rounded-lg shadow-2xl overflow-hidden">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+                  <Clock className="w-3 h-3 text-blue-400 shrink-0" />
+                  <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">
+                    {timeframe}
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-white tabular-nums tracking-tight">
+                    {formatCountdown(candleCountdown)}
+                  </span>
+                </div>
+                <div className="h-0.5 bg-white/5">
+                  <div
+                    className="h-full bg-blue-500 transition-[width] duration-1000 ease-linear"
+                    style={{
+                      width: `${100 - (candleCountdown / TIMEFRAME_INTERVALS_MS[timeframe]) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -7097,13 +8865,17 @@ export function ChartView({
         // clicado; se ainda assim não couber tudo, o próprio menu ganha scroll interno
         // (nunca mais fica invisível, na pior das hipóteses rola dentro dele mesmo).
         const openUpward = contextMenu.y > window.innerHeight / 2;
-        const left = Math.min(contextMenu.x, window.innerWidth - 380);
+        // Em telas estreitas (< ~380px de sobra) o menu não cabe do jeito fixo --
+        // clampa em 8px da borda em vez de deixar `left` negativo (cortava o menu
+        // à esquerda em telas de 360-375px, ex. Galaxy S20/iPhone SE).
+        const menuWidth = Math.min(360, window.innerWidth - 16);
+        const left = Math.max(8, Math.min(contextMenu.x, window.innerWidth - menuWidth - 8));
         const menuStyle: React.CSSProperties = openUpward
-          ? { left, bottom: window.innerHeight - contextMenu.y, maxHeight: contextMenu.y - 8 }
-          : { left, top: contextMenu.y, maxHeight: window.innerHeight - contextMenu.y - 8 };
+          ? { left, bottom: window.innerHeight - contextMenu.y, maxHeight: contextMenu.y - 8, width: menuWidth }
+          : { left, top: contextMenu.y, maxHeight: window.innerHeight - contextMenu.y - 8, width: menuWidth };
         return (
         <div
-          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] min-w-[360px] overflow-y-auto"
+          className="fixed bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl py-2 z-[100] overflow-y-auto"
           style={menuStyle}
         >
           {/* Redefinir visão do gráfico */}
@@ -7279,12 +9051,15 @@ export function ChartView({
                         onClick={() => {
                           const chart = chartInstanceRef.current;
                           if (!chart) return;
+                          activeTemplateConfigRef.current = template.config;
                           if (template.config.timeframe !== timeframe && VALID_TIMEFRAMES.includes(template.config.timeframe as Timeframe)) {
                             pendingTemplateApplyRef.current = template.config;
                             setTimeframe(template.config.timeframe as Timeframe);
                           } else {
                             clearAllChartIndicators(chart);
-                            applyChartTemplateConfig(chart, template.config);
+                            // 🐛 FIX 2026-09-02: template carregado nunca restaura a âncora de
+                            // scroll salva — só indicadores/zoom. Gráfico sempre abre no preço atual.
+                            applyChartTemplateConfig(chart, { ...template.config, anchorTimestamp: null, anchorX: null });
                           }
                           setContextMenu(null);
                           toast.success(`Template "${template.name}" carregado`);
@@ -7349,7 +9124,23 @@ export function ChartView({
                     {(indicator.defaultParams?.length ?? 0) > 0 && (
                       <button
                         onClick={() => {
-                          isMovingAverageIndicator(indicator) ? openMAEditor(indicator) : openIndicatorEditor(indicator);
+                          if (isMovingAverageIndicator(indicator)) {
+                            // 🐛 FIX (bug real relatado pelo Cleber: cor escolhida numa MA
+                            // recém-inserida não aplicava): este botão fica na lista
+                            // "Indicadores ativos", que mostra só 1 linha por TIPO de
+                            // indicador -- sem `instanceId`, `openMAEditor` sempre editava
+                            // a 1ª instância (default do parâmetro = `indicator.id`), nunca
+                            // a que o usuário acabou de adicionar via "Adicionar outra
+                            // média". A engrenagem direto na legenda do gráfico já resolve a
+                            // instância certa (`onTooltipIconClick`); aqui, sem essa
+                            // informação, o melhor default é a ÚLTIMA instância criada --
+                            // é a que o usuário psicologicamente "acabou de mexer".
+                            const instances = maInstancesRef.current[indicator.id];
+                            const lastInstanceId = instances?.[instances.length - 1]?.instanceId;
+                            openMAEditor(indicator, false, lastInstanceId);
+                          } else {
+                            openIndicatorEditor(indicator);
+                          }
                           setContextMenu(null);
                         }}
                         title="Editar parâmetros"
@@ -7440,10 +9231,13 @@ export function ChartView({
         onDuplicate={handleDrawingDuplicate}
         onCopy={handleDrawingCopy}
         onHideToggle={handleDrawingHideToggle}
-        onClose={() => {
-          setShowContextToolbar(false);
-          setSelectedDrawing(null);
-        }}
+        onGotoPrice={handleDrawingGotoPrice}
+        // 🔧 FIX: fechar o menu (X) só esconde o painel -- o desenho continua selecionado/
+        // destacado (linha um pouco mais grossa), então o usuário pode reabrir o menu com
+        // outro clique nele sem precisar selecionar de novo do zero. Clicar em espaço vazio
+        // do gráfico (ver `chart.subscribeAction('onClick', ...)` acima) é o gesto que
+        // desseleciona de verdade e remove o destaque.
+        onClose={() => setShowContextToolbar(false)}
       />
 
       {/* 🎬 BACKTEST / REPLAY BAR - Barra de controle no rodapé (cobre o catálogo inteiro de ativos) */}
@@ -7452,6 +9246,27 @@ export function ChartView({
           onClose={() => {
             setShowBacktestReplay(false);
             setIsReplayMode(false);
+            forceFullReloadAfterReplayRef.current = true;
+            replayAppliedCountRef.current = 0;
+            fetchChartDataRef.current?.();
+            // 🔧 FIX: fechar o Replay (barra de 50px no rodapé) deixava o
+            // container <main> (flex-1 overflow-auto, App.tsx) scrollado pra
+            // baixo — a barra empurrava o conteúdo, o scroll ficava preso
+            // nessa posição mesmo depois da barra sumir, jogando o header
+            // (símbolo/preço) pra fora da tela por cima. O ativo selecionado
+            // nunca mudou de verdade (confirmado no DOM), só ficava invisível.
+            // Reforçado em 3 momentos (0/150/400ms) — o layout só termina de
+            // recalcular altura depois do fetchChartDataRef/re-render, 1
+            // rAF isolado nem sempre alcançava a tempo (confirmado que o bug
+            // persistia com só 1 tentativa).
+            const resetMainScroll = () => {
+              const main = chartContainerRef.current?.closest('main');
+              if (main) main.scrollTop = 0;
+            };
+            resetMainScroll();
+            requestAnimationFrame(resetMainScroll);
+            setTimeout(resetMainScroll, 150);
+            setTimeout(resetMainScroll, 400);
           }}
           onCandleChange={(candle) => {
             // Ativar modo replay na primeira vez
@@ -7460,8 +9275,79 @@ export function ChartView({
               // Efeito de "piscada"
               setTimeout(() => setIsReplayMode(false), 1500);
               toast.success('🎬 Modo Replay ativado!');
+              // Nova sessão de replay começando (Start clicado) — força o
+              // próximo onCandlesUpdate a fazer um reset completo (applyNewData),
+              // nunca update incremental em cima do dataset da sessão anterior.
+              replayAppliedCountRef.current = 0;
             }
             console.log('[ChartView] 🎬 Replay candle:', candle);
+          }}
+          onCandlesUpdate={(candles) => {
+            // 🔧 FIX: antes disto, o replay nunca desenhava nada de verdade no
+            // gráfico — só logava o candle atual no console. klinecharts usa
+            // `timestamp`, não `time` (formato do BacktestDataService).
+            const chart = chartInstanceRef.current;
+            if (!chart || candles.length === 0) return;
+            const mapped = candles.map(c => ({
+              timestamp: c.time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume,
+            }));
+
+            // 🐛 FIX "não aparece gráfico nenhum, fica piscando o candle": este
+            // callback dispara a CADA candle revelado pelo replay (1x/segundo
+            // ou mais rápido conforme a velocidade escolhida). Chamar
+            // `applyNewData` (reset completo, assíncrono) a cada tick empilhava
+            // resets concorrentes — um interrompendo o anterior antes de
+            // terminar de pintar, o candle nunca ficava estável na tela. A
+            // partir da 2ª chamada da mesma sessão, usa `updateData` (só o(s)
+            // candle(s) novo(s), sem reset) — mesmo padrão já usado pro
+            // auto-refresh de dado ao vivo (ver comentário acima, "não pode
+            // ficar dando na cara do usuário").
+            if (replayAppliedCountRef.current > 0 && mapped.length >= replayAppliedCountRef.current) {
+              const newOnes = mapped.slice(replayAppliedCountRef.current - 1);
+              newOnes.forEach(c => chart.updateData(c));
+              replayAppliedCountRef.current = mapped.length;
+              return;
+            }
+
+            // 1ª chamada da sessão (ou seek pra trás) — reset completo de verdade.
+            // 🐛 FIX CRÍTICO: `chart.applyNewData()` é ASSÍNCRONO por dentro
+            // (confirmado lendo node_modules/klinecharts/dist/index.esm.js —
+            // `chartStore.addData(...).then()`). Ajustar offsetRightDistance
+            // de forma SÍNCRONA logo depois (como estava antes) rodava ANTES
+            // da promise terminar e era sobrescrito pelo reset de scroll
+            // interno da própria klinecharts quando ela de fato resolvia —
+            // por isso o fix anterior não tinha efeito visível nenhum, mesmo
+            // com a lógica certa. Usa o `callback` (3º parâmetro), que só
+            // dispara depois que os dados terminaram de ser aplicados.
+            chart.applyNewData(mapped, undefined, () => {
+              // `applyNewData` reseta o scroll pro comportamento padrão da
+              // klinecharts (candle mais recente colado na borda DIREITA) —
+              // com poucos candles isso amontoa tudo à direita, deixando o
+              // lado esquerdo vazio. Cleber pediu que o replay comece do
+              // lado ESQUERDO da tela, com espaço à direita pra acompanhar
+              // os candles surgindo — igual ferramenta de replay de
+              // corretora de verdade. Empurra o offset da direita até o
+              // candle mais recente ficar perto da borda esquerda; assim que
+              // os candles já reais preenchem a tela inteira, o offset
+              // padrão (pequeno) volta a valer sozinho, sem mais precisar
+              // deste ajuste.
+              try {
+                const containerWidth = chartContainerRef.current?.clientWidth || 0;
+                const barSpace = chart.getBarSpace();
+                const usedWidth = mapped.length * (typeof barSpace === 'number' ? barSpace : 8);
+                if (containerWidth > 0 && usedWidth < containerWidth) {
+                  chart.setOffsetRightDistance(containerWidth - usedWidth);
+                }
+              } catch (e) {
+                console.warn('[ChartView] ⚠️ Falha ao ancorar replay à esquerda:', e);
+              }
+            });
+            replayAppliedCountRef.current = mapped.length;
           }}
         />
       )}

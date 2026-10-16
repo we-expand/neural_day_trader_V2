@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { startMeasuredSpreadsLoader } from '@/app/services/risk/MeasuredSpreadsLoader';
 import '@/app/config/figmaErrorHandler'; // 🛡️ Silencia erros do Figma iframe
 import { AuthProvider, useAuth } from '@/app/contexts/AuthContext';
 import { MarketProvider } from '@/app/contexts/MarketContext';
 import { MarketDataProvider } from '@/app/contexts/MarketDataContext'; // 🆕 Provider para MT5 Price Validator
 import { ApexTradingProvider } from '@/app/contexts/TradingContext';
 import { SimulatorProvider } from '@/app/contexts/SimulatorContext';
-import { AssistantProvider, useAssistant } from '@/app/contexts/AssistantContext';
+import { AssistantProvider } from '@/app/contexts/AssistantContext';
 import { VoiceCoordinatorProvider } from '@/app/contexts/VoiceCoordinatorContext';
 import { DebugProvider } from '@/app/components/debug/DebugController';
 import { useUserProfile } from '@/app/hooks/useUserProfile';
@@ -13,6 +14,10 @@ import { useFavicon } from '@/app/hooks/useFavicon'; // 🆕 Hook para logo no b
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 import { Sidebar } from '@/app/components/Sidebar';
 import { Header } from '@/app/components/layout/Header';
+import { NeuralEventCenter } from '@/app/components/dashboard/NeuralEventCenter';
+import { FedMiniPlayer } from '@/app/components/dashboard/FedMiniPlayer';
+import { LiveSpeechPlayer } from '@/app/components/dashboard/LiveSpeechPlayer';
+import { HighImpactEventBanner } from '@/app/components/dashboard/HighImpactEventBanner';
 import { Dashboard } from '@/app/components/Dashboard';
 import { Funds } from '@/app/components/Funds';
 import { Assets } from '@/app/components/Assets';
@@ -27,14 +32,13 @@ import { PropChallenge } from '@/app/components/PropChallenge';
 import { AdminDashboard } from '@/app/components/admin/AdminDashboard';
 import { Marketplace } from '@/app/components/Marketplace';
 import { UserProfile } from '@/app/components/UserProfile';
-import PyramidingExample from '@/app/components/examples/InfinoxExamples';
 import { CompetitiveAnalysis } from '@/app/components/CompetitiveAnalysis';
 import { LandingPage } from '@/app/components/landing/LandingPage';
 import { AuthOverlay } from '@/app/components/auth/AuthOverlay';
+import { PasskeySetupPrompt } from '@/app/components/auth/PasskeySetupPrompt';
+import { UserTracker } from '@/app/components/admin/UserTracker';
 import { MarketTicker } from '@/app/components/MarketTicker';
-import { FloatingAssistantButton } from '@/app/components/FloatingAssistantButton';
 // import { LiveTradingTest } from '@/app/components/LiveTradingTest';
-import { NeuralAssistant } from '@/app/components/NeuralAssistant';
 import { QuantumAnalysis } from '@/app/components/quantum/QuantumAnalysis';
 import { UnifiedDataTester } from '@/app/components/debug/UnifiedDataTester';
 import { BinanceDirectComparison } from '@/app/components/debug/BinanceDirectComparison';
@@ -43,9 +47,10 @@ import { checkAdminPermissions } from '@/app/config/adminConfig';
 import { ComplianceAnalysis } from '@/app/components/ComplianceAnalysis';
 import { LaunchStrategy } from '@/app/components/LaunchStrategy';
 import { TraderInsights } from '@/app/components/TraderInsights';
-import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
+import { NexusVoiceAssistant } from '@/app/components/nexus/NexusVoiceAssistant';
 import { AITradingEngine } from '@/app/components/AITradingEngine';
 import { OperationLogs } from '@/app/components/admin/OperationLogs';
+import { JarvisDashboard } from '@/app/components/jarvis/JarvisDashboard';
 import { Toaster } from 'sonner';
 
 // 🚀 LAZY LOADING - Componentes pesados carregados sob demanda
@@ -171,28 +176,93 @@ if (typeof window !== 'undefined') {
 
 type Language = 'en' | 'pt' | 'es';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'pyramiding' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'ai-engine' | 'performance' | 'settings' | 'system' | 'ai-voice' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'admin' | 'profile' | 'competitive-analysis' | 'compliance-analysis' | 'launch-strategy' | 'trader-insights' | 'quantum-analysis' | 'social' | 'live-trading-test' | 'operation-logs' | 'jarvis';
+
+const VALID_VIEWS: View[] = ['dashboard', 'wallet', 'funds', 'assets', 'chart', 'ai-trader', 'ai-engine', 'performance', 'settings', 'system', 'ai-voice', 'dev-lab', 'innovation', 'strategy', 'store', 'partners', 'prop-challenge', 'admin', 'profile', 'competitive-analysis', 'compliance-analysis', 'launch-strategy', 'trader-insights', 'quantum-analysis', 'social', 'live-trading-test', 'operation-logs', 'jarvis'];
+
+// PWA instalado (manifest.webmanifest start_url) abre direto em "Posições
+// Abertas" (ai-trader) via ?view=, em vez de cair no Dashboard padrão —
+// só lido uma vez na montagem, nunca sobrescreve navegação subsequente.
+function getInitialViewFromUrl(): View {
+  if (typeof window === 'undefined') return 'dashboard';
+  const requested = new URLSearchParams(window.location.search).get('view');
+  return (VALID_VIEWS as string[]).includes(requested || '') ? (requested as View) : 'dashboard';
+}
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [currentView, setCurrentView] = useState<View>(getInitialViewFromUrl);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
+  // 'closed' | 'mini' | 'full' — 2026-09-16, pedido do Cleber: por padrão o
+  // vídeo do Fed fica num mini player dockado (pode só ouvir), e só vai pra
+  // tela cheia quando o usuário clica em maximizar. Ver FedMiniPlayer.tsx.
+  const [fedVideoMode, setFedVideoMode] = useState<'closed' | 'mini' | 'full'>('closed');
   const [language, setLanguage] = useState<Language>('pt');
   const { user, signOut, loading } = useAuth();
   const { fullName } = useUserProfile();
-  const { isAssistantOpen, toggleAssistant, closeAssistant } = useAssistant();
   
   // 🆕 Configurar logo Trade Hub no browser
   useFavicon();
 
   // ✅ TITLE: always "Neural Day Trader" — never user's name, never "Trade Hub"
   useEffect(() => {
+    startMeasuredSpreadsLoader(); // spread real medido -> custo da boleta/log
+  }, []);
+
+  useEffect(() => {
     document.title = 'Neural Day Trader';
+  }, []);
+
+  // 🔴 2026-09-16 (pedido direto do Cleber -- "o vídeo tem que rodar
+  // automaticamente 30 minutos antes do discurso do Fed", não depender de
+  // clique no botão do header): abre o MINI PLAYER dockado sozinho quando
+  // faltam <=30min pro horário REAL da coletiva do Fed (confirmado via
+  // federalreserve.gov nesta mesma sessão: 2026-09-16 18:30 UTC/14:30 ET --
+  // mesmo horário já documentado em llm-active-brain/src/config.ts pro gate
+  // de notícias de alto impacto). Não abre em tela cheia automaticamente --
+  // pedido do Cleber ("se eu quiser maximizar, eu maximizo, se não posso
+  // ficar só ouvindo"). Se o usuário fechar, respeita a decisão pelo resto
+  // do dia (não reabre sozinho de novo).
+  const FED_PRESS_CONFERENCE_UTC = '2026-09-16T18:30:00Z';
+  const FED_AUTO_OPEN_MINUTES_BEFORE = 30;
+  const fedDismissKey = `neural_fed_event_dismissed_${FED_PRESS_CONFERENCE_UTC.slice(0, 10)}`;
+  useEffect(() => {
+    const eventTime = new Date(FED_PRESS_CONFERENCE_UTC).getTime();
+    const autoOpenTime = eventTime - FED_AUTO_OPEN_MINUTES_BEFORE * 60_000;
+
+    function checkAutoOpen() {
+      const now = Date.now();
+      if (now < autoOpenTime || now > eventTime + 90 * 60_000) return; // fora da janela (antes de -30min ou >90min depois do início, já deve ter acabado)
+      let dismissed = false;
+      try {
+        dismissed = localStorage.getItem(fedDismissKey) === 'true';
+      } catch {
+        // localStorage indisponível (modo privado etc) -- segue sem persistir a decisão
+      }
+      setFedVideoMode((prev) => (dismissed || prev !== 'closed' ? prev : 'mini'));
+    }
+
+    checkAutoOpen();
+    const interval = setInterval(checkAutoOpen, 30_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCloseFedEventCenter = useCallback(() => {
+    setFedVideoMode('closed');
+    try {
+      localStorage.setItem(fedDismissKey, 'true');
+    } catch {
+      // localStorage indisponível -- só fecha nesta sessão, pode reabrir sozinho no próximo poll
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ✅ STABLE handleViewChange — no currentView in deps (prevents cascade re-renders)
   const handleViewChange = useCallback((newView: View) => {
     setCurrentView(newView);
+    setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []); // ← empty deps = stable reference forever
 
@@ -258,7 +328,7 @@ function AppContent() {
       case 'system':
         return <Settings />;
       case 'ai-voice':
-        return <AITraderVoice />;
+        return <NexusVoiceAssistant />;
       case 'innovation':
         return <LiquidityPrediction />;
       case 'strategy':
@@ -286,8 +356,6 @@ function AppContent() {
         return <Marketplace />;
       case 'profile':
         return <UserProfile />;
-      case 'pyramiding':
-        return <PyramidingExample />;
       case 'competitive-analysis':
         return <CompetitiveAnalysis />;
       case 'quantum-analysis':
@@ -302,6 +370,12 @@ function AppContent() {
         return (
           <ErrorBoundary>
             <OperationLogs />
+          </ErrorBoundary>
+        );
+      case 'jarvis':
+        return (
+          <ErrorBoundary>
+            <JarvisDashboard />
           </ErrorBoundary>
         );
       // case 'live-trading-test':
@@ -355,23 +429,56 @@ function AppContent() {
         </>
       ) : (
         <div className="flex h-screen overflow-hidden">
-          
+
+          {/* Convite pra cadastrar biometria (Passkey/WebAuthn) — mostrado
+              aqui, com o usuário já autenticado, porque o AuthOverlay é
+              desmontado assim que a sessão aparece (ver comentário acima). */}
+          <PasskeySetupPrompt />
+
+          {/* Telemetria de sessão (IP/geolocalização/dispositivo/presença) --
+              base legal: Termos de Uso aceitos no cadastro. Ver
+              supabase/functions/server/index.ts (/telemetry/*) e
+              UserIntelligence.tsx / UserDataDashboard.tsx (onde é exibida). */}
+          <UserTracker />
+
           {/* 🔥 BANNER DE ALERTA DE CACHE - DESATIVADO */}
           {/* <CacheWarningBanner /> */}
-          
-          <Sidebar currentView={currentView} onViewChange={handleViewChange} isAdmin={isAdmin} onLogout={handleLogout} />
-          
-          <div className="flex-1 flex flex-col overflow-hidden">
+
+          <Sidebar
+            currentView={currentView}
+            onViewChange={handleViewChange}
+            isAdmin={isAdmin}
+            onLogout={handleLogout}
+            isOpenOnMobile={isMobileMenuOpen}
+            onCloseMobile={() => setIsMobileMenuOpen(false)}
+          />
+
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             <Header
               currentView={currentView}
               isAdmin={isAdmin}
               onLogout={handleLogout}
               user={user}
+              onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             />
-            
+
+            <HighImpactEventBanner />
+            <LiveSpeechPlayer />
+
             <main className="flex-1 overflow-auto">
               {renderContent}
             </main>
+
+            {fedVideoMode === 'mini' && (
+              <FedMiniPlayer onMaximize={() => setFedVideoMode('full')} onClose={handleCloseFedEventCenter} />
+            )}
+            {fedVideoMode === 'full' && (
+              <NeuralEventCenter
+                isOpen
+                onClose={handleCloseFedEventCenter}
+                onMinimize={() => setFedVideoMode('mini')}
+              />
+            )}
 
             <footer className="shrink-0">
               <div className="h-12 border-t border-slate-700/50 flex items-center justify-center">
@@ -381,15 +488,6 @@ function AppContent() {
               <MarketTicker />
             </footer>
           </div>
-
-          <FloatingAssistantButton 
-            isOpen={isAssistantOpen} 
-            onClick={toggleAssistant} 
-          />
-          <NeuralAssistant 
-            isOpen={isAssistantOpen} 
-            onClose={closeAssistant} 
-          />
 
           <UnifiedDataTester />
           {/* <BinanceDirectComparison /> */}

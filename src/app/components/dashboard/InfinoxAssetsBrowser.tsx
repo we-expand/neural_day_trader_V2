@@ -1,11 +1,60 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { X, Search, TrendingUp, TrendingDown, Clock, Circle, Layers, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getInfinoxAssetsByCategory, INFINOX_CATEGORY_NAMES } from '@/config/infinoxAssets';
 import { getBrokerSymbol } from '@/app/config/brokerRegistry';
-import { fetchRealPricesBatch } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
+import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { fetchRealPricesBatch, type BatchPriceResult } from '@/app/utils/realPriceProvider'; // 🆕 NOVO PROVEDOR
 import { getMarketStatus } from '@/app/utils/marketStatus';
 import { comparePricesBatch } from '@/app/utils/priceDebugger';
+import { getMinLotNotionalUsd } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
+
+// 🔴 2026-09-22 (achado do Cleber: "não vejo os ativos" -- procurava pares
+// asiáticos recém-liberados no AI Trader): a busca só casava pelo CÓDIGO do
+// símbolo (USDJPY, USDTWD...) -- digitar "Taiwan", "iene", "Japão", "ouro"
+// não achava nada, mesmo com o ativo no catálogo. Agora casa também pelo
+// nome/descrição do catálogo (assetDatabase.ts, em inglês) e por termos em
+// português de cada moeda/ativo que aparece no código do símbolo.
+const PT_SEARCH_TERMS_BY_CODE: Record<string, string> = {
+  USD: 'dolar dólar americano eua estados unidos',
+  EUR: 'euro europa',
+  GBP: 'libra reino unido inglaterra',
+  JPY: 'iene yen japao japão japones japonês',
+  AUD: 'australia austrália australiano',
+  NZD: 'nova zelandia nova zelândia kiwi',
+  CAD: 'canada canadá canadense',
+  CHF: 'franco suico suíço suica suíça',
+  CNH: 'yuan renminbi china chines chinês',
+  SGD: 'singapura cingapura',
+  TWD: 'taiwan taiwanes taiwanês',
+  HKD: 'hong kong',
+  XAU: 'ouro',
+  XAG: 'prata',
+  BTC: 'bitcoin',
+  JPN225: 'nikkei japao japão indice índice',
+  HKG33: 'hang seng hong kong indice índice',
+  CHINA50: 'china a50 indice índice',
+  AUS200: 'asx australia austrália indice índice',
+};
+
+function normalizeSearch(text: string): string {
+  return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function matchesAssetSearch(symbol: string, rawTerm: string): boolean {
+  const term = normalizeSearch(rawTerm.trim());
+  if (!term) return true;
+  if (symbol.toLowerCase().includes(term)) return true;
+  if (getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(term)) return true;
+  const asset = getAssetBySymbol(symbol);
+  const upper = symbol.toUpperCase();
+  const ptTerms = Object.entries(PT_SEARCH_TERMS_BY_CODE)
+    .filter(([code]) => upper.includes(code))
+    .map(([, words]) => words)
+    .join(' ');
+  const haystack = normalizeSearch(`${asset?.name ?? ''} ${asset?.description ?? ''} ${ptTerms}`);
+  return haystack.includes(term);
+}
 
 interface InfinoxAssetsBrowserProps {
   isOpen: boolean;
@@ -17,6 +66,15 @@ interface InfinoxAssetsBrowserProps {
   onSelectAsset?: (symbol: string) => void;
   selectedAssets?: string[];
   onToggleAsset?: (symbol: string) => void;
+  /** 🆕 2026-08-20: capital alocado à IA (config.allocatedCapital) — usado só
+   * pra avisar ANTES da seleção que o lote mínimo do ativo (regra real da
+   * corretora, não sugestão) exige mais do que esse capital consegue cobrir,
+   * qualquer que seja o preço/ATR real no momento do trade. Sem isso, o
+   * motor ainda impede a ordem (gate MIN_TRADE_SIZE em runTradingCycle.ts),
+   * mas o usuário só descobre isso vendo o ativo nunca operar, sem
+   * explicação nenhuma na tela. Opcional: sem o valor, o browser simplesmente
+   * não mostra o aviso (nunca fabrica o número sem capital real informado). */
+  allocatedCapital?: number;
 }
 
 interface AssetData {
@@ -33,6 +91,7 @@ export function InfinoxAssetsBrowser({
   onSelectAsset,
   selectedAssets,
   onToggleAsset,
+  allocatedCapital,
 }: InfinoxAssetsBrowserProps) {
   const isMulti = mode === 'multi';
 
@@ -78,13 +137,9 @@ export function InfinoxAssetsBrowser({
     // busca mesmo já cadastrados. Agora casa também pelo nome real via
     // getBrokerSymbol (reverse-match), sem precisar duplicar entrada no
     // catálogo nem renomear o símbolo unificado já usado em todo o app.
-    const term = searchTerm.toLowerCase();
     const allSymbols = Object.values(allAssets).flat();
     const matches = allSymbols
-      .filter(symbol =>
-        symbol.toLowerCase().includes(term) ||
-        getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(term)
-      )
+      .filter(symbol => matchesAssetSearch(symbol, searchTerm))
       .sort((a, b) => {
         // Priorizar matches que começam com o termo
         const aStarts = a.toLowerCase().startsWith(searchTerm.toLowerCase());
@@ -135,55 +190,86 @@ export function InfinoxAssetsBrowser({
     }
   };
 
-  // ✅ Buscar preços reais quando o modal abrir
+  // 🆕 2026-09-05 (pedido do Cleber -- "os dados estão demorando demais"):
+  // antes disso, TODA vez que o modal abria, disparava uma busca de preço
+  // pro catálogo INTEIRO (~220 ativos) de uma vez -- e essa busca bate na
+  // MESMA rota `/mt5-prices` do backend, sujeita ao teto de 5 requisições
+  // concorrentes de dado histórico por conta da MetaAPI (ver investigação
+  // de rate-limit da mesma sessão) + processamento em lotes de 40 com pausa
+  // de 500ms entre eles (RealMarketDataService.ts) -- pra 220 símbolos isso
+  // facilmente passa de 15-30s até a última categoria aparecer com preço.
+  // Corrigido em 2 partes, aproveitando as abas de categoria recém-criadas:
+  // (1) busca primeiro só os símbolos da categoria ATIVA (a que o usuário
+  // está de fato olhando -- rápido, poucas dezenas de símbolos), e só DEPOIS
+  // busca o resto do catálogo em segundo plano, sem travar a tela; (2) cache
+  // local por símbolo com TTL curto (20s) -- reabrir o modal ou trocar de
+  // aba rápido não dispara requisição nova pros símbolos já buscados
+  // recentemente nesta mesma sessão do navegador.
+  const fetchedAtRef = useRef<Map<string, number>>(new Map());
+  const LOCAL_PRICE_TTL_MS = 20_000;
+
   useEffect(() => {
     if (!isOpen) return;
 
-    const fetchPrices = async () => {
-      setIsLoadingPrices(true);
-      
-      // Buscar TODOS os ativos (catálogo real auditado, ~220)
-      const allSymbols = Object.values(allAssets).flat();
-      
-      console.log(`[InfinoxAssetsBrowser] 🔄 Buscando preços REAIS de ${allSymbols.length} ativos usando Yahoo Finance + Binance...`);
+    let cancelled = false;
 
-      // 🆕 USAR NOVO PROVEDOR DE PREÇOS REAIS (Yahoo Finance + Binance)
-      const priceData = await fetchRealPricesBatch(allSymbols);
-      
-      // Converter para formato esperado
-      const prices: Record<string, AssetData> = {};
-      let successCount = 0;
-      
-      Object.entries(priceData).forEach(([symbol, data]) => {
-        prices[symbol] = {
-          symbol,
-          price: data.price,
-          change: data.changePercent // ✅ CORRIGIDO: era changePercent24h (inexistente)
-        };
-        
-        if (data.source !== 'FALLBACK') {
-          successCount++;
-        }
+    const applyPrices = (priceData: Record<string, BatchPriceResult>) => {
+      if (cancelled) return;
+      const now = Date.now();
+      setAssetPrices((prev) => {
+        const next = { ...prev };
+        Object.entries(priceData).forEach(([symbol, data]) => {
+          next[symbol] = { symbol, price: data.price, change: data.changePercent };
+          fetchedAtRef.current.set(symbol, now);
+        });
+        return next;
       });
-      
-      setAssetPrices(prices);
-      
-      console.log(`[InfinoxAssetsBrowser] ✅ Concluído: ${successCount}/${allSymbols.length} preços reais obtidos`);
-      setIsLoadingPrices(false);
     };
 
-    fetchPrices();
-  }, [isOpen]);
+    const fetchMissing = async (symbols: string[]) => {
+      const now = Date.now();
+      const toFetch = symbols.filter((s) => {
+        const fetchedAt = fetchedAtRef.current.get(s);
+        return fetchedAt == null || now - fetchedAt >= LOCAL_PRICE_TTL_MS;
+      });
+      if (toFetch.length === 0) return;
+      const priceData = await fetchRealPricesBatch(toFetch);
+      applyPrices(priceData);
+    };
+
+    const run = async () => {
+      const allSymbols = Object.values(allAssets).flat();
+      const priorityCategoryKey = selectedCategory ?? Object.keys(allAssets)[0];
+      const prioritySymbols = priorityCategoryKey ? allAssets[priorityCategoryKey] || [] : [];
+      const restSymbols = allSymbols.filter((s) => !prioritySymbols.includes(s));
+
+      setIsLoadingPrices(true);
+      console.log(`[InfinoxAssetsBrowser] 🔄 Categoria ativa primeiro: ${prioritySymbols.length} ativos...`);
+      await fetchMissing(prioritySymbols);
+      if (cancelled) return;
+      setIsLoadingPrices(false);
+
+      // Resto do catálogo em segundo plano -- não bloqueia a tela, só
+      // preenche os cards das outras categorias conforme chega.
+      if (restSymbols.length > 0) {
+        console.log(`[InfinoxAssetsBrowser] 🔄 Resto do catálogo em segundo plano: ${restSymbols.length} ativos...`);
+        fetchMissing(restSymbols);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedCategory]);
 
   // Filtrar ativos baseado na pesquisa e categoria selecionada
   // ✅ 2026-07-16: mesmo fix do autocomplete acima — também casa pelo nome
   // real da corretora, não só pelo símbolo unificado.
   const filteredCategories = Object.entries(allAssets)
     .map(([categoryKey, symbols]) => {
-      const filtered = symbols.filter(symbol =>
-        symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        getBrokerSymbol(symbol, 'infinox').toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      const filtered = symbols.filter(symbol => matchesAssetSearch(symbol, searchTerm));
 
       return {
         categoryKey,
@@ -198,6 +284,38 @@ export function InfinoxAssetsBrowser({
 
   // Calcular total de ativos
   const totalAssets = Object.values(allAssets).reduce((sum, symbols) => sum + symbols.length, 0);
+
+  // 🆕 2026-09-05 (pedido do Cleber, usabilidade): antes disso o conteúdo
+  // empilhava TODAS as categorias verticalmente numa rolagem só (~220
+  // instrumentos, 9 categorias) -- `selectedCategory` já existia como estado
+  // mas nunca era setado em lugar nenhum, então nunca filtrava nada de
+  // verdade. Vira abas reais: clicar troca de categoria sem precisar rolar
+  // por todo o resto. Com busca ativa, ignora a aba selecionada e mostra
+  // resultado em todas as categorias (mesmo comportamento de antes) -- abas
+  // só fazem sentido navegando sem buscar.
+  const categoryTabs = useMemo(
+    () =>
+      Object.keys(allAssets)
+        .filter((categoryKey) => (allAssets[categoryKey]?.length ?? 0) > 0)
+        .map((categoryKey) => ({
+          categoryKey,
+          categoryName: INFINOX_CATEGORY_NAMES[categoryKey] || categoryKey,
+          count: allAssets[categoryKey].length,
+        })),
+    [allAssets]
+  );
+
+  // Classes completas (não interpoladas) -- Tailwind JIT precisa da string
+  // literal inteira presente no código pra gerar a classe, mesmo padrão já
+  // usado no cabeçalho de categoria logo abaixo (ternário explícito, não
+  // template string com variável de cor).
+  const categoryTabActiveClass = (categoryKey: string) =>
+    categoryKey === 'CRYPTO' ? 'bg-orange-500/15 border-orange-500/40 text-orange-400' :
+    categoryKey === 'INDICES' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' :
+    categoryKey === 'FOREX' ? 'bg-green-500/15 border-green-500/40 text-green-400' :
+    categoryKey === 'COMMODITIES' ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400' :
+    categoryKey === 'STOCKS' ? 'bg-purple-500/15 border-purple-500/40 text-purple-400' :
+    'bg-emerald-500/15 border-emerald-500/40 text-emerald-400';
 
   return (
     <AnimatePresence>
@@ -266,7 +384,13 @@ export function InfinoxAssetsBrowser({
                     animate={{ opacity: 1, y: 0 }}
                     className="absolute top-full left-0 right-0 mt-2 bg-[#0A0A0A] border border-emerald-500/30 rounded-xl overflow-hidden shadow-2xl z-50"
                   >
-                    {autocompleteResults.map((result, index) => (
+                    {autocompleteResults.map((result, index) => {
+                      const resultPrice = assetPrices[result];
+                      const resultMinLotNotional = resultPrice ? getMinLotNotionalUsd(result, resultPrice.price) : null;
+                      const resultUnaffordable = !!(
+                        allocatedCapital != null && resultMinLotNotional != null && resultMinLotNotional > allocatedCapital
+                      );
+                      return (
                       <button
                         key={result}
                         onClick={() => {
@@ -276,16 +400,27 @@ export function InfinoxAssetsBrowser({
                           }
                           handlePick(result);
                         }}
+                        title={resultUnaffordable
+                          ? `Capital insuficiente: ${result} exige ~$${resultMinLotNotional!.toFixed(2)} de margem pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
+                          : undefined}
                         className={`w-full px-4 py-3 text-left text-sm font-bold transition-colors ${
-                          index === selectedAutocompleteIndex 
-                            ? 'bg-emerald-500/20 text-emerald-400' 
+                          index === selectedAutocompleteIndex
+                            ? 'bg-emerald-500/20 text-emerald-400'
                             : 'text-white hover:bg-white/5'
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <Search className="w-3 h-3 text-emerald-500" />
+                          {resultUnaffordable ? (
+                            <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                          ) : (
+                            <Search className="w-3 h-3 text-emerald-500 shrink-0" />
+                          )}
                           <span>{result}</span>
-                          {assetPrices[result] && (
+                          {resultUnaffordable ? (
+                            <span className="ml-auto text-[10px] font-bold text-amber-400">
+                              capital insuf.
+                            </span>
+                          ) : assetPrices[result] && (
                             <span className={`ml-auto text-xs ${
                               assetPrices[result].change >= 0 ? 'text-emerald-400' : 'text-rose-400'
                             }`}>
@@ -294,7 +429,8 @@ export function InfinoxAssetsBrowser({
                           )}
                         </div>
                       </button>
-                    ))}
+                      );
+                    })}
                     
                     <div className="px-4 py-2 bg-white/5 border-t border-white/5">
                       <p className="text-[10px] text-slate-500 font-medium">
@@ -303,6 +439,41 @@ export function InfinoxAssetsBrowser({
                     </div>
                   </motion.div>
                 )}
+              </div>
+            </div>
+
+            {/* ========== TABS DE CATEGORIA ========== */}
+            {/* Com busca ativa, as abas ficam desabilitadas visualmente --
+                a busca já varre todas as categorias de propósito (ver
+                filteredCategories abaixo), então escolher uma aba enquanto
+                busca não faria nada. */}
+            <div className="relative z-10 shrink-0 px-6 py-3 border-b border-white/5 overflow-x-auto">
+              <div className="flex items-center gap-2 min-w-max">
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  disabled={!!searchTerm}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    !selectedCategory
+                      ? 'bg-white/10 border-white/20 text-white'
+                      : 'bg-transparent border-white/5 text-slate-500 hover:border-white/15 hover:text-slate-300'
+                  }`}
+                >
+                  Todos <span className="text-slate-500 font-medium normal-case">({totalAssets})</span>
+                </button>
+                {categoryTabs.map((tab) => (
+                  <button
+                    key={tab.categoryKey}
+                    onClick={() => setSelectedCategory(tab.categoryKey)}
+                    disabled={!!searchTerm}
+                    className={`shrink-0 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      selectedCategory === tab.categoryKey
+                        ? categoryTabActiveClass(tab.categoryKey)
+                        : 'bg-transparent border-white/5 text-slate-500 hover:border-white/15 hover:text-slate-300'
+                    }`}
+                  >
+                    {tab.categoryName} <span className="text-slate-500 font-medium normal-case">({tab.count})</span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -362,8 +533,18 @@ export function InfinoxAssetsBrowser({
                           {category.symbols.map((symbol) => {
                             const isSelected = isSymbolSelected(symbol);
                             const priceData = assetPrices[symbol];
-                            const hasPrice = !!priceData;
+                            const hasPrice = !!priceData && priceData.price > 0;
                             const isPositive = priceData ? priceData.change >= 0 : null;
+
+                            // 🆕 2026-08-20: lote mínimo é regra da corretora, não sugestão —
+                            // se o capital alocado não fecha nem 1 lote mínimo deste ativo a
+                            // preço real, o ativo é literalmente impossível de operar, qualquer
+                            // que seja o risco%/ATR configurado. Só calcula com preço real (nunca
+                            // fabrica) e só quando allocatedCapital foi informado.
+                            const minLotNotional = hasPrice ? getMinLotNotionalUsd(symbol, priceData.price) : null;
+                            const isUnaffordable = !!(
+                              allocatedCapital != null && minLotNotional != null && minLotNotional > allocatedCapital
+                            );
 
                             return (
                               <button
@@ -372,8 +553,13 @@ export function InfinoxAssetsBrowser({
                                   console.log('[InfinoxAssetsBrowser] Selecionando ativo:', symbol);
                                   handlePick(symbol);
                                 }}
+                                title={isUnaffordable
+                                  ? `Capital insuficiente: ${symbol} exige ~$${minLotNotional!.toFixed(2)} de margem pro lote mínimo, você tem $${allocatedCapital!.toFixed(2)} alocado.`
+                                  : undefined}
                                 className={`group relative p-3 rounded-xl border transition-all text-left ${
-                                  isSelected
+                                  isUnaffordable
+                                    ? 'bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50'
+                                    : isSelected
                                     ? 'bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
                                     : 'bg-[#080808] border-white/5 hover:bg-[#0A0A0A] hover:border-white/10'
                                 }`}
@@ -383,23 +569,25 @@ export function InfinoxAssetsBrowser({
                                   <div className="flex items-center gap-2">
                                     {/* 🆕 Bolinha de Status do Mercado (Verde = Aberto / Vermelho = Fechado) */}
                                     <div className={`w-1.5 h-1.5 rounded-full ${
-                                      marketStatus.isOpen 
-                                        ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)] animate-pulse' 
+                                      marketStatus.isOpen
+                                        ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)] animate-pulse'
                                         : 'bg-rose-500 shadow-[0_0_4px_rgba(244,63,94,0.6)]'
                                     }`} />
-                                    
+
                                     <span className={`text-sm font-bold tracking-tight ${
                                       isSelected ? 'text-emerald-400' : 'text-white'
                                     }`}>
                                       {symbol}
                                     </span>
                                   </div>
-                                  
-                                  {isSelected && (
+
+                                  {isUnaffordable ? (
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  ) : isSelected && (
                                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                                   )}
                                 </div>
-                                
+
                                 {/* Price & Change */}
                                 {hasPrice ? (
                                   <div className="space-y-1">
@@ -409,12 +597,18 @@ export function InfinoxAssetsBrowser({
                                         maximumFractionDigits: priceData.price >= 100 ? 2 : 6
                                       })}
                                     </div>
-                                    <div className={`flex items-center gap-1 text-xs font-bold ${
-                                      isPositive ? 'text-emerald-400' : 'text-rose-400'
-                                    }`}>
-                                      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                      {isPositive ? '+' : ''}{priceData.change.toFixed(2)}%
-                                    </div>
+                                    {isUnaffordable ? (
+                                      <div className="text-[10px] font-bold text-amber-400 leading-tight">
+                                        Mín. ~${minLotNotional!.toFixed(0)} • capital insuficiente
+                                      </div>
+                                    ) : (
+                                      <div className={`flex items-center gap-1 text-xs font-bold ${
+                                        isPositive ? 'text-emerald-400' : 'text-rose-400'
+                                      }`}>
+                                        {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                        {isPositive ? '+' : ''}{priceData.change.toFixed(2)}%
+                                      </div>
+                                    )}
                                   </div>
                                 ) : (
                                   <div className="text-xs text-slate-600">

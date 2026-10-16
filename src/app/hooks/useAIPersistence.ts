@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { aiPersistence, AISession, AITrade, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
+import { aiPersistence, AISession, AITrade, AIPendingOrder, PortfolioSnapshot, DecisionVetoStage } from '@/app/services/AITradingPersistenceService';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { funnelTelemetry, FunnelStage } from '@/app/services/telemetry/FunnelTelemetry';
 
@@ -39,6 +39,7 @@ const VETO_TO_FUNNEL_STAGE: Record<DecisionVetoStage, FunnelStage> = {
   MARKET_MODE_REGIME_MISMATCH: 'MARKET_MODE_MISMATCH',
   MARKET_MODE_COUNTER_NO_EXTREME: 'MARKET_MODE_MISMATCH',
   MIN_TRADE_SIZE: 'MIN_TRADE_SIZE',
+  MACD_MOMENTUM_FADING: 'MACD_MOMENTUM_FADING',
 };
 
 interface UseAIPersistenceOptions {
@@ -47,7 +48,7 @@ interface UseAIPersistenceOptions {
   snapshotInterval?: number; // Intervalo de snapshot em ms (padrão: 60000 = 1 min)
   // Chamado quando uma escrita de persistência falha silenciosamente (rede caiu,
   // RLS rejeitou o insert etc.) — sem isso, o erro só aparecia no console.
-  onPersistenceError?: (context: 'session' | 'trade_open' | 'trade_close' | 'snapshot', error: unknown) => void;
+  onPersistenceError?: (context: 'session' | 'trade_open' | 'trade_close' | 'snapshot' | 'stop_loss_update', error: unknown) => void;
 }
 
 interface TradeData {
@@ -63,6 +64,13 @@ interface TradeData {
   timestamp: number;
   reasoning: string;
   indicators?: any;
+  // Grupo de Pyramiding — pyramidGroupId deve ser o id de BANCO (resolvido
+  // via resolveDbTradeId) do trade raiz, nunca o id local do React.
+  pyramidGroupId?: string | null;
+  pyramidLayer?: number | null;
+  // 🔴 2026-09-09: id REAL da posição na MetaAPI (boleta manual em LIVE) —
+  // null em trade simulado (DEMO). Ver AITradingPersistenceService.ts.
+  brokerPositionId?: string | null;
 }
 
 interface PortfolioData {
@@ -77,6 +85,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   const sessionIdRef = useRef<string | null>(null);
   const snapshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const tradeDbIdsRef = useRef<Map<string, string>>(new Map()); // Mapeia trade.id local → trade.id DB
+  const pendingOrderDbIdsRef = useRef<Map<string, string>>(new Map()); // Mapeia pendingOrder.id local → id DB
   const isStartingSessionRef = useRef(false); // Trava clique duplo/chamada concorrente de startSession
 
   const LOG_PREFIX = '[AI Persistence Hook]';
@@ -152,6 +161,18 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     if (!sessionIdRef.current || !options.enabled) return;
 
     try {
+      // 🔴 2026-09-15 (achado do Cleber: posição BTCUSD real sumiu do
+      // Dashboard após "Reinicialização Total", mesmo continuando aberta
+      // no banco): nunca encerrar sessão com posição OPEN -- ela precisa
+      // continuar visível/gerida (stop/alvo) até fechar sozinha. Mesma
+      // regra que `resetLlmActiveBrainSession` já aplicava só pra sessão
+      // nova, agora também aqui, na sessão que este `endSession` fecha.
+      const hasOpen = await aiPersistence.hasOpenTrades(sessionIdRef.current);
+      if (hasOpen) {
+        console.warn(`${LOG_PREFIX} ⚠️ Encerramento de sessão abortado: ${sessionIdRef.current} tem posição(ões) aberta(s). Elas precisam fechar sozinhas antes.`);
+        return;
+      }
+
       console.log(`${LOG_PREFIX} 🏁 Finalizando sessão...`);
 
       await aiPersistence.endSession(
@@ -206,6 +227,20 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     }
   }, [user, options.enabled]);
 
+  /**
+   * Buscar o saldo final da última sessão DEMO encerrada, pra dar
+   * continuidade de capital quando não há sessão RUNNING pra restaurar.
+   */
+  const getLastCompletedSession = useCallback(async (mode: 'DEMO' | 'LIVE' = 'DEMO') => {
+    if (!user?.id || !options.enabled) return null;
+    try {
+      return await aiPersistence.getLastCompletedSession(user.id, mode);
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao buscar última sessão encerrada:`, error);
+      return null;
+    }
+  }, [user, options.enabled]);
+
   // ==========================================================================
   // TRADE TRACKING
   // ==========================================================================
@@ -234,6 +269,9 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
         entry_time: new Date(trade.timestamp).toISOString(),
         status: 'OPEN',
         commission: 0, // Será calculado ao fechar
+        pyramid_group_id: trade.pyramidGroupId ?? null,
+        pyramid_layer: trade.pyramidLayer ?? null,
+        broker_position_id: trade.brokerPositionId ?? null,
       };
 
       const tradeId = await aiPersistence.saveTrade(tradeData);
@@ -293,6 +331,56 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     } catch (error) {
       console.error(`${LOG_PREFIX} ❌ Erro ao fechar trade:`, error);
       options.onPersistenceError?.('trade_close', error);
+    }
+  }, [options.enabled, options.onPersistenceError]);
+
+  /**
+   * Resolve id local (React) -> id de banco. Mesmo fallback usado por
+   * onTradeClose/updateTradeStopLoss (posição restaurada do Supabase após
+   * reload já tem o id local = id de banco). Necessário pra gravar
+   * `pyramid_group_id` corretamente — a FK precisa do id real da linha.
+   */
+  const resolveDbTradeId = useCallback((tradeId: string): string => {
+    return tradeDbIdsRef.current.get(tradeId) || tradeId;
+  }, []);
+
+  /**
+   * Marca a raiz de um grupo de Pyramiding (`pyramid_layer = 1`) — chamado
+   * na hora em que o PRIMEIRO layer é adicionado (até ali, o trade raiz não
+   * tinha nenhuma marca de grupo, porque foi aberto antes de virar raiz).
+   */
+  const markPyramidRoot = useCallback(async (tradeId: string): Promise<boolean> => {
+    if (!options.enabled) return false;
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
+    try {
+      return await aiPersistence.updateTrade(dbTradeId, { pyramid_layer: 1 });
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao marcar raiz do grupo de Pyramiding:`, error);
+      options.onPersistenceError?.('stop_loss_update', error);
+      return false;
+    }
+  }, [options.enabled, options.onPersistenceError]);
+
+  /**
+   * Persiste um novo stop_loss pra um trade já aberto — usado pelo Pyramiding
+   * System (break-even e emergency-stop, useApexLogic.ts) pra gravar o SL
+   * ajustado no banco. Sem isto, o ajuste só existia em memória
+   * (`setActiveOrders`) e nunca era visto pelo `ai-runner`, que desde
+   * 2026-08-18 é quem tem autoridade de fechar trade em DEMO — achado
+   * 2026-08-19: break-even/emergency-stop do Pyramiding logavam sucesso mas
+   * não protegiam nada de verdade, porque o SL novo nunca chegava ao banco.
+   */
+  const updateTradeStopLoss = useCallback(async (tradeId: string, newSl: number): Promise<boolean> => {
+    if (!options.enabled) return false;
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
+    try {
+      const ok = await aiPersistence.updateTrade(dbTradeId, { stop_loss: newSl });
+      if (!ok) options.onPersistenceError?.('stop_loss_update', new Error(`updateTrade (stop_loss) retornou falso para ${dbTradeId}`));
+      return ok;
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao atualizar stop_loss:`, error);
+      options.onPersistenceError?.('stop_loss_update', error);
+      return false;
     }
   }, [options.enabled, options.onPersistenceError]);
 
@@ -439,6 +527,99 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     return await aiPersistence.getSessionTrades(sessionId);
   }, []);
 
+  // ==========================================================================
+  // PENDING ORDERS (limit/stop DEMO postados no gráfico)
+  // ==========================================================================
+
+  /**
+   * Salvar ordem pendente ao ser criada — mesmo padrão de `onTradeOpen`:
+   * id local já existe (criado na hora pra UI responder na hora), o id do
+   * banco só chega depois e fica mapeado pra uso em cancelamento/reposição.
+   */
+  const onPendingOrderOpen = useCallback(async (order: {
+    id: string;
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    orderType: 'LIMIT' | 'STOP';
+    volume: number;
+    triggerPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+  }) => {
+    if (!user?.id || !options.enabled) return;
+    try {
+      const orderData: AIPendingOrder = {
+        user_id: user.id,
+        session_id: sessionIdRef.current,
+        symbol: order.symbol,
+        side: order.side,
+        order_type: order.orderType,
+        volume: order.volume,
+        trigger_price: order.triggerPrice,
+        stop_loss: order.stopLoss ?? null,
+        take_profit: order.takeProfit ?? null,
+        status: 'PENDING',
+      };
+      const dbId = await aiPersistence.savePendingOrder(orderData);
+      if (dbId) {
+        pendingOrderDbIdsRef.current.set(order.id, dbId);
+      } else {
+        options.onPersistenceError?.('trade_open', new Error(`savePendingOrder retornou vazio para ${order.id}`));
+      }
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao salvar ordem pendente:`, error);
+      options.onPersistenceError?.('trade_open', error);
+    }
+  }, [user, options.enabled, options.onPersistenceError]);
+
+  /**
+   * Reposicionar gatilho (arrastar a linha no gráfico).
+   */
+  const onPendingOrderPriceUpdate = useCallback(async (localId: string, newTriggerPrice: number) => {
+    if (!options.enabled) return;
+    const dbId = pendingOrderDbIdsRef.current.get(localId) ?? localId;
+    await aiPersistence.updatePendingOrderPrice(dbId, newTriggerPrice);
+  }, [options.enabled]);
+
+  /**
+   * Edição completa (modo edição da boleta): preço/SL/TP/volume juntos.
+   */
+  const onPendingOrderDetailsUpdate = useCallback(async (localId: string, updates: {
+    triggerPrice?: number;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+    volume?: number;
+  }) => {
+    if (!options.enabled) return;
+    const dbId = pendingOrderDbIdsRef.current.get(localId) ?? localId;
+    await aiPersistence.updatePendingOrderDetails(dbId, updates);
+  }, [options.enabled]);
+
+  /**
+   * Marcar cancelada (clique direito) ou disparada (cruzou o gatilho).
+   */
+  const onPendingOrderStatusChange = useCallback(async (localId: string, status: 'FILLED' | 'CANCELLED') => {
+    if (!options.enabled) return;
+    const dbId = pendingOrderDbIdsRef.current.get(localId) ?? localId;
+    await aiPersistence.updatePendingOrderStatus(dbId, status);
+    pendingOrderDbIdsRef.current.delete(localId);
+  }, [options.enabled]);
+
+  /**
+   * Hidratar ordens pendentes ainda abertas do usuário — chamado no boot,
+   * mesmo padrão de `getUserTradeHistory`. Local id = id do banco (mesma
+   * convenção da hidratação de `activeOrders`), então o map local→DB é
+   * populado direto aqui, sem round-trip extra.
+   */
+  const getUserOpenPendingOrders = useCallback(async () => {
+    if (!user?.id) return [];
+    const orders = await aiPersistence.getOpenPendingOrders(user.id);
+    orders.forEach((o) => {
+      if (o.id) pendingOrderDbIdsRef.current.set(o.id, o.id);
+    });
+    return orders;
+  }, [user]);
+
   /**
    * Buscar TODOS os trades FECHADOS do usuário, através de todas as sessões
    * (não só a sessão ativa) — fonte real do "Histórico de Trades" da tela de
@@ -449,7 +630,24 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
    */
   const getUserTradeHistory = useCallback(async (limit = 200) => {
     if (!user?.id) return [];
-    return await aiPersistence.getUserTrades(user.id, { limit });
+    const [trades, lastResetAt] = await Promise.all([
+      aiPersistence.getUserTrades(user.id, { limit }),
+      aiPersistence.getLastHistoryResetAt(user.id),
+    ]);
+    if (!lastResetAt) return trades;
+    // Performance exibida respeita o último Reset — trades reais continuam
+    // intactos em `ai_trades` (auditoria), só somem da tela.
+    return trades.filter(t => !t.exit_time || t.exit_time > lastResetAt);
+  }, [user]);
+
+  /**
+   * Marca "a partir de agora" pro histórico exibido em Performance — chamado
+   * pelo Reset do motor (`resetLogic` em useApexLogic.ts). Não apaga trade
+   * nenhum, só some da tela via filtro em `getUserTradeHistory`.
+   */
+  const recordHistoryReset = useCallback(async () => {
+    if (!user?.id) return;
+    await aiPersistence.recordHistoryReset(user.id);
   }, [user]);
 
   /**
@@ -457,6 +655,84 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
    */
   const getEquityCurve = useCallback(async (sessionId: string) => {
     return await aiPersistence.getSessionSnapshots(sessionId);
+  }, []);
+
+  /**
+   * Buscar PnL realizado real da sessão (soma de `net_pnl` dos trades
+   * fechados) -- fonte de verdade pra saldo, nunca o snapshot cacheado. Ver
+   * nota em `getSessionRealizedPnl` (AITradingPersistenceService.ts).
+   */
+  const getSessionRealizedPnl = useCallback(async (sessionId: string) => {
+    return await aiPersistence.getSessionRealizedPnl(sessionId);
+  }, []);
+
+  /**
+   * Buscar a última configuração da IA salva pelo usuário (persistência real,
+   * sobrevive a fechar aba/trocar de navegador — ver `ai_user_config`).
+   * Retorna null se o usuário nunca salvou nenhuma.
+   */
+  const getUserAIConfig = useCallback(async () => {
+    if (!user?.id) return null;
+    return await aiPersistence.getUserAIConfig(user.id);
+  }, [user]);
+
+  /**
+   * Salvar (upsert) a configuração da IA do usuário — sobrescreve a coluna
+   * inteira, ver aviso em `AITradingPersistenceService.saveUserAIConfig`.
+   */
+  const saveUserAIConfig = useCallback(async (config: any) => {
+    if (!user?.id) return false;
+    return await aiPersistence.saveUserAIConfig(user.id, config);
+  }, [user]);
+
+  /**
+   * Aplicar só os campos alterados na config da IA (merge no servidor) —
+   * ver `AITradingPersistenceService.patchUserAIConfig` pro porquê.
+   */
+  const patchUserAIConfig = useCallback(async (partialConfig: Record<string, any>) => {
+    if (!user?.id) return false;
+    return await aiPersistence.patchUserAIConfig(user.id, partialConfig);
+  }, [user]);
+
+  /**
+   * 🔴 2026-08-31: reseta a sessão do LLM Active Brain (motor de IA
+   * principal, roda no servidor via llm-active-brain) -- chamado pela
+   * "Reinicialização Total" do AI Trader, ver resetLogic em useApexLogic.ts.
+   */
+  const resetLlmActiveBrainSession = useCallback(async (resetBalanceUsd: number) => {
+    if (!user?.id) return null;
+    const result = await aiPersistence.resetLlmActiveBrainSession(user.id, resetBalanceUsd);
+    // 🔴 2026-09-16 (achado do Cleber: posições reais reapareciam "sozinhas"
+    // no Dashboard só depois de alguns segundos/reload após o Reset, e por
+    // um instante pareciam ter sumido de vez): `sessionIdRef` (usado por
+    // `getSessionId()`, que o `reconcile()` de useApexLogic.ts lê a cada
+    // poll) continuava apontando pra sessão ANTIGA (agora COMPLETED) até o
+    // próximo poll detectar a troca sozinho -- essa janela é o que fazia a
+    // posição parecer "sumida" na tela, mesmo com o backend já tendo
+    // realocado ela pra sessão nova corretamente. Atualiza o ref na hora,
+    // sem esperar o poll.
+    if (result.success && result.newSessionId) {
+      sessionIdRef.current = result.newSessionId;
+    }
+    return result;
+  }, [user]);
+
+  /**
+   * "Desligar IA" -- 🔴 2026-08-31: NUNCA limpa sessionIdRef (ao contrário de
+   * endSession) -- a sessão continua sendo A mesma, só marcada STOPPED. Isso
+   * é o que permite resumeSession() religar exatamente ela depois, e o motor
+   * (llm-active-brain) continuar monitorando as posições OPEN dela até
+   * fecharem sozinhas em vez de ficarem órfãs.
+   */
+  const stopSession = useCallback(async () => {
+    if (!sessionIdRef.current) return false;
+    return await aiPersistence.stopSession(sessionIdRef.current);
+  }, []);
+
+  /** "Ligar IA" de novo sobre a mesma sessão que só estava STOPPED. */
+  const resumeSession = useCallback(async () => {
+    if (!sessionIdRef.current) return false;
+    return await aiPersistence.resumeSession(sessionIdRef.current);
   }, []);
 
   // ==========================================================================
@@ -478,7 +754,11 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Session
     startSession,
     endSession,
+    stopSession,
+    resumeSession,
+    resetLlmActiveBrainSession,
     restoreActiveSession,
+    getLastCompletedSession,
     currentSessionId: sessionIdRef.current,
     /**
      * Leitura AO VIVO do id da sessão (lê o ref, não o snapshot de render).
@@ -492,7 +772,10 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Trades
     onTradeOpen,
     onTradeClose,
-    
+    updateTradeStopLoss,
+    resolveDbTradeId,
+    markPyramidRoot,
+
     // Portfolio
     savePortfolioSnapshot,
     
@@ -503,8 +786,22 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     getSessionHistory,
     getSessionTrades,
     getUserTradeHistory,
+    recordHistoryReset,
     getEquityCurve,
-    
+    getSessionRealizedPnl,
+
+    // Pending orders
+    onPendingOrderOpen,
+    onPendingOrderPriceUpdate,
+    onPendingOrderDetailsUpdate,
+    onPendingOrderStatusChange,
+    getUserOpenPendingOrders,
+
+    // AI config
+    getUserAIConfig,
+    saveUserAIConfig,
+    patchUserAIConfig,
+
     // Utils
     isEnabled: options.enabled,
   };

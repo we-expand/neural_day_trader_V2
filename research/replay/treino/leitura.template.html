@@ -1,0 +1,268 @@
+<title>Treino de Leitura do Cleber</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: uma situacao por vez, como a mesa de operacao -- grafico grande, decisao logo abaixo, trilha de progresso no topo */
+:root {
+  --bg: #eef0ec; --panel: #fbfcfa; --fg: #1a1f1c; --muted: #66706a; --line: #d9ddd7; --grid: #e6e9e4;
+  --bull: #17865a; --bear: #c8413a; --accent: #b7780c; --ma20: #3867b0; --focus: #b7780c;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1312; --panel: #151a19; --fg: #e5ebe7; --muted: #8a948f; --line: #27302d; --grid: #1f2725;
+  --bull: #2fb57c; --bear: #e2605a; --accent: #e0a232; --ma20: #6f9be0; --focus: #e0a232; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1312; --panel: #151a19; --fg: #e5ebe7; --muted: #8a948f; --line: #27302d; --grid: #1f2725;
+  --bull: #2fb57c; --bear: #e2605a; --accent: #e0a232; --ma20: #6f9be0; --focus: #e0a232; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); margin: 0 }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 16px }
+header { display: grid; gap: 10px }
+h1 { font: 700 1.7rem/1.1 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance }
+.lede { color: var(--muted); margin: 0; max-width: 65ch }
+.progress { display: flex; align-items: center; gap: 12px; font: 500 .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
+.bar { flex: 1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden }
+.bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s }
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chip { font: 500 .75rem var(--mono); border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 4px; padding: 3px 7px; cursor: pointer; font-variant-numeric: tabular-nums }
+.chip.done { color: var(--fg); border-color: var(--muted) }
+.chip.done.L { box-shadow: inset 0 -2px 0 var(--bull) } .chip.done.S { box-shadow: inset 0 -2px 0 var(--bear) } .chip.done.N { box-shadow: inset 0 -2px 0 var(--muted) }
+.chip.cur { background: var(--fg); color: var(--bg); border-color: var(--fg) }
+.desk { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 14px; min-width: 0 }
+.meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px }
+.sym { font: 700 1.5rem var(--display); letter-spacing: .02em }
+.kv { font: 400 .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
+.kv b { color: var(--fg); font-weight: 500 }
+.note { font-size: .85rem; color: var(--muted); margin: 0 }
+.lbl { font: 600 .72rem var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; gap: 14px; align-items: center; flex-wrap: wrap }
+.key { display: inline-flex; align-items: center; gap: 5px; letter-spacing: .02em; text-transform: none; font: 400 .75rem var(--mono) }
+.key i { width: 14px; height: 2px; display: inline-block }
+canvas { display: block; width: 100%; max-width: 100% }
+.charts { display: grid; gap: 6px; min-width: 0 }
+.decide { display: grid; gap: 12px }
+.opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px }
+.opt { font: 600 1.05rem var(--display); letter-spacing: .02em; padding: 12px 8px; border-radius: 6px; border: 1.5px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer }
+.opt[data-v="LONG"][aria-pressed="true"] { background: var(--bull); border-color: var(--bull); color: #fff }
+.opt[data-v="SHORT"][aria-pressed="true"] { background: var(--bear); border-color: var(--bear); color: #fff }
+.opt[data-v="NONE"][aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg) }
+textarea { width: 100%; min-height: 72px; resize: vertical; font: 15px/1.45 var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+.btn { font: 600 .95rem var(--display); letter-spacing: .03em; padding: 10px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1406 }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.status { font: 400 .8rem var(--mono); color: var(--muted); margin-left: auto }
+.warn { border: 1px solid var(--bear); color: var(--fg); background: var(--panel); border-radius: 6px; padding: 10px 12px; font-size: .9rem }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px }
+@media (max-width: 520px) { .opt { font-size: .95rem; padding: 12px 4px } .status { margin-left: 0; width: 100% } }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Treino de leitura</h1>
+    <p class="lede">São 30 momentos reais de setembro, 01 a 20/09. Cada gráfico termina no instante em que a IA teve que decidir, sem mostrar o que veio depois. Leia como se fosse ao vivo e diga o que você faria, com o motivo numa frase.</p>
+    <div class="progress"><span id="prog">0 de 30</span><div class="bar"><i id="barfill"></i></div></div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div id="warn" class="warn" hidden>Suas respostas não estão sendo salvas no servidor nesta visualização. Abra a página logado no claude.ai. O que você marcar fica guardado só neste navegador por enquanto.</div>
+
+  <section class="desk" aria-live="polite">
+    <div class="meta">
+      <span class="sym" id="sym">—</span>
+      <span class="kv">quando <b id="when">—</b></span>
+      <span class="kv">preço <b id="price">—</b></span>
+      <span class="kv">spread <b id="spread">—</b></span>
+      <span class="kv" id="num"></span>
+    </div>
+    <div class="charts">
+      <div class="lbl">1 hora · últimas 48 velas <span class="key"><i style="background:var(--accent)"></i>EMA 9</span><span class="key"><i style="background:var(--ma20)"></i>MMA 20</span></div>
+      <canvas id="c1" height="190"></canvas>
+      <div class="lbl">5 minutos · últimas 72 velas</div>
+      <canvas id="c5" height="250"></canvas>
+      <div class="lbl">Estocástico 5m (5, 3, 3) <span class="key"><i style="background:var(--fg)"></i>%K</span><span class="key"><i style="background:var(--accent)"></i>%D</span></div>
+      <canvas id="cs" height="80"></canvas>
+    </div>
+    <p class="note">A linha tracejada é o preço no momento da decisão. O robô sai de forma mecânica: stop em torno de 2× ATR, alvo em torno de 3× ATR, parcial em 1R e stop no zero a zero em +0,35R.</p>
+    <div class="decide">
+      <div class="opts" role="group" aria-label="Sua decisão">
+        <button class="opt" data-v="LONG" aria-pressed="false" id="o-long">Compra</button>
+        <button class="opt" data-v="SHORT" aria-pressed="false" id="o-short">Venda</button>
+        <button class="opt" data-v="NONE" aria-pressed="false" id="o-none">Fico de fora</button>
+      </div>
+      <label class="lbl" for="motivo">Motivo em uma frase</label>
+      <textarea id="motivo" placeholder="Ex.: 1H fazendo topos menores, 5m voltou na MMA 20 e perdeu força, vendo."></textarea>
+      <div class="row">
+        <button class="btn" id="prev">Anterior</button>
+        <button class="btn primary" id="save">Salvar e próxima</button>
+        <span class="status" id="status"></span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const SITUACOES = __DATA__;
+const N = SITUACOES.length;
+const answers = {};
+let cur = 0, pick = null, db = null;
+
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const brt = (s, withDay) => {
+  const d = new Date((s - 3 * 3600) * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return (withDay ? `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)} ` : "") + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+};
+const NAMES = { BTCUSD: "BTCUSD · Bitcoin", XETUSD: "XETUSD · Ethereum", NAS100: "NAS100 · Nasdaq", SPX500: "SPX500 · S&P 500", XAGUSD: "XAGUSD · Prata", LNKUSD: "LNKUSD · Chainlink", UKOUSD: "UKOUSD · Brent" };
+
+function loadLocal() { try { return JSON.parse(localStorage.getItem("treino-leitura") || "{}"); } catch { return {}; } }
+function saveLocal() { try { localStorage.setItem("treino-leitura", JSON.stringify(answers)); } catch {} }
+Object.assign(answers, loadLocal());
+
+function fmt(x, ref) { const d = ref > 1000 ? 2 : ref > 10 ? 3 : 4; return x.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d }); }
+
+function setupCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = Number(cv.dataset.h || (cv.dataset.h = cv.getAttribute("height")));
+  cv.style.height = h + "px"; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); return { c, w, h };
+}
+
+function drawPrice(cv, rows, price, withDay) {
+  const { c, w, h } = setupCanvas(cv);
+  const padR = 64, padB = 18, padT = 6, W = w - padR, H = h - padB - padT;
+  let lo = Infinity, hi = -Infinity;
+  for (const r of rows) { lo = Math.min(lo, r[3], r[5] ?? Infinity, r[6] ?? Infinity); hi = Math.max(hi, r[2], r[5] ?? -Infinity, r[6] ?? -Infinity); }
+  const pad = (hi - lo) * 0.06 || hi * 0.001; lo -= pad; hi += pad;
+  const y = (v) => padT + (hi - v) / (hi - lo) * H;
+  const step = W / rows.length, bw = Math.max(1, step * 0.62);
+  c.font = "11px " + css("--mono"); c.textBaseline = "middle";
+  c.strokeStyle = css("--grid"); c.fillStyle = css("--muted"); c.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4, yy = Math.round(y(v)) + .5;
+    c.beginPath(); c.moveTo(0, yy); c.lineTo(W, yy); c.stroke();
+    c.fillText(fmt(v, price), W + 6, yy);
+  }
+  c.textBaseline = "alphabetic"; c.textAlign = "center";
+  const every = Math.ceil(rows.length / 6);
+  rows.forEach((r, i) => { if (i % every === 0) c.fillText(brt(r[0], withDay), i * step + step / 2, h - 4); });
+  c.textAlign = "start";
+  rows.forEach((r, i) => {
+    const x = i * step + step / 2, up = r[4] >= r[1];
+    c.strokeStyle = c.fillStyle = up ? css("--bull") : css("--bear");
+    c.beginPath(); c.moveTo(x, y(r[2])); c.lineTo(x, y(r[3])); c.stroke();
+    const top = y(Math.max(r[1], r[4])), bot = y(Math.min(r[1], r[4]));
+    c.fillRect(x - bw / 2, top, bw, Math.max(1, bot - top));
+  });
+  for (const [idx, col] of [[5, "--accent"], [6, "--ma20"]]) {
+    c.strokeStyle = css(col); c.lineWidth = 1.5; c.beginPath(); let started = false;
+    rows.forEach((r, i) => { if (r[idx] == null) return; const x = i * step + step / 2; started ? c.lineTo(x, y(r[idx])) : c.moveTo(x, y(r[idx])); started = true; });
+    c.stroke();
+  }
+  const yp = Math.round(y(price)) + .5;
+  c.setLineDash([4, 4]); c.strokeStyle = css("--fg"); c.lineWidth = 1; c.beginPath(); c.moveTo(0, yp); c.lineTo(W, yp); c.stroke(); c.setLineDash([]);
+  c.fillStyle = css("--fg"); c.fillRect(W + 2, yp - 9, padR - 2, 18);
+  c.fillStyle = css("--panel"); c.textBaseline = "middle"; c.fillText(fmt(price, price), W + 6, yp);
+}
+
+function drawStoch(cv, rows) {
+  const { c, w, h } = setupCanvas(cv);
+  const padR = 64, W = w - padR, y = (v) => 4 + (100 - v) / 100 * (h - 8), step = W / rows.length;
+  c.font = "11px " + css("--mono"); c.textBaseline = "middle";
+  c.fillStyle = css("--grid"); c.fillRect(0, y(80), W, y(20) - y(80));
+  c.fillStyle = css("--muted");
+  for (const v of [80, 20]) c.fillText(String(v), W + 6, y(v));
+  for (const [idx, col, lw] of [[7, "--fg", 1.4], [8, "--accent", 1.4]]) {
+    c.strokeStyle = css(col); c.lineWidth = lw; c.beginPath(); let s = false;
+    rows.forEach((r, i) => { if (r[idx] == null) return; const x = i * step + step / 2; s ? c.lineTo(x, y(r[idx])) : c.moveTo(x, y(r[idx])); s = true; });
+    c.stroke();
+  }
+  const last = rows[rows.length - 1];
+  if (last[7] != null) { c.fillStyle = css("--fg"); c.fillText(`K ${last[7].toFixed(0)}`, W + 6, 12); }
+}
+
+function renderChips() {
+  const done = Object.keys(answers).length;
+  $("prog").textContent = `${done} de ${N} respondidas`;
+  $("barfill").style.width = (100 * done / N) + "%";
+  const box = $("chips"); box.textContent = "";
+  SITUACOES.forEach((s, i) => {
+    const b = document.createElement("button");
+    const a = answers[s.id];
+    b.className = "chip" + (a ? " done " + a.decisao[0] : "") + (i === cur ? " cur" : "");
+    b.textContent = String(i + 1).padStart(2, "0");
+    b.setAttribute("aria-label", `Situação ${i + 1}` + (a ? `, respondida: ${a.decisao}` : ""));
+    b.onclick = () => go(i);
+    box.appendChild(b);
+  });
+}
+
+function setPick(v) {
+  pick = v;
+  document.querySelectorAll(".opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+  $("save").disabled = !pick;
+}
+
+function render() {
+  const s = SITUACOES[cur];
+  $("sym").textContent = NAMES[s.symbol] || s.symbol;
+  $("when").textContent = brt(s.t, true) + " (Brasília)";
+  $("price").textContent = fmt(s.price, s.price);
+  $("spread").textContent = s.spreadPct.toLocaleString("pt-BR") + "%";
+  $("num").textContent = `situação ${cur + 1} de ${N}`;
+  const a = answers[s.id];
+  setPick(a ? a.decisao : null);
+  $("motivo").value = a ? a.motivo : "";
+  $("status").textContent = a ? "já respondida, pode revisar" : "";
+  $("prev").disabled = cur === 0;
+  drawPrice($("c1"), s.h1, s.price, true);
+  drawPrice($("c5"), s.m5, s.price, false);
+  drawStoch($("cs"), s.m5);
+  renderChips();
+}
+
+function go(i) { cur = Math.max(0, Math.min(N - 1, i)); render(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+
+async function save() {
+  if (!pick) return;
+  const s = SITUACOES[cur];
+  const body = { situacao: s.id, symbol: s.symbol, t: s.t, decisao: pick, motivo: $("motivo").value.trim(), respondidoEm: new Date().toISOString() };
+  answers[s.id] = body; saveLocal();
+  $("save").disabled = true; $("status").textContent = "salvando…";
+  try {
+    if (db) { await db.collection("respostas").doc(s.id).set(body); $("status").textContent = "salvo"; }
+    else $("status").textContent = "guardado só neste navegador";
+  } catch (e) {
+    $("status").textContent = "não salvou no servidor (" + (e && e.code || "erro") + "), ficou neste navegador";
+  }
+  $("save").disabled = false;
+  const next = SITUACOES.findIndex((x, i) => i > cur && !answers[x.id]);
+  const any = SITUACOES.findIndex((x) => !answers[x.id]);
+  if (next >= 0) go(next); else if (any >= 0) go(any); else { renderChips(); $("status").textContent = "Pronto: as 30 foram respondidas. Obrigado!"; }
+}
+
+document.querySelectorAll(".opt").forEach((b) => (b.onclick = () => setPick(b.dataset.v)));
+$("save").onclick = save;
+$("prev").onclick = () => go(cur - 1);
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", render);
+new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+render();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+
+(async () => {
+  try { db = window.claude ? await window.claude.use("db") : null; } catch { db = null; }
+  if (!db) { $("warn").hidden = false; return; }
+  db.collection("respostas").onSnapshot((snap) => {
+    for (const d of snap.docs) { const v = d.data(); if (v && v.decisao) answers[d.id] = v; }
+    saveLocal();
+    const firstOpen = SITUACOES.findIndex((x) => !answers[x.id]);
+    if (!answers[SITUACOES[cur].id] && firstOpen >= 0 && firstOpen !== cur && !$("motivo").value) cur = firstOpen;
+    render();
+  }, () => { $("warn").hidden = false; });
+})();
+</script>

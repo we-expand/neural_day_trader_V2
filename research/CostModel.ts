@@ -138,6 +138,45 @@ export function estimateCostPercent(assetClass: AssetClass, priceLevel: number, 
   return spreadCost + slippageCost + cost.commissionPercent / 100;
 }
 
+
+/**
+ * Custo por PERNA (% do notional) com o spread REAL medido no lugar do spread
+ * estático da classe. `measuredSpreadPct` é o spread inteiro (ask-bid)/bid*100,
+ * pago uma vez por round-trip -> meia parcela por perna. Slippage e comissão
+ * seguem os da tabela estática (slippage continua provisão NÃO medida).
+ * Fonte do spread: `research/MeasuredSpreads.ts` (tabela `market_spread_samples`).
+ */
+export function estimateCostPercentMeasured(
+  assetClass: AssetClass,
+  priceLevel: number,
+  pointValue: number,
+  measuredSpreadPct: number,
+  commissionRoundTripPct: number = 0,
+): number {
+  const cost = COST_TABLE[assetClass];
+  const slippage = assetClass === 'CRYPTO' ? cost.slippagePoints / 100 : (cost.slippagePoints * pointValue) / priceLevel;
+  return measuredSpreadPct / 100 / 2 + slippage + commissionRoundTripPct / 100 / 2 + cost.commissionPercent / 100;
+}
+
+/**
+ * Comissão PUBLICADA da Infinox (conta ECN, round-turn por lote padrão) em % do
+ * notional. O spread medido no feed é cru (EURUSD ~0,11 pip = perfil ECN), então a
+ * comissão entra à parte — a tabela estática a embutia nos "pontos" de spread.
+ * Fonte: infinox.com/global/en/conditions ($7 forex/ouro, $0,70 petróleo, $2 índices).
+ * Aproximações: forex usa 100.000 unidades da moeda base (exato em USDxxx, ~+-14% em
+ * EURUSD); índice trata 1 lote = 1 contrato a $1/ponto. Cripto CFD: sem comissão.
+ */
+export function publishedCommissionRoundTripPct(symbol: string, assetClass: AssetClass, priceLevel: number): number {
+  const s = symbol.toUpperCase();
+  if (assetClass === 'FOREX_MAJOR' || assetClass === 'FOREX_MINOR' || assetClass === 'FOREX_EXOTIC') return (7 / 100_000) * 100;
+  if (assetClass === 'COMMODITY') {
+    if (s.startsWith('XAU')) return (7 / (100 * priceLevel)) * 100; // 100 oz/lote
+    return (0.7 / (1000 * priceLevel)) * 100; // petróleo: 1000 bbl/lote
+  }
+  if (assetClass === 'INDEX') return (2 / priceLevel) * 100;
+  return 0;
+}
+
 /**
  * Converte retorno bruto (%) num trade em retorno líquido, descontando o custo
  * estimado de entrada + saída (o round-trip completo, não só uma perna).

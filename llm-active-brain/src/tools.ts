@@ -1,0 +1,4007 @@
+import { parseEther } from "viem";
+import type { OpenAI } from "openai";
+import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js";
+import { config } from "./config.js";
+import { applyEconomyChange, getBalanceUsd } from "./economy.js";
+import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
+import { getQuote as getMt5Quote } from "./mt5Broker.js";
+import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
+import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
+import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
+import { checkReasoningConsistency } from "./reasoningValidator.js";
+import { runTradingDesk, getRecentDeskRejection, rememberDeskRejection, type DeskRiskFacts } from "./desk.js";
+import { linkDeskDecisionToTrade } from "./deskStore.js";
+import { estimateCommissionUsd } from "./commissionModel.js";
+import { getFibLive } from "./fibLive.js";
+import { getRiskScale } from "./riskScaler.js";
+import { planExpansion } from "./expansionPlan.js";
+import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
+
+const EXHAUSTION_VETO_SYMBOLS = new Set(["BTCUSD", "BTCXBN", "ETHUSD", "XETUSD"]);
+
+// 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
+// Medicao REAL da cesta inteira, 6 chamadas seguidas a /mt5-prices em ~50s
+// (2026-08-30 02:45-02:46 UTC, sabado, cripto em pregao 24/7):
+//   BTCUSD 0,015% | XETUSD 0,106% | BTCXBN 0,177% | XPTUSD 0,463%
+//   SOLUSD 0,505% | DOGUSD 1,30-1,42% | XRPUSD 1,469% | DOTUSD 10,44%
+// Confirmado que NAO e bug de cache/staleness: o timestamp do tick de DOTUSD
+// AVANCA normalmente (02:45:00 -> 02:46:10) com bid/ask vindos do MESMO
+// objeto `current-tick` da MetaAPI -- e o spread cotado de verdade pela
+// Infinox pra esse CFD (fim de semana, liquidez minima). Sendo dado real, a
+// resposta certa e trava de risco, nao "fix de dado": com 10,4% de spread a
+// posicao nasce ~10% negativa (foi exatamente o que aconteceu no LONG de
+// DOTUSD observado nesta sessao, -9,46% flutuante instantaneo, stopado logo
+// em seguida). 2,0% de teto bloqueia so o DOTUSD; o 2o pior da cesta
+// (XRPUSD, 1,47%) segue liberado, com aviso a partir de 0,8%.
+// 🔴 2026-08-31 (teste): afrouxado pra 5.0 pra permitir entradas em spreads normais de fim de semana
+export const SPREAD_BLOCK_PCT = 5.0;
+export const SPREAD_WARN_PCT = 2.0;
+
+// 🔴 2026-09-02 (pedido do Cleber -- agente de risco interno, "perder pouco,
+// ganhar muito" dentro da mesma taxa de acerto): teto de quantas vezes UMA
+// posição pode ser ampliada (pyramiding) via increase_position. Cada add já
+// exige lucro real + confluência ainda válida (ver case increase_position),
+// mas o teto aqui é a última linha de defesa contra compounding descontrolado
+// sobre um único símbolo -- 2 adds no máximo (posição original + 2 reforços).
+export const MAX_PYRAMID_ADDS = 2;
+
+// 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, root cause confirmado
+// rastreando o log ciclo a ciclo, pedido explicito do Cleber -- "perdeu
+// $2,49 a toa"): a IA fechou uma posicao LONG lucrativa em BTCUSD citando
+// "resistencia de 2471.26, volume ratio 0.4" -- numeros REAIS, mas do
+// XETUSD (cotado 2 chamadas antes, apos um open_position em XETUSD ser
+// bloqueado pela guarda de contradicao acima). Ela NUNCA chamou
+// get_mt5_quote(BTCUSD) naquele ciclo antes de decidir fechar -- decidiu
+// com dado de 2 ciclos atras (ou de outro simbolo). Mecanismo: quando uma
+// tentativa de abrir e bloqueada, o mesmo impulso as vezes "migra" pra
+// fechar uma posicao aberta usando o raciocinio/numeros que acabaram de
+// ser escritos pro simbolo errado. Fix: exige get_mt5_quote do MESMO
+// simbolo no MESMO ciclo antes de aceitar um close_position manual nele --
+// forca a decisao a se basear em dado fresco e do ativo certo, nao em
+// memoria stale ou contaminacao cruzada entre simbolos.
+// 🔴 2026-08-31 (Fase 2 multi-tenant): estes 3 caches eram globais por
+// simbolo -- corretos so quando o processo tinha 1 sessao. Agora cada um vira
+// um mapa aninhado por `sessionId`, pra uma sessao nunca ler/contaminar o
+// estado de outra rodando no mesmo processo.
+function perSession<K, V>(store: Map<string, Map<K, V>>, sessionId: string): Map<K, V> {
+  let inner = store.get(sessionId);
+  if (!inner) {
+    inner = new Map<K, V>();
+    store.set(sessionId, inner);
+  }
+  return inner;
+}
+
+const lastQuotedCycleBySymbolStore = new Map<string, Map<string, number>>();
+
+// 🔴 2026-09-11 (llm-council: 223 stale + 163 rate-limit em 30h/44 trades --
+// ver blockEntryOnStaleIndicators em config.ts): rastreia, por sessão+símbolo,
+// em qual ciclo o get_mt5_quote (ferramenta) caiu no fallback sem tick real
+// (trend/volume/MACD/estocástico/regime = null). open_position consulta este
+// mapa e recusa abrir se o símbolo caiu no fallback NESTE MESMO ciclo --
+// mesmo que a re-cotação interna de open_position (linha ~1376) já bloqueie
+// preço obsoleto no MOMENTO da abertura, isso não garante que a DECISÃO em
+// si foi tomada com indicadores reais (o LLM pode ter decidido no fallback
+// e só then chamar open_position segundos depois, quando o feed já voltou).
+const staleQuoteToolCycleBySymbolStore = new Map<string, Map<string, number>>();
+
+// 🔴 2026-09-17 (pedido direto do Cleber, mesmo espirito do gate acima que
+// exige padrao de candle pra REVERSAO): so exigir o padrao nao basta -- ele
+// pode ter acabado de fechar NESTE MESMO candle, sem nenhuma confirmacao de
+// que o movimento realmente virou (o padrao pode falhar no candle seguinte,
+// classico "engolfo que nao confirma"). Pedido explicito: a entrada so pode
+// acontecer no candle SEGUINTE ao candle onde o padrao foi detectado, nunca
+// no mesmo. Rastreia por sessao+simbolo+lado o timestamp do candle em que o
+// padrao alinhado foi visto pela PRIMEIRA vez -- so libera quando um
+// `patternCandleTimestamp` mais novo (candle novo ja fechou) aparecer.
+const reversalPatternFirstSeenStore = new Map<string, Map<string, number>>();
+
+// 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido do Cleber apos
+// BTCUSD SHORT perder $5,58): o guard de "cotacao fresca no mesmo ciclo"
+// acima so garante que o agente CHAMOU get_mt5_quote antes de decidir --
+// nao garante que o reasoning escrito reflete o que aquela chamada
+// devolveu. Confirmado no log (linha do open_position BTCUSD SHORT,
+// 2026-08-30 15:58 UTC): o get_mt5_quote imediatamente anterior devolveu
+// trend.label="LATERAL" e volume.elevated=false, mas o reasoning da
+// entrada afirmou "trend currently LOW, volume elevated" -- fatos
+// inventados que contradizem o proprio dado real recem-recebido (BTCUSD
+// estava de fato em ALTA persistente nos ciclos vizinhos; o SHORT foi
+// contra a tendencia real). O validador semantico (reasoningValidator.ts)
+// so checa autocontradicao (reasoning vs a propria acao), nunca checou
+// reasoning vs o dado real que o motivou -- por isso nao pegou. Cache aqui
+// guarda o ultimo snapshot renderizado por get_mt5_quote por simbolo, pra
+// alimentar o validador com o dado real e ele comparar contra o texto.
+const validatorBlocksBySymbolSide = new Map<string, number[]>();
+// 2026-10-13: avisa uma unica vez por processo quando MT5_LLM_ONLY_TEST foi pedido mas recusado (ver open_position).
+let llmOnlyTestRefusedLogged = false;
+const lastQuoteSnapshotBySymbolStore = new Map<
+  string,
+  Map<
+    string,
+    {
+      trendLabel: string | null;
+      volumeElevated: boolean | null;
+      macdLabel: string | null;
+      stochasticLabel: string | null;
+      macdCrossing?: string | null;
+      macdTurning?: string | null;
+      stochasticCrossing?: string | null;
+      // 🔴 2026-09-21 (pedido do Cleber -- observar 5m E 1H): label do
+      // Estocastico no timeframe de 1H, independente do operacional.
+      stochasticLongTermLabel: string | null;
+      // 🔴 2026-09-02: regime (sessão/volume/volatilidade) do momento da
+      // cotação -- reaproveitado na abertura pra gravar junto do trade (ver
+      // openMt5Position em neuralBridge.ts), permitindo validar depois se
+      // esse contexto ajudou. null quando regime não estava disponível.
+      session: string | null;
+      volumeLabel: string | null;
+      volatilityLabel: string | null;
+      // 🔴 2026-09-09 (fix de governanca, llm-council -- achado real:
+      // indicators_snapshot em ai_trades ficava NULL em 100% dos trades,
+      // impossivel calibrar/auditar qualquer filtro de entrada depois do
+      // fato). Campos abaixo sao TODOS derivados do MESMO calculo que
+      // get_mt5_quote ja faz nesta chamada (nunca fabricados so pra
+      // preencher a coluna) -- persistidos em ai_trades.indicators_snapshot
+      // na abertura da posicao (ver openMt5Position/neuralBridge.ts).
+      trendLongTermLabel: string | null;
+      priceExtensionPct: number | null;
+      candlePatternLabels: string[] | null;
+      movingAveragesExtended: boolean | null;
+      spreadPct: number | null;
+      priceAtQuote: number | null;
+      dayChangePct: number | null;
+      // 🔴 2026-09-15 (pedido do Cleber -- "queremos medir estatisticamente
+      // se seguir marketDirection/setupType realmente melhora o resultado",
+      // achado real: nenhum dos dois era persistido em indicators_snapshot
+      // ate aqui, so o texto solto do reasoning citava -- impossivel montar
+      // qualquer query real tipo "trades que seguiram consenso vs contra").
+      // consensus/agreement e o MESMO objeto marketDirection que
+      // get_mt5_quote ja devolveu nesta chamada (ver computeMarketDirection/
+      // atr.ts), nunca recalculado so pra gravar.
+      marketDirectionConsensus: string | null;
+      marketDirectionAgreement: string | null;
+    }
+  >
+>();
+
+// 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas" -- 3
+// ocorrencias reais na mesma sessao: BTCUSD LONG fechado com +$1,39
+// flutuante, depois de novo a -$2,49 usando dado do XETUSD, depois de novo
+// a -$0,47 quase no zero a zero -- todas pra abrir o lado OPOSTO no mesmo
+// simbolo). Quando open_position e bloqueado por ja existir posicao oposta
+// no simbolo, o mesmo impulso de inverter direcao as vezes vira um
+// close_position na posicao existente com tese fraca (PnL perto de zero,
+// nem perto do stop nem do alvo) so pra abrir espaco pro lado novo. Fix:
+// se esse simbolo teve uma tentativa de inversao bloqueada NESTE ciclo, o
+// fechamento so e aceito se a posicao ja consumiu pelo menos metade da
+// distancia ate o stop (tese realmente enfraquecendo) OU ja capturou
+// metade da distancia ate o alvo (ja realizou boa parte do lucro) -- barra
+// especificamente a zona "mal se moveu" onde o motivo real e "quero
+// apostar no lado contrario", nao "a tese morreu".
+const flipAttemptBlockedThisCycleStore = new Map<string, Map<string, number>>();
+const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
+
+// 🔴 2026-09-07, noite (pedido direto do Cleber, confirmado que 02/09 --
+// sessão de referência de 80% de acerto -- NÃO tinha nenhum gate de
+// confiança: `confidence` era só declarada e logada, nunca bloqueava).
+// Depois de um dia inteiro de idas e voltas neste gate (65->70->80% pela
+// manhã, removido à noite, agora reintroduzido), o Cleber pediu
+// explicitamente um teto FIXO -- não é mais volátil no mesmo dia,
+// fica assim até nova decisão explícita dele.
+// [2026-09-08] Ajustado de 70% para 75% a pedido do Cleber.
+// 2026-09-09 (decisao explicita do Cleber, ciente do precedente de
+// governanca do mesmo dia): subido de 75 -> 80. Objetivo declarado: treinar
+// a IA pra operar com taxa de acerto na faixa 70-80%, aceitando menos
+// entradas por dia em troca de mais seletividade. Sem validacao estatistica
+// ainda -- precisa de amostra rodando sob este gate antes de julgar efeito
+// real na taxa de acerto.
+// 🔴 2026-09-18 (pedido direto do Cleber, aprovado como mudanca UNICA e
+// isolada -- ver "conselho" convocado no mesmo dia): revertido de 80 -> 70
+// (valor anterior ao "creep" 65->70->75->80 que nunca foi medido passo a
+// passo). Achado real que motivou: este gate sozinho foi o maior bloqueio
+// mecanico das ultimas 72h (55 tentativas recusadas) e NAO EXISTIA em
+// 02/09 (melhor dia real do motor, 80% de acerto, 15 trades) -- foi criado
+// DEPOIS (commit 925d7f3). Achado tambem relevante (SQL, 2026-09-11):
+// confianca declarada NAO tem correlacao real com resultado (85,3% media
+// em trade vencedor vs 84,3% em perdedor) -- ou seja, o numero em si nao e
+// calibrado, subir/descer o teto nao necessariamente compra mais
+// assertividade real. Por isso 70 (nao um valor mais baixo ainda) -- ainda
+// e um teto alto, mudanca conservadora de um unico parametro pra medir
+// isolado (regra do projeto: nunca empilhar mudanca de mecanica sem medir,
+// precedente 04/09). NAO mexer de novo antes de 5 dias uteis / 40+ trades
+// fechados sob este valor.
+const MIN_CONFIDENCE_FOR_OPEN_POSITION = 70;
+
+// Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
+function rollSuccess(successChance: number): boolean {
+  return Math.random() < successChance;
+}
+
+// 🔴 2026-08-29/30 (achado do Cleber durante monitoramento ao vivo): em modo
+// MT5, o agente estava recebendo TODAS as ferramentas do experimento legado
+// (carteira ETH de testnet, "economia ficticia" de USD por gigs/apostas
+// simuladas) mesmo sem nenhuma relacao com a missao real -- confirmado no
+// log chamando check_balance/check_fictional_balance e RACIOCINANDO sobre o
+// saldo ficticio ($3.51) como se fosse capital disponivel pra dimensionar
+// entrada real. Isso e ruido puro na decisao, nao so ferramenta inutil.
+// Agora `commonToolDefinitions` (usado em TODOS os modos) tem so log_thought
+// e stop; as ferramentas do experimento ETH/economia ficticia viram
+// `legacyToolDefinitions`, oferecidas SO no modo legado (nem MT5 nem
+// Binance).
+const commonToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "log_thought",
+      description: "Registra um raciocinio/observacao do agente no ledger, sem executar nenhuma acao externa.",
+      parameters: {
+        type: "object",
+        properties: {
+          thought: { type: "string", description: "O que o agente esta pensando/concluindo." },
+        },
+        required: ["thought"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "stop",
+      description: "Encerra o loop do agente quando ele julgar que a tarefa acabou ou nao ha mais o que fazer com segurança.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: { type: "string", description: "Por que o agente decidiu parar." },
+        },
+        required: ["reason"],
+      },
+    },
+  },
+];
+
+const legacyToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "check_balance",
+      description: "Consulta o saldo atual (em ETH de testnet, Base Sepolia) da carteira do agente.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "request_faucet_info",
+      description:
+        "Retorna instrucoes de como conseguir ETH de testnet gratuito (faucet). " +
+        "O agente NAO consegue chamar o faucet sozinho (a maioria exige captcha/login humano) " +
+        "— isso e proposital, e o ponto central do experimento: a 'autonomia economica' tem limites reais.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_test_transaction",
+      description:
+        "Envia uma transacao de valor minimo (ETH de testnet) para um endereco. " +
+        "Use para simular 'pagamentos' do agente. Valor maximo por chamada e limitado por seguranca.",
+      parameters: {
+        type: "object",
+        properties: {
+          to_address: {
+            type: "string",
+            description:
+              "Endereco 0x de destino. Se omitido, envia para a propria carteira do agente (self-transfer, so para gerar uma tx de teste).",
+          },
+          amount_eth: {
+            type: "string",
+            description: `Quantidade em ETH de testnet, como string decimal (ex: "0.0001"). Teto absoluto: ${config.maxTxValueEth} ETH.`,
+          },
+          memo: {
+            type: "string",
+            description: "Motivo/contexto da transacao, para o log.",
+          },
+        },
+        required: ["amount_eth", "memo"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_fictional_balance",
+      description:
+        "Consulta o saldo fictício em USD acumulado pelo agente atraves das ferramentas de " +
+        "renda simulada (content_job, prediction_market, marketplace_gig). Este saldo NAO e " +
+        "dinheiro real e NAO tem nenhuma relacao com o ETH de testnet da carteira.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "simulate_content_job",
+      description:
+        "SIMULACAO: tenta 'vender' um pequeno trabalho de criacao de conteudo pra um cliente " +
+        "ficticio. Paga entre $0.20 e $1.50 em USD ficticio se aceito; ha chance do cliente " +
+        "rejeitar (sem pagamento). Nao e dinheiro real - e um teste de decisao, nao de renda.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: { type: "string", description: "Sobre o que seria o conteudo (ex: 'post de blog sobre X')." },
+        },
+        required: ["topic"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "simulate_prediction_market_bet",
+      description:
+        "SIMULACAO: aposta uma quantia em USD ficticio (do saldo ja acumulado) numa previsao " +
+        "binaria com resultado aleatorio (~50% de chance). Se acertar, dobra a aposta (menos " +
+        "uma taxa); se errar, perde a aposta. Nao e dinheiro real - e apenas um teste de " +
+        "tolerancia a risco do agente.",
+      parameters: {
+        type: "object",
+        properties: {
+          market_question: { type: "string", description: "A pergunta binaria da aposta (ex: 'ETH sobe amanha?')." },
+          side: { type: "string", enum: ["yes", "no"], description: "Lado escolhido pelo agente." },
+          stake_usd: { type: "number", description: "Quanto USD ficticio apostar (maximo $5 por aposta, precisa ja ter saldo suficiente)." },
+        },
+        required: ["market_question", "side", "stake_usd"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "simulate_marketplace_gig",
+      description:
+        "SIMULACAO: tenta completar uma tarefa avulsa de um marketplace ficticio (freelance). " +
+        "Paga entre $1 e $5 em USD ficticio se o cliente aprovar; ha chance de disputa " +
+        "(cliente nao paga). Nao e dinheiro real.",
+      parameters: {
+        type: "object",
+        properties: {
+          task_description: { type: "string", description: "Descricao da tarefa freelance simulada." },
+        },
+        required: ["task_description"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "spend_fictional_balance",
+      description:
+        "Gasta parte do saldo ficticio acumulado (ex: simular pagar por 'infraestrutura' ou " +
+        "'compute'). Nao afeta o ETH de testnet real - e so o saldo simulado.",
+      parameters: {
+        type: "object",
+        properties: {
+          amount_usd: { type: "number", description: "Quanto USD ficticio gastar (precisa ter saldo suficiente)." },
+          reason: { type: "string", description: "Em que o agente esta gastando." },
+        },
+        required: ["amount_usd", "reason"],
+      },
+    },
+  },
+];
+
+const tradingToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "check_brokerage_account",
+      description:
+        `Consulta o saldo REAL da conta na Binance (modo ${config.binanceTestnet ? "TESTNET - dinheiro simulado" : "LIVE - DINHEIRO REAL"}). ` +
+        "Mostra saldo livre em USDT (proxy de caixa em dolar) e nos ativos operaveis (BTC, ETH, BNB).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_market_quote",
+      description: "Consulta o preco mais recente de um par de criptomoedas real na Binance (ex: BTCUSDT, ETHUSDT).",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "Par de trading (ex: 'BTCUSDT', 'ETHUSDT'). Sempre cotado contra USDT." },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "place_market_order",
+      description:
+        `Executa uma ordem de mercado REAL na Binance (modo ${config.binanceTestnet ? "TESTNET - dinheiro simulado" : "LIVE - GASTA DINHEIRO REAL"}) ` +
+        `de compra ou venda por valor em dolares (USDT). Teto por ordem: $${config.maxOrderUsd}.`,
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "Par de trading (ex: 'BTCUSDT', 'ETHUSDT')." },
+          side: { type: "string", enum: ["buy", "sell"], description: "Comprar ou vender." },
+          notional_usd: { type: "number", description: `Valor em dolares (USDT) da ordem (maximo $${config.maxOrderUsd}).` },
+          reasoning: { type: "string", description: "Por que esta decisao de compra/venda faz sentido agora." },
+        },
+        required: ["symbol", "side", "notional_usd", "reasoning"],
+      },
+    },
+  },
+];
+
+const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "get_mt5_quote",
+      description:
+        `Consulta o preco real de um ativo da cesta do motor mecanico do Neural Day Trader ` +
+        `(via MetaAPI/Infinox -- MESMA fonte que o motor mecanico usa, nao Binance). ` +
+        `Devolve tambem "trend" (variacao % e rotulo ALTA/BAIXA/LATERAL) e "volume" (razao de participacao e ` +
+        `"elevated" true/false) -- proxies reais de direcao/participacao, nunca fabricados. Cada um tem um campo ` +
+        `"source": trend.source e "candle" (candle oficial da MetaAPI, janela de 1h) ou "tick" (fallback: preco ` +
+        `real deste processo, janela pode ser mais curta no inicio, ate 60min conforme o historico cresce). ` +
+        `volume.source e "candle_volume" (tickVolume real) ou "tick_momentum" (fallback: aceleracao de preco -- ` +
+        `nao e volume de verdade, mas e sinal real, nao inventado). AMBOS podem vir null so nos primeiros minutos ` +
+        `apos reiniciar o processo (historico de tick ainda curto) -- nesse caso use "changePercent" (sempre ` +
+        `preenchido) como proxy e opere pelo julgamento normal. So quando trend/volume vierem preenchidos e a ` +
+        `entrada for CONTRA a tendencia SEM volume elevado, open_position bloqueia por codigo. ` +
+        `Tambem devolve "supportResistance" (maxima/minima reais da janela ESTABELECIDA de candle de 5m, ~2,5h ` +
+        `excluindo as 2 velas mais recentes, distancia % pra cada nivel -- pode ser NEGATIVA, rompimento real -- ` +
+        `"brokeAboveResistance"/"brokeBelowSupport" true quando o rompimento ja esta em andamento AGORA, e ` +
+        `"nearLevel" RESISTENCIA/SUPORTE/null quando o preco esta a menos de 0,15% de um deles sem ainda ter ` +
+        `rompido) -- topo/fundo recente de verdade, calculado do mesmo candle oficial de "trend", null quando ` +
+        `candle nao disponivel. Rompimento confirmado (brokeAboveResistance/brokeBelowSupport) merece atencao ` +
+        `redobrada mesmo com pouco volume -- todo rompimento pode ser inicio de movimento grande, nao descarte so ` +
+        `por falta de volume. ` +
+        `A agenda economica americana de alto impacto (evento mais recente que ja saiu com actual/forecast reais, ` +
+        `e proximo evento que ainda vai sair) ja vem na mensagem de abertura deste ciclo, nao repetida aqui -- ` +
+        `cruze com nySessionPhase e rompimento pra julgar conviccao. ` +
+        `Tambem devolve "movingAverages" (EMA9/SMA20/SMA200, as tres medias moveis mais observadas pelo mercado, ` +
+        `e a distancia % do preco ate cada uma) -- preco longe demais delas tende estatisticamente a reverter em ` +
+        `direcao a elas (mean reversion). "extended":true e um SINAL DE ATENCAO (nao bloqueio mecanico): pondere ` +
+        `com mais cautela uma entrada que EXTENDA ainda mais essa distancia (ex: comprar ja esticado bem acima das ` +
+        `medias). null quando nao ha historico suficiente (SMA200 exige ~200 velas, pode nao estar disponivel pra ` +
+        `todo simbolo/timeframe). ` +
+        `Cesta disponivel: ${MT5_ASSET_BASKET.join(", ")}.`,
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: `Um dos simbolos da cesta: ${MT5_ASSET_BASKET.join(", ")}.` },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_open_positions",
+      description: "Lista as posicoes que VOCE tem abertas agora nesta sessao isolada (id, simbolo, lado, preco de entrada, exposicao em USD).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_position",
+      description:
+        `Abre uma posicao virtual (DEMO, dinheiro simulado) num ativo da cesta, comprado/vendido a preco real de mercado. ` +
+        `O TAMANHO EM LOTES E CALCULADO PELO CODIGO, nao por voce -- ver "size" abaixo. ` +
+        `O codigo dimensiona cada entrada por % DE RISCO DO SALDO REAL da conta (nao um valor fixo em dolar) -- ` +
+        `"normal" arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo se o stop bater, "forte" arrisca ` +
+        `${(config.mt5RiskPctPerTrade * config.mt5HeavyMultiplier * 100).toFixed(1)}%. Numa conta pequena isso pode fazer o codigo RECUSAR ` +
+        `a entrada (erro explicito) se o lote minimo do ativo ja forcar risco acima do teto tolerado -- isso e intencional, nao um bug. ` +
+        `A cesta (${MT5_ASSET_BASKET.join("/")}) mistura cripto, forex, metal, energia e indices -- simbolos do MESMO grupo ` +
+        `correlacionado (ex: as 10 criptos entre si, ou os 4 indices globais entre si) tem exposicao combinada do MESMO lado ` +
+        `com teto proprio (nao e so por simbolo, ver get_mt5_quote/log de erro pra saber o grupo de um simbolo especifico). ` +
+        `Reentrar no mesmo simbolo+lado logo depois de bater stop 2x seguidas fica bloqueado por um tempo (cooldown). ` +
+        `Entrar CONTRA a tendencia recente (ver "trend" em get_mt5_quote) SEM volume acima do normal E SEM Estocastico em ` +
+        `extremo (SOBRECOMPRADO pra SHORT, SOBREVENDIDO pra LONG, ver "stochastic") tambem e bloqueado -- ` +
+        `contrarian trade e permitido, mas so com confirmacao real (volume de participacao OU exaustao real de curto prazo), nao no vacuo. ` +
+        `Tambem e bloqueado abrir com cotacao OBSOLETA (ultimo tick real da corretora com mais de 120s -- mercado fechado/feed parado) ` +
+        `ou com spread bid/ask acima de ${SPREAD_BLOCK_PCT}% (custo de entrada real alto demais; a cesta tipica fica entre 0,02% e 1,5%).`,
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: `Um dos simbolos da cesta: ${MT5_ASSET_BASKET.join(", ")}.` },
+          side: { type: "string", enum: ["LONG", "SHORT"], description: "Comprado (aposta em alta) ou vendido (aposta em baixa)." },
+          size: {
+            type: "string",
+            enum: ["normal", "forte"],
+            description:
+              `"normal" = arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo real da conta se o stop bater. ` +
+              `"forte" = ${config.mt5HeavyMultiplier}x esse risco. Toda entrada aceita ja exige confidence >= ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}% (gate obrigatorio abaixo) -- ou seja, se voce chegou ate aqui, ja e alta ` +
+              `conviccao por definicao. Prefira "forte" quando a confluencia for robusta de verdade (multiplos fatores reais ` +
+              `alinhados, nao so o minimo pra passar do gate); use "normal" quando a confianca estiver no limiar (perto de ` +
+              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}%) ou quando ja houver exposicao relevante no mesmo grupo correlacionado.`,
+          },
+          reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
+          confidence: {
+            type: "number",
+            description:
+              `Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/` +
+              `estocastico/spread/padroes de candle) e o reasoning acima -- e o seu julgamento de o quanto os fatores reais ` +
+              `convergem a favor desta tese. IMPORTANTE: abaixo de ${MIN_CONFIDENCE_FOR_OPEN_POSITION} em dia util (ou ` +
+              `${config.mt5MinConfidenceForOpenPositionWeekend} em fim de semana, "isWeekend" em get_mt5_quote) a entrada e ` +
+              `RECUSADA pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real.`,
+          },
+          setupType: {
+            type: "string",
+            enum: ["ROMPIMENTO", "CRUZAMENTO_MEDIAS", "REVERSAO", "OUTRO", "FOMC_BTC_PLAY"],
+            description:
+              `Opcional -- que TIPO de setup esta entrada representa. "ROMPIMENTO" (breakout de faixa/nivel) e ` +
+              `"CRUZAMENTO_MEDIAS" (cruzamento de EMA/SMA) sao setups de CONTINUACAO, historicamente fracos quando o mercado ` +
+              `esta em CONSOLIDACAO_BAIXA_VOL (ver "hmmRegime" em get_mt5_quote -- classificador de regime, HMM). "REVERSAO" ` +
+              `(esperar o preco bater extremo e voltar dentro do range) e o oposto, mais adequado a esse regime. Declarar ` +
+              `honestamente ajuda o codigo a avaliar coerencia entre o setup e o regime atual${config.hmmRegimeGateActive ? " (BLOQUEIO MECANICO ATIVO nesta sessao -- ver aviso em get_mt5_quote)" : ""}. ` +
+              `IMPORTANTE: "REVERSAO" exige TAMBEM um padrao grafico real de reversao (Estrela Cadente, Martelo, Engolfo, Harami, ` +
+              `Estrela da Manha/Noite, Marubozu...) com bias alinhado ao lado da entrada -- sem isso a posicao e recusada (gate ` +
+              `obrigatorio), mesmo com Estocastico extremo/volume/MACD alinhados. E a entrada so acontece no candle SEGUINTE ao ` +
+              `candle em que o padrao fechou (nunca no mesmo candle do padrao) -- tente de novo no proximo ciclo se acabou de ver o padrao agora. ` +
+              `"FOMC_BTC_PLAY" e a jogada especial pos-FOMC (BTCUSD, logo apos a janela do evento de alto impacto do Fed FECHAR, ` +
+              `so se a confluencia tecnica real -- trend/MACD/estocastico/volume -- apoiar a direcao): ativa stop/alvo de ` +
+              `${config.fomcBtcPlayStopPoints}/${config.fomcBtcPlayTargetPoints} pontos e sizing de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do patrimonio, so em modo DEMO.`,
+          },
+        },
+        required: ["symbol", "side", "size", "reasoning", "confidence"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "close_position",
+      description: "Fecha uma posicao aberta (pelo id devolvido por open_position ou list_open_positions), a preco real de mercado.",
+      parameters: {
+        type: "object",
+        properties: {
+          trade_id: { type: "string", description: "Id da posicao a fechar." },
+          reasoning: { type: "string", description: "Por que fechar agora (alvo atingido, invalidacao da tese, etc)." },
+        },
+        required: ["trade_id", "reasoning"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "increase_position",
+      description:
+        `AMPLIA (pyramiding) uma posicao SUA que ja esta ganhando de verdade -- "deixar o lucro correr" com o stop ` +
+        `subindo atras do preco pra travar o ganho, em vez de so esperar parado o alvo original. NAO e pra recuperar ` +
+        `posicao perdedora nem pra "dobrar a aposta" -- so funciona com lucro real ja capturado (acima do custo do ` +
+        `spread) E pelo menos 1 fator tecnico real (tendencia/MACD/Estocastico/padrao de candle) ainda alinhado com o ` +
+        `lado da posicao (sinal ainda nao esgotado). O codigo dimensiona o reforco pela MESMA formula de risco de ` +
+        `open_position (nunca maior que o risco da entrada original) e MOVE O STOP pra breakeven-ou-melhor no mesmo ` +
+        `movimento -- o lote original nunca fica exposto de novo por causa do reforco. Maximo de ${MAX_PYRAMID_ADDS} ` +
+        `reforcos por posicao. Bloqueado se a posicao nao estiver em lucro real, se faltar confluencia, ou se o teto ` +
+        `de adds/exposicao do grupo correlacionado ja tiver sido atingido.`,
+      parameters: {
+        type: "object",
+        properties: {
+          trade_id: { type: "string", description: "Id da posicao vencedora a ampliar." },
+          reasoning: { type: "string", description: "Por que o movimento a favor e real e vale reforcar agora (cite os fatores tecnicos ainda alinhados)." },
+        },
+        required: ["trade_id", "reasoning"],
+      },
+    },
+  },
+];
+
+export const toolDefinitions: OpenAI.Chat.ChatCompletionTool[] = config.mt5TradingEnabled
+  ? [...commonToolDefinitions, ...mt5ToolDefinitions]
+  : config.tradingEnabled
+  ? [...commonToolDefinitions, ...legacyToolDefinitions, ...tradingToolDefinitions]
+  : [...commonToolDefinitions, ...legacyToolDefinitions];
+
+// 🔴 2026-09-07 (achado ao vivo: "IA não abriu nenhuma posição em horas",
+// pedido do Cleber: "a LLM tem que respeitar o setup do usuário sempre").
+// `toolDefinitions` acima é montado 1x no load do modulo com
+// MT5_ASSET_BASKET INTEIRO (22 simbolos que o MOTOR sabe operar) hardcoded
+// nas descricoes de get_mt5_quote/open_position -- o schema que o modelo le
+// em TODA chamada da API, reforcando a cada iteracao um universo maior do
+// que o usuario realmente escolheu no Setup. O gate mecanico real
+// (`effectiveBasketFor` acima, `session.userConfig.activeAssets`) ja
+// respeitava o Setup; só o texto que o modelo LÊ não respeitava. Retorna uma
+// copia com as duas listagens da cesta global trocadas pela cesta efetiva da
+// sessao -- se a sessao nao filtrou nada (cesta efetiva = cesta global),
+// devolve o array original sem custo de clone.
+export function scopedToolDefinitions(effectiveBasket: string[]): OpenAI.Chat.ChatCompletionTool[] {
+  const isFullBasket =
+    effectiveBasket.length === MT5_ASSET_BASKET.length &&
+    effectiveBasket.every((symbol, i) => symbol === MT5_ASSET_BASKET[i]);
+  if (isFullBasket) return toolDefinitions;
+
+  const commaList = MT5_ASSET_BASKET.join(", ");
+  const slashList = MT5_ASSET_BASKET.join("/");
+  const serialized = JSON.stringify(toolDefinitions)
+    .split(commaList)
+    .join(effectiveBasket.join(", "))
+    .split(slashList)
+    .join(effectiveBasket.join("/"));
+  return JSON.parse(serialized);
+}
+
+export interface ExecuteToolSession {
+  sessionId: string;
+  userId: string;
+  userConfig?: UserTradingConfig;
+  status: "RUNNING" | "STOPPED";
+}
+
+/** Cesta efetiva desta sessao: intersecao com `activeAssets` do Setup do usuario, ou a cesta inteira se ele nao filtrou nada. */
+function effectiveBasket(session: ExecuteToolSession): string[] {
+  return session.userConfig?.activeAssets ?? MT5_ASSET_BASKET;
+}
+
+export async function executeTool(name: string, input: Record<string, unknown>, cycle: number, session: ExecuteToolSession) {
+  const lastQuotedCycleBySymbol = perSession(lastQuotedCycleBySymbolStore, session.sessionId);
+  const lastQuoteSnapshotBySymbol = perSession(lastQuoteSnapshotBySymbolStore, session.sessionId);
+  const flipAttemptBlockedThisCycle = perSession(flipAttemptBlockedThisCycleStore, session.sessionId);
+  const staleQuoteToolCycleBySymbol = perSession(staleQuoteToolCycleBySymbolStore, session.sessionId);
+  switch (name) {
+    case "check_fictional_balance": {
+      return { balance_usd: getBalanceUsd(), moeda: "USD FICTICIO - nao e dinheiro real" };
+    }
+
+    case "simulate_content_job": {
+      const success = rollSuccess(0.75);
+      const amount = Math.round((0.2 + Math.random() * 1.3) * 100) / 100;
+      const entry = applyEconomyChange({
+        cycle,
+        source: "content_job",
+        outcome: success ? "success" : "failure",
+        amount_usd: amount,
+        detail: `Trabalho de conteudo sobre "${input.topic}": ${success ? "aceito pelo cliente" : "rejeitado pelo cliente"}.`,
+      });
+      return {
+        outcome: entry.outcome,
+        amount_usd: entry.amount_usd,
+        balance_usd: entry.balance_after,
+        moeda: "USD FICTICIO",
+      };
+    }
+
+    case "simulate_prediction_market_bet": {
+      const stake = Number(input.stake_usd);
+      if (!Number.isFinite(stake) || stake <= 0) {
+        return { error: "stake_usd invalido." };
+      }
+      if (stake > 5) {
+        return { error: "Aposta acima do teto de seguranca ($5 USD ficticio)." };
+      }
+      const currentBalance = getBalanceUsd();
+      if (stake > currentBalance) {
+        return { error: `Saldo insuficiente. Saldo atual: $${currentBalance} USD ficticio, aposta pedida: $${stake}.` };
+      }
+      const won = rollSuccess(0.48); // levemente desfavoravel, como mercados reais com taxa
+      const payout = won ? Math.round(stake * 0.95 * 100) / 100 : stake;
+      const entry = applyEconomyChange({
+        cycle,
+        source: "prediction_market",
+        outcome: won ? "success" : "failure",
+        amount_usd: payout,
+        detail: `Aposta "${input.market_question}" (lado: ${input.side}, stake: $${stake}): ${won ? "ganhou" : "perdeu"}.`,
+      });
+      return {
+        outcome: entry.outcome,
+        stake_usd: stake,
+        payout_usd: won ? payout : 0,
+        balance_usd: entry.balance_after,
+        moeda: "USD FICTICIO",
+      };
+    }
+
+    case "simulate_marketplace_gig": {
+      const success = rollSuccess(0.8);
+      const amount = Math.round((1 + Math.random() * 4) * 100) / 100;
+      const entry = applyEconomyChange({
+        cycle,
+        source: "marketplace_gig",
+        outcome: success ? "success" : "failure",
+        amount_usd: amount,
+        detail: `Gig "${input.task_description}": ${success ? "aprovado e pago" : "disputa - cliente nao pagou"}.`,
+      });
+      return {
+        outcome: entry.outcome,
+        amount_usd: entry.amount_usd,
+        balance_usd: entry.balance_after,
+        moeda: "USD FICTICIO",
+      };
+    }
+
+    case "spend_fictional_balance": {
+      const amount = Number(input.amount_usd);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { error: "amount_usd invalido." };
+      }
+      const currentBalance = getBalanceUsd();
+      if (amount > currentBalance) {
+        return { error: `Saldo insuficiente. Saldo atual: $${currentBalance} USD ficticio.` };
+      }
+      const entry = applyEconomyChange({
+        cycle,
+        source: "compute_expense",
+        outcome: "failure", // "failure" so no sentido contabil: e uma saida de saldo
+        amount_usd: amount,
+        detail: `Gasto: ${input.reason}`,
+      });
+      return { spent_usd: amount, balance_usd: entry.balance_after, moeda: "USD FICTICIO" };
+    }
+
+    case "check_brokerage_account": {
+      return await getAccount();
+    }
+
+    case "get_market_quote": {
+      const symbol = String(input.symbol || "").toUpperCase();
+      if (!symbol) return { error: "symbol invalido." };
+      return await getBinanceQuote(symbol);
+    }
+
+    case "get_mt5_quote": {
+      const symbol = String(input.symbol || "").toUpperCase();
+      const basket = effectiveBasket(session);
+      if (!basket.includes(symbol)) {
+        // 🔴 2026-09-06 (deadlock real observado ao vivo): se a cesta do
+        // usuário mudou depois que uma posição já estava aberta num símbolo
+        // que saiu dela, o agente ficava preso pra sempre -- close_position
+        // exige get_mt5_quote("SIMBOLO") NESTE ciclo, mas esta checagem
+        // recusava cotar exatamente esse símbolo por "fora da cesta". Sem
+        // saída legítima, o ciclo inteiro era gasto tentando fechar a
+        // posição órfã, sem nunca chegar a avaliar entradas novas na cesta
+        // atual. Exceção: permitir cotar um símbolo fora da cesta SE houver
+        // posição aberta nele nesta sessão -- só destrava monitorar/fechar o
+        // que já existe, não abre porta pra abrir posição nova fora da cesta
+        // (open_position mantém o gate de cesta intocado).
+        const openPositions = await listMt5OpenPositions(session.sessionId);
+        const hasOpenPosition = openPositions.some((p) => p.symbol.toUpperCase() === symbol);
+        if (!hasOpenPosition) {
+          return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
+        }
+      }
+      // 🔴 2026-08-31 (fix de paralisia por dados incompletos): antes, um
+      // getMt5Quote falhado retornava erro pro agente, travando a sessão.
+      // Se falhar, devolve um quote VÁLIDO mas com trend/volume/etc = null
+      // (agente entende "dados indisponíveis" como "ok, trabalho com o que
+      // tenho"). Garante que o agente NUNCA fica preso esperando por um
+      // endpoint que está fora/lento/rate-limited -- pode tentar entrar
+      // mesmo com dados parciais, o stop mecânico protege o pior caso.
+      //
+      // 🔴 2026-09-01 (achado real, monitoramento ao vivo): esta camada tinha
+      // MAIS 2 retries por cima dos 3 que `mt5Broker.getQuote` já faz
+      // internamente (8s de timeout cada) -- 5 tentativas empilhadas no
+      // total. Confirmado ao vivo: um ciclo travou ~10min numa única
+      // chamada de XAUUSD enquanto a MetaAPI compartilhada estava lenta
+      // (endpoint /mt5-prices devolvendo HTTP 504 depois de ~20s por
+      // tentativa -- risco crônico já documentado no CLAUDE.md). Removido o
+      // retry duplicado: `getQuote` já é resiliente sozinho (3 tentativas),
+      // sem essa camada extra o pior caso cai de ~5 tentativas pra 3 sem
+      // perder proteção real contra falha transitória.
+      const quote = await getMt5Quote(symbol);
+      // Se não conseguiu, devolve fallback válido (não erro)
+      if (!quote) {
+        const lastPrice = getLastKnownPrice(symbol);
+        console.warn(`[tools.ts] Cotação de ${symbol} indisponível depois de retry -- devolvendo fallback com preço ${lastPrice || "nenhum histórico"}`);
+        // 🔴 2026-09-11 (llm-council, ver blockEntryOnStaleIndicators em
+        // config.ts): registra que ESTE ciclo devolveu indicadores nulos pra
+        // este símbolo -- open_position consulta isto e recusa abrir, sem
+        // depender do LLM decidir "confiar no stop" sozinho.
+        if (config.blockEntryOnStaleIndicators) {
+          staleQuoteToolCycleBySymbol.set(symbol, cycle);
+        }
+        return {
+          symbol,
+          // 🔴 2026-08-31: usa último preço conhecido do histórico (ou 1.0 como padrão honesto)
+          // nunca usa 0, porque agente recusaria abrir com preço zero
+          price: lastPrice ?? 1.0,
+          bid: lastPrice ?? 1.0,
+          ask: lastPrice ?? 1.0,
+          changePercent: 0,
+          spreadPct: NaN,
+          tickAgeSeconds: null,
+          stale: true,
+          marketOpen: true,
+          trend: null,
+          volume: null,
+          extension: null,
+          supportResistance: null,
+          macd: null,
+          stochastic: null,
+          candlePatterns: null,
+          regime: null,
+          hmmRegime: null,
+          marketDirection: null,
+          aviso: `Cotacao de ${symbol} temporariamente indisponível (endpoint lento/rate-limited/off). Preço usado: ${lastPrice ? `último conhecido ($${lastPrice.toFixed(2)})` : "padrão $1.0 (sem histórico)"} -- ${config.blockEntryOnStaleIndicators ? "SEM indicadores reais (trend/volume/MACD/estocastico), abrir posicao neste simbolo agora sera RECUSADO por open_position. Avalie outro ativo da cesta ou espere o proximo ciclo pra dados reais." : "você PODE tentar entrar mesmo assim (confie no stop mecanico para proteger), ou esperar o proximo ciclo pra dados reais."}`
+        };
+      }
+      lastQuotedCycleBySymbol.set(symbol, cycle);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe
+      // Operacional"): todos os indicadores derivados de candle (trend/
+      // volume/S&R/MACD/estocastico/padroes) passam a calcular em cima do
+      // timeframe escolhido pelo usuario, nao mais fixo em 5m -- ver
+      // SUPPORTED_TIMEFRAMES/fetchRecentCandles em atr.ts. Default "5m"
+      // preserva o comportamento de sessoes sem essa config.
+      const timeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      // snapshot atualizado logo abaixo, depois de trend/volume/macd/stochastic serem calculados
+      // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
+      // tendência de curto prazo (1h) vai junto da cotação -- achado real foi
+      // o agente abrindo SHORT repetido em cripto bem no meio de um rali de
+      // horas, decidindo só a partir do preço do instante, sem nenhuma noção
+      // de "isso já está subindo há um tempo". null quando não dá pra
+      // calcular com dado real -- nunca inventa tendência.
+      const trend = await getTrendInfo(symbol, timeframe);
+      // 🔴 2026-09-08 (achado do Cleber: LLM leu "pullback numa alta" olhando
+      // só a janela curta de `trend` acima, sem noção do contexto mais amplo
+      // do dia -- comprou BTCUSD bem quando o quadro maior já apontava venda).
+      // Segunda leitura de tendência, timeframe FIXO 1H/~1 dia, pra separar
+      // pullback dentro de alta real de repique dentro de queda maior. Ver
+      // getLongTermTrendInfo/atr.ts.
+      const trendLongTerm = await getLongTermTrendInfo(symbol);
+      // 🔴 2026-08-29: proxy honesto de participacao/forca por tras do
+      // movimento (tickVolume real da MetaAPI, ver atr.ts) -- nao e order
+      // flow/book de ofertas de verdade (o sistema nao tem esse dado), mas e
+      // volume real, nao fabricado. null quando indisponivel.
+      const volume = await getVolumeConfirmation(symbol, timeframe);
+      // 🔴 2026-08-29 (achado do Cleber: entrada LONG em XETUSD com preco ja
+      // "longe das medias", Estocastico quase virando, MACD com exaustao --
+      // sinais que este sistema nao tinha como enxergar). Na epoca, MACD/
+      // Estocastico de verdade eram impossiveis porque /mt5-candles devolvia
+      // SIMULATED pra esta cesta (endpoint chamava path errado da MetaAPI,
+      // 404 sempre -- CORRIGIDO no mesmo dia, ver historico de sessao:
+      // candle real confirmado chegando pros 8 simbolos). "extension" segue
+      // como substituto honesto pra exaustao de curtissimo prazo (media do
+      // proprio historico de tick, mais rapida de reagir que MACD/
+      // Estocastico de candle), mas MACD/Estocastico REAIS agora sao
+      // viaveis de implementar em cima do candle que ja chega -- nao feito
+      // ainda nesta sessao, fica como proximo passo se quiser indicador de
+      // exaustao mais forte que "extension".
+      const extension = getPriceExtension(symbol);
+      // 🔴 2026-08-29 (pedido do Cleber, "fundamentos completos de price
+      // action"): suporte/resistencia real, so ficou honesto de calcular
+      // depois do fix de /mt5-candles (era 404 na MetaAPI, sempre caia em
+      // SIMULATED -- ver historico de sessao). null quando candle real nao
+      // disponivel, nunca fabrica nivel.
+      const supportResistance = await getSupportResistance(symbol, timeframe);
+      // 🔴 2026-08-30 (pedido do Cleber, XETUSD SHORT com tese fraca sem
+      // checar MACD): MACD real, calculado em cima do MESMO candle oficial
+      // que trend/volume/supportResistance já usam (ver atr.ts) -- antes
+      // era impossível porque a corretora devolvia candle SIMULATED pra
+      // esta cesta, corrigido numa sessão anterior. null quando não há
+      // candle real suficiente, nunca fabrica indicador.
+      const macd = await getMacd(symbol, timeframe);
+      // 🔴 2026-08-30 (pedido do Cleber, junto do MACD -- "MACD e Estocastico
+      // lento sao fundamentais"): Estocastico LENTO real (%K/%D classicos,
+      // periodo 14, suavizacao 3+3), mesmo candle oficial que os outros
+      // indicadores acima ja usam (ver atr.ts). Mede sobrecompra/sobrevenda
+      // de curto prazo -- complementa o MACD (momentum de tendencia) com uma
+      // leitura de exaustao classica. null quando nao ha candle real
+      // suficiente, nunca fabrica indicador.
+      const stochastic = await getSlowStochastic(symbol, timeframe);
+      // 🔴 2026-09-21 (pedido do Cleber): mesma leitura de exaustao, mas em
+      // 1H -- o grafico que ele acompanha. Complementa (nunca substitui) o
+      // Estocastico do timeframe operacional acima. null quando nao ha
+      // candle 1H real suficiente, nunca fabrica indicador.
+      const stochasticLongTerm = await getLongTermSlowStochastic(symbol);
+      // 🔴 2026-09-15 (achado do Cleber, ao vivo: BTCUSD LONG abriu com
+      // MACD/Estocastico NULOS -- candle falhou nesse ciclo mas a cotacao via
+      // tick veio fresca, entao a trava de staleQuoteToolCycleBySymbol acima
+      // (so cobre falha TOTAL de get_mt5_quote) nunca disparou. A IA decidiu
+      // com 1 unico sinal fraco (marketDirection via tick) porque os
+      // osciladores que confirmariam/reprovariam a entrada nem chegaram a
+      // existir neste ciclo. MACD e Estocastico sao os 2 fatores mais citados
+      // pelo proprio prompt (principios 1l/2) -- se os dois vierem nulos junto
+      // com cotacao fresca, marca o mesmo sinalizador da trava existente pra
+      // open_position recusar, mesmo sem ser falha total de quote.
+      if (config.blockEntryOnStaleIndicators && !macd && !stochastic) {
+        staleQuoteToolCycleBySymbol.set(symbol, cycle);
+      }
+      // 🔴 2026-08-30 (pedido do Cleber, "10 padroes de candle mais
+      // famosos"): primeira vez que o LLM recebe a FORMA da vela (corpo vs
+      // pavios), nao so o fechamento -- ver getCandlePatterns em atr.ts pra
+      // detalhe dos 10 padroes e criterio geometrico de cada um.
+      const candlePatterns = await getCandlePatterns(symbol, timeframe);
+      // 🔴 2026-09-02 (pedido do Cleber): regime de mercado (sessão + volume
+      // real + volatilidade real vs a própria história do símbolo) -- só
+      // CONTEXTO adicional pro LLM julgar (ver GENESIS_PROMPT_MT5 em
+      // agent.ts), nunca uma trava mecânica nova. null quando não há candle
+      // real suficiente, mesma disciplina dos outros campos acima.
+      const regime = await getMarketRegime(symbol, timeframe);
+      // 🔴 2026-09-09 (pedido direto do Cleber -- "nosso motor utilizará
+      // essas tecnologias pra ajudar na tomada de decisões", veredito do
+      // llm-council): zonas técnicas SMC reais (Order Blocks/Fair Value
+      // Gaps/Liquidity Pools) mais próximas do preço atual, portadas do
+      // motor que já roda no ChartView (ver smc.ts). SÓ CONTEXTO adicional
+      // -- o cap de R:R em open_position continua usando supportResistance
+      // (pivot simples), este campo nunca vira gatilho mecânico novo. null
+      // quando não há candle real suficiente, nunca fabrica zona.
+      const smcZones = await getSmcZonesSummary(symbol, timeframe);
+      // 🔴 2026-09-09 (pedido direto do Cleber -- "Classificador de Regime de
+      // Mercado", principal trava de segurança contra aplicar lógica de
+      // tendência num mercado consolidado): classificação HMM não-supervisionada
+      // (ver hmmRegime.ts pro detalhe técnico completo). SÓ CONTEXTO adicional
+      // por padrão (mesma disciplina de regime/smcZones acima) -- o bloqueio
+      // mecânico opcional em open_position só ativa com HMM_REGIME_GATE_ACTIVE=true
+      // (default false, sem amostra real ainda validando a classificação).
+      // null quando não há candle real suficiente, nunca fabrica regime.
+      const hmmRegime = await getHmmMarketRegime(symbol, timeframe);
+      // 🔴 2026-09-14 (pedido direto do Cleber -- "ela precisa ter essa
+      // resposta, pra que lado o mercado esta correndo, no grafico de 5
+      // minutos"): veredito UNICO de direcao, calculado em codigo (ver
+      // computeMarketDirection/atr.ts pro detalhe) combinando trend/
+      // trendLongTerm/immediateMomentum/hmmRegime -- os componentes de curto
+      // prazo aqui sao FIXOS em 5m (pedido explicito), independente do
+      // timeframe operacional escolhido pelo usuario, mesmo espirito de
+      // trendLongTerm ja ser fixo em 1H. Reaproveita `trend` se o timeframe
+      // operacional ja for 5m (nao duplica fetch); senao busca separado.
+      const trend5mForDirection = timeframe === "5m" ? trend : await getTrendInfo(symbol, "5m");
+      // 🔴 2026-09-15 (pedido direto do Cleber -- metodo real dele de leitura
+      // de mercado: 5m + 15m + 1H): 15m fica FIXO aqui tambem, mesmo espirito
+      // do 5m/1H ja fixos acima -- timeframe intermediario, nao reaproveita
+      // `trend` mesmo quando o timeframe operacional ja e 15m, pra manter os
+      // 3 componentes do consenso sempre no mesmo grafico que o metodo pede.
+      const trend15mForDirection = timeframe === "15m" ? trend : await getTrendInfo(symbol, "15m");
+      const immediateMomentum5m = await getImmediateMomentum(symbol, "5m");
+      const marketDirection = computeMarketDirection(trend5mForDirection, trendLongTerm, immediateMomentum5m, hmmRegime, trend15mForDirection, Number.isFinite(quote.changePercent) ? quote.changePercent : null, await getHigherTimeframeChain(symbol));
+      // 🔴 2026-09-07 (pedido direto do Cleber): EMA9/SMA20/SMA200 são as
+      // três médias mais observadas pelo mercado -- preço longe demais delas
+      // tende a reverter em direção a elas (mean reversion). Só CONTEXTO/
+      // AVISO pro LLM ponderar (Cleber foi explícito: "é um sinal de atenção
+      // e não uma regra"), nunca trava mecânica -- mesma disciplina de
+      // regime/candlePatterns acima. null quando não há histórico real
+      // suficiente (ver getMovingAverageDistance/atr.ts), nunca fabrica valor.
+      const movingAverages = await getMovingAverageDistance(symbol, timeframe);
+      lastQuoteSnapshotBySymbol.set(symbol, {
+        trendLabel: trend?.label ?? null,
+        volumeElevated: volume?.elevated ?? null,
+        macdLabel: macd?.label ?? null,
+        stochasticLabel: stochastic?.label ?? null,
+        macdCrossing: macd?.crossing ?? null,
+        macdTurning: macd?.turning ?? null,
+        stochasticCrossing: stochastic?.crossing ?? null,
+        stochasticLongTermLabel: stochasticLongTerm?.label ?? null,
+        session: regime?.session ?? null,
+        volumeLabel: regime?.volumeLabel ?? null,
+        volatilityLabel: regime?.volatilityLabel ?? null,
+        trendLongTermLabel: trendLongTerm?.label ?? null,
+        priceExtensionPct: extension?.distancePct ?? null,
+        candlePatternLabels: candlePatterns?.detected ?? null,
+        movingAveragesExtended: movingAverages?.extended ?? null,
+        spreadPct: Number.isFinite(quote.spreadPct) ? quote.spreadPct : null,
+        priceAtQuote: quote.price ?? null,
+        dayChangePct: Number.isFinite(quote.changePercent) ? quote.changePercent : null,
+        marketDirectionConsensus: marketDirection.consensus,
+        marketDirectionAgreement: marketDirection.agreement,
+      });
+      if (!isSymbolTradable(symbol)) {
+        return { ...quote, marketOpen: false, trend, trendLongTerm, volume, extension, supportResistance, macd, stochastic, stochasticLongTerm, candlePatterns, regime, movingAverages, smcZones, hmmRegime, aviso: "Mercado fechado (fim de semana) -- preco congelado, nao abrir posicao aqui." };
+      }
+      // 🔴 2026-08-30 (investigacao de feed travado / spread anormal): dois
+      // avisos REAIS que antes o agente nao tinha como enxergar -- ambos
+      // medidos ao vivo neste dia, ver SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD.md.
+      // (1) tick obsoleto: XPTUSD (platina) devolvia preco de ~30h atras, e o
+      // calendario de mercado deste codigo so cobre FOREX (assetBasket.ts),
+      // entao platina passava como "mercado aberto" no fim de semana.
+      // (2) spread real absurdo: DOTUSD cotado com 10,4% de spread bid/ask --
+      // dado REAL da corretora, nao bug, mas uma entrada ali ja nasce ~10%
+      // negativa. Aviso aqui + bloqueio em open_position.
+      const avisos: string[] = [];
+      if (quote.stale) {
+        avisos.push(
+          `COTACAO OBSOLETA: ultimo tick real tem ${quote.tickAgeSeconds}s de idade (mercado provavelmente fechado ou feed parado). Nao abra posicao aqui.`
+        );
+      }
+      if (Number.isFinite(quote.spreadPct) && quote.spreadPct >= SPREAD_WARN_PCT) {
+        avisos.push(
+          `SPREAD ALTO: ${quote.spreadPct.toFixed(2)}% entre bid e ask -- uma entrada aqui ja nasce ~${quote.spreadPct.toFixed(2)}% negativa ` +
+            `so pelo custo de operar (${quote.spreadPct >= SPREAD_BLOCK_PCT ? "acima do teto: open_position BLOQUEIA" : "abaixo do teto de bloqueio"}). ` +
+            `O CODIGO ja alarga o stop automaticamente pra nunca ficar menor que o spread (nao precisa/deve compensar isso na decisao de ENTRAR), ` +
+            `mas um spread alto ainda encolhe a margem real de lucro ate o alvo -- prefira ativos com spread normal quando houver sinal equivalente em mais de um.`
+        );
+      }
+      if (movingAverages?.extended) {
+        // 🔴 2026-09-10 (achado real, motor mudo desde ontem a noite): texto
+        // didatico completo repetido por SIMBOLO em toda cesta estourava o
+        // contexto do modelo local (finish_reason=length em 100% dos ciclos
+        // apos o motor SMC/HMM engordar get_mt5_quote) -- a explicacao ja
+        // esta ensinada uma vez no principio 1b do prompt (agent.ts), aqui
+        // so precisa da leitura factual por simbolo, nao do texto didatico
+        // de novo a cada um dos ~13 ativos da cesta.
+        avisos.push(
+          `PRECO ESTICADO (EMA9 ${movingAverages.distancePctFromEma9 ?? "N/D"}%, SMA20 ${movingAverages.distancePctFromSma20 ?? "N/D"}%, ` +
+            `SMA200 ${movingAverages.distancePctFromSma200 ?? "N/D"}% de distancia) -- ver principio 1b.`
+        );
+      }
+      // 🔴 2026-09-08 (achado do Cleber): quando a tendencia curta (`trend`)
+      // e a de prazo mais longo (`trendLongTerm`, ~1 dia) apontam pra lados
+      // opostos, o movimento curto e mais provavelmente um REPIQUE dentro de
+      // uma tendencia maior contraria, nao uma "pullback dentro da tendencia
+      // real" -- exatamente a leitura errada que levou a entrada LONG em
+      // BTCUSD durante o que parecia (num prazo maior) um mercado vendedor.
+      // Aviso, nao bloqueio mecanico: o LLM decide, mas agora nao fica cego
+      // ao contexto do dia.
+      if (trend?.label && trendLongTerm?.label && trend.label !== "LATERAL" && trendLongTerm.label !== "LATERAL" && trend.label !== trendLongTerm.label) {
+        // 🔴 2026-09-10: texto didatico ja ensinado uma vez no prompt (secao
+        // "DIVERGENCIA DE TENDENCIA", ~linha 161 de agent.ts) -- ver comentario
+        // do fix acima (mesma causa: estouro de contexto por repeticao).
+        avisos.push(
+          `DIVERGENCIA DE TENDENCIA: curto prazo (${trend.lookbackMinutes}min) ${trend.label}, dia (${trendLongTerm.lookbackMinutes}min) ${trendLongTerm.label}.`
+        );
+      }
+      // 🔴 2026-09-09: HMM classificando CONSOLIDACAO com confianca real alta
+      // (>=65%) e o principal caso pratico do pedido do Cleber -- setup de
+      // rompimento/cruzamento de medias tende a ser whipsaw nesse regime.
+      // Aviso sempre (contexto); bloqueio mecanico so roda dentro de
+      // open_position quando HMM_REGIME_GATE_ACTIVE=true (ver blockIfHmmConsolidation).
+      // 🔴 2026-09-10: texto didatico completo (o que CONSOLIDACAO_BAIXA_VOL/
+      // TENDENCIA_CLARA significam, o que fazer a respeito) ja ensinado uma
+      // vez no principio 1j do prompt (agent.ts) -- repetir por SIMBOLO em
+      // toda a cesta (ate 13 ativos) estava estourando o contexto do modelo
+      // local a cada ciclo (finish_reason=length, 100% dos ciclos desde a
+      // noite de 2026-09-09 apos o motor SMC/HMM engordar get_mt5_quote).
+      // Aqui so o dado factual por simbolo -- a interpretacao ja esta na
+      // memoria do modelo via prompt.
+      if (hmmRegime?.regime === HMM_STATE_CONSOLIDATION && hmmRegime.confidence >= 0.65) {
+        avisos.push(
+          `REGIME HMM: CONSOLIDACAO_BAIXA_VOL (confianca ${(hmmRegime.confidence * 100).toFixed(0)}%) -- ver principio 1j.`
+        );
+      } else if (hmmRegime?.regime === HMM_STATE_TREND && hmmRegime.confidence >= 0.65) {
+        avisos.push(
+          `REGIME HMM: TENDENCIA_CLARA ${hmmRegime.direction ?? "direcao indefinida"} (confianca ${(hmmRegime.confidence * 100).toFixed(0)}%) -- ver principio 1j.`
+        );
+      }
+      // 🔴 2026-09-10: devolver so regime/confidence/direction/sampleSize --
+      // stateProbabilities/logLikelihood/converged sao diagnostico interno
+      // do treino do HMM, nao usados pelo prompt (principio 1j so cita
+      // regime/confidence/direction) e pesavam no contexto do modelo local
+      // (mesma causa raiz do fix acima).
+      const hmmRegimeSlim = hmmRegime
+        ? { regime: hmmRegime.regime, confidence: hmmRegime.confidence, direction: hmmRegime.direction, sampleSize: hmmRegime.sampleSize }
+        : null;
+      if (marketDirection.consensus === "DIVERGENTE") {
+        // 🔴 2026-09-22: texto ja esta completo em marketDirection.agreement
+        // (mesmo objeto, campo ao lado) -- aviso so precisa sinalizar que
+        // existe, nao reembalar a mesma frase de novo (duplicava por ativo).
+        avisos.push(`DIRECAO SEM CONSENSO (ver "marketDirection.agreement").`);
+      }
+      return {
+        ...quote,
+        marketOpen: true,
+        marketDirection,
+        trend,
+        trendLongTerm,
+        volume,
+        extension,
+        supportResistance,
+        macd,
+        stochastic,
+        stochasticLongTerm,
+        candlePatterns,
+        regime,
+        movingAverages,
+        smcZones,
+        hmmRegime: hmmRegimeSlim,
+        ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
+      };
+    }
+
+    case "list_open_positions": {
+      // 🔴 2026-08-29 (achado da auditoria): o LLM calculando %/PnL de cabeca
+      // a partir de entry_price + preco atual errou pelo menos 2x na noite
+      // de 2026-08-29 (uma vez inverteu lucro/prejuizo, outra escreveu
+      // "Lucratividade alcancada: prejuizo de ~1.125%" na mesma frase).
+      // Modelo pequeno/rapido fazendo aritmetica em texto livre erra com
+      // frequencia nao-trivial -- a correcao nao e "pedir pra pensar melhor",
+      // e tirar a conta da mao dele: devolver pnl_percentage/pnl_usd JA
+      // CALCULADOS (mesma formula de closeMt5Position em neuralBridge.ts),
+      // deterministico, nunca erra. O LLM so precisa ler o numero.
+      let positions;
+      try {
+        positions = await listMt5OpenPositions(session.sessionId);
+      } catch (err) {
+        return { error: `Falha ao consultar posicoes abertas (rede/Supabase): ${err instanceof Error ? err.message : err}. Tente de novo antes de decidir.` };
+      }
+      const quoteCache = new Map<string, { price: number; bid: number; ask: number } | null>();
+      const enriched = await Promise.all(
+        positions.map(async (pos) => {
+          if (!quoteCache.has(pos.symbol)) {
+            quoteCache.set(pos.symbol, await getMt5Quote(pos.symbol));
+          }
+          const quote = quoteCache.get(pos.symbol);
+          if (!quote) {
+            return { ...pos, current_price: null, pnl_percentage: null, pnl_usd: null, aviso: "Sem cotacao real agora -- nao foi possivel calcular PnL atual." };
+          }
+          // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao
+          // contemplando o spread"): PnL flutuante usa o preco que FECHARIA a
+          // posicao agora de verdade -- bid pra LONG (venderia), ask pra
+          // SHORT (compraria de volta) -- nao o mid/last tick. Efeito
+          // esperado: uma posicao recem-aberta ja mostra -spread ate o preco
+          // andar o suficiente pra cobrir esse custo, igual corretora real.
+          const execPrice = pos.side === "LONG" ? quote.bid : quote.ask;
+          const amountUsd = pos.quantity; // convencao: quantity = exposicao em dolar, ver comentario em neuralBridge.ts
+          const pnlUsd =
+            pos.side === "LONG"
+              ? (execPrice - pos.entry_price) * (amountUsd / pos.entry_price)
+              : (pos.entry_price - execPrice) * (amountUsd / pos.entry_price);
+          const pnlPct = ((execPrice - pos.entry_price) / pos.entry_price) * 100 * (pos.side === "LONG" ? 1 : -1);
+          return {
+            ...pos,
+            current_price: execPrice,
+            pnl_percentage: Number(pnlPct.toFixed(4)),
+            pnl_usd: Number(pnlUsd.toFixed(4)),
+          };
+        })
+      );
+      return { positions: enriched };
+    }
+
+    case "open_position": {
+      // 🔴 2026-10-13 (pedido do Cleber -- "retire todas as nossas travas e
+      // vamos testar somente com o Agente Master... se falhar, a gente
+      // acrescenta as travas novamente"): TESTE SO-LLM. Com
+      // MT5_LLM_ONLY_TEST=true + MT5_DESK_MODE=enforce, as travas mecanicas de
+      // JULGAMENTO deste case (leitura de indicador, direcao, confluencia,
+      // R:R minimo e limites de risco) deixam de recusar a entrada: quem
+      // decide e a mesa de operacoes (desk.ts), com o Gestor de Risco e o
+      // Agente Master. Nenhuma trava foi apagada -- cada uma passa por
+      // gateResult(), que no modo normal devolve a recusa de sempre e no
+      // teste so registra [TRAVA-DESLIGADA] e segue. As que seriam acionadas
+      // vao pro snapshot do trade (bypassedGates), pra medir depois quais
+      // faziam falta.
+      //
+      // O que NAO desliga, nem no teste (nao e julgamento, e integridade):
+      // IA desligada no Setup, cesta/direcao/fluxo/cadencia do Setup, mercado
+      // fechado, cotacao ausente ou obsoleta, feed travado, spread que
+      // inviabiliza o stop, 1 lado por simbolo, calculo do lote e os tetos
+      // fisicos da conta (risco max. por trade, lote e notional maximos), e
+      // tudo de execucao real. As SAIDAS (stop, alvo, breakeven, trailing)
+      // tambem nao mudam.
+      //
+      // Trava de seguranca do proprio teste: nunca vale com execucao real
+      // ligada, e so vale com a mesa em "enforce" (sem ela ninguem julgaria).
+      const deskMode = config.mt5DeskMode;
+      const liveExecActive = await isLiveExecutionActive(session.userId);
+      // 🔴 2026-10-15: no modo "veto" (mesa dissolvida -- 1 LLM + vetos de codigo)
+      // as travas de JULGAMENTO deste case tambem saem da frente, igual ao teste
+      // so-LLM: quem decide passa a ser SO os vetos de codigo (computeHardVetoes,
+      // rodados dentro de runTradingDesk). A diferenca pro enforce e que NAO ha
+      // juri de 14 agentes. Nunca vale com execucao REAL ligada.
+      const llmOnlyTest = ((config.mt5LlmOnlyTest && deskMode === "enforce") || deskMode === "veto") && !liveExecActive;
+      if (config.mt5LlmOnlyTest && !llmOnlyTest && deskMode !== "veto" && !llmOnlyTestRefusedLogged) {
+        llmOnlyTestRefusedLogged = true;
+        console.warn(
+          `[TESTE-SO-LLM] MT5_LLM_ONLY_TEST=true IGNORADO -- ${deskMode !== "enforce" ? `a mesa esta em modo "${deskMode}" (precisa de MT5_DESK_MODE=enforce)` : "execucao REAL esta ligada"}. Travas mecanicas continuam ATIVAS.`,
+        );
+      }
+      const bypassedGates: string[] = [];
+      // 🔴 2026-10-14 (regra do Cleber, sacramentada): em MODO EXPANSAO (corredor de Fibonacci a favor do lado da
+      // entrada, com degrau livre) TUDO que trava a entrada a favor sai da frente -- estocastico colado no extremo
+      // (3-4 dias "estourando" embaixo), MACD/momento contra, extremo do dia, alvo colado em S/R, lateral, veredito de
+      // direcao, R:R. A unica condicao exigida e a que o metodo dele exige: o estocastico do timeframe do corredor
+      // VALIDANDO (venda: %K<=%D; compra: %K>=%D), isto e, o repique contra foi descartado. NAO sai: integridade
+      // (cotacao, spread, 1 lado por simbolo), tetos de risco/exposicao/lote/posicoes, perda diaria, cooldown de
+      // perdas seguidas, janela de evento, e o validador de contradicao do raciocinio. Rollback: MT5_EXPANSION_LIVE=false.
+      const EXPANSION_RELEASED_GATES = new Set([
+        "ESTOCASTICO_EXTREMO", "ESTOCASTICO_RAPIDO_EXTREMO", "MACD_5M_CONTRA", "MOMENTO_IMEDIATO_CONTRA",
+        "VETO_EXTREMO_DIA", "VETO_EXAUSTAO", "ALVO_COLADO_SUPORTE_RESISTENCIA", "ALVO_COLADO_EXTREMO_DIA",
+        "ALVO_RANGE_ESTREITO", "LATERAL_POUCOS_FATORES", "VEREDITO_DIRECAO", "HMM_CONSOLIDACAO", "RR_MINIMO",
+        "ROMPIMENTO_SEM_FECHAMENTO", "CONTRA_TENDENCIA_POUCOS_FATORES", "CONTRA_TENDENCIA_SEM_CONFIRMACAO",
+      ]);
+      let expansionReleaseActive = false;
+      {
+        const relSymbol = String(input.symbol || "").toUpperCase();
+        const relSide = String(input.side || "").toUpperCase();
+        if (process.env.MT5_EXPANSION_LIVE !== "false" && relSymbol && (relSide === "SHORT" || relSide === "LONG")) {
+          try {
+            const fibRel = await getFibLive(relSymbol);
+            const cor = fibRel?.principal ?? null;
+            const aFavor =
+              !!cor && cor.emExpansao && !cor.redesenhar && !!cor.proximoDegrau &&
+              ((cor.direcao === "BAIXA" && relSide === "SHORT") || (cor.direcao === "ALTA" && relSide === "LONG"));
+            if (cor && aFavor) {
+              const stRel = await getSlowStochastic(relSymbol, cor.tf as import("./atr.js").SupportedTimeframe);
+              const validado = !!stRel && (relSide === "SHORT" ? stRel.k <= stRel.d : stRel.k >= stRel.d);
+              if (validado) {
+                expansionReleaseActive = true;
+                console.log(`[EXPANSAO-LIBERA] ${relSymbol} ${relSide}: corredor ${cor.tf} a favor (proximo degrau ${(cor.proximoDegrau!.ratio * 100).toFixed(1)}% em ${cor.proximoDegrau!.price.toFixed(2)}), estocastico ${cor.tf} validando (K ${stRel?.k} / D ${stRel?.d}) -- travas de julgamento liberadas`);
+              } else {
+                console.log(`[EXPANSAO-LIBERA] ${relSymbol} ${relSide}: corredor ${cor.tf} a favor, mas o estocastico do ${cor.tf} ainda NAO valida (K ${stRel?.k} / D ${stRel?.d}) -- travas seguem normais`);
+              }
+            }
+          } catch (err) {
+            console.warn(`[EXPANSAO-LIBERA] leitura do corredor falhou, travas seguem normais: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
+      const gateResult = <T extends { error: string }>(gateId: string, blocked: T): T | null => {
+        if (expansionReleaseActive && EXPANSION_RELEASED_GATES.has(gateId)) {
+          bypassedGates.push(gateId);
+          console.log(`[EXPANSAO-LIBERA] ${gateId} ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")} liberada: ${blocked.error.slice(0, 160)}`);
+          return null;
+        }
+        if (!llmOnlyTest) return blocked;
+        bypassedGates.push(gateId);
+        console.log(`[TRAVA-DESLIGADA] ${gateId} ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")}: ${blocked.error.slice(0, 220)}`);
+        return null;
+      };
+      // 🔴 2026-08-31 (pedido do Cleber, achado ao vivo: "Desligar IA" estava
+      // orfanizando posição aberta em vez de só parar de abrir posição nova
+      // -- comportamento esperado, igual ao motor mecânico antigo: parar
+      // bloqueia SÓ entrada nova, posições já abertas seguem monitoradas
+      // (breakeven/trailing/SL/TP) até fechar sozinhas). Session.status vem
+      // de listEligibleMt5Sessions/resolveMt5Sessions -- 'STOPPED' é setado
+      // pelo botão "Desligar IA" (stopSession em
+      // AITradingPersistenceService.ts), sem encerrar a sessão nem fechar
+      // nada à força.
+      if (session.status === "STOPPED") {
+        return {
+          error: "IA desligada pelo usuário (Setup do AI Trader) -- nenhuma posição nova é aberta enquanto estiver assim. " +
+            "Posições já abertas continuam sendo monitoradas normalmente até fechar por stop/alvo.",
+        };
+      }
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Cadencia
+      // Agressiva"): o loop de ciclos e UM SO por processo, compartilhado
+      // por todas as sessoes multi-tenant (serial, ver index.ts sobre
+      // rate-limit da conta MetaAPI compartilhada) -- nao da pra ter um
+      // intervalo entre ciclos diferente por usuario sem um scheduler por
+      // sessao, que nao existe hoje. Em vez de pular runAgent (o que
+      // deixaria a posicao aberta sem checagem de stop/breakeven/trailing
+      // naquele ciclo -- enforceMt5StopsAndTargets roda ANTES disto, sempre,
+      // todo ciclo, pra toda sessao), a cadencia so restringe AVALIACAO DE
+      // ENTRADA NOVA: usando o numero global do ciclo (determinismo, sem
+      // Map/estado por sessao), AGRESSIVA avalia todo ciclo, NORMAL 1 a
+      // cada 2, CONSERVADORA 1 a cada 4.
+      const cadence = session.userConfig?.cadence ?? "NORMAL";
+      const CADENCE_CYCLE_INTERVAL: Record<string, number> = { AGRESSIVA: 1, NORMAL: 2, CONSERVADORA: 4 };
+      const requiredEvery = CADENCE_CYCLE_INTERVAL[cadence] ?? 2;
+      if (requiredEvery > 1 && cycle % requiredEvery !== 0) {
+        return {
+          error: `Cadencia "${cadence}" do Setup do AI Trader: avaliacao de entrada nova so roda a cada ${requiredEvery} ciclos (proxima janela no ciclo ${Math.ceil(cycle / requiredEvery) * requiredEvery}). Posicoes ja abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
+        };
+      }
+      // 🔴 2026-09-05 (pedido direto do Cleber, achado real via SQL do
+      // balanço de 8 dias em CLAUDE.md): dias de MAIOR frequência de trades
+      // foram sistematicamente os de PIOR PnL líquido, sem a assertividade
+      // acompanhar (21 trades em 04/09 vs. 11 em 03/09). Teto DURO de
+      // entradas novas por janela deslizante de 24h -- independente da
+      // Cadência de Entrada acima (que só espaça CICLOS de avaliação, não
+      // limita o TOTAL de entradas). Conta via getEntriesCountLast24h
+      // (neuralBridge.ts), que propaga erro em vez de engolir (mesmo motivo
+      // de getTodayRealizedPnl abaixo) -- falha transitória de rede nunca
+      // vira "0 entradas", furando o teto.
+      // 🔴 2026-09-06: no módulo de fim de semana o teto de dia útil (16,
+      // calibrado com dado de dia útil) some de lugar pro teto de fim de
+      // semana (mais alto, pedido explícito do Cleber pra manter o motor
+      // ativo nesta janela) -- ver comentário em config.ts.
+      const maxEntriesPer24h = isWeekendMode() ? config.mt5MaxEntriesPer24hWeekend : config.mt5MaxEntriesPer24h;
+      const entriesLast24h = await getEntriesCountLast24h(session.sessionId);
+      if (entriesLast24h >= maxEntriesPer24h) {
+        { const __blocked = gateResult("FREQUENCIA_24H", {
+          error: `Teto de frequência atingido: ${entriesLast24h}/${maxEntriesPer24h} entradas novas nas últimas 24h${isWeekendMode() ? " (teto de fim de semana)" : ""}. ` +
+            `Nenhuma posição nova até o teto abrir espaço de novo (janela deslizante). Posições já abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
+        }); if (__blocked) return __blocked; }
+      }
+      const symbol = String(input.symbol || "").toUpperCase();
+      const side = input.side as string;
+      const sizeInput = String(input.size || "normal").toLowerCase();
+      const reasoning = String(input.reasoning || "");
+      const setupType = input.setupType ? String(input.setupType).toUpperCase() : null;
+      const confidenceRaw = Number(input.confidence);
+      const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(100, confidenceRaw)) : null;
+      // 🔴 2026-09-07, noite (commit 04b051f2d): gate obrigatório de
+      // confiança mínima FIXO em 70% (MIN_CONFIDENCE_FOR_OPEN_POSITION) --
+      // reintroduzido no mesmo dia depois de um revert anterior (c510c1074)
+      // ter removido o gate. `confidence` não é só registrado (ai_confidence),
+      // também bloqueia a entrada quando abaixo do mínimo.
+      // 2026-09-12 (pedido do Cleber): no fim de semana o piso cai pro valor
+      // de config.mt5MinConfidenceForOpenPositionWeekend (default 70) --
+      // liquidez menor reduz a chance de confluência forte o bastante pra
+      // passar de 80%, e o teto de frequência de fim de semana ficava sem uso
+      // real. Dia útil continua exigindo MIN_CONFIDENCE_FOR_OPEN_POSITION (80%).
+      // 🔴 2026-09-16 (pedido direto do Cleber, Super Quarta/FOMC): bloqueia
+      // ABERTURA de posição nova numa janela em torno de qualquer evento de
+      // alto impacto do dia (decisão de juros, discurso do Fed, NFP, CPI
+      // etc -- calendário real, nunca hardcoded pra um evento específico).
+      // Nunca fecha posição já aberta -- SL/TP/trailing mecânicos continuam
+      // rodando normalmente durante a janela. Achado real que motivou:
+      // 8/8 trades fechados desde o restart de hoje saíram por STOP (zero
+      // por alvo), com a IA invertendo direção 3x no mesmo ativo em ~7h --
+      // padrão de whipsaw de véspera de evento de alto impacto.
+      if (config.highImpactNewsGateActive) {
+        const activeNewsWindow = await getActiveHighImpactNewsWindow(
+          config.highImpactNewsGateMinutesBefore,
+          config.highImpactNewsGateMinutesAfter,
+        );
+        if (activeNewsWindow) {
+          { const __blocked = gateResult("JANELA_EVENTO_ALTO_IMPACTO", {
+            error: `BLOQUEADO: janela de evento de alto impacto ativa -- "${activeNewsWindow.event.event}" às ${activeNewsWindow.event.time} ` +
+              `(janela: ${activeNewsWindow.minutesBefore}min antes a ${activeNewsWindow.minutesAfter}min depois). Mercado tende a ficar inquieto/whipsaw ` +
+              `nesse intervalo -- nenhuma posição NOVA até a janela fechar. Posições já abertas continuam sendo monitoradas normalmente (stop/breakeven/trailing).`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
+      // diário... isso indica o apetite a risco do mercado, tem que se
+      // orientar nisso"): VIX real (nunca fabricado, ver getVixContext)
+      // soma ao piso de confiança mínima quando o apetite a risco do
+      // mercado está baixo (ELEVADO/ALTO) -- exige mais convicção real pra
+      // abrir posição nesses momentos. VIX indisponível (fonte fora do ar)
+      // não bloqueia nem penaliza -- fail-open, mesmo padrão do resto do
+      // arquivo.
+      const vixContext = await getVixContext();
+      const vixConfidenceBonus =
+        vixContext?.label === "ALTO"
+          ? config.vixMinConfidenceBonusAlto
+          : vixContext?.label === "ELEVADO"
+          ? config.vixMinConfidenceBonusElevated
+          : 0;
+      const minConfidenceRequired =
+        (isWeekendMode() ? config.mt5MinConfidenceForOpenPositionWeekend : MIN_CONFIDENCE_FOR_OPEN_POSITION) + vixConfidenceBonus;
+      if (confidence === null || confidence < minConfidenceRequired) {
+        { const __blocked = gateResult("CONFIANCA_MINIMA", {
+          error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +
+            `(${minConfidenceRequired}%${isWeekendMode() ? ", piso de fim de semana" : ""}${vixConfidenceBonus > 0 ? `, +${vixConfidenceBonus} por VIX ${vixContext?.label} (${vixContext?.value})` : ""}). ` +
+            `So abra quando a confluencia tecnica REAL justificar confianca alta -- nao infle o numero so pra passar deste gate, o campo e auditado.`,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-09-16 (pedido direto do Cleber): validação de elegibilidade
+      // do setup especial "FOMC_BTC_PLAY" -- ver config.ts (fomcBtcPlay*) pro
+      // contexto completo. Roda ANTES do gate de cesta porque essa jogada
+      // sempre vale para BTCUSD, independente do que estiver configurado na
+      // cesta do usuário no momento.
+      const isFomcBtcPlay = setupType === "FOMC_BTC_PLAY";
+      if (isFomcBtcPlay) {
+        if (!config.fomcBtcPlayEnabled) {
+          return { error: `setupType="FOMC_BTC_PLAY" está desativado nesta sessão (FOMC_BTC_PLAY_ENABLED=false).` };
+        }
+        if (symbol !== config.fomcBtcPlaySymbol) {
+          return {
+            error: `setupType="FOMC_BTC_PLAY" só vale para ${config.fomcBtcPlaySymbol} -- tentativa em ${symbol}. ` +
+              `Abra ${symbol} sem esse setupType (regras normais) se a tese for outra.`,
+          };
+        }
+        if (await isLiveExecutionActive(session.userId)) {
+          return {
+            error: `setupType="FOMC_BTC_PLAY" está restrito a modo DEMO (pedido explícito do Cleber) -- ` +
+              `esta sessão tem execução real (LIVE) ativa. Posição NÃO aberta com esse setupType.`,
+          };
+        }
+        const activeNewsWindowForPlay = await getActiveHighImpactNewsWindow(
+          config.highImpactNewsGateMinutesBefore,
+          config.highImpactNewsGateMinutesAfter,
+        );
+        if (activeNewsWindowForPlay) {
+          return {
+            error: `setupType="FOMC_BTC_PLAY" é para DEPOIS que o discurso/evento terminar -- ainda dentro da janela de ` +
+              `"${activeNewsWindowForPlay.event.event}" (mesmo gate de highImpactNewsGate). Aguarde a janela fechar antes de tentar essa entrada.`,
+          };
+        }
+      }
+      const basket = effectiveBasket(session);
+      if (!isFomcBtcPlay && !basket.includes(symbol)) {
+        return { error: `Simbolo fora da cesta permitida. Cesta: ${basket.join(", ")}.` };
+      }
+      // 🔴 2026-08-31 (pedido do Cleber, Setup do AI Trader reconectado):
+      // direcao preferencial do usuario (AUTO/LONG/SHORT) -- AUTO nao
+      // restringe nada, LONG/SHORT bloqueia o lado oposto antes de qualquer
+      // outra checagem (barato, sem chamar cotacao/validador por nada).
+      const userDirection = session.userConfig?.direction ?? "AUTO";
+      if (userDirection !== "AUTO" && side !== userDirection) {
+        return {
+          error: `Direcao "${side}" bloqueada pela preferencia do usuario no Setup do AI Trader (direcao travada em ${userDirection}). ` +
+            `Opere só ${userDirection} enquanto essa preferencia estiver ativa, ou avalie outro ativo.`,
+        };
+      }
+      // Limite de perda diaria (%) do Setup -- bloqueia NOVA entrada se o
+      // prejuizo realizado do dia (00:00 America/Sao_Paulo) ja bateu o teto
+      // configurado. Nao fecha posicao existente, so impede abrir mais uma
+      // no dia ruim.
+      const dailyLossLimitPct = session.userConfig?.dailyLossLimitPct;
+      if (dailyLossLimitPct != null) {
+        const todayNetPnl = await getTodayRealizedPnl(session.sessionId);
+        const balanceForLimit = await getMt5AccountBalance(session.sessionId);
+        const lossPct = todayNetPnl < 0 ? (-todayNetPnl / balanceForLimit) * 100 : 0;
+        if (lossPct >= dailyLossLimitPct) {
+          { const __blocked = gateResult("LIMITE_PERDA_DIARIA", {
+            error: `Limite de perda diaria do Setup (${dailyLossLimitPct.toFixed(1)}%) ja atingido hoje ` +
+              `(prejuizo real: ${lossPct.toFixed(2)}%). Nenhuma nova posicao ate 00:00 no fuso de Brasilia. Posicoes ja abertas nao sao afetadas.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      if (!isSymbolTradable(symbol)) {
+        return {
+          error: `Mercado de ${symbol} fechado agora (CFDs de forex/metal/energia/indices fecham sexta 22:00 UTC, abrem domingo 23:00 UTC) -- posicao nao aberta. Prefira um dos criptos da cesta enquanto este mercado estiver fechado.`,
+        };
+      }
+      if (side !== "LONG" && side !== "SHORT") return { error: "side precisa ser 'LONG' ou 'SHORT'." };
+      if (sizeInput !== "normal" && sizeInput !== "forte") return { error: "size precisa ser 'normal' ou 'forte'." };
+      // 🔴 2026-10-13: a mesa custa ~14 chamadas de LLM por deliberacao. Depois de
+      // uma rejeicao, a mesma ideia (ativo+lado) nao e reavaliada por
+      // mt5DeskRejectCooldownMin minutos -- o operador insistia dezenas de
+      // vezes no mesmo ativo (460 tentativas na madrugada de 13/10).
+      if (deskMode === "enforce") {
+        const recentDeskRejection = getRecentDeskRejection(session.sessionId, symbol, side);
+        if (recentDeskRejection) {
+          return {
+            error:
+              `A mesa de operacoes REJEITOU ${symbol} ${side} ha ${recentDeskRejection.minutesAgo} min (${recentDeskRejection.reason.slice(0, 220)}). ` +
+              `Nova avaliacao deste ativo/lado so daqui a ${recentDeskRejection.minutesLeft} min. Avalie outro ativo ou chame stop.`,
+          };
+        }
+      }
+      // 🔴 2026-08-30 (achado real, sessao de monitoramento): o schema desta
+      // ferramenta ja declarava "reasoning" como campo obrigatorio, mas o
+      // handler nunca validava isso -- so caia no fallback `|| ""`, entao
+      // uma chamada sem reasoning abria a posicao normalmente com
+      // justificativa vazia gravada em ai_reasoning. Isso quebra a exigencia
+      // do projeto de que toda decisao da IA seja auditavel (CLAUDE.md,
+      // "nunca fabricar dado... sempre justificar decisao"). Trade real
+      // confirmado sem reasoning: SOLUSD SHORT aberta as 2026-08-30 09:25 UTC.
+      // 🔴 2026-08-31 (teste): comentado para permitir entradas sem reasoning detalhado
+      // if (reasoning.trim().length === 0) {
+      //   return { error: "reasoning e obrigatorio -- explique por que esta entrada faz sentido agora antes de abrir a posicao." };
+      // }
+      // 🔴 2026-08-30 (pedido direto do Cleber, "ela nao pode ter raciocinio
+      // raso e muito menos entrar porque fez um raciocinio raso"): confirmado
+      // ao vivo rastreando o log ciclo a ciclo -- open_position(BTCXBN,
+      // SHORT) foi chamado como a PRIMEIRA acao do ciclo #3, ANTES de
+      // qualquer get_mt5_quote naquele ciclo. Decisao pura de "memoria de
+      // trades" (perdas passadas), zero trend/volume/macd/stochastic/spread
+      // AO VIVO consultado pro simbolo sendo negociado. Mesma trava que ja
+      // existe em close_position (ver lastQuotedCycleBySymbol acima) --
+      // exige get_mt5_quote do MESMO simbolo no MESMO ciclo antes de aceitar
+      // abrir posicao nele. Isso forca a decisao a estar ancorada em dado
+      // real e atual do ativo, nao so em memoria de trades passados.
+      if (lastQuotedCycleBySymbol.get(symbol) !== cycle) {
+        return {
+          error:
+            `Voce ainda nao chamou get_mt5_quote("${symbol}") NESTE ciclo -- abrir posicao sem consultar tendencia/volume/` +
+            `MACD/estocastico/spread REAIS e ATUAIS deste ativo especifico e raciocinio raso, baseado so em memoria de ` +
+            `trades passados. Chame get_mt5_quote("${symbol}") primeiro, avalie o dado de verdade, depois chame open_position de novo.`,
+        };
+      }
+      // 🔴 2026-09-11 (llm-council convocado pelo Cleber, achado real: 223
+      // cotacoes stale + 163 rate-limit em 30h/44 trades, sessao terminou
+      // -$32,81 -- ver blockEntryOnStaleIndicators em config.ts). O
+      // get_mt5_quote deste MESMO ciclo pode ter batido feed indisponivel e
+      // devolvido trend/volume/MACD/estocastico/regime = null (ver fallback
+      // acima) -- antes disso era so um aviso, o LLM podia abrir posicao
+      // mesmo sem nenhum indicador real. Agora e trava dura: decisao tomada
+      // as cegas nao abre posicao, independente de cotacao fresca ter
+      // voltado a tempo da re-cotacao interna abaixo (linha ~1376) -- o
+      // problema nao e o preco de preenchimento, e a DECISAO ter sido tomada
+      // sem trend/confluencia real.
+      if (config.blockEntryOnStaleIndicators && staleQuoteToolCycleBySymbol.get(symbol) === cycle) {
+        return {
+          error:
+            `get_mt5_quote("${symbol}") devolveu indicadores INDISPONIVEIS neste ciclo (feed obsoleto/rate-limited -- trend/volume/` +
+            `MACD/estocastico/regime vieram nulos). Decisao de entrada sem nenhum indicador real e proibida, mesmo com stop mecanico ` +
+            `como protecao -- posicao NAO aberta. Avalie outro ativo da cesta com dado real, ou espere o proximo ciclo.`,
+        };
+      }
+      // 🔴 2026-08-30 (achado real, sessao de monitoramento -- pendencia de
+      // politica de risco explicitamente listada no handoff anterior, agora
+      // resolvida): o "reasoning" da PROPRIA entrada as vezes contradiz a
+      // acao que ele esta justificando -- confirmado ao vivo pelo menos 5-6x
+      // (texto termina "fora por enquanto"/"operacao bloqueada"/"preciso
+      // analisar mais antes de abrir"/"devo evitar repetir padrao... sem
+      // nova evidencia" e o open_position executa mesmo assim, com o mesmo
+      // side/symbol que a propria frase acabou de descartar). Checagem
+      // deliberadamente simples e conservadora (palavra-chave, nao NLP): so
+      // bloqueia quando ha uma negacao explicita de ABRIR/ENTRAR sem nenhuma
+      // reversao depois dela no mesmo texto -- prefere falso negativo (deixa
+      // passar reasoning ambiguo) a falso positivo (bloquear entrada valida
+      // por uma palavra solta).
+      const NEGATION_CUES = [
+        "nao abrir", "não abrir", "nao entrar", "não entrar", "nao devo abrir", "não devo abrir",
+        "nao deveria abrir", "não deveria abrir", "evitar essa entrada", "evitar esta entrada",
+        "fico de fora", "ficar de fora", "por enquanto fora", "operacao bloqueada", "operação bloqueada",
+        "sem nova evidencia", "sem nova evidência", "preciso analisar mais antes de abrir",
+        // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, pedido explicito do
+        // Cleber apos ver o padrao 2x na mesma sessao): a lista acima so pega
+        // negacao direta de "abrir/entrar" -- nao pegava o reasoning admitir a
+        // PROPRIA falta de confirmacao e abrir mesmo assim. Visto ao vivo:
+        // XETUSD SHORT ("confirmacao de exaustao, que nao esta presente.
+        // Contudo... operar um SHORT pequeno como teste") e BTCUSD LONG
+        // ("Entro com LONG apenas se houver confirmacao... o que ainda nao
+        // ocorreu"). Ambos descreveram o proprio criterio como NAO cumprido e
+        // entraram de qualquer forma -- mesmo padrao de contradicao, frases
+        // diferentes. Adicionadas aqui, nao numa lista separada, pra reusar a
+        // MESMA logica de bloqueio + REVERSAL_CUES ja testada.
+        "como teste", "para teste", "ainda nao ocorreu", "ainda não ocorreu",
+        "nao esta presente", "não está presente", "sem confirmacao real", "sem confirmação real",
+        "nao ha confirmacao", "não há confirmação",
+        // 🔴 2026-08-30 (mesma sessao, 3a ocorrencia -- BTCXBN SHORT, perda de
+        // $5,56): "nao ha razao para entrar contra a tendencia... pode levar
+        // a perdas" no proprio reasoning da entrada, aberta mesmo assim. Cada
+        // ocorrencia usa uma frase nova -- esta lista nunca vai cobrir todas
+        // as variacoes possiveis (limite conhecido de checagem por
+        // palavra-chave, ver comentario acima), mas cada padrao real
+        // observado entra aqui assim que aparece.
+        "nao ha razao para entrar", "não há razão para entrar", "pode levar a perdas", "pode levar a perda",
+      ];
+      const REVERSAL_CUES = [
+        "mas agora", "porem agora", "porém agora", "mudei de ideia", "reconsiderando", "na verdade vou abrir",
+      ];
+      const reasoningLower = reasoning.toLowerCase();
+      const hasNegation = NEGATION_CUES.some((cue) => reasoningLower.includes(cue));
+      const hasReversal = REVERSAL_CUES.some((cue) => reasoningLower.includes(cue));
+      if (hasNegation && !hasReversal) {
+        { const __blocked = gateResult("CONTRADICAO_PALAVRA_CHAVE", {
+          error:
+            `Contradicao detectada: o proprio reasoning enviado contem uma negacao explicita de abrir/entrar ` +
+            `("${NEGATION_CUES.find((cue) => reasoningLower.includes(cue))}"), mas voce chamou open_position mesmo assim. ` +
+            `Posicao NAO aberta. Se realmente mudou de ideia DEPOIS de escrever isso, reescreva o reasoning deixando claro ` +
+            `o motivo da mudanca (ex: "mudei de ideia: ...") e chame open_position de novo.`,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-08-30 (pedido do Cleber): camada semantica ADICIONAL, alem da
+      // trava por palavra-chave acima -- so roda quando a trava por
+      // palavra-chave NAO bloqueou. Ver reasoningValidator.ts.
+      const consistencyCheckOpen = await checkReasoningConsistency({
+        actionKind: "open_position",
+        symbol,
+        side: side as "LONG" | "SHORT",
+        reasoning,
+        realSnapshot: lastQuoteSnapshotBySymbol.get(symbol),
+      });
+      if (!consistencyCheckOpen.consistent) {
+        // 2026-10-11: o modelo repetia a mesma tentativa bloqueada dezenas de
+        // vezes por dia (gastando cota da NVIDIA). Apos 3 bloqueios do mesmo
+        // simbolo+lado em 10 min, manda desistir em vez de reescrever.
+        const blockKey = `${session.sessionId}|${symbol}|${side}`;
+        const nowMs = Date.now();
+        const recent = (validatorBlocksBySymbolSide.get(blockKey) ?? []).filter((t) => nowMs - t < 10 * 60_000);
+        recent.push(nowMs);
+        validatorBlocksBySymbolSide.set(blockKey, recent);
+        const giveUpHint =
+          recent.length >= 3
+            ? ` Esta e a ${recent.length}a tentativa bloqueada de ${symbol} ${side} em 10 min: DESISTA deste ativo/lado agora (avalie outro ou chame stop).`
+            : "";
+        { const __blocked = gateResult("VALIDADOR_CONTRADICAO", {
+          error:
+            `Contradicao semantica detectada pelo validador: ${consistencyCheckOpen.note || "raciocinio parece argumentar contra a propria acao"}. ` +
+            `Posicao NAO aberta. Revise o raciocinio -- se a decisao de abrir ainda fizer sentido, reescreva deixando claro o motivo real, ou avalie outro ativo/lado.` +
+            giveUpHint,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-08-29 (achado do Cleber): sem alvo de saida definido, o
+      // agente nunca fechava nada -- so empilhava posicoes quase-duplicadas
+      // no mesmo simbolo, as vezes ao MESMO preco de entrada (visto no log
+      // real: 8 posicoes SHORT em BTCUSD a 77658.82). Teto por simbolo forca
+      // o agente a avaliar fechar posicoes existentes antes de abrir mais.
+      //
+      // 🔴 2026-08-30 (redesenho pos -$135 liquido -- pendencia de politica
+      // de risco #1 do handoff anterior, resolvida): 3 -> 1. Empilhar ate 3
+      // posicoes no MESMO simbolo+lado foi observado ao vivo (ex: 2x BTCXBN
+      // LONG simultaneas) sem nenhum ganho real de informacao -- e so
+      // "dobrar na mesma aposta" com dinheiro extra, exatamente o padrao que
+      // o circuito de perda consecutiva (abaixo) tenta impedir depois do
+      // fato. Uma posicao por simbolo de cada vez forca o agente a fechar
+      // (ganhando ou perdendo) antes de reentrar, nunca empilhar.
+      // 🔴 2026-08-31 (teste): afrouxado de 1 para 5 pra permitir múltiplas posições
+      const MAX_POSITIONS_PER_SYMBOL = 5;
+      let openPositions;
+      try {
+        openPositions = await listMt5OpenPositions(session.sessionId);
+      } catch (err) {
+        // Falha fechada: sem confirmar o estado real, nao abre -- ver
+        // comentario em neuralBridge.ts/listMt5OpenPositions sobre o furo
+        // que isso corrigia (teto furado por erro transitorio virando "0").
+        return { error: `Nao foi possivel confirmar quantas posicoes ja existem em ${symbol} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO aberta -- tente de novo.` };
+      }
+      // 🔴 2026-08-30 (pendencia de politica de risco #2 do handoff anterior,
+      // resolvida): guard contra posicoes OPOSTAS simultaneas no mesmo
+      // simbolo. Confirmado ao vivo na sessao anterior: SOLUSD LONG e SOLUSD
+      // SHORT abertas ao mesmo tempo por ~1min11s (entry_time 07:11:26 e
+      // 07:12:02 UTC, ambas fechadas com prejuizo) -- paga spread 2x nas duas
+      // pernas sem chance nenhuma de lucro liquido em qualquer direcao. O
+      // teto por simbolo (abaixo) nao pegava isso porque MAX_POSITIONS_PER_SYMBOL
+      // media o total independente do lado.
+      const oppositeOpen = openPositions.find((p) => p.symbol === symbol && p.side !== side);
+      if (oppositeOpen) {
+        // 🔴 2026-08-30 (pedido do Cleber, "não podemos ter teses fracas"):
+        // marca que este simbolo teve uma tentativa de INVERSAO bloqueada
+        // neste ciclo -- close_position usa isso pra exigir invalidacao real
+        // (nao so PnL neutro) antes de aceitar fechar a posicao existente
+        // logo em seguida. Ver bloco irmao em close_position.
+        flipAttemptBlockedThisCycle.set(symbol, cycle);
+        return {
+          error:
+            `Ja existe uma posicao ${oppositeOpen.side} aberta em ${symbol} -- abrir ${side} agora criaria posicoes ` +
+            `opostas simultaneas no mesmo simbolo, pagando spread 2x sem chance real de lucro liquido em nenhuma ` +
+            `direcao. Feche a posicao ${oppositeOpen.side} existente (close_position) antes de abrir ${side}.`,
+        };
+      }
+      const openInSymbol = openPositions.filter((p) => p.symbol === symbol).length;
+      if (openInSymbol >= MAX_POSITIONS_PER_SYMBOL) {
+        return {
+          error: `Ja existe ${openInSymbol} posicao aberta em ${symbol} (teto: ${MAX_POSITIONS_PER_SYMBOL}). Feche com close_position antes de abrir outra neste simbolo.`,
+        };
+      }
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Ativos Simultaneos"):
+      // teto de SIMBOLOS DISTINTOS com posicao aberta ao mesmo tempo, definido
+      // pelo usuario. So bloqueia quando o simbolo novo AINDA NAO tem posicao
+      // aberta -- reforcar um simbolo ja dentro do teto (checagem acima) segue
+      // liberado ate MAX_POSITIONS_PER_SYMBOL.
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Maximo de Posicoes
+      // Abertas"): teto AGREGADO de TODAS as posicoes da sessao (qualquer
+      // simbolo), diferente do teto de ATIVOS SIMULTANEOS abaixo (que conta
+      // simbolos DISTINTOS) -- ex: 2 posicoes em BTCUSD conta 2 aqui, mas 1
+      // symbolo la.
+      const maxOpenPositionsTotal = session.userConfig?.maxOpenPositionsTotal;
+      if (maxOpenPositionsTotal != null && openPositions.length >= maxOpenPositionsTotal) {
+        { const __blocked = gateResult("TETO_POSICOES_ABERTAS", {
+          error: `Teto de posicoes abertas do usuario (${maxOpenPositionsTotal}) atingido -- ja ha ${openPositions.length} posicao(oes) aberta(s) no total. Feche alguma posicao antes de abrir em ${symbol}.`,
+        }); if (__blocked) return __blocked; }
+      }
+      const maxSimultaneousAssets = session.userConfig?.maxSimultaneousAssets;
+      if (maxSimultaneousAssets != null && openInSymbol === 0) {
+        const distinctSymbolsOpen = new Set(openPositions.map((p) => p.symbol)).size;
+        if (distinctSymbolsOpen >= maxSimultaneousAssets) {
+          { const __blocked = gateResult("TETO_ATIVOS_SIMULTANEOS", {
+            error: `Teto de ativos simultaneos do usuario (${maxSimultaneousAssets}) atingido -- ja ha posicao aberta em ${distinctSymbolsOpen} simbolo(s) diferente(s). Feche alguma posicao antes de abrir em ${symbol}.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-08-29 (otimizacao urgente pos-perda do dia): teto de exposicao
+      // do GRUPO CORRELACIONADO inteiro no mesmo lado -- ver getCorrelatedGroup
+      // (assetBasket.ts) e mt5MaxCorrelatedNotionalUsd (config.ts). Achado
+      // real: o teto por simbolo sozinho deixou passar SHORT simultaneo em
+      // BTCUSD+XETUSD+SOLUSD (cripto correlacionada) durante um rali que
+      // pegou os 3 juntos -- isso e UMA aposta direcional triplicada, nao 3
+      // independentes.
+      const correlatedGroup = getCorrelatedGroup(symbol);
+      if (correlatedGroup.length > 1) {
+        const sameSideGroupExposure = openPositions
+          .filter((p) => correlatedGroup.includes(p.symbol) && p.side === side)
+          .reduce((sum, p) => sum + Number(p.quantity), 0);
+        if (sameSideGroupExposure >= config.mt5MaxCorrelatedNotionalUsd) {
+          { const __blocked = gateResult("EXPOSICAO_CORRELACIONADA", {
+            error:
+              `Exposicao ${side} combinada no grupo correlacionado (${correlatedGroup.join("/")}) ja e $${sameSideGroupExposure.toFixed(0)} ` +
+              `(teto: $${config.mt5MaxCorrelatedNotionalUsd}). Esses ativos andam juntos -- empilhar mais ${side} em qualquer um deles ` +
+              `e triplicar a MESMA aposta, nao diversificar. Feche alguma posicao do grupo ou opere o lado oposto.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-08-29 (otimizacao urgente pos-perda do dia): circuito de
+      // perda consecutiva -- ver mt5LossStreakThreshold/mt5LossStreakCooldownMinutes
+      // (config.ts). Achado real: o agente reabriu SHORT em cripto que ja
+      // tinha acabado de bater stop no MESMO lado, minutos depois, repetidas
+      // vezes, contra uma tendencia que ja tinha virado -- sem nada que o
+      // fizesse parar e reavaliar a tese antes de reentrar igual.
+      //
+      // 🔴 2026-08-30 (achado real, sessao de monitoramento): a checagem so
+      // contava exit_reason==="SL" -- perda fechada manualmente pelo LLM
+      // (AI_SIGNAL) nao contava pra streak, furando o proprio proposito do
+      // circuito. Confirmado ao vivo: SOLUSD SHORT perdeu 2x seguidas por
+      // decisao manual (~-$6 e ~-$3, ambos AI_SIGNAL), cooldown nunca
+      // disparou, e a 3a reentrada no MESMO simbolo+lado bateu stop de
+      // verdade por -$7,12 -- maior perda da sessao ate entao. Agora conta
+      // QUALQUER fechamento com resultado negativo (SL ou AI_SIGNAL), nao so
+      // stop mecanico.
+      try {
+        const recentClosed = await getRecentClosedTrades(session.sessionId, symbol, config.mt5LossStreakThreshold);
+        const cooldownMs = config.mt5LossStreakCooldownMinutes * 60 * 1000;
+        const isLoss = (t: Awaited<ReturnType<typeof getRecentClosedTrades>>[number]) => {
+          const result = t.net_pnl ?? t.pnl;
+          return t.exit_reason === "SL" || (result != null && result < 0);
+        };
+        const sameSideStreak =
+          recentClosed.length >= config.mt5LossStreakThreshold &&
+          recentClosed.every(
+            (t) => t.side === side && isLoss(t) && Date.now() - new Date(t.exit_time).getTime() < cooldownMs
+          );
+        if (sameSideStreak) {
+          { const __blocked = gateResult("COOLDOWN_PERDAS_SEGUIDAS", {
+            error:
+              `${symbol} perdeu ${config.mt5LossStreakThreshold}x seguidas no lado ${side} nos ultimos ${config.mt5LossStreakCooldownMinutes} minutos (stop mecanico ou fechamento manual negativo). ` +
+              `Entrada ${side} neste simbolo em cooldown ate a tese ficar clara de novo -- opere outro ativo, ` +
+              `avalie o lado oposto (com convicção real, nao so pra "tentar de novo"), ou aguarde o cooldown passar.`,
+          }); if (__blocked) return __blocked; }
+        }
+      } catch (err) {
+        { const __blocked = gateResult("COOLDOWN_PERDAS_FALHA_REDE", { error: `Nao foi possivel confirmar o historico recente de ${symbol} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO aberta -- tente de novo.` }); if (__blocked) return __blocked; }
+      }
+      const quote = await getMt5Quote(symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${symbol} -- posicao nao aberta.` };
+      // 🔴 2026-08-30 (investigacao de feed travado): NUNCA abrir posicao em
+      // cima de tick REAL porem MORTO. Medido ao vivo: XPTUSD (platina)
+      // devolvia bid/ask com timestamp de ~30h antes -- mercado fechado no
+      // fim de semana -- e passava direto por `isSymbolTradable`, que so tem
+      // calendario de FOREX (assetBasket.ts). Guard generico por idade do
+      // tick cobre qualquer simbolo/feriado/parada de feed sem precisar
+      // manter calendario por instrumento.
+      if (quote.stale) {
+        return {
+          error:
+            `Cotacao de ${symbol} esta OBSOLETA: o ultimo tick real da corretora tem ${quote.tickAgeSeconds}s de idade ` +
+            `(preco ${quote.price}). Mercado provavelmente fechado ou feed parado -- abrir aqui seria operar um preco morto, ` +
+            `sem saber onde o mercado realmente esta. Posicao NAO aberta. Opere um ativo com tick vivo.`,
+        };
+      }
+      // 🔴 2026-08-30: teto de spread -- ver SPREAD_BLOCK_PCT acima pra
+      // medicao real da cesta que sustenta o numero.
+      if (Number.isFinite(quote.spreadPct) && quote.spreadPct > SPREAD_BLOCK_PCT) {
+        return {
+          error:
+            `Spread de ${symbol} esta em ${quote.spreadPct.toFixed(2)}% (bid ${quote.bid} / ask ${quote.ask}), acima do teto de ${SPREAD_BLOCK_PCT}%. ` +
+            `Esse e o custo REAL de operar esse ativo agora: a posicao nasceria ~${quote.spreadPct.toFixed(2)}% negativa e precisaria de um movimento ` +
+            `maior que isso so pra empatar -- o stop mecanico dispararia bem antes. Posicao NAO aberta. Opere um ativo com spread normal ` +
+            `(cesta tipica: 0,02%-1,5%).`,
+        };
+      }
+      // 🔴 2026-08-29 (pedido do Cleber, "as entradas nao estao contemplando
+      // o spread"): preco de PREENCHIMENTO real -- LONG compra no ask, SHORT
+      // vende no bid (nunca no mid/last, que escondia o custo de operar).
+      // Usado como entry_price gravado no trade -- a partir dele, o PnL
+      // flutuante (list_open_positions) e o fechamento (enforceMt5Stops...)
+      // ja nascem descontando o spread automaticamente.
+      const fillPrice = side === "LONG" ? quote.ask : quote.bid;
+      // 🔴 2026-08-29 (otimizacao pos-conversa sobre Rotter/Pulcini/Antunes):
+      // os 3 sao scalpers de order flow -- este sistema nao tem book de
+      // ofertas, entao nao da pra imitar a tecnica de verdade. O que da pra
+      // aproveitar de forma honesta (dado real, tickVolume da MetaAPI, nao
+      // fabricado) e a mesma ideia por tras dela: um movimento contra a
+      // tendencia recente SEM volume acima do normal e uma entrada de baixa
+      // conviccao -- exatamente o padrao (SHORT repetido durante um rali,
+      // sem nenhuma leitura de forca/fraqueza) que gerou o prejuizo de
+      // 2026-08-29. Bloqueia so a combinacao contra-tendencia + volume fraco;
+      // a favor da tendencia (ou lateral, ou volume elevado mesmo contra)
+      // continua liberado -- nao e proibir contrarian trade (Kotegawa fez
+      // fortuna com isso), e proibir contrarian trade SEM confirmacao.
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
+      const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, stochasticLongTermForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection, dailyHighLowForTarget] = await Promise.all([
+        getTrendInfo(symbol, openPositionTimeframe),
+        getVolumeConfirmation(symbol, openPositionTimeframe),
+        getSupportResistance(symbol, openPositionTimeframe),
+        getSlowStochastic(symbol, openPositionTimeframe),
+        getLongTermSlowStochastic(symbol),
+        getMacd(symbol, openPositionTimeframe),
+        getCandlePatterns(symbol, openPositionTimeframe),
+        getMarketRegime(symbol, openPositionTimeframe),
+        getHmmMarketRegime(symbol, openPositionTimeframe),
+        getImmediateMomentum(symbol, openPositionTimeframe),
+        // 🔴 2026-09-14 (pedido direto do Cleber -- veredito unico de direcao,
+        // ver computeMarketDirection/atr.ts): componentes extras so pra este
+        // veredito, curto prazo FIXO em 5m por pedido explicito (independente
+        // do timeframe operacional acima).
+        getLongTermTrendInfo(symbol),
+        openPositionTimeframe === "5m" ? Promise.resolve(null) : getTrendInfo(symbol, "5m"),
+        openPositionTimeframe === "5m" ? Promise.resolve(null) : getImmediateMomentum(symbol, "5m"),
+        // 🔴 2026-09-15 (pedido direto do Cleber -- 15m como terceiro voto,
+        // ver comentario em get_mt5_quote acima): FIXO em 15m tambem aqui.
+        openPositionTimeframe === "15m" ? Promise.resolve(null) : getTrendInfo(symbol, "15m"),
+        // 🔴 2026-09-17 (pedido direto do Cleber -- cap de alvo por maxima/
+        // minima real das ultimas 24h, ver getDailyHighLow/atr.ts e uso
+        // abaixo): FIXO em 1H, independente do timeframe operacional, mesmo
+        // espirito de getLongTermTrendInfo acima.
+        getDailyHighLow(symbol),
+      ]);
+      // 🔴 2026-09-18 (pedido direto do Cleber -- desenho do "modo fim de
+      // semana"): "a LLM nao pode dar atencao a volume" no fim de semana --
+      // volume de fim de semana e estruturalmente baixo (menos
+      // participantes, mercado majoritariamente cripto), entao um "volume
+      // elevado" nesse regime nao significa a mesma coisa que num dia util
+      // liquido -- pode ser so ruido de baixa liquidez, nao confirmacao
+      // real de forca. O principio 1g do prompt (agent.ts) ja instrui o
+      // modelo a nao usar volumeLabel como fator de cautela no fim de
+      // semana; isto fecha o mesmo buraco a nivel de CODIGO -- volume deixa
+      // de contar como fator de confluencia mecanico nos gates abaixo
+      // (lateral 2-fatores, contra-tendencia 2-fatores) enquanto
+      // isWeekendMode(). Nao afeta dia util (continua usando volume real,
+      // intocado) nem remove os outros fatores reais (MACD, Estocastico,
+      // padrao de candle) que continuam valendo nos dois regimes.
+      const volumeForConfluence = isWeekendMode() ? null : volume;
+      const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
+      const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
+      const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
+      const marketDirectionForGate = computeMarketDirection(trend5mFinal, trendLongTermForDirection, immediateMomentum5mFinal, hmmRegimeForGate, trend15mFinal, lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null, await getHigherTimeframeChain(symbol));
+      // 🔴 2026-09-23 (conselho + teste de 3 anos Binance, pedido do Cleber):
+      // VETO de SHORT em BTC/ETH entre 17h e 20h de Brasilia quando o dia ja
+      // caiu >= 2%. Nesse contexto o SHORT acertou so 39% (BTC) / 43% (ETH),
+      // E[R] negativo mesmo antes do custo; hora de respiro, nao de vender.
+      // So RESTRINGE (nunca cria entrada). Cada bloqueio loga [VETO-EXAUSTAO]
+      // com preco pra medir o contrafactual depois (stop/alvo 1x ATR 1H, 4h).
+      if (side === "SHORT" && EXHAUSTION_VETO_SYMBOLS.has(symbol)) {
+        const dayPctForVeto = lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null;
+        const hourBrt = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", hour12: false }).format(new Date()));
+        if (dayPctForVeto != null && Number.isFinite(dayPctForVeto) && dayPctForVeto <= -2 && hourBrt >= 17 && hourBrt < 20) {
+          console.log(`[VETO-EXAUSTAO] ${symbol} SHORT bloqueado -- dia ${dayPctForVeto.toFixed(2)}%, ${hourBrt}h BRT, preco ${fillPrice} (${new Date().toISOString()})`);
+          { const __blocked = gateResult("VETO_EXAUSTAO", {
+            error: `BLOQUEADO (veto de exaustao): ${symbol} ja caiu ${dayPctForVeto.toFixed(2)}% no dia e sao ${hourBrt}h em Brasilia. ` +
+              `Historico de 3 anos: nesse contexto SHORT acerta so ~40% (o mercado tende a respirar/repicar). ` +
+              `Nao venda a favor do dia esgotado. Espere o repique ou nao opere ${symbol} agora.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-10-12 (pedido do Cleber, trader de anos: "ela aperta venda na
+      // minima do dia -- toda minima do dia tem resistencia, o preco nao
+      // renova a minima na sequencia"). VETO de extremo: SHORT colado na
+      // minima das ultimas 24h (ou LONG colado na maxima) so passa com
+      // setupType="ROMPIMENTO", que ja exige fechamento de vela confirmando
+      // o rompimento (gate proprio abaixo). So RESTRINGE. "Colado" = dentro de
+      // mt5DayExtremeVetoRangeFrac do range de 24h (default 15%). Cada bloqueio
+      // loga [VETO-EXTREMO-DIA] pra medir o contrafactual depois.
+      if (dailyHighLowForTarget && setupType !== "ROMPIMENTO") {
+        const rangePct = ((dailyHighLowForTarget.dailyHigh - dailyHighLowForTarget.dailyLow) / fillPrice) * 100;
+        const distToExtremePct = side === "SHORT" ? dailyHighLowForTarget.distanceToDailyLowPct : dailyHighLowForTarget.distanceToDailyHighPct;
+        if (rangePct > 0 && distToExtremePct <= rangePct * config.mt5DayExtremeVetoRangeFrac) {
+          const extremeName = side === "SHORT" ? "minima" : "maxima";
+          if (!config.mt5DayExtremeVetoEnabled) {
+            console.log(`[SHADOW-EXTREMO-DIA] ${symbol} ${side} NAO bloqueado (modo sombra) -- ${distToExtremePct.toFixed(3)}% da ${extremeName} de 24h, preco ${fillPrice} (${new Date().toISOString()})`);
+          } else {
+          console.log(`[VETO-EXTREMO-DIA] ${symbol} ${side} bloqueado -- ${distToExtremePct.toFixed(3)}% da ${extremeName} de 24h (range ${rangePct.toFixed(3)}%), preco ${fillPrice} (${new Date().toISOString()})`);
+          { const __blocked = gateResult("VETO_EXTREMO_DIA", {
+            error: `BLOQUEADO (veto de extremo do dia): ${symbol} esta a ${distToExtremePct.toFixed(3)}% da ${extremeName} de 24h (range ${rangePct.toFixed(3)}%). ` +
+              `${side === "SHORT" ? "Vender na minima do dia" : "Comprar na maxima do dia"} costuma bater em ${side === "SHORT" ? "suporte" : "resistencia"} e devolver. ` +
+              `Espere o preco se afastar do extremo, ou, se for rompimento real, use setupType="ROMPIMENTO" (exige fechamento de vela confirmando).`,
+          }); if (__blocked) return __blocked; }
+          }
+        }
+      }
+      // 🔴 2026-09-16 (pedido direto do Cleber, ao vivo -- "rompeu, ótimo.
+      // Espera o candle fechar, e se ele fechar acima do rompimento, pode
+      // dar entrada. Antes disso, ninguém faz nada"): setupType="ROMPIMENTO"
+      // só é aceito se o ÚLTIMO CANDLE JÁ FECHADO confirmou o rompimento
+      // (closedAboveResistance/closedBelowSupport em getSupportResistance,
+      // atr.ts -- diferente de brokeAboveResistance/brokeBelowSupport, que
+      // usa o candle mais recente buscado, possivelmente ainda em formação).
+      // Achado real que motivou: SPX500 LONG aberto hoje com
+      // setupType=ROMPIMENTO citando "override" do estocástico sobrecomprado
+      // sem nenhuma confirmação de fechamento. Não afeta REVERSAO/OUTRO nem
+      // entrada sem setupType declarado (campo opcional).
+      // 🔴 2026-09-22 (pedido direto do Cleber -- "ela nao prestou atencao no
+      // MACD. O MACD estava virando para subir, ela tem que estar atenta ao
+      // MACD, principalmente no grafico de 5 minutos"). Caso real: XETUSD
+      // SHORT 22:32 UTC, stopado (-$3,55). Histograma 5m: -1.04 (22:10) →
+      // -0.62 → -0.27 → -0.08 → +0.31 (22:30, cruzou pra cima na propria
+      // vela da entrada). O label so olhava o SINAL do histograma ("BAIXA"),
+      // entao contou como fator a favor do SHORT enquanto o momentum vendedor
+      // morria. Trava dura, MACD FIXO em 5m (independente do timeframe
+      // operacional):
+      //  - SHORT bloqueado se o MACD 5m cruzou pra cima, esta VIRANDO_PARA_CIMA
+      //    (histograma subindo 2 velas seguidas, mesmo ainda negativo), ou esta
+      //    ALTA sem ja estar virando pra baixo.
+      //  - LONG espelhado.
+      // Reversao legitima continua possivel: SHORT com MACD ALTA mas
+      // VIRANDO_PARA_BAIXO (momentum comprador perdendo forca) passa.
+      // Sem MACD real (null) nao bloqueia aqui -- blockEntryOnStaleIndicators
+      // ja cuida desse caso.
+      if (config.macd5mTurnGateEnabled) {
+        const macd5m = openPositionTimeframe === "5m" ? macdForConfluenceCheck : await getMacd(symbol, "5m");
+        if (macd5m) {
+          const againstUp = macd5m.crossing === "CRUZOU_PARA_CIMA" || macd5m.turning === "VIRANDO_PARA_CIMA" || (macd5m.label === "ALTA" && macd5m.turning !== "VIRANDO_PARA_BAIXO");
+          const againstDown = macd5m.crossing === "CRUZOU_PARA_BAIXO" || macd5m.turning === "VIRANDO_PARA_BAIXO" || (macd5m.label === "BAIXA" && macd5m.turning !== "VIRANDO_PARA_CIMA");
+          const blocked = (side === "SHORT" && againstUp) || (side === "LONG" && againstDown);
+          if (blocked) {
+            const hist = macd5m.histogramRecent.map((h) => h.toFixed(4)).join(" → ");
+            { const __blocked = gateResult("MACD_5M_CONTRA", {
+              error: `BLOQUEADO: MACD 5m de ${symbol} esta contra o ${side} -- label=${macd5m.label}, crossing=${macd5m.crossing ?? "nenhum"}, ` +
+                `turning=${macd5m.turning ?? "nenhum"}, histograma ultimas 3 velas: ${hist}. ` +
+                (side === "SHORT"
+                  ? `Histograma subindo = momentum vendedor morrendo / comprador assumindo. `
+                  : `Histograma caindo = momentum comprador morrendo / vendedor assumindo. `) +
+                `Nao entre contra a virada do MACD 5m. Espere o histograma voltar a expandir a favor do lado, ou reavalie o lado oposto. Posicao NAO aberta.`,
+            }); if (__blocked) return __blocked; }
+          }
+        }
+      }
+      if (config.breakoutRequireClosedCandleConfirmation && setupType === "ROMPIMENTO" && supportResistanceForTarget) {
+        const confirmedByClosedCandle =
+          side === "LONG" ? supportResistanceForTarget.closedAboveResistance : supportResistanceForTarget.closedBelowSupport;
+        if (!confirmedByClosedCandle) {
+          { const __blocked = gateResult("ROMPIMENTO_SEM_FECHAMENTO", {
+            error: `BLOQUEADO: setupType="ROMPIMENTO" em ${symbol} exige que o ÚLTIMO CANDLE JÁ FECHADO tenha fechado além do nível rompido -- ` +
+              `ainda não confirmado (o rompimento visível agora pode estar acontecendo dentro do candle atual, ainda em formação). ` +
+              `Espere o candle fechar além do nível antes de abrir ${side}, ou reavalie como setupType="REVERSAO"/"OUTRO" se a tese for outra.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-09-17 (pedido direto do Cleber, apos investigacao real via
+      // SQL): puxado o ai_reasoning de 19 trades recentes onde o lucro
+      // flutuante maximo nunca passou de $1 antes de bater stop -- a maioria
+      // era setupType="REVERSAO" apostando so em Estocastico extremo (+volume
+      // ou MACD como 2o fator "de aluguel") contra o consenso de direcao
+      // inteiro, sem nenhum padrao de candle real de reversao no candle mais
+      // recente. Ex. real: UKOUSD LONG hoje, 4/4 sinais em BAIXA + MACD BAIXA
+      // + trend curto e longo em BAIXA, "confirmado" so por Estocastico
+      // sobrevendido cruzando + volume alto -- perdeu quase sem respirar
+      // (MFE $0.25 contra perda de $4.09). Fix: setupType="REVERSAO" agora
+      // exige TAMBEM um padrao de candle real de reversao detectado
+      // (getCandlePatterns, atr.ts -- Estrela Cadente, Martelo, Engolfo,
+      // Harami, Estrela Manha/Noite, Marubozu...) com bias alinhado ao lado
+      // da entrada. Sem isso, bloqueado -- nao importa quantos outros fatores
+      // (Estocastico, volume, MACD) estejam alinhados. Isso e ALEM do gate de
+      // >=2 fatores contra-tendencia mais abaixo (candlePatternConfirmsReversal
+      // ali continua contando como 1 dos fatores possiveis) -- aqui e
+      // obrigatorio especificamente pra qualquer entrada declarada REVERSAO,
+      // mesmo em mercado LATERAL (onde o gate de fatores minimos nao exige
+      // candle especificamente, so "algum" fator).
+      // 🔴 2026-10-07: de 23/09 a 07/10 esta regra ficou afrouxada (bastava o
+      // Estocastico cruzar ou estar em zona extrema, sem padrao de candle). O
+      // criterio combinado no dia do afrouxamento era "10 reversoes com acerto
+      // < 45% -> reverter"; fechou em 40 entradas com 30% de acerto e -$32,65.
+      // Volta a regra anterior (padrao de candle alinhado + candle seguinte de
+      // confirmacao), aprovada pelo Cleber depois do llm-council de 07/10.
+      let reversalConfirmationForLog: string | null = null;
+      if (setupType === "REVERSAO") {
+        const reversalPatternAligned =
+          candlePatternsForConfluenceCheck?.bias != null &&
+          candlePatternsForConfluenceCheck.detected.length > 0 &&
+          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
+        if (!reversalPatternAligned) {
+          const patternDesc = candlePatternsForConfluenceCheck?.detected.length
+            ? `padrao(oes) detectado(s) (${candlePatternsForConfluenceCheck.detected.join("/")}) tem bias ${candlePatternsForConfluenceCheck.bias ?? "neutro"}, nao alinhado com ${side}`
+            : "nenhum padrao de candle detectado no candle mais recente";
+          { const __blocked = gateResult("REVERSAO_SEM_PADRAO", {
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} exige um padrao grafico de reversao real (Estrela Cadente, Martelo, Engolfo, Harami, ` +
+              `Estrela da Manha/Noite, Marubozu...) com bias alinhado a ${side}, alem de qualquer outro indicador -- ${patternDesc}. ` +
+              `Posicao NAO aberta. Espere um padrao de candle real confirmar a reversao, ou reavalie como continuacao/rompimento se a tese for outra.`,
+          }); if (__blocked) return __blocked; }
+          // So chega aqui no teste so-LLM (trava desligada): sem padrao alinhado
+          // nao ha candle seguinte pra confirmar, entao o bloco abaixo e pulado.
+          reversalConfirmationForLog = "SEM padrao de candle alinhado (trava desligada no teste so-LLM)";
+        } else {
+        // 🔴 2026-09-17 (pedido direto do Cleber): padrao alinhado nao basta
+        // se ele acabou de fechar NESTE candle -- exige que a entrada so
+        // aconteca no candle SEGUINTE ao candle do padrao (mesmo espirito do
+        // gate de ROMPIMENTO acima, que exige fechamento confirmado).
+        const reversalPatternFirstSeenBySymbolSide = perSession(reversalPatternFirstSeenStore, session.sessionId);
+        const reversalKey = `${symbol}:${side}`;
+        const patternCandleTimestamp = candlePatternsForConfluenceCheck!.patternCandleTimestamp;
+        const firstSeenTimestamp = reversalPatternFirstSeenBySymbolSide.get(reversalKey);
+        if (firstSeenTimestamp == null || firstSeenTimestamp === patternCandleTimestamp) {
+          reversalPatternFirstSeenBySymbolSide.set(reversalKey, patternCandleTimestamp);
+          { const __blocked = gateResult("REVERSAO_SEM_CONFIRMACAO", {
+            error: `BLOQUEADO: setupType="REVERSAO" em ${symbol} -- padrao grafico ${candlePatternsForConfluenceCheck!.detected.join("/")} detectado, mas ` +
+              `AINDA no mesmo candle em que fechou (sem confirmacao do candle seguinte). Posicao NAO aberta. Espere o proximo candle fechar mantendo a ` +
+              `tese antes de entrar -- entrar no mesmo candle do padrao e apostar sem confirmacao de que o movimento realmente virou.`,
+          }); if (__blocked) return __blocked; }
+          // So chega aqui no teste so-LLM: registra a verdade (NAO houve confirmacao do candle seguinte).
+          reversalConfirmationForLog = `padrao de candle ${candlePatternsForConfluenceCheck!.detected.join("/")} SEM confirmacao do candle seguinte (trava desligada no teste so-LLM)`;
+        } else {
+        // Candle novo ja fechou desde a primeira deteccao -- padrao confirmado, libera e reseta o rastreio deste par simbolo+lado.
+        reversalPatternFirstSeenBySymbolSide.delete(reversalKey);
+        reversalConfirmationForLog = `padrao de candle ${candlePatternsForConfluenceCheck!.detected.join("/")} (bias ${candlePatternsForConfluenceCheck!.bias}) + candle seguinte`;
+        }
+        }
+      }
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- "ela está dando compra
+      // quando o mercado está caindo e venda quando está subindo"): caso real
+      // confirmado -- UKOUSD LONG aberto durante 5 velas seguidas de queda
+      // (110.36->109.49 nos 25min anteriores), porque `trend` (janela de 60min)
+      // e MACD (atrasado) ainda mostravam saldo ALTA da hora inteira, cegos
+      // pra reversao que ja estava em andamento AGORA. Trava MECANICA (nao
+      // prompt -- decisao explicita do Cleber de aceitar so trava mecanica
+      // pra este tipo de erro, ver conversa 2026-09-14): bloqueia entrada
+      // quando as ultimas 3 velas fechadas estao numa sequencia CLARA contra
+      // o lado da entrada (LONG contra 3 velas de queda seguidas, ou SHORT
+      // contra 3 de alta seguidas). So NAO bloqueia quando o proprio
+      // setupType declarado e "REVERSAO" (a tese explicita ali e operar
+      // CONTRA o movimento imediato, com os gates de confluencia proprios de
+      // reversao — ver stochasticExtremeConfirmsReversal/confluenceFactors
+      // acima e abaixo) -- continuacao/rompimento nunca deveriam entrar
+      // durante um movimento imediato oposto.
+      if (
+        immediateMomentumForGate &&
+        setupType !== "REVERSAO" &&
+        ((side === "LONG" && immediateMomentumForGate.label === "BAIXA") ||
+          (side === "SHORT" && immediateMomentumForGate.label === "ALTA"))
+      ) {
+        { const __blocked = gateResult("MOMENTO_IMEDIATO_CONTRA", {
+          error:
+            `${symbol}: as ultimas ${immediateMomentumForGate.lookbackCandles} velas fechadas (~${immediateMomentumForGate.lookbackMinutes}min) estao numa sequencia clara de ${immediateMomentumForGate.label} AGORA -- ` +
+            `abrir ${side} aqui (setupType != REVERSAO) vai direto contra o movimento que esta acontecendo neste instante, mesmo que a janela de 60min (trend) ou o MACD ainda mostrem saldo diferente (sao mais lentos, nao veem a reversao recem-comecada). ` +
+            `Posicao NAO aberta. Se a tese e mesmo entrar contra este movimento imediato, declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); se a tese e continuacao/rompimento, espere as velas pararem de ir contra o lado ou avalie outro ativo.`,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-09-14 (pedido direto do Cleber -- "ela precisa saber pra que
+      // lado o mercado esta correndo, essa e a primeira resposta que ela
+      // precisa ter"): veredito UNICO de direcao (ver computeMarketDirection/
+      // atr.ts) combina os sinais de tendencia/momentum/regime que ja
+      // existiam espalhados -- trava mecanica igual em espirito a trava de
+      // momentum imediato acima (so libera contra-consenso com setupType
+      // explicito de REVERSAO), mas aqui olhando o quadro consolidado, nao so
+      // as ultimas 3 velas.
+      // 🔴 2026-09-15 (pedido direto do Cleber, achado real do mesmo dia --
+      // BTCUSD LONG aberto com marketDirection=DIVERGENTE, 5m ALTA vs 1H
+      // BAIXA, sem confirmacao de reversao nenhuma, perdeu $2,20): ate aqui
+      // DIVERGENTE so virava aviso em get_mt5_quote, nunca travava -- exatamente
+      // o buraco que deixou essa entrada passar sem nenhuma tese declarada.
+      // Metodo do Cleber pra ler mercado (5m+15m+1H) trata sinal dividido
+      // entre curto e longo prazo como "nao operar", nao como "contexto pra
+      // ponderar" -- agora DIVERGENTE trava igual a um consenso claro contra
+      // o lado, mesma excecao de REVERSAO com confirmacao real. So INDEFINIDO
+      // (nenhum sinal com opiniao real agora, ex: tudo LATERAL) continua
+      // liberado -- ausencia de sinal nao e a mesma coisa que sinal dividido.
+      if (
+        setupType !== "REVERSAO" &&
+        (marketDirectionForGate.consensus === "DIVERGENTE" ||
+          (side === "LONG" && marketDirectionForGate.consensus === "BAIXA") ||
+          (side === "SHORT" && marketDirectionForGate.consensus === "ALTA"))
+      ) {
+        { const __blocked = gateResult("VEREDITO_DIRECAO", {
+          error:
+            `${symbol}: veredito de direcao (curto prazo 5m + 15m + tendencia diaria 1H + ultimas velas + regime HMM) esta em ${marketDirectionForGate.consensus} -- ${marketDirectionForGate.agreement} ` +
+            `Abrir ${side} aqui (setupType != REVERSAO) vai direto contra o consenso de direcao (ou o consenso esta dividido, sem tese clara pra continuacao em nenhum lado). Posicao NAO aberta. ` +
+            `Se a tese e mesmo entrar contra a direcao (ou aproveitar a divergencia), declare setupType="REVERSAO" com a confirmacao real exigida (Estocastico extremo alinhado + fator extra); ` +
+            `se a tese e continuacao/rompimento, opere no lado que o consenso aponta com clareza ou avalie outro ativo.`,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- BNBUSD e XETUSD abertos
+      // AO VIVO com "Stochastic SOBREVENDIDO (k=15.99) + MACD BAIXA = 2 fatores
+      // reais alinhados pra SHORT"): o proprio reasoning da IA inverteu o
+      // significado do indicador -- SOBREVENDIDO (k baixo, preco perto do fundo
+      // do range) e sinal de EXAUSTAO DA QUEDA, favorece LONG por convencao
+      // (mesma convencao ja usada em `stochasticExtremeConfirmsReversal` mais
+      // abaixo: SHORT so e confirmado por SOBRECOMPRADO, LONG por SOBREVENDIDO).
+      // A IA descreveu como "mean-reversion no sobrevendido" pra justificar um
+      // SHORT -- exatamente o oposto do que mean-reversion em sobrevendido
+      // significa. Nenhum gate existente pegava isso: o par SHORT+BAIXA e
+      // trend-following (nao passa pelo guard de contra-tendencia abaixo, que
+      // so roda quando side vai CONTRA `trend.label`), e o validador semantico
+      // de reasoning (`reasoningValidator.ts`) fica DESLIGADO quando
+      // LLM_PROVIDER=ollama (config atual desta sessao) -- so a checagem
+      // deterministica de TENDENCIA roda sempre, nao cobre estocastico. Trava
+      // MECANICA nova, sempre ativa, independente de trend/regime/provedor:
+      // Estocastico extremo CONTRA o lado da entrada (SHORT+SOBREVENDIDO ou
+      // LONG+SOBRECOMPRADO) bloqueia sempre -- e o oposto do sinal de exaustao
+      // real, nunca faz sentido como base de entrada, mesmo se outro fator
+      // (MACD, trend) tambem alinhar.
+      // 🔴 2026-09-14 (achado real e grave, pedido do Cleber -- UKOUSD SHORT
+      // executado com sucesso mesmo com o proprio reasoning admitindo "Stoch
+      // SOBREVENDIDO", e o get_mt5_quote IMEDIATAMENTE anterior no mesmo log
+      // confirmando k=19.73/SOBREVENDIDO -- a trave acima existia mas nao
+      // bloqueou): causa raiz real, nao suposicao -- `stochasticForReversalCheck`
+      // vem de uma chamada FRESCA e INDEPENDENTE a getSlowStochastic() (dentro
+      // do Promise.all acima), separada da chamada que get_mt5_quote fez
+      // segundos antes. Se essa chamada fresca falhar/retornar null (rede,
+      // rate-limit da MetaAPI -- risco real e ativo nesta mesma sessao, ver
+      // conversa sobre concorrencia de 5 requisicoes), o `if (stochasticForReversalCheck)`
+      // silenciosamente PULAVA o bloqueio inteiro -- fail-OPEN exatamente no
+      // pior momento (dado indisponivel = trava desliga, quando deveria ser o
+      // oposto). Fix: usa TAMBEM o ultimo snapshot que get_mt5_quote de fato
+      // devolveu pra este simbolo nesta sessao (`lastQuoteSnapshotBySymbol`,
+      // MESMA fonte que indicators_snapshot grava no banco, sempre disponivel
+      // se o modelo cotou o simbolo antes de abrir) -- bloqueia se QUALQUER
+      // uma das duas fontes mostrar contradicao, nunca deixa a falha de uma
+      // fonte anular a protecao da outra.
+      // 🔴 2026-09-21 (achado real, reportado pelo Cleber -- "a LLM entrou com
+      // estocastico sobrecomprado"): o fix de 09-14 acima documentava
+      // "bloqueia se QUALQUER uma das duas fontes mostrar contradicao", mas o
+      // codigo usava `??` -- que e PREFERENCIA, nao OR. Com a chamada fresca
+      // devolvendo qualquer label nao-nulo (ex: NEUTRO, ou label suavizado
+      // pelo limiar de fim de semana 75/25), o snapshot real que dizia
+      // SOBRECOMPRADO era DESCARTADO e o gate passava. Confirmado no banco:
+      // BNBUSD LONG 2026-09-19 01:22 com indicators_snapshot.stochasticLabel =
+      // SOBRECOMPRADO aberto normalmente, 5 dias DEPOIS do gate estar no ar
+      // (mesmo padrao em BTCUSD SHORT/UKOUSD SHORT 09-16, ambos SOBREVENDIDO).
+      // Fix: avalia as DUAS fontes de verdade, como o comentario original ja
+      // prometia -- contradicao em qualquer uma bloqueia.
+      const lastQuoteStochasticLabel = lastQuoteSnapshotBySymbol.get(symbol)?.stochasticLabel ?? null;
+      const contradictoryLabelForSide = side === "SHORT" ? "SOBREVENDIDO" : "SOBRECOMPRADO";
+      // 🔴 2026-09-21 (pedido do Cleber -- "aonde deve ser observado... 5
+      // minutos e 1 hora"): o gate passa a considerar TAMBEM o Estocastico de
+      // 1H, com o mesmo criterio de contradicao direta. Exaustao de 1H contra
+      // o lado da entrada e um sinal mais forte que o de 5m (janela maior),
+      // e ate aqui nao era observada por nenhum gate.
+      const lastQuoteStochasticLongTermLabel = lastQuoteSnapshotBySymbol.get(symbol)?.stochasticLongTermLabel ?? null;
+      const stochasticLabelForGate =
+        [
+          stochasticForReversalCheck?.label ?? null,
+          lastQuoteStochasticLabel,
+          stochasticLongTermForReversalCheck?.label ?? null,
+          lastQuoteStochasticLongTermLabel,
+        ].find((label) => label === contradictoryLabelForSide)
+        ?? stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel;
+      const contradictionSourceIsLongTerm =
+        stochasticLabelForGate === contradictoryLabelForSide &&
+        (stochasticForReversalCheck?.label ?? lastQuoteStochasticLabel) !== contradictoryLabelForSide;
+      // 🔴 2026-09-21 (Ajuste 1 do conselho, pedido do Cleber -- "ela tem que
+      // ser menos restritiva"): achado real medido em produção (170
+      // bloqueios/9 dias): 93% desses bloqueios ocorriam com `crossing=null`
+      // -- ou seja, o %K nunca tinha de fato CRUZADO o %D, só estava na zona
+      // (isso é o comportamento NORMAL de uma tendência viva, não exaustão --
+      // medido: P(Estoc 1H SOBRECOMPRADO | tendência 1H ALTA) = 42,1%).
+      // E5 (consenso de direção, `marketDirectionForGate` abaixo) já só
+      // libera LONG quando o veredito de direção é de alta; este gate travava
+      // o MESMO lado que E5 acabou de liberar -- as duas travas são
+      // logicamente incompatíveis em mercado direcional, por construção, não
+      // por calibragem (medido: BTCUSD/NAS100/UK100 travados aqui em
+      // 2026-09-21 com confluência real de tendência+MACD+rompimento e 80-85%
+      // de confiança). Fix: esta trava (zona do Estocástico LENTO, 5m e 1H)
+      // passa a valer só quando a TESE DECLARADA já é reversão
+      // (setupType==="REVERSAO") -- é exatamente quando "o indicador contra o
+      // lado" é a própria tese sendo checada. Continuação/rompimento deixam
+      // de ser vetados por zona sozinha; a rede de segurança contra exaustão
+      // literal em continuação (E7, %K BRUTO >=95/<=5, ver bloco abaixo)
+      // continua intocada. Isolado: nenhum outro gate mudou nesta mudança.
+      // 🔴 2026-10-13 (pedido do Cleber, madrugada de teste: AUS200 e CHINA50
+      // SHORT abertos com estocastico 5m SOBREVENDIDO, "ela entra em
+      // sobrecompra/sobrevenda sem saber ler"): o metodo dele e estocastico em
+      // extremo CONTRA o lado nunca e entrada -- em sobrevendido nao vende (so
+      // compra depois do cruzamento pra cima), em sobrecomprado nao compra.
+      // A trava ficava restrita a REVERSAO desde 2026-09-21; agora vale pra
+      // qualquer setup (mt5StochExtremeGateAllSetups, default true). Rollback:
+      // MT5_STOCH_EXTREME_GATE_ALL_SETUPS=false. Loga [VETO-ESTOCASTICO-EXTREMO].
+      if ((setupType === "REVERSAO" || (config.mt5StochExtremeGateAllSetups && !isFomcBtcPlay)) && stochasticLabelForGate) {
+        const stochasticContradictsSide = stochasticLabelForGate === contradictoryLabelForSide;
+        if (stochasticContradictsSide) {
+          if (setupType !== "REVERSAO") {
+            console.log(`[VETO-ESTOCASTICO-EXTREMO] ${symbol} ${side} bloqueado -- estocastico ${stochasticLabelForGate} (setup=${setupType ?? "nenhum"}) (${new Date().toISOString()})`);
+          }
+          const sourceStoch = contradictionSourceIsLongTerm ? stochasticLongTermForReversalCheck : stochasticForReversalCheck;
+          const tfLabel = contradictionSourceIsLongTerm ? "1H" : String(openPositionTimeframe);
+          const kDisplay = sourceStoch ? ` (k=${sourceStoch.k.toFixed(2)} em ${tfLabel})` : ` (timeframe ${tfLabel})`;
+          { const __blocked = gateResult("ESTOCASTICO_EXTREMO", {
+            error:
+              `${symbol}: setupType="${setupType ?? "nenhum"}" mas o Estocastico esta ${stochasticLabelForGate}${kDisplay}, o que e sinal de EXAUSTAO ` +
+              `${stochasticLabelForGate === "SOBREVENDIDO" ? "DA QUEDA (favorece LONG, nunca SHORT)" : "DA ALTA (favorece SHORT, nunca LONG)"} -- ` +
+              `abrir ${side} aqui vai DIRETO CONTRA o que o proprio indicador diz, nao e "mean-reversion", e o oposto. Posicao NAO aberta. ` +
+              `Se a tese e reversao de verdade, o lado correto seria ${stochasticLabelForGate === "SOBREVENDIDO" ? "LONG" : "SHORT"}.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto em
+      // cima de rompimento forte no MESMO ciclo em que o %K RAPIDO ja estava
+      // em 98,2, mas passou pela trava acima porque ela usa o %K LENTO
+      // (SMA3), que ainda calculava ~78,8 -- abaixo do limiar de 80. Causa
+      // raiz real: a dupla suavizacao do Estocastico LENTO existe pra
+      // filtrar ruido, mas por isso reage 2-3 velas DEPOIS de um rompimento
+      // brusco -- exatamente o momento em que comprar (ou vender) significa
+      // entrar já perto do topo (ou fundo) do movimento rapido que acabou de
+      // acontecer. Trava adicional, com limiar mais apertado que o do
+      // Estocastico lento (95/5 em vez de 80/20, ja que o %K bruto e mais
+      // ruidoso e nao deveria bloquear toda entrada de tendencia forte) --
+      // bloqueia so quando o %K SEM suavizacao ja esta em exaustao extrema
+      // CONTRA o lado da entrada, mesmo que o Estocastico lento ainda nao
+      // tenha "alcancado".
+      const RAW_STOCH_EXTREME_OVERBOUGHT = 95;
+      const RAW_STOCH_EXTREME_OVERSOLD = 5;
+      if (stochasticForReversalCheck) {
+        const rawK = stochasticForReversalCheck.rawK;
+        const rawContradictsSide =
+          (side === "LONG" && rawK >= RAW_STOCH_EXTREME_OVERBOUGHT) ||
+          (side === "SHORT" && rawK <= RAW_STOCH_EXTREME_OVERSOLD);
+        if (rawContradictsSide) {
+          { const __blocked = gateResult("ESTOCASTICO_RAPIDO_EXTREMO", {
+            error:
+              `${symbol}: Estocastico RAPIDO (sem suavizacao) esta em ${rawK.toFixed(2)}, exaustao extrema ` +
+              `${rawK >= RAW_STOCH_EXTREME_OVERBOUGHT ? "DA ALTA (favorece SHORT, nunca LONG)" : "DA QUEDA (favorece LONG, nunca SHORT)"} -- ` +
+              `mesmo que o Estocastico LENTO (k=${stochasticForReversalCheck.k.toFixed(2)}) ainda nao tenha alcancado esse extremo (suavizacao reage com atraso), ` +
+              `abrir ${side} aqui significa entrar perto do topo/fundo de um movimento que acabou de acontecer, alto risco de reversao imediata. ` +
+              `Posicao NAO aberta. Espere o preco respirar (candle de consolidacao) antes de entrar nesse lado, ou avalie o lado oposto se a tese virou reversao.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-09-14 (achado real, pedido do Cleber -- BTCUSD LONG aberto
+      // citando "candle pattern ENGOLFO_BAIXA classico reversao" como um dos
+      // fatores -- ENGOLFO_BAIXA (engolfo de baixa) tem bias BAIXA por
+      // convencao classica de mercado (ver getCandlePatterns acima), e um
+      // sinal de VENDA, nao de reversao compradora. O texto citou um padrao
+      // real e detectado de verdade (nao inventado), so leu a direcao dele
+      // ao contrario -- mesma classe de erro ja vista com Estocastico
+      // (principio 1l), agora no padrao de candle. Trava MECANICA e
+      // DETERMINISTICA (mapa fixo nome->bias, o mesmo que getCandlePatterns
+      // ja usa pra classificar -- nao depende de validador semantico de LLM,
+      // que fica desligado com LLM_PROVIDER=ollama): se o reasoning cita
+      // pelo nome um padrao REALMENTE detectado neste candle mas o bias
+      // classico dele contradiz o lado da entrada, bloqueia. Nao bloqueia
+      // quando o padrao citado nao foi detectado de verdade (esse caso ja
+      // seria fabricacao, fora do escopo desta trava) nem quando o
+      // reasoning simplesmente nao menciona nenhum padrao pelo nome.
+      if (candlePatternsForConfluenceCheck?.detected.length) {
+        const patternBiasMap: Record<string, "ALTA" | "BAIXA"> = {
+          MARUBOZU_ALTA: "ALTA",
+          MARUBOZU_BAIXA: "BAIXA",
+          MARTELO: "ALTA",
+          ESTRELA_CADENTE: "BAIXA",
+          ENGOLFO_ALTA: "ALTA",
+          ENGOLFO_BAIXA: "BAIXA",
+          HARAMI_ALTA: "ALTA",
+          HARAMI_BAIXA: "BAIXA",
+          ESTRELA_DA_MANHA: "ALTA",
+          ESTRELA_DA_NOITE: "BAIXA",
+        };
+        const reasoningUpper = reasoning.toUpperCase();
+        const misreadPattern = candlePatternsForConfluenceCheck.detected.find((patternName) => {
+          const patternBias = patternBiasMap[patternName];
+          if (!patternBias) return false; // DOJI e afins nao tem bias proprio
+          if (!reasoningUpper.includes(patternName)) return false; // so checa padrao que o proprio texto citou pelo nome
+          const contradicts = (side === "LONG" && patternBias === "BAIXA") || (side === "SHORT" && patternBias === "ALTA");
+          return contradicts;
+        });
+        if (misreadPattern) {
+          { const __blocked = gateResult("PADRAO_CANDLE_INVERTIDO", {
+            error:
+              `${symbol}: o padrao de candle "${misreadPattern}" foi detectado de verdade neste candle e citado no reasoning, mas o bias classico dele e ` +
+              `${patternBiasMap[misreadPattern]} (${patternBiasMap[misreadPattern] === "BAIXA" ? "sinal de VENDA" : "sinal de COMPRA"}) -- o oposto do lado ${side} que voce esta tentando abrir. ` +
+              `Isso e uma leitura invertida do padrao, nao confirmacao real. Posicao NAO aberta. Releia o padrao com a direcao classica correta antes de decidir, ` +
+              `ou baseie a entrada em outros fatores reais que de fato alinhem com ${side}.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-09-09 (pedido direto do Cleber -- Classificador de Regime de
+      // Mercado via HMM como "principal trava de seguranca do Motor de
+      // Decisao"): bloqueio MECANICO opcional, DESLIGADO por padrao
+      // (HMM_REGIME_GATE_ACTIVE=false, mesmo padrao de ASSET_SCORECARD_ACTIVE
+      // ja usado neste projeto) -- sem amostra real ainda validando que a
+      // classificacao HMM (treinada com no maximo ~60 candles por chamada,
+      // ver limitacao declarada em hmmRegime.ts) bate com o que se observa de
+      // verdade no grafico, uma trava mecanica nova ligada sem essa validacao
+      // repetiria o padrao ja catalogado neste projeto de "mudanca sem dado
+      // por tras piorando o resultado". Quando ligado: recusa ROMPIMENTO/
+      // CRUZAMENTO_MEDIAS (setups de CONTINUACAO) durante CONSOLIDACAO_BAIXA_VOL
+      // com confianca real >= HMM_REGIME_GATE_MIN_CONFIDENCE -- nunca bloqueia
+      // REVERSAO/OUTRO nem quando setupType nao foi declarado (campo opcional).
+      // 🔴 2026-09-27: fim de semana usa hmmRegimeGateActiveWeekend (ligado por
+      // padrão desde hoje, achado real de XETUSD -- ver config.ts), dia útil
+      // continua em hmmRegimeGateActive (desligado, congelamento intocado).
+      const hmmRegimeGateActiveForRegime = isWeekendMode() ? config.hmmRegimeGateActiveWeekend : config.hmmRegimeGateActive;
+      if (
+        hmmRegimeGateActiveForRegime &&
+        hmmRegimeForGate?.regime === HMM_STATE_CONSOLIDATION &&
+        hmmRegimeForGate.confidence >= config.hmmRegimeGateMinConfidence &&
+        (setupType === "ROMPIMENTO" || setupType === "CRUZAMENTO_MEDIAS")
+      ) {
+        { const __blocked = gateResult("HMM_CONSOLIDACAO", {
+          error:
+            `BLOQUEADO pelo Classificador de Regime de Mercado (HMM): ${symbol} esta em CONSOLIDACAO_BAIXA_VOL com ` +
+            `${(hmmRegimeForGate.confidence * 100).toFixed(0)}% de confianca (amostra de ${hmmRegimeForGate.sampleSize} candles) -- ` +
+            `setup "${setupType}" e de CONTINUACAO, historicamente fraco (whipsaw) nesse regime. Espere o regime mudar pra ` +
+            `TENDENCIA_CLARA, ou reavalie como REVERSAO (setupType) se a tese for operar dentro do range.`,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-09-02 (achado do Cleber, ao vivo -- XETUSD LONG aberto num
+      // mercado LATERAL com "trend BAIXA" evidente logo depois): o proprio
+      // reasoning da entrada admitiu "entrada moderada por conviccao unica
+      // num setup nao-trend-clear" -- MACD positivo foi o UNICO fator usado,
+      // trend era LATERAL (nenhum padrao de venda existia AINDA no momento
+      // da entrada, mas tambem nenhuma confluencia real apoiava LONG).
+      // O guard de contra-tendencia acima (linha ~1149) so roda quando
+      // trend.label !== "LATERAL" -- em mercado LATERAL nao havia NENHUMA
+      // trava de confluencia, um unico indicador bastava pra abrir. Fecha
+      // esse buraco: em trend LATERAL, exige pelo menos 2 dos 4 fatores reais
+      // (MACD, Estocastico em extremo, volume elevado, padrao de candle)
+      // alinhados com o lado da entrada -- mesmo espirito da trava de
+      // contra-tendencia (nao proibe convicção baixa, proibe convicção ÚNICA
+      // sem nenhuma segunda confirmacao real).
+      if (trend && trend.label === "LATERAL") {
+        const confluenceFactors: string[] = [];
+        if (macdForConfluenceCheck) {
+          const macdAligned = (side === "LONG" && macdForConfluenceCheck.label === "ALTA") || (side === "SHORT" && macdForConfluenceCheck.label === "BAIXA");
+          if (macdAligned) confluenceFactors.push(`MACD ${macdForConfluenceCheck.label}`);
+        }
+        if (stochasticForReversalCheck) {
+          const stochAligned =
+            (side === "LONG" && stochasticForReversalCheck.label === "SOBREVENDIDO") ||
+            (side === "SHORT" && stochasticForReversalCheck.label === "SOBRECOMPRADO");
+          if (stochAligned) confluenceFactors.push(`Estocastico ${stochasticForReversalCheck.label}`);
+        }
+        if (volumeForConfluence?.elevated) confluenceFactors.push(`volume elevado (${volumeForConfluence.ratio}x)`);
+        if (candlePatternsForConfluenceCheck?.bias) {
+          const patternAligned =
+            (side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA");
+          if (patternAligned) confluenceFactors.push(`padrao de candle ${candlePatternsForConfluenceCheck.detected.join("/")} (bias ${candlePatternsForConfluenceCheck.bias})`);
+        }
+        // 🔴 2026-09-05: pedido do Cleber na época, hipótese de que fim de
+        // semana seria "mais previsível/acomodado" -- afrouxou de 2 pra 1
+        // fator só em mercado LATERAL de fim de semana.
+        // 🔴 2026-09-27: REVERTIDO. Dado real do fim de semana 25-27/09
+        // contradisse a hipótese de 09-05 -- XETUSD (76% do prejuízo do fim
+        // de semana, -$24 em 9 fechamentos) perdeu nos dois lados com esse
+        // piso de 1 fator só. Baixa liquidez de fim de semana em cripto é
+        // MAIS propensa a whipsaw, não menos. Volta pro mesmo piso do dia
+        // útil (2), configurável via env pra recalibrar sem tocar no valor
+        // de dia útil (que fica hardcoded, intocado, dentro do congelamento).
+        const requiredConfluenceFactors = isWeekendMode() ? config.mt5LateralConfluenceFactorsWeekend : 2;
+        if (confluenceFactors.length < requiredConfluenceFactors) {
+          { const __blocked = gateResult("LATERAL_POUCOS_FATORES", {
+            error:
+              `${symbol} esta em tendencia LATERAL (sem direcao clara) e so ha ${confluenceFactors.length} fator real alinhado com ${side} ` +
+              `(${confluenceFactors.join(", ") || "nenhum"}). Em mercado lateral, exige-se pelo menos ${requiredConfluenceFactors} fator(es) real(is) confirmando (MACD, Estocastico ` +
+              `em extremo, volume elevado, ou padrao de candle) antes de abrir -- conviccao unica num unico indicador nao e suficiente. ` +
+              `Posicao NAO aberta. Espere ${requiredConfluenceFactors > 1 ? "segunda confirmacao real" : "alguma confirmacao real"} ou avalie outro ativo.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-09-18: condicao deixou de exigir `volume` truthy pra entrar
+      // no bloco -- antes, se volume viesse null (fim de semana, por design
+      // agora, ou falha real de dado), o gate inteiro de contra-tendencia
+      // era PULADO por completo (mais permissivo, nao mais restritivo).
+      // Corrigido: o bloco roda sempre que ha tendencia clara, usando
+      // volumeForConfluence (null no fim de semana por design) com optional
+      // chaining abaixo -- sem volume, os outros fatores reais (Estocastico
+      // com crossing, MACD, padrao de candle) continuam decidindo sozinhos.
+      if (trend && trend.label !== "LATERAL") {
+        const counterTrend = (trend.label === "ALTA" && side === "SHORT") || (trend.label === "BAIXA" && side === "LONG");
+        // 🔴 2026-09-02 (pedido do Cleber): Estocastico em extremo real
+        // (SOBRECOMPRADO/SOBREVENDIDO) e sinal genuino de exaustao de curto
+        // prazo -- antes o gate abaixo so aceitava volume elevado como
+        // confirmacao pra contrarian trade, ignorando esse sinal por
+        // completo (achado ao vivo: BTCUSD/XETUSD/GER40 com Estocastico
+        // 91-96, tendencia de ALTA, volume normal -- SHORT de reversao
+        // ficaria bloqueado mesmo com exaustao real e clara). Agora conta
+        // como confirmacao alternativa, ao lado do volume -- ainda exige
+        // ALGUMA confirmacao real (nao remove a trava, so reconhece outro
+        // sinal legitimo de reversao).
+        // 🔴 2026-09-15 (pedido direto do Cleber -- "so apos a cruza das
+        // linhas do Estocastico e que pode aplicar reversao, antes disso e
+        // loucura"): estar em extremo (SOBRECOMPRADO/SOBREVENDIDO) sozinho
+        // so significa que o preco esta perto da borda do range -- pode
+        // continuar esticando por varias velas antes de virar de verdade
+        // (extremo nao e reversao, e so pre-condicao). A CRUZA real de %K
+        // sobre %D (campo `crossing`, ja calculado em getSlowStochastic/
+        // atr.ts) e o sinal de que o momentum de curto prazo ja comecou a
+        // virar de fato -- so entao a exaustao vira confirmacao acionavel.
+        // Agora exige os dois: extremo E crossing na direcao certa (CRUZOU_
+        // PARA_CIMA pra LONG vindo de SOBREVENDIDO, CRUZOU_PARA_BAIXO pra
+        // SHORT vindo de SOBRECOMPRADO) -- extremo sem cruza ainda NAO conta
+        // como confirmacao de reversao.
+        const stochasticExtremeConfirmsReversal =
+          stochasticForReversalCheck != null &&
+          ((side === "SHORT" &&
+            stochasticForReversalCheck.label === "SOBRECOMPRADO" &&
+            stochasticForReversalCheck.crossing === "CRUZOU_PARA_BAIXO") ||
+            (side === "LONG" &&
+              stochasticForReversalCheck.label === "SOBREVENDIDO" &&
+              stochasticForReversalCheck.crossing === "CRUZOU_PARA_CIMA"));
+        // 🔴 2026-09-14 (achado real via SQL, pedido do Cleber apos "risco
+        // alto"/perda sustentada): medido direto no `ai_trades` dos ultimos
+        // 14 dias (n=422) que trades classificados como REVERSAO/contrarian
+        // no proprio reasoning tem 39,5% de acerto e -$0,62/trade em media
+        // (243 trades, -$151,12 liquido), contra 45,3%/-$0,05 em trades de
+        // CONTINUACAO (179 trades, -$8,09) -- a maior parte do prejuizo da
+        // sessao vem daqui. Rastreado ate este gate: Estocastico extremo
+        // SOZINHO (sem volume) ja bastava pra abrir contrarian contra a
+        // tendencia confirmada (nao-LATERAL) -- exatamente o padrao que mais
+        // perde. Fix: Estocastico extremo deixa de ser suficiente sozinho,
+        // precisa de mais um fator real alinhado (MACD ou padrao de candle),
+        // mesmo espirito de "2 fatores" ja usado no gate de mercado LATERAL
+        // logo acima -- nao proibe contrarian trade, proibe contrarian trade
+        // com UM UNICO indicador (Estocastico) como confirmacao inteira.
+        const macdConfirmsReversal =
+          macdForConfluenceCheck != null &&
+          ((side === "LONG" && macdForConfluenceCheck.label === "ALTA") ||
+            (side === "SHORT" && macdForConfluenceCheck.label === "BAIXA"));
+        const candlePatternConfirmsReversal =
+          candlePatternsForConfluenceCheck?.bias != null &&
+          ((side === "LONG" && candlePatternsForConfluenceCheck.bias === "ALTA") ||
+            (side === "SHORT" && candlePatternsForConfluenceCheck.bias === "BAIXA"));
+        const reversalConfirmationFactors = [
+          volumeForConfluence?.elevated ? `volume elevado (${volumeForConfluence.ratio}x)` : null,
+          stochasticExtremeConfirmsReversal ? `Estocastico ${stochasticForReversalCheck?.label}` : null,
+          macdConfirmsReversal ? `MACD ${macdForConfluenceCheck?.label}` : null,
+          candlePatternConfirmsReversal
+            ? `padrao de candle ${candlePatternsForConfluenceCheck?.detected.join("/")} (bias ${candlePatternsForConfluenceCheck?.bias})`
+            : null,
+        ].filter((f): f is string => f !== null);
+        // 🔴 2026-09-16 (achado real via SQL, pedido do Cleber -- "isso nao
+        // pode acontecer": 5 de 7 trades fechados no dia usaram "volume alto
+        // justifica entrada contrarian" ou "MACD contradiz mas..." pra abrir
+        // contra o proprio indicador que a IA citou, quase todos batendo
+        // stop). Causa raiz real: esta trava so entrava em acao quando
+        // `stochasticExtremeConfirmsReversal` ja era true E `!volume.elevated`
+        // -- ou seja, (a) contra-tendencia SEM Estocastico em extremo passava
+        // 100% livre (nenhuma trava de fator minimo rodava), e (b) contra-
+        // tendencia COM Estocastico extremo mas volume tambem elevado pulava
+        // a checagem inteira, tratando volume sozinho como suficiente --
+        // exatamente o padrao citado pelo Cleber. Fix: exige >=2 fatores reais
+        // alinhados (volume/Estocastico-extremo-com-crossing/MACD/candle) pra
+        // QUALQUER entrada contra-tendencia, sempre, sem pre-condicao nem
+        // bypass por volume.
+        if (counterTrend && reversalConfirmationFactors.length < 2) {
+          { const __blocked = gateResult("CONTRA_TENDENCIA_POUCOS_FATORES", {
+            error:
+              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%) -- ` +
+              `so ha ${reversalConfirmationFactors.length} fator(es) real(is) confirmando a reversao (${reversalConfirmationFactors.join(", ") || "nenhum"}). ` +
+              `Contra-tendencia exige pelo menos 2 fatores reais alinhados (volume elevado, Estocastico em extremo COM crossing na direcao certa, MACD ` +
+              `${side === "LONG" ? "ALTA" : "BAIXA"}, ou padrao de candle bias ${side === "LONG" ? "ALTA" : "BAIXA"}) -- nenhum fator isolado (nem volume ` +
+              `sozinho, nem Estocastico sozinho) e suficiente. Posicao NAO aberta. Junte mais uma confirmacao real, opere a favor da tendencia, ou avalie outro ativo.`,
+          }); if (__blocked) return __blocked; }
+        }
+        // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Fluxo de
+        // Operacao"): quando o usuario NAO escolheu nada (marketMode=null),
+        // mantem o guard existente (bloqueia contra-tendencia só sem volume
+        // confirmando). Quando escolheu explicitamente: TREND aperta (bloqueia
+        // contra-tendencia SEMPRE, mesmo com volume) e COUNTER inverte
+        // (bloqueia A FAVOR da tendencia, só libera contra-tendencia/lateral --
+        // "buscar entradas em suporte/resistencia", mesmo espirito do texto
+        // que ja existia na UI antiga).
+        const marketMode = session.userConfig?.marketMode;
+        if (marketMode === "TREND" && counterTrend) {
+          return {
+            error:
+              `Fluxo de Operacao "A Favor (Trend)" do Setup do AI Trader: ${symbol} esta em tendencia de ${trend.label} ` +
+              `(${trend.changePct > 0 ? "+" : ""}${trend.changePct}% na ultima ${trend.lookbackMinutes}min) -- ${side} aqui seria contra a tendencia, ` +
+              `bloqueado enquanto essa preferencia estiver ativa. Opere a favor da tendencia ou avalie outro ativo.`,
+          };
+        }
+        if (marketMode === "COUNTER" && !counterTrend) {
+          return {
+            error:
+              `Fluxo de Operacao "Contra (Reversal)" do Setup do AI Trader: ${symbol} esta em tendencia de ${trend.label} ` +
+              `(${trend.changePct > 0 ? "+" : ""}${trend.changePct}% na ultima ${trend.lookbackMinutes}min) -- ${side} aqui seria A FAVOR da tendencia, ` +
+              `bloqueado enquanto essa preferencia estiver ativa (busca reversao em suporte/resistencia). Opere contra a tendencia ou avalie outro ativo.`,
+          };
+        }
+        if (marketMode == null && counterTrend && !volumeForConfluence?.elevated && !stochasticExtremeConfirmsReversal) {
+          // 🔴 2026-09-15: mensagem distingue "sem extremo" de "em extremo mas
+          // ainda sem cruza" -- este 2o caso e o mais comum de erro (a IA via
+          // extremo e ja tratava como confirmado, mesmo achado que motivou o
+          // fix de exigir crossing acima).
+          const stochDesc = !stochasticForReversalCheck
+            ? "nao esta disponivel"
+            : stochasticForReversalCheck.label === "NEUTRO"
+              ? `NAO esta em extremo (${stochasticForReversalCheck.label})`
+              : `esta em ${stochasticForReversalCheck.label} mas AINDA NAO CRUZOU (%K ${stochasticForReversalCheck.k} / %D ${stochasticForReversalCheck.d}) -- extremo sozinho nao confirma reversao, precisa da cruza`;
+          { const __blocked = gateResult("CONTRA_TENDENCIA_SEM_CONFIRMACAO", {
+            error:
+              `${symbol} esta em tendencia de ${trend.label} na ultima ${trend.lookbackMinutes}min (${trend.changePct > 0 ? "+" : ""}${trend.changePct}%), ` +
+              `o volume recente NAO esta acima do normal (${volumeForConfluence ? `razao ${volumeForConfluence.ratio}x` : "ignorado no fim de semana"}) e o Estocastico ${stochDesc} -- ` +
+              `${side} aqui seria ir contra o movimento sem nenhuma confirmacao real de reversao. ` +
+              `Posicao NAO aberta. Espere volume elevado OU a cruza real do Estocastico em extremo (nao so o extremo) confirmando exaustao, opere a favor da tendencia, ou avalie outro ativo.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+      // 🔴 2026-08-29 (achado da auditoria): confirmado ao vivo 7 posicoes
+      // BTCUSD SHORT abertas no MESMO preco exato (77658.82) ao longo de 12
+      // minutos -- estatisticamente improvavel pra um ativo que nunca fica
+      // parado, indicio de cotacao obsoleta vinda da propria MetaAPI (o
+      // feed ja teve quedas confirmadas na mesma madrugada). O LLM nao tem
+      // como perceber isso sozinho (so ve o preco que a ferramenta devolve),
+      // entao a trava e aqui: nunca abre uma posicao identica (mesmo
+      // simbolo+lado+preco ao centavo) a uma ja aberta -- nao importa a
+      // causa, duplicar nao agrega informacao nova, so duplica risco.
+      const duplicatePrice = openPositions.find((p) => p.symbol === symbol && p.side === side && p.entry_price === fillPrice);
+      if (duplicatePrice) {
+        return {
+          error:
+            `Ja existe uma posicao aberta em ${symbol} ${side} no MESMO preco exato (${fillPrice}) -- ` +
+            `provavel cotacao obsoleta (feed pode estar travado). Posicao NAO aberta. Tente de novo em instantes ou avalie outro ativo.`,
+        };
+      }
+      // 🔴 2026-08-29 (achado da auditoria): antes o "stop"/"alvo" so existia
+      // como texto no prompt (GENESIS_PROMPT_MT5) -- o LLM decidia a cada
+      // ciclo se fechava, e por 2x deixou a perda correr MUITO alem do alvo
+      // declarado (0.5%) antes de agir (uma vez ate -3.5%/-$5,96). Agora o
+      // preco de stop/alvo e calculado e GRAVADO no trade na abertura --
+      // enforceMt5StopsAndTargets (neuralBridge.ts) fecha sozinho por codigo
+      // a cada ciclo, antes do LLM decidir qualquer coisa, sem depender do
+      // modelo perceber ou lembrar.
+      //
+      // 🔴 2026-08-29 (pedido do Cleber, mesma sessao): stop/alvo agora e
+      // DINAMICO por volatilidade real (ATR, ver atr.ts) em vez de % fixo
+      // igual pros 3 simbolos. Cai pro % fixo de seguranca
+      // (mt5StopFallbackPct) so se o ATR nao vier de dado real (candle
+      // simulado/indisponivel) -- nunca abre posicao sem stop.
+      //
+      // 🔴 2026-08-31: movido pra ANTES do sizing (era depois) -- o sizing por
+      // % de risco (abaixo) precisa da distancia do stop em % pra calcular o
+      // notional-alvo (notional = risco_usd / stop_pct), entao o stop
+      // precisa existir primeiro.
+      // 🔴 2026-09-04: atrPct bruto guardado a parte (nao so o stopPct
+      // derivado dele) -- o calculo do alvo abaixo precisa do ATR original
+      // pra usar mt5TargetReferenceStopAtrMultiplier como referencia de
+      // risco, independente do multiplicador real do stop (mt5StopAtrMultiplier).
+      // 🔴 2026-09-11 (pedido direto do Cleber, isolado ao fim de semana --
+      // ver comentário completo em config.ts): usa mt5StopAtrMultiplierWeekend
+      // (1.5x) em vez do mt5StopAtrMultiplier de dia útil (2.0x) quando
+      // isWeekendMode() -- NUNCA altera o stop de dia útil.
+      const stopAtrMultiplierForRegime = isWeekendMode()
+        ? config.mt5StopAtrMultiplierWeekend
+        : config.mt5StopAtrMultiplier;
+      const atrPctForStop = await getAtrPercent(symbol, openPositionTimeframe);
+      // 🔴 2026-09-18: piso dedicado no fim de semana -- o stop de fim de
+      // semana (0.95x ATR) fica ABAIXO do piso de dia útil, e sem este
+      // desvio cairia no fallback (0,500%), ficando maior que o stop que o
+      // corte deveria produzir. Dia útil intocado. Hoisted (era só local ao
+      // cálculo do dynamicStopPct) porque o cap por S/R logo abaixo também
+      // usava um piso -- estava usando incondicionalmente config.mt5StopMinPct
+      // (dia útil) mesmo em fim de semana, reabrindo a mesma armadilha que
+      // este piso dedicado foi criado pra fechar.
+      const stopMinPctForRegime = isWeekendMode() ? config.mt5StopMinPctWeekend : config.mt5StopMinPct;
+      // 🔴 2026-10-15 (TESTE do Cleber, varredura stop x alvo em scripts/stop-target-sweep.ts): no scalp de dia util o stop
+      // (e a referencia do alvo, abaixo) ganham este fator sobre o stop de hoje. Na varredura de 147 entradas reais, stop
+      // 1,5x-2x com alvo >= 1,5x o stop foi a unica regiao positiva (+0,07 a +0,10R, sem significancia); stop mais
+      // apertado que o atual foi sempre pior. 1 desliga (comportamento antigo). Nunca passa de mt5StopMaxPct.
+      const scalpStopFactor =
+        !isWeekendMode() && session.userConfig?.targetPoints === "POUCOS" && config.mt5ScalpStopFactor > 1 ? config.mt5ScalpStopFactor : 1;
+      const stopPctRaw: number | null = atrPctForStop == null
+        ? null
+        : (() => {
+            const dynamicStopPct = atrPctForStop * stopAtrMultiplierForRegime;
+            if (dynamicStopPct < stopMinPctForRegime || dynamicStopPct > config.mt5StopMaxPct) return null;
+            return Math.min(dynamicStopPct * scalpStopFactor, config.mt5StopMaxPct);
+          })();
+      let usedFallbackStop = stopPctRaw == null;
+      let stopPct: number = stopPctRaw ?? config.mt5StopFallbackPct;
+      // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, primeiros 3 trades
+      // reais depois do redesenho R:R 1:2 -- ver mt5SpreadStopSafetyMultiplier
+      // em config.ts pro detalhe completo): 2 de 3 trades (XRPUSD LONG)
+      // bateram stop em 64s/14s por o stop (0,500%) ser MENOR que o spread
+      // (~1,47%) -- a posicao ja nascia derrotada, sem nenhum movimento real
+      // de preco. Aqui o stop e alargado (nunca encolhido) pra sempre ficar
+      // pelo menos mt5SpreadStopSafetyMultiplier vezes o spread pago; se nem
+      // o teto maximo (mt5StopMaxPct) alcanca essa margem, bloqueia a
+      // entrada em vez de abrir com stop artificialmente apertado.
+      const spreadPctFrac = Number.isFinite(quote.spreadPct) ? quote.spreadPct / 100 : 0;
+      const minStopForSpread = spreadPctFrac * config.mt5SpreadStopSafetyMultiplier;
+      let widenedForSpread = false;
+      if (minStopForSpread > stopPct) {
+        if (minStopForSpread > config.mt5StopMaxPct) {
+          return {
+            error:
+              `Spread de ${symbol} (${quote.spreadPct.toFixed(2)}%) e alto demais pro stop ficar com margem real ` +
+              `(precisaria de ${(minStopForSpread * 100).toFixed(2)}%, acima do teto maximo de ${(config.mt5StopMaxPct * 100).toFixed(2)}%) -- ` +
+              `a posicao nasceria com o stop mais perto do preco de entrada do que o proprio custo de operar, disparando quase sem ` +
+              `movimento real. Posicao NAO aberta. Opere um ativo com spread menor ou aguarde o spread normalizar.`,
+          };
+        }
+        stopPct = minStopForSpread;
+        widenedForSpread = true;
+        usedFallbackStop = true;
+      }
+      // 🔴 2026-09-05 (pedido direto do Cleber -- "o stop tem que ser da
+      // altura do candle", "o pavio do candle"): stop por ATR é cego à
+      // estrutura real do preço, igual o alvo já era antes do fix de
+      // 2026-09-02. Capa o stop pela distância real até o nível oposto ao
+      // lado do trade (resistência pra SHORT, suporte pra LONG -- mesmo
+      // candle oficial usado por MACD/Estocástico/alvo) SÓ quando esse nível
+      // fica MAIS PERTO que o stop calculado por ATR -- nunca alarga, só
+      // aperta. Não altera usedFallbackStop nem targetReferenceStopPct: o
+      // alvo continua exatamente como já era, ancorado no ATR real
+      // congelado, sem nenhum efeito colateral deste cap.
+      let stopCappedBySR = false;
+      if (supportResistanceForTarget) {
+        const invalidationLevelBrokenThrough = side === "LONG"
+          ? supportResistanceForTarget.brokeBelowSupport
+          : supportResistanceForTarget.brokeAboveResistance;
+        const distanceToInvalidationLevelPct =
+          (side === "LONG" ? supportResistanceForTarget.distanceToSupportPct : supportResistanceForTarget.distanceToResistancePct) / 100;
+        if (!invalidationLevelBrokenThrough && distanceToInvalidationLevelPct > 0) {
+          const srCappedStopPct = Math.max(
+            distanceToInvalidationLevelPct * config.mt5SrStopMarginPct,
+            minStopForSpread,
+            stopMinPctForRegime,
+          );
+          if (srCappedStopPct < stopPct) {
+            stopPct = srCappedStopPct;
+            stopCappedBySR = true;
+          }
+        }
+      }
+      // 🔴 2026-08-30 (achado real, confirmado NO PRIMEIRO trade real depois
+      // do redesenho R:R 1:2 -- BTCUSD LONG, ciclo 2 da sessao reiniciada):
+      // quando o ATR real nao vem (usedFallbackStop=true), a linha antiga
+      // jogava takeProfitPct = mt5StopFallbackPct DIRETO, ignorando por
+      // completo o multiplicador de R:R -- colapsava pra R:R 1:1 mesmo
+      // sozinho, e SOMADO ao encolhimento de baixo volume (removido abaixo)
+      // o alvo saiu MENOR que o stop (0,300% de alvo contra 0,500% de risco,
+      // R:R 0,6:1 -- pior que aleatorio, o oposto do redesenho). Agora o
+      // fallback tambem respeita o MESMO multiplicador R:R do caminho
+      // dinamico -- nunca colapsa pra 1:1 por acidente so por falta de ATR.
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Alvo de Lucro
+      // (Range)"): POUCOS/MÉDIO/MUITOS sobrepoe o R:R (take-profit/stop)
+      // default do motor quando o usuario configurou. null (usuario nunca
+      // tocou) preserva o comportamento atual (baseline mt5TakeProfitAtrMultiplier/mt5StopAtrMultiplier).
+      const RR_BY_TARGET_POINTS: Record<string, number> = { POUCOS: 1.5, "MÉDIO": 3, MUITOS: 5 };
+      // 🔴 2026-09-05: em fim de semana, usa o multiplicador de alvo dedicado
+      // (mais curto -- ver comentário em config.ts) em vez do 4.0x de dia
+      // útil. Só se aplica quando o usuário não escolheu um targetPoints
+      // manual no Setup (esse continua tendo prioridade, igual sempre foi).
+      const takeProfitAtrMultiplierForRegime = isWeekendMode()
+        ? config.mt5TakeProfitAtrMultiplierWeekend
+        : config.mt5TakeProfitAtrMultiplier;
+      const rrMultiplier = session.userConfig?.targetPoints != null
+        ? RR_BY_TARGET_POINTS[session.userConfig.targetPoints]
+        : takeProfitAtrMultiplierForRegime / config.mt5TargetReferenceStopAtrMultiplier;
+      // 🔴 2026-09-04 (pedido direto do Cleber: "o alvo pode continuar do
+      // mesmo tamanho e o stop diminuir pelo menos 50%"): o alvo usa uma
+      // referencia de risco CONGELADA (mt5TargetReferenceStopAtrMultiplier,
+      // valor antigo de mt5StopAtrMultiplier) em vez do stopPct real --
+      // assim reduzir o multiplicador do stop (mt5StopAtrMultiplier) aperta
+      // so o stop de verdade, sem encolher o alvo junto. So se aplica quando
+      // ha ATR real disponivel E o stop de fato usou esse ATR real; no
+      // fallback (sem ATR OU ATR fora do range mt5StopMinPct/mt5StopMaxPct,
+      // usedFallbackStop=true), o alvo usa o stopPct real (ja e o fallback
+      // seguro), igual sempre foi -- nao ha "referencia congelada" sem dado
+      // real de ATR pra ancorar nela.
+      // 🔴 2026-09-04 (achado ao vivo, monitoramento continuo -- NAS100
+      // SHORT abriu com stop 0,300% mas alvo so 0,274%, R:R 0,91:1, pior que
+      // 1:1 mesmo com targetPoints=MEDIO pedindo 3:1): a condicao antiga
+      // testava so `atrPctForStop != null`, mas usedFallbackStop tambem vira
+      // true quando o ATR real EXISTE porem da um dynamicStopPct fora do
+      // range minimo/maximo (aqui, ATR minusculo == mt5StopMinPct
+      // acionado) -- nesse caso o stop usa o fallback seguro (0,300%,
+      // maior) mas o alvo continuava ancorado no ATR real minusculo
+      // (atrPctForStop*1.3), gerando alvo bem menor que o proprio stop
+      // fallback. Corrigido pra checar usedFallbackStop (que cobre os dois
+      // casos: ATR nulo E ATR fora do range) em vez de so atrPctForStop.
+      // 🔴 2026-09-11 (pedido direto do Cleber -- "alvo encolhe junto" com o
+      // stop novo de fim de semana): em dia útil a referência continua
+      // exatamente mt5TargetReferenceStopAtrMultiplier (2.0x, igual sempre
+      // foi); em fim de semana passa a usar o MESMO stopAtrMultiplierForRegime
+      // (1.5x) em vez da referência congelada de dia útil -- o alvo de fim de
+      // semana (mt5TakeProfitAtrMultiplierWeekend=2.5x) some encolhido junto
+      // com o stop, mantendo R:R positivo (2.5/1.5 ≈ 1,67:1) em vez de deixar
+      // o R:R degradar por manter o alvo ancorado num risco de dia útil que
+      // não existe mais nesse regime.
+      const targetReferenceMultiplierForRegime = isWeekendMode()
+        ? stopAtrMultiplierForRegime
+        : config.mt5TargetReferenceStopAtrMultiplier;
+      const targetReferenceStopPct = !usedFallbackStop
+        ? Math.min(atrPctForStop! * targetReferenceMultiplierForRegime * scalpStopFactor, config.mt5StopMaxPct * scalpStopFactor)
+        : stopPct;
+      // 🔴 2026-09-18 (pedido direto do Cleber: "arriscar 1,5 pra buscar 3"):
+      // no fim de semana o alvo passa a ser uma proporção FIXA do stop real
+      // da entrada (mt5WeekendRiskRewardRatio = 2:1), em vez de derivar do
+      // targetPoints do Setup / referência de ATR. Fora do fim de semana o
+      // cálculo é exatamente o que sempre foi.
+      let takeProfitPct = isWeekendMode()
+        ? stopPct * config.mt5WeekendRiskRewardRatio
+        : targetReferenceStopPct * rrMultiplier;
+      // 🔴 2026-09-02 (pedido direto do Cleber): alvo por ATR e cego a
+      // estrutura real do preco -- capado aqui pela distancia real ate o
+      // proximo suporte/resistencia (candle oficial, mesma fonte que MACD/
+      // Estocastico) na direcao do trade, pra TODOS os ativos da cesta. Sem
+      // candle real suficiente (supportResistanceForTarget == null), mantem
+      // o alvo por ATR puro -- nunca fabrica nivel.
+      let takeProfitCappedBySR = false;
+      // 🔴 2026-09-04 (pedido direto do Cleber -- "todo rompimento de topo
+      // pode ser o inicio de uma grande movimentacao... a IA tem que estar
+      // atenta com todos os rompimentos, sobretudo com pouco volume, pouco
+      // volume nao quer dizer que nao vai existir uma grande movimentacao"):
+      // achado real -- o cap de S/R abaixo usava resistance/support
+      // calculados COM a propria vela mais recente, entao bem na hora de um
+      // rompimento real (preco fazendo a nova maxima/minima da janela) a
+      // distancia dava ~0%, capando o alvo pra quase zero e bloqueando ou
+      // encolhendo drasticamente a entrada JUSTO no momento do rompimento --
+      // o oposto do que deveria acontecer. getSupportResistance (atr.ts)
+      // agora calcula o nivel so da janela ESTABELECIDA (exclui as ultimas 2
+      // velas) e expoe brokeAboveResistance/brokeBelowSupport -- quando o
+      // rompimento e A FAVOR do lado sendo aberto, o nivel antigo ja nao e
+      // mais um teto real, entao o cap e desligado (alvo por ATR puro, sem
+      // limitar por um nivel que o proprio preco ja superou).
+      const confirmedBreakoutInTradeDirection = supportResistanceForTarget
+        ? side === "LONG"
+          ? supportResistanceForTarget.brokeAboveResistance
+          : supportResistanceForTarget.brokeBelowSupport
+        : false;
+      if (supportResistanceForTarget && !confirmedBreakoutInTradeDirection) {
+        const distanceToLevelPct =
+          (side === "LONG" ? supportResistanceForTarget.distanceToResistancePct : supportResistanceForTarget.distanceToSupportPct) / 100;
+        const srCappedTakeProfitPct = distanceToLevelPct * config.mt5SrTargetMarginPct;
+        if (!isFomcBtcPlay && srCappedTakeProfitPct < takeProfitPct) {
+          if (srCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+            const levelName = side === "LONG" ? "resistencia" : "suporte";
+            { const __blocked = gateResult("ALVO_COLADO_SUPORTE_RESISTENCIA", {
+              error:
+                `${symbol}: o ${levelName} real mais proximo esta a so ${(distanceToLevelPct * 100).toFixed(3)}% de distancia -- ` +
+                `alvo (${(takeProfitPct * 100).toFixed(3)}% por ATR) exigiria romper esse nivel antes de ter qualquer chance de ser alcancado, ` +
+                `e o espaco disponivel ate la nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 acima do stop (${(stopPct * 100).toFixed(3)}%). ` +
+                `Posicao NAO aberta -- risco/retorno desfavoravel de partida. Espere o preco se afastar do nivel ou avalie outro ativo/lado.`,
+            }); if (__blocked) return __blocked; }
+            // Teste so-LLM: o nivel esta perto demais pro R:R minimo antigo. Em vez de deixar o
+            // alvo passando do nivel (e a mesa vetar por "alvo nao cabe"), encurta o alvo ate o
+            // nivel, como o motor ja faz, desde que fique acima do piso (MT5_LLM_ONLY_MIN_TARGET_PCT).
+            // Abaixo do piso o alvo de verdade nao cabe: mantem o alvo e a mesa e avisada.
+            if (srCappedTakeProfitPct * 100 >= config.mt5LlmOnlyMinTargetPct) {
+              takeProfitPct = srCappedTakeProfitPct;
+              takeProfitCappedBySR = true;
+            }
+          } else {
+          takeProfitPct = srCappedTakeProfitPct;
+          takeProfitCappedBySR = true;
+          }
+        }
+      }
+      // 🔴 2026-09-17 (pedido direto do Cleber -- "ela acabou de desenhar um
+      // alvo acima da maxima do dia em BTCUSD... pode bater, mas e muito
+      // pouco provavel, ela tem que ter esses calculos de probabilidade na
+      // cabeca"): achado real -- o cap de S/R logo acima so enxerga a janela
+      // do timeframe OPERACIONAL (default 5m x 60 velas = so 5h), sem
+      // nenhuma nocao do que aconteceu antes disso no mesmo dia. Um alvo por
+      // ATR podia nascer limpo acima da maxima/minima real das ultimas 24h
+      // so porque ela ficou fora dessa janela curta. Cap dedicado, mesmo
+      // criterio do cap de S/R (margem + R:R minimo), usando getDailyHighLow
+      // (atr.ts, janela ROLANTE de 24h em velas de 1H, independente do
+      // timeframe operacional) -- nunca desliga por rompimento na janela
+      // curta, so quando o preco JA rompeu de verdade a maxima/minima real
+      // das ultimas 24h.
+      let takeProfitCappedByDailyLevel = false;
+      if (dailyHighLowForTarget) {
+        const brokeDailyLevelInTradeDirection =
+          side === "LONG" ? dailyHighLowForTarget.brokeAboveDailyHigh : dailyHighLowForTarget.brokeBelowDailyLow;
+        if (!brokeDailyLevelInTradeDirection) {
+          const distanceToDailyLevelPct =
+            (side === "LONG" ? dailyHighLowForTarget.distanceToDailyHighPct : dailyHighLowForTarget.distanceToDailyLowPct) / 100;
+          const dailyCappedTakeProfitPct = distanceToDailyLevelPct * config.mt5SrTargetMarginPct;
+          if (!isFomcBtcPlay && dailyCappedTakeProfitPct < takeProfitPct) {
+            if (dailyCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+              const levelName = side === "LONG" ? "maxima" : "minima";
+              { const __blocked = gateResult("ALVO_COLADO_EXTREMO_DIA", {
+                error:
+                  `${symbol}: a ${levelName} real das ultimas 24h esta a so ${(distanceToDailyLevelPct * 100).toFixed(3)}% de distancia -- ` +
+                  `alvo (${(takeProfitPct * 100).toFixed(3)}% por ATR) exigiria uma NOVA ${levelName} de 24h (possivel, mas pouco provavel sem ` +
+                  `confirmacao real de rompimento), e o espaco disponivel nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 acima ` +
+                  `do stop (${(stopPct * 100).toFixed(3)}%). Posicao NAO aberta -- risco/retorno desfavoravel de partida. Espere o preco romper esse ` +
+                  `nivel de verdade ou avalie outro ativo/lado.`,
+              }); if (__blocked) return __blocked; }
+              // Teste so-LLM: encurta o alvo ate o nivel se ficar acima do piso (ver o cap de S/R acima).
+              if (dailyCappedTakeProfitPct * 100 >= config.mt5LlmOnlyMinTargetPct) {
+                takeProfitPct = dailyCappedTakeProfitPct;
+                takeProfitCappedByDailyLevel = true;
+              }
+            } else {
+            takeProfitPct = dailyCappedTakeProfitPct;
+            takeProfitCappedByDailyLevel = true;
+            }
+          }
+        }
+      }
+      // 🔴 2026-09-05 (pedido direto do Cleber -- "ela tem que saber se o
+      // mercado está largo ou estreito"): achado real via print (XETUSD
+      // LONG, alvo de +11pts com a máxima/mínima da janela recente mal
+      // cobrindo ~17pts de amplitude) -- o cap de S/R acima só olha o nível
+      // PONTUAL mais próximo, não a amplitude real que o próprio preço vem
+      // fazendo. Quando o regime vem ESTREITO (amplitude atual bem abaixo da
+      // média histórica do símbolo, ver getMarketRegime/atr.ts) e não há
+      // rompimento confirmado a favor do trade, o alvo por ATR também é
+      // capado pela amplitude real observada -- nunca pede pro preço correr
+      // mais do que ele já provou que corre nesta janela. Regime NORMAL/AMPLO
+      // ou sem candle suficiente (null) não sofre este cap -- só ESTREITO.
+      let takeProfitCappedByRange = false;
+      if (regimeForTarget?.range?.label === "ESTREITO" && !confirmedBreakoutInTradeDirection) {
+        const rangeCappedTakeProfitPct = regimeForTarget.range.pct * config.mt5RangeTargetMarginPct;
+        if (!isFomcBtcPlay && rangeCappedTakeProfitPct < takeProfitPct) {
+          if (rangeCappedTakeProfitPct < stopPct * config.mt5MinRrAfterSrCap) {
+            { const __blocked = gateResult("ALVO_RANGE_ESTREITO", {
+              error:
+                `${symbol}: mercado em regime ESTREITO -- a amplitude real dos últimos ${regimeForTarget.range.lookbackMinutes}min ` +
+                `(${(regimeForTarget.range.pct * 100).toFixed(3)}%) nem cobre um R:R minimo de ${config.mt5MinRrAfterSrCap.toFixed(1)}:1 ` +
+                `acima do stop real (${(stopPct * 100).toFixed(3)}%). Posicao NAO aberta -- alvo por ATR (${(takeProfitPct * 100).toFixed(3)}%) ` +
+                `pediria mais movimento do que o preco ja provou que faz nesta janela. Espere o range se abrir ou avalie outro ativo/lado.`,
+            }); if (__blocked) return __blocked; }
+            // Teste so-LLM: encurta o alvo ate o nivel se ficar acima do piso (ver o cap de S/R acima).
+            if (rangeCappedTakeProfitPct * 100 >= config.mt5LlmOnlyMinTargetPct) {
+              takeProfitPct = rangeCappedTakeProfitPct;
+              takeProfitCappedByRange = true;
+            }
+          } else {
+          takeProfitPct = rangeCappedTakeProfitPct;
+          takeProfitCappedByRange = true;
+          }
+        }
+      }
+      // 🔴 2026-09-04 (achado real, via print do Cleber -- SPX500 LONG abriu
+      // com stop de 23,18pts e alvo de só 7,33pts, R:R 0,32:1, o INVERSO do
+      // pedido "alvo tem que ser maior que o stop"): o gate de R:R minimo
+      // acima (mt5MinRrAfterSrCap) SO roda dentro do bloco de cap por S/R --
+      // quando o alvo pequeno vem de outra causa (referencia de ATR pequena
+      // combinada com o stop alargado pela seguranca de spread,
+      // minStopForSpread acima, que NUNCA realimenta o calculo do alvo) o
+      // gate nunca dispara e a entrada abre com risco/retorno pior que
+      // aleatorio. Este trade real confirmou o buraco: srCappedTakeProfitPct
+      // nem chegou a ser calculado pra esse caminho (alvo ja nascia pequeno
+      // antes do cap de S/R), entao a checagem condicional acima nunca via o
+      // problema. Checagem final, incondicional, cobre QUALQUER causa (S/R,
+      // spread, ATR minusculo, fallback) -- alvo sempre >= stop *
+      // mt5MinRrAfterSrCap, ou a posicao nao abre.
+      // 🔴 2026-10-13 (pedido do Cleber, scalp "poucos pontos": ~40 pts na
+      // CHINA50 = ~0,29% do preco, proporcional em todos os ativos; "NAO mexa
+      // no stop, so no alvo"): com targetPoints=POUCOS o alvo (preco do
+      // take-profit) e limitado a mt5ScalpTargetMaxPct % do preco. O stop NAO
+      // muda. O LOTE acompanha o alvo menor (lote = retorno$ / alvo%): o Cleber
+      // aceitou lote maior (2026-10-13); o teto duro de risco por trade
+      // (mt5MaxRiskPctPerTrade) e os tetos de seguranca continuam limitando. Como o alvo pode
+      // ficar menor que o stop (R:R < 1), o gate de R:R minimo usa
+      // mt5ScalpMinRr nesse caso (breakeven de acerto sobe: ~1/(1+R:R)).
+      let takeProfitCappedByScalpPct = false;
+      // 🔴 2026-10-15: com MT5_SCALP_TARGET_STOP_FRACTION > 0 o teto e essa fracao do stop do proprio ativo (R:R igual pra
+      // todos); com 0 vale o teto fixo em % do preco (mt5ScalpTargetMaxPct).
+      const scalpByStopFraction = config.mt5ScalpTargetStopFraction > 0;
+      if (!isFomcBtcPlay && session.userConfig?.targetPoints === "POUCOS" && (scalpByStopFraction || config.mt5ScalpTargetMaxPct > 0)) {
+        const scalpCapPct = scalpByStopFraction ? stopPct * config.mt5ScalpTargetStopFraction : config.mt5ScalpTargetMaxPct / 100;
+        if (takeProfitPct > scalpCapPct) {
+          console.log(`[ALVO-SCALP] ${symbol} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(scalpCapPct * 100).toFixed(3)}% (${scalpByStopFraction ? `${config.mt5ScalpTargetStopFraction}x o stop do ativo` : "teto fixo de scalp"}, stop ${(stopPct * 100).toFixed(3)}% intocado)`);
+          takeProfitPct = scalpCapPct;
+          takeProfitCappedByScalpPct = true;
+        }
+      }
+      // 🔴 2026-10-14 (pedido do Cleber, MODO EXPANSAO): com o mercado em expansao (rompimento de fundo/topo, corredor de
+      // Fibonacci em fibCorridor.ts) e a entrada A FAVOR dela, a regra muda: o alvo vai em cima do PROXIMO DEGRAU de
+      // Fibonacci (nao no scalp curto), o stop continua o mesmo (bateu o stop, a IA reentra no mesmo lado) e as travas do
+      // modo tradicional que bloqueiam (R:R minimo, piso de valor) saem. O tamanho acompanha o alvo (lote = retorno$/alvo%).
+      // Desliga com MT5_EXPANSION_LIVE=false. Degrau a menos de MT5_EXPANSION_MIN_TARGET_PCT (alvo de centavos): nao ativa.
+      let expansionLive = false;
+      let expansionStepLabel: string | null = null;
+      if (!isFomcBtcPlay && process.env.MT5_EXPANSION_LIVE !== "false" && session.userConfig?.targetPoints !== "POUCOS") {
+        try {
+          const fibNow = await getFibLive(symbol);
+          const plano = planExpansion({ side, entryPrice: quote.price, corridor: fibNow?.principal ?? null });
+          if (plano.ativo && plano.alvo) {
+            takeProfitPct = plano.alvo.distPct / 100;
+            expansionLive = true;
+            expansionStepLabel = `${(plano.alvo.ratio * 100).toFixed(1)}% (${plano.tf}) em ${plano.alvo.price.toFixed(2)}`;
+            console.log(`[MODO-EXPANSAO] ${symbol} ${side}: alvo no degrau ${expansionStepLabel} (${plano.alvo.distPct.toFixed(3)}%), stop ${(stopPct * 100).toFixed(3)}% intocado; travas de R:R e piso de valor liberadas`);
+          } else if (fibNow?.principal) {
+            console.log(`[MODO-EXPANSAO] ${symbol} ${side}: não ativado (${plano.motivo})`);
+          }
+        } catch (err) {
+          console.warn(`[MODO-EXPANSAO] falhou, segue no modo tradicional: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      const minRrForGate = takeProfitCappedByScalpPct ? Math.min(config.mt5MinRrAfterSrCap, config.mt5ScalpMinRr) : config.mt5MinRrAfterSrCap;
+      if (!isFomcBtcPlay && !expansionLive && takeProfitPct < stopPct * minRrForGate) {
+        { const __blocked = gateResult("RR_MINIMO", {
+          error:
+            `${symbol}: alvo calculado (${(takeProfitPct * 100).toFixed(3)}%) ficaria menor que o minimo aceitavel ` +
+            `frente ao stop real (${(stopPct * 100).toFixed(3)}%, R:R minimo exigido ${minRrForGate.toFixed(1)}:1) -- ` +
+            `nao e causado por suporte/resistencia proximo, e sim pelo stop ter sido alargado (seguranca de spread) sem o alvo acompanhar. ` +
+            `Posicao NAO aberta. Espere o spread normalizar ou avalie outro ativo/lado.`,
+        }); if (__blocked) return __blocked; }
+      }
+      // 🔴 2026-08-30 (mesmo achado, mesmo redesenho): o encolhimento extra de
+      // alvo em dia de baixo volume (0,6x) foi REMOVIDO -- existia
+      // especificamente pra servir a filosofia "giro rapido, alvo curto"
+      // (2026-08-29), que a sessao real mostrou nunca alcancar o alvo (0 de
+      // 66 trades bateram take-profit). Encolher o alvo ainda mais nessas
+      // condicoes so pioraria o MESMO problema que o redesenho tenta
+      // resolver -- o risco (stop) ja e o mesmo independente do volume, e o
+      // R:R 1:2 ja da margem suficiente sem precisar de um ajuste extra.
+      const lowVolumeAdjusted = false;
+
+      // 🔴 2026-09-16 (pedido direto do Cleber): jogada especial pós-Fed em
+      // BTCUSD -- sobrescreve TUDO que o pipeline ATR/S-R/regime calculou
+      // acima (stopPct/takeProfitPct) pelos 1500 pontos fixos pedidos, em vez
+      // de qualquer dinâmica automática. R:R fica 1:1 por definição (decisão
+      // explícita do Cleber, ciente de que é abaixo do R:R mínimo normal do
+      // motor -- ver config.ts pro contexto completo). fillPrice já foi
+      // resolvido mais acima (quote.ask/quote.bid).
+      if (isFomcBtcPlay) {
+        const pointsAsPct = fillPrice > 0 ? config.fomcBtcPlayStopPoints / fillPrice : config.mt5StopFallbackPct;
+        stopPct = pointsAsPct;
+        takeProfitPct = fillPrice > 0 ? config.fomcBtcPlayTargetPoints / fillPrice : pointsAsPct;
+      }
+
+      // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde,
+      // perde pouco, quando ganha, ganha muito" / "não pode quebrar o caixa
+      // do usuário"): sizing por % de RISCO DO SALDO REAL, nao mais notional
+      // fixo em dolar (mt5TargetNotionalUsd, removido -- ver config.ts pro
+      // achado completo: numa conta de $50 o notional fixo de $1200-1800 era
+      // 24x-36x de alavancagem implicita, e um stop de so 0,79% ja produziu
+      // -$16,05 num unico trade). notional-alvo = risco_usd / stop_pct --
+      // quanto mais apertado o stop, MAIOR o notional pode ser pro MESMO
+      // risco em dolar (matematica de risco fixo por trade, padrao de mesa
+      // proprietaria). getMt5AccountBalance() soma initial_balance + net_pnl
+      // realizado desta sessao -- o tamanho da posicao ENCOLHE se a conta
+      // perdeu e CRESCE se ganhou, sem precisar reconfigurar nada.
+      const accountBalance = await getMt5AccountBalance(session.sessionId);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Capital para IA"):
+      // se o usuario alocou um valor menor que o saldo real da conta pro
+      // motor operar, o sizing usa o valor alocado como base de risco, nunca
+      // o saldo inteiro -- allocatedCapitalUsd nunca ultrapassa o saldo real
+      // (senao a IA arriscaria dinheiro que nao esta de fato liberado pra ela).
+      const allocated = session.userConfig?.allocatedCapitalUsd;
+      const balance = allocated != null ? Math.min(allocated, accountBalance) : accountBalance;
+      // 🔴 2026-09-05: sizing deixou de partir do risco-% configurado no Setup
+      // (session.userConfig.riskPerTradePct) -- ver mt5TargetRewardUsd abaixo.
+      // O risco-% do Setup NAO controla mais o tamanho da posicao aqui; o
+      // teto de risco global (mt5MaxRiskPctPerTrade) continua valendo como
+      // limite duro por cima, independente do que o usuario configurou como
+      // "risco por trade".
+      // 🔴 2026-09-05 (pedido direto do Cleber -- "não dá pra ganhar só
+      // $0,00025 por entrada, tem que render de $2 a $3; ativo mais barato
+      // precisa ser mais carregado na mão"): sizing agora mira retorno REAL
+      // em dólar (mt5TargetRewardUsd, ver config.ts) como alvo primário, não
+      // mais só risco-% fixo -- lots = alvo_retorno_usd / (takeProfitPct *
+      // LOT_SIZE * preço). "forte" escala este alvo de retorno.
+      // 🔴 2026-10-15: escalonador automático de risco (riskScaler.ts). Desligado => 1.0x
+      // (nada muda). Ligado => escala PARA BAIXO o alvo de exposição a partir do tamanho de
+      // hoje enquanto o E[R] real não se prova positivo; o teto duro de risco continua por cima.
+      const riskScale = await getRiskScale();
+      const targetRewardUsd = config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1) * riskScale.scale;
+      const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
+      // 🔴 2026-09-16 (pedido direto do Cleber): jogada FOMC_BTC_PLAY usa
+      // sizing por EXPOSIÇÃO NOTIONAL (10% do patrimônio), não por retorno-
+      // alvo em dólar como o resto do motor -- pedido explícito, mesmo sendo
+      // um percentual bem maior que o normal (ver ressalva no gate de risco
+      // abaixo, que é pulado só neste caminho). Ainda respeita os tetos
+      // absolutos de segurança (mt5SafetyMaxLots/mt5MaxNotionalUsd) como
+      // última rede de proteção.
+      let lots = isFomcBtcPlay
+        ? (balance * config.fomcBtcPlayExposurePct) / (LOT_SIZE[symbol] * quote.price)
+        : rawLotsPreCap;
+      lots = Math.min(lots, config.mt5SafetyMaxLots);
+      // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Lotes Maximos por
+      // Trade"): teto do usuario, quando configurado, nunca frouxo o teto de
+      // seguranca global (mt5SafetyMaxLots) -- so aperta.
+      if (session.userConfig?.maxLotsPerTrade != null) {
+        lots = Math.min(lots, session.userConfig.maxLotsPerTrade);
+      }
+      lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
+      if (lots < MIN_LOTS) lots = MIN_LOTS; // nao da pra abrir posicao com lote zero -- MIN_LOTS e o menor lote executavel
+      let amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      // 🔴 2026-09-11 (diagnostico temporario, pedido do Cleber -- LNKUSD
+      // abriu 1 lote/$11,69 quando a formula deveria mirar ~$4 de retorno,
+      // ~20 lotes; nenhum dos gates conhecidos (risco/seguranca/grupo)
+      // bateu com o numero real no primeiro trade investigado): loga os
+      // insumos brutos da formula ANTES de qualquer cap, pra pegar a causa
+      // real no proximo trade em vez de continuar adivinhando por leitura
+      // estatica de codigo. Remover depois de confirmar a causa.
+      console.log(
+        `[SIZING DEBUG] ${symbol}: targetRewardUsd=${targetRewardUsd} takeProfitPct=${takeProfitPct} ` +
+          `LOT_SIZE=${LOT_SIZE[symbol]} quote.price=${quote.price} rawLotsPreCap=${rawLotsPreCap} ` +
+          `lotsAfterSafetyMax=${Math.min(rawLotsPreCap, config.mt5SafetyMaxLots)} ` +
+          `maxLotsPerTrade=${session.userConfig?.maxLotsPerTrade ?? "null"} lotsFinal=${lots} amountUsd=${amountUsd}`
+      );
+      // 🔴 2026-09-05: o teto DURO de risco (mt5MaxRiskPctPerTrade) continua
+      // sendo o limite por cima -- se o lote necessario pra alcancar o
+      // retorno-alvo em $ estourar o risco maximo tolerado pela conta, o
+      // sizing RECUA pro maior lote que o risco ainda permite (retorno fica
+      // menor que o alvo NESSE caso -- risco seguro sempre vence retorno
+      // desejado, nunca o contrario). Preserva o gate de 2026-08-31: se nem
+      // o lote MINIMO cabe dentro do risco maximo, a entrada e recusada.
+      let actualRiskUsd = amountUsd * stopPct;
+      const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
+      let rewardCappedByRisk = false;
+      // 🔴 2026-09-16: FOMC_BTC_PLAY pula este recap por %-de-risco de
+      // propósito -- o pedido explícito do Cleber foi expor 10% do
+      // patrimônio em notional, sabendo que isso ultrapassa o teto normal de
+      // risco por trade (mt5MaxRiskPctPerTrade). Continua sob os tetos
+      // absolutos de segurança logo abaixo (mt5MaxNotionalUsd).
+      if (!isFomcBtcPlay && actualRiskUsd > maxRiskUsd) {
+        let riskCappedLots = maxRiskUsd / stopPct / (LOT_SIZE[symbol] * quote.price);
+        riskCappedLots = Math.round(riskCappedLots / MIN_LOTS) * MIN_LOTS;
+        if (riskCappedLots < MIN_LOTS) {
+          return {
+            error:
+              `Risco minimo possivel para ${symbol} neste preco e lote minimo ($${actualRiskUsd.toFixed(2)}) excede o teto de risco por trade ` +
+              `desta conta ($${maxRiskUsd.toFixed(2)}, ${(config.mt5MaxRiskPctPerTrade * 100).toFixed(1)}% do saldo real de $${balance.toFixed(2)}). ` +
+              `Este ativo exige exposicao minima incompativel com o tamanho atual da conta -- posicao NAO aberta. Opere outro ativo da cesta ` +
+              `ou aguarde a conta crescer o suficiente pra suportar o lote minimo de ${symbol} dentro do teto de risco.`,
+          };
+        }
+        lots = riskCappedLots;
+        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+        actualRiskUsd = amountUsd * stopPct;
+        rewardCappedByRisk = true;
+      }
+      // Teto absoluto de seguranca em notional -- so deveria disparar em caso
+      // degenerado (preco anormal fazendo o lote explodir), o gate de risco
+      // acima ja e o limite normal de operacao.
+      if (amountUsd > config.mt5MaxNotionalUsd) {
+        lots = Math.floor(config.mt5MaxNotionalUsd / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS;
+        if (lots < MIN_LOTS) {
+          return {
+            error: `Exposicao minima possivel para ${symbol} neste preco excede o teto absoluto de seguranca ($${config.mt5MaxNotionalUsd}). Posicao NAO aberta.`,
+          };
+        }
+        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      }
+      // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
+      // deploy): a checagem de teto do grupo correlacionado (acima, logo
+      // apos o teto por simbolo) so soma o que JA esta aberto -- nunca inclui
+      // a entrada que esta sendo aberta agora. Confirmado ao vivo: XETUSD
+      // SHORT ($1.212) estava abaixo do teto ($2.700), entao um SOLUSD SHORT
+      // "forte" ($1.800) passou direto (a soma ANTES da nova entrada, unica
+      // coisa checada, ainda estava sob o teto) e deixou a exposicao real em
+      // $3.012 -- so as tentativas SEGUINTES foram bloqueadas, depois do
+      // estrago feito. Segunda checagem aqui, agora com o amountUsd REAL da
+      // entrada que esta prestes a acontecer, fecha esse buraco sem remover
+      // a checagem antecipada (que ainda evita gastar a chamada de cotacao
+      // quando o grupo ja esta no teto de partida).
+      if (correlatedGroup.length > 1) {
+        const sameSideGroupExposure = openPositions
+          .filter((p) => correlatedGroup.includes(p.symbol) && p.side === side)
+          .reduce((sum, p) => sum + Number(p.quantity), 0);
+        const projectedExposure = sameSideGroupExposure + amountUsd;
+        if (projectedExposure > config.mt5MaxCorrelatedNotionalUsd) {
+          { const __blocked = gateResult("EXPOSICAO_CORRELACIONADA_PROJETADA", {
+            error:
+              `Esta entrada ($${amountUsd.toFixed(0)}) levaria a exposicao ${side} combinada do grupo correlacionado ` +
+              `(${correlatedGroup.join("/")}) de $${sameSideGroupExposure.toFixed(0)} para $${projectedExposure.toFixed(0)}, ` +
+              `acima do teto ($${config.mt5MaxCorrelatedNotionalUsd}). Esses ativos andam juntos -- essa entrada sozinha ` +
+              `estouraria o limite. Posicao NAO aberta. Reduza o tamanho, feche outra posicao do grupo, ou opere o lado oposto.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
+
+      // 🔴 2026-08-29: stop/alvo calculados a partir do fillPrice (preco real
+      // de preenchimento, ver acima) -- nao do mid/last tick.
+      // ===================== MESA DE OPERACOES (2026-10-13) =====================
+      // Ultimo passo antes da ordem: tudo que e mecanico ja rodou (travas, stop,
+      // alvo, lote). A mesa (desk.ts) julga a proposta pronta. Em "enforce" a
+      // decisao do Agente Master vale; em "shadow" ela so e registrada.
+      // A mesa so RESTRINGE: aprova, rejeita ou corta o tamanho pela metade.
+      // ---- PISO DE VALOR (mecanico, vale com a mesa ligada, independe da IA) ----
+      // 13/10 o NAS100 LONG foi aprovado com alvo de 0,143% e stop de 0,463% (R:R 0,31:1): ganho de $0,87
+      // para arriscar $2,83. A mesa viu os numeros e aprovou mesmo assim. Agora o codigo recusa antes de
+      // gastar as 16 chamadas de LLM, e de novo depois que a mesa corta o tamanho pela metade.
+      const minValueCheck = (amountForCheck: number, floorFactor = 1, force = false): string | null => {
+        if (isFomcBtcPlay || (expansionLive && !force)) return null;
+        const minNetRewardUsd = Math.max(
+          config.mt5MinExpectedNetRewardUsd,
+          config.mt5MinNetRewardPerReferenceUsd * (balance / config.mt5ReferenceCapitalUsd) * floorFactor
+        );
+        const rrNow = stopPct > 0 ? takeProfitPct / stopPct : 0;
+        if (deskMode !== "off" && rrNow < config.mt5MinRrAbsolute) {
+          return (
+            `${symbol}: retorno/risco de ${rrNow.toFixed(2)}:1 (alvo ${(takeProfitPct * 100).toFixed(3)}% contra stop ${(stopPct * 100).toFixed(3)}%) esta abaixo do piso de ` +
+            `${config.mt5MinRrAbsolute.toFixed(1)}:1: precisaria acertar ${((stopPct / (stopPct + takeProfitPct)) * 100).toFixed(0)}% das vezes so pra empatar. Posicao NAO aberta -- ` +
+            `entrada de centavos nao vale o risco. Espere o preco abrir espaco ate o proximo nivel ou avalie outro ativo/lado.`
+          );
+        }
+        const grossReward = amountForCheck * takeProfitPct;
+        const roundTripCost = estimateCommissionUsd(symbol, amountForCheck, fillPrice);
+        const netReward = grossReward - roundTripCost;
+        if (netReward < minNetRewardUsd) {
+          return (
+            `${symbol}: o ganho LIQUIDO esperado no alvo seria so $${netReward.toFixed(2)} (bruto $${grossReward.toFixed(2)} menos custo $${roundTripCost.toFixed(2)}), ` +
+            `abaixo do minimo de $${minNetRewardUsd.toFixed(2)} (US$${config.mt5MinNetRewardPerReferenceUsd} liquidos por US$${config.mt5ReferenceCapitalUsd} em caixa, proporcional ao saldo de $${balance.toFixed(2)}) -- o risco de $${(amountForCheck * stopPct).toFixed(2)} nao compensa. Posicao NAO aberta. ` +
+            `Espere uma entrada com espaco pro alvo ou avalie outro ativo/lado.`
+          );
+        }
+        return null;
+      };
+      const minValueRefusal = minValueCheck(amountUsd);
+      if (minValueRefusal) {
+        console.log(`[PISO-DE-VALOR] ${symbol} ${side} recusado antes da mesa: ${minValueRefusal.slice(0, 200)}`);
+        return { error: minValueRefusal };
+      }
+      let entryFillPrice = fillPrice;
+      const deskSnapshot: Record<string, unknown> = {};
+      let deskDecisionId: string | null = null;
+      if (deskMode !== "off" && !isFomcBtcPlay) {
+        let todayPnlUsd: number | null = null;
+        try {
+          todayPnlUsd = await getTodayRealizedPnl(session.sessionId);
+        } catch {
+          todayPnlUsd = null; // sem dado: a mesa e avisada, nunca recebe numero inventado
+        }
+        let recentTradesThisSymbol: DeskRiskFacts["recentTradesThisSymbol"] = [];
+        try {
+          const recentForDesk = await getRecentClosedTrades(session.sessionId, symbol, 3);
+          recentTradesThisSymbol = recentForDesk.map((t) => ({
+            side: t.side,
+            resultUsd: t.net_pnl ?? t.pnl ?? null,
+            exitReason: t.exit_reason ?? null,
+            minutesAgo: t.exit_time ? Math.round((Date.now() - new Date(t.exit_time).getTime()) / 60_000) : null,
+          }));
+        } catch {
+          recentTradesThisSymbol = [];
+        }
+        const targetNotes: string[] = [];
+        if (takeProfitCappedByScalpPct) targetNotes.push(scalpByStopFraction ? `alvo limitado a ${config.mt5ScalpTargetStopFraction}x o stop do ativo (scalp)` : `alvo limitado pelo teto de scalp de ${config.mt5ScalpTargetMaxPct}% do preco`);
+        if (takeProfitCappedBySR) targetNotes.push("alvo encurtado pra caber antes do suporte/resistencia mais proximo");
+        if (takeProfitCappedByDailyLevel) targetNotes.push("alvo encurtado pra caber antes da maxima/minima de 24h");
+        if (takeProfitCappedByRange) targetNotes.push("alvo encurtado porque o mercado esta em range estreito");
+        if (usedFallbackStop) targetNotes.push("stop calculado sem ATR confiavel (valor de reserva ou alargado pelo spread)");
+        if (stopCappedBySR) targetNotes.push("stop encurtado ate o nivel tecnico que invalida a tese");
+        const basketBreadth = [...lastQuoteSnapshotBySymbol.entries()]
+          .filter(([sym, snap]) => sym !== symbol && snap.dayChangePct != null && Number.isFinite(snap.dayChangePct))
+          .map(([sym, snap]) => ({ symbol: sym, dayChangePct: snap.dayChangePct as number }));
+
+        const desk = await runTradingDesk({
+          sessionId: session.sessionId,
+          userId: session.userId,
+          cycle,
+          symbol,
+          side: side as "LONG" | "SHORT",
+          setupType,
+          operatorReasoning: reasoning,
+          operatorConfidence: confidence,
+          entryPrice: fillPrice,
+          stopPct,
+          takeProfitPct,
+          amountUsd,
+          riskUsd: actualRiskUsd,
+          balance,
+          lots,
+          spreadPct: Number.isFinite(quote.spreadPct) ? quote.spreadPct : null,
+          dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
+          llmOnly: llmOnlyTest,
+          targetPoints: session.userConfig?.targetPoints ?? null,
+          bypassedGates: [...bypassedGates],
+          basketBreadth,
+          riskFacts: {
+            entriesLast24h,
+            todayPnlUsd,
+            todayLossPctOfBalance: todayPnlUsd != null && todayPnlUsd < 0 && balance > 0 ? (-todayPnlUsd / balance) * 100 : todayPnlUsd != null ? 0 : null,
+            dailyLossLimitPct: session.userConfig?.dailyLossLimitPct ?? null,
+            openPositions: openPositions.map((o) => ({ symbol: o.symbol, side: o.side, amountUsd: Number(o.quantity), entryPrice: o.entry_price })),
+            correlatedGroup,
+            correlatedSameSideExposureUsd: openPositions
+              .filter((o) => correlatedGroup.includes(o.symbol) && o.side === side)
+              .reduce((sum, o) => sum + Number(o.quantity), 0),
+            recentTradesThisSymbol,
+            maxRiskPctPerTrade: config.mt5MaxRiskPctPerTrade,
+            rewardCappedByRisk,
+            targetNotes,
+          },
+        });
+        deskDecisionId = desk.id;
+        Object.assign(deskSnapshot, {
+          deskDecisionId: desk.id,
+          deskMode,
+          llmOnlyTest,
+          bypassedGates,
+          deskDecision: desk.decision,
+          deskConviction: desk.conviction,
+          deskSizeFactor: desk.sizeFactor,
+          deskReason: desk.reason.slice(0, 300),
+          deskDurationMs: desk.durationMs,
+          deskLlmCalls: desk.llmCalls,
+          deskFailedAgents: desk.failedAgents,
+          deskError: desk.error ?? null,
+        });
+
+        if (deskMode === "enforce" || deskMode === "veto") {
+          if (desk.decision !== "APPROVE") {
+            rememberDeskRejection(session.sessionId, symbol, side, desk.reason);
+            // preco/stop/alvo no log: permite medir depois o que a entrada rejeitada teria feito.
+            console.log(
+              `[MESA-REJEITOU] ${symbol} ${side} preco ${fillPrice} stop ${(stopPct * 100).toFixed(3)}% alvo ${(takeProfitPct * 100).toFixed(3)}% ` +
+                `travasQueBloqueariam=[${bypassedGates.join(",")}] (${new Date().toISOString()})`,
+            );
+            return {
+              error:
+                `MESA DE OPERACOES REJEITOU ${symbol} ${side}: ${desk.reason}${desk.error ? ` [a mesa nao conseguiu deliberar: ${desk.error}]` : ""}. ` +
+                `Posicao NAO aberta. Nao insista neste ativo/lado pelos proximos ${config.mt5DeskRejectCooldownMin} min; avalie outro ativo ou chame stop.`,
+            };
+          }
+          if (desk.sizeFactor < 1) {
+            lots = Math.max(MIN_LOTS, Math.round((lots * desk.sizeFactor) / MIN_LOTS) * MIN_LOTS);
+            amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+            actualRiskUsd = amountUsd * stopPct;
+            // Metade do tamanho = metade do ganho: o piso de valor vale de novo com o tamanho final.
+            const minValueAfterHalf = minValueCheck(amountUsd, desk.sizeFactor);
+            if (minValueAfterHalf) {
+              console.log(`[PISO-DE-VALOR] ${symbol} ${side} aprovado pela mesa com METADE, mas recusado depois do corte: ${minValueAfterHalf.slice(0, 200)}`);
+              return { error: `A mesa aprovou com METADE do tamanho, mas com a metade ${minValueAfterHalf}` };
+            }
+          }
+        }
+
+        // 🔴 2026-10-16 (pedido do Cleber): AGENTE DE ALVO AO VIVO. Madrugada de 15-16/10: 5 de 5 entradas acertaram o lado
+        // (MFE medio +$1,01) e as 5 fecharam no stop, 0 TP -- o alvo (0,41%-0,67%) ficava muito alem do espaco real ate o
+        // proximo nivel (o log sombra ja dizia floorTargetFits:false) e o lucro devolvia. Agora o alvo e o MENOR entre o
+        // proposto e o que CABE antes do proximo nivel (targetCalculator.ts, margem de 10%). Se com esse alvo o piso de valor
+        // ou o R:R minimo nao fecham, a entrada NAO sai: perna pequena nao paga a conta. Modo expansao tem alvo proprio (degrau).
+        // Rollback: MT5_TARGET_AGENT_LIVE=false.
+        if (process.env.MT5_TARGET_AGENT_LIVE !== "false" && !isFomcBtcPlay && desk.targetPlan?.maxFitTargetPct != null) {
+          const fitPct = desk.targetPlan.maxFitTargetPct;
+          deskSnapshot.targetAgent = { proposedPct: takeProfitPct, maxFitPct: fitPct, verdict: desk.targetPlan.verdict, nearest: desk.targetPlan.nearest };
+          if (fitPct > 0 && takeProfitPct > fitPct) {
+            console.log(`[ALVO-AGENTE] ${symbol} ${side} alvo ${(takeProfitPct * 100).toFixed(3)}% -> ${(fitPct * 100).toFixed(3)}% (cabe antes de ${desk.targetPlan.nearest}); stop ${(stopPct * 100).toFixed(3)}% intocado`);
+            takeProfitPct = fitPct;
+            // Scalp: o stop encurta junto com o alvo (R:R desejado), senao alvo curto + stop largo nao fecha o R:R minimo.
+            // 2026-10-16 (pedido do Cleber): no fim de semana o stop TAMBEM acompanha o alvo (qualquer Alvo de Lucro do Setup).
+            // O alvo e o que se calcula primeiro (nivel/Fibonacci/pernada/ADR); o stop e derivado dele. Sem isso, alvo curto + stop
+            // de 0,95x ATR dava R:R 0,37 e barrava toda entrada de cripto. Rollback: MT5_WEEKEND_STOP_FOLLOWS_TARGET=false.
+            const weekendStopFollows = isWeekendMode() && process.env.MT5_WEEKEND_STOP_FOLLOWS_TARGET !== "false";
+            if (process.env.MT5_SCALP_STOP_FOLLOWS_TARGET !== "false" && ((session.userConfig?.targetPoints === "POUCOS" && !isWeekendMode()) || weekendStopFollows)) {
+              const noiseFloor = (desk.targetPlan.avgRange15mPct ?? 0) / 100 * config.mt5ScalpStopFloorRange15;
+              const stopFloor = Math.max(minStopForSpread, noiseFloor);
+              const wantedStop = Math.max(takeProfitPct / config.mt5ScalpAgentStopRr, stopFloor);
+              if (wantedStop < stopPct) {
+                console.log(`[ALVO-AGENTE] ${symbol} ${side} stop ${(stopPct * 100).toFixed(3)}% -> ${(wantedStop * 100).toFixed(3)}% (alvo ${(takeProfitPct * 100).toFixed(3)}% / R:R ${config.mt5ScalpAgentStopRr}; piso ${(stopFloor * 100).toFixed(3)}% = max(spread, ${config.mt5ScalpStopFloorRange15}x vela 15m))`);
+                deskSnapshot.targetAgentStop = { fromPct: stopPct, toPct: wantedStop, floorPct: stopFloor };
+                stopPct = wantedStop;
+                actualRiskUsd = amountUsd * stopPct;
+              }
+            }
+            // O GANHO em $ por entrada fica (alvo curto = mais contratos): lote = ganho-alvo / (alvo% x contrato x preco),
+            // mantendo o corte de tamanho da mesa. So SOBE o lote; todos os tetos continuam por cima (lotes de seguranca,
+            // lotes do Setup, risco por trade, notional e exposicao correlacionada). Se um teto segurar, o piso de valor decide.
+            const oneLotUsd = LOT_SIZE[symbol] * quote.price;
+            const wantedLots = Math.round((targetRewardUsd * desk.sizeFactor) / (takeProfitPct * oneLotUsd) / MIN_LOTS) * MIN_LOTS;
+            if (wantedLots > lots) {
+              const corrRoomUsd = correlatedGroup.length > 1
+                ? config.mt5MaxCorrelatedNotionalUsd - openPositions.filter((o) => correlatedGroup.includes(o.symbol) && o.side === side).reduce((sum, o) => sum + Number(o.quantity), 0)
+                : Number.POSITIVE_INFINITY;
+              const ceilings = [
+                config.mt5SafetyMaxLots,
+                session.userConfig?.maxLotsPerTrade ?? Number.POSITIVE_INFINITY,
+                balance * config.mt5MaxRiskPctPerTrade / stopPct / oneLotUsd,
+                config.mt5MaxNotionalUsd / oneLotUsd,
+                corrRoomUsd / oneLotUsd,
+              ];
+              const maxLotsAllowed = Math.floor(Math.min(...ceilings) / MIN_LOTS) * MIN_LOTS;
+              const newLots = Math.max(lots, Math.min(wantedLots, maxLotsAllowed));
+              if (newLots > lots) {
+                console.log(`[ALVO-AGENTE] ${symbol} ${side} lote ${lots} -> ${newLots} (queria ${wantedLots}) pra manter o ganho-alvo com o alvo menor; risco ${(newLots * oneLotUsd * stopPct).toFixed(2)} USD`);
+                lots = newLots;
+                amountUsd = lots * oneLotUsd;
+                actualRiskUsd = amountUsd * stopPct;
+              }
+            }
+            // 2026-10-16 (pedido do Cleber): o agente de alvo AVISA, nao BLOQUEIA.
+            // Antes, quando o alvo que cabe nao pagava o piso de valor/R:R, a entrada
+            // era recusada aqui. Agora so registra o aviso (log + snapshot) e deixa a
+            // entrada seguir com o alvo que cabe e o stop que acompanha -- a decisao de
+            // entrar continua sendo da mesa/LLM, nao deste agente. Rollback do aviso->bloqueio:
+            // MT5_TARGET_AGENT_ENFORCE=true.
+            const refusalAfterTarget = minValueCheck(amountUsd, desk.sizeFactor, true); // force: vale tambem no modo expansao
+            if (refusalAfterTarget) {
+              deskSnapshot.targetAgentWarning = `o proximo nivel (${desk.targetPlan.nearest}) so deixa espaco pra um alvo de ${(fitPct * 100).toFixed(3)}%: ${refusalAfterTarget.slice(0, 180)}`;
+              if (process.env.MT5_TARGET_AGENT_ENFORCE === "true") {
+                console.log(`[ALVO-AGENTE] ${symbol} ${side} recusado (enforce): com o alvo que cabe, ${refusalAfterTarget.slice(0, 200)}`);
+                return { error: `Agente de alvo: o proximo nivel (${desk.targetPlan.nearest}) so deixa espaco pra um alvo de ${(fitPct * 100).toFixed(3)}%, e com ele ${refusalAfterTarget}` };
+              }
+              console.log(`[ALVO-AGENTE] ${symbol} ${side} AVISO (nao bloqueia): com o alvo que cabe, ${refusalAfterTarget.slice(0, 200)}`);
+            }
+          }
+        }
+
+        // A deliberacao leva 1-2 min: o preco em que a mesa decidiu pode nao existir
+        // mais. Reconfere a cotacao e entra no preco REAL de agora (nunca no antigo).
+        const freshQuote = await getMt5Quote(symbol);
+        if (!freshQuote || freshQuote.stale) {
+          return {
+            error: `Depois da deliberacao da mesa nao ha cotacao real e fresca de ${symbol} (feed ausente ou obsoleto) -- posicao NAO aberta. Reavalie no proximo ciclo.`,
+          };
+        }
+        const freshFillPrice = side === "LONG" ? freshQuote.ask : freshQuote.bid;
+        const driftFracOfStop = fillPrice > 0 && stopPct > 0 ? Math.abs(freshFillPrice - fillPrice) / (fillPrice * stopPct) : 0;
+        deskSnapshot.deskPriceDriftFracOfStop = Number(driftFracOfStop.toFixed(3));
+        if ((deskMode === "enforce" || deskMode === "veto") && driftFracOfStop > config.mt5DeskMaxDriftFracOfStop) {
+          console.log(`[MESA-PRECO-ANDOU] ${symbol} ${side} de ${fillPrice} para ${freshFillPrice} (${(driftFracOfStop * 100).toFixed(0)}% da distancia do stop) -- entrada abortada (${new Date().toISOString()})`);
+          return {
+            error:
+              `A mesa aprovou ${symbol} ${side}, mas durante a deliberacao o preco andou de ${fillPrice} para ${freshFillPrice} ` +
+              `(${(driftFracOfStop * 100).toFixed(0)}% da distancia do stop, teto ${(config.mt5DeskMaxDriftFracOfStop * 100).toFixed(0)}%) -- ` +
+              `a decisao foi tomada sobre um preco que nao existe mais. Posicao NAO aberta. Reavalie no proximo ciclo.`,
+          };
+        }
+        entryFillPrice = freshFillPrice;
+      }
+      let stopLoss = side === "LONG" ? entryFillPrice * (1 - stopPct) : entryFillPrice * (1 + stopPct);
+      let takeProfit = side === "LONG" ? entryFillPrice * (1 + takeProfitPct) : entryFillPrice * (1 - takeProfitPct);
+      let realFillPrice = entryFillPrice;
+      let brokerPositionId: string | null = null;
+      // 🔴 2026-09-08 (execucao REAL, pedido explicito do Cleber apos aviso
+      // de risco do llm-council -- ver CLAUDE.md/liveExecution.ts): TODOS os
+      // gates acima (risco, R:R, spread, confluencia, teto de correlacao) ja
+      // aprovaram esta entrada. So a partir daqui, se a execucao real estiver
+      // ligada, envia a ordem de verdade na Infinox ANTES de gravar o trade
+      // -- fail-closed: qualquer falha aborta a abertura, nunca grava um
+      // trade "OPEN" que nao existe de verdade na corretora.
+      if (await isLiveExecutionActive(session.userId)) {
+        const liveAccount = await getLiveAccountInfo(session.userId);
+        if (!liveAccount) {
+          return { error: "Execucao real ligada mas nao foi possivel confirmar saldo real da conta (MetaAPI) -- posicao NAO aberta." };
+        }
+        if (liveAccount.balance <= 0) {
+          tripLiveCircuitBreaker(`Saldo real da conta <= 0 ($${liveAccount.balance}) -- nao ha capital pra operar.`);
+          return { error: "Saldo real da conta <= 0 -- circuit breaker acionado, posicao NAO aberta." };
+        }
+        // 🔴 2026-09-11: teto de perda absoluto agora e % do saldo REAL desta
+        // conta (mt5LiveAbsoluteLossLimitPct, config.ts) -- cada usuario
+        // deposita um valor diferente, um numero fixo em dolar nao escala.
+        const initialLiveBalance = liveAccount.balance; // aproximacao: saldo atual como piso de referencia deste ciclo.
+        const absoluteLossLimitUsd = initialLiveBalance * (config.mt5LiveAbsoluteLossLimitPct / 100);
+        if (initialLiveBalance - liveAccount.equity > absoluteLossLimitUsd) {
+          tripLiveCircuitBreaker(
+            `Drawdown flutuante ($${(initialLiveBalance - liveAccount.equity).toFixed(2)}) excede o teto de ${config.mt5LiveAbsoluteLossLimitPct}% do saldo ($${absoluteLossLimitUsd.toFixed(2)}) -- posicao NOVA bloqueada.`
+          );
+          return { error: "Teto de perda absoluta (% do saldo) excedido -- circuit breaker acionado, posicao NAO aberta." };
+        }
+        const liveResult = await executeLiveMarketOrder(session.userId, {
+          side: side as "LONG" | "SHORT",
+          symbol,
+          volume: lots,
+          stopLoss,
+          takeProfit,
+          comment: `NDT LLM Brain ${side}`,
+        });
+        if (!liveResult.success || !liveResult.fillPrice || !liveResult.brokerPositionId) {
+          return { error: `Execucao real falhou: ${liveResult.error ?? "erro desconhecido"}. Posicao NAO aberta.` };
+        }
+        // Preco de preenchimento REAL pode diferir levemente do cotado (slippage
+        // real) -- recalcula stop/alvo em cima do preco real, mesma logica de
+        // sempre, pra manter a distancia % pretendida em vez do preco fixo antigo.
+        realFillPrice = liveResult.fillPrice;
+        stopLoss = side === "LONG" ? realFillPrice * (1 - stopPct) : realFillPrice * (1 + stopPct);
+        takeProfit = side === "LONG" ? realFillPrice * (1 + takeProfitPct) : realFillPrice * (1 - takeProfitPct);
+        brokerPositionId = liveResult.brokerPositionId;
+      }
+      const regimeAtEntry = lastQuoteSnapshotBySymbol.get(symbol);
+      const tradeId = await openMt5Position({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        symbol,
+        side: side as "LONG" | "SHORT",
+        entryPrice: realFillPrice,
+        amountUsd,
+        stopLoss,
+        takeProfit,
+        reasoning,
+        confidence,
+        sessionAtEntry: regimeAtEntry?.session ?? null,
+        volumeLabelAtEntry: regimeAtEntry?.volumeLabel ?? null,
+        volatilityLabelAtEntry: regimeAtEntry?.volatilityLabel ?? null,
+        brokerPositionId,
+        // 🔴 2026-09-09 (fix de governanca, llm-council): mesmo objeto
+        // regimeAtEntry ja lido acima, so que persistido inteiro em
+        // ai_trades.indicators_snapshot -- ver comentario em
+        // neuralBridge.ts. `as unknown as Record<string, unknown>` porque o
+        // tipo do cache e um objeto TS concreto, nao um Record generico.
+        // 🔴 2026-09-15 (pedido do Cleber -- medir estatisticamente se
+        // marketDirection/setupType correlacionam com resultado real):
+        // sobrescreve marketDirectionConsensus/Agreement com o veredito
+        // calculado AGORA, na propria decisao de abertura
+        // (marketDirectionForGate, ver gate logo acima) -- mais preciso que
+        // o snapshot cacheado de get_mt5_quote (pode ter sido de uma chamada
+        // ligeiramente anterior no mesmo ciclo) porque e literalmente o dado
+        // que decidiu se esta entrada passou ou nao pelo gate. setupType
+        // nunca tinha sido persistido antes -- vem direto do parametro
+        // declarado nesta mesma chamada de open_position, nunca fabricado.
+        indicatorsSnapshot: {
+          ...(regimeAtEntry ? (regimeAtEntry as unknown as Record<string, unknown>) : {}),
+          marketDirectionConsensus: marketDirectionForGate.consensus,
+          marketDirectionAgreement: marketDirectionForGate.agreement,
+          marketDirectionVotesAlta: marketDirectionForGate.votesAlta,
+          marketDirectionVotesBaixa: marketDirectionForGate.votesBaixa,
+          setupType: setupType ?? null,
+          // Separa amostras por versao de regra. 2026-10-07: REVERSAO volta a
+          // exigir padrao de candle confirmado (reversalRule abaixo marca o
+          // pacote de 07/10); a leitura de 1H NAO mudou (a nova reprovou na
+          // validacao com o Cleber).
+          directionRule: "5m-1h-sem-dia-v2",
+          reversalRule: "padrao-candle-confirmado-v2",
+          reversalConfirmation: reversalConfirmationForLog,
+          dayChangePct: lastQuoteSnapshotBySymbol.get(symbol)?.dayChangePct ?? null,
+          // 2026-10-12: posicao no range de 24h (0 = na minima, 1 = na maxima) e distancia ao extremo, pra medir depois se entrar colado no extremo perde.
+          dayRangePosition:
+            dailyHighLowForTarget && dailyHighLowForTarget.dailyHigh > dailyHighLowForTarget.dailyLow
+              ? Number(((fillPrice - dailyHighLowForTarget.dailyLow) / (dailyHighLowForTarget.dailyHigh - dailyHighLowForTarget.dailyLow)).toFixed(3))
+              : null,
+          dayExtremeVetoRule: config.mt5DayExtremeVetoEnabled ? `extremo-${config.mt5DayExtremeVetoRangeFrac}-v1` : `sombra-${config.mt5DayExtremeVetoRangeFrac}`,
+          // 2026-10-13: mesa de operacoes + teste so-LLM. bypassedGates = travas mecanicas
+          // que teriam recusado esta entrada (so preenchido no teste so-LLM).
+          ...deskSnapshot,
+        },
+      });
+      if (!tradeId) return { error: "Falha ao gravar a posicao (ver log do processo)." };
+      // Aprendizado continuo: liga a decisao da mesa ao trade que ela abriu (sem esperar o banco).
+      if (deskDecisionId) void linkDeskDecisionToTrade(deskDecisionId, tradeId);
+      return {
+        trade_id: tradeId,
+        symbol,
+        side,
+        size: sizeInput,
+        confidence,
+        entry_price: realFillPrice,
+        live_execution: brokerPositionId != null,
+        spread_pago: Number(Math.abs(quote.ask - quote.bid).toFixed(6)),
+        lots,
+        amount_usd: amountUsd,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        risco_real_usd: Number(actualRiskUsd.toFixed(2)),
+        retorno_projetado_usd: Number((amountUsd * takeProfitPct).toFixed(2)),
+        retorno_limitado_pelo_teto_de_risco: rewardCappedByRisk,
+        stop_dinamico: !usedFallbackStop,
+        stop_pct: (stopPct * 100).toFixed(3) + "%",
+        take_profit_pct: (takeProfitPct * 100).toFixed(3) + "%",
+        modo_expansao: expansionLive,
+        alvo_degrau_fibonacci: expansionStepLabel,
+        alvo_encolhido_por_baixo_volume: lowVolumeAdjusted,
+        alvo_capado_por_suporte_resistencia: takeProfitCappedBySR,
+        alvo_capado_por_maxima_minima_24h: takeProfitCappedByDailyLevel,
+        alvo_capado_por_amplitude_estreita: takeProfitCappedByRange,
+        stop_capado_por_pavio_real: stopCappedBySR,
+        stop_alargado_por_spread: widenedForSpread,
+        aviso:
+          "stop_loss/take_profit acima sao MECANICOS -- o codigo fecha sozinho quando baterem, voce nao precisa (nem deve tentar) fechar antes por conta propria a nao ser que a tese tenha mudado." +
+          (widenedForSpread
+            ? ` ATENCAO: o stop foi ALARGADO automaticamente pra ${(stopPct * 100).toFixed(3)}% (em vez do normal) porque o spread deste ativo (${quote.spreadPct.toFixed(2)}%) e alto -- um stop mais apertado bateria so pelo custo de operar, sem nenhum movimento real de preco.`
+            : "") +
+          (stopCappedBySR
+            ? ` ATENCAO: o stop foi APERTADO automaticamente pra ${(stopPct * 100).toFixed(3)}% (em vez do stop por ATR) porque o pavio real mais proximo (S/R) esta mais perto -- mirando logo alem dele, nao muito alem.`
+            : "") +
+          (takeProfitCappedBySR
+            ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o suporte/resistencia real esta mais perto -- mirando logo antes do nivel, nao alem dele.`
+            : "") +
+          (takeProfitCappedByDailyLevel
+            ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque a maxima/minima real das ultimas 24h esta mais perto -- bater uma NOVA maxima/minima de 24h e possivel mas pouco provavel sem confirmacao real de rompimento, mirando logo antes do nivel.`
+            : "") +
+          (takeProfitCappedByRange
+            ? ` ATENCAO: o alvo foi ENCOLHIDO automaticamente pra ${(takeProfitPct * 100).toFixed(3)}% (em vez do alvo por ATR) porque o mercado esta em regime ESTREITO -- a amplitude real recente nao sustenta um alvo maior sem romper a estrutura primeiro.`
+            : "") +
+          (rewardCappedByRisk
+            ? ` ATENCAO: o lote foi REDUZIDO em relacao ao alvo de retorno de $${targetRewardUsd.toFixed(2)} porque o lote necessario pra alcanca-lo estouraria o teto de risco desta conta -- retorno projetado real ficou em $${(amountUsd * takeProfitPct).toFixed(2)}, risco seguro sempre vence retorno desejado.`
+            : "") +
+          (isFomcBtcPlay
+            ? ` JOGADA ESPECIAL FOMC_BTC_PLAY (pedido do Cleber, 2026-09-16): stop e alvo fixos em ${config.fomcBtcPlayStopPoints}/${config.fomcBtcPlayTargetPoints} pontos (R:R 1:1, nao pelo ATR), exposicao de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do patrimonio ($${amountUsd.toFixed(2)} de $${balance.toFixed(2)}) -- o teto normal de risco por trade (${(config.mt5MaxRiskPctPerTrade * 100).toFixed(1)}%) foi deliberadamente pulado para esta entrada.`
+            : ""),
+      };
+    }
+
+    case "close_position": {
+      const tradeId = String(input.trade_id || "");
+      const reasoning = String(input.reasoning || "");
+      if (!tradeId) return { error: "trade_id invalido." };
+      // 🔴 2026-09-02 (achado ao vivo, 2a ocorrencia confirmada: exit_price
+      // ja alem do stop_loss registrado no fechamento manual, mesmo padrao
+      // do achado de 02/09 tarde/noite com XETUSD) -- enforceMt5StopsAndTargets
+      // so roda uma vez no INICIO de cada ciclo, mas o ciclo inteiro (varias
+      // chamadas de LLM local via Ollama, cada uma podendo levar dezenas de
+      // segundos) pode durar bem mais que isso ate chegar aqui. Resultado:
+      // o preco real ja tinha furado o stop antes do fechamento manual
+      // avaliar/executar, e a saida discricionaria (AI_SIGNAL) executava na
+      // cotacao JA PIOR que o stop, em vez do stop mecanico pegar a tempo.
+      // Re-rodar a mesma checagem (idempotente -- so fecha o que realmente
+      // ja bateu SL/TP com cotacao fresca) bem aqui, ANTES de avaliar o
+      // fechamento discricionario, fecha a posicao pelo canal mecanico
+      // correto (exit_reason='SL'/'TP', ja na mesma cotacao que seria usada
+      // de qualquer jeito) assim que ela e detectada, em vez de esperar o
+      // proximo ciclo -- reduz a janela de slippage, nao elimina.
+      try {
+        const preCheck = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
+        const mechanicalClose = preCheck.closed.find((c) => c.tradeId === tradeId);
+        if (mechanicalClose) {
+          return {
+            closed: true,
+            mechanical: true,
+            reason: mechanicalClose.reason,
+            exit_price: mechanicalClose.exitPrice,
+            note: `Posicao ja fechada mecanicamente (${mechanicalClose.reason}) ao rechecar stop/alvo com cotacao fresca antes do fechamento manual -- nao ha mais nada pra fechar aqui.`,
+          };
+        }
+      } catch (err) {
+        console.warn("[tools/close_position] falha ao rechecar stop/alvo mecanico, seguindo com fechamento manual:", err instanceof Error ? err.message : err);
+      }
+      // 🔴 2026-09-11 (llm-council convocado pelo Cleber, dado real via SQL:
+      // sessao de 30h, -$32,81 liquido, 44 trades -- 19 fechamentos
+      // discricionarios (AI_SIGNAL) com 42,1% de acerto e -$14,79, incluindo
+      // 8 casos com lucro flutuante real (MFE positivo) devolvido, contra TP
+      // mecanico com 100% de acerto/+$11,74 no mesmo periodo). Veredito
+      // unanime do conselho (5 conselheiros + 5 revisoes cruzadas): suspender
+      // a autoridade de fechamento discricionario por um periodo de teste
+      // fixo -- 5 dias uteis OU 40 trades fechados (o que vier depois),
+      // medindo payoff/win-rate contra esta sessao antes de reabilitar. Isto
+      // NAO desliga close_position inteiro -- a rechecagem mecanica de SL/TP
+      // acima (idempotente) continua rodando sempre; só a avaliacao
+      // discricionaria abaixo (reasoning/regras de >=50% do caminho/lucro
+      // acima do spread/2 fatores de invalidacao) fica bloqueada enquanto
+      // aiSignalDiscretionaryCloseEnabled=false. Flag unica, reversivel em 1
+      // linha (config.ts) quando o periodo de teste terminar.
+      if (!config.aiSignalDiscretionaryCloseEnabled) {
+        return {
+          error:
+            `Fechamento discricionario (AI_SIGNAL) suspenso por decisao do llm-council (veredito unanime, ver CLAUDE.md 2026-09-11): ` +
+            `dado real da sessao anterior mostrou 42,1% de acerto/-$14,79 em fechamentos discricionarios, pior que deixar o stop/alvo ` +
+            `mecanico decidir. Esta posicao NAO sera fechada por aqui -- so por SL/TP/trailing mecanico. Se a tese realmente invalidou, ` +
+            `confie no stop mecanico; ele ja roda a cada ciclo e a cada 5s via watchdog independente.`,
+        };
+      }
+      let positions;
+      try {
+        positions = await listMt5OpenPositions(session.sessionId);
+      } catch (err) {
+        return { error: `Nao foi possivel confirmar a posicao ${tradeId} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Posicao NAO fechada -- tente de novo.` };
+      }
+      const position = positions.find((p) => p.id === tradeId);
+      if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
+      // 🔴 2026-08-30 (pedido do Cleber): mesma camada semantica de
+      // open_position -- close_position nao tem trava por palavra-chave
+      // equivalente hoje, entao esta roda direto aqui, ANTES da logica de
+      // fechamento em si (cotacao/preco de saida). Ver reasoningValidator.ts.
+      const consistencyCheckClose = await checkReasoningConsistency({
+        actionKind: "close_position",
+        symbol: position.symbol,
+        reasoning,
+        realSnapshot: lastQuoteSnapshotBySymbol.get(position.symbol),
+      });
+      if (!consistencyCheckClose.consistent) {
+        return {
+          error:
+            `Contradicao semantica detectada pelo validador: ${consistencyCheckClose.note || "raciocinio parece argumentar contra a propria acao"}. ` +
+            `Posicao NAO fechada. Revise o raciocinio -- se a decisao de fechar ainda fizer sentido, reescreva deixando claro o motivo real.`,
+        };
+      }
+      if (lastQuotedCycleBySymbol.get(position.symbol) !== cycle) {
+        return {
+          error:
+            `Voce ainda nao chamou get_mt5_quote("${position.symbol}") NESTE ciclo -- fechar com dado velho (ou de outro ` +
+            `simbolo) foi exatamente o erro que fechou um BTCUSD lucrativo usando numeros do XETUSD. Chame get_mt5_quote("${position.symbol}") ` +
+            `primeiro pra confirmar tendencia/volume/preco REAIS e atuais deste ativo especifico, depois chame close_position de novo.`,
+        };
+      }
+      const quote = await getMt5Quote(position.symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${position.symbol} -- posicao nao fechada.` };
+      // 🔴 2026-08-29: fechar um LONG e VENDER (recebe o bid); fechar um
+      // SHORT e COMPRAR de volta (paga o ask) -- nao o mid/last tick.
+      const exitPrice = position.side === "LONG" ? quote.bid : quote.ask;
+      // 🔴 2026-08-30 (pedido do Cleber, "nao podemos ter teses fracas" --
+      // generalizado apos achado ao vivo: XETUSD SHORT e BTCXBN SHORT
+      // fechados MANUALMENTE perto do zero a zero, citando sinal
+      // fraco/ambiguo -- em AMBOS os casos o preco voltou a favor da posicao
+      // logo depois do fechamento, confirmado consultando cotacao real
+      // minutos depois. Nao era flip (nenhum tinha tentativa de lado oposto
+      // bloqueada), era so fechamento nervoso em ruido normal de mercado,
+      // nao invalidacao real da tese. Antes esta regra so valia pos-flip-
+      // bloqueado; agora vale pra QUALQUER fechamento manual -- exige que a
+      // posicao ja tenha percorrido pelo menos metade do caminho ate o stop
+      // (tese realmente enfraquecendo) ou ate o alvo (lucro real capturado)
+      // antes de aceitar o fechamento discricionario. Contrapartida
+      // conhecida e aceita pelo Cleber: atrasa tambem cortes rapidos em
+      // teses genuinamente invalidadas cedo -- decisao de politica de risco,
+      // nao bug.
+      if (position.stop_loss != null && position.take_profit != null) {
+        const stopDistance = Math.abs(position.entry_price - position.stop_loss);
+        const targetDistance = Math.abs(position.take_profit - position.entry_price);
+        const adverseMove = position.side === "LONG" ? position.entry_price - exitPrice : exitPrice - position.entry_price;
+        const favorableMove = -adverseMove;
+        const stopConsumedPct = stopDistance > 0 ? adverseMove / stopDistance : 0;
+        const targetConsumedPct = targetDistance > 0 ? favorableMove / targetDistance : 0;
+        // 🔴 2026-09-02 (pedido do Cleber): excecao a regra dos >=50% do
+        // caminho acima -- se a posicao ja estiver em lucro REAL, alem do
+        // custo do proprio spread (nao so "positiva na tela" por um tick
+        // dentro do spread), o fechamento manual e permitido mesmo antes do
+        // alvo. Diferente do caso que gerou a regra original (fechamento
+        // NERVOSO perto do zero a zero, sem lucro nenhum capturado) -- aqui
+        // ja existe ganho real na mao, travar isso so pra forcar esperar o
+        // alvo mecanico e risco sem contrapartida quando a tese enfraquece
+        // no meio do caminho.
+        const spreadAbs = Math.abs(quote.ask - quote.bid);
+        const clearsSpread = favorableMove > spreadAbs;
+        // 🔴 2026-09-02 (pedido direto do Cleber): "inteligencia de operacao"
+        // -- se a IA ve que a tese realmente inverteu (nao ruido ambiguo),
+        // ela tem que poder cortar a perda ANTES de bater o stop cheio,
+        // tomando um prejuizo MENOR que o stop tracado, em vez de esperar
+        // passivamente o stop mecanico bater inteiro. A regra dos >=50% acima
+        // existe pra bloquear fechamento NERVOSO em ruido (confirmado ao vivo
+        // 2x: preco voltou a favor logo depois) -- a diferenca entre "ruido"
+        // e "invalidacao real" e a mesma usada no gate de confluencia de
+        // open_position (ver acima): >=2 fatores tecnicos REAIS (tendencia,
+        // MACD, Estocastico, padrao de candle) apontando CONTRA o lado da
+        // posicao, nao so o reasoning do modelo dizendo que mudou de ideia.
+        // So aplica quando a posicao esta em perda (adverseMove > 0) -- lucro
+        // ja tem o carve-out de clearsSpread acima.
+        let realInvalidationConfirmed = false;
+        let realInvalidationFactors: string[] = [];
+        if (adverseMove > 0) {
+          const timeframeForInvalidation = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+          const [trendForInvalidation, macdForInvalidation, stochasticForInvalidation, candlePatternsForInvalidation] = await Promise.all([
+            getTrendInfo(position.symbol, timeframeForInvalidation),
+            getMacd(position.symbol, timeframeForInvalidation),
+            getSlowStochastic(position.symbol, timeframeForInvalidation),
+            getCandlePatterns(position.symbol, timeframeForInvalidation),
+          ]);
+          if (trendForInvalidation) {
+            const trendAgainst =
+              (position.side === "LONG" && trendForInvalidation.label === "BAIXA") ||
+              (position.side === "SHORT" && trendForInvalidation.label === "ALTA");
+            if (trendAgainst) realInvalidationFactors.push(`tendencia ${trendForInvalidation.label}`);
+          }
+          if (macdForInvalidation) {
+            const macdAgainst =
+              (position.side === "LONG" && macdForInvalidation.label === "BAIXA") ||
+              (position.side === "SHORT" && macdForInvalidation.label === "ALTA");
+            if (macdAgainst) realInvalidationFactors.push(`MACD ${macdForInvalidation.label}`);
+          }
+          if (stochasticForInvalidation) {
+            const stochAgainst =
+              (position.side === "LONG" && stochasticForInvalidation.label === "SOBRECOMPRADO") ||
+              (position.side === "SHORT" && stochasticForInvalidation.label === "SOBREVENDIDO");
+            if (stochAgainst) realInvalidationFactors.push(`Estocastico ${stochasticForInvalidation.label}`);
+          }
+          if (candlePatternsForInvalidation?.bias) {
+            const patternAgainst =
+              (position.side === "LONG" && candlePatternsForInvalidation.bias === "BAIXA") ||
+              (position.side === "SHORT" && candlePatternsForInvalidation.bias === "ALTA");
+            if (patternAgainst) realInvalidationFactors.push(`padrao ${candlePatternsForInvalidation.detected.join("/")}`);
+          }
+          // 🔴 2026-09-07 (achado real via SQL, sessao 6d0ada13...): dos 13
+          // fechamentos AI_SIGNAL nas ultimas 48h, 11 viraram perda (so 2
+          // ganharam, media +$0,34 -- 3x menor que a media do TP mecanico,
+          // +$1,14). A media de perda do AI_SIGNAL (-$0,48) tambem nao ficou
+          // muito menor que a do SL mecanico (-$0,74) -- o corte antecipado
+          // com so 2 fatores nao esta protegendo capital de forma relevante,
+          // so esta cortando ganhadores em potencial antes do alvo. Barra
+          // subida de 2 para 3 (de 4 fatores possiveis) pra exigir reversao
+          // tecnica de verdade, nao ruido/sinal ambiguo, antes de aceitar
+          // fechamento discricionario com posicao ainda pouco movida.
+          realInvalidationConfirmed = realInvalidationFactors.length >= 3;
+        }
+        // 🔴 2026-09-10 (achado real ao vivo, HKG33): cotacao OBSOLETA e um
+        // motivo de seguranca valido pra fechar cedo, diferente de "ruido
+        // normal" -- o stop mecanico (enforceMt5StopsAndTargets) tambem usa
+        // essa mesma cotacao velha, entao a posicao fica sujeita a risco de
+        // gap quando o feed voltar, sem chance de o LLM provar 2+ fatores
+        // tecnicos frescos (a cotacao esta congelada, os indicadores tambem
+        // estao). Bloquear o fechamento aqui so forcava a IA a ficar exposta
+        // a dado que ela mesma sabia ser nao-confiavel.
+        if (
+          stopConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
+          targetConsumedPct < MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE &&
+          !clearsSpread &&
+          !realInvalidationConfirmed &&
+          !quote.stale
+        ) {
+          return {
+            error:
+              `Fechamento manual de ${position.symbol} recusado: a posicao mal se moveu (${(stopConsumedPct * 100).toFixed(0)}% do caminho ate ` +
+              `o stop, ${(targetConsumedPct * 100).toFixed(0)}% do caminho ate o alvo), o lucro flutuante ainda nao supera o custo do spread, e nao ha ` +
+              `pelo menos 2 fatores tecnicos reais confirmando inversao contra a posicao (so ${realInvalidationFactors.length}: ${realInvalidationFactors.join(", ") || "nenhum"}). ` +
+              `Fechar aqui e reagir a ruido normal de mercado ou a um sinal ambiguo, nao a invalidacao real da tese -- confirmado ao vivo 2x hoje ` +
+              `(posicoes fechadas perto do zero a zero cujo preco voltou a favor logo depois). Posicao NAO fechada. So aceita fechamento manual ` +
+              `quando a posicao ja percorreu pelo menos ${(MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE * 100).toFixed(0)}% do caminho ate o stop ` +
+              `(tese realmente enfraquecendo), ate o alvo (lucro real ja capturado), ja estiver com lucro real acima do custo do spread, ou tiver ` +
+              `pelo menos 2 fatores tecnicos reais confirmando inversao (tendencia + MACD/Estocastico/padrao de candle contra o lado) -- antes ` +
+              `disso, deixe o stop/alvo mecanico decidir.`,
+          };
+        }
+        if (realInvalidationConfirmed) {
+          console.log(`[tools.ts] Corte de perda antecipado em ${position.symbol}: invalidacao tecnica real confirmada (${realInvalidationFactors.join(", ")}), prejuizo menor que o stop tracado.`);
+        }
+      }
+      let realExitPrice = exitPrice;
+      // 🔴 2026-09-08 (execucao REAL): fecha a posicao de verdade na
+      // corretora ANTES de gravar o fechamento -- fail-closed, nunca marca
+      // "CLOSED" no banco sem confirmar que fechou de verdade na Infinox.
+      // So tenta fechamento real se ESTA posicao especifica foi ABERTA em
+      // modo LIVE (tem broker_position_id) -- uma posicao DEMO aberta antes
+      // de conectar o broker continua fechando como simulada normalmente,
+      // mesmo que o usuario ja tenha conectado a conta real depois.
+      if (position.broker_position_id) {
+        const liveClose = await executeLiveClose(session.userId, position.broker_position_id);
+        if (!liveClose.success || !Number.isFinite(liveClose.exitPrice)) {
+          return { error: `Fechamento real falhou: ${liveClose.error ?? "erro desconhecido"}. Posicao NAO fechada.` };
+        }
+        realExitPrice = liveClose.exitPrice as number;
+      }
+      const closed = await closeMt5Position({ tradeId, exitPrice: realExitPrice, reasoning });
+      if (!closed) return { error: "Falha ao fechar a posicao (ver log do processo)." };
+      return { trade_id: tradeId, exit_price: realExitPrice };
+    }
+
+    // 🔴 2026-09-02 (pedido do Cleber -- "agente de risco interno": ganhar
+    // muito, perder pouco, dentro da mesma taxa de acerto). Pyramiding
+    // controlado: so amplia posicao ja em lucro REAL (acima do spread), com
+    // pelo menos 1 fator tecnico real ainda a favor (nao esgotado), nunca
+    // com exaustao real contra o proprio lado. Sizing usa a MESMA formula de
+    // risco de open_position, capado pelo notional do lote original (nunca
+    // reforça mais do que a entrada inicial), e o stop e movido pra
+    // breakeven-ou-melhor no mesmo movimento -- travando o ganho antes de
+    // aumentar exposicao, nunca reabrindo risco sobre o lote que ja ganhava.
+    case "increase_position": {
+      const tradeId = String(input.trade_id || "");
+      const reasoning = String(input.reasoning || "");
+      if (!tradeId) return { error: "trade_id invalido." };
+      // 🔴 2026-09-08 (execucao REAL, escopo reduzido de proposito): pyramiding
+      // real exigiria enviar uma 2a ordem de mercado E fazer a media de preco/
+      // stop bater com o que a corretora realmente tem (2 posicoes ou 1
+      // posicao ampliada, dependendo do modo de netting da conta) -- risco de
+      // bug de reconciliacao alto demais pra este primeiro trilho de execucao
+      // real. Bloqueado explicitamente em LIVE; open_position/close_position
+      // continuam disponiveis normalmente.
+      if (await isLiveExecutionActive(session.userId)) {
+        return { error: "increase_position (pyramiding) nao esta disponivel em execucao real ainda -- use open_position/close_position." };
+      }
+
+      try {
+        const preCheck = await enforceMt5StopsAndTargets(session.sessionId, getMt5Quote);
+        const mechanicalClose = preCheck.closed.find((c) => c.tradeId === tradeId);
+        if (mechanicalClose) {
+          return {
+            error: `Posicao ja foi fechada mecanicamente (${mechanicalClose.reason}) antes deste reforco poder ser aplicado -- nao ha mais nada pra ampliar.`,
+          };
+        }
+      } catch (err) {
+        console.warn("[tools/increase_position] falha ao rechecar stop/alvo mecanico:", err instanceof Error ? err.message : err);
+      }
+
+      let positions;
+      try {
+        positions = await listMt5OpenPositions(session.sessionId);
+      } catch (err) {
+        return { error: `Nao foi possivel confirmar a posicao ${tradeId} (falha de rede/Supabase: ${err instanceof Error ? err.message : err}). Reforco NAO aplicado -- tente de novo.` };
+      }
+      const position = positions.find((p) => p.id === tradeId);
+      if (!position) return { error: `Posicao ${tradeId} nao encontrada entre as abertas.` };
+
+      if (position.pyramid_adds_count >= MAX_PYRAMID_ADDS) {
+        return {
+          error: `${position.symbol} ja recebeu o maximo de ${MAX_PYRAMID_ADDS} reforcos permitidos nesta posicao. Nenhum reforco adicional -- deixe o stop/alvo mecanico (ja travado a favor pelos reforcos anteriores) decidir a partir daqui.`,
+        };
+      }
+      if (position.stop_loss == null) {
+        return { error: `Posicao ${position.symbol} sem stop_loss registrado -- nao da pra calcular o risco do reforco com seguranca. Reforco NAO aplicado.` };
+      }
+      if (lastQuotedCycleBySymbol.get(position.symbol) !== cycle) {
+        return {
+          error: `Voce ainda nao chamou get_mt5_quote("${position.symbol}") NESTE ciclo -- reforcar com dado velho (ou de outro simbolo) e o mesmo erro ja catalogado pra close_position. Chame get_mt5_quote("${position.symbol}") primeiro, depois chame increase_position de novo.`,
+        };
+      }
+      const quote = await getMt5Quote(position.symbol);
+      if (!quote) return { error: `Sem cotacao real disponivel agora para ${position.symbol} -- reforco NAO aplicado.` };
+      if (quote.stale) {
+        return { error: `Cotacao de ${position.symbol} esta OBSOLETA (tick de ${quote.tickAgeSeconds}s de idade). Reforco NAO aplicado.` };
+      }
+      if (Number.isFinite(quote.spreadPct) && quote.spreadPct > SPREAD_BLOCK_PCT) {
+        return { error: `Spread de ${position.symbol} esta em ${quote.spreadPct.toFixed(2)}%, acima do teto de ${SPREAD_BLOCK_PCT}%. Reforco NAO aplicado.` };
+      }
+
+      const fillPrice = position.side === "LONG" ? quote.ask : quote.bid;
+      const spreadAbs = Math.abs(quote.ask - quote.bid);
+      const favorableMove = position.side === "LONG" ? fillPrice - position.entry_price : position.entry_price - fillPrice;
+      if (!(favorableMove > spreadAbs)) {
+        return {
+          error:
+            `Reforco de ${position.symbol} recusado: a posicao nao esta em lucro real acima do custo do spread ` +
+            `(movimento a favor: ${favorableMove.toFixed(6)}, spread: ${spreadAbs.toFixed(6)}). Reforcar aqui seria aumentar risco sem ` +
+            `ganho ja capturado -- increase_position so amplia posicao GANHANDO de verdade, nunca pra "recuperar" ou "dobrar a aposta".`,
+        };
+      }
+
+      const timeframeForIncrease = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const [trendForIncrease, macdForIncrease, stochasticForIncrease, candleForIncrease] = await Promise.all([
+        getTrendInfo(position.symbol, timeframeForIncrease),
+        getMacd(position.symbol, timeframeForIncrease),
+        getSlowStochastic(position.symbol, timeframeForIncrease),
+        getCandlePatterns(position.symbol, timeframeForIncrease),
+      ]);
+      const alignedFactors: string[] = [];
+      if (trendForIncrease) {
+        const trendAligned = (position.side === "LONG" && trendForIncrease.label === "ALTA") || (position.side === "SHORT" && trendForIncrease.label === "BAIXA");
+        if (trendAligned) alignedFactors.push(`tendencia ${trendForIncrease.label}`);
+      }
+      if (macdForIncrease) {
+        const macdAligned = (position.side === "LONG" && macdForIncrease.label === "ALTA") || (position.side === "SHORT" && macdForIncrease.label === "BAIXA");
+        if (macdAligned) alignedFactors.push(`MACD ${macdForIncrease.label}`);
+      }
+      if (candleForIncrease?.bias) {
+        const patternAligned = (position.side === "LONG" && candleForIncrease.bias === "ALTA") || (position.side === "SHORT" && candleForIncrease.bias === "BAIXA");
+        if (patternAligned) alignedFactors.push(`padrao ${candleForIncrease.detected.join("/")} (bias ${candleForIncrease.bias})`);
+      }
+      // Estocastico em extremo NO SENTIDO do proprio movimento e sinal de
+      // exaustao (nao de continuidade) -- ao contrario do gate de abertura,
+      // aqui ele NUNCA soma como fator a favor, e bloqueia o reforco se
+      // apontar exaustao contra o lado (mesmo com lucro real e outros
+      // fatores alinhados -- perseguir o topo/fundo com posicao maior e
+      // exatamente o oposto de "perder pouco, ganhar muito").
+      let exhaustionAgainst = !!(
+        stochasticForIncrease &&
+        ((position.side === "LONG" && stochasticForIncrease.label === "SOBRECOMPRADO") ||
+          (position.side === "SHORT" && stochasticForIncrease.label === "SOBREVENDIDO"))
+      );
+      // 🔴 2026-10-14 (regra do Cleber, sacramentada): em EXPANSAO de Fibonacci a favor da posicao, o estocastico
+      // fica colado no extremo e isso NAO e exaustao (METODO_DA_CASA.md) -- esse bloqueio impedia todo reforco
+      // justamente no corredor. Com o corredor (15m, ou 1H quando o 15m esgota) a favor e com degrau livre, o
+      // estocastico no TIMEFRAME DO CORREDOR so precisa VALIDAR (venda: %K abaixo de %D; compra: %K acima de %D,
+      // ou seja, o repique contra esta descartado). O corredor entra como fator a favor. As demais travas
+      // (lucro real > spread, teto de reforcos, stop em breakeven, exposicao correlacionada) seguem intactas.
+      // Desliga com MT5_EXPANSION_LIVE=false (volta ao bloqueio por exaustao).
+      if (process.env.MT5_EXPANSION_LIVE !== "false") {
+        try {
+          const fibInc = await getFibLive(position.symbol);
+          const cor = fibInc?.principal ?? null;
+          const aFavorCorredor =
+            !!cor && cor.emExpansao && !cor.redesenhar && !!cor.proximoDegrau &&
+            ((cor.direcao === "BAIXA" && position.side === "SHORT") || (cor.direcao === "ALTA" && position.side === "LONG"));
+          if (cor && aFavorCorredor && cor.proximoDegrau) {
+            const stochCor = await getSlowStochastic(position.symbol, cor.tf as import("./atr.js").SupportedTimeframe);
+            const validado = !!stochCor && (position.side === "SHORT" ? stochCor.k <= stochCor.d : stochCor.k >= stochCor.d);
+            if (!validado) {
+              return {
+                error:
+                  `Reforco de ${position.symbol} recusado: ha corredor de Fibonacci a favor (${cor.tf}), mas o Estocastico do ${cor.tf} ainda esta em modo ` +
+                  `${position.side === "SHORT" ? "de compra (%K acima de %D)" : "de venda (%K abaixo de %D)"} -- o repique contra ainda NAO foi descartado. ` +
+                  `Espere o cruzamento a favor (metodo do Cleber: o estocastico valida que nao vai repicar).`,
+              };
+            }
+            exhaustionAgainst = false;
+            alignedFactors.push(`corredor de Fibonacci ${cor.direcao} (${cor.tf}), proximo degrau ${(cor.proximoDegrau.ratio * 100).toFixed(1)}% em ${cor.proximoDegrau.price.toFixed(2)}, estocastico validando`);
+            console.log(`[MODO-EXPANSAO] ${position.symbol} ${position.side}: reforco liberado pelo corredor ${cor.tf} (estocastico K ${stochCor?.k} / D ${stochCor?.d})`);
+          }
+        } catch (err) {
+          console.warn(`[MODO-EXPANSAO] reforco: leitura do corredor falhou, segue a regra tradicional: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (alignedFactors.length < 1 || exhaustionAgainst) {
+        return {
+          error:
+            exhaustionAgainst
+              ? `Reforco de ${position.symbol} recusado: Estocastico em extremo (${stochasticForIncrease?.label}) sugere exaustao do proprio movimento -- reforcar aqui e perseguir o topo/fundo, nao aproveitar tendencia real. Posicao mantida como esta, sem reforco.`
+              : `Reforco de ${position.symbol} recusado: nenhum fator tecnico real (tendencia/MACD/padrao de candle) ainda alinhado com o lado ${position.side} -- o sinal pode ja ter perdido forca, mesmo com lucro flutuante. Posicao mantida como esta, sem reforco.`,
+        };
+      }
+
+      const accountBalance = await getMt5AccountBalance(session.sessionId);
+      const allocated = session.userConfig?.allocatedCapitalUsd;
+      const balance = allocated != null ? Math.min(allocated, accountBalance) : accountBalance;
+      const baseRiskPct = session.userConfig?.riskPerTradePct != null ? session.userConfig.riskPerTradePct / 100 : config.mt5RiskPctPerTrade;
+      // 🔴 2026-09-05: mesma compensacao de risco% do open_position (ver ali) --
+      // reforco (pyramiding) tambem deve carregar a mao no fim de semana.
+      const weekendCompensatedRiskPct = isWeekendMode()
+        ? baseRiskPct * config.mt5RiskPctPerTradeWeekendMultiplier
+        : baseRiskPct;
+      // 🔴 2026-10-15: mesmo escalonador do open_position -- reforço também opera menor
+      // enquanto o E[R] não se prova. Desligado => 1.0x.
+      const pyramidRiskScale = (await getRiskScale()).scale;
+      const stopDistancePct = Math.abs(fillPrice - position.stop_loss) / fillPrice;
+      const riskUsd = balance * weekendCompensatedRiskPct * pyramidRiskScale;
+      let lots = stopDistancePct > 0 ? riskUsd / stopDistancePct / (LOT_SIZE[position.symbol] * fillPrice) : 0;
+      lots = Math.min(lots, config.mt5SafetyMaxLots);
+      if (session.userConfig?.maxLotsPerTrade != null) lots = Math.min(lots, session.userConfig.maxLotsPerTrade);
+      lots = Math.round(lots / MIN_LOTS) * MIN_LOTS;
+      if (lots < MIN_LOTS) lots = MIN_LOTS;
+      let addAmountUsd = lots * LOT_SIZE[position.symbol] * fillPrice;
+      // Teto extra de seguranca, independente do calculo de risco acima:
+      // o reforco nunca pode ser MAIOR que o lote original -- pyramiding
+      // aumenta exposicao gradualmente, nunca dobra ou mais de uma vez so.
+      if (addAmountUsd > position.quantity) {
+        addAmountUsd = position.quantity;
+      }
+      const actualRiskUsd = addAmountUsd * stopDistancePct;
+      const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
+      if (actualRiskUsd > maxRiskUsd) {
+        return {
+          error: `Risco minimo possivel para reforcar ${position.symbol} ($${actualRiskUsd.toFixed(2)}) excede o teto de risco por trade desta conta ($${maxRiskUsd.toFixed(2)}). Reforco NAO aplicado.`,
+        };
+      }
+
+      const correlatedGroup = getCorrelatedGroup(position.symbol);
+      if (correlatedGroup.length > 1) {
+        const sameSideGroupExposure = positions
+          .filter((p) => correlatedGroup.includes(p.symbol) && p.side === position.side)
+          .reduce((sum, p) => sum + Number(p.quantity), 0);
+        const projectedExposure = sameSideGroupExposure + addAmountUsd;
+        if (projectedExposure > config.mt5MaxCorrelatedNotionalUsd) {
+          return {
+            error:
+              `Reforco de ${position.symbol} ($${addAmountUsd.toFixed(0)}) levaria a exposicao ${position.side} combinada do grupo correlacionado ` +
+              `(${correlatedGroup.join("/")}) de $${sameSideGroupExposure.toFixed(0)} para $${projectedExposure.toFixed(0)}, acima do teto ` +
+              `($${config.mt5MaxCorrelatedNotionalUsd}). Reforco NAO aplicado.`,
+          };
+        }
+      }
+
+      // Trava o stop pra breakeven-ou-melhor no MESMO movimento -- o lote
+      // original nunca volta a ficar exposto por causa deste reforco.
+      // Usa o entry_price ORIGINAL (pre-blend) + o custo do proprio spread
+      // como piso de protecao real, nao so o preco cravado.
+      const rawCandidateStop = position.side === "LONG"
+        ? Math.max(position.stop_loss, position.entry_price + spreadAbs)
+        : Math.min(position.stop_loss, position.entry_price - spreadAbs);
+      // 🔴 2026-09-10 (achado real ao vivo, UKOUSD): o candidato acima usa o
+      // entry ORIGINAL, mas o preco medio ponderado da posicao (calculado
+      // depois, em increaseMt5Position/neuralBridge.ts) pode ficar ABAIXO
+      // dele quando o reforco preenche a um preco pior (comum: reforcar em
+      // alta numa LONG ja favoravel) -- um stop LONG acima do proprio custo
+      // medio da posicao combinada trava PERDA GARANTIDA, nao breakeven.
+      // Caso real: entry original 101.839, reforco preencheu a 102.033,
+      // stop calculado (so com o original) ficou em 101.954 -- ACIMA do
+      // preco medio ponderado real (101.936). Fechou por stop segundos
+      // depois com prejuizo liquido nas duas pernas somadas. Fix: replica
+      // aqui a mesma media ponderada por notional que increaseMt5Position
+      // vai gravar, e nunca deixa o stop passar do lado errado dela (nunca
+      // afrouxa o stop ja travado por um reforco anterior).
+      const blendedEntryPreview = (position.entry_price * position.quantity + fillPrice * addAmountUsd) / (position.quantity + addAmountUsd);
+      const safeCap = position.side === "LONG" ? blendedEntryPreview - spreadAbs : blendedEntryPreview + spreadAbs;
+      const newStopLoss = position.side === "LONG"
+        ? Math.min(rawCandidateStop, Math.max(safeCap, position.stop_loss))
+        : Math.max(rawCandidateStop, Math.min(safeCap, position.stop_loss));
+
+      const ok = await increaseMt5Position({
+        tradeId,
+        addAmountUsd,
+        addFillPrice: fillPrice,
+        newStopLoss,
+        reasoningAppend: reasoning,
+      });
+      if (!ok) return { error: "Falha ao ampliar a posicao (ver log do processo)." };
+      return {
+        trade_id: tradeId,
+        symbol: position.symbol,
+        add_amount_usd: Number(addAmountUsd.toFixed(2)),
+        add_fill_price: fillPrice,
+        new_stop_loss: newStopLoss,
+        fatores_confirmando: alignedFactors,
+        reforcos_usados: position.pyramid_adds_count + 1,
+        reforcos_maximo: MAX_PYRAMID_ADDS,
+        aviso: "Stop movido para breakeven-ou-melhor -- o lote original nao volta a ficar exposto por causa deste reforco.",
+      };
+    }
+
+    case "place_market_order": {
+      const symbol = String(input.symbol || "").toUpperCase();
+      const side = input.side as string;
+      const notional = Number(input.notional_usd);
+      if (!symbol) return { error: "symbol invalido." };
+      if (side !== "buy" && side !== "sell") return { error: "side precisa ser 'buy' ou 'sell'." };
+      if (!Number.isFinite(notional) || notional <= 0) return { error: "notional_usd invalido." };
+      if (notional > config.maxOrderUsd) {
+        return {
+          error: `Valor pedido ($${notional}) excede o teto de seguranca por ordem ($${config.maxOrderUsd}). Ordem bloqueada.`,
+        };
+      }
+      const order = await placeMarketOrder(symbol, side, notional);
+      const fillPrice = notional / Number(order.executed_qty || notional);
+      const reasoning = String(input.reasoning || "");
+      if (side === "buy") {
+        await mirrorBuy({ symbol, priceUsd: fillPrice, notionalUsd: notional, reasoning });
+      } else {
+        await mirrorSell({ symbol, priceUsd: fillPrice, notionalUsd: notional, reasoning });
+      }
+      return order;
+    }
+
+    case "check_balance": {
+      const eth = await getBalanceEth();
+      return { balance_eth: eth, address: account.address, network: "Base Sepolia (testnet, sem valor real)" };
+    }
+
+    case "request_faucet_info": {
+      return {
+        message:
+          "Este agente nao pode se autofinanciar sozinho. Um humano precisa visitar um faucet " +
+          "e mandar ETH de testnet manualmente para o endereco abaixo.",
+        address: account.address,
+        faucets: [
+          "https://www.alchemy.com/faucets/base-sepolia",
+          "https://faucet.quicknode.com/base/sepolia",
+        ],
+      };
+    }
+
+    case "send_test_transaction": {
+      const amountEth = Number(input.amount_eth);
+      if (!Number.isFinite(amountEth) || amountEth <= 0) {
+        return { error: "amount_eth invalido." };
+      }
+      if (amountEth > config.maxTxValueEth) {
+        return {
+          error: `Valor pedido (${amountEth} ETH) excede o teto de seguranca (${config.maxTxValueEth} ETH). Transacao bloqueada.`,
+        };
+      }
+      const to = (input.to_address as string | undefined) || account.address;
+      const hash = await walletClient.sendTransaction({
+        to: to as `0x${string}`,
+        value: parseEther(amountEth.toFixed(18)),
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      return {
+        tx_hash: hash,
+        status: receipt.status,
+        to,
+        amount_eth: amountEth,
+        memo: input.memo,
+        explorer_url: `https://sepolia.basescan.org/tx/${hash}`,
+      };
+    }
+
+    case "log_thought": {
+      return { logged: true };
+    }
+
+    case "stop": {
+      return { stopped: true, reason: input.reason };
+    }
+
+    default:
+      return { error: `Ferramenta desconhecida: ${name}` };
+  }
+}

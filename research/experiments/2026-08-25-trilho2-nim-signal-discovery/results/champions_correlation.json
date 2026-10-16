@@ -1,0 +1,22 @@
+[
+  {
+    "hypothesis": "CorrCrossRegime_5m_BTC",
+    "trainTrades": 407,
+    "holdoutTrades": 190,
+    "holdoutWinRate": 0.5210526315789473,
+    "holdoutNetPercentTotal": -3.9406968353063454,
+    "holdoutAvgNetPercent": -0.02074050965950708,
+    "holdoutSharpe": -0.13573393658576122,
+    "dsr": 0.005102976214518107
+  },
+  {
+    "hypothesis": "CorrCrossRegime_1h_XAGUSD",
+    "trainTrades": 143,
+    "holdoutTrades": 50,
+    "holdoutWinRate": 0.62,
+    "holdoutNetPercentTotal": 4.3260777309448475,
+    "holdoutAvgNetPercent": 0.08652155461889695,
+    "holdoutSharpe": 0.06455906885321606,
+    "dsr": 0.5350589846437123
+  }
+]

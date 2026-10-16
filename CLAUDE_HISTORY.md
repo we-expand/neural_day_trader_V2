@@ -3179,3 +3179,238 @@ decidido:
   `scripts/generate-missing-contract-specs.mjs`. Handoff completo:
   `SESSAO_2026-08-03_PNL_E_CONTRACT_SPECS.md` (histórico anterior, já
   superado: `SESSAO_2026-08-03_BOLETA_ORDEM_MANUAL.md`).
+
+# Arquivado em 2026-08-25 — trim de itens resolvidos do CLAUDE.md
+
+> O CLAUDE.md tinha crescido de novo com handoffs completos de itens já
+> resolvidos entre 08-17 e 08-24, violando a própria regra de manutenção do
+> arquivo. Texto abaixo é cópia literal do que foi cortado — resumido pra
+> 1-2 linhas no CLAUDE.md, com link de volta pra cá quando o detalhe
+> importar.
+
+## 2026-08-24: Order Block Fade testado — sem edge, achado de método relevante
+
+Cleber pediu pra testar como estratégia a lógica do indicador de terceiro
+"Order Block Finder" (MT5) — fade contra a zona de order block (SMC), regra
+fechada com ele via pergunta. A detecção já existia no produto
+(`src/app/services/smc/orderBlocks.ts`, só exibição visual até então, nunca
+ligada a decisão de trade). Resultado: **1 de 21 séries testadas** (9
+ativos × {15m,1h}, custo real, split treino/holdout com embargo, DSR) fechou
+positiva líquida — taxa de acerto média 32,3%, muito abaixo do necessário
+pra qualquer R:R≥1. Sem edge comprovado, mesmo padrão da busca sistemática
+de julho fechada em `AI_BRAIN_SPEC.md`. Achado de processo relevante: a
+primeira rodada do backtest deu resultado forte positivo por um bug de
+look-ahead na própria simulação (zona podia ser marcada "mitigada" antes do
+candle que a confirma existir) — corrigido, resultado colapsou pra "sem
+edge". Também documentado, não corrigido em produção: `detectStructureEvents`
+(`marketStructure.ts`) tem viés de look-ahead de ~2 candles (usa índice bruto
+do swing, não a confirmação real do fractal) — não afeta a exibição visual
+de forma perceptível, mas afetaria qualquer uso do motor pra decisão de
+trade. Detalhe completo:
+`research/experiments/2026-08-24-order-block-fade/verdict.md`.
+
+## 2026-08-24: Jarvis (segundo cérebro do motor) implementado e em produção
+
+Os 4 passos de implementação desenhados em 2026-08-23 (schema → Edge
+Function → deploy → cron) foram todos fechados e confirmados com dado real
+no mesmo dia seguinte: 6 tabelas `jarvis_*` aplicadas,
+`supabase/functions/jarvis/index.ts` deployado (`--no-verify-jwt`) e
+testado via curl direto contra o Supabase real (não só `deno check`) —
+resultado: 7 trades/6h, win rate 28,57%, o motor de guardrails funcionou
+ponta a ponta (regra pediu -50% em `position_size`, guardrail clampou pra
+-25% conforme `jarvis_guardrails`, autoaplicou como `ACTIVE`/
+`system_auto`). Cron `jarvis-analysis-6h` agendado e ativo
+(`0 */6 * * *`, jobid 8). Detalhe completo:
+`SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md` seção 7.
+
+## [RESOLVIDO 2026-08-24] Custo de execução não cobrado — fix commitado e deployado
+
+Achado em 2026-08-23: 135/135 trades de 17-23/08 fecharam com
+`commission: 0` e PnL calculado sem spread/slippage — o COST_GATE recusava
+trade pelo custo real, mas a execução não cobrava esse mesmo custo. Impacto
+medido: PnL bruto reportado −US$14,12, custo invisível US$14,83 (105% do
+|PnL bruto|), resultado real ~−US$28,95. Commit `106b8c83f` (módulo
+`ExecutionCost.ts` compartilhado cliente+servidor). Confirmado ao vivo em
+produção em 2026-08-24: o `ai-runner` foi redeployado (versão 48, ~12:00
+UTC) e passou a gravar `commission > 0` de fato a partir desse horário —
+antes das 12h UTC, 100% dos trades do dia tinham `commission: 0`; depois,
+todos passaram a ter comissão real lançada.
+
+## Fase de pesquisa fechada em 2026-08-23
+
+Calendário/macro (seções 3-4 do mesmo documento): "zero efeito direcional
+utilizável, ganho real é redução de custo por horário/janela de risco".
+Posicionamento/fluxo e TradingAgents/ML (seção 5): nenhum edge intraday
+comprovado, TradingAgents não aplicável por vazamento paramétrico de LLM.
+Relatórios:
+`research/experiments/2026-08-23-custo-nao-cobrado-e-poder/posicionamento-e-fluxo.md`
+e
+`research/experiments/2026-08-23-custo-nao-cobrado-e-poder/tradingagents-e-ml.md`.
+
+## 2026-08-21: log de PnL em $ + fix de import map quebrado
+
+Log de PnL em $ mais explícito no fechamento de posição do `ai-runner`
+(`GANHO de +$X.XX` / `PERDA de -$X.XX`, em vez do `pnl=X.XX` cru) + bug de
+deploy corrigido: o import map do runner
+(`supabase/functions/ai-runner/deno.json`) estava desde a sessão anterior
+sem uma entrada nova (`NewsCurrencyRelevance.ts`), quebrando qualquer
+deploy da function — corrigido e confirmado em produção. Detalhe:
+`SESSAO_2026-08-21_LOG_PNL_E_FIX_IMPORT_MAP.md`.
+
+## 2026-08-21: gate de notícias/VIX do `ai-runner` era stub morto — corrigido
+
+Nunca bloqueava nada no motor de produção real, só no browser. Junto:
+fallback de VIX fabricado removido do caminho de decisão, gate de notícias
+virou por-moeda-do-ativo (não mais blackout cego), e o card "IA Preditiva"
+do Dashboard (era placeholder, num arquivo nem roteado) virou "Viabilidade
+de Execução" com dado real. Detalhe completo:
+`SESSAO_2026-08-21_GATE_DE_NOTICIAS_MOTOR_REAL.md`.
+
+## 2026-08-21: "Parar IA" não fecha mais posições abertas à força
+
+Só impede abrir posição nova (sessão sai de `RUNNING`); posições já
+abertas seguem monitoradas até TP/SL pelo watchdog do `ai-runner` (que já
+existia desde 2026-08-19). Corrige o efeito colateral onde parar a IA
+cortava trades com R:R alto no preço do instante, antes de atingir o alvo
+— o motivo raiz do "empatou tudo" que o Cleber reportou depois de uma
+sessão longa. Ver `useApexLogic.ts` (`stopLogic`, ~linha 1877) e commit
+`584e6a3ff`.
+
+## Sessão 2026-08-17/18 — primeira execução real 24/7
+
+Três bugs críticos achados com dado de produção e corrigidos (`RISK_GATE`
+comparando equity contra balance; preço 0 do feed fechando posição a preço
+zero e fabricando −$2.464 numa conta de $82, que envenenou o health check
+e disparou Safe Mode com "−2464,72%"; PnL divergente entre Dashboard e AI
+Trader por fórmula duplicada ignorando `pointValue`). Reset passou a ser
+exclusivo de DEMO. Experimento em produção: preset 5 com R:R 1:1,5 →
+**1:3**, não validado por backtest — reverter se a taxa de acerto cair.
+Relato completo, com evidência e SQL de correção do dado:
+`SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md`.
+
+## Itens resolvidos em 2026-08-17 — redesenho visual da curva de equity
+
+- **AI Trader** (`src/app/components/tools/EquityChart.tsx`, usado em
+  `AITrader.tsx`) — linha mais fina com glow sutil, gradiente suave, grid
+  quase invisível, linha de referência no saldo inicial, badge de máx/mín e
+  tooltip com blur. Nota: esse gráfico só aparece se `showEquityChart`
+  estiver ligado (default `false`, não há toggle visível na UI — só carrega
+  `true` via workspace salvo).
+- **Dashboard** (`src/app/components/dashboard/MiniEquityChart.tsx`, card
+  "Curva de Equity" ciano em `MarketScoreBoard.tsx`) — era o componente que
+  o Cleber realmente queria melhorado. Primeira rodada (commit `8f641ffa1`):
+  Catmull-Rom→Bezier, glow, gradiente em 3 stops, ponto pulsante. Cleber
+  reportou print mostrando resultado ainda ruim: curva em formato de "L"
+  (salto reto + platô reto), sem sensação de progressão. Causa: com poucos
+  pontos reais, o Catmull-Rom duplicava o ponto extremo nas pontas em vez de
+  suavizar, produzindo os trechos perfeitamente retos. Segunda rodada
+  (mesma sessão): suavização por reflexão nas pontas, traço mais fino (1.1
+  vs 1.5) com glow mais sutil (blur 0.9 vs 1.4), gradiente de opacidade ao
+  longo do próprio traço, grid minimalista de 3 linhas quase invisíveis,
+  linha-base tracejada no valor inicial da sessão, animação de
+  stroke-dashoffset ao montar. Cleber perguntou se a curva "contém variação
+  orgânica" — resposta: não fabricada (proibido pela convenção do projeto),
+  a curva só reflete `equityHistory` real. Fix aplicado em vez disso:
+  amostragem de equity em `useApexLogic.ts` (linhas 401-402) reduzida de
+  10s para 3s por ponto (janela mantida em ~30min, `MAX_EQUITY_POINTS`
+  subiu de 180 para 600), pra capturar variação real que se perdia entre
+  amostras.
+
+## Bug corrigido: card "Curva de Equity" travado em "coletando dados..."
+
+Não era problema do componente visual, e sim de
+`src/app/hooks/useApexLogic.ts` (loop "UNREALIZED PNL LOOP"): existia um
+`if (activeOrdersRef.current.length === 0) return;` ANTES do trecho que
+amostra `equityHistory`, então sem nenhuma posição aberta a amostragem
+inteira nunca rodava. Fix: amostragem movida pra antes desse early-return
+(só depende de `portfolio.equity`, que sempre existe). Commit `6707da9b1`.
+
+## [RESOLVIDO 2026-08-04] Múltiplas instâncias de indicador no gráfico
+
+Limitação conhecida: trocar posição (overlay/painel) de um indicador com
+múltiplas instâncias só preserva a 1ª. Detalhe em
+`SESSAO_2026-08-04_MULTIPLAS_INSTANCIAS_INDICADOR.md`.
+
+## [RESOLVIDO 2026-08-18] Programa de Parceiros IB — B1/B2/B3 completos
+
+Programa completo com modelo real: comissão = alíquota (15/20/25/30%,
+vitalícia) × margem de contribuição do indicado, base que torna impossível
+pagar mais do que se recebe (≥70% retenção garantida). B1 — Ledger
+`broker_order_executions` e migration aplicados. B2 — Captura `?ref=` no
+cadastro, cria `partner_referrals` (commit `db55812a6`). B3 — Marcos do
+funil: `broker_linked_at` (POST /broker/credentials), `first_trade_at`
+(POST /broker/execute), gravados em `partner_referrals` (commit
+`748923b99`). Decisão v1: "comissão só sobre execução"
+(subscription_revenue/marketplace_revenue = 0 enquanto não existir fonte
+real). Detalhe: `SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md`.
+
+## [RESOLVIDO parcialmente 2026-08-18] Safe Mode em DEMO não protegia nada de verdade
+
+Achado do risco estrutural (cliente e servidor operam em paralelo, cada um
+com lógica própria de fechar posição): confirmado com dado ao vivo do
+Supabase que o Safe Mode do navegador (estado só de `localStorage`,
+inexistente no `ai-runner`) não impedia o servidor de continuar abrindo
+posição — `cron.job` `ai-runner-tick` ativo, sessão DEMO `RUNNING`, posição
+nova (`XAUAUD LONG`) aberta pelo servidor 1 minuto depois do Safe Mode já
+ativo no client. Decisão do Cleber: matar Safe Mode em DEMO (usuário
+precisa ver a IA operando pra querer depositar), manter em LIVE. Fix
+aplicado em `useApexLogic.ts` (Health Check, ~linha 1039): sai cedo sem
+avaliar issues/disparar toast quando `executionMode === 'DEMO'`. Não
+resolve o risco estrutural mais amplo (dupla decisão cliente/servidor em
+LIVE) — decisão sobre isso ainda pendente. Detalhe:
+`SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md`.
+
+## [RESOLVIDO E CONFIRMADO EM PRODUÇÃO 2026-08-20/21] Preço/variação de cripto errados
+
+Cleber reportou ETH mostrando ~18% "hoje" (parecia implausível), depois
+confirmou BTC também. Investigação achou 3 causas independentes, todas
+corrigidas e verificadas ao vivo:
+(1) `ETHUSD`/`MATICUSD`/`LTCUSD`/`BCHUSD`/`BTCUSDCRP` presos na Binance
+direta client-side, morta desde 2026-07-10 (CORS) — caíam em cache sem TTL.
+Fix: rota nova server-side `/binance-ticker/:symbol`, sem fabricar dado em
+falha (rota legada `/real/binance/:symbol` com fallback fabricado
+hardcoded documentada como "não usar", só o `ApiTester.tsx` de debug a
+chama).
+(2) `ChartView.tsx`: em timeframes 1D/1W a busca do candle de abertura do
+dia nunca casava (velas D1 da Binance começam à 00:00 UTC, filtro
+comparava com 06:00 UTC) e caía em `candles[0]` — a vela mais antiga de
+todo o histórico carregado (até ~5 anos), rotulando variação de
+dias/semanas/anos como "hoje". Fix: usa a vela mais próxima do horário de
+reset.
+(3) Metodologia de variação de cripto no backend (`/mt5-prices`) era D1
+(fechamento do broker às 21:00 UTC), divergindo muito da rolagem 24h que
+Binance/CoinGecko mostram — medido ao vivo: BTC +4,11% (D1) vs +10,89%
+(Binance rolagem 24h) no mesmo minuto. Decisão do Cleber: cripto passa pra
+rolagem 24h real (velas 1h, clamp de sanidade ±50%); CFD tradicional
+continua em D1. `CRYPTO_CFD_SYMBOLS` no backend sincronizado com
+`brokerRegistry.ts` — manter os dois sincronizados manualmente se um
+símbolo novo for adicionado.
+Follow-up 2026-08-21: achado ao investigar dado contaminado de SPX500
+(trade real com entry 6010,13/exit 7536,86, +25,4%, PnL -$3.810, jul/2026)
+que nem client nem servidor tinham qualquer checagem de variação percentual
+antes de fechar posição em cima de um preço, pra nenhuma classe de ativo —
+o clamp "±50%" documentado acima pra cripto nunca protegeu esse caminho
+(vivia só em código morto de UI). Fix: `RealMarketDataService.ts` (módulo
+compartilhado client+servidor) ganhou guarda de desvio máximo (8%
+forex/índice/commodity/ação, 20% cripto, comparado só contra referência
+real recente <10min) + TTL de 5min no `lastRealPriceCache`. Confirmado em
+produção: commit `619eedadd`, migration `price_guard_events` aplicada,
+`ai-runner` redeployado (v38) com o guard rodando de fato. Achado
+incidental (não corrigido): `ai_trades.quantity` guarda $ alocado, não
+lote — rótulo enganoso, inofensivo pro cálculo. Detalhe completo, incluindo
+pesquisa de prática de mercado (requote/maximum deviation são padrão do
+setor): `SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md`.
+
+## Erros de processo registrados (lições já incorporadas às regras vivas do CLAUDE.md)
+
+- Rodei `git add`+`git commit` sozinho na branch `dev` sem autorização
+  explícita (deveria só exibir comando pronto) — Cleber optou por manter o
+  commit dessa vez. Motivou a "Regra fixa de workflow" no topo do
+  CLAUDE.md.
+- Apaguei por engano o conteúdo de um arquivo já existente e não versionado
+  (`SESSAO_2026-08-21_VERIFICACAO_LOTE_MINIMO.sql`) ao criar um arquivo
+  novo com `Write` sem checar antes se aquele nome já existia — sem
+  histórico de git (nunca commitado) nem snapshot local, ficou perdido de
+  forma permanente. Motivou a regra "sempre checar `ls`/`git status` antes
+  de `Write` num arquivo novo". Detalhe:
+  `SESSAO_2026-08-21_LOG_PNL_E_FIX_IMPORT_MAP.md`.
