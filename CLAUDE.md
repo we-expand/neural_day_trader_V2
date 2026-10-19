@@ -15,6 +15,19 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-10-19, noite] "A LLM não opera": cesta de fim de semana esquecida (só 7 criptos numa segunda) + stop cortado a 1 vela de 15m
+com lote dobrado (−US$4,45 em 6 min). Conselho unânime: cesta de dia útil + fim do stop curto, sem afrouxar Mesa/piso. Feito e
+commitado (`4c2a7cf4b`): `MT5_SCALP_STOP_FOLLOWS_TARGET=false`, lote só sobe se o stop encurtou, US2000 na cesta, Setup só oferece
+ativos operáveis (`llmBrainBasket.ts`) e AUDITORIA de LOT_SIZE contra a corretora (~20 ativos errados, SPX500 era 10x; BTCXBN saiu).
+Ouro/prata não cabem no teto de risco (US$10) — fora. TESTE CONGELADO a partir de ~20:05Z: aborta se E[R] < −0,3R nas 20 primeiras ou
+conta −15%; veredito em 40. Detalhe: [SESSAO_2026-10-19_CONSELHO_CESTA_STOP_E_AUDITORIA_DE_CONTRATOS.md](SESSAO_2026-10-19_CONSELHO_CESTA_STOP_E_AUDITORIA_DE_CONTRATOS.md).**
+
+**[2026-10-16, noite] Fim de semana, cesta só cripto: (1) stop do fim de semana acompanha o alvo (`99c2e1ef1`); (2) vigia ignora
+tick parado >60s; (3) `MT5_TARGET_REWARD_USD` 7→10 (`.env`, lote BTC 0,01→~0,02, US$3-5/entrada); (4) **a 1H (MACD) decide o lado,
+5m/15m só consulta** (`atr.ts`/`tools.ts`/`agent.ts`, commit PENDENTE do Cleber; sem 4H; rollback `MT5_DIRECTION_BY_1H=false`).
+1ª entrada do fim de semana: BTCUSD SHORT (abriu antes da regra da 1H, contra o MACD 1H/4H). Detalhe: Parte 2 de
+[SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md](SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md).**
+
 **[2026-10-16, tarde] "A LLM não abre NENHUMA posição" (Cleber alarmado ~13h44): 3 causas, 3 ações. Detalhe completo em
 [SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md](SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md).** Zero
 entradas no dia tinha 2 causas simultâneas (nenhuma bug): (1) o **agente de alvo ao vivo** (ligado de manhã, ver bloco abaixo)
