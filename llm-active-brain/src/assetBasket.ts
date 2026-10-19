@@ -201,7 +201,8 @@
 // é uma aproximação MUITO melhor que assumir $1/ponto direto, mas revisitar
 // periodicamente se o câmbio se mover de forma relevante.
 export const MT5_ASSET_BASKET = [
-  "BTCUSD", "XETUSD", "BTCXBN",
+  // 🔴 2026-10-19: BTCXBN fora -- spec da corretora diz profitCurrency "XBN", sem conversao confiavel pra USD.
+  "BTCUSD", "XETUSD",
   "DOGUSD", "DOTUSD", "XRPUSD", "SOLUSD", "ADAUSD", "LNKUSD", "UNIUSD",
   "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
@@ -251,43 +252,53 @@ export const MT5_ASSET_BASKET = [
  * revisitar.
  */
 export const LOT_SIZE: Record<string, number> = {
+  // 🔴 2026-10-19 AUDITORIA: as criptos alternativas estavam com lotSize=1 "por padrao" (ver comentario acima),
+  // mas o contractSize REAL da corretora (MetaAPI /specification) e 10 a 100000. Ex.: SOLUSD 100 -> 0,01 lote = 1 SOL,
+  // nao 0,01 SOL. Com execucao real ligada, "2 lotes de SOL" que o motor achava ~US$208 virariam ~US$20.800.
+  // Cruzados (JPY/CNH/SGD/TWD/NZD) recalculados com o cambio real de 19/10 20:08Z.
   BTCUSD: 1,
   XETUSD: 1,
-  DOGUSD: 1,
-  DOTUSD: 1,
-  XRPUSD: 1,
+  DOGUSD: 10000,
+  DOTUSD: 100,
+  XRPUSD: 1000,
   BTCXBN: 1,
-  SOLUSD: 1,
-  ADAUSD: 1,
-  LNKUSD: 1,
-  UNIUSD: 1,
+  SOLUSD: 100,
+  ADAUSD: 1000,
+  LNKUSD: 100,
+  UNIUSD: 100,
   // 🔴 2026-09-04: mesmo padrao dos demais cripto/cross acima (lotSize=1) --
   // sem entrada equivalente em assetDatabase.ts pra confirmar contra, mesma
   // justificativa ja documentada pros outros altcoins desta cesta.
-  TRXUSD: 1,
-  ATMUSD: 1,
-  XLMUSD: 1,
-  FILUSD: 1,
-  BNBUSD: 1,
-  AVAUSD: 1,
+  TRXUSD: 100000,
+  ATMUSD: 1000,
+  XLMUSD: 10000,
+  FILUSD: 100,
+  BNBUSD: 10,
+  AVAUSD: 100,
   // Valores REAIS de `assetDatabase.ts` (repo principal) -- mesma fonte que
   // corrigiu o bug de PnL 20x do NAS100 (2026-08-27): CFD retail $1/ponto
   // pra índices, não o contrato E-mini da CME. amountUsd = lots * LOT_SIZE *
   // preço, mesma fórmula já usada pra cripto -- generaliza corretamente pra
   // qualquer classe desde que LOT_SIZE seja o contractSize real.
+  // 🔴 2026-10-19 AUDITORIA (pedido do Cleber, SPX500): LOT_SIZE corrigido pela spec REAL da MetaAPI
+  // (/symbols/X/specification: contractSize x profitCurrency) e conferido em negocios reais da conta
+  // (history-deals: SPX500 0,03 lote x 8,06 pts = US$2,42 -> US$10/ponto/lote; AUS200 ~US$0,72/ponto/lote).
+  // Antes: SPX500 1 (10x MENOR que o real), UKOUSD 1000 (10x MAIOR), AUS200 7,2 (10x maior), JPN225 0,033
+  // (20x menor), CHINA50 1,49, GER40/FRA40/UK100 sem cambio. Cambio real 19/10 20:08Z: EURUSD 1,1212,
+  // GBPUSD 1,3304, AUDUSD 0,698, USDJPY 158,53, USDHKD 7,848. Estatico: revisitar se o cambio andar muito.
   EURUSD: 100000,
   XAUUSD: 100,
   // 🔴 2026-09-28: contractSize real de infinoxContractSpecs.ts (METAL_SILVER).
   XAGUSD: 5000,
-  UKOUSD: 1000,
-  GER40: 1,
-  SPX500: 1,
+  UKOUSD: 100,
+  GER40: 1.1212,
+  SPX500: 10,
   NAS100: 1,
-  UK100: 1,
+  UK100: 1.3304,
   // 🔴 2026-09-07: mesmo grupo EU_INDICES do GER40 (CFD retail $1/ponto,
   // confirmado real contra o broker antes de adicionar -- ver comentário em
   // MT5_ASSET_BASKET acima).
-  FRA40: 1,
+  FRA40: 1.1212,
   US2000: 1,
   // 🔴 2026-09-08: pointValue real (infinoxContractSpecs.ts) convertido pra
   // USD com a cotação REAL AUDUSD/USDJPY/USDHKD/USDCNH desta corretora,
@@ -296,10 +307,10 @@ export const LOT_SIZE: Record<string, number> = {
   //   JPN225:   5 JPY/ponto / 153.583 (USDJPY)       = 0.03256
   //   HKG33:   10 HKD/ponto / 7.83921 (USDHKD)       = 1.2756
   //   CHINA50: 10 CNY/ponto / 6.709 (USDCNH)         = 1.4905
-  AUS200: 7.2157,
-  JPN225: 0.03256,
-  HKG33: 1.2756,
-  CHINA50: 1.4905,
+  AUS200: 0.698,
+  JPN225: 0.6308,
+  HKG33: 1.2742,
+  CHINA50: 1,
   // 🔴 2026-09-22: LOT_SIZE aqui e "notional em USD por lote / preco", pra
   // que amountUsd = lots * LOT_SIZE * preco seja o notional REAL em USD e o
   // PnL do motor ((exit-entry) * amountUsd/entry) saia em USD de verdade --
@@ -314,21 +325,21 @@ export const LOT_SIZE: Record<string, number> = {
   //   XAUJPY: 100 oz / USDJPY = 0.6351
   // Aproximacao estatica (erro proporcional ao drift da moeda de cotacao vs
   // USD) -- revisitar se USDJPY/USDCNH/USDSGD/USDTWD andarem muito.
-  USDJPY: 635.1,
+  USDJPY: 630.78,
   AUDUSD: 100000,
   NZDUSD: 100000,
-  AUDJPY: 635.1,
-  NZDJPY: 635.1,
-  EURJPY: 635.1,
-  GBPJPY: 635.1,
-  USDCNH: 14934,
-  USDSGD: 78428,
-  USDTWD: 3153.3,
-  XAUJPY: 0.6351,
+  AUDJPY: 630.78,
+  NZDJPY: 630.78,
+  EURJPY: 630.78,
+  GBPJPY: 630.78,
+  USDCNH: 14964.6,
+  USDSGD: 78121,
+  USDTWD: 3073.9,
+  XAUJPY: 0.6308,
   // 🔴 2026-09-24: AUDNZD = 100000 AUD por lote; notional USD = 100000 * AUDUSD
   // (0.70334, cotacao real 2026-09-24) = 70334 -> / preco AUDNZD (1.23876) = 56776.
   // Aproximacao estatica, revisitar se AUDUSD andar muito.
-  AUDNZD: 56776,
+  AUDNZD: 56617.5,
 };
 
 export const MIN_LOTS = 0.01;

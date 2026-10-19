@@ -4,7 +4,7 @@
 // pelo motor (aviso só no log do neuralBridge). Ao cadastrar um ativo novo no motor,
 // adicionar aqui também.
 export const LLM_BRAIN_TRADABLE_SYMBOLS: ReadonlySet<string> = new Set([
-  'BTCUSD', 'XETUSD', 'BTCXBN',
+  'BTCUSD', 'XETUSD',
   'DOGUSD', 'DOTUSD', 'XRPUSD', 'SOLUSD', 'ADAUSD', 'LNKUSD', 'UNIUSD',
   'TRXUSD', 'ATMUSD', 'XLMUSD', 'FILUSD', 'BNBUSD', 'AVAUSD',
   'EURUSD', 'XAUUSD', 'XAGUSD', 'UKOUSD',
