@@ -29,7 +29,7 @@ const CRYPTO_SYMBOLS = new Set([
 const GOLD_SYMBOLS = new Set(["XAUUSD", "XAUJPY"]);
 const OIL_SYMBOLS = new Set(["UKOUSD"]);
 const INDEX_SYMBOLS = new Set([
-  "GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50",
+  "GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50", "US2000",
 ]);
 // 🔴 2026-09-22: pares da sessao asiatica adicionados a cesta (ver
 // assetBasket.ts). Mesma taxa FOREX_MAJOR (Infinox cobra comissao por lote

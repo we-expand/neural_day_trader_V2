@@ -206,6 +206,9 @@ export const MT5_ASSET_BASKET = [
   "TRXUSD", "ATMUSD", "XLMUSD", "FILUSD", "BNBUSD", "AVAUSD",
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
   "AUS200", "JPN225", "HKG33", "CHINA50",
+  // 🔴 2026-10-19 (pedido do Cleber): Russell 2000. Spec real MetaAPI (london e new-york):
+  // contractSize 1, profitCurrency USD, minVolume 0.01 -> $1/ponto, LOT_SIZE 1.
+  "US2000",
   // 🔴 2026-09-22 (pedido direto do Cleber -- "mais indices asiaticos"):
   // lista oficial de simbolos da conta (MetaAPI /symbols, 364 simbolos)
   // confirmou que NAO existe nenhum outro indice asiatico nesta corretora
@@ -285,6 +288,7 @@ export const LOT_SIZE: Record<string, number> = {
   // confirmado real contra o broker antes de adicionar -- ver comentário em
   // MT5_ASSET_BASKET acima).
   FRA40: 1,
+  US2000: 1,
   // 🔴 2026-09-08: pointValue real (infinoxContractSpecs.ts) convertido pra
   // USD com a cotação REAL AUDUSD/USDJPY/USDHKD/USDCNH desta corretora,
   // confirmada ao vivo em 2026-09-08 (ver comentário em MT5_ASSET_BASKET):
@@ -349,7 +353,7 @@ export const MIN_LOTS = 0.01;
 // MetaAPI/Infinox fecha fim de semana).
 const WEEKEND_CLOSED_SYMBOLS = new Set<string>([
   "EURUSD", "XAUUSD", "UKOUSD", "GER40", "SPX500", "NAS100", "UK100", "FRA40",
-  "AUS200", "JPN225", "HKG33", "CHINA50",
+  "AUS200", "JPN225", "HKG33", "CHINA50", "US2000",
   "USDJPY", "AUDUSD", "NZDUSD", "AUDJPY", "NZDJPY", "EURJPY", "GBPJPY",
   "USDCNH", "USDSGD", "USDTWD", "XAUJPY", "AUDNZD",
 ]);
@@ -417,7 +421,7 @@ const CORRELATED_GROUPS: string[][] = [
   // SYMBOLS acima) + AUS200/JPN225/HKG33/CHINA50 (novos) entram no mesmo
   // grupo -- todos índices de bolsa, mesmo risco correlacionado risk-on/
   // risk-off macro global dos demais.
-  ["GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50"],
+  ["GER40", "SPX500", "NAS100", "UK100", "FRA40", "AUS200", "JPN225", "HKG33", "CHINA50", "US2000"],
   // 🔴 2026-09-22 (pares asiaticos): agrupados pelo lado REAL da exposicao
   // de moeda, pra LONG/LONG no mesmo grupo ser de fato a mesma aposta.
   // LONG em qualquer xxxJPY = vendido em iene (inclui XAUJPY).

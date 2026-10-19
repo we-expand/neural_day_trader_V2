@@ -75,6 +75,8 @@ interface InfinoxAssetsBrowserProps {
    * explicação nenhuma na tela. Opcional: sem o valor, o browser simplesmente
    * não mostra o aviso (nunca fabrica o número sem capital real informado). */
   allocatedCapital?: number;
+  /** 2026-10-19: se informado, só esses símbolos aparecem como opção (Setup da IA: só o que o motor opera). */
+  allowedSymbols?: ReadonlySet<string>;
 }
 
 interface AssetData {
@@ -92,6 +94,7 @@ export function InfinoxAssetsBrowser({
   selectedAssets,
   onToggleAsset,
   allocatedCapital,
+  allowedSymbols,
 }: InfinoxAssetsBrowserProps) {
   const isMulti = mode === 'multi';
 
@@ -120,7 +123,13 @@ export function InfinoxAssetsBrowser({
   // criava um objeto novo a cada render, entrava como dependência do
   // useEffect abaixo (que seta estado), e causava loop infinito de render
   // ("Maximum update depth exceeded") toda vez que o Dashboard abria.
-  const allAssets = useMemo(() => getInfinoxAssetsByCategory(), []);
+  const allAssets = useMemo(() => {
+    const catalog = getInfinoxAssetsByCategory();
+    if (!allowedSymbols) return catalog;
+    return Object.fromEntries(
+      Object.entries(catalog).map(([cat, syms]) => [cat, syms.filter((s) => allowedSymbols.has(s))]),
+    ) as typeof catalog;
+  }, [allowedSymbols]);
   
   // 🆕 AUTOCOMPLETE INTELIGENTE
   useEffect(() => {

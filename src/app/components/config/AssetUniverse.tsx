@@ -20,6 +20,7 @@ import { ALL_ASSETS, type Asset } from '@/app/config/assetDatabase';
 import { InfinoxAssetsBrowser } from '@/app/components/dashboard/InfinoxAssetsBrowser';
 import { getMinLotNotionalUsd } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
 import { useMarketData } from '@/app/contexts/MarketDataContext';
+import { LLM_BRAIN_TRADABLE_SYMBOLS } from '@/app/config/llmBrainBasket';
 
 // ✅ 2026-07-28: catálogo real (ver histórico de comentário anterior neste
 // arquivo — a lista hardcoded/não auditada foi removida, deriva de
@@ -147,7 +148,13 @@ export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: As
   }, []);
 
   // Catálogo real, auditado contra a API da Infinox (mesma fonte do Dashboard)
-  const realCatalog = useMemo(() => getInfinoxAssetsByCategory(), []);
+  // 2026-10-19 (pedido do Cleber): só o que o LLM Brain opera de verdade vira opção.
+  const realCatalog = useMemo(() => {
+    const catalog = getInfinoxAssetsByCategory();
+    return Object.fromEntries(
+      Object.entries(catalog).map(([cat, syms]) => [cat, syms.filter((s) => LLM_BRAIN_TRADABLE_SYMBOLS.has(s))]),
+    ) as typeof catalog;
+  }, []);
 
   const assetsByCategory = useMemo(() => {
     const result: Record<DisplayCategory, Asset[]> = {} as Record<DisplayCategory, Asset[]>;
@@ -167,7 +174,7 @@ export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: As
   );
 
   const quickPicks = useMemo(
-    () => QUICK_PICK_SYMBOLS.filter(s => bySymbol.has(s)),
+    () => QUICK_PICK_SYMBOLS.filter(s => bySymbol.has(s) && LLM_BRAIN_TRADABLE_SYMBOLS.has(s)),
     [bySymbol]
   );
 
@@ -231,6 +238,7 @@ export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: As
           selectedAssets={selectedAssets}
           onToggleAsset={onToggle}
           allocatedCapital={allocatedCapital}
+          allowedSymbols={LLM_BRAIN_TRADABLE_SYMBOLS}
         />
       </div>
 
@@ -263,15 +271,20 @@ export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: As
             const theme = catId ? THEME_COLORS[CATEGORY_META[catId].color] : THEME_COLORS.purple;
             const isOpenNow = asset ? isMarketOpen(asset) : true;
             const unaffordableNotional = unaffordableSelected.get(symbol);
+            const notTradable = !LLM_BRAIN_TRADABLE_SYMBOLS.has(symbol);
             return (
               <span
                 key={symbol}
                 className={`group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-[10px] font-bold font-mono border ${
-                  unaffordableNotional != null
+                  notTradable
+                    ? 'bg-red-500/10 border-red-500/40 text-red-300 line-through'
+                    : unaffordableNotional != null
                     ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
                     : `${theme.bgLight} ${theme.border} text-slate-200`
                 }`}
-                title={unaffordableNotional != null
+                title={notTradable
+                  ? `${symbol} não é operado pela IA e será ignorado. Remova da cesta.`
+                  : unaffordableNotional != null
                   ? `Capital insuficiente: ${symbol} exige ~$${unaffordableNotional.toFixed(2)} de margem pro lote mínimo, você tem $${(allocatedCapital ?? 0).toFixed(2)} alocado. A IA não vai conseguir abrir posição neste ativo.`
                   : asset?.name}
               >
@@ -304,6 +317,15 @@ export function AssetUniverse({ selectedAssets, onToggle, allocatedCapital }: As
           entrada no motor (gate MIN_TRADE_SIZE, runTradingCycle.ts), só que
           avisada aqui ANTES, pra não parecer que a IA "está travada" num
           ativo sem explicação nenhuma na tela. */}
+      {selectedAssets.some(s => !LLM_BRAIN_TRADABLE_SYMBOLS.has(s)) && (
+        <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+          <p className="text-[10px] text-red-300 leading-relaxed">
+            <strong>A IA não opera:</strong> {selectedAssets.filter(s => !LLM_BRAIN_TRADABLE_SYMBOLS.has(s)).join(', ')}. Esses ativos são ignorados — remova-os da cesta.
+          </p>
+        </div>
+      )}
+
       {unaffordableSelected.size > 0 && (
         <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
