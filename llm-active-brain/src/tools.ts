@@ -3198,6 +3198,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             // O alvo e o que se calcula primeiro (nivel/Fibonacci/pernada/ADR); o stop e derivado dele. Sem isso, alvo curto + stop
             // de 0,95x ATR dava R:R 0,37 e barrava toda entrada de cripto. Rollback: MT5_WEEKEND_STOP_FOLLOWS_TARGET=false.
             const weekendStopFollows = isWeekendMode() && process.env.MT5_WEEKEND_STOP_FOLLOWS_TARGET !== "false";
+            let stopFollowedTarget = false;
             if (process.env.MT5_SCALP_STOP_FOLLOWS_TARGET !== "false" && ((session.userConfig?.targetPoints === "POUCOS" && !isWeekendMode()) || weekendStopFollows)) {
               const noiseFloor = (desk.targetPlan.avgRange15mPct ?? 0) / 100 * config.mt5ScalpStopFloorRange15;
               const stopFloor = Math.max(minStopForSpread, noiseFloor);
@@ -3207,6 +3208,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
                 deskSnapshot.targetAgentStop = { fromPct: stopPct, toPct: wantedStop, floorPct: stopFloor };
                 stopPct = wantedStop;
                 actualRiskUsd = amountUsd * stopPct;
+                stopFollowedTarget = true;
               }
             }
             // O GANHO em $ por entrada fica (alvo curto = mais contratos): lote = ganho-alvo / (alvo% x contrato x preco),
@@ -3214,7 +3216,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             // lotes do Setup, risco por trade, notional e exposicao correlacionada). Se um teto segurar, o piso de valor decide.
             const oneLotUsd = LOT_SIZE[symbol] * quote.price;
             const wantedLots = Math.round((targetRewardUsd * desk.sizeFactor) / (takeProfitPct * oneLotUsd) / MIN_LOTS) * MIN_LOTS;
-            if (wantedLots > lots) {
+            // 2026-10-19 (conselho): so sobe o lote quando o stop encurtou junto. Com o stop cheio, subir o lote so multiplica
+            // o risco de uma entrada de R:R ja pior (BTCUSD 19/10: lote dobrado, -US$4,45 em 6 min).
+            if (stopFollowedTarget && wantedLots > lots) {
               const corrRoomUsd = correlatedGroup.length > 1
                 ? config.mt5MaxCorrelatedNotionalUsd - openPositions.filter((o) => correlatedGroup.includes(o.symbol) && o.side === side).reduce((sum, o) => sum + Number(o.quantity), 0)
                 : Number.POSITIVE_INFINITY;
