@@ -39,6 +39,16 @@
 import { estimateCostPercent, estimateCostPercentMeasured, publishedCommissionRoundTripPct, type AssetClass } from "../../research/CostModel.ts";
 import { getMeasuredSpread } from "../../research/MeasuredSpreads.ts";
 import { getPointValue } from "../../src/app/services/strategy/TradeSizing.ts";
+import { LOT_SIZE } from "./assetBasket.js";
+
+// 2026-10-20 (Cleber: "US2000 e super barato, esquisito"): o custo de INDICE vinha de uma tabela calibrada no US30 (~44000): 1,5 ponto
+// de slippage por perna e comissao "US$2 por lote = 1 contrato" -- em pontos fixos, nao em % do preco. No US2000 (~2700) isso dava
+// 0,19% de custo (US$7,20 contra ganho bruto de US$7,00 e a entrada era barrada no piso de valor), 4x o real. Medido nos negocios
+// reais da conta (history-deals): comissao de indice = US$0,50 por lote POR NEGOCIO (US$1,00 ida e volta); o lote de SPX500 vale
+// 10 contratos, o do US2000 1. Slippage mantido na MESMA proporcao da calibracao original (1,5 pt / 44000 = 0,0034% por perna),
+// agora em % do preco para qualquer indice. Spread vem do medido (market_spread_samples).
+const INDEX_COMMISSION_USD_PER_LOT_ROUND_TRIP = 1.0;
+const INDEX_SLIPPAGE_PCT_PER_LEG = (1.5 / 44000) * 100;
 
 // Composição real de MT5_ASSET_BASKET (assetBasket.ts) -- cripto/cross vs.
 // forex/commodity/índice. Ver cabeçalho acima pro motivo de não resolver via
@@ -116,6 +126,12 @@ export function estimateCommissionUsd(symbol: string, notionalUsd: number, price
     const assetClass = resolveAssetClass(symbol);
     const pointValue = PAIR_COST_OVERRIDE[symbol.toUpperCase()]?.pointValue ?? getPointValue(symbol);
     const measured = getMeasuredSpread(symbol);
+    const lotNotionalUsd = (LOT_SIZE[symbol.toUpperCase()] ?? 0) * priceLevel;
+    if (assetClass === "INDEX" && measured && lotNotionalUsd > 0) {
+      const indexRoundTripPct =
+        measured.medianPct + (INDEX_COMMISSION_USD_PER_LOT_ROUND_TRIP / lotNotionalUsd) * 100 + 2 * INDEX_SLIPPAGE_PCT_PER_LEG;
+      return notionalUsd * (indexRoundTripPct / 100);
+    }
     const roundTripPercent = (measured
       ? estimateCostPercentMeasured(assetClass, priceLevel, pointValue, measured.medianPct, publishedCommissionRoundTripPct(symbol, assetClass, priceLevel))
       : estimateCostPercent(assetClass, priceLevel, pointValue)) * 2;
