@@ -1226,6 +1226,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         }
       }
       const gateResult = <T extends { error: string }>(gateId: string, blocked: T): T | null => {
+        // 🔴 2026-10-20 (UK100 LONG de 20/10: stop 0,46% x alvo 0,125%, R:R 0,27, -$4,25): R:R minimo
+        // protege o dinheiro, nao e trava de julgamento -- nunca sai, nem no teste so-LLM/veto nem na expansao.
+        if (gateId === "RR_MINIMO") return blocked;
         if (expansionReleaseActive && EXPANSION_RELEASED_GATES.has(gateId)) {
           bypassedGates.push(gateId);
           console.log(`[EXPANSAO-LIBERA] ${gateId} ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")} liberada: ${blocked.error.slice(0, 160)}`);
