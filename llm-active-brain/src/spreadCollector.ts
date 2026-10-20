@@ -57,17 +57,26 @@ async function cleanup(): Promise<void> {
 
 let ticks = 0;
 async function tick(): Promise<void> {
+  // 2026-10-20: amostrar (depende da MetaAPI) e recarregar a mediana (so Supabase) sao independentes. Antes, um timeout da
+  // MetaAPI em sample() pulava o reload() e o motor ficava com a tabela estatica de custo (indices 4-30x acima do real:
+  // US2000 0,33% vs 0,011% medido), barrando entradas no piso de valor.
   try {
     await sample();
-    await reload();
-    if (++ticks % 288 === 0) await cleanup(); // ~1x/dia
   } catch (err) {
-    console.warn("[spreadCollector] falha (custo cai na tabela estática até voltar):", err instanceof Error ? err.message : err);
+    console.warn("[spreadCollector] falha ao amostrar (segue com o spread ja medido):", err instanceof Error ? err.message : err);
   }
+  try {
+    await reload();
+  } catch (err) {
+    console.warn("[spreadCollector] falha ao recarregar o spread medido (custo cai na tabela estática até voltar):", err instanceof Error ? err.message : err);
+  }
+  try {
+    if (++ticks % 288 === 0) await cleanup(); // ~1x/dia
+  } catch { /* limpeza e opcional */ }
 }
 
 export function startSpreadCollector(): void {
-  void reload().catch(() => {}); // carrega o que já existe antes da 1ª amostra
+  void reload().catch((err) => console.warn("[spreadCollector] reload inicial falhou:", err instanceof Error ? err.message : err)); // carrega o que já existe antes da 1ª amostra
   void tick();
   setInterval(() => void tick(), SAMPLE_INTERVAL_MS);
 }
