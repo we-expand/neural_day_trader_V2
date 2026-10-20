@@ -159,6 +159,24 @@ export function estimateCostPercentMeasured(
 }
 
 /**
+ * Custo round-trip (fração do notional) FORA do preço, pra posição cujo preço de entrada E de saída já são os do
+ * livro (LONG entra no ask e sai no bid; SHORT entra no bid e sai no ask): o spread inteiro já está dentro da
+ * diferença de preço e é pago UMA vez só. Descontá-lo de novo é cobrança em dobro (achado de 20/10/2026: o
+ * `net_pnl` do motor e o card da posição subtraíam o spread por cima do preço que já o continha).
+ * Derrapagem também não entra: em DEMO o fill é exatamente a cotação, e em LIVE a derrapagem real já vem no preço
+ * de fill da corretora -- a "provisão" do estimateCostPercent* seria custo inventado. Sobra só a comissão por lote.
+ * Mid-price (ordem manual, ai-runner antigo) continua usando estimateCostPercent*, que inclui o spread.
+ */
+export function estimateRoundTripFractionExcludingSpread(
+  assetClass: AssetClass,
+  _priceLevel: number,
+  _pointValue: number,
+  commissionRoundTripPct: number = 0,
+): number {
+  return commissionRoundTripPct / 100 + (COST_TABLE[assetClass].commissionPercent / 100) * 2;
+}
+
+/**
  * Comissão PUBLICADA da Infinox (conta ECN, round-turn por lote padrão) em % do
  * notional. O spread medido no feed é cru (EURUSD ~0,11 pip = perfil ECN), então a
  * comissão entra à parte — a tabela estática a embutia nos "pontos" de spread.

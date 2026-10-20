@@ -103,6 +103,9 @@ export interface TradeVisual {
   // posição foi executada de verdade na corretora (LIVE), null/undefined em
   // trade simulado (DEMO). Usado pra fechamento real pela boleta.
   brokerPositionId?: string | null;
+  // 🔴 2026-10-20: true quando `price` (entrada) foi preenchido no ask/bid do livro (posição do motor). Aí o spread já está
+  // no preço, a posição é marcada no lado de FECHAMENTO (LONG→bid, SHORT→ask) e só comissão+derrapagem entram como custo.
+  filledAtQuote?: boolean;
   leverage: number;
   ai_confidence: number;
   timestamp: number;

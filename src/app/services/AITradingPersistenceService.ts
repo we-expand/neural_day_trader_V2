@@ -47,6 +47,7 @@ export interface AISession {
 }
 
 export interface AITrade {
+  is_test_data?: boolean | null; // true = trade do motor (DEMO); false = ordem manual
   id?: string;
   session_id: string;
   user_id: string;

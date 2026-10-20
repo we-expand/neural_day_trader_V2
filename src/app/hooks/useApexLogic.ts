@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast as toastOriginal } from 'sonner';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
 import { calculateRealisticPnL, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
-import { calculateRoundTripCost } from '@/app/services/risk/ExecutionCost.ts'; // 💸 Custo de execução real (spread+slippage) — fonte única, mesma do ai-runner
+import { calculateRoundTripCost, calculateCommissionOnlyCost } from '@/app/services/risk/ExecutionCost.ts'; // 💸 Custo de execução real (spread+slippage) — fonte única, mesma do ai-runner
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
@@ -1113,6 +1113,7 @@ export function useApexLogic(
             sl: Number(t.stop_loss ?? t.entry_price),
             slIsReal: t.stop_loss != null,
             tpIsReal: t.take_profit != null,
+            filledAtQuote: t.is_test_data === true, // motor: entrada no ask/bid (spread já no preço)
             originalSl: Number(t.stop_loss ?? t.entry_price),
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
             ai_confidence: Number(t.ai_confidence ?? 50),
@@ -1437,6 +1438,7 @@ export function useApexLogic(
               sl: stopLossNum,
               slIsReal: t.stop_loss != null,
               tpIsReal: t.take_profit != null,
+              filledAtQuote: t.is_test_data === true,
               originalSl: existing?.originalSl ?? stopLossNum,
               brokerPositionId: t.broker_position_id ?? null,
               leverage: 1.5,
@@ -2380,6 +2382,7 @@ export function useApexLogic(
         const { getBatchedMT5Data } = await import('@/app/services/RealMarketDataService');
         const uniqueSymbols = Array.from(new Set(activeOrdersRef.current.map(o => o.symbol)));
         const priceMap = new Map<string, number>();
+        const quoteMap = new Map<string, { bid: number; ask: number }>(); // lado de fechamento (posição do motor)
         try {
           const batchResult = await getBatchedMT5Data(uniqueSymbols);
           for (const symbol of uniqueSymbols) {
@@ -2393,6 +2396,7 @@ export function useApexLogic(
             // descartado na origem — sem cotação nova, mantém-se a anterior.
             if (data && Number.isFinite(data.price) && data.price > 0) {
               priceMap.set(symbol, data.price);
+              if (Number.isFinite(data.bid) && Number.isFinite(data.ask) && data.bid! > 0 && data.ask! > 0) quoteMap.set(symbol, { bid: data.bid!, ask: data.ask! });
             } else if (data) {
               console.warn(`[PNL LOOP] ⚠️ Preço inválido descartado para ${symbol}:`, data.price);
             }
@@ -2535,7 +2539,12 @@ export function useApexLogic(
                 }
 
                 // Calculate P&L (mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo)
-                const pnl = calculateEngineConsistentPnL(order.price, nextPrice, order.side, order.amount);
+                // 🔴 2026-10-20 (Cleber: "spread é um custo só, o da entrada"): posição do motor entrou no ask/bid, então é
+                // marcada no lado de FECHAMENTO (LONG→bid, SHORT→ask) e o spread já está na diferença de preço. Só
+                // a comissão entra como custo -- antes o card descontava o spread de novo por cima.
+                const closeQuote = order.filledAtQuote ? quoteMap.get(order.symbol) : undefined;
+                const markPrice = closeQuote ? (order.side === 'LONG' ? closeQuote.bid : closeQuote.ask) : nextPrice;
+                const pnl = calculateEngineConsistentPnL(order.price, markPrice, order.side, order.amount);
 
                 // 🔴 2026-09-23 (pedido do Cleber): o não-realizado mostrado ao
                 // usuário passa a ser LÍQUIDO do custo round-trip estimado desde o
@@ -2543,7 +2552,9 @@ export function useApexLogic(
                 // (o custo só aparecia no fechamento). O usuário não opera no
                 // escuro: o número da posição aberta é o mesmo que será gravado.
                 // `pnl` segue bruto só pra decisão de fechamento/log abaixo.
-                const { costUsd: closeCostUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+                const { costUsd: closeCostUsd } = order.filledAtQuote
+                  ? calculateCommissionOnlyCost(order.symbol, order.amount, order.price)
+                  : calculateRoundTripCost(order.symbol, order.amount, order.price);
                 const pnlNet = pnl - closeCostUsd;
 
                 totalUnrealizedPnL += pnlNet;
@@ -2594,7 +2605,7 @@ export function useApexLogic(
                     nextActiveOrders.push({
                         ...order,
                         sl: effectiveSl,
-                        currentPrice: nextPrice,
+                        currentPrice: markPrice, // preço de FECHAMENTO p/ posição do motor (ask/bid); mid p/ as demais
                         currentProfit: pnlNet, // ✅ LÍQUIDO do custo estimado (ver comentário acima) -- fonte única da UI
                         trailMoves: trailMoved ? (order.trailMoves || 0) + 1 : order.trailMoves, // 🆕 contador real pro widget ATR Trailing Stop
                     });

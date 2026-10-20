@@ -36,8 +36,7 @@
  * FOREX_MAJOR (mesmo default conservador do resto do projeto) com log de
  * aviso, nunca falha silenciosa.
  */
-import { estimateCostPercent, estimateCostPercentMeasured, publishedCommissionRoundTripPct, type AssetClass } from "../../research/CostModel.ts";
-import { getMeasuredSpread } from "../../research/MeasuredSpreads.ts";
+import { estimateRoundTripFractionExcludingSpread, publishedCommissionRoundTripPct, type AssetClass } from "../../research/CostModel.ts";
 import { getPointValue } from "../../src/app/services/strategy/TradeSizing.ts";
 import { LOT_SIZE } from "./assetBasket.js";
 
@@ -48,7 +47,6 @@ import { LOT_SIZE } from "./assetBasket.js";
 // 10 contratos, o do US2000 1. Slippage mantido na MESMA proporcao da calibracao original (1,5 pt / 44000 = 0,0034% por perna),
 // agora em % do preco para qualquer indice. Spread vem do medido (market_spread_samples).
 const INDEX_COMMISSION_USD_PER_LOT_ROUND_TRIP = 1.0;
-const INDEX_SLIPPAGE_PCT_PER_LEG = (1.5 / 44000) * 100;
 
 // Composição real de MT5_ASSET_BASKET (assetBasket.ts) -- cripto/cross vs.
 // forex/commodity/índice. Ver cabeçalho acima pro motivo de não resolver via
@@ -111,12 +109,13 @@ function resolveAssetClass(symbol: string): AssetClass {
 }
 
 /**
- * Comissão/custo de execução round-trip (entrada+saída), em dólares, pra um
- * trade de `notionalUsd` no `symbol` dado, ao `priceLevel` de entrada.
+ * Custo round-trip FORA do preço (só comissão), em dólares, pra um trade de `notionalUsd` no
+ * `symbol` dado, ao `priceLevel` de entrada. NÃO inclui o spread: o motor preenche no ask/bid e fecha no
+ * bid/ask, então o spread já está no P&L (pago uma vez). Espelha
+ * `ExecutionCost.ts:calculateCommissionOnlyCost`.
  *
  * Retorna 0 (nunca lança) se as entradas não forem finitas/positivas --
- * cobrar custo não pode ser o motivo de uma posição não fechar. Espelha
- * `ExecutionCost.ts:calculateRoundTripCost` de propósito, mesma convenção.
+ * cobrar custo não pode ser o motivo de uma posição não fechar.
  */
 export function estimateCommissionUsd(symbol: string, notionalUsd: number, priceLevel: number): number {
   if (!Number.isFinite(notionalUsd) || notionalUsd <= 0 || !Number.isFinite(priceLevel) || priceLevel <= 0) {
@@ -125,16 +124,17 @@ export function estimateCommissionUsd(symbol: string, notionalUsd: number, price
   try {
     const assetClass = resolveAssetClass(symbol);
     const pointValue = PAIR_COST_OVERRIDE[symbol.toUpperCase()]?.pointValue ?? getPointValue(symbol);
-    const measured = getMeasuredSpread(symbol);
     const lotNotionalUsd = (LOT_SIZE[symbol.toUpperCase()] ?? 0) * priceLevel;
-    if (assetClass === "INDEX" && measured && lotNotionalUsd > 0) {
-      const indexRoundTripPct =
-        measured.medianPct + (INDEX_COMMISSION_USD_PER_LOT_ROUND_TRIP / lotNotionalUsd) * 100 + 2 * INDEX_SLIPPAGE_PCT_PER_LEG;
+    // 🔴 2026-10-20 (Cleber: "o spread e um custo so, o da entrada; nao tem custo de saida"): o motor entra no
+    // ask/bid e sai no bid/ask, entao o spread (e a derrapagem real) JA esta no preco do P&L. Aqui entra so a comissao.
+    // Antes somava o spread medido por cima (cobranca em dobro no net_pnl, no piso de valor e na Mesa).
+    if (assetClass === "INDEX" && lotNotionalUsd > 0) {
+      const indexRoundTripPct = (INDEX_COMMISSION_USD_PER_LOT_ROUND_TRIP / lotNotionalUsd) * 100;
       return notionalUsd * (indexRoundTripPct / 100);
     }
-    const roundTripPercent = (measured
-      ? estimateCostPercentMeasured(assetClass, priceLevel, pointValue, measured.medianPct, publishedCommissionRoundTripPct(symbol, assetClass, priceLevel))
-      : estimateCostPercent(assetClass, priceLevel, pointValue)) * 2;
+    const roundTripPercent = estimateRoundTripFractionExcludingSpread(
+      assetClass, priceLevel, pointValue, publishedCommissionRoundTripPct(symbol, assetClass, priceLevel),
+    );
     if (!Number.isFinite(roundTripPercent) || roundTripPercent < 0) return 0;
     return notionalUsd * roundTripPercent;
   } catch (err) {

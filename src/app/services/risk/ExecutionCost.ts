@@ -43,7 +43,7 @@
  * que o COST_GATE já usa pra recusar trades. Não há número novo aqui; este
  * módulo só converte "percentual do notional" em "dólares desta posição".
  */
-import { estimateCostPercent, estimateCostPercentMeasured, publishedCommissionRoundTripPct } from '../../../../research/CostModel.ts';
+import { estimateCostPercent, estimateCostPercentMeasured, estimateRoundTripFractionExcludingSpread, publishedCommissionRoundTripPct } from '../../../../research/CostModel.ts';
 import { getMeasuredSpread } from '../../../../research/MeasuredSpreads.ts';
 import { resolveCostAssetClass } from './CostAssetClass.ts';
 import { getPointValue } from '../strategy/TradeSizing.ts';
@@ -111,4 +111,29 @@ export function calculateRoundTripCost(
     source: measured ? 'MEASURED_7D' : 'STATIC_MODEL',
     measuredSpreadPct: measured?.medianPct,
   };
+}
+
+/**
+ * Custo FORA do preço (só comissão por lote), em dólares, pra posição cujo preço de entrada e de saída já são os do
+ * livro (ask/bid) -- caso das posições do motor (LLM Brain). O spread NÃO entra: já está na diferença de preço e é
+ * pago uma vez só (achado de 20/10/2026: o card subtraía o spread de novo por cima). Posição a preço médio
+ * (ordem manual) continua usando `calculateRoundTripCost`.
+ */
+export function calculateCommissionOnlyCost(
+  symbol: string,
+  notionalUsd: number,
+  priceLevel: number,
+): ExecutionCostBreakdown {
+  const resolution = resolveCostAssetClass(symbol);
+  const assetClass = resolution.assetClass;
+  if (!Number.isFinite(notionalUsd) || notionalUsd <= 0 || !Number.isFinite(priceLevel) || priceLevel <= 0) {
+    return { roundTripPercent: 0, costUsd: 0, assetClass };
+  }
+  const roundTripPercent = estimateRoundTripFractionExcludingSpread(
+    assetClass, priceLevel, getPointValue(symbol), publishedCommissionRoundTripPct(symbol, assetClass, priceLevel),
+  );
+  if (!Number.isFinite(roundTripPercent) || roundTripPercent < 0) {
+    return { roundTripPercent: 0, costUsd: 0, assetClass };
+  }
+  return { roundTripPercent, costUsd: notionalUsd * roundTripPercent, assetClass, source: 'STATIC_MODEL' };
 }
