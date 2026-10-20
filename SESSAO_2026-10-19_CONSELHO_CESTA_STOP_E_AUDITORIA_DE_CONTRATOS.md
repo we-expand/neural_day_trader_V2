@@ -44,3 +44,51 @@ Congelar a mecânica nesta versão (sem outras mudanças):
 - Botão "Preset Dia Útil / Fim de Semana" no Setup (ideia do Expansionista; não automatizar a troca — decisão do Cleber) ou aviso no boot quando a cesta tem ativos fechados.
 - Rodar `npx tsx` de auditoria de novo se mudar a cesta/câmbio: script em `/private/tmp/.../audit/audit.mts` (efêmero; reconstruível pela receita acima).
 - Conferir daqui a 1–2 dias: `npx tsx scripts/error-report.ts --since=2026-10-19T20:05:00Z`.
+
+---
+
+# PARTE 2 — madrugada de 20/10: "ainda nenhuma entrada" (US2000, spread medido e custo de índice)
+
+## Pedido do Cleber
+Depois do reinício de 19/10 (~20:05Z) a LLM ainda não tinha feito nenhuma entrada. Ele achou "esquisito": acreditava que com a cesta só de cripto ela teria operado "tranquilamente". Também disse que o US2000 (Russell 2000) é um ativo barato e muito volátil, e questionou como poderia custar mais que o S&P.
+
+## Funil medido (≈20:05Z a 01:04Z, 17h–22h BRT)
+- **9 tentativas de `open_position`, 0 aberturas.**
+- 5–6 rejeitadas pela **Mesa/Master**: SHORTs "colados na mínima do dia" cujo alvo não cabe sem romper suporte (UK100, FRA40, SPX500, XETUSD) — recusa coerente com o método do Cleber.
+- 2 barradas pelo **piso de valor** por causa do custo estimado: US2000 (bruto US$7,00, custo US$7,20) e FRA40 (bruto US$4,56, custo US$3,90).
+- 1 por **Master indisponível** (BTCUSD: 302 s, 22 chamadas, tempo da mesa esgotado).
+- **NVIDIA instável de novo**: 57×429, 42×502, 46×503, 34×504, 49 timeouts desde o reinício — o modelo 3.5-super-vl não resolveu à noite.
+- **MetaAPI**: "account not connected to broker" na consulta direta; `spreadCollector` com timeouts na amostragem (50 falhas, 0 sucessos desde o restart).
+- Sobre a hipótese "só cripto teria operado": **não dá para provar**. Ontem (19/10) foram ~850 ciclos só com cripto e 1 entrada, barradas pelos mesmos filtros. A cesta nova gerou *mais tentativas* (9 em 5 h vs 4 no dia), que morrem nos mesmos filtros.
+
+## Bug 1 — spread medido nunca recarregava (corrigido, commit `c88e60fe9`)
+`spreadCollector.tick()` fazia `await sample(); await reload()` no mesmo `try`. Quando a amostragem (MetaAPI) dava timeout, o `reload()` (só Supabase) era pulado e o motor ficava com a **tabela estática de custo** após cada restart. Agora `sample`, `reload` e `cleanup` são independentes e o reload inicial loga a falha.
+Efeito do spread medido sobre o custo por US$2.000 (antes → depois): US2000 6,60→3,88; SPX500 2,34→1,41; FRA40 2,30→3,55 (spread real 0,114%); BTCUSD 0,58→1,62; XETUSD 0,58→2,43. (Cripto sobe: é o custo real, a tabela antiga subestimava.)
+
+## Bug 2 — custo de índice calibrado em pontos fixos (corrigido, commit `e3707de8f`)
+A fórmula de índice usava calibração do US30 (~44.000 pts): 1,5 pt de slippage/perna e comissão "US$2 por lote = 1 contrato" — em **pontos fixos, não % do preço**. No US2000 (~2.700) isso dava ~0,19% de custo. Corrigido em `commissionModel.ts` (só para classe INDEX com spread medido):
+`custo RT % = spread medido + (US$1,00 / (LOT_SIZE × preço)) × 100 + 2 × 0,0034%`.
+- **Comissão real medida** nos negócios da conta (`history-deals`): índices = **US$0,50 por lote por negócio** (US$1,00 ida e volta); o lote de SPX500 = 10 contratos, o do US2000 = 1.
+- Slippage mantido na proporção da calibração original (1,5/44000 = 0,0034% por perna), agora em % do preço.
+- Custo por US$2.000 depois: US2000 **1,09** (era 6,60); SPX500 **0,28** (2,34); UK100 0,71 (1,68); GER40 0,39 (0,71); FRA40 2,64 (2,30).
+
+## US2000 x SPX500 (a dúvida do Cleber)
+- Em **dólares no lote mínimo (0,01)** o US2000 é bem mais barato (posição de ~US$27 contra ~US$770 do SPX500).
+- Em **% da posição** o SPX500 é mais barato (~0,014% contra ~0,054% ida e volta).
+- **Volatilidade** (ATR 15m medido na madrugada): US2000 0,106% ≈ SPX500 0,098%. Custo ÷ ATR15m: NAS100 0,06; SPX500 0,14; GER40 0,21; BTCUSD/XETUSD 0,34; UK100 0,41; **US2000 0,51**; EURUSD 0,71; **FRA40 1,52** (custo maior que uma vela inteira — recomendado tirar do Setup). Medida de uma noite só, sem dado por horário.
+
+## Achados que ficaram SEM mudança (decisão do Cleber)
+- **ETH (XETUSD) e BTC pagam comissão real de US$1,50 por lote por negócio** (medido em 82 e 156 negócios) e o modelo assume "cripto sem comissão". No ETH (lote 1 ETH ≈ US$2.400) são ~0,125% de ida e volta, quase o spread dele. Só BTC/ETH foram medidos; não aplicado — tornaria as entradas em cripto mais difíceis.
+- A fórmula do custo medido soma a comissão publicada e multiplica por 2 (ida e volta) — pode haver dupla contagem em outras classes; calibração do Cleber de 23/09, não mexida.
+- Ouro/prata: não cabem no teto de risco (US$10 com 10% × US$100); prata ≈ US$14,30 de risco no lote mínimo. Decisão do Cleber: ouro fora; XAGUSD pode ficar sem efeito.
+- Mais de uma mudança de mecânica após o início do teste (restarts às ~20:05Z, ~20:55Z e ~01:25Z de 20/10; custo de índice corrigido). **A contagem das 20 entradas do critério de aborto passa a valer a partir do último reinício (≈01:25Z de 20/10, custo de índice corrigido).**
+
+## Commits desta sessão
+`4c2a7cf4b` contratos/US2000/Setup · `b319dc730` docs · `c88e60fe9` spread recarrega · `e3707de8f` custo de índice. Motor reiniciado após o último (1 instância).
+
+## Pendências abertas
+- Tirar FRA40 do Setup (custo > ATR) — decisão do Cleber.
+- Decidir comissão de BTC/ETH no modelo de custo (US$1,50/lote/negócio medido).
+- NVIDIA: 429/50x frequentes à noite; Master indisponível custa entradas. Considerar timeout/fallback do Master ou enxugar a Mesa (~20–36 chamadas por entrada).
+- MetaAPI desconectada no fim da noite (timeouts no `spreadCollector` e na consulta direta) — acompanhar.
+- Medir MFE/MAE das últimas entradas (0 alvos cheios) e as recusas da Mesa que "expiram".
