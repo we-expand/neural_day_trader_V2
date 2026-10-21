@@ -871,7 +871,8 @@ const GENESIS_PROMPT = config.mt5TradingEnabled ? GENESIS_PROMPT_MT5 : GENESIS_P
 const client = new OpenAI({
   apiKey: config.llmApiKey,
   baseURL: config.llmBaseUrl,
-  timeout: 240_000,
+  timeout: config.llmCallTimeoutMs,
+  maxRetries: 0, // retry/failover proprios em createChatCompletionWithRetry
 });
 
 function sleep(ms: number) {
@@ -902,52 +903,57 @@ function parseWaitSeconds(headers: Record<string, string | null | undefined> | u
   return 20;
 }
 
+// 🔴 2026-10-20: cadeia de modelos da MESMA chave. Falha de infra (conexao/timeout/5xx/429) 2x seguidas no modelo ativo -> proximo
+// da cadeia, na hora (sem esperar backoff). Depois de 10 min tenta o principal de novo.
+const MODEL_CHAIN = [config.llmModel, ...config.llmFallbackModels.filter((m) => m !== config.llmModel)];
+let activeModelIdx = 0;
+let primaryRetryAtMs = 0;
+let consecutiveInfraFailures = 0;
+const FAILOVER_AFTER_FAILURES = 2;
+const PRIMARY_RETRY_AFTER_MS = 10 * 60_000;
+
 async function createChatCompletionWithRetry(
   params: ChatCompletionCreateParamsNonStreaming,
-  maxAttempts = 8
+  maxAttempts = 6
 ): Promise<ChatCompletion> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (activeModelIdx > 0 && Date.now() >= primaryRetryAtMs) {
+      console.log(`[LLM-FAILOVER] voltando a tentar o modelo principal ${MODEL_CHAIN[0]}`);
+      activeModelIdx = 0;
+      consecutiveInfraFailures = 0;
+    }
     try {
-      return await client.chat.completions.create(params);
+      const res = await client.chat.completions.create({ ...params, model: MODEL_CHAIN[activeModelIdx] });
+      consecutiveInfraFailures = 0;
+      return res;
     } catch (err) {
-      // 🔴 2026-09-22: achado ao vivo testando Kimi K3 via NVIDIA NIM --
-      // "Connection error." (APIConnectionError/APIConnectionTimeoutError do
-      // SDK, sem `status` HTTP) matava o ciclo INTEIRO na 1a tentativa, sem
-      // nenhum retry -- so 429 era coberto. 2/2 ciclos morreram assim sob o
-      // prompt real (13.7k tokens), motor ficou ~10min sem nenhuma decisao.
-      // Erro de conexao/timeout de rede costuma ser transitorio (throttling
-      // de infra do provedor, TLS reset) -- vale tentar de novo com backoff
-      // curto, diferente do backoff de rate-limit (que pode esperar minutos
-      // por um motivo totalmente diferente: cota, nao rede).
-      const isRateLimit = err instanceof APIError && err.status === 429;
-      const isConnectionError = err instanceof APIConnectionError;
-      if (isConnectionError && attempt < maxAttempts) {
-        const waitSeconds = Math.min(5 * attempt, 30);
-        console.log(
-          `  (erro de conexao com ${config.llmProvider} ("${err.message}"), tentativa ${attempt}/${maxAttempts} - ` +
-            `aguardando ${waitSeconds}s antes de tentar de novo)`
+      const status = err instanceof APIError ? err.status : undefined;
+      const isRateLimit = err instanceof APIError && status === 429;
+      const isConnectionError = err instanceof APIConnectionError; // inclui APIConnectionTimeoutError
+      const isServerError = err instanceof APIError && typeof status === "number" && status >= 500;
+      const isInfra = isRateLimit || isConnectionError || isServerError;
+      if (!isInfra || attempt === maxAttempts) throw err;
+
+      consecutiveInfraFailures++;
+      if (consecutiveInfraFailures >= FAILOVER_AFTER_FAILURES && activeModelIdx < MODEL_CHAIN.length - 1) {
+        const from = MODEL_CHAIN[activeModelIdx];
+        activeModelIdx++;
+        primaryRetryAtMs = Date.now() + PRIMARY_RETRY_AFTER_MS;
+        consecutiveInfraFailures = 0;
+        console.warn(
+          `[LLM-FAILOVER] ${from} falhou ${FAILOVER_AFTER_FAILURES}x seguidas (${isConnectionError ? "conexao/timeout" : `HTTP ${status}`}) -- ` +
+            `trocando para ${MODEL_CHAIN[activeModelIdx]} (principal volta a ser tentado em 10 min).`
         );
-        await sleep(waitSeconds * 1000);
         continue;
       }
-      if (!isRateLimit || attempt === maxAttempts) throw err;
 
-      // Um pouco de folga sobre o tempo indicado pra evitar bater no limite
-      // de novo por um triz. O teto e so uma trava de sanidade (1h) - o
-      // Groq as vezes reporta esperas longas (minutos) quando o limite
-      // estourado nao e o de tokens/minuto, e sim um limite maior
-      // (tokens/dia do free tier), e nesse caso esperar menos que o
-      // indicado so gera outro 429 na sequencia.
-      const reportedWait = parseWaitSeconds(err.headers);
-      const waitSeconds = Math.min(Math.ceil(reportedWait + 2), 3600);
-      if (reportedWait > 90) {
-        console.log(
-          `  (rate limit do ${config.llmProvider} bem maior que o normal de tokens/minuto - ` +
-            `provavelmente uma cota diaria do free tier. Confira o painel do provedor.)`
-        );
-      }
+      // 429 com cabecalho de espera: respeita (cota), mas o teto de sanidade e 60s -- ciclo nao pode ficar parado minutos.
+      const waitSeconds = isRateLimit
+        ? Math.min(Math.ceil(parseWaitSeconds(err.headers) + 2), 60)
+        : Math.min(3 * attempt, 15);
       console.log(
-        `  (rate limit do ${config.llmProvider}, tentativa ${attempt}/${maxAttempts} - aguardando ${waitSeconds}s antes de tentar de novo)`
+        `  (${isRateLimit ? "rate limit" : isConnectionError ? "erro de conexao/timeout" : `erro HTTP ${status}`} com ${config.llmProvider}/${MODEL_CHAIN[activeModelIdx]}, ` +
+          `tentativa ${attempt}/${maxAttempts} - aguardando ${waitSeconds}s antes de tentar de novo)`
       );
       await sleep(waitSeconds * 1000);
     }

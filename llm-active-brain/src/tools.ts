@@ -4,7 +4,7 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
@@ -1248,6 +1248,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // pelo botão "Desligar IA" (stopSession em
       // AITradingPersistenceService.ts), sem encerrar a sessão nem fechar
       // nada à força.
+      // 🔴 2026-10-20: aborto automatico pre-combinado do periodo de teste (ver getTrialAbortReason). Nunca sai por modo (so-LLM/veto/expansao):
+      // e protecao de capital, nao trava de julgamento.
+      {
+        const trialAbort = await getTrialAbortReason(session.sessionId);
+        if (trialAbort) {
+          console.warn(`[TESTE-ABORTADO] ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")} recusado: ${trialAbort}`);
+          return {
+            error:
+              `TESTE ABORTADO AUTOMATICAMENTE: ${trialAbort}. Nenhuma entrada nova ate o dono iniciar um novo periodo de teste ` +
+              `(MT5_TRIAL_START_ISO) e reiniciar. Posicoes abertas continuam monitoradas. Posicao NAO aberta.`,
+          };
+        }
+      }
       if (session.status === "STOPPED") {
         return {
           error: "IA desligada pelo usuário (Setup do AI Trader) -- nenhuma posição nova é aberta enquanto estiver assim. " +

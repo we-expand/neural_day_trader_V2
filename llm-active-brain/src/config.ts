@@ -134,6 +134,20 @@ export const config = {
   llmApiKey: requireEnv(llmProviderDefaults.apiKeyEnv),
   llmBaseUrl: process.env.LLM_BASE_URL || llmProviderDefaults.baseUrl,
   llmModel: process.env.LLM_MODEL || llmProviderDefaults.model,
+  // 🔴 2026-10-20 (conselho, madrugada sem nenhuma entrada): a NVIDIA trava de forma intermitente (1 de 3 chamadas ficava 90s sem
+  // resposta) e o cliente esperava 240s x 8 tentativas -- um unico ciclo ficava parado minutos. Agora: timeout curto por chamada e
+  // troca automatica pra um modelo reserva da MESMA chave (testados em 20/10: 5/5 com tool-calling, 2-7s). Volta ao principal apos 10 min.
+  llmCallTimeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 45_000),
+  llmFallbackModels: (process.env.LLM_FALLBACK_MODELS ?? "").split(",").map((m) => m.trim()).filter(Boolean),
+  // 🔴 2026-10-20 (conselho + Cleber: "julgo pelos primeiros trades"): ABORTO AUTOMATICO pre-combinado, nunca decidido depois do
+  // resultado. A partir de MT5_TRIAL_START_ISO (vazio = desligado) conta as entradas FECHADAS da sessao e bloqueia entrada NOVA se:
+  // (1) N perdas seguidas por stop, (2) >= minEntries fechadas com E[R] medio < limiar, (3) perda acumulada >= % do capital.
+  // Posicoes abertas seguem monitoradas. Destravar = mudar MT5_TRIAL_START_ISO (novo periodo de teste) + restart.
+  mt5TrialStartIso: process.env.MT5_TRIAL_START_ISO ?? "",
+  mt5TrialAbortConsecutiveLosses: Number(process.env.MT5_TRIAL_ABORT_CONSECUTIVE_LOSSES ?? 3),
+  mt5TrialAbortMinEntries: Number(process.env.MT5_TRIAL_ABORT_MIN_ENTRIES ?? 10),
+  mt5TrialAbortMeanR: Number(process.env.MT5_TRIAL_ABORT_MEAN_R ?? -0.3),
+  mt5TrialAbortDrawdownPct: Number(process.env.MT5_TRIAL_ABORT_DRAWDOWN_PCT ?? 0.10),
   // 2026-09-27: nemotron da NVIDIA desliga o thinking por padrao (latencia,
   // ver agent.ts). LLM_ENABLE_THINKING=true mantem o raciocinio ligado --
   // teste do nemotron-3-super-120b-a12b com thinking, pedido do Cleber.
@@ -458,7 +472,7 @@ export const config = {
   // largo, margem extra de segurança contra whipsaw por ruído puro em
   // símbolo de volatilidade muito baixa (mesmo espírito do achado SOLUSD:
   // stop apertado demais bate por ruído antes de qualquer tese ter chance).
-  mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.003),
+  mt5StopMinPct: Number(process.env.MT5_STOP_MIN_PCT ?? 0.0008), // 20/10/2026: era 0,003 (descartava o stop 2x ATR em ouro/indices)
   // 🔴 2026-09-18 (mesmo pedido do corte de stop de fim de semana acima):
   // piso DEDICADO ao fim de semana. O piso de dia útil (0,300%) é maior que
   // o próprio stop alvo do fim de semana (~0,266% no XETUSD de referência),
@@ -1107,7 +1121,7 @@ const GOVERNANCE_CRITICAL_ENV_PARAMS: Array<{ envVar: string; canonical: string;
   { envVar: "MT5_STOP_ATR_MULTIPLIER", canonical: "2.0", motivo: "decisao do llm-council 2026-09-04/05, ver CLAUDE.md" },
   { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.10", motivo: "decisao do Cleber 2026-10-14 (compensar alvo curto no contrato), antes 0.08" },
   { envVar: "MT5_TAKE_PROFIT_ATR_MULTIPLIER", canonical: "4.0", motivo: "R:R 1:2 pareado com stop 2.0x ATR, ver CLAUDE.md" },
-  { envVar: "MT5_STOP_MIN_PCT", canonical: "0.003", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
+  { envVar: "MT5_STOP_MIN_PCT", canonical: "0.0008", motivo: "20/10/2026 (Cleber): piso 0,3% descartava o stop de 2x ATR em ativo de baixa volatilidade (ouro/indices) e usava o reserva de 0,5%" },
   { envVar: "MT5_STOP_MAX_PCT", canonical: "0.02", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
   { envVar: "MT5_STOP_FALLBACK_PCT", canonical: "0.005", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },
 ];

@@ -836,6 +836,58 @@ export async function getMt5AccountBalance(sessionId: string): Promise<number> {
  * diário 3h antes do fim do dia local e travando o motor pelo dia inteiro
  * seguinte, mesmo com o mercado em alta e nenhuma perda real nesse dia.
  */
+/**
+ * 🔴 2026-10-20 (conselho + Cleber): ABORTO AUTOMATICO pre-combinado do periodo de teste (MT5_TRIAL_START_ISO). Devolve o motivo
+ * quando uma das 3 regras estoura, ou null (liberado / desligado). Conta ENTRADAS (agrupa as linhas parciais do mesmo
+ * symbol+side+entry_time), so do motor (is_test_data=true), fechadas desde o inicio do teste. E[R] = lucro liquido / risco inicial
+ * (notional total x distancia original do stop / preco de entrada). Propaga erro de banco (falha transitoria nao pode virar "liberado").
+ */
+export async function getTrialAbortReason(sessionId: string): Promise<string | null> {
+  const startIso = config.mt5TrialStartIso;
+  if (!startIso) return null;
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("ai_trades")
+    .select("symbol, side, entry_time, exit_time, quantity, entry_price, original_stop_distance, net_pnl")
+    .eq("session_id", sessionId)
+    .eq("status", "CLOSED")
+    .eq("is_test_data", true)
+    .gte("entry_time", startIso);
+  if (error) throw error;
+  const byEntry = new Map<string, { net: number; notional: number; riskUsd: number; lastExit: string }>();
+  for (const r of data ?? []) {
+    const key = `${r.symbol}|${r.side}|${r.entry_time}`;
+    const cur = byEntry.get(key) ?? { net: 0, notional: 0, riskUsd: 0, lastExit: "" };
+    const q = Number(r.quantity) || 0;
+    const ep = Number(r.entry_price) || 0;
+    const osd = Number(r.original_stop_distance) || 0;
+    cur.net += Number(r.net_pnl) || 0;
+    cur.notional += q;
+    cur.riskUsd += ep > 0 && osd > 0 ? q * (osd / ep) : 0;
+    if (String(r.exit_time ?? "") > cur.lastExit) cur.lastExit = String(r.exit_time ?? "");
+    byEntry.set(key, cur);
+  }
+  const entries = [...byEntry.values()].sort((a, b) => (a.lastExit < b.lastExit ? 1 : -1)); // mais recente primeiro
+  if (entries.length === 0) return null;
+  const k = config.mt5TrialAbortConsecutiveLosses;
+  if (k > 0 && entries.length >= k && entries.slice(0, k).every((e) => e.net < 0)) {
+    return `${k} perdas seguidas desde ${startIso} (aborto automatico pre-combinado)`;
+  }
+  const withRisk = entries.filter((e) => e.riskUsd > 0);
+  if (withRisk.length >= config.mt5TrialAbortMinEntries) {
+    const meanR = withRisk.reduce((sum, e) => sum + e.net / e.riskUsd, 0) / withRisk.length;
+    if (meanR < config.mt5TrialAbortMeanR) {
+      return `E[R] liquido medio de ${meanR.toFixed(2)}R em ${withRisk.length} entradas (limite ${config.mt5TrialAbortMeanR}R) desde ${startIso}`;
+    }
+  }
+  const totalNet = entries.reduce((sum, e) => sum + e.net, 0);
+  const ddLimit = config.mt5TrialAbortDrawdownPct * config.mt5ReferenceCapitalUsd;
+  if (totalNet <= -ddLimit) {
+    return `perda acumulada de $${(-totalNet).toFixed(2)} (limite $${ddLimit.toFixed(2)} = ${(config.mt5TrialAbortDrawdownPct * 100).toFixed(0)}% do capital) desde ${startIso}`;
+  }
+  return null;
+}
+
 export async function getTodayRealizedPnl(sessionId: string): Promise<number> {
   const sb = getClient();
   const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
