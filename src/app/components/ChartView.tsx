@@ -1540,6 +1540,13 @@ export function ChartView({
   setOpenPositionTargetRef.current = setOpenPositionTarget;
   // deslocamento VISUAL (nudge) aplicado a cada linha no ultimo desenho: o valor arrastado inclui esse offset, que nao e preco real
   const positionLineNudgeRef = useRef<Map<string, number>>(new Map());
+  // linha de posicao (stop/alvo) sendo ARRASTADA agora: o redesenho por tick (lucro flutuante muda todo segundo) pula essa linha, senao devolve
+  // ela ao valor antigo NO MEIO do arraste e o valor lido ao soltar e o antigo (achado 21/10: "arrasto e ele volta pro lugar").
+  const draggingPositionLineRef = useRef<{ id: string; at: number } | null>(null);
+  const isLineBeingDragged = (id: string) => {
+    const d = draggingPositionLineRef.current;
+    return !!d && d.id === id && Date.now() - d.at < 20000; // trava de seguranca: se o "soltar" nunca chegar, libera em 20s
+  };
   useEffect(() => {
     currentPriceRef.current = currentPrice;
   }, [currentPrice]);
@@ -5374,7 +5381,7 @@ export function ChartView({
           const displaySlPrice = order.sl + priceNudge + breakevenNudge + slLivePriceNudge;
           positionLineNudgeRef.current.set(slId, displaySlPrice - order.sl);
           if (slExists) {
-            chart.overrideOverlay({ id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
+            chart.overrideOverlay(isLineBeingDragged(slId) ? { id: slId, extendData: slExtendData } : { id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
           } else {
             chart.createOverlay({
               name: 'positionLabelLine',
@@ -5400,7 +5407,9 @@ export function ChartView({
               // precisar calcular de cabeça.
               extendData: slExtendData,
               // 🔴 2026-10-21: soltar o arraste GRAVA o stop (mesma regra do campo digitavel da boleta: venda acima do preco, compra abaixo).
+              onPressedMoveStart: () => { draggingPositionLineRef.current = { id: slId, at: Date.now() }; return false; },
               onPressedMoveEnd: (event: any) => {
+                draggingPositionLineRef.current = null;
                 const dragged = event.overlay?.points?.[0]?.value;
                 const price = currentPriceRef.current;
                 if (typeof dragged !== 'number' || price == null) return false;
@@ -5437,7 +5446,7 @@ export function ChartView({
           const displayTpPrice = order.tp + priceNudge + tpLivePriceNudge;
           positionLineNudgeRef.current.set(tpId, displayTpPrice - order.tp);
           if (tpExists) {
-            chart.overrideOverlay({ id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
+            chart.overrideOverlay(isLineBeingDragged(tpId) ? { id: tpId, extendData: tpExtendData } : { id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
           } else {
             chart.createOverlay({
               name: 'positionLabelLine',
@@ -5461,7 +5470,9 @@ export function ChartView({
               // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
               extendData: tpExtendData,
               // 🔴 2026-10-21: soltar o arraste GRAVA o alvo (venda: abaixo do preco; compra: acima).
+              onPressedMoveStart: () => { draggingPositionLineRef.current = { id: tpId, at: Date.now() }; return false; },
               onPressedMoveEnd: (event: any) => {
+                draggingPositionLineRef.current = null;
                 const dragged = event.overlay?.points?.[0]?.value;
                 const price = currentPriceRef.current;
                 if (typeof dragged !== 'number' || price == null) return false;
