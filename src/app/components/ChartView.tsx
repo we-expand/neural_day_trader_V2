@@ -1219,6 +1219,9 @@ const CUSTOM_OVERLAY_NAMES = new Set([
 // do usuário dos overlays de sistema (linhas de S/R, sinais), permitindo travar/ocultar/
 // apagar só os desenhos sem afetar o resto do gráfico.
 const USER_DRAWINGS_GROUP = 'user_drawings';
+// 🔴 2026-10-21: marca de build -- aparece no console ao carregar o Grafico; se NAO aparecer, a aba esta rodando um build antigo (ex.: link de deploy congelado).
+const CHART_BUILD_TAG = '21/10-arraste-v2';
+console.log('[ChartView] build', CHART_BUILD_TAG);
 
 type Timeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '2H' | '4H' | '1D' | '1W' | '1M';
 
@@ -5447,7 +5450,7 @@ export function ChartView({
               // precisar calcular de cabeça.
               extendData: slExtendData,
               // 🔴 2026-10-21: soltar o arraste GRAVA o stop (mesma regra do campo digitavel da boleta: venda acima do preco, compra abaixo).
-              onPressedMoveStart: () => { draggingPositionLineRef.current = { id: slId, at: Date.now() }; return false; },
+              onPressedMoveStart: () => { draggingPositionLineRef.current = { id: slId, at: Date.now() }; console.log('[ChartView] arraste do STOP: iniciou', slId); return false; },
               onPressedMoveEnd: (event: any) => {
                 draggingPositionLineRef.current = null;
                 const dragged = event.overlay?.points?.[0]?.value;
@@ -5455,6 +5458,7 @@ export function ChartView({
                 if (typeof dragged !== 'number' || price == null) return false;
                 const newStop = dragged - (positionLineNudgeRef.current.get(slId) ?? 0);
                 const result = setOpenPositionStopRef.current(order.id, newStop, price);
+                console.log('[ChartView] arraste do STOP: soltou em', newStop, '| preco atual', price, '| resultado', result);
                 if (result.success) {
                   toast.success('Stop movido', { description: `${order.symbol} @ ${newStop.toFixed(labelPricePrecision)} — o motor passa a executá-lo` });
                 } else {
@@ -5510,7 +5514,7 @@ export function ChartView({
               // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
               extendData: tpExtendData,
               // 🔴 2026-10-21: soltar o arraste GRAVA o alvo (venda: abaixo do preco; compra: acima).
-              onPressedMoveStart: () => { draggingPositionLineRef.current = { id: tpId, at: Date.now() }; return false; },
+              onPressedMoveStart: () => { draggingPositionLineRef.current = { id: tpId, at: Date.now() }; console.log('[ChartView] arraste do ALVO: iniciou', tpId); return false; },
               onPressedMoveEnd: (event: any) => {
                 draggingPositionLineRef.current = null;
                 const dragged = event.overlay?.points?.[0]?.value;
