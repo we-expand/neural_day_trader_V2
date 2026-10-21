@@ -1509,7 +1509,7 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice, setOpenPositionStop, setOpenPositionTarget } = useTradingContext();
   const { user } = useAuth();
 
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
@@ -1532,6 +1532,14 @@ export function ChartView({
   // quando activeOrders/pendingOrders/selectedSymbol mudam), então fechariam
   // sobre um currentPrice desatualizado se lessem o state direto.
   const currentPriceRef = useRef<number | null>(null);
+  // 🔴 2026-10-21 (Cleber: "arrasto o stop e ele volta pro lugar"): a linha de stop/alvo da POSICAO era so desenho -- sem tratamento de soltar o
+  // arraste, nada era gravado e o proximo tick redesenhava no valor antigo. Refs pra os handlers (criados uma vez) sempre chamarem a versao atual.
+  const setOpenPositionStopRef = useRef(setOpenPositionStop);
+  setOpenPositionStopRef.current = setOpenPositionStop;
+  const setOpenPositionTargetRef = useRef(setOpenPositionTarget);
+  setOpenPositionTargetRef.current = setOpenPositionTarget;
+  // deslocamento VISUAL (nudge) aplicado a cada linha no ultimo desenho: o valor arrastado inclui esse offset, que nao e preco real
+  const positionLineNudgeRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     currentPriceRef.current = currentPrice;
   }, [currentPrice]);
@@ -5364,6 +5372,7 @@ export function ChartView({
             ? `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts  ·  📍 colado no preço atual`
             : `⛔ Stop ${order.sl.toFixed(labelPricePrecision)}  ·  −$${riskUsd.toFixed(usdPrecision(riskUsd))}  ·  ${riskPts.toFixed(ptsPrecision(riskPts))} pts`;
           const displaySlPrice = order.sl + priceNudge + breakevenNudge + slLivePriceNudge;
+          positionLineNudgeRef.current.set(slId, displaySlPrice - order.sl);
           if (slExists) {
             chart.overrideOverlay({ id: slId, points: [{ value: displaySlPrice }], extendData: slExtendData });
           } else {
@@ -5390,6 +5399,21 @@ export function ChartView({
               // atingido) + distância em pontos, pra visualizar risco real sem
               // precisar calcular de cabeça.
               extendData: slExtendData,
+              // 🔴 2026-10-21: soltar o arraste GRAVA o stop (mesma regra do campo digitavel da boleta: venda acima do preco, compra abaixo).
+              onPressedMoveEnd: (event: any) => {
+                const dragged = event.overlay?.points?.[0]?.value;
+                const price = currentPriceRef.current;
+                if (typeof dragged !== 'number' || price == null) return false;
+                const newStop = dragged - (positionLineNudgeRef.current.get(slId) ?? 0);
+                const result = setOpenPositionStopRef.current(order.id, newStop, price);
+                if (result.success) {
+                  toast.success('Stop movido', { description: `${order.symbol} @ ${newStop.toFixed(labelPricePrecision)} — o motor passa a executá-lo` });
+                } else {
+                  toast.error('Stop recusado', { description: result.error });
+                  renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders); // volta a linha ao valor real
+                }
+                return false;
+              },
             });
             positionOverlayIdsRef.current.push(slId);
           }
@@ -5411,6 +5435,7 @@ export function ChartView({
             ? `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardNetUsd.toFixed(usdPrecision(rewardNetUsd))} líq.  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts  ·  📍 colado no preço atual`
             : `🎯 Alvo ${order.tp.toFixed(labelPricePrecision)}  ·  +$${rewardNetUsd.toFixed(usdPrecision(rewardNetUsd))} líq.  ·  ${rewardPts.toFixed(ptsPrecision(rewardPts))} pts`;
           const displayTpPrice = order.tp + priceNudge + tpLivePriceNudge;
+          positionLineNudgeRef.current.set(tpId, displayTpPrice - order.tp);
           if (tpExists) {
             chart.overrideOverlay({ id: tpId, points: [{ value: displayTpPrice }], extendData: tpExtendData });
           } else {
@@ -5435,6 +5460,21 @@ export function ChartView({
               },
               // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
               extendData: tpExtendData,
+              // 🔴 2026-10-21: soltar o arraste GRAVA o alvo (venda: abaixo do preco; compra: acima).
+              onPressedMoveEnd: (event: any) => {
+                const dragged = event.overlay?.points?.[0]?.value;
+                const price = currentPriceRef.current;
+                if (typeof dragged !== 'number' || price == null) return false;
+                const newTp = dragged - (positionLineNudgeRef.current.get(tpId) ?? 0);
+                const result = setOpenPositionTargetRef.current(order.id, newTp, price);
+                if (result.success) {
+                  toast.success('Alvo movido', { description: `${order.symbol} @ ${newTp.toFixed(labelPricePrecision)} — o motor fecha quando o preço chegar` });
+                } else {
+                  toast.error('Alvo recusado', { description: result.error });
+                  renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+                }
+                return false;
+              },
             });
             positionOverlayIdsRef.current.push(tpId);
           }
