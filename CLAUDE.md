@@ -15,6 +15,15 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-10-21] "A IA não faz nada" = infra + travas minhas, não estratégia. Conselho, failover NVIDIA, custo corrigido, netting/hedging, e 7 backtests: NENHUM
+sinal mecânico tem vantagem (zero a zero antes do custo; só custo baixo = Russell/NAS100/EURUSD ficam ~0).** Motor reiniciado 12:48 BRT: Mesa OFF
+(réplica de 02/09), failover de modelo (timeout 45s), aborto automático (`MT5_TRIAL_START_ISO=2026-10-21T14:58:00Z`; 3 perdas = pausa 60 min), custo do
+motor = só comissão (spread era descontado em dobro), piso de stop 0,08%, R:R≥1 inviolável, bug do "stop fecha a posição" (take_profit=0) corrigido.
+**Protocolo do Cleber: rodadas de 10 entradas; só escala volume quando rentável; não pode perder todo dia; manuais dele contam só de 21/10.** Plataforma:
+chave Netting/Hedging, alvo digitável, arrastar stop/alvo grava, Shift = reta 100% reta (com chave). **PENDENTE na tela dele:** arraste do stop não grava e
+Fibonacci some ao trocar de tempo gráfico — suspeita nº 1 = aba em link de deploy congelado (usar o alias `dev`); console: `build 21/10-arraste-v2`.
+Detalhe, números, erros meus e pendências: [SESSAO_2026-10-21_CONSELHO_FAILOVER_NETTING_E_TESTES_DO_METODO.md](SESSAO_2026-10-21_CONSELHO_FAILOVER_NETTING_E_TESTES_DO_METODO.md).
+
 **[2026-10-19, noite] "A LLM não opera": cesta de fim de semana esquecida (só 7 criptos numa segunda) + stop cortado a 1 vela de 15m
 com lote dobrado (−US$4,45 em 6 min). Conselho unânime: cesta de dia útil + fim do stop curto, sem afrouxar Mesa/piso. Feito e
 commitado (`4c2a7cf4b`): `MT5_SCALP_STOP_FOLLOWS_TARGET=false`, lote só sobe se o stop encurtou, US2000 na cesta, Setup só oferece
