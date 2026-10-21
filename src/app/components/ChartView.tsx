@@ -7085,8 +7085,16 @@ export function ChartView({
                 lock: !!o.lock,
                 visible: o.visible !== false
               }));
-            userDrawingsSnapshotRef.current = snapshot;
-            console.log('[ChartView] 📸 Snapshot de', snapshot.length, 'desenho(s) do usuário antes do dispose');
+            // 🔴 2026-10-21 (Cleber: "traco Fibonacci/reta, mudo o tempo grafico e eles somem -- persiste"): CORRIDA. Se este cleanup roda de novo ANTES de a
+            // restauracao da foto anterior acontecer (o efeito roda 2x seguidas -- ex.: timeframe reaplicado pelo estado salvo da sessao), os ids rastreados
+            // ainda apontam pro chart ANTIGO ja destruido, `getOverlayById` devolve nada e a foto sai VAZIA, apagando a foto boa ainda pendente. So
+            // substitui a foto se capturou algo OU se nao ha foto pendente (a pendente e zerada logo apos restaurar).
+            if (snapshot.length > 0 || userDrawingsSnapshotRef.current.length === 0) {
+              userDrawingsSnapshotRef.current = snapshot;
+            } else {
+              console.warn('[ChartView] ⚠️ Cleanup repetido antes de restaurar: mantendo a foto pendente de', userDrawingsSnapshotRef.current.length, 'desenho(s)');
+            }
+            console.log('[ChartView] 📸 Snapshot de', userDrawingsSnapshotRef.current.length, 'desenho(s) do usuário antes do dispose');
             // 🔧 FIX: além do ref em memória (só sobrevive a troca de timeframe/símbolo
             // DENTRO da mesma montagem), grava também no sessionStorage — sem isso, um
             // desenho manual (ex: expansão de Fibonacci) some pra sempre ao navegar pra
@@ -7095,7 +7103,7 @@ export function ChartView({
             // useChartSessionState.ts) — mescla no config completo pra não perder o
             // resto do estado de sessão já salvo.
             if (initialRestoreDoneRef.current) {
-              saveSessionState(userIdRef.current, { ...captureCurrentChartConfigRef.current(), userDrawings: snapshot });
+              saveSessionState(userIdRef.current, { ...captureCurrentChartConfigRef.current(), userDrawings: userDrawingsSnapshotRef.current });
             }
           }
         } catch (e) {
