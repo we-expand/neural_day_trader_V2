@@ -3012,16 +3012,21 @@ export function useApexLogic(
     // o que sobrar. Antes abria uma posicao oposta e deixava as duas abertas (lock/hedge: custo em dobro, nada fechava). So DEMO e so no
     // modo NETTING (padrao); no modo HEDGING (chave em Configuracoes) a ordem contraria abre posicao oposta, como antes. So DEMO:
     // em LIVE quem decide e a conta da corretora. Mesmo calculo de P&L/custo do fechamento manual (closeManualPosition).
-    let remainingUsd = amountUsd;
+    // 🔴 2026-10-21 (achado ao vivo: venda 0,01 @84.450 + compra 0,01 @84.718 deixou uma compra-poeira de US$2,68): a comparacao tem que ser em
+    // UNIDADES do ativo (nocional / preco), nunca em dolares -- o nocional de cada ponta foi calculado no preco DAQUELA ponta.
+    const incomingUnits = amountUsd / params.entryPrice;
+    let remainingUnits = incomingUnits;
     let nettedAny = false;
     if (configRef.current.executionMode === 'DEMO' && getAccountMode() === 'NETTING') {
       const opposites = activeOrdersRef.current
         .filter((o) => o.symbol === params.symbol && o.side !== params.side && !o.brokerPositionId)
         .sort((a, b) => a.timestamp - b.timestamp);
       for (const opp of opposites) {
-        if (remainingUsd <= amountUsd * 0.001) break;
-        const closeUsd = Math.min(opp.amount, remainingUsd);
-        const isFull = closeUsd >= opp.amount * 0.999;
+        if (remainingUnits <= incomingUnits * 0.001) break;
+        const oppUnits = opp.amount / opp.price;
+        const closeUnits = Math.min(oppUnits, remainingUnits);
+        const isFull = closeUnits >= oppUnits * 0.999;
+        const closeUsd = isFull ? opp.amount : closeUnits * opp.price; // nocional da parte fechada, no preco de ENTRADA da posicao
         const grossPnl = calculateEngineConsistentPnL(opp.price, params.entryPrice, opp.side, closeUsd);
         const { costUsd } = calculateRoundTripCost(opp.symbol, closeUsd, opp.price);
         const netPnl = grossPnl - costUsd;
@@ -3033,15 +3038,15 @@ export function useApexLogic(
         setPortfolio((prev) => ({ ...prev, balance: prev.balance + netPnl, equity: prev.balance + netPnl }));
         setOrderHistory((prev) => [...prev, { ...opp, amount: closeUsd, currentPrice: params.entryPrice, currentProfit: netPnl, closedAt: Date.now() }]);
         setActiveOrders((prev) => (isFull ? prev.filter((o) => o.id !== opp.id) : prev.map((o) => (o.id === opp.id ? { ...o, amount: o.amount - closeUsd } : o))));
-        addLog(`🔁 NETTING: ordem ${params.side} ${isFull ? 'fechou' : 'reduziu'} ${opp.side} de ${params.symbol} (US$${closeUsd.toFixed(2)}) @ $${params.entryPrice.toFixed(2)} — P&L líquido: $${netPnl.toFixed(2)} (bruto $${grossPnl.toFixed(2)}, custo $${costUsd.toFixed(2)})`);
-        remainingUsd -= closeUsd;
+        addLog(`🔁 NETTING: ordem ${params.side} ${isFull ? 'fechou' : 'reduziu'} ${opp.side} de ${params.symbol} (${closeUnits.toFixed(6)} un.) @ $${params.entryPrice.toFixed(2)} — P&L líquido: $${netPnl.toFixed(2)} (bruto $${grossPnl.toFixed(2)}, custo $${costUsd.toFixed(2)})`);
+        remainingUnits -= closeUnits;
         nettedAny = true;
       }
-      if (nettedAny && remainingUsd <= amountUsd * 0.001) {
+      if (nettedAny && remainingUnits <= incomingUnits * 0.001) {
         return { success: true, netted: true, message: `Posição ${params.side === 'LONG' ? 'vendida' : 'comprada'} de ${params.symbol} fechada/reduzida (netting).` };
       }
     }
-    const openUsd = nettedAny ? remainingUsd : amountUsd;
+    const openUsd = nettedAny ? remainingUnits * params.entryPrice : amountUsd;
 
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
       sessionStartedAtRef.current = Date.now();

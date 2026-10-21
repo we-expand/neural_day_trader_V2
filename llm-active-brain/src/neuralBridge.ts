@@ -1375,7 +1375,9 @@ export async function enforceMt5StopsAndTargets(
     let reason: "SL" | "TP" | null = null;
     if (pos.side === "LONG") {
       if (price <= pos.stop_loss) reason = "SL";
-      else if (pos.take_profit != null && price >= pos.take_profit) reason = "TP";
+      // 🔴 2026-10-21 (BUG: compra manual com stop e SEM alvo fechava na hora como "TP"): take_profit = 0 significa "sem alvo" (ordem manual),
+      // nunca um preco de gatilho -- `price >= 0` e sempre verdadeiro. Exige alvo > 0, igual ao teste das velas de 1m logo abaixo.
+      else if (pos.take_profit != null && pos.take_profit > 0 && price >= pos.take_profit) reason = "TP";
     } else {
       if (price >= pos.stop_loss) reason = "SL";
       // 🔴 2026-10-13 (pedido do Cleber, opcao B -- XETUSD SHORT: o grafico ja
@@ -1388,7 +1390,7 @@ export async function enforceMt5StopsAndTargets(
       // descontado do ganho -- so o GATILHO ficou alinhado ao que se ve.
       // Efeito: captura menos pontos por trade vencedor (~ o spread), mas o
       // fechamento bate com a linha. Stop NAO mudou.
-      else if (pos.take_profit != null && quote.bid <= pos.take_profit) reason = "TP";
+      else if (pos.take_profit != null && pos.take_profit > 0 && quote.bid <= pos.take_profit) reason = "TP";
     }
     // 🔴 2026-10-14 (pedido do Cleber, XETUSD LONG: o grafico mostrou pavio ate
     // 2520,51 com alvo em 2518,30 e a posicao so fechou minutos depois): o tick
