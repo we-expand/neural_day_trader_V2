@@ -4,6 +4,7 @@ import { toast as toastOriginal } from 'sonner';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
 import { calculateRealisticPnL, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
 import { calculateRoundTripCost, calculateCommissionOnlyCost } from '@/app/services/risk/ExecutionCost.ts'; // 💸 Custo de execução real (spread+slippage) — fonte única, mesma do ai-runner
+import { getAccountMode } from '@/app/lib/accountMode';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
@@ -3008,11 +3009,12 @@ export function useApexLogic(
 
     // 🔴 2026-10-21 (Cleber: "a plataforma e de trade, nao de hedge"): NETTING. Uma ordem CONTRARIA no mesmo ativo (a mercado ou
     // ordem pendente que disparou) reduz/fecha a posicao aberta (a mais antiga primeiro) ao preco da ordem, e so abre posicao NOVA com
-    // o que sobrar. Antes abria uma posicao oposta e deixava as duas abertas (lock/hedge: custo em dobro, nada fechava). So DEMO:
+    // o que sobrar. Antes abria uma posicao oposta e deixava as duas abertas (lock/hedge: custo em dobro, nada fechava). So DEMO e so no
+    // modo NETTING (padrao); no modo HEDGING (chave em Configuracoes) a ordem contraria abre posicao oposta, como antes. So DEMO:
     // em LIVE quem decide e a conta da corretora. Mesmo calculo de P&L/custo do fechamento manual (closeManualPosition).
     let remainingUsd = amountUsd;
     let nettedAny = false;
-    if (configRef.current.executionMode === 'DEMO') {
+    if (configRef.current.executionMode === 'DEMO' && getAccountMode() === 'NETTING') {
       const opposites = activeOrdersRef.current
         .filter((o) => o.symbol === params.symbol && o.side !== params.side && !o.brokerPositionId)
         .sort((a, b) => a.timestamp - b.timestamp);
@@ -3651,6 +3653,28 @@ export function useApexLogic(
     return { success: true };
   }, [addLog]);
 
+  // 🔴 2026-10-21 (Cleber: "so consigo reposicionar arrastando"): ALVO (take profit) digitado numa posicao DEMO ja aberta, com o mesmo
+  // criterio do stop. Venda: alvo ABAIXO do preco atual; compra: ACIMA. Grava em ai_trades.take_profit (auditado) e o motor passa a executa-lo.
+  const setOpenPositionTarget = useCallback((tradeId: string, newTp: number, currentPrice: number): { success: boolean; error?: string } => {
+    const order = activeOrdersRef.current.find((o) => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada' };
+    if (order.brokerPositionId) return { success: false, error: 'Posição real: o alvo é definido na corretora' };
+    if (!(newTp > 0) || !(currentPrice > 0)) return { success: false, error: 'Preço de alvo inválido' };
+    const bad = order.side === 'SHORT' ? newTp >= currentPrice : newTp <= currentPrice;
+    if (bad) {
+      return {
+        success: false,
+        error: order.side === 'SHORT'
+          ? `Alvo de venda precisa ficar ABAIXO do preço atual (${currentPrice})`
+          : `Alvo de compra precisa ficar ACIMA do preço atual (${currentPrice})`,
+      };
+    }
+    setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, tp: newTp, tpIsReal: true } : o)));
+    void persistenceRef.current.updateTradeTakeProfit(tradeId, newTp);
+    addLog(`🎯 ALVO definido: ${order.symbol} ${order.side} @ ${newTp}`);
+    return { success: true };
+  }, [addLog]);
+
   const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
     if (!order) return;
@@ -4042,6 +4066,7 @@ export function useApexLogic(
     recordLiveManualPosition,
     closeManualPosition,
     setOpenPositionStop,
+    setOpenPositionTarget,
     closeLiveManualPosition,
     pendingOrders,
     openManualPendingOrder,

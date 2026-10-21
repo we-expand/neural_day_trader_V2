@@ -36,7 +36,8 @@
  * FOREX_MAJOR (mesmo default conservador do resto do projeto) com log de
  * aviso, nunca falha silenciosa.
  */
-import { estimateRoundTripFractionExcludingSpread, publishedCommissionRoundTripPct, type AssetClass } from "../../research/CostModel.ts";
+import { estimateCostPercent, estimateCostPercentMeasured, estimateRoundTripFractionExcludingSpread, publishedCommissionRoundTripPct, type AssetClass } from "../../research/CostModel.ts";
+import { getMeasuredSpread } from "../../research/MeasuredSpreads.ts";
 import { getPointValue } from "../../src/app/services/strategy/TradeSizing.ts";
 import { LOT_SIZE } from "./assetBasket.js";
 
@@ -139,6 +140,29 @@ export function estimateCommissionUsd(symbol: string, notionalUsd: number, price
     return notionalUsd * roundTripPercent;
   } catch (err) {
     console.warn(`[commissionModel] Falha ao estimar comissão de ${symbol}, gravando 0:`, err instanceof Error ? err.message : err);
+    return 0;
+  }
+}
+
+/**
+ * 🔴 2026-10-21: custo round-trip COM o spread, em dolares, pra posicao a PRECO MEDIO (ordem manual do usuario: entra e sai no
+ * preco unico da boleta, sem ask/bid). Ai o spread NAO esta na diferenca de preco e e cobrado UMA vez (spread/2 por perna x 2).
+ * `estimateCommissionUsd` (so comissao) e pro motor, que preenche no ask/bid. Achado: o stop do motor fechou uma venda manual com
+ * custo US$0,00 (as saidas manuais pagavam US$1,30) porque o fechamento usava o modelo "so comissao" em posicao a preco medio.
+ */
+export function estimateMidPriceRoundTripCostUsd(symbol: string, notionalUsd: number, priceLevel: number): number {
+  if (!Number.isFinite(notionalUsd) || notionalUsd <= 0 || !Number.isFinite(priceLevel) || priceLevel <= 0) return 0;
+  try {
+    const assetClass = resolveAssetClass(symbol);
+    const pointValue = PAIR_COST_OVERRIDE[symbol.toUpperCase()]?.pointValue ?? getPointValue(symbol);
+    const measured = getMeasuredSpread(symbol);
+    const roundTripPercent = (measured
+      ? estimateCostPercentMeasured(assetClass, priceLevel, pointValue, measured.medianPct, publishedCommissionRoundTripPct(symbol, assetClass, priceLevel))
+      : estimateCostPercent(assetClass, priceLevel, pointValue)) * 2;
+    if (!Number.isFinite(roundTripPercent) || roundTripPercent < 0) return 0;
+    return notionalUsd * roundTripPercent;
+  } catch (err) {
+    console.warn(`[commissionModel] Falha ao estimar custo (preco medio) de ${symbol}, gravando 0:`, err instanceof Error ? err.message : err);
     return 0;
   }
 }

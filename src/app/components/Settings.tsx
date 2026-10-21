@@ -39,6 +39,7 @@ import { DataSourceHealthDashboard } from '@/app/components/system/DataSourceHea
 import { AlertSystemPanel } from '@/app/components/system/AlertSystemPanel';
 import { DecisionBrainShadowPanel } from '@/app/components/system/DecisionBrainShadowPanel';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { getAccountMode, setAccountMode, type AccountMode } from '@/app/lib/accountMode';
 import { isPositionOpenSoundEnabled, setPositionOpenSoundEnabled, playPositionOpenSound } from '@/app/lib/positionOpenSound';
 import { PushPositionAlerts } from '@/app/components/settings/PushPositionAlerts';
 
@@ -50,6 +51,8 @@ export function Settings() {
   // Persistido em localStorage (não é preferência efêmera de tela) -- ver
   // src/app/lib/positionOpenSound.ts, mesmo padrão dos toggles de TradingContext.
   const [positionOpenSound, setPositionOpenSoundState] = useState(() => isPositionOpenSoundEnabled());
+  // Modo de posição da conta DEMO (ver src/app/lib/accountMode.ts): NETTING (padrão) ou HEDGING.
+  const [accountMode, setAccountModeState] = useState<AccountMode>(() => getAccountMode());
   const [emailNotifications, setEmailNotifications] = useState(false);
   const [performanceAlerts, setPerformanceAlerts] = useState(true);
   const [riskAlerts, setRiskAlerts] = useState(true);
@@ -432,6 +435,26 @@ export function Settings() {
                           setPositionOpenSoundState(next);
                           setPositionOpenSoundEnabled(next);
                           if (next) playPositionOpenSound();
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="flex-1">
+                      <span className="text-slate-300 text-sm font-medium">Permitir posições contrárias abertas ao mesmo tempo (hedge)</span>
+                      <p className="text-xs text-slate-500">Desligado (padrão, netting): uma ordem contrária fecha/reduz a posição aberta. Ligado (hedging): as duas ficam abertas, para você soltar a perdedora e deixar a ganhadora correr. Só vale em DEMO.</p>
+                    </div>
+                    <div className="relative ml-4">
+                      <input
+                        type="checkbox"
+                        checked={accountMode === 'HEDGING'}
+                        onChange={(e) => {
+                          const next: AccountMode = e.target.checked ? 'HEDGING' : 'NETTING';
+                          setAccountModeState(next);
+                          setAccountMode(next);
                         }}
                         className="sr-only peer"
                       />

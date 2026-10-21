@@ -73,7 +73,7 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, orderHistory, aiConfig, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setOpenPositionStop, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, orderHistory, aiConfig, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setOpenPositionStop, setOpenPositionTarget, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
 
   // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
@@ -190,6 +190,57 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     } else {
       toast.error('Stop recusado', { description: result.error });
     }
+  }
+
+  // 🔴 2026-10-21: ALVO digitado numa posição já aberta (antes só dava para arrastar a linha). Mesmo padrão do stop.
+  const [targetEditId, setTargetEditId] = useState<string | null>(null);
+  const [targetEditText, setTargetEditText] = useState('');
+
+  function saveTargetEdit(posId: string) {
+    if (currentPrice == null) {
+      toast.error('Aguardando preço do ativo…');
+      return;
+    }
+    const value = Number(targetEditText.replace(',', '.'));
+    const result = setOpenPositionTarget(posId, value, currentPrice);
+    if (result.success) {
+      toast.success('Alvo definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor fecha a posição quando o preço chegar` });
+      setTargetEditId(null);
+    } else {
+      toast.error('Alvo recusado', { description: result.error });
+    }
+  }
+
+  function renderTargetControl(pos: (typeof symbolPositions)[number]) {
+    if (pos.brokerPositionId) return null; // posição real: alvo é da corretora
+    if (targetEditId === pos.id) {
+      return (
+        <span className="flex items-center gap-1">
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={targetEditText}
+            onChange={(e) => setTargetEditText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveTargetEdit(pos.id); if (e.key === 'Escape') setTargetEditId(null); }}
+            placeholder={pos.side === 'SHORT' ? 'abaixo do preço' : 'acima do preço'}
+            className="w-20 rounded bg-white/10 px-1 py-0.5 text-[9px] font-mono text-white outline-none"
+          />
+          <button type="button" onClick={() => saveTargetEdit(pos.id)} className="text-[9px] font-bold px-1.5 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500">OK</button>
+        </span>
+      );
+    }
+    const hasTarget = pos.tpIsReal && pos.tp > 0;
+    return (
+      <button
+        type="button"
+        onClick={() => { setTargetEditId(pos.id); setTargetEditText(hasTarget ? String(pos.tp) : ''); }}
+        className={`text-[9px] font-bold px-2 py-1 rounded transition-colors ${hasTarget ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'}`}
+        title={hasTarget ? `Alvo em ${formatPrice(pos.tp, symbol)} — clique para mover` : 'Posição SEM alvo — clique para definir'}
+      >
+        {hasTarget ? 'Alvo ✓' : 'Sem alvo'}
+      </button>
+    );
   }
 
   function renderStopControl(pos: (typeof symbolPositions)[number]) {
@@ -827,6 +878,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
               </div>
               <div className="flex items-center gap-1">
                 {renderStopControl(pos)}
+                {renderTargetControl(pos)}
                 <button
                   type="button"
                   onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}

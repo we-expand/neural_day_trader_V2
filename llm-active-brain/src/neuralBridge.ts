@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
 import { getAtrPercent, getLatestOneMinuteCandle, getOneMinuteCandlesSince } from "./atr.js";
-import { estimateCommissionUsd } from "./commissionModel.js";
+import { estimateCommissionUsd, estimateMidPriceRoundTripCostUsd } from "./commissionModel.js";
 import { recordPlatformCommission } from "./platformCommissionLedger.js";
 
 /**
@@ -1025,7 +1025,7 @@ export async function closeMt5Position(params: {
     const sb = getClient();
     const { data: trade, error: fetchError } = await sb
       .from("ai_trades")
-      .select("entry_price, side, quantity, ai_reasoning, symbol, broker_position_id, user_id, session_id, entry_time, original_stop_distance")
+      .select("entry_price, side, quantity, ai_reasoning, symbol, broker_position_id, user_id, session_id, entry_time, original_stop_distance, is_test_data")
       .eq("id", params.tradeId)
       .eq("status", "OPEN")
       .maybeSingle();
@@ -1041,7 +1041,11 @@ export async function closeMt5Position(params: {
     // ver commissionModel.ts): custo round-trip calculado no fechamento
     // (única vez que temos entrada+saída confirmadas), nunca no `openMt5Position`
     // -- antes ficava hardcoded em 0 aqui pra sempre.
-    const commissionUsd = estimateCommissionUsd(trade.symbol, amountUsd, entryPrice);
+    // 🔴 2026-10-21: ordem MANUAL (is_test_data=false) entra a preco medio -> o spread nao esta no preco, entra no custo; trade do
+    // MOTOR (is_test_data=true) entra no ask/bid -> so comissao (ver commissionModel.ts).
+    const commissionUsd = trade.is_test_data === false
+      ? estimateMidPriceRoundTripCostUsd(trade.symbol, amountUsd, entryPrice)
+      : estimateCommissionUsd(trade.symbol, amountUsd, entryPrice);
     // 🔴 2026-08-30 (achado do Agente 1, handoff em CLAUDE.md/SESSAO_2026-08-29
     // _CANDLE_REAL_E_PRICE_ACTION.md "Parte B"): o UPDATE abaixo sobrescrevia
     // ai_reasoning com só o motivo da SAIDA, apagando pra sempre o motivo da

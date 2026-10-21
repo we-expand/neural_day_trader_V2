@@ -397,6 +397,21 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     }
   }, [options.enabled, options.onPersistenceError]);
 
+  /** 🔴 2026-10-21: alvo (take profit) digitado numa posicao ja aberta -- mesmo desenho de updateTradeStopLoss. */
+  const updateTradeTakeProfit = useCallback(async (tradeId: string, newTp: number): Promise<boolean> => {
+    if (!options.enabled) return false;
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
+    try {
+      const ok = await aiPersistence.updateTrade(dbTradeId, { take_profit: newTp });
+      if (!ok) options.onPersistenceError?.('stop_loss_update', new Error(`updateTrade (take_profit) retornou falso para ${dbTradeId}`));
+      return ok;
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro ao atualizar take_profit:`, error);
+      options.onPersistenceError?.('stop_loss_update', error);
+      return false;
+    }
+  }, [options.enabled, options.onPersistenceError]);
+
   // ==========================================================================
   // PORTFOLIO SNAPSHOTS
   // ==========================================================================
@@ -787,6 +802,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     onTradeClose,
     onTradePartialClose,
     updateTradeStopLoss,
+    updateTradeTakeProfit,
     resolveDbTradeId,
     markPyramidRoot,
 
