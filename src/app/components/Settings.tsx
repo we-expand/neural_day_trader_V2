@@ -40,6 +40,7 @@ import { AlertSystemPanel } from '@/app/components/system/AlertSystemPanel';
 import { DecisionBrainShadowPanel } from '@/app/components/system/DecisionBrainShadowPanel';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { getAccountMode, setAccountMode, type AccountMode } from '@/app/lib/accountMode';
+import { isShiftStraightenEnabled, setShiftStraightenEnabled } from '@/app/lib/drawingPrefs';
 import { isPositionOpenSoundEnabled, setPositionOpenSoundEnabled, playPositionOpenSound } from '@/app/lib/positionOpenSound';
 import { PushPositionAlerts } from '@/app/components/settings/PushPositionAlerts';
 
@@ -53,6 +54,8 @@ export function Settings() {
   const [positionOpenSound, setPositionOpenSoundState] = useState(() => isPositionOpenSoundEnabled());
   // Modo de posição da conta DEMO (ver src/app/lib/accountMode.ts): NETTING (padrão) ou HEDGING.
   const [accountMode, setAccountModeState] = useState<AccountMode>(() => getAccountMode());
+  // Shift ao traçar uma reta no Gráfico deixa a linha 100% horizontal (ver src/app/lib/drawingPrefs.ts).
+  const [shiftStraighten, setShiftStraightenState] = useState(() => isShiftStraightenEnabled());
   const [emailNotifications, setEmailNotifications] = useState(false);
   const [performanceAlerts, setPerformanceAlerts] = useState(true);
   const [riskAlerts, setRiskAlerts] = useState(true);
@@ -455,6 +458,26 @@ export function Settings() {
                           const next: AccountMode = e.target.checked ? 'HEDGING' : 'NETTING';
                           setAccountModeState(next);
                           setAccountMode(next);
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="flex-1">
+                      <span className="text-slate-300 text-sm font-medium">Shift deixa a reta 100% reta (Gráfico)</span>
+                      <p className="text-xs text-slate-500">Ao terminar de traçar uma linha segurando o Shift, ela fica perfeitamente horizontal. Desligue se não quiser esse comportamento.</p>
+                    </div>
+                    <div className="relative ml-4">
+                      <input
+                        type="checkbox"
+                        checked={shiftStraighten}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setShiftStraightenState(next);
+                          setShiftStraightenEnabled(next);
                         }}
                         className="sr-only peer"
                       />

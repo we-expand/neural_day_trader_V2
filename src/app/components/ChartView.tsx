@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { calculateRoundTripCost } from '@/app/services/risk/ExecutionCost.ts';
+import { isShiftStraightenEnabled } from '@/app/lib/drawingPrefs';
 import { init, dispose, getSupportedOverlays, registerOverlay, registerYAxis, registerXAxis, registerIndicator, getSupportedIndicators, OverlayMode } from 'klinecharts';
 import type { KLineData, OverlayTemplate, AxisTemplate, AxisTick } from 'klinecharts';
 
@@ -1546,6 +1547,44 @@ export function ChartView({
   const isLineBeingDragged = (id: string) => {
     const d = draggingPositionLineRef.current;
     return !!d && d.id === id && Date.now() - d.at < 20000; // trava de seguranca: se o "soltar" nunca chegar, libera em 20s
+  };
+
+  // 🔴 2026-10-21 (Cleber: "ao tracar uma reta, se eu apertar o Shift, a reta fica 100% reta"): com o Shift apertado ao terminar de tracar
+  // (ou ao soltar um ponto arrastado), o 2o ponto assume o MESMO PRECO do 1o e a linha fica perfeitamente horizontal.
+  const shiftHeldRef = useRef(false);
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeldRef.current = true; };
+    const up = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeldRef.current = false; };
+    const blur = () => { shiftHeldRef.current = false; };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+  const STRAIGHTENABLE_LINES = new Set(['segment', 'rayLine', 'straightLine', 'infoLine', 'trendAngleLine']);
+  const buildStraightenHandlers = (overlayName: string) => {
+    if (!STRAIGHTENABLE_LINES.has(overlayName)) return {};
+    const straighten = (event: any) => {
+      try {
+        if (!shiftHeldRef.current || !isShiftStraightenEnabled()) return false;
+        const ov = event?.overlay;
+        const pts = ov?.points;
+        if (!ov?.id || !Array.isArray(pts) || pts.length < 2 || typeof pts[0]?.value !== 'number') return false;
+        if (pts[1].value === pts[0].value) return false; // ja esta reta
+        chartInstanceRef.current?.overrideOverlay({
+          id: ov.id,
+          points: [pts[0], { ...pts[1], value: pts[0].value }, ...pts.slice(2)],
+        });
+      } catch (e) {
+        console.warn('[ChartView] Shift: nao foi possivel retificar a linha:', e);
+      }
+      return false;
+    };
+    return { onDrawEnd: straighten, onPressedMoveEnd: straighten };
   };
   useEffect(() => {
     currentPriceRef.current = currentPrice;
@@ -4001,7 +4040,8 @@ export function ChartView({
         // do desenho encaixarem no OHLC do candle mais próximo em vez de ficarem soltos
         // em qualquer coordenada crua do mouse. Suporte nativo da klinecharts.
         mode: magnetActive ? OverlayMode.WeakMagnet : OverlayMode.Normal,
-        onClick: buildDrawingOnClickHandler(overlayType)
+        onClick: buildDrawingOnClickHandler(overlayType),
+        ...buildStraightenHandlers(overlayType)
       });
       
       if (overlayId) {
@@ -6677,7 +6717,8 @@ export function ChartView({
                   // ficava sem NENHUM clique funcional — nem selecionava, nem abria o menu
                   // de Mover/Estilo/Travar/Apagar (o Cleber pediu justamente esse menu pra
                   // Fibonacci). Mesmo handler usado na criação original via toolbar.
-                  onClick: buildDrawingOnClickHandler(saved.name)
+                  onClick: buildDrawingOnClickHandler(saved.name),
+                  ...buildStraightenHandlers(saved.name)
                 });
                 if (newId) restored.push(newId as string);
               } catch (e) {
