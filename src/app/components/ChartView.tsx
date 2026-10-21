@@ -1220,7 +1220,7 @@ const CUSTOM_OVERLAY_NAMES = new Set([
 // apagar só os desenhos sem afetar o resto do gráfico.
 const USER_DRAWINGS_GROUP = 'user_drawings';
 // 🔴 2026-10-21: marca de build -- aparece no console ao carregar o Grafico; se NAO aparecer, a aba esta rodando um build antigo (ex.: link de deploy congelado).
-const CHART_BUILD_TAG = '21/10-arraste-v2';
+const CHART_BUILD_TAG = '21/10-arraste-v3';
 console.log('[ChartView] build', CHART_BUILD_TAG);
 
 type Timeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '2H' | '4H' | '1D' | '1W' | '1M';
@@ -2039,6 +2039,25 @@ export function ChartView({
   // recriada com createOverlay() depois que o chart novo termina de carregar o dataset.
   const userDrawingOverlayIdsRef = useRef<string[]>([]);
   const userDrawingsSnapshotRef = useRef<Array<{ name: string; points: any; styles: any; extendData: any; lock: boolean; visible: boolean }>>([]);
+  // 🔴 2026-10-21 (Cleber: "perco o que tracei ao mudar o tempo grafico -- isso nao pode acontecer"): copia VIVA dos desenhos, atualizada a cada 1,5s
+  // enquanto o grafico esta de pe. A foto tirada so no cleanup (antes do dispose) falhava em silencio quando o chart ja estava trocado/vazio;
+  // agora o cleanup cai nesta copia se a foto sair vazia.
+  const userDrawingsLiveRef = useRef<Array<{ name: string; points: any; styles: any; extendData: any; lock: boolean; visible: boolean }>>([]);
+  useEffect(() => {
+    const t = setInterval(() => {
+      try {
+        const chart = chartInstanceRef.current;
+        if (!chart) return;
+        const ids = userDrawingOverlayIdsRef.current;
+        if (ids.length === 0) { userDrawingsLiveRef.current = []; return; }
+        const snap = ids.map(id => chart.getOverlayById(id)).filter(Boolean).map((o: any) => ({
+          name: o.name, points: o.points, styles: o.styles, extendData: o.extendData, lock: !!o.lock, visible: o.visible !== false,
+        }));
+        if (snap.length > 0) userDrawingsLiveRef.current = snap;
+      } catch { /* ignora: a copia anterior continua valendo */ }
+    }, 1500);
+    return () => clearInterval(t);
+  }, []);
   // 🔧 FIX: a "DrawingContextToolbar" (menu de Mover/Estilo/Travar/Apagar) abria
   // automaticamente no PRIMEIRO clique em cima de um desenho -- inclusive o clique que
   // TERMINA de desenhar a linha (2º clique de uma Linha de Tendência, por exemplo) -- e
@@ -4664,6 +4683,7 @@ export function ChartView({
       chart.removeOverlay({ groupId: USER_DRAWINGS_GROUP });
       userDrawingOverlayIdsRef.current = []; // 🔧 FIX: limpa o rastreamento junto — senão a próxima troca de timeframe "ressuscitava" desenhos apagados
       userDrawingsSnapshotRef.current = [];
+      userDrawingsLiveRef.current = [];
 
       console.log('[ChartView] ✅ All user drawings removed successfully');
     } catch (error) {
@@ -5455,7 +5475,11 @@ export function ChartView({
                 draggingPositionLineRef.current = null;
                 const dragged = event.overlay?.points?.[0]?.value;
                 const price = currentPriceRef.current;
-                if (typeof dragged !== 'number' || price == null) return false;
+                if (typeof dragged !== 'number' || price == null) {
+                  toast.error('Stop nao lido', { description: `valor arrastado=${String(dragged)} | preco atual=${String(price)} | build ${CHART_BUILD_TAG}` });
+                  renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+                  return false;
+                }
                 const newStop = dragged - (positionLineNudgeRef.current.get(slId) ?? 0);
                 const result = setOpenPositionStopRef.current(order.id, newStop, price);
                 console.log('[ChartView] arraste do STOP: soltou em', newStop, '| preco atual', price, '| resultado', result);
@@ -5519,7 +5543,11 @@ export function ChartView({
                 draggingPositionLineRef.current = null;
                 const dragged = event.overlay?.points?.[0]?.value;
                 const price = currentPriceRef.current;
-                if (typeof dragged !== 'number' || price == null) return false;
+                if (typeof dragged !== 'number' || price == null) {
+                  toast.error('Alvo nao lido', { description: `valor arrastado=${String(dragged)} | preco atual=${String(price)} | build ${CHART_BUILD_TAG}` });
+                  renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);
+                  return false;
+                }
                 const newTp = dragged - (positionLineNudgeRef.current.get(tpId) ?? 0);
                 const result = setOpenPositionTargetRef.current(order.id, newTp, price);
                 if (result.success) {
@@ -7093,6 +7121,10 @@ export function ChartView({
             // restauracao da foto anterior acontecer (o efeito roda 2x seguidas -- ex.: timeframe reaplicado pelo estado salvo da sessao), os ids rastreados
             // ainda apontam pro chart ANTIGO ja destruido, `getOverlayById` devolve nada e a foto sai VAZIA, apagando a foto boa ainda pendente. So
             // substitui a foto se capturou algo OU se nao ha foto pendente (a pendente e zerada logo apos restaurar).
+            if (snapshot.length === 0 && userDrawingOverlayIdsRef.current.length > 0 && userDrawingsLiveRef.current.length > 0) {
+              console.warn('[ChartView] ⚠️ Foto vazia no cleanup: usando a copia viva de', userDrawingsLiveRef.current.length, 'desenho(s)');
+              snapshot.push(...userDrawingsLiveRef.current);
+            }
             if (snapshot.length > 0 || userDrawingsSnapshotRef.current.length === 0) {
               userDrawingsSnapshotRef.current = snapshot;
             } else {

@@ -3652,8 +3652,15 @@ export function useApexLogic(
           : `Stop de compra precisa ficar ABAIXO do preço atual (${currentPrice})`,
       };
     }
+    const prevSl = { sl: order.sl, originalSl: order.originalSl, slIsReal: order.slIsReal };
     setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, sl: newStop, originalSl: newStop, slIsReal: true } : o)));
-    void persistenceRef.current.updateTradeStopLoss(tradeId, newStop);
+    // 2026-10-21: se a gravacao falhar, o poll do servidor devolve o stop antigo (a linha "volta"): avisa e desfaz na hora.
+    void persistenceRef.current.updateTradeStopLoss(tradeId, newStop).then((ok) => {
+      if (ok) return;
+      console.error('[setOpenPositionStop] gravacao do stop FALHOU para', tradeId, newStop);
+      addLog(`⚠️ Stop NÃO gravado (${order.symbol}): voltou ao valor anterior`);
+      setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, ...prevSl } : o)));
+    });
     addLog(`🛡️ STOP definido: ${order.symbol} ${order.side} @ ${newStop}`);
     return { success: true };
   }, [addLog]);
