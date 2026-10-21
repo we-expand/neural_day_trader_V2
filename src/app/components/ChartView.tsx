@@ -1219,6 +1219,40 @@ const CUSTOM_OVERLAY_NAMES = new Set([
 // do usuário dos overlays de sistema (linhas de S/R, sinais), permitindo travar/ocultar/
 // apagar só os desenhos sem afetar o resto do gráfico.
 const USER_DRAWINGS_GROUP = 'user_drawings';
+
+// 🔴 2026-10-21 (Cleber: "desenho Fibonacci no 1H, troco pro 5m e ele some -- isso nao pode acontecer"): a klinecharts so preenche `timestamp` de um
+// ponto quando ele cai DENTRO dos candles carregados; ponto desenhado a direita do ultimo candle (futuro) ou antes do primeiro vem SEM timestamp,
+// e a foto antiga o perdia (o desenho nao tinha como ser reposicionado em outro tempo grafico). Aqui o tempo e extrapolado pelo espacamento dos
+// candles na captura, e na restauracao um tempo fora do dataset vira `dataIndex` extrapolado (o timestamp fora do range seria colado no ultimo candle).
+const candleSpacingMs = (list: any[]): number => (list.length > 1 ? Math.max(1, list[list.length - 1].timestamp - list[list.length - 2].timestamp) : 0);
+const capturePointsForSnapshot = (points: any, list: any[]): any => {
+  if (!Array.isArray(points) || list.length === 0) return points;
+  const ms = candleSpacingMs(list);
+  return points.map((p: any) => {
+    if (typeof p?.timestamp === 'number') return { timestamp: p.timestamp, value: p.value };
+    if (typeof p?.dataIndex === 'number' && ms > 0) {
+      const ts = p.dataIndex >= list.length
+        ? list[list.length - 1].timestamp + (p.dataIndex - (list.length - 1)) * ms
+        : list[0].timestamp + p.dataIndex * ms;
+      return { timestamp: ts, value: p.value };
+    }
+    return { timestamp: p?.timestamp, value: p?.value };
+  });
+};
+const restorePointsFromSnapshot = (points: any, list: any[]): any => {
+  if (!Array.isArray(points)) return points;
+  const ms = candleSpacingMs(list);
+  return points.map((p: any) => {
+    const ts = p?.timestamp;
+    if (typeof ts === 'number' && ms > 0) {
+      const last = list[list.length - 1].timestamp;
+      const first = list[0].timestamp;
+      if (ts > last) return { dataIndex: list.length - 1 + Math.round((ts - last) / ms), value: p.value };
+      if (ts < first) return { dataIndex: Math.round((ts - first) / ms), value: p.value };
+    }
+    return { timestamp: ts, value: p?.value };
+  });
+};
 // 🔴 2026-10-21: marca de build -- aparece no console ao carregar o Grafico; se NAO aparecer, a aba esta rodando um build antigo (ex.: link de deploy congelado).
 const CHART_BUILD_TAG = '21/10-arraste-v3';
 console.log('[ChartView] build', CHART_BUILD_TAG);
@@ -2051,7 +2085,7 @@ export function ChartView({
         const ids = userDrawingOverlayIdsRef.current;
         if (ids.length === 0) { userDrawingsLiveRef.current = []; return; }
         const snap = ids.map(id => chart.getOverlayById(id)).filter(Boolean).map((o: any) => ({
-          name: o.name, points: o.points, styles: o.styles, extendData: o.extendData, lock: !!o.lock, visible: o.visible !== false,
+          name: o.name, points: capturePointsForSnapshot(o.points, chart.getDataList()), styles: o.styles, extendData: o.extendData, lock: !!o.lock, visible: o.visible !== false,
         }));
         if (snap.length > 0) userDrawingsLiveRef.current = snap;
       } catch { /* ignora: a copia anterior continua valendo */ }
@@ -6734,9 +6768,7 @@ export function ChartView({
             const restored: string[] = [];
             userDrawingsSnapshotRef.current.forEach(saved => {
               try {
-                const remappedPoints = Array.isArray(saved.points)
-                  ? saved.points.map((p: any) => ({ timestamp: p.timestamp, value: p.value }))
-                  : saved.points;
+                const remappedPoints = restorePointsFromSnapshot(saved.points, candles);
                 const newId = chart.createOverlay({
                   name: saved.name,
                   groupId: USER_DRAWINGS_GROUP,
@@ -7111,7 +7143,7 @@ export function ChartView({
               .filter(Boolean)
               .map((o: any) => ({
                 name: o.name,
-                points: o.points,
+                points: capturePointsForSnapshot(o.points, chartInstanceRef.current.getDataList()),
                 styles: o.styles,
                 extendData: o.extendData,
                 lock: !!o.lock,
