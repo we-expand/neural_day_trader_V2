@@ -662,6 +662,41 @@ class AITradingPersistenceService {
   }
 
   /**
+   * 🔴 2026-10-21 (Cleber: "a plataforma e de trade, nao de hedge"): fechamento PARCIAL por netting. Uma ordem contraria menor que a
+   * posicao aberta reduz a posicao: grava uma linha FECHADA com a parte fechada (mesma entrada, saida no preco da ordem contraria) e
+   * diminui `quantity` da linha aberta. Mesmo desenho do fechamento parcial do motor (realizePartialProfit). Nao apaga nada: a linha
+   * original continua, so com menos quantidade (e o trigger ai_trades_audit_log registra a mudanca).
+   */
+  async partialCloseTrade(tradeId: string, closedQty: number, exitPrice: number, pnl: number, commission: number): Promise<boolean> {
+    try {
+      const { data: row, error: readErr } = await supabase.from('ai_trades').select('*').eq('id', tradeId).single();
+      if (readErr || !row) throw readErr ?? new Error('trade nao encontrado');
+      const remaining = Number(row.quantity) - closedQty;
+      if (!(closedQty > 0) || !(remaining > 0)) throw new Error(`quantidade parcial invalida (fechar ${closedQty} de ${row.quantity})`);
+      const { id: _id, created_at: _c, updated_at: _u, ...copy } = row as Record<string, unknown>;
+      const nowIso = new Date().toISOString();
+      const { error: insErr } = await supabase.from('ai_trades').insert([{
+        ...copy,
+        quantity: closedQty,
+        exit_price: exitPrice,
+        exit_time: nowIso,
+        pnl,
+        commission,
+        net_pnl: pnl - commission,
+        status: 'CLOSED',
+        exit_reason: 'MANUAL',
+      }]);
+      if (insErr) throw insErr;
+      const { error: updErr } = await supabase.from('ai_trades').update({ quantity: remaining, updated_at: nowIso }).eq('id', tradeId);
+      if (updErr) throw updErr;
+      return true;
+    } catch (error) {
+      console.error(`${this.LOG_PREFIX} ❌ Erro no fechamento parcial:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Buscar trades da sessão
    */
   async getSessionTrades(sessionId: string): Promise<AITrade[]> {

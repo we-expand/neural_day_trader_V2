@@ -870,8 +870,15 @@ export async function getTrialAbortReason(sessionId: string): Promise<string | n
   const entries = [...byEntry.values()].sort((a, b) => (a.lastExit < b.lastExit ? 1 : -1)); // mais recente primeiro
   if (entries.length === 0) return null;
   const k = config.mt5TrialAbortConsecutiveLosses;
+  // 🔴 2026-10-20 (erro meu: 3 perdas seguidas TRAVAVA o motor ate o restart e ele ficou parado da 02h30 ate depois da abertura de NY, 44 entradas
+  // recusadas): vira PAUSA de N minutos contada da ultima saida. So E[R] e perda acumulada continuam travas firmes.
   if (k > 0 && entries.length >= k && entries.slice(0, k).every((e) => e.net < 0)) {
-    return `${k} perdas seguidas desde ${startIso} (aborto automatico pre-combinado)`;
+    const lastExitMs = Date.parse(entries[0]!.lastExit);
+    const pauseMs = config.mt5TrialAbortPauseMinutes * 60_000;
+    if (Number.isFinite(lastExitMs) && Date.now() < lastExitMs + pauseMs) {
+      const minLeft = Math.ceil((lastExitMs + pauseMs - Date.now()) / 60_000);
+      return `${k} perdas seguidas -- pausa de ${config.mt5TrialAbortPauseMinutes} min desde a ultima saida (faltam ${minLeft} min)`;
+    }
   }
   const withRisk = entries.filter((e) => e.riskUsd > 0);
   if (withRisk.length >= config.mt5TrialAbortMinEntries) {

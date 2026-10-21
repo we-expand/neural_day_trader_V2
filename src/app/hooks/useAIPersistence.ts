@@ -334,6 +334,19 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     }
   }, [options.enabled, options.onPersistenceError]);
 
+  /** Fechamento PARCIAL por netting (ordem contraria menor que a posicao). Ver AITradingPersistenceService.partialCloseTrade. */
+  const onTradePartialClose = useCallback(async (tradeId: string, closedQty: number, exitPrice: number, pnl: number, commission: number) => {
+    if (!options.enabled) return;
+    const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
+    try {
+      const ok = await aiPersistence.partialCloseTrade(dbTradeId, closedQty, exitPrice, pnl, commission);
+      if (!ok) options.onPersistenceError?.('trade_close', new Error(`partialCloseTrade falhou para ${dbTradeId}`));
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ❌ Erro no fechamento parcial:`, error);
+      options.onPersistenceError?.('trade_close', error);
+    }
+  }, [options.enabled, options.onPersistenceError]);
+
   /**
    * Resolve id local (React) -> id de banco. Mesmo fallback usado por
    * onTradeClose/updateTradeStopLoss (posição restaurada do Supabase após
@@ -772,6 +785,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
     // Trades
     onTradeOpen,
     onTradeClose,
+    onTradePartialClose,
     updateTradeStopLoss,
     resolveDbTradeId,
     markPyramidRoot,

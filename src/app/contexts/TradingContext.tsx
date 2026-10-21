@@ -52,7 +52,7 @@ interface TradingContextType {
     entryPrice: number;
     stopLoss?: number;
     takeProfit?: number;
-  }) => { success: boolean; error?: string; tradeId?: string };
+  }) => { success: boolean; error?: string; tradeId?: string; netted?: boolean; message?: string };
   recordLiveManualPosition: (params: {
     symbol: string;
     side: 'LONG' | 'SHORT';

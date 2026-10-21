@@ -565,8 +565,10 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           });
           console.error('🟢[OrderTicket] openManualPosition retornou', result);
           if (result.success) {
-            toast.success(`${side === 'BUY' ? 'Compra' : 'Venda'} enviada`, {
-              description: `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO)`,
+            toast.success(result.netted ? 'Posição contrária fechada/reduzida' : `${side === 'BUY' ? 'Compra' : 'Venda'} enviada`, {
+              description: result.netted
+                ? `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO, netting: a ordem contrária reduz a posição aberta)`
+                : `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO)`,
             });
             resetOptionalFields();
           } else {

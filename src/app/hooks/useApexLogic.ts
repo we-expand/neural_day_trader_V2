@@ -2974,7 +2974,7 @@ export function useApexLogic(
     // resolveDbTradeId), nunca o id local do React.
     pyramidGroupId?: string;
     pyramidLayer?: number;
-  }): { success: boolean; error?: string; tradeId?: string } => {
+  }): { success: boolean; error?: string; tradeId?: string; netted?: boolean; message?: string } => {
     console.error('🟢[useApexLogic] openManualPosition chamado', params);
     const asset = getAssetBySymbol(params.symbol);
     if (!asset) {
@@ -3006,6 +3006,41 @@ export function useApexLogic(
       ? volume * asset.lotSize
       : volume * asset.lotSize * params.entryPrice;
 
+    // 🔴 2026-10-21 (Cleber: "a plataforma e de trade, nao de hedge"): NETTING. Uma ordem CONTRARIA no mesmo ativo (a mercado ou
+    // ordem pendente que disparou) reduz/fecha a posicao aberta (a mais antiga primeiro) ao preco da ordem, e so abre posicao NOVA com
+    // o que sobrar. Antes abria uma posicao oposta e deixava as duas abertas (lock/hedge: custo em dobro, nada fechava). So DEMO:
+    // em LIVE quem decide e a conta da corretora. Mesmo calculo de P&L/custo do fechamento manual (closeManualPosition).
+    let remainingUsd = amountUsd;
+    let nettedAny = false;
+    if (configRef.current.executionMode === 'DEMO') {
+      const opposites = activeOrdersRef.current
+        .filter((o) => o.symbol === params.symbol && o.side !== params.side && !o.brokerPositionId)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      for (const opp of opposites) {
+        if (remainingUsd <= amountUsd * 0.001) break;
+        const closeUsd = Math.min(opp.amount, remainingUsd);
+        const isFull = closeUsd >= opp.amount * 0.999;
+        const grossPnl = calculateEngineConsistentPnL(opp.price, params.entryPrice, opp.side, closeUsd);
+        const { costUsd } = calculateRoundTripCost(opp.symbol, closeUsd, opp.price);
+        const netPnl = grossPnl - costUsd;
+        if (isFull) {
+          persistenceRef.current.onTradeClose(opp.id, params.entryPrice, grossPnl, costUsd, 'MANUAL');
+        } else {
+          persistenceRef.current.onTradePartialClose(opp.id, closeUsd, params.entryPrice, grossPnl, costUsd);
+        }
+        setPortfolio((prev) => ({ ...prev, balance: prev.balance + netPnl, equity: prev.balance + netPnl }));
+        setOrderHistory((prev) => [...prev, { ...opp, amount: closeUsd, currentPrice: params.entryPrice, currentProfit: netPnl, closedAt: Date.now() }]);
+        setActiveOrders((prev) => (isFull ? prev.filter((o) => o.id !== opp.id) : prev.map((o) => (o.id === opp.id ? { ...o, amount: o.amount - closeUsd } : o))));
+        addLog(`🔁 NETTING: ordem ${params.side} ${isFull ? 'fechou' : 'reduziu'} ${opp.side} de ${params.symbol} (US$${closeUsd.toFixed(2)}) @ $${params.entryPrice.toFixed(2)} — P&L líquido: $${netPnl.toFixed(2)} (bruto $${grossPnl.toFixed(2)}, custo $${costUsd.toFixed(2)})`);
+        remainingUsd -= closeUsd;
+        nettedAny = true;
+      }
+      if (nettedAny && remainingUsd <= amountUsd * 0.001) {
+        return { success: true, netted: true, message: `Posição ${params.side === 'LONG' ? 'vendida' : 'comprada'} de ${params.symbol} fechada/reduzida (netting).` };
+      }
+    }
+    const openUsd = nettedAny ? remainingUsd : amountUsd;
+
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
       sessionStartedAtRef.current = Date.now();
       persistenceRef.current.startSession({
@@ -3022,7 +3057,7 @@ export function useApexLogic(
       id: `manual-${Date.now()}-${Math.random()}`,
       symbol: params.symbol,
       side: params.side,
-      amount: amountUsd,
+      amount: openUsd,
       price: params.entryPrice,
       currentPrice: params.entryPrice,
       tp: params.takeProfit ?? 0,

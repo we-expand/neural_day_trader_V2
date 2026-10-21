@@ -145,6 +145,7 @@ export const config = {
   // Posicoes abertas seguem monitoradas. Destravar = mudar MT5_TRIAL_START_ISO (novo periodo de teste) + restart.
   mt5TrialStartIso: process.env.MT5_TRIAL_START_ISO ?? "",
   mt5TrialAbortConsecutiveLosses: Number(process.env.MT5_TRIAL_ABORT_CONSECUTIVE_LOSSES ?? 3),
+  mt5TrialAbortPauseMinutes: Number(process.env.MT5_TRIAL_ABORT_PAUSE_MINUTES ?? 60), // 3 perdas seguidas = pausa (nao trava ate o restart)
   mt5TrialAbortMinEntries: Number(process.env.MT5_TRIAL_ABORT_MIN_ENTRIES ?? 10),
   mt5TrialAbortMeanR: Number(process.env.MT5_TRIAL_ABORT_MEAN_R ?? -0.3),
   mt5TrialAbortDrawdownPct: Number(process.env.MT5_TRIAL_ABORT_DRAWDOWN_PCT ?? 0.10),
