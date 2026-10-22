@@ -19,6 +19,17 @@ import { getRiskScale } from "./riskScaler.js";
 import { planExpansion } from "./expansionPlan.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
+
+/**
+ * 2026-10-22 (Cleber): quantos pontos buscar decide em que grafico se mede. Alvo grande (MUITOS) so existe medido na 1H:
+ * indicadores, S/R, ATR do stop e alvo saem todos da 1H, e o 5m fica so de consulta de timing (ja entra pela cadeia de direcao).
+ * Demais alvos seguem o "Timeframe Operacional" do Setup. Rollback: MT5_BIG_TARGET_MEASURE_1H=false.
+ */
+function measurementTimeframe(userConfig: { timeframe?: string | null; targetPoints?: string | null } | null | undefined): import("./atr.js").SupportedTimeframe {
+  if (userConfig?.targetPoints === "MUITOS" && process.env.MT5_BIG_TARGET_MEASURE_1H !== "false") return "1H";
+  return (userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+}
+
 const EXHAUSTION_VETO_SYMBOLS = new Set(["BTCUSD", "BTCXBN", "ETHUSD", "XETUSD"]);
 
 // 🔴 2026-08-30 (investigacao: "feed travado" + spread anormal em DOTUSD).
@@ -834,7 +845,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // timeframe escolhido pelo usuario, nao mais fixo em 5m -- ver
       // SUPPORTED_TIMEFRAMES/fetchRecentCandles em atr.ts. Default "5m"
       // preserva o comportamento de sessoes sem essa config.
-      const timeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const timeframe = measurementTimeframe(session.userConfig);
       // snapshot atualizado logo abaixo, depois de trend/volume/macd/stochastic serem calculados
       // 🔴 2026-08-29 (otimização urgente pós-perda do dia): contexto de
       // tendência de curto prazo (1h) vai junto da cotação -- achado real foi
@@ -1788,7 +1799,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // continua liberado -- nao e proibir contrarian trade (Kotegawa fez
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
-      const openPositionTimeframe = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const openPositionTimeframe = measurementTimeframe(session.userConfig);
       const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, stochasticLongTermForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection, dailyHighLowForTarget] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
@@ -3622,7 +3633,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         let realInvalidationConfirmed = false;
         let realInvalidationFactors: string[] = [];
         if (adverseMove > 0) {
-          const timeframeForInvalidation = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+          const timeframeForInvalidation = measurementTimeframe(session.userConfig);
           const [trendForInvalidation, macdForInvalidation, stochasticForInvalidation, candlePatternsForInvalidation] = await Promise.all([
             getTrendInfo(position.symbol, timeframeForInvalidation),
             getMacd(position.symbol, timeframeForInvalidation),
@@ -3796,7 +3807,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         };
       }
 
-      const timeframeForIncrease = (session.userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
+      const timeframeForIncrease = measurementTimeframe(session.userConfig);
       const [trendForIncrease, macdForIncrease, stochasticForIncrease, candleForIncrease] = await Promise.all([
         getTrendInfo(position.symbol, timeframeForIncrease),
         getMacd(position.symbol, timeframeForIncrease),

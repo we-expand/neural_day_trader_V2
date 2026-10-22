@@ -860,7 +860,7 @@ export interface MacdResult {
   signal: number;
   /** macd - signal -- o que realmente importa pra leitura de momentum. */
   histogram: number;
-  /** ALTA = histograma positivo (momentum comprador), BAIXA = negativo, NEUTRO = perto de zero. */
+  /** Igual as BARRAS do MT5: ALTA = linha MACD (EMA12-EMA26) acima de zero, BAIXA = abaixo, NEUTRO = perto de zero. `histogram` (macd-signal) so mede o cruzamento com a linha de sinal. */
   label: "ALTA" | "BAIXA" | "NEUTRO";
   /** Histograma mudou de sinal na última vela vs a penúltima -- sinal de virada real, não só direção atual. null quando não houve troca de sinal. */
   crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
@@ -941,8 +941,12 @@ export async function getMacd(symbol: string, timeframe: SupportedTimeframe = "5
 
   const lastClose = closes[closes.length - 1];
   const neutralThreshold = Number.isFinite(lastClose) && lastClose > 0 ? lastClose * MACD_NEUTRAL_THRESHOLD_RATIO : 0;
+  // 2026-10-22 (Cleber): o MT5 desenha como BARRAS a propria linha MACD (EMA12-EMA26), nao macd-signal. Em 1H o BTC tinha MACD -487
+  // (venda forte no MT5) e histograma macd-signal +5,7 (o motor rotulava ALTA). O rotulo passa a seguir as barras do MT5;
+  // histogram/crossing/turning seguem sendo macd-signal (timing do cruzamento com a linha de sinal). Rollback: MT5_MACD_LABEL_BY_HISTOGRAM=true.
+  const labelBase = process.env.MT5_MACD_LABEL_BY_HISTOGRAM === "true" ? histogram : macd;
   const label: MacdResult["label"] =
-    Math.abs(histogram) < neutralThreshold ? "NEUTRO" : histogram > 0 ? "ALTA" : "BAIXA";
+    Math.abs(labelBase) < neutralThreshold ? "NEUTRO" : labelBase > 0 ? "ALTA" : "BAIXA";
 
   // Crossing: compara o sinal do histograma da última vela vs a penúltima
   // (precisa de pelo menos 2 pontos de sinal calculados).
