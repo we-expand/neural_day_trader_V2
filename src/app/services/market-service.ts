@@ -236,6 +236,89 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
   }
 }
 
+// Timeframe do app -> timeframe aceito por /mt5-candles-history (compartilhado entre a busca ao vivo e a leitura de cache).
+const MT5_TIMEFRAME_MAP: Record<string, string> = {
+  '1m': '1m',
+  '5m': '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1H': '1H',
+  '2H': '1H',
+  '4H': '4H',
+  '1D': '1D',
+  '1W': '1W',
+  '1M': '1D',
+};
+
+const MS_PER_CANDLE: Record<string, number> = {
+  '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
+  '1H': 3_600_000, '4H': 4 * 3_600_000, '1D': 86_400_000, '1W': 7 * 86_400_000,
+};
+
+/**
+ * 🗄️ 2026-10-22 (Cleber: "EURUSD demora demais pra abrir o gráfico"): lê só o CACHE de candles fechados
+ * (`ohlcv_data`) direto do Supabase, sem passar pela Edge Function nem pela MetaAPI. Serve pra 1ª pintura do
+ * gráfico enquanto a busca ao vivo (`fetchCandles`) roda em paralelo — com a MetaAPI fora do ar (504) a busca ao
+ * vivo leva 30s+, o cache responde em ~0,3s.
+ *
+ * Por que direto do navegador e não via `cacheOnly` da rota `/mt5-candles-history`: medido ao vivo em 22/10, a
+ * versão publicada da função `server` ignora `cacheOnly` e vai à MetaAPI mesmo assim (símbolo inexistente +
+ * `cacheOnly:true` devolveu METAAPI_ERROR após 42s). A tabela tem RLS com SELECT liberado a `authenticated`.
+ *
+ * Só dado real já gravado: devolve `[]` (nunca inventa) se não há sessão, se é cripto (Binance, rápido), se o
+ * cache está esparso (< 20 barras) ou em qualquer falha/timeout. O cache NÃO tem a barra em formação nem as barras
+ * ainda não gravadas — quem chama deve deixar a busca ao vivo corrigir isso depois.
+ */
+export async function fetchCandlesCacheOnly(symbol: string, timeframe: string, maxCandles: number): Promise<CandleData[]> {
+  try {
+    const mapping = symbolMappingService.findMapping(symbol);
+    const assetType = mapping?.type || detectAssetType(symbol);
+    if (assetType !== 'forex' && assetType !== 'index' && assetType !== 'commodity') return [];
+
+    const mt5Symbol = mapping?.infinox || symbol;
+    const mt5Timeframe = MT5_TIMEFRAME_MAP[timeframe] || '1H';
+    const intervalMs = MS_PER_CANDLE[mt5Timeframe] || 3_600_000;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) return [];
+
+    // Janela com folga (x2) pra cobrir fins de semana/feriados sem varrer anos de histórico.
+    const wanted = Math.max(1, Math.min(maxCandles, 1000));
+    const startIso = new Date(Date.now() - wanted * intervalMs * 2).toISOString();
+    const { data, error } = await supabase
+      .from('ohlcv_data')
+      .select('timestamp, open, high, low, close, volume')
+      .eq('asset_symbol', mt5Symbol)
+      .eq('timeframe', mt5Timeframe.toLowerCase())
+      .gte('timestamp', startIso)
+      .order('timestamp', { ascending: false })
+      .limit(wanted)
+      .abortSignal(AbortSignal.timeout(6_000));
+    if (error || !Array.isArray(data)) return [];
+
+    // O cache só deveria ter barras FECHADAS; descarta qualquer uma que ainda esteja em formação.
+    const lastClosedBarStart = Math.floor(Date.now() / intervalMs) * intervalMs - intervalMs;
+    const candles: CandleData[] = data
+      .map((c: any) => ({
+        timestamp: new Date(c.timestamp).getTime(),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume) || 0,
+      }))
+      .filter((c) => Number.isFinite(c.timestamp) && c.timestamp <= lastClosedBarStart && c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (candles.length < 20) return [];
+    console.log(`[MarketService] 🗄️ Cache ohlcv_data: ${candles.length} candles de ${mt5Symbol} ${mt5Timeframe} (última barra ${new Date(candles[candles.length - 1].timestamp).toISOString()})`);
+    return candles;
+  } catch (err) {
+    console.warn('[MarketService] ⚠️ Leitura de cache de candles falhou (segue só com a busca ao vivo):', err);
+    return [];
+  }
+}
+
 /**
  * 📡 Buscar candles do MetaAPI (forex, índices, commodities)
  *
@@ -251,24 +334,8 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
 async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, maxCandlesOverride?: number): Promise<CandleData[]> {
   try {
     // Mapear timeframe pro formato aceito por /mt5-candles-history
-    const mt5TimeframeMap: Record<string, string> = {
-      '1m': '1m',
-      '5m': '5m',
-      '15m': '15m',
-      '30m': '30m',
-      '1H': '1H',
-      '2H': '1H',
-      '4H': '4H',
-      '1D': '1D',
-      '1W': '1W',
-      '1M': '1D',
-    };
-    const mt5Timeframe = mt5TimeframeMap[timeframe] || '1H';
-
-    const msPerCandle: Record<string, number> = {
-      '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
-      '1H': 3_600_000, '4H': 4 * 3_600_000, '1D': 86_400_000, '1W': 7 * 86_400_000,
-    };
+    const mt5Timeframe = MT5_TIMEFRAME_MAP[timeframe] || '1H';
+    const msPerCandle = MS_PER_CANDLE;
 
     // Obter símbolo mapeado para MetaAPI (Infinox)
     const mapping = symbolMappingService.findMapping(symbol);

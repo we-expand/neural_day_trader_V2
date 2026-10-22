@@ -473,7 +473,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { type MarketAsset } from '@/app/data/market-assets';
-import { fetchCandles } from '@/app/services/market-service';
+import { fetchCandles, fetchCandlesCacheOnly, type CandleData } from '@/app/services/market-service';
 import { lastCompletedSessionPivots, type SessionPivotsResult } from '@/app/services/analysis/sessionPivots';
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
@@ -6337,13 +6337,37 @@ export function ChartView({
           // até 5 anos) é buscado logo depois, em 2º plano, sem bloquear a 1ª
           // exibição — ver `extendHistoryInBackground` mais abaixo, disparado só
           // quando `isFastFirstPaint` é true.
-          let candles = await fetchCandles(
+          const livePromise = fetchCandles(
             selectedSymbol,
             timeframe,
             200,
             isFastFirstPaint ? FAST_FIRST_PAINT_MAX_CANDLES : undefined
           );
+          // 🗄️ 2026-10-22 (Cleber: "EURUSD demora demais pra abrir o gráfico"): na 1ª pintura de forex/índice/commodity,
+          // lê o CACHE de candles fechados (ohlcv_data, ~0,3s) em paralelo com a busca ao vivo e pinta com o que chegar
+          // primeiro. Com a MetaAPI fora do ar (504) a busca ao vivo leva 30s+; o cache não depende dela. Se o cache vier
+          // vazio/esparso, a corrida só termina quando a busca ao vivo terminar (comportamento de antes). O cache não tem
+          // a barra em formação: a busca ao vivo (já em andamento) corrige isso logo depois — ver o bloco de 2º plano
+          // abaixo — e o auto-refresh de 30s segue anexando as barras novas.
+          let paintedFromCache = false;
+          let candles: CandleData[];
+          const livePromiseSafe = livePromise.catch(() => [] as CandleData[]); // usado no 2º plano; nunca rejeita
+          if (isFastFirstPaint) {
+            const cacheFirst = fetchCandlesCacheOnly(selectedSymbol, timeframe, FAST_FIRST_PAINT_MAX_CANDLES)
+              .then((c) => (c.length > 0 ? c : new Promise<CandleData[]>(() => { /* cache vazio: nunca "vence" a corrida */ })));
+            const winner = await Promise.race([
+              livePromise.then((c) => ({ source: 'live' as const, candles: c })),
+              cacheFirst.then((c) => ({ source: 'cache' as const, candles: c })),
+            ]);
+            candles = winner.candles;
+            paintedFromCache = winner.source === 'cache';
+          } else {
+            candles = await livePromise;
+          }
           if (cancelled) return;
+          if (paintedFromCache) {
+            console.log('[ChartView] 🗄️ 1ª pintura pelo CACHE (', candles.length, 'candles) — busca ao vivo segue em paralelo');
+          }
 
           // 🐛 BUG REAL achado nesta sessão (Cleber: Fibonacci "invertida, indo pro lado
           // completamente errado" ao trocar de timeframe): `fetchCandles` busca sempre um
@@ -6382,7 +6406,11 @@ export function ChartView({
                 const neededLimit = Math.min(candles.length + extraCandlesNeeded, 5000);
                 if (neededLimit > candles.length) {
                   console.log('[ChartView] 📐 Desenho salvo é anterior ao candle mais antigo carregado — buscando', neededLimit, 'candles pra cobrir a posição real');
-                  const extended = await fetchCandles(selectedSymbol, timeframe, neededLimit);
+                  // Pintando pelo cache (MetaAPI possivelmente fora): estende pelo próprio cache pra não prender a 1ª
+                  // pintura numa busca ao vivo lenta. Se o cache não alcançar o ponto, segue com o que já tem.
+                  const extended = paintedFromCache
+                    ? await fetchCandlesCacheOnly(selectedSymbol, timeframe, neededLimit)
+                    : await fetchCandles(selectedSymbol, timeframe, neededLimit);
                   if (!cancelled && extended.length > candles.length) {
                     candles = extended;
                   }
@@ -6456,7 +6484,19 @@ export function ChartView({
           // Já disparado em paralelo com fetchCandles acima — só aguarda aqui.
           console.log('[ChartView] ✅ CHECKPOINT 2: Awaiting market data fetch via RealMarketDataService');
           let marketData: RealMarketData | null = null;
-          const routedData = await marketDataPromise;
+          // Pintando pelo cache: não espera o preço ao vivo (também depende da MetaAPI) — ele é aplicado quando chegar
+          // (ver `.then` logo abaixo) e o polling de preço do gráfico segue atualizando.
+          const routedData = paintedFromCache ? null : await marketDataPromise;
+          if (paintedFromCache) {
+            marketDataPromise.then((md) => {
+              if (cancelled || !md || !(md.price > 0) || !md.isRealData || typeof md.change !== 'number' || typeof md.changePercent !== 'number') return;
+              setCurrentPrice(md.price);
+              setOpenPrice(md.price - md.change);
+              setDailyChange(md.change);
+              setDailyChangePercent(md.changePercent);
+              setIsPositive(md.changePercent >= 0);
+            });
+          }
           if (routedData && routedData.price > 0) {
             marketData = routedData;
             currentPriceFromTicker = marketData.price;
@@ -6485,7 +6525,9 @@ export function ChartView({
               changePercent: marketData.changePercent.toFixed(2) + '%',
               isRealData: marketData.isRealData
             });
-          } else {
+          } else if (!paintedFromCache) {
+            // (Pintando pelo cache o último candle é a última barra FECHADA, não o preço de agora: não usa o fallback
+            // calculado dos candles pra não mostrar preço/variação defasados — o preço ao vivo entra pelo `.then` acima.)
             // Fallback: calcular manualmente dos candles
             // 🔥 FIX: garantir que currentPriceFromTicker está definido
             const safeCurrentPrice = (currentPriceFromTicker && currentPriceFromTicker > 0) 
@@ -6685,8 +6727,37 @@ export function ChartView({
             setTimeout(async () => {
               if (cancelled) return;
               try {
+                // 1ª pintura veio do CACHE: espera a busca ao vivo que já está em andamento (mesma janela rápida) e
+                // troca o dataset por ela, preservando o scroll/zoom — corrige a barra em formação e qualquer buraco
+                // do cache. Se ela falhar (MetaAPI fora), não dispara OUTRA busca ao vivo de 5 anos em cima de uma
+                // conta que está falhando: o auto-refresh de 30s segue tentando e anexa as barras novas.
+                let baseCandles = candles;
+                if (paintedFromCache) {
+                  const liveFast = await livePromiseSafe;
+                  if (cancelled) return;
+                  if (liveFast.length === 0) {
+                    console.warn('[ChartView] ⚠️ Busca ao vivo falhou depois da pintura pelo cache — mantendo o histórico salvo');
+                    toast.warning('Sem dados ao vivo da corretora agora', {
+                      id: 'chart-cache-only',
+                      description: 'Mostrando o histórico salvo. O gráfico tenta atualizar de novo a cada 30 s.',
+                    });
+                    return;
+                  }
+                  const chartLive = chartInstanceRef.current;
+                  if (!chartLive) return;
+                  const scrollBeforeLive = readChartScrollPosition(chartLive);
+                  chartLive.applyNewData(liveFast, undefined, () => {
+                    if (scrollBeforeLive) {
+                      applyChartScrollPosition(chartLive, scrollBeforeLive.anchorTimestamp, scrollBeforeLive.anchorX);
+                    }
+                  });
+                  const lastLive = liveFast[liveFast.length - 1];
+                  if (lastLive) lastAppliedCandleTimestampRef.current = lastLive.timestamp;
+                  baseCandles = liveFast;
+                  console.log('[ChartView] 🔄 Cache substituído pelos candles ao vivo:', liveFast.length, '(cache tinha', candles.length, ')');
+                }
                 const fullCandles = await fetchCandles(selectedSymbol, timeframe, 200);
-                if (cancelled || fullCandles.length <= candles.length) return;
+                if (cancelled || fullCandles.length <= baseCandles.length) return;
                 const chartNow = chartInstanceRef.current;
                 if (!chartNow) return;
                 const savedScroll = readChartScrollPosition(chartNow);
@@ -6697,7 +6768,7 @@ export function ChartView({
                 });
                 const lastFull = fullCandles[fullCandles.length - 1];
                 if (lastFull) lastAppliedCandleTimestampRef.current = lastFull.timestamp;
-                console.log('[ChartView] 📚 Histórico completo estendido em 2º plano:', fullCandles.length, 'candles (era', candles.length, ')');
+                console.log('[ChartView] 📚 Histórico completo estendido em 2º plano:', fullCandles.length, 'candles (era', baseCandles.length, ')');
               } catch (e) {
                 console.warn('[ChartView] ⚠️ Falha ao estender histórico em 2º plano (gráfico continua exibindo a janela rápida):', e);
               }
