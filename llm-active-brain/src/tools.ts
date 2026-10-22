@@ -1225,11 +1225,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           }
         }
       }
+      // 🔴 2026-10-22 (EURUSD SHORT de 22/10: stop 0,438% x alvo 1,314% com o suporte a 0,077% e a minima de 24h a 0,097%): a
+      // liberacao da expansao solta os vetos de "alvo colado" PARTINDO DO PRINCIPIO de que o alvo vai pro degrau de Fibonacci.
+      // Mas o modo expansao pode NAO ativar (degrau a 0,037%, menos que o minimo de 0,2%) e ai o alvo continuava o de 3R por ATR,
+      // sem nenhum corte (e o agente de alvo nao roda com a Mesa desligada). Guardamos aqui o que a expansao liberou desse tipo e,
+      // depois de decidir se a expansao ativa, devolvemos o veto se ela nao ativou. Rollback: MT5_EXPANSION_TARGET_VETO_RESTORE=false.
+      const TARGET_SPACE_GATES = new Set(["ALVO_COLADO_SUPORTE_RESISTENCIA", "ALVO_COLADO_EXTREMO_DIA", "ALVO_RANGE_ESTREITO"]);
+      const expansionBypassedTargetBlocks: Array<{ gateId: string; blocked: { error: string } }> = [];
       const gateResult = <T extends { error: string }>(gateId: string, blocked: T): T | null => {
         // 🔴 2026-10-20 (UK100 LONG de 20/10: stop 0,46% x alvo 0,125%, R:R 0,27, -$4,25): R:R minimo
         // protege o dinheiro, nao e trava de julgamento -- nunca sai, nem no teste so-LLM/veto nem na expansao.
         if (gateId === "RR_MINIMO") return blocked;
         if (expansionReleaseActive && EXPANSION_RELEASED_GATES.has(gateId)) {
+          if (TARGET_SPACE_GATES.has(gateId)) expansionBypassedTargetBlocks.push({ gateId, blocked });
           bypassedGates.push(gateId);
           console.log(`[EXPANSAO-LIBERA] ${gateId} ${String(input.symbol ?? "?").toUpperCase()} ${String(input.side ?? "?")} liberada: ${blocked.error.slice(0, 160)}`);
           return null;
@@ -2864,6 +2872,18 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         } catch (err) {
           console.warn(`[MODO-EXPANSAO] falhou, segue no modo tradicional: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+      // 🔴 2026-10-22: a expansao liberou os vetos de "alvo colado" (suporte/resistencia, extremo do dia, range estreito) mas NAO
+      // ativou -- o alvo segue o de ATR/Setup e nada o corta. Sem o degrau de Fibonacci, o espaco ate o nivel e o que manda:
+      // o veto volta (mesmo texto e mesma regra de quando a expansao nem tinha liberado).
+      if (!expansionLive && expansionBypassedTargetBlocks.length > 0 && process.env.MT5_EXPANSION_TARGET_VETO_RESTORE !== "false") {
+        const restored = expansionBypassedTargetBlocks[0];
+        for (const r of expansionBypassedTargetBlocks) {
+          const idx = bypassedGates.indexOf(r.gateId);
+          if (idx >= 0) bypassedGates.splice(idx, 1);
+        }
+        console.log(`[EXPANSAO-LIBERA-REVOGADA] ${restored.gateId} ${symbol} ${side}: a expansao nao ativou, o veto volta: ${restored.blocked.error.slice(0, 200)}`);
+        return restored.blocked;
       }
       const minRrForGate = takeProfitCappedByScalpPct ? Math.min(config.mt5MinRrAfterSrCap, config.mt5ScalpMinRr) : config.mt5MinRrAfterSrCap;
       if (!isFomcBtcPlay && !expansionLive && takeProfitPct < stopPct * minRrForGate) {
