@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const MT5_CANDLES_HISTORY_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`;
+const BINANCE_KLINES_URL = `https://${projectId}.supabase.co/functions/v1/server/binance-klines`;
 
 export interface CandleData {
   timestamp: number;
@@ -199,9 +200,11 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
     while (cursor < endTime && iterations < MAX_ITERATIONS) {
       iterations++;
       const chunkEnd = Math.min(cursor + 1000 * intervalMs, endTime);
+      // 2026-10-23: pelo SERVIDOR (Edge Function /binance-klines), nao direto da Binance -- redes que bloqueiam
+      // api.binance.com (DNS sinkhole/firewall) deixavam o grafico de cripto vazio.
       const response = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${binanceInterval}&startTime=${cursor}&endTime=${chunkEnd}&limit=1000`,
-        { method: 'GET', headers: { 'Accept': 'application/json' } }
+        `${BINANCE_KLINES_URL}?symbol=${binanceSymbol}&interval=${binanceInterval}&startTime=${cursor}&endTime=${chunkEnd}&limit=1000`,
+        { method: 'GET', headers: { 'Accept': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, signal: AbortSignal.timeout(15000) }
       );
 
       if (!response.ok) {

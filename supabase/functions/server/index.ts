@@ -6657,6 +6657,46 @@ app.get('/binance-ticker/:symbol', async (c) => {
   }
 });
 
+// 2026-10-23 (Cleber: grafico do BTC sumiu): o navegador buscava os candles direto em api.binance.com e a rede dele passou a
+// bloquear (pfBlockerNG responde com certificado falso). O servidor nao tem esse problema: esta rota repassa o /klines da Binance
+// SEM alterar o dado (mesmo array cru), so valida os parametros. Nunca fabrica candle: qualquer falha vira erro explicito.
+const BINANCE_KLINE_INTERVALS = new Set(['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M']);
+app.get('/binance-klines', async (c) => {
+  const symbol = (c.req.query('symbol') || '').toUpperCase().trim();
+  const interval = (c.req.query('interval') || '').trim();
+  const startTime = Number(c.req.query('startTime'));
+  const endTime = Number(c.req.query('endTime'));
+  const limit = Math.min(Math.max(Math.floor(Number(c.req.query('limit')) || 1000), 1), 1000);
+
+  if (!/^[A-Z0-9]{5,20}$/.test(symbol) || !BINANCE_KLINE_INTERVALS.has(interval)) {
+    return c.json({ error: true, message: 'symbol/interval invalidos' }, 400);
+  }
+  const params = new URLSearchParams({ symbol, interval, limit: String(limit) });
+  if (Number.isFinite(startTime) && startTime > 0) params.set('startTime', String(Math.floor(startTime)));
+  if (Number.isFinite(endTime) && endTime > 0) params.set('endTime', String(Math.floor(endTime)));
+
+  try {
+    const res = await fetch(`https://api.binance.com/api/v3/klines?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.warn(`[BINANCE-KLINES] ⚠️ ${symbol} ${interval}: Binance respondeu ${res.status}: ${errorText.slice(0, 200)}`);
+      return c.json({ error: true, symbol, status: res.status, message: 'Binance API error' }, 502);
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      return c.json({ error: true, symbol, message: 'Resposta da Binance nao e uma lista de candles' }, 502);
+    }
+    return c.json(data);
+  } catch (error: any) {
+    console.error(`[BINANCE-KLINES] ❌ ${symbol} ${interval}:`, error?.message || error);
+    return c.json({ error: true, symbol, message: error?.message || 'Erro desconhecido' }, 500);
+  }
+});
+
 // ⚠️ LEGADO — usada só por ApiTester.tsx (debug manual), NÃO pelo pipeline
 // real de preço. Mantida como está pra não quebrar a ferramenta de debug,
 // mas o fallback "Dados simulados realistas baseados em preços reais
