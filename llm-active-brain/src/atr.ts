@@ -1676,6 +1676,8 @@ export interface UsEconomicCalendar {
   mostRecentRelease: UsEconomicEvent | null;
   /** Próximo evento de alto impacto ainda não saído (sem "actual"), se houver. */
   nextUpcoming: UsEconomicEvent | null;
+  /** 2026-10-23: eventos PMI de hoje (qualquer impacto: o calendario marca o PMI Flash como "medium"). Fora de `highImpactToday` de proposito: nao entram na trava de 60min pos-evento. */
+  pmiToday: UsEconomicEvent[];
 }
 
 const ECONOMIC_CALENDAR_CACHE_TTL_MS = 5 * 60 * 1000; // agenda muda pouco -- 5min de cache é seguro, evita bater no endpoint a cada ciclo
@@ -1689,7 +1691,13 @@ let economicCalendarCache: { fetchedAt: number; calendar: UsEconomicCalendar | n
  * fonte real não respondeu (nunca fabrica evento).
  */
 export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null> {
-  if (economicCalendarCache && Date.now() - economicCalendarCache.fetchedAt < ECONOMIC_CALENDAR_CACHE_TTL_MS) {
+  // Perto de um PMI (de -10 a +30 min) o "actual" aparece em segundos: cache curto, senao a LLM leria o dado 5 min atrasada.
+  const nearPmi = (economicCalendarCache?.calendar?.pmiToday ?? []).some((e) => {
+    const d = Date.now() - new Date(e.time).getTime();
+    return d > -10 * 60_000 && d < 30 * 60_000;
+  });
+  const calendarTtl = nearPmi ? 20_000 : ECONOMIC_CALENDAR_CACHE_TTL_MS;
+  if (economicCalendarCache && Date.now() - economicCalendarCache.fetchedAt < calendarTtl) {
     return economicCalendarCache.calendar;
   }
   try {
@@ -1726,7 +1734,17 @@ export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null
     const upcoming = highImpactToday.filter((e) => e.actual === "" && new Date(e.time).getTime() > now);
     const nextUpcoming = upcoming.length > 0 ? upcoming[0] : null;
 
-    const calendar: UsEconomicCalendar = { highImpactToday, mostRecentRelease, nextUpcoming };
+    const pmiToday: UsEconomicEvent[] = result.events
+      .filter((e) => e.impact !== "low" && /\bPMI\b/i.test(String(e.event ?? "")) && e.time)
+      .map((e) => ({
+        time: String(e.time ?? ""),
+        event: String(e.event ?? ""),
+        impact: (e.impact === "high" ? "high" : "medium") as "high" | "medium",
+        actual: String(e.actual ?? ""),
+        forecast: String(e.forecast ?? ""),
+        previous: String(e.previous ?? ""),
+      }));
+    const calendar: UsEconomicCalendar = { highImpactToday, mostRecentRelease, nextUpcoming, pmiToday };
     economicCalendarCache = { fetchedAt: Date.now(), calendar };
     return calendar;
   } catch {
@@ -1748,6 +1766,83 @@ export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null
  * (fonte fora do ar) = retorna null (sem bloqueio, fail-open, mesmo padrão
  * do resto do arquivo).
  */
+/**
+ * 2026-10-23 (Cleber: "todas as vezes que tem PMI a LLM tem que responder"): estado do PMI mais proximo (hoje, nos ultimos 120 min
+ * ou ainda por vir). `minutesToRelease` < 0 = ja saiu ha N min. Nunca fabrica: sem calendario ou sem PMI, null.
+ */
+/**
+ * 2026-10-23 (Cleber): corredor do PMI marcado por ele, fixo por ativo: PMI_CORRIDORS="BTCUSD:81451.88-82035.03;ETHUSD:a-b".
+ * Ativo com corredor usa ESSES niveis (topo/fundo) pro rompimento; sem corredor, cai no S/R calculado de 5m.
+ * Rompimento = ultimo candle de 5m FECHADO (o penultimo da lista; o ultimo ainda esta em formacao) fechou alem do topo ou do fundo.
+ */
+export function getPmiCorridor(symbol: string): { bottom: number; top: number } | null {
+  for (const part of (process.env.PMI_CORRIDORS ?? "").split(";")) {
+    const [sym, range] = part.split(":");
+    if (!sym || !range || sym.trim().toUpperCase() !== symbol.toUpperCase()) continue;
+    const [a, b] = range.split("-").map((x) => parseFloat(x));
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b) return { bottom: Math.min(a, b), top: Math.max(a, b) };
+  }
+  return null;
+}
+
+export interface PmiBreakout {
+  side: "ALTA" | "BAIXA" | null;
+  top: number | null;
+  bottom: number | null;
+  source: "corredor_fixo" | "sr_5m";
+}
+
+export async function getPmiBreakout(symbol: string): Promise<PmiBreakout | null> {
+  const corridor = getPmiCorridor(symbol);
+  if (corridor) {
+    const candles = await fetchRecentCandles(symbol, "5m");
+    if (!candles || candles.length < 3) return null;
+    const lastClosed = candles[candles.length - 2].close;
+    const side = lastClosed > corridor.top ? "ALTA" : lastClosed < corridor.bottom ? "BAIXA" : null;
+    return { side, top: corridor.top, bottom: corridor.bottom, source: "corredor_fixo" };
+  }
+  const sr = await getSupportResistance(symbol, "5m");
+  if (!sr) return null;
+  const side = sr.closedAboveResistance ? "ALTA" : sr.closedBelowSupport ? "BAIXA" : null;
+  return { side, top: sr.resistance, bottom: sr.support, source: "sr_5m" };
+}
+
+export interface PmiStatus {
+  events: UsEconomicEvent[];
+  releaseAtMs: number;
+  minutesToRelease: number;
+  released: boolean;
+  summary: string;
+}
+
+function pmiSurprise(e: UsEconomicEvent): string {
+  const actual = parseFloat(e.actual);
+  if (!Number.isFinite(actual)) return "";
+  const ref = parseFloat(e.forecast);
+  const base = Number.isFinite(ref) ? ref : parseFloat(e.previous);
+  if (!Number.isFinite(base)) return "";
+  const diff = actual - base;
+  const vs = Number.isFinite(ref) ? "previsto" : "anterior";
+  return Math.abs(diff) < 0.1 ? ` (EM LINHA com o ${vs})` : ` (${diff > 0 ? "ACIMA" : "ABAIXO"} do ${vs} em ${Math.abs(diff).toFixed(1)})`;
+}
+
+export async function getPmiStatus(): Promise<PmiStatus | null> {
+  const calendar = await getUsEconomicCalendar();
+  const all = calendar?.pmiToday ?? [];
+  if (all.length === 0) return null;
+  const now = Date.now();
+  const sorted = [...all].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const first = sorted.find((e) => new Date(e.time).getTime() + 120 * 60_000 > now);
+  if (!first) return null;
+  const releaseAtMs = new Date(first.time).getTime();
+  const events = sorted.filter((e) => new Date(e.time).getTime() === releaseAtMs);
+  const released = events.some((e) => e.actual !== "");
+  const summary = events
+    .map((e) => `${e.event}: real ${e.actual || "(ainda nao publicado)"}${pmiSurprise(e)} | previsto ${e.forecast || "n/d"} | anterior ${e.previous || "n/d"}`)
+    .join("\n");
+  return { events, releaseAtMs, minutesToRelease: (releaseAtMs - now) / 60_000, released, summary };
+}
+
 export interface HighImpactNewsWindow {
   event: UsEconomicEvent;
   minutesBefore: number;

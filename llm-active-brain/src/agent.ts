@@ -16,7 +16,7 @@ import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getTradeMemoryBlock } from "./tradeMemory.js";
 import { getMarketNewsBriefing, formatNewsBlock } from "./news.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
-import { getUsEconomicCalendar, getVixContext } from "./atr.js";
+import { getUsEconomicCalendar, getPmiStatus, getVixContext } from "./atr.js";
 import { withSpan } from "./otelHelpers.js";
 import { SpanStatusCode } from "@opentelemetry/api";
 
@@ -1260,7 +1260,26 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
     // prefill = resposta em segundos, nao minutos). Nao instrui a operar num
     // sentido: o gatilho e so contexto, a decisao segue o julgamento normal e
     // TODAS as travas de open_position continuam valendo (mesmo executeTool).
-    if (focus) {
+    // 2026-10-23 (Cleber: "todas as vezes que tem PMI, a LLM tem que responder"): contexto do PMI de hoje (antes e depois da divulgacao).
+    let pmiBlock = "";
+    const pmiStatus = await getPmiStatus().catch(() => null);
+    if (pmiStatus && pmiStatus.minutesToRelease > -90 && pmiStatus.minutesToRelease < 90) {
+      const horaBrt = new Date(pmiStatus.releaseAtMs).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+      pmiBlock = pmiStatus.minutesToRelease > 0
+        ? `\n\n📊 PMI HOJE ÀS ${horaBrt} (BRT), em ${pmiStatus.minutesToRelease.toFixed(0)} min:\n${pmiStatus.summary}\n` +
+          `Depois do PMI o mercado costuma tomar direção. Não abra entrada nova na janela de +-2 min da divulgação (o código bloqueia). ` +
+          `A entrada esperada é o ROMPIMENTO do topo ou do fundo da faixa, para cima ou para baixo, com candle de 5m FECHADO além do nível.`
+        : `\n\n📊 PMI JÁ SAIU há ${(-pmiStatus.minutesToRelease).toFixed(0)} min (${horaBrt} BRT):\n${pmiStatus.summary}\n` +
+          `O mercado está tomando direção. Procure o ROMPIMENTO (candle de 5m fechado além da resistência = LONG, além do suporte = SHORT) e entre com ` +
+          `setupType="PMI_REACAO" mirando pontos médios ou grandes (com corredor marcado pelo Cleber, o código põe o alvo na extensão de Fibonacci da altura do corredor e o stop no meio dele; senão, stop e alvo pela 1H). A direção é a do rompimento do PREÇO, não a leitura "boa/ruim" do número.`;
+    }
+    if (focus && focus.trigger.startsWith("PMI_")) {
+      userMessage =
+        `ANALISE DE PMI #${cycle} (${focus.trigger}). O PMI foi divulgado e o mercado toma direção. Sua cesta neste ciclo é SÓ ${focus.symbol} (preço ${focus.price}).${pmiBlock}\n` +
+        `Faça: list_open_positions, get_mt5_quote de ${focus.symbol}, e decida: se um candle de 5m JÁ FECHOU além da resistência (LONG) ou do suporte (SHORT), ` +
+        `abra com setupType="PMI_REACAO" (stop/alvo pela 1H, pontos médios/grandes). Sem rompimento fechado, não antecipe: stop com o motivo em 1 frase. ` +
+        `Todas as outras travas de risco continuam valendo.${stopSummary}${strategyDirective}`;
+    } else if (focus) {
       userMessage =
         `ANALISE RAPIDA DE GATILHO #${cycle}. O vigia mecanico detectou em ${focus.symbol}: ${focus.trigger} ` +
         `(preco ${focus.price}). Sua cesta neste ciclo e SO ${focus.symbol}. Faca: list_open_positions, ` +
@@ -1272,6 +1291,7 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       strategyDirective +
       economicCalendarBlock +
+      pmiBlock +
       vixBlock +
       newsBlock;
   } else {

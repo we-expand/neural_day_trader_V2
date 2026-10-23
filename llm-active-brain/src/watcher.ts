@@ -23,7 +23,7 @@
 import { appendFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { getMacd, getMovingAverageDistance, getSlowStochastic } from "./atr.js";
+import { getMacd, getMovingAverageDistance, getSlowStochastic, getPmiStatus, getPmiBreakout } from "./atr.js";
 import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
 import { getQuote, primeQuotes } from "./mt5Broker.js";
 import { enqueueTrigger } from "./llmQueue.js";
@@ -202,11 +202,59 @@ async function tick(): Promise<void> {
       }
       checkMaCross(symbol, q.price, state);
     }
+    await checkPmi(active);
     await resolveOutcomes();
   } catch (err) {
     console.error("[watcher] erro no tick:", err instanceof Error ? err.message : err);
   } finally {
     busy = false;
+  }
+}
+
+// 2026-10-23 (Cleber: "todas as vezes que tem PMI, a LLM tem que responder"): o PMI Flash sai marcado "medium" no calendario, entao nao
+// entrava em nenhuma logica de evento. Aqui: 2 min depois da hora do PMI (passado o pico de spread) e de novo 15 min depois, cada ativo
+// ativo da cesta recebe uma analise focada (PMI_LIBERADO / PMI_REACAO_15MIN) com o dado publicado. Dado ainda nao publicado nao segura:
+// a LLM le a reacao do preco. 1 disparo por fase por PMI (chave = hora do PMI + fase).
+const pmiFired = new Set<string>();
+async function checkPmi(active: string[]): Promise<void> {
+  if (!LLM_ENABLED || process.env.PMI_TRIGGER_ENABLED === "false") return;
+  const pmi = await getPmiStatus().catch(() => null);
+  if (!pmi) return;
+  const minSince = -pmi.minutesToRelease;
+  const phases: Array<[string, boolean]> = [
+    ["PMI_LIBERADO", minSince >= 2 && minSince <= 20],
+    ["PMI_REACAO_15MIN", minSince >= 15 && minSince <= 60],
+  ];
+  for (const [phase, due] of phases) {
+    const key = `${pmi.releaseAtMs}:${phase}`;
+    if (!due || pmiFired.has(key)) continue;
+    pmiFired.add(key);
+    console.log(`[watcher] ${phase}: PMI saiu ha ${minSince.toFixed(1)} min -- acionando LLM em ${active.length} ativo(s). ${pmi.released ? "Dado publicado." : "Dado ainda nao publicado no calendario."}`);
+    write({ type: "pmi", phase, releaseAtMs: pmi.releaseAtMs, released: pmi.released, summary: pmi.summary });
+    for (const symbol of active) {
+      const q = await getQuote(symbol).catch(() => null);
+      if (!q || q.stale) continue;
+      enqueueTrigger({ symbol, trigger: phase, direction: "UP", price: q.price, at: Date.now() });
+    }
+    onTrigger?.();
+  }
+  // Gatilho de ENTRADA do PMI (Cleber, 23/10): o mais provavel e o ROMPIMENTO do topo ou do fundo da faixa, para cima ou para baixo.
+  // De +2 a +90 min depois do PMI, o primeiro candle de 5m FECHADO alem da resistencia/suporte de cada ativo aciona a LLM (1x por ativo e lado).
+  if (minSince >= 2 && minSince <= 90) {
+    for (const symbol of active) {
+      const bo = await getPmiBreakout(symbol).catch(() => null);
+      const side = bo?.side ?? null;
+      if (!side) continue;
+      const key = `${pmi.releaseAtMs}:ROMP:${symbol}:${side}`;
+      if (pmiFired.has(key)) continue;
+      const q = await getQuote(symbol).catch(() => null);
+      if (!q || q.stale) continue;
+      pmiFired.add(key);
+      console.log(`[watcher] PMI_ROMPIMENTO_${side} em ${symbol} @ ${q.price} (candle 5m fechou alem do ${side === "ALTA" ? "topo" : "fundo"} (${bo?.source}), ${minSince.toFixed(0)} min apos o PMI)`);
+      write({ type: "pmi_breakout", symbol, side, price: q.price, minSince });
+      enqueueTrigger({ symbol, trigger: `PMI_ROMPIMENTO_${side}`, direction: side === "ALTA" ? "UP" : "DOWN", price: q.price, at: Date.now() });
+      onTrigger?.();
+    }
   }
 }
 

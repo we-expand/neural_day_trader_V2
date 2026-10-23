@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getPmiStatus, getPmiBreakout, getPmiCorridor, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -25,7 +25,8 @@ import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiv
  * indicadores, S/R, ATR do stop e alvo saem todos da 1H, e o 5m fica so de consulta de timing (ja entra pela cadeia de direcao).
  * Demais alvos seguem o "Timeframe Operacional" do Setup. Rollback: MT5_BIG_TARGET_MEASURE_1H=false.
  */
-function measurementTimeframe(userConfig: { timeframe?: string | null; targetPoints?: string | null } | null | undefined): import("./atr.js").SupportedTimeframe {
+function measurementTimeframe(userConfig: { timeframe?: string | null; targetPoints?: string | null } | null | undefined, setupType?: string | null): import("./atr.js").SupportedTimeframe {
+  if (setupType === "PMI_REACAO" && process.env.MT5_BIG_TARGET_MEASURE_1H !== "false") return "1H"; // PMI: stop/alvo de pontos medios/grandes, medidos na 1H
   if (userConfig?.targetPoints === "MUITOS" && process.env.MT5_BIG_TARGET_MEASURE_1H !== "false") return "1H";
   return (userConfig?.timeframe ?? "5m") as import("./atr.js").SupportedTimeframe;
 }
@@ -550,7 +551,7 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
           },
           setupType: {
             type: "string",
-            enum: ["ROMPIMENTO", "CRUZAMENTO_MEDIAS", "REVERSAO", "OUTRO", "FOMC_BTC_PLAY"],
+            enum: ["ROMPIMENTO", "CRUZAMENTO_MEDIAS", "REVERSAO", "OUTRO", "FOMC_BTC_PLAY", "PMI_REACAO"],
             description:
               `Opcional -- que TIPO de setup esta entrada representa. "ROMPIMENTO" (breakout de faixa/nivel) e ` +
               `"CRUZAMENTO_MEDIAS" (cruzamento de EMA/SMA) sao setups de CONTINUACAO, historicamente fracos quando o mercado ` +
@@ -563,7 +564,9 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
               `candle em que o padrao fechou (nunca no mesmo candle do padrao) -- tente de novo no proximo ciclo se acabou de ver o padrao agora. ` +
               `"FOMC_BTC_PLAY" e a jogada especial pos-FOMC (BTCUSD, logo apos a janela do evento de alto impacto do Fed FECHAR, ` +
               `so se a confluencia tecnica real -- trend/MACD/estocastico/volume -- apoiar a direcao): ativa stop/alvo de ` +
-              `${config.fomcBtcPlayStopPoints}/${config.fomcBtcPlayTargetPoints} pontos e sizing de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do patrimonio, so em modo DEMO.`,
+              `${config.fomcBtcPlayStopPoints}/${config.fomcBtcPlayTargetPoints} pontos e sizing de ${(config.fomcBtcPlayExposurePct * 100).toFixed(0)}% do patrimonio, so em modo DEMO. ` +
+              `"PMI_REACAO" e a entrada de ROMPIMENTO apos a divulgacao do PMI (2 a 90 min depois): o lado e o do rompimento (candle de 5m FECHADO alem da resistencia = LONG, alem do suporte = SHORT), ` +
+              `pode ser contra a 1H e contra o estocastico extremo do 5m; stop e alvo sao medidos na 1H (pontos medios/grandes).`,
           },
         },
         required: ["symbol", "side", "size", "reasoning", "confidence"],
@@ -1367,6 +1370,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           }); if (__blocked) return __blocked; }
         }
       }
+      // 2026-10-23 (Cleber): PMI. Janela curta de bloqueio de [-2, +2] min em torno da divulgacao (spread/whipsaw dos primeiros segundos);
+      // a partir dai a LLM tem que responder (ver watcher.ts, setupType PMI_REACAO). Nao e a trava de 60 min dos eventos de alto impacto.
+      const pmiNow = await getPmiStatus().catch(() => null);
+      if (pmiNow && Math.abs(pmiNow.minutesToRelease) <= 2 && process.env.PMI_TRIGGER_ENABLED !== "false") {
+        { const __blocked = gateResult("JANELA_PMI", {
+          error: `BLOQUEADO: PMI sai/saiu agora (${new Date(pmiNow.releaseAtMs).toISOString()}). Janela de +-2 min sem entrada nova (spread e whipsaw dos primeiros segundos). ` +
+            `Depois disso avalie o rompimento (setupType="PMI_REACAO"). Posicoes abertas seguem monitoradas.`,
+        }); if (__blocked) return __blocked; }
+      }
+      if (setupType === "PMI_REACAO") {
+        const sinceMin = pmiNow ? -pmiNow.minutesToRelease : NaN;
+        if (!pmiNow || !(sinceMin >= 2 && sinceMin <= 90)) {
+          return { error: `setupType="PMI_REACAO" so vale de 2 a 90 min DEPOIS da divulgacao de um PMI de hoje (${pmiNow ? `PMI ${sinceMin < 0 ? "ainda nao saiu" : `saiu ha ${sinceMin.toFixed(0)} min`}` : "sem PMI no calendario"}). Use outro setupType.` };
+        }
+      }
       // 🔴 2026-09-16 (mesmo pedido -- "a nossa AI tem que consultar o VIX
       // diário... isso indica o apetite a risco do mercado, tem que se
       // orientar nisso"): VIX real (nunca fabricado, ver getVixContext)
@@ -1397,6 +1415,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // sempre vale para BTCUSD, independente do que estiver configurado na
       // cesta do usuário no momento.
       const isFomcBtcPlay = setupType === "FOMC_BTC_PLAY";
+      const isPmiReacao = setupType === "PMI_REACAO";
       if (isFomcBtcPlay) {
         if (!config.fomcBtcPlayEnabled) {
           return { error: `setupType="FOMC_BTC_PLAY" está desativado nesta sessão (FOMC_BTC_PLAY_ENABLED=false).` };
@@ -1799,7 +1818,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // continua liberado -- nao e proibir contrarian trade (Kotegawa fez
       // fortuna com isso), e proibir contrarian trade SEM confirmacao.
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Timeframe Operacional")
-      const openPositionTimeframe = measurementTimeframe(session.userConfig);
+      const openPositionTimeframe = measurementTimeframe(session.userConfig, setupType);
       const [trend, volume, supportResistanceForTarget, stochasticForReversalCheck, stochasticLongTermForReversalCheck, macdForConfluenceCheck, candlePatternsForConfluenceCheck, regimeForTarget, hmmRegimeForGate, immediateMomentumForGate, trendLongTermForDirection, trend5mForDirection, immediateMomentum5mForDirection, trend15mForDirection, dailyHighLowForTarget] = await Promise.all([
         getTrendInfo(symbol, openPositionTimeframe),
         getVolumeConfirmation(symbol, openPositionTimeframe),
@@ -2036,6 +2055,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (
         immediateMomentumForGate &&
         setupType !== "REVERSAO" &&
+        setupType !== "PMI_REACAO" &&
         ((side === "LONG" && immediateMomentumForGate.label === "BAIXA") ||
           (side === "SHORT" && immediateMomentumForGate.label === "ALTA"))
       ) {
@@ -2065,8 +2085,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // o lado, mesma excecao de REVERSAO com confirmacao real. So INDEFINIDO
       // (nenhum sinal com opiniao real agora, ex: tudo LATERAL) continua
       // liberado -- ausencia de sinal nao e a mesma coisa que sinal dividido.
+      // PMI_REACAO: a direcao e a do ROMPIMENTO (candle de 5m fechado alem da faixa), nao a da 1H. Sem rompimento fechado no lado da entrada, recusa.
+      if (isPmiReacao) {
+        const pmiBo = await getPmiBreakout(symbol).catch(() => null);
+        const brokeOk = pmiBo != null && pmiBo.side === (side === "LONG" ? "ALTA" : "BAIXA");
+        if (!brokeOk) {
+          { const __blocked = gateResult("PMI_SEM_ROMPIMENTO", {
+            error: `BLOQUEADO: setupType="PMI_REACAO" em ${symbol} exige o ROMPIMENTO ja confirmado: candle de 5m FECHADO ${side === "LONG" ? "acima do topo" : "abaixo do fundo"} do corredor ` +
+              `(${pmiBo ? `topo ${pmiBo.top}, fundo ${pmiBo.bottom} (${pmiBo.source}), sem fechamento alem` : "niveis indisponiveis"}). Espere o fechamento alem da faixa; nao antecipe.`,
+          }); if (__blocked) return __blocked; }
+        }
+      }
       if (
         setupType !== "REVERSAO" &&
+        setupType !== "PMI_REACAO" &&
         (marketDirectionForGate.consensus === "DIVERGENTE" ||
           (side === "LONG" && marketDirectionForGate.consensus === "BAIXA") ||
           (side === "SHORT" && marketDirectionForGate.consensus === "ALTA"))
@@ -2175,7 +2207,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // A trava ficava restrita a REVERSAO desde 2026-09-21; agora vale pra
       // qualquer setup (mt5StochExtremeGateAllSetups, default true). Rollback:
       // MT5_STOCH_EXTREME_GATE_ALL_SETUPS=false. Loga [VETO-ESTOCASTICO-EXTREMO].
-      if ((setupType === "REVERSAO" || (config.mt5StochExtremeGateAllSetups && !isFomcBtcPlay)) && stochasticLabelForGate) {
+      if ((setupType === "REVERSAO" || (config.mt5StochExtremeGateAllSetups && !isFomcBtcPlay && !isPmiReacao)) && stochasticLabelForGate) {
         const stochasticContradictsSide = stochasticLabelForGate === contradictoryLabelForSide;
         if (stochasticContradictsSide) {
           if (setupType !== "REVERSAO") {
@@ -2927,6 +2959,27 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const pointsAsPct = fillPrice > 0 ? config.fomcBtcPlayStopPoints / fillPrice : config.mt5StopFallbackPct;
         stopPct = pointsAsPct;
         takeProfitPct = fillPrice > 0 ? config.fomcBtcPlayTargetPoints / fillPrice : pointsAsPct;
+      }
+
+      // 2026-10-23 (Cleber: "rompeu o topo ou o fundo, desenha-se o Fibonacci e acompanha-se"): PMI_REACAO com corredor fixo marcado por ele
+      // (PMI_CORRIDORS). Alvo = EXTENSAO de Fibonacci da altura do corredor a partir do nivel rompido (PMI_FIB_EXTENSION, default 1.618);
+      // stop ESTRUTURAL no meio do corredor (rompimento que volta ate o meio falhou), nunca mais apertado que o stop calculado (spread/ATR 1H).
+      if (isPmiReacao) {
+        const corr = getPmiCorridor(symbol);
+        if (corr && fillPrice > 0) {
+          const range = corr.top - corr.bottom;
+          const ext = Number(process.env.PMI_FIB_EXTENSION ?? 1.618);
+          const targetPrice = side === "LONG" ? corr.top + ext * range : corr.bottom - ext * range;
+          const targetDistPct = (side === "LONG" ? targetPrice - fillPrice : fillPrice - targetPrice) / fillPrice;
+          if (!(targetDistPct > 0)) {
+            return { error: `PMI_REACAO ${symbol} ${side}: o preco (${fillPrice}) ja passou da extensao ${ext} de Fibonacci do corredor (${targetPrice.toFixed(2)}) -- movimento esgotado, nao persiga.` };
+          }
+          const mid = (corr.top + corr.bottom) / 2;
+          const structuralStopPct = Math.abs(fillPrice - mid) / fillPrice;
+          stopPct = Math.max(stopPct, structuralStopPct);
+          takeProfitPct = targetDistPct;
+          console.log(`[PMI-FIB] ${symbol} ${side}: corredor ${corr.bottom}-${corr.top} (altura ${range.toFixed(2)}), alvo extensao ${ext} em ${targetPrice.toFixed(2)} (${(targetDistPct * 100).toFixed(3)}%), stop ${(stopPct * 100).toFixed(3)}% (meio do corredor ${mid.toFixed(2)})`);
+        }
       }
 
       // 🔴 2026-08-31 (achado ao vivo, pedido do Cleber -- "quando perde,
