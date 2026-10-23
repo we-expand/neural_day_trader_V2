@@ -1235,6 +1235,22 @@ async function updateStopLoss(tradeId: string, newStopLoss: number): Promise<boo
   }
 }
 
+// Cache por id: a origem manual nao muda depois da abertura. Erro de banco = trata como NAO manual (comportamento de sempre).
+const manualOrderCache = new Map<string, boolean>();
+async function isManualOrder(tradeId: string): Promise<boolean> {
+  const cached = manualOrderCache.get(tradeId);
+  if (cached !== undefined) return cached;
+  try {
+    const { data, error } = await getClient().from("ai_trades").select("ai_reasoning, is_test_data").eq("id", tradeId).maybeSingle();
+    if (error || !data) return false;
+    const manual = data.is_test_data === false && String(data.ai_reasoning ?? "").startsWith("Ordem manual");
+    manualOrderCache.set(tradeId, manual);
+    return manual;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Trava MECÂNICA de stop/alvo -- roda a cada ciclo, ANTES do LLM decidir
  * qualquer coisa, independente do que o modelo escolher fazer naquele ciclo.
@@ -1481,6 +1497,10 @@ export async function enforceMt5StopsAndTargets(
     }
 
     if (pos.stop_loss == null || !(pos.stop_loss > 0)) continue; // sem stop original gravado -- nada pra mover/trilhar
+    // 2026-10-23 (Cleber: ordens manuais de BTC fechavam no breakeven antes do alvo, 800+ pts cortados por um recuo de ~100): ordem MANUAL
+    // do usuario fica so com o stop e o alvo que ELE marcou (SL/TP acima continuam valendo). Sem parcial, sem breakeven e sem trailing
+    // automaticos. Rollback: MT5_MANUAL_ORDERS_AUTO_MANAGE=true.
+    if (process.env.MT5_MANUAL_ORDERS_AUTO_MANAGE !== "true" && (await isManualOrder(pos.id))) continue;
     const favorableMove = pos.side === "LONG" ? price - pos.entry_price : pos.entry_price - price;
     if (favorableMove <= 0) continue; // so mexe no stop quando a operacao esta correndo A FAVOR
 
