@@ -19,6 +19,9 @@ import {
 } from '../../services/BrokerClient';
 import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlertStage';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
+import { computePriceMagnitudePnl, type PendingOrderVisual } from '../../hooks/useApexLogic';
+import { calculateRoundTripCost } from '../../services/risk/ExecutionCost';
+import { evaluateManualOrder, readStochastics, logGuardDecision, type GuardFinding } from '../../services/risk/manualOrderGuard';
 
 type Side = 'BUY' | 'SELL';
 type OrderType = 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
@@ -32,11 +35,17 @@ interface OrderTicketProps {
 // nenhuma suavização o número saltava direto de um valor pro outro -- "duro",
 // bem diferente da sensação contínua do TradingView. Interpola visualmente entre
 // os valores recebidos (ver useAnimatedNumber.ts), sem mexer no pipeline de dados.
+// 🐛 FIX 2026-09-05 (achado do Cleber: boleta de posição de notional
+// pequeno, ex. 1 lote XLMUSD ~$0.18, mostrava PnL "-0.00" mesmo com preço
+// já tendo andado -- 2 casas fixas arredondava qualquer PnL real abaixo de
+// meio centavo pra zero). Mais casas só quando o valor é genuinamente
+// pequeno, mesmo raciocínio do fix em ChartView.tsx/MarketScoreBoard.tsx.
 function AnimatedPnl({ value, className }: { value: number; className: string }) {
   const animated = useAnimatedNumber(value);
+  const precision = Math.abs(animated) > 0 && Math.abs(animated) < 0.01 ? 4 : 2;
   return (
     <span className={className}>
-      {animated >= 0 ? '+' : ''}{animated.toFixed(2)}
+      {animated >= 0 ? '+' : ''}{animated.toFixed(precision)}
     </span>
   );
 }
@@ -64,20 +73,82 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, openManualPosition, openManualPendingOrder, closeManualPosition, setSelectedAsset } = useTradingContext();
+  const { executionMode, portfolio, activeOrders, orderHistory, aiConfig, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setOpenPositionStop, setOpenPositionTarget, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
+  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+
+  // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
+  // id da ordem pendente em edição na ficha (null = nenhuma) + campos de
+  // texto do formulário de edição, mesmo padrão de texto-bruto-editável do
+  // volume acima (edita string livre, só valida/aplica no Salvar).
+  const [editingPendingId, setEditingPendingId] = useState<string | null>(null);
+  const [editTriggerPrice, setEditTriggerPrice] = useState('');
+  const [editStopLoss, setEditStopLoss] = useState('');
+  const [editTakeProfit, setEditTakeProfit] = useState('');
+  const [editVolume, setEditVolume] = useState('');
 
   const asset = useMemo(() => getAssetBySymbol(symbol), [symbol]);
   const contractSpec = useMemo(() => getContractSpec(symbol), [symbol]);
 
-  // Posições DEMO abertas neste símbolo — closeManualPosition só existe pro
-  // caminho DEMO (posição virtual local). Em LIVE a boleta abre via
-  // BrokerClient direto (createMarketBuyOrder/SellOrder) sem passar por
-  // `activeOrders`, então não tem posição pra fechar por aqui ainda — os
-  // módulos de execução automática (Estágios 2-4) são o caminho LIVE real.
+  // 🔴 2026-09-09 (pedido explícito do Cleber: fechar posição real pela
+  // boleta): posições deste símbolo, DEMO ou LIVE — `activeOrders` já é
+  // sincronizado a partir de `ai_trades` pra ambos os modos (ver
+  // `recordLiveManualPosition`/reconcile() em useApexLogic.ts). Fechamento
+  // real usa `closeLiveManualPosition` (chama a corretora de verdade);
+  // fechamento DEMO continua em `closeManualPosition` (simulado).
   const symbolPositions = useMemo(
-    () => (executionMode === 'DEMO' ? activeOrders.filter((o) => o.symbol === symbol) : []),
-    [activeOrders, symbol, executionMode],
+    () => activeOrders.filter((o) => o.symbol === symbol),
+    [activeOrders, symbol],
   );
+
+  // 🆕 2026-09-14: ordens pendentes (Limit/Stop, DEMO) deste símbolo — só
+  // existiam antes via linha arrastável no gráfico (mover preço) ou clique
+  // direito (cancelar), sem lista nem edição de SL/TP/volume na própria
+  // ficha. Pedido explícito do Cleber: "modo edição de ordem pendurada".
+  const symbolPendingOrders = useMemo(
+    () => pendingOrders.filter((o) => o.symbol === symbol),
+    [pendingOrders, symbol],
+  );
+
+  function startEditPendingOrder(order: PendingOrderVisual) {
+    setEditingPendingId(order.id);
+    setEditTriggerPrice(String(order.triggerPrice));
+    setEditStopLoss(order.stopLoss != null ? String(order.stopLoss) : '');
+    setEditTakeProfit(order.takeProfit != null ? String(order.takeProfit) : '');
+    setEditVolume(String(order.volume));
+  }
+
+  function cancelEditPendingOrder() {
+    setEditingPendingId(null);
+  }
+
+  function saveEditPendingOrder(orderId: string) {
+    if (currentPrice == null) {
+      toast.error('Aguardando preço do ativo…');
+      return;
+    }
+    const trigger = Number(editTriggerPrice.replace(',', '.'));
+    const sl = editStopLoss.trim() === '' ? null : Number(editStopLoss.replace(',', '.'));
+    const tp = editTakeProfit.trim() === '' ? null : Number(editTakeProfit.replace(',', '.'));
+    const vol = Number(editVolume.replace(',', '.'));
+    const result = updateManualPendingOrder(orderId, {
+      triggerPrice: trigger > 0 ? trigger : undefined,
+      stopLoss: sl != null && sl > 0 ? sl : null,
+      takeProfit: tp != null && tp > 0 ? tp : null,
+      volume: vol > 0 ? vol : undefined,
+    }, currentPrice);
+    if (result.success) {
+      toast.success('Ordem pendente atualizada');
+      setEditingPendingId(null);
+    } else {
+      toast.error('Não foi possível editar a ordem', { description: result.error });
+    }
+  }
+
+  function handleCancelPendingOrder(orderId: string) {
+    cancelManualPendingOrder(orderId);
+    toast.success('Ordem pendente cancelada');
+    if (editingPendingId === orderId) setEditingPendingId(null);
+  }
 
   // 🛡️ Posições abertas em OUTRO símbolo — a linha/overlay de posição só pode
   // ser desenhada no gráfico do próprio símbolo (não tem como sobrepor num
@@ -89,16 +160,136 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   // alerta garante que o usuário nunca perde essa visibilidade, não importa
   // em qual símbolo o gráfico esteja.
   const otherSymbolPositionsBySymbol = useMemo(() => {
-    if (executionMode !== 'DEMO') return [] as { symbol: string; count: number }[];
     const bySymbol = new Map<string, number>();
     for (const o of activeOrders) {
       if (o.symbol === symbol) continue;
       bySymbol.set(o.symbol, (bySymbol.get(o.symbol) || 0) + 1);
     }
     return Array.from(bySymbol.entries()).map(([sym, count]) => ({ symbol: sym, count }));
-  }, [activeOrders, symbol, executionMode]);
+  }, [activeOrders, symbol]);
 
-  function handleClosePosition(tradeId: string) {
+  // 🆕 2026-10-15: stop numa posição JÁ aberta (a linha desenhada no gráfico não é ordem -- ver setOpenPositionStop).
+  const [stopEditId, setStopEditId] = useState<string | null>(null);
+  const [stopEditText, setStopEditText] = useState('');
+
+  function startStopEdit(posId: string, currentSl: number, slIsReal?: boolean) {
+    setStopEditId(posId);
+    setStopEditText(slIsReal && currentSl > 0 ? String(currentSl) : '');
+  }
+
+  function saveStopEdit(posId: string) {
+    if (currentPrice == null) {
+      toast.error('Aguardando preço do ativo…');
+      return;
+    }
+    const value = Number(stopEditText.replace(',', '.'));
+    const result = setOpenPositionStop(posId, value, currentPrice);
+    if (result.success) {
+      toast.success('Stop definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor passa a executá-lo` });
+      setStopEditId(null);
+    } else {
+      toast.error('Stop recusado', { description: result.error });
+    }
+  }
+
+  // 🔴 2026-10-21: ALVO digitado numa posição já aberta (antes só dava para arrastar a linha). Mesmo padrão do stop.
+  const [targetEditId, setTargetEditId] = useState<string | null>(null);
+  const [targetEditText, setTargetEditText] = useState('');
+
+  function saveTargetEdit(posId: string) {
+    if (currentPrice == null) {
+      toast.error('Aguardando preço do ativo…');
+      return;
+    }
+    const value = Number(targetEditText.replace(',', '.'));
+    const result = setOpenPositionTarget(posId, value, currentPrice);
+    if (result.success) {
+      toast.success('Alvo definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor fecha a posição quando o preço chegar` });
+      setTargetEditId(null);
+    } else {
+      toast.error('Alvo recusado', { description: result.error });
+    }
+  }
+
+  function renderTargetControl(pos: (typeof symbolPositions)[number]) {
+    if (pos.brokerPositionId) return null; // posição real: alvo é da corretora
+    if (targetEditId === pos.id) {
+      return (
+        <span className="flex items-center gap-1">
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={targetEditText}
+            onChange={(e) => setTargetEditText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveTargetEdit(pos.id); if (e.key === 'Escape') setTargetEditId(null); }}
+            placeholder={pos.side === 'SHORT' ? 'abaixo do preço' : 'acima do preço'}
+            className="w-20 rounded bg-white/10 px-1 py-0.5 text-[9px] font-mono text-white outline-none"
+          />
+          <button type="button" onClick={() => saveTargetEdit(pos.id)} className="text-[9px] font-bold px-1.5 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500">OK</button>
+        </span>
+      );
+    }
+    const hasTarget = pos.tpIsReal && pos.tp > 0;
+    return (
+      <button
+        type="button"
+        onClick={() => { setTargetEditId(pos.id); setTargetEditText(hasTarget ? String(pos.tp) : ''); }}
+        className={`text-[9px] font-bold px-2 py-1 rounded transition-colors ${hasTarget ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'}`}
+        title={hasTarget ? `Alvo em ${formatPrice(pos.tp, symbol)} — clique para mover` : 'Posição SEM alvo — clique para definir'}
+      >
+        {hasTarget ? 'Alvo ✓' : 'Sem alvo'}
+      </button>
+    );
+  }
+
+  function renderStopControl(pos: (typeof symbolPositions)[number]) {
+    if (pos.brokerPositionId) return null; // posição real: stop é da corretora
+    if (stopEditId === pos.id) {
+      return (
+        <span className="flex items-center gap-1">
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={stopEditText}
+            onChange={(e) => setStopEditText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveStopEdit(pos.id); if (e.key === 'Escape') setStopEditId(null); }}
+            placeholder={pos.side === 'SHORT' ? 'acima do preço' : 'abaixo do preço'}
+            className="w-20 rounded bg-white/10 px-1 py-0.5 text-[9px] font-mono text-white outline-none"
+          />
+          <button type="button" onClick={() => saveStopEdit(pos.id)} className="text-[9px] font-bold px-1.5 py-1 rounded bg-amber-600 text-white hover:bg-amber-500">OK</button>
+        </span>
+      );
+    }
+    const hasStop = pos.slIsReal && pos.sl > 0;
+    return (
+      <button
+        type="button"
+        onClick={() => startStopEdit(pos.id, pos.sl, pos.slIsReal)}
+        className={`text-[9px] font-bold px-2 py-1 rounded transition-colors ${hasStop ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'}`}
+        title={hasStop ? `Stop em ${formatPrice(pos.sl, symbol)} — clique para mover` : 'Posição SEM stop — clique para definir'}
+      >
+        {hasStop ? 'Stop ✓' : 'Sem stop'}
+      </button>
+    );
+  }
+
+  async function handleClosePosition(tradeId: string, brokerPositionId?: string | null) {
+    if (brokerPositionId) {
+      setClosingTradeId(tradeId);
+      try {
+        const result = await closeLiveManualPosition(tradeId);
+        if (result.success) {
+          toast.success('Posição real fechada', { description: `${symbol} na corretora` });
+        } else {
+          toast.error('Falha ao fechar na corretora', { description: result.error });
+        }
+      } finally {
+        setClosingTradeId(null);
+      }
+      return;
+    }
     if (currentPrice == null) return;
     closeManualPosition(tradeId, currentPrice);
     toast.success('Posição fechada', { description: `${symbol} @ ${formatPrice(currentPrice, symbol)}` });
@@ -146,6 +337,23 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   const [takeProfit, setTakeProfit] = useState('0.00');
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState<Side | null>(null);
+
+  // 🐛 FIX 2026-09-14 (Cleber: "não dá pra adicionar ordem limit/stop/stop
+  // limit em DEMO"): o campo de gatilho só mostrava o preço atual como
+  // PLACEHOLDER (cinza, nunca vira valor real) — o campo ficava vazio de
+  // verdade até o usuário digitar algo. Clicar em Comprar/Vender sem editar
+  // o campo (parecia já preenchido, visualmente idêntico ao valor) sempre
+  // batia em "Informe o preço de gatilho da ordem", sem nenhuma pista de
+  // que o campo estava realmente vazio. Agora pré-preenche com o preço
+  // atual ao trocar pra uma aba que precisa de gatilho — mesmo
+  // comportamento do MT5 (abre a ficha já com o preço de referência,
+  // editável). Só preenche se o campo ainda está vazio, pra não sobrescrever
+  // o que o usuário já digitou ao trocar de aba e voltar.
+  React.useEffect(() => {
+    if ((orderType === 'LIMIT' || orderType === 'STOP' || orderType === 'STOP_LIMIT') && !triggerPrice && currentPrice != null) {
+      setTriggerPrice(String(currentPrice));
+    }
+  }, [orderType, currentPrice]);
 
   const [brokerConfigured, setBrokerConfigured] = useState<boolean | null>(null);
   React.useEffect(() => {
@@ -202,21 +410,38 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     return { ok: true };
   }
 
+  // 🔴 FIX 2026-08-28 (auditoria do bug de PnL 20x do NAS100, 27/08):
+  // em DEMO a posição REAL que abre daqui usa `amountUsd = volume *
+  // asset.lotSize * entryPrice` e depois `calculateEngineConsistentPnL`
+  // (useApexLogic.ts) — nunca `contractSpec.tickValue`. Antes deste fix, a
+  // prévia de risco/retorno mostrada AQUI, antes do clique, usava a
+  // especificação de contrato futuro E-mini da CME (mesma raiz do bug do
+  // NAS100), divergindo do valor que a posição de fato mostra depois de
+  // aberta — mesmo símbolo, dois números diferentes. LIVE continua usando
+  // `contractSpec` de propósito: ali é a MetaAPI/corretora real quem cobra
+  // pelo tick, então o valor de contrato é o correto pra essa via.
+  const roundTripCostUsd = useMemo(() => {
+    if (executionMode !== 'DEMO' || !asset || !currentPrice || !(volume > 0)) return 0;
+    return calculateRoundTripCost(symbol, volume * asset.lotSize * currentPrice, currentPrice).costUsd;
+  }, [executionMode, asset, currentPrice, volume, symbol]);
+
   const riskUsd = useMemo(() => {
     if (!slSet || !currentPrice || !(volume > 0)) return null;
     const priceDelta = Math.abs(currentPrice - slNum);
-    const ticks = contractSpec.tickSize > 0 ? priceDelta / contractSpec.tickSize : 0;
-    return ticks * contractSpec.tickValue * volume;
-  }, [slSet, currentPrice, slNum, volume, contractSpec]);
+    // Perda LÍQUIDA: o stop perde o movimento + o custo round-trip (o que de fato
+    // é gravado no log). Só DEMO -- em LIVE quem cobra é a corretora.
+    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode) + roundTripCostUsd;
+  }, [slSet, currentPrice, slNum, volume, contractSpec, executionMode, asset, roundTripCostUsd]);
 
   const riskPercent = riskUsd != null && portfolio.balance > 0 ? (riskUsd / portfolio.balance) * 100 : null;
 
   const rewardUsd = useMemo(() => {
     if (!tpSet || !currentPrice || !(volume > 0)) return null;
     const priceDelta = Math.abs(tpNum - currentPrice);
-    const ticks = contractSpec.tickSize > 0 ? priceDelta / contractSpec.tickSize : 0;
-    return ticks * contractSpec.tickValue * volume;
-  }, [tpSet, currentPrice, tpNum, volume, contractSpec]);
+    // Lucro LÍQUIDO do custo round-trip: o usuário só ganha depois de pagar o
+    // spread, então a boleta mostra exatamente o que será registrado no log.
+    return computePriceMagnitudePnl(priceDelta, volume, asset, contractSpec, executionMode) - roundTripCostUsd;
+  }, [tpSet, currentPrice, tpNum, volume, contractSpec, executionMode, asset, roundTripCostUsd]);
 
   const marginEstimate = useMemo(() => {
     if (!currentPrice || !asset || !(volume > 0)) return null;
@@ -265,7 +490,68 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     setStopLimitPrice('');
   }
 
-  async function executeOrder(side: Side) {
+  // 🆕 2026-10-15 — guarda-costas (ver services/risk/manualOrderGuard.ts):
+  // alertas pendentes de confirmação do usuário. null = nenhum aberto.
+  const [guardPrompt, setGuardPrompt] = useState<{ side: Side; findings: GuardFinding[] } | null>(null);
+
+  function guardLogBase(side: Side) {
+    return {
+      symbol,
+      side: (side === 'BUY' ? 'LONG' : 'SHORT') as 'LONG' | 'SHORT',
+      orderType,
+      executionMode,
+      entryPrice: isPending || isStopLimit ? triggerNum : (currentPrice ?? 0),
+      stopLoss: slSet ? slNum : undefined,
+      takeProfit: tpSet ? tpNum : undefined,
+      volume,
+    };
+  }
+
+  async function runGuard(side: Side): Promise<GuardFinding[]> {
+    const entryPrice = isPending || isStopLimit ? triggerNum : (currentPrice as number);
+    // P&L realizado hoje no fuso de Brasília (sem horário de verão desde 2019).
+    const todayBrt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const dayStartMs = new Date(`${todayBrt}T00:00:00-03:00`).getTime();
+    const dailyPnl = orderHistory
+      .filter((t) => t.closedAt && t.closedAt >= dayStartMs)
+      .reduce((acc, t) => acc + (t.currentProfit || 0), 0);
+    const notional = asset ? volume * asset.lotSize * entryPrice : 0;
+    const costUsd = asset && entryPrice > 0 ? calculateRoundTripCost(symbol, notional, entryPrice).costUsd : 0;
+    const grossRewardUsd = tpSet ? computePriceMagnitudePnl(Math.abs(tpNum - entryPrice), volume, asset, contractSpec, executionMode) : null;
+    const stoch = await readStochastics(symbol);
+    return evaluateManualOrder({
+      symbol,
+      side: side === 'BUY' ? 'LONG' : 'SHORT',
+      entryPrice,
+      stopLoss: slSet ? slNum : undefined,
+      takeProfit: tpSet ? tpNum : undefined,
+      riskPercent,
+      maxRiskPercent: aiConfig.riskPerTrade,
+      costUsd,
+      grossRewardUsd,
+      balance: portfolio.balance,
+      dailyPnl,
+      dailyLossLimitPct: aiConfig.dailyLossLimit,
+      openPositions: activeOrders.map((o) => ({ symbol: o.symbol, side: o.side })),
+      stoch: stoch.readings,
+      stochUnavailable: stoch.unavailable,
+      now: new Date(),
+    });
+  }
+
+  function cancelGuardPrompt() {
+    if (guardPrompt) void logGuardDecision({ ...guardLogBase(guardPrompt.side), findings: guardPrompt.findings, decision: 'CANCELADA' });
+    setGuardPrompt(null);
+  }
+
+  function confirmGuardPrompt() {
+    if (!guardPrompt) return;
+    const { side, findings } = guardPrompt;
+    setGuardPrompt(null);
+    void executeOrder(side, { confirmedFindings: findings });
+  }
+
+  async function executeOrder(side: Side, opts?: { confirmedFindings?: GuardFinding[] }) {
     // Log explícito de diagnóstico — fica permanente (não é debug temporário):
     // é a única forma de saber, olhando o console, se o clique realmente
     // chegou até aqui e por que parou, sem precisar reproduzir o bug de novo.
@@ -289,6 +575,32 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
       return;
     }
 
+    // 🆕 2026-10-15 — guarda-costas: na 1ª passada confere a ordem; com
+    // bloqueio ela não sai, com alerta só sai depois da 2ª confirmação
+    // (confirmGuardPrompt chama executeOrder de novo com os alertas aceitos).
+    if (!opts?.confirmedFindings) {
+      setSubmitting(side);
+      let findings: GuardFinding[];
+      try {
+        findings = await runGuard(side);
+      } finally {
+        setSubmitting(null);
+      }
+      const blocks = findings.filter((f) => f.severity === 'BLOQUEIO');
+      if (blocks.length) {
+        void logGuardDecision({ ...guardLogBase(side), findings, decision: 'BLOQUEADA' });
+        toast.error('Ordem bloqueada pelo guarda-costas', { description: blocks.map((b) => b.text).join(' ') });
+        return;
+      }
+      // 2026-10-16 (pedido do Cleber): os ALERTAS nao interrompem mais a boleta.
+      // So o BLOQUEIO (limite de perda diaria, tratado acima) trava a ordem. Os
+      // alertas continuam calculados e REGISTRADOS em manual_order_guard_log para
+      // auditoria/analise, mas a ordem sai direto, sem a 2a confirmacao.
+      void logGuardDecision({ ...guardLogBase(side), findings, decision: findings.length ? 'ENVIADA_COM_ALERTA' : 'ENVIADA_LIMPA' });
+    } else {
+      void logGuardDecision({ ...guardLogBase(side), findings: opts.confirmedFindings, decision: 'ENVIADA_COM_ALERTA' });
+    }
+
     setSubmitting(side);
     try {
       // ── Execução a mercado ──
@@ -304,8 +616,10 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           });
           console.error('🟢[OrderTicket] openManualPosition retornou', result);
           if (result.success) {
-            toast.success(`${side === 'BUY' ? 'Compra' : 'Venda'} enviada`, {
-              description: `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO)`,
+            toast.success(result.netted ? 'Posição contrária fechada/reduzida' : `${side === 'BUY' ? 'Compra' : 'Venda'} enviada`, {
+              description: result.netted
+                ? `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO, netting: a ordem contrária reduz a posição aberta)`
+                : `${symbol} · ${volume} lote(s) @ ${formatPrice(currentPrice, symbol)} (DEMO)`,
             });
             resetOptionalFields();
           } else {
@@ -316,6 +630,27 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           const result = side === 'BUY' ? await createMarketBuyOrder(params) : await createMarketSellOrder(params);
           if (result.success) {
             toast.success(`${side === 'BUY' ? 'Compra' : 'Venda'} executada`, { description: `${symbol} · ${volume} lote(s) na corretora` });
+            // 🔴 2026-09-09 (achado ao vivo do Cleber: posição real não
+            // aparecia no Gráfico): antes, ordem LIVE só ficava no ledger de
+            // auditoria (`broker_order_executions`), nunca em `ai_trades` —
+            // Gráfico/Dashboard só desenham posição a partir de `ai_trades`.
+            // Grava aqui também, com o id real da posição, pra aparecer
+            // automaticamente. Preço de preenchimento real quando a
+            // corretora devolve (`result.price`); sem isso, aproxima pelo
+            // último preço cotado (mesmo usado pra montar a ordem).
+            if (result.positionId) {
+              recordLiveManualPosition({
+                symbol,
+                side: side === 'BUY' ? 'LONG' : 'SHORT',
+                volume,
+                entryPrice: result.price ?? currentPrice,
+                brokerPositionId: result.positionId,
+                stopLoss: slSet ? slNum : undefined,
+                takeProfit: tpSet ? tpNum : undefined,
+              });
+            } else {
+              console.warn('[OrderTicket] Ordem LIVE executada mas sem positionId na resposta — não vai aparecer no Gráfico automaticamente.', result);
+            }
             resetOptionalFields();
           } else {
             toast.error('Ordem recusada pela corretora', { description: result.error || result.message });
@@ -378,7 +713,59 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     }
   }
 
+  // 🆕 2026-09-14 (pedido do Cleber): clicar fora da ficha expandida no
+  // gráfico agora recolhe a boleta de volta pra barra compacta — mesmo
+  // padrão de qualquer popover/modal do app, faltava aqui porque a ficha
+  // não tem backdrop (fica flutuando dentro do gráfico, de propósito, pra
+  // não bloquear a visão dos candles). `mousedown` (não `click`) pra fechar
+  // antes de qualquer outro handler de clique do gráfico por baixo tratar o
+  // mesmo evento.
+  const ticketRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!expanded) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (ticketRef.current && !ticketRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [expanded]);
+
   const priceLabel = currentPrice != null ? formatPrice(currentPrice, symbol) : '----.--';
+
+  // 🆕 2026-10-15 — confirmação do guarda-costas. Fica DENTRO da árvore da
+  // boleta (fixed, não portal) pra o clique nela não contar como "clique fora"
+  // e recolher a ficha expandida (ver handlePointerDown acima).
+  const guardPanel = guardPrompt && (
+    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 px-4" data-testid="manual-order-guard">
+      <div className="w-full max-w-sm rounded-xl border border-amber-500/40 bg-slate-950 p-4 shadow-2xl">
+        <div className="mb-2 flex items-center gap-2 text-amber-300">
+          <ShieldAlert className="h-4 w-4" />
+          <span className="text-sm font-black">Guarda-costas: confira antes de enviar</span>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">
+          {guardPrompt.side === 'BUY' ? 'Compra' : 'Venda'} de {volume} lote(s) em {symbol}. Esta ordem fura {guardPrompt.findings.length === 1 ? 'uma regra' : `${guardPrompt.findings.length} regras`}:
+        </p>
+        <ul className="mb-4 space-y-2">
+          {guardPrompt.findings.map((f) => (
+            <li key={f.id} className="flex items-start gap-2 text-xs text-slate-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <span>{f.text}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={cancelGuardPrompt} className="h-10 rounded-lg bg-white/10 text-xs font-bold text-white hover:bg-white/20">
+            Cancelar
+          </button>
+          <button type="button" onClick={confirmGuardPrompt} className="h-10 rounded-lg bg-amber-600 text-xs font-bold text-white hover:bg-amber-500">
+            Enviar mesmo assim
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   // ─────────────────────────── Modo recolhido ───────────────────────────
   if (!expanded) {
@@ -471,6 +858,12 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
 
         {symbolPositions.map((pos) => {
           const pnl = pos.currentProfit ?? 0;
+          // 🔴 2026-09-09 (pedido do Cleber): número de contratos/lotes de
+          // cada posição na lista — `amount` grava exposição em DÓLAR
+          // (convenção do banco, ver openMt5Position/neuralBridge.ts), não
+          // lote — reconverte pela mesma fórmula usada pra montar a ordem
+          // (amountUsd = volume * lotSize * preço).
+          const lots = asset ? pos.amount / (asset.lotSize * pos.price) : null;
           return (
             <div key={pos.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-white/5 bg-white/[0.02]">
               <div className="flex items-center gap-1.5">
@@ -478,19 +871,27 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                   {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">@ {formatPrice(pos.price, symbol)}</span>
+                {lots != null && (
+                  <span className="text-[9px] text-slate-500 font-mono">· {lots.toFixed(2)} lote(s)</span>
+                )}
                 <AnimatedPnl value={pnl} className={`text-[10px] font-mono font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
               </div>
-              <button
-                type="button"
-                onClick={() => handleClosePosition(pos.id)}
-                disabled={currentPrice == null}
-                className="text-[9px] font-bold px-2 py-1 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Fechar
-              </button>
+              <div className="flex items-center gap-1">
+                {renderStopControl(pos)}
+                {renderTargetControl(pos)}
+                <button
+                  type="button"
+                  onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}
+                  disabled={(currentPrice == null && !pos.brokerPositionId) || closingTradeId === pos.id}
+                  className="text-[9px] font-bold px-2 py-1 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {closingTradeId === pos.id ? 'Fechando...' : 'Fechar'}
+                </button>
+              </div>
             </div>
           );
         })}
+        {guardPanel}
       </div>
     );
   }
@@ -504,7 +905,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   };
 
   return (
-    <div className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/10" data-testid="order-ticket-expanded">
+    <div ref={ticketRef} className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/10" data-testid="order-ticket-expanded">
       {otherSymbolPositionsBySymbol.map(({ symbol: otherSymbol, count }) => (
         <button
           key={otherSymbol}
@@ -647,6 +1048,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
           <div className="mb-3 space-y-1.5 relative z-10">
             {symbolPositions.map((pos) => {
               const pnl = pos.currentProfit ?? 0;
+              const lots = asset ? pos.amount / (asset.lotSize * pos.price) : null;
               return (
                 <div key={pos.id} className="flex items-center justify-between gap-2 bg-black/30 rounded-lg p-2.5 border border-white/5">
                   <div className="flex items-center gap-2">
@@ -654,16 +1056,96 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
                       {pos.side === 'LONG' ? 'COMPRA' : 'VENDA'}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">@ {formatPrice(pos.price, symbol)}</span>
+                    {lots != null && (
+                      <span className="text-[10px] text-slate-400 font-mono">· {lots.toFixed(2)} lote(s)</span>
+                    )}
                     <AnimatedPnl value={pnl} className={`text-xs font-bold font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleClosePosition(pos.id)}
-                    disabled={currentPrice == null}
+                    onClick={() => handleClosePosition(pos.id, pos.brokerPositionId)}
+                    disabled={(currentPrice == null && !pos.brokerPositionId) || closingTradeId === pos.id}
                     className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
-                    Fechar posição
+                    {closingTradeId === pos.id ? 'Fechando...' : 'Fechar posição'}
                   </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {symbolPendingOrders.length > 0 && (
+          <div className="mb-3 space-y-1.5 relative z-10">
+            {symbolPendingOrders.map((order) => {
+              const isEditing = editingPendingId === order.id;
+              if (isEditing) {
+                return (
+                  <div key={order.id} className="bg-black/30 rounded-lg p-2.5 border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${order.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                        {order.orderType} {order.side === 'LONG' ? 'COMPRA' : 'VENDA'}
+                      </span>
+                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">Editando</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Gatilho</label>
+                        <input type="text" inputMode="decimal" value={editTriggerPrice} onChange={(e) => setEditTriggerPrice(e.target.value)} className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none focus:ring-2 focus:ring-white/20" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Volume</label>
+                        <input type="text" inputMode="decimal" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none focus:ring-2 focus:ring-white/20" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Perda máx.</label>
+                        <input type="text" inputMode="decimal" value={editStopLoss} onChange={(e) => setEditStopLoss(e.target.value)} placeholder="—" className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none placeholder:text-slate-600 focus:ring-2 focus:ring-white/20" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mb-0.5 block">Lucro máx.</label>
+                        <input type="text" inputMode="decimal" value={editTakeProfit} onChange={(e) => setEditTakeProfit(e.target.value)} placeholder="—" className="w-full h-7 rounded border border-white/10 bg-black/40 px-2 text-[11px] font-mono text-white outline-none placeholder:text-slate-600 focus:ring-2 focus:ring-white/20" />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => saveEditPendingOrder(order.id)} className="flex-1 h-7 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white transition-colors">Salvar</button>
+                      <button type="button" onClick={cancelEditPendingOrder} className="flex-1 h-7 rounded-md bg-white/5 border border-white/10 hover:bg-white/10 text-[10px] font-bold text-slate-300 transition-colors">Cancelar edição</button>
+                      <button type="button" onClick={() => handleCancelPendingOrder(order.id)} className="h-7 px-2 rounded-md bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600/30 text-[10px] font-bold text-rose-300 transition-colors">Fechar ordem</button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={order.id} className="flex items-center justify-between gap-2 bg-black/30 rounded-lg p-2.5 border border-white/5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${order.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                      {order.orderType} {order.side === 'LONG' ? 'COMPRA' : 'VENDA'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">@ {formatPrice(order.triggerPrice, symbol)}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">· {order.volume.toFixed(2)} lote(s)</span>
+                    {(order.stopLoss != null || order.takeProfit != null) && (
+                      <span className="text-[9px] text-slate-500 font-mono">
+                        {order.stopLoss != null ? `SL ${formatPrice(order.stopLoss, symbol)}` : ''}
+                        {order.stopLoss != null && order.takeProfit != null ? ' · ' : ''}
+                        {order.takeProfit != null ? `TP ${formatPrice(order.takeProfit, symbol)}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => startEditPendingOrder(order)}
+                      className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelPendingOrder(order.id)}
+                      className="text-[10px] font-bold px-2.5 py-1.5 rounded-md bg-rose-600/20 border border-rose-500/30 text-rose-300 hover:bg-rose-600/30 transition-colors"
+                    >
+                      Fechar ordem
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -705,6 +1187,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         </div>
       </div>
       </div>
+      {guardPanel}
     </div>
   );
 }

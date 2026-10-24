@@ -15,8 +15,11 @@
  * - ✅ Trailing Stop Dinâmico por Layer
  * - ✅ Break-Even Automático
  * - ✅ Take Profit Parcial
- * - ✅ AI Risk Analysis em tempo real
- * - ✅ Stop de Emergência (volatilidade/divergências)
+ * - ✅ Proteção de Risco sempre ativa (ContextGate + CostViabilityGate +
+ *   limite de drawdown antes de cada layer novo — 2026-08-19, sem opt-in
+ *   separado, faz parte do botão único "Pyramiding")
+ * - ✅ Stop de Emergência
+ * - ✅ Fechar em Reversão
  */
 
 import React, { useState } from 'react';
@@ -54,7 +57,7 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
     { id: 'entry', label: 'Distância entre Entradas', icon: ArrowUpRight },
     { id: 'stops', label: 'Trailing Stops', icon: Shield },
     { id: 'profit', label: 'Take Profit & Break-Even', icon: Target },
-    { id: 'ai', label: 'AI Risk Management', icon: Brain },
+    { id: 'ai', label: 'Proteção de Risco', icon: Brain },
     { id: 'emergency', label: 'Stop de Emergência', icon: AlertTriangle },
   ];
 
@@ -522,18 +525,25 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                     )}
                   </div>
                   
-                  {/* Partial Take Profit — 🔴 2026-08-04: sem infra de fechamento parcial no motor ainda */}
-                  <div className="p-4 bg-[#080808] rounded-lg border border-white/10 space-y-3 opacity-40">
+                  {/* Partial Take Profit — 2026-08-19: implementado no servidor
+                      (ai-runner/lib/positionManager.ts, evaluatePyramidGroups) —
+                      fecha via INSERT de nova linha (fração fechada, auditável)
+                      + UPDATE reduzindo quantity da linha original. */}
+                  <div className="p-4 bg-[#080808] rounded-lg border border-white/10 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-sm font-bold text-white mb-1">Take Profit Parcial</div>
-                        <div className="text-xs text-slate-500">Fechar parte da posição em layers específicos — não implementado ainda</div>
+                        <div className="text-xs text-slate-500">Fecha parte de cada camada do grupo quando ele atinge um dos layers configurados</div>
                       </div>
                       <button
-                        disabled
-                        className="px-4 py-2 rounded-lg text-xs font-bold cursor-not-allowed bg-white/5 text-slate-500 border border-white/10"
+                        onClick={() => updateConfig({ partialTakeProfitEnabled: !config.partialTakeProfitEnabled })}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                          config.partialTakeProfitEnabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-white/5 text-slate-400 border border-white/10'
+                        }`}
                       >
-                        Não implementado
+                        {config.partialTakeProfitEnabled ? 'Ativo' : 'Inativo'}
                       </button>
                     </div>
 
@@ -574,95 +584,50 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                 </div>
               )}
 
-              {/* ========== AI RISK MANAGEMENT ========== */}
+              {/* ========== PROTEÇÃO DE RISCO (sempre ativa) ========== */}
+              {/* 🆕 2026-08-19: antes existia um botão "AI Risk Analysis" separado
+                  (opt-in, nunca implementado — inventaria critério próprio de
+                  "momentum"/"divergência" que não existia em lugar nenhum do
+                  projeto). Removido a pedido do Cleber: Pyramiding e proteção de
+                  risco são complementares, não duas decisões — um único botão
+                  ("Pyramiding" ligado, no topo do painel) já liga os dois.
+                  Antes de cada layer novo, o motor roda os MESMOS 3 gates reais
+                  que toda entrada normal já passa (evaluatePyramidLayerRiskGate
+                  em useApexLogic.ts) — nada inventado, só reaproveitado. */}
               {activeSection === 'ai' && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 text-amber-400">
                     <Brain className="w-4 h-4" />
-                    <h4 className="text-sm font-bold uppercase tracking-wider">AI Risk Management</h4>
-                  </div>
-                  
-                  <div className="flex items-center justify-between p-4 bg-[#080808] rounded-lg border border-white/10 opacity-40">
-                    <div>
-                      <div className="text-sm font-bold text-white mb-1">AI Risk Analysis</div>
-                      <div className="text-xs text-slate-500">AI analisa cada add antes de executar — não implementado ainda, o motor real hoje só respeita maxLayers/entryDistance/emergencyStop</div>
-                    </div>
-                    <button disabled className="px-4 py-2 rounded-lg text-xs font-bold cursor-not-allowed bg-white/5 text-slate-500 border border-white/10">
-                      Não implementado
-                    </button>
+                    <h4 className="text-sm font-bold uppercase tracking-wider">Proteção de Risco</h4>
                   </div>
 
-                  {config.aiRiskAnalysisEnabled && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 mb-2">
-                          Risco Máximo por Layer (% da conta)
-                        </label>
-                        <input
-                          type="number"
-                          value={config.maxRiskPercentPerLayer}
-                          onChange={(e) => updateConfig({ maxRiskPercentPerLayer: parseFloat(e.target.value) })}
-                          min="0.1"
-                          max="5"
-                          step="0.1"
-                          className="w-full px-3 py-2 bg-[#080808] border border-white/10 rounded-lg text-sm text-white focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/20 outline-none"
-                        />
-                        <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                          <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
-                          <p className="text-xs text-yellow-300">
-                            Recomendado: 0.5-1% por layer para controle de risco adequado
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 mb-2">
-                          Score Mínimo de Momentum (0-100)
-                        </label>
-                        <input
-                          type="number"
-                          value={config.requiredMomentumScore}
-                          onChange={(e) => updateConfig({ requiredMomentumScore: parseInt(e.target.value) })}
-                          min="0"
-                          max="100"
-                          className="w-full px-3 py-2 bg-[#080808] border border-white/10 rounded-lg text-sm text-white focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/20 outline-none"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          AI só adiciona se momentum estiver acima deste score
-                        </p>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between p-3 bg-[#080808] rounded-lg border border-white/10">
-                          <div className="text-xs font-bold text-white">Parar ao detectar divergência</div>
-                          <button
-                            onClick={() => updateConfig({ stopAddingOnDivergence: !config.stopAddingOnDivergence })}
-                            className={`px-3 py-1 rounded text-[10px] font-bold transition-all ${
-                              config.stopAddingOnDivergence
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-white/5 text-slate-400'
-                            }`}
-                          >
-                            {config.stopAddingOnDivergence ? 'Sim' : 'Não'}
-                          </button>
-                        </div>
-                        
-                        <div className="flex items-center justify-between p-3 bg-[#080808] rounded-lg border border-white/10">
-                          <div className="text-xs font-bold text-white">Parar com alta volatilidade</div>
-                          <button
-                            onClick={() => updateConfig({ stopAddingOnHighVolatility: !config.stopAddingOnHighVolatility })}
-                            className={`px-3 py-1 rounded text-[10px] font-bold transition-all ${
-                              config.stopAddingOnHighVolatility
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-white/5 text-slate-400'
-                            }`}
-                          >
-                            {config.stopAddingOnHighVolatility ? 'Sim' : 'Não'}
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                  <div className="flex items-center justify-between p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+                    <div>
+                      <div className="text-sm font-bold text-white mb-1">Sempre ativa</div>
+                      <div className="text-xs text-emerald-300">Faz parte do Pyramiding — não precisa ligar separado</div>
+                    </div>
+                    <span className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Ativo
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400">
+                    Antes de adicionar cada layer novo, o motor roda os mesmos 3 gates que já protegem toda entrada normal:
+                  </p>
+                  <div className="space-y-2">
+                    <div className="p-3 bg-[#080808] rounded-lg border border-white/10">
+                      <div className="text-xs font-bold text-white">Limite de Drawdown</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Recusa o layer se a conta já estiver no limite de drawdown configurado (mesmo limite do RiskManager).</div>
+                    </div>
+                    <div className="p-3 bg-[#080808] rounded-lg border border-white/10">
+                      <div className="text-xs font-bold text-white">ContextGate</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Recusa se o regime de mercado do ativo (tendência/volatilidade) não apoiar mais a direção do grupo.</div>
+                    </div>
+                    <div className="p-3 bg-[#080808] rounded-lg border border-white/10">
+                      <div className="text-xs font-bold text-white">CostViabilityGate</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Recusa se o custo de execução consumir fração grande demais do movimento até o alvo.</div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -711,13 +676,20 @@ export function PyramidingConfigPanel({ config, onChange, className = '' }: Pyra
                         </p>
                       </div>
                       
-                      <div className="flex items-center justify-between p-3 bg-[#080808] rounded-lg border border-white/10 opacity-40">
+                      <div className="flex items-center justify-between p-3 bg-[#080808] rounded-lg border border-white/10">
                         <div>
                           <div className="text-xs font-bold text-white mb-1">Fechar tudo em reversão</div>
-                          <div className="text-[10px] text-slate-500">Não implementado — o stop de emergência acima (% de perda) é o único gatilho real de fechamento hoje</div>
+                          <div className="text-[10px] text-slate-500">Fecha o grupo inteiro quando o motor gera um sinal na direção oposta pro ativo (usa a decisão real mais recente do próprio motor, ai_decisions — sem decisão recente disponível, não dispara)</div>
                         </div>
-                        <button disabled className="px-3 py-1 rounded text-[10px] font-bold cursor-not-allowed bg-white/5 text-slate-500">
-                          N/D
+                        <button
+                          onClick={() => updateConfig({ closeAllOnReversal: !config.closeAllOnReversal })}
+                          className={`px-3 py-1 rounded text-[10px] font-bold transition-all ${
+                            config.closeAllOnReversal
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-white/5 text-slate-400'
+                          }`}
+                        >
+                          {config.closeAllOnReversal ? 'Ativo' : 'Inativo'}
                         </button>
                       </div>
                     </>
@@ -751,10 +723,13 @@ export const DEFAULT_PYRAMIDING_CONFIG: PyramidingConfig = {
   partialTakeProfitEnabled: false,
   partialTakeProfitPercent: 50,
   partialTakeProfitLayers: [2, 4],
-  // 🔴 2026-08-04: aiRiskAnalysisEnabled e seus sub-campos (divergência,
-  // volatilidade, momentum score) NÃO têm implementação real no motor ainda
-  // — ver comentário em useApexLogic.ts (aiConfig.pyramiding). Default
-  // desligado pra nunca mostrar "Ativo" pra algo que não roda de fato.
+  // Campos legados (aiRiskAnalysisEnabled e sub-campos) mantidos no TYPE só
+  // por compatibilidade com sessões antigas gravadas no banco e com
+  // src/app/services/pyramidingManager.ts (serviço não usado pelo motor
+  // real, ver CLAUDE.md pendência de limpeza de código morto) — a UI não
+  // lê mais nenhum deles. Proteção de risco real hoje é SEMPRE ativa quando
+  // `enabled: true` (ver evaluatePyramidLayerRiskGate em useApexLogic.ts),
+  // sem opt-in separado.
   aiRiskAnalysisEnabled: false,
   maxRiskPercentPerLayer: 0.5,
   stopAddingOnDivergence: false,
@@ -762,8 +737,8 @@ export const DEFAULT_PYRAMIDING_CONFIG: PyramidingConfig = {
   requiredMomentumScore: 60,
   emergencyStopEnabled: true,
   emergencyStopLossPercent: 5,
-  // 🔴 2026-08-04: fechamento por detecção de reversão não implementado —
-  // o motor real hoje só fecha o grupo pelo emergencyStopLossPercent (stop de
-  // perda), nunca por "detectar reversão". Default desligado pelo mesmo motivo.
+  // Take Profit Parcial e Fechar-em-Reversão implementados no servidor em
+  // 2026-08-19 (ai-runner/lib/positionManager.ts) — default segue desligado
+  // por serem opt-in explícitos do usuário, não por não funcionarem.
   closeAllOnReversal: false,
 };

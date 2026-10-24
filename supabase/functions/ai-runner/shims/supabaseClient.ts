@@ -33,6 +33,13 @@
  * Essas DUAS chamadas — e só elas — são implementadas abaixo, contra o
  * client real de service-role. Qualquer outro uso de `.from(...)` continua
  * estourando de propósito.
+ *
+ * ATUALIZAÇÃO (2026-08-21): `RealMarketDataService.ts` (mesmo arquivo
+ * compartilhado client+servidor, ver SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md)
+ * ganhou `logPriceGuardEvent()`, que usa
+ * `supabase.from('price_guard_events').insert(...)` pra acumular amostra de
+ * rejeições de preço suspeito/degradação por TTL. Implementado abaixo do
+ * mesmo jeito.
  */
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
@@ -111,11 +118,20 @@ const fromShim = {
         },
       };
     }
+    if (table === 'price_guard_events') {
+      return {
+        insert(row: Record<string, unknown>) {
+          return getRealClient().from('price_guard_events').insert(row);
+        },
+      };
+    }
     throw new Error(
       `[ai-runner/shim] O motor tentou usar supabase.from('${table}') no servidor, ` +
-      `mas este shim só implementa 'ai_funnel_snapshots' e 'ai_sessions' (uso conhecido ` +
-      `de FunnelTelemetry.ts). Se o caminho crítico passou a depender de outra tabela, ` +
-      `implemente aqui de propósito — não troque o import map por um client de browser.`,
+      `mas este shim só implementa 'ai_funnel_snapshots', 'ai_sessions' e ` +
+      `'price_guard_events' (usos conhecidos de FunnelTelemetry.ts e ` +
+      `RealMarketDataService.ts). Se o caminho crítico passou a depender de outra ` +
+      `tabela, implemente aqui de propósito — não troque o import map por um client ` +
+      `de browser.`,
     );
   },
 };

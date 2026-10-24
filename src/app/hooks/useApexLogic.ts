@@ -2,16 +2,85 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { toast as toastOriginal } from 'sonner';
 import { getSpread, applySpread } from '@/config/spreads'; // 🎯 Funções de Spread (sem hook)
-import { calculateRealisticPnL, calculatePnLWithLeverage, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
+import { calculateRealisticPnL, getContractSpec, getContractInfo } from '@/config/contractSpecs'; // 💰 Especificações de Contrato
+import { calculateRoundTripCost, calculateCommissionOnlyCost } from '@/app/services/risk/ExecutionCost.ts'; // 💸 Custo de execução real (spread+slippage) — fonte única, mesma do ai-runner
+import { getAccountMode } from '@/app/lib/accountMode';
 import { Strategy as StrategyDef } from '@/app/types/strategy';
 import { PRESET_STRATEGIES } from '@/app/data/presetStrategies';
 import { calculateATR } from '@/app/services/indicators/TechnicalIndicators';
 import { type PyramidingConfig, DEFAULT_PYRAMIDING_CONFIG } from '@/app/components/trading/PyramidingConfigPanel';
 import { getPointValue } from '@/app/services/strategy/TradeSizing';
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
-import { DEFAULT_ANALYSIS_BASKET } from '@/app/config/defaultBasket';
+import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
+import { DEFAULT_ACTIVE_ASSETS } from '@/app/config/defaultBasket';
 import { forceCloseAllLivePositions } from '@/app/services/risk/LiveEmergencyClose';
+import { evaluateContextGate } from '@/app/services/risk/ContextGate';
+import { evaluateCostViability } from '@/app/services/risk/CostViabilityGate';
+import { BREAKEVEN_TRIGGER_R } from '@/app/services/risk/TradeFrictionControls';
+import { resolveCostAssetClass } from '@/app/services/risk/CostAssetClass';
+import { estimateCostPercent } from '../../../research/CostModel';
 import type { TradeVisual, PortfolioState, AIConfig } from '@/app/types/tradingState';
+import { aiPersistence, type AITrade } from '@/app/services/AITradingPersistenceService';
+
+/**
+ * 🔴 FIX 2026-08-27 (achado do Cleber: posição de NAS100 mostrando -$16,30
+ * de PnL não-realizado quando o risco real da posição era ~$1). Causa raiz:
+ * `calculatePnLWithLeverage` (contractSpecs.ts) usa `INFINOX_CONTRACT_SPECS`,
+ * que pra símbolos INDICES (ex: NAS100 tickValue $5/tickSize 0.25 = $20 por
+ * ponto) carrega a especificação do CONTRATO FUTURO E-mini da CME — não o
+ * CFD de varejo que o motor de sizing (`TradeSizing.ts`, `pointValue = 1.0`
+ * pra não-forex/metal/energia) e o fechamento real no servidor
+ * (`positionManager.ts`, `grossPnl = (price-entry) * (amount/entry)`) sempre
+ * assumiram. As duas fórmulas nunca foram a mesma — pra NAS100 o multiplicador
+ * de $20/ponto contra o $1/ponto do motor infla o PnL em ~20x.
+ *
+ * Correção: o cliente para de usar `calculatePnLWithLeverage` pra qualquer
+ * cálculo que afete o que o usuário vê como resultado real (ticket de posição
+ * aberta, fechamento manual) e passa a espelhar EXATAMENTE a fórmula que o
+ * servidor usa pra fechar de verdade e gravar `net_pnl` — mesma classe de
+ * duplicação já documentada pra `BREAKEVEN_TRIGGER_R` acima: as duas cópias
+ * têm que ser idênticas, nunca reconciliadas por acaso.
+ */
+function calculateEngineConsistentPnL(
+  entryPrice: number,
+  exitPrice: number,
+  side: 'LONG' | 'SHORT',
+  amountUsd: number,
+): number {
+  if (!(entryPrice > 0)) return 0;
+  return side === 'LONG'
+    ? (exitPrice - entryPrice) * (amountUsd / entryPrice)
+    : (entryPrice - exitPrice) * (amountUsd / entryPrice);
+}
+
+/**
+ * 🔴 Fonte única pra "quanto vale, em USD, um deslocamento de preço" na
+ * prévia de risco/retorno do OrderTicket — extraído em 2026-08-30 pra
+ * eliminar a duplicação exata dessa fórmula entre `riskUsd` e `rewardUsd`
+ * (mesma classe de bug do comentário de `calculateEngineConsistentPnL`
+ * acima: duas cópias da mesma conta que podem divergir sem ninguém notar).
+ *
+ * DEMO: espelha `amountUsd = volume * asset.lotSize * entryPrice` usado por
+ * `calculateEngineConsistentPnL`/posição real — algebricamente
+ * `priceDelta * volume * asset.lotSize`. Exige `asset` (retorna `null` sem
+ * ele, mesmo comportamento de antes).
+ * LIVE: usa o `contractSpec` da corretora (tickSize/tickValue) — não
+ * depende de `asset`.
+ */
+export function computePriceMagnitudePnl(
+  priceDelta: number,
+  volume: number,
+  asset: { lotSize: number } | undefined,
+  contractSpec: { tickSize: number; tickValue: number },
+  executionMode: 'DEMO' | 'LIVE',
+): number | null {
+  if (executionMode === 'DEMO') {
+    if (!asset) return null;
+    return priceDelta * volume * asset.lotSize;
+  }
+  const ticks = contractSpec.tickSize > 0 ? priceDelta / contractSpec.tickSize : 0;
+  return ticks * contractSpec.tickValue * volume;
+}
 
 // === 🔇 DEBUG CONFIG: All logs DISABLED (set to `true` to enable) ===
 const DEBUG_LOGS = {
@@ -55,6 +124,9 @@ import { useAuth } from '../contexts/AuthContext'; // Fase 2: usuário logado p/
 import { useAIPersistence } from './useAIPersistence'; // Fase 2: persiste sessão DEMO no Supabase
 import { funnelTelemetry } from '../services/telemetry/FunnelTelemetry'; // Fase 0 do redesenho do cérebro: instrumentação do funil de decisão
 import { runTradingCycle, type TradingCycleEffect } from '../services/strategy/runTradingCycle'; // Passo 2 do plano do runner (2026-08-07): módulo puro do ciclo, "um motor, dois drivers"
+import { fetchJarvisSizeMultiplier } from '../services/strategy/jarvisSizeMultiplier';
+import { supabase } from '@/lib/supabaseClient'; // Realtime de ai_trades (reconciliação de posições, 2026-08-20)
+import { playPositionOpenSound } from '@/app/lib/positionOpenSound'; // Som ao abrir posição nova (2026-09-06)
 
 // 🔒 RESPEITAR CONFIG DO USUÁRIO: riskProfile. Antes esse campo era salvo mas nunca
 // lido - qualquer perfil escolhido (conservador/agressivo/institucional) tinha o
@@ -126,6 +198,17 @@ export interface EquityPoint {
 }
 
 const STORAGE_KEY = 'apex_logic_state_v15_FIXED';
+// 🔴 FIX 2026-08-21 (Cleber: depois de "Reset", Curva de Equity do Dashboard
+// ainda mostrava o mergulho/plateau da sessão anterior): `endSession` no
+// Supabase é assíncrono e não é aguardado por `resetLogic` — se o usuário
+// recarregar a página no meio dessa janela (comum logo após confirmar o
+// Reset), a hidratação (linha ~711) ainda encontra a sessão antiga como
+// RUNNING e restaura a curva de equity real dela inteira, sépia do reset.
+// Este marcador (com timestamp e o id da sessão que estava sendo encerrada)
+// deixa a hidratação detectar esse caso e ignorar a sessão "RUNNING" fantasma
+// em vez de restaurar dado obsoleto.
+const LAST_RESET_MARKER_KEY = 'apex_last_reset_marker_v1';
+const RESET_MARKER_STALE_MS = 30_000;
 
 export interface MetaApiCredentials {
   login: string;
@@ -269,25 +352,35 @@ const INITIAL_STATE: ApexLogicState = {
     maxContracts: 3,
     maxPositions: 5,
     maxDrawdown: 15,
-    riskPerTrade: 2,
+    // 🔴 2026-08-26: Aumentado de 2% → 4% (Kelly fracionário adequado pra 65% win rate)
+    // Com 65% de taxa de acerto e R:R 1:2.5, Kelly Fracionário = 12.75%.
+    // 4% é 31% do Kelly pleno — agressivo mas seguro.
+    riskPerTrade: 4,
     minWinRate: 55,
     riskProfile: 'EQUILIBRADO',
     
     // 🆕 PROPRIEDADES FALTANTES (usadas pelo AITrader.tsx)
-    // 2026-08-17: cesta ampla (39 ativos, critério objetivo em
-    // config/defaultBasket.ts) substitui os 2 ativos que eram padrão desde o
-    // início. O motor agora varre a cesta inteira e ranqueia — não sorteia.
-    activeAssets: DEFAULT_ANALYSIS_BASKET,
+    // 2026-08-20: default de `activeAssets` volta a ser uma cesta enxuta (9,
+    // ver DEFAULT_ACTIVE_ASSETS em config/defaultBasket.ts) — o painel de
+    // configuração estava abrindo com os 39 ativos da cesta de RANKING
+    // inteira pré-marcados como ativos, sem o usuário ter escolhido isso.
+    // O universo de ranking amplo (DEFAULT_ANALYSIS_BASKET) continua
+    // disponível no seletor pra quem quiser ampliar manualmente.
+    activeAssets: DEFAULT_ACTIVE_ASSETS,
     maxAssets: 6, // Máximo de ativos com posição ABERTA ao mesmo tempo (não limita a análise)
     timeframe: '15m', // Timeframe operacional (1m, 5m, 15m, 1H, 4H)
     newsFilter: true, // Filtro de notícias econômicas
     dailyLossLimit: 5, // Limite de perda diária (%)
+    cadence: 'NORMAL', // Cadência de entrada nova do LLM Brain (CONSERVADORA/NORMAL/AGRESSIVA)
     metaApiToken: '', // 🔑 Token do MetaApi para integração MT5
     activeStrategyId: '2', // Padrão: "Cruzamento de Médias com Filtro de Regime" (tendência, ADX-gated), mesma estratégia disponível no Backtest
     // 60 = um bloco de entrada perfeito somado a um cruzamento de até ~8
     // candles atrás ainda passa. 100 reproduz o comportamento binário antigo
     // (só o candle exato do cruzamento). Ver doc do campo em tradingState.ts.
-    signalScoreFloor: 60,
+    // 🔴 2026-08-26: Reduzido de 60 → 45 pra aceitar mais candidatos
+    // Filtragem de qualidade agora acontece nos gates (MIN_CONFIDENCE + Tiering)
+    // em vez de rejeitar tudo no ranking (signalScoreFloor era muro demais)
+    signalScoreFloor: 45,
 
     // Gerenciamento de Risco — defaults conservadores (modelo FTMO/Topstep)
     drawdownAnchor: 'DAILY_CLOSE',
@@ -296,7 +389,10 @@ const INITIAL_STATE: ApexLogicState = {
     cooldownMinutes: 60,
     maxTradesPerDay: 0, // 0 = sem limite
     positionSizingMode: 'ATR', // ✅ Padrão: position sizing por volatilidade real
-    atrMultiplier: 1.5,
+    // 🔴 2026-08-26: Aumentado de 1.5 → 2.0 (stop dinâmico com mais espaço)
+    // Stop = 2.0×ATR em vez de 1.5×ATR reduz "fakes" (ruído) que fecha no SL.
+    // Alvo permanece 2.5× o stop = 5.0×ATR (captura movimento real melhor).
+    atrMultiplier: 2.0,
     correlationGuardEnabled: false, // TODO: Implementar correlação real em Fase 2
     correlationThreshold: 0.7,
     killSwitchThreshold: 0, // 0 = desativado por padrão; pode ser setado pelo usuário (ex: 10% de perda)
@@ -367,6 +463,52 @@ export function useApexLogic(
     return null;
   };
 
+  // Busca candles frescos (< 5min) do MESMO cache usado por getFreshAtr —
+  // sem chamada de rede extra, sem candle fresco retorna null.
+  const getFreshCandles = (symbol: string) => {
+    for (const [bufKey, bufEntry] of candleBufferRef.current) {
+      if (bufKey.startsWith(`${symbol}_`) && Date.now() - bufEntry.fetchedAt < 5 * 60_000) return bufEntry.candles;
+    }
+    return null;
+  };
+
+  // 🆕 2026-08-19: gate de risco real do Pyramiding — substitui o antigo
+  // "AI Risk Analysis" (opt-in, nunca implementado, inventaria critério de
+  // "momentum"/"divergência" que não existia em lugar nenhum do projeto).
+  // Em vez de inventar um critério novo, roda os MESMOS 3 gates reais que
+  // toda entrada normal do motor já passa (`runTradingCycle.ts`) — sem
+  // opt-in, sempre que o Pyramiding estiver ligado: um único botão, "liga o
+  // sistema" já inclui a proteção.
+  const evaluatePyramidLayerRiskGate = (symbol: string, side: 'LONG' | 'SHORT', currentPrice: number, targetPrice: number | undefined): { approved: boolean; reason: string } => {
+    // 1. Mesmo limite de drawdown que o RiskManager usa pra qualquer entrada nova.
+    if (portfolioRef.current.currentDrawdown >= configRef.current.maxDrawdown) {
+      return { approved: false, reason: `drawdown atual (${portfolioRef.current.currentDrawdown.toFixed(1)}%) já no limite configurado (${configRef.current.maxDrawdown}%)` };
+    }
+
+    // 2. ContextGate — mesmo gate de regime de mercado usado em toda entrada nova.
+    const candles = getFreshCandles(symbol);
+    if (candles) {
+      const ctx = evaluateContextGate(candles, side);
+      if (!ctx.podeOperar) return { approved: false, reason: `ContextGate: ${ctx.motivo}` };
+    }
+    // Sem candle fresco: não bloqueia por isso (mesmo comportamento de
+    // "sem dado suficiente, não fabrica veto" já usado pro resto do gate) —
+    // mas os outros 2 checks continuam valendo.
+
+    // 3. CostViabilityGate — mesma fórmula exata de runTradingCycle.ts
+    // (custo round-trip vs. distância até o alvo).
+    if (targetPrice && targetPrice > 0 && currentPrice > 0) {
+      const pointValue = getPointValue(symbol);
+      const { assetClass } = resolveCostAssetClass(symbol);
+      const costPercent = estimateCostPercent(assetClass, currentPrice, pointValue) * 2 * 100;
+      const movementPercent = (Math.abs(targetPrice - currentPrice) / currentPrice) * 100;
+      const viability = evaluateCostViability(costPercent, movementPercent);
+      if (!viability.approved) return { approved: false, reason: `CostViabilityGate: ${viability.reason}` };
+    }
+
+    return { approved: true, reason: 'ok' };
+  };
+
   // Gerenciamento de Risco: timestamp (ms) até quando novas entradas ficam bloqueadas por cooldown
   const cooldownUntilRef = useRef<number>(0);
   // === STATE MANAGEMENT ===
@@ -399,9 +541,19 @@ export function useApexLogic(
   const [candlesSinceLastTrade, setCandlesSinceLastTrade] = useState(INITIAL_STATE.candlesSinceLastTrade);
   const [maxCandlesBeforeForceEntry, setMaxCandlesBeforeForceEntry] = useState(INITIAL_STATE.maxCandlesBeforeForceEntry);
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>(INITIAL_STATE.equityHistory);
+  // Timestamp da última reconciliação bem-sucedida com o Supabase (Realtime
+  // ou fallback de polling) — exposto pra UI sinalizar dado potencialmente
+  // desatualizado, em vez de deixar a tela congelada sem aviso.
+  const [lastPositionSyncAt, setLastPositionSyncAt] = useState<number | null>(null);
   const lastEquitySampleAtRef = useRef<number>(0);
-  const EQUITY_SAMPLE_INTERVAL_MS = 3000; // amostra real a cada 3s (mais granularidade pra curva do Dashboard)
-  const MAX_EQUITY_POINTS = 600; // ~30min de janela (mantida, só com mais pontos por minuto)
+  // 🐛 FIX 2026-09-03 (achado do Cleber: card "Curva de Equity" do Dashboard
+  // parecia mostrar perda mesmo com o dia positivo — a janela real era só
+  // ~30min de amostragem, então qualquer recuo recente dentro desses 30min
+  // (mesmo com o dia inteiro no verde) desenhava a curva caindo e em
+  // vermelho, ao lado do card "Lucro AI Trader" que já mostra o resultado
+  // do DIA inteiro. Alargada pra cobrir a sessão inteira (~24h de amostras).
+  const EQUITY_SAMPLE_INTERVAL_MS = 20000; // amostra real a cada 20s
+  const MAX_EQUITY_POINTS = 4320; // ~24h de janela (20s x 4320 = 86400s)
 
   // === VIX CACHE CONFIG ===
   // 🔥 CORREÇÃO CRÍTICA: useRef DEPOIS de useState (Rules of Hooks)
@@ -413,6 +565,17 @@ export function useApexLogic(
   const cachedNewsEventsRef = useRef<Array<{ time: number; impact: string; currency: string }>>([]);
   const lastNewsFetchRef = useRef(0);
   const NEWS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutos de cache
+
+  // === JARVIS SIZE MULTIPLIER CACHE ===
+  // Ver src/app/services/strategy/jarvisSizeMultiplier.ts — fecha o loop entre
+  // as decisões ACTIVE do Jarvis (supabase/functions/jarvis/) e o sizing real.
+  const cachedJarvisMultiplierRef = useRef(1);
+  const lastJarvisMultiplierFetchRef = useRef(0);
+  const JARVIS_MULTIPLIER_CACHE_DURATION = 60000; // 60s — mesmo horizonte do VIX, decisão muda a cada 6h
+
+  // 🔴 2026-08-25: refs para debounce de persistência de config
+  const updateAIConfigTimeoutRef = useRef<number>(0);
+  const updateAIConfigDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // === REFS FOR REAL-TIME ACCESS ===
   const configRef = useRef<AIConfig & { executionMode: 'DEMO' | 'LIVE' }>({
@@ -455,9 +618,22 @@ export function useApexLogic(
   const sessionStartedAtRef = useRef<number>(Date.now());
   const pnlLoopRef = useRef({ realizedPnL: 0, totalUnrealizedPnL: 0, totalExposure: 0 });
   const pnlLogsRef = useRef<string[]>([]);
-  const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; reason: 'TP' | 'SL' }>>([]);
-  const lastSnapshotAtRef = useRef(0);
+  // `pnl` aqui é BRUTO e `costUsd` é o custo de execução round-trip; a
+  // persistência grava os dois separados (`pnl` / `commission` / `net_pnl`),
+  // seguindo a convenção do schema de `ai_sessions`. Ver ExecutionCost.ts.
+  const closedForPersistenceRef = useRef<Array<{ id: string; exitPrice: number; pnl: number; costUsd: number; reason: 'TP' | 'SL' }>>([]);
   const hasHydratedFromSupabaseRef = useRef(false);
+  const sessionInitialBalanceRef = useRef<number | null>(null);
+  // 🔴 2026-09-08: cache leve de "usuário tem broker real conectado?" pro
+  // reconcile() abaixo decidir entre saldo REAL (MetaAPI) e saldo simulado
+  // -- ver comentário completo no uso.
+  const brokerConnectedCacheRef = useRef<{ connected: boolean; checkedAtMs: number }>({ connected: false, checkedAtMs: 0 });
+  // Idem, mas só pra config da IA (independe de haver sessão DEMO ativa —
+  // ver efeito "PERSISTÊNCIA DE CONFIG DA IA" abaixo). Dois refs: o primeiro
+  // trava o efeito de fetch pra rodar uma vez só; o segundo só vira `true`
+  // depois do fetch RESOLVER, pra liberar o efeito de salvar sem race.
+  const hasHydratingConfigRef = useRef(false);
+  const hasHydratedConfigFromSupabaseRef = useRef(false);
 
   // Preço sem dado real (`isRealData: false` — a conta MetaAPI de plataforma
   // compartilhada engasgou/retornou SIMULATED e nem havia último preço real em
@@ -472,6 +648,24 @@ export function useApexLogic(
   // sem o usuário nunca saber que a sessão/trade não foi salvo. Avisa 1x por
   // sessão (evita flood do loop de 1s) e reseta ao iniciar uma sessão nova.
   const persistenceErrorNotifiedRef = useRef(false);
+  // 🆕 2026-08-21 (pedido do Cleber): "Parar IA" não fecha mais posições
+  // abertas à força — só impede ABRIR posição nova (a sessão sai de RUNNING,
+  // e em DEMO o servidor só abre entrada pra sessão RUNNING, ver guarda em
+  // ~linha 1372). As posições que já estavam abertas continuam sendo
+  // monitoradas por TP/SL pelo watchdog do `ai-runner`
+  // (supabase/functions/ai-runner/index.ts, "posição OPEN cuja sessão não
+  // está mais RUNNING") até fecharem naturalmente. Esse ref guarda o
+  // intervalo que fica de olho nessas posições remanescentes depois do
+  // Stop, já que a sessão é encerrada (endSession) e o polling normal de
+  // reconciliação (linha ~964) só roda com `isActive=true`.
+  const drainWatcherRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopDrainWatcher = useCallback(() => {
+    if (drainWatcherRef.current) {
+      clearInterval(drainWatcherRef.current);
+      drainWatcherRef.current = null;
+    }
+  }, []);
+  useEffect(() => stopDrainWatcher, [stopDrainWatcher]);
   const handlePersistenceError = useCallback((context: string, error: unknown) => {
     console.error(`[FASE 2] ❌ Falha de persistência (${context}):`, error);
     if (!persistenceErrorNotifiedRef.current) {
@@ -647,6 +841,52 @@ export function useApexLogic(
     }
   }, []);
 
+  // === PERSISTÊNCIA DE CONFIG DA IA (fonte de verdade real, por usuário) ===
+  // Até 2026-08-27 a config só existia em `localStorage` (efeito acima) —
+  // funcionava só no mesmo navegador; em outro dispositivo/aba anônima, ou
+  // depois de limpar dados do site, a IA voltava sempre pro default
+  // hardcoded do código, sem nenhum registro de qual foi a última escolha
+  // real do usuário (achado do Cleber, pedido feito antes e nunca
+  // implementado). Roda independente de `executionMode`/sessão ativa — é
+  // configuração do usuário, não estado de uma sessão de trading específica.
+  useEffect(() => {
+    if (!user?.id || hasHydratingConfigRef.current || hasHydratedConfigFromSupabaseRef.current) return;
+    hasHydratingConfigRef.current = true;
+
+    (async () => {
+      try {
+        const savedConfig = await persistenceRef.current.getUserAIConfig();
+        if (savedConfig) {
+          setAIConfig(prev => ({ ...prev, ...savedConfig }));
+          console.log('[useApexLogic] ☁️ Configuração da IA restaurada do Supabase (última escolha do usuário)');
+        } else {
+          // Usuário novo, nunca salvou config — grava o default corrente
+          // como linha inicial. Só acontece 1x (não existia linha nenhuma),
+          // não é o gravador reativo problemático removido abaixo.
+          persistenceRef.current.saveUserAIConfig(aiConfig).catch((e: unknown) => {
+            console.warn('[useApexLogic] Falha ao gravar configuração inicial da IA no Supabase:', e);
+          });
+        }
+        hasHydratedConfigFromSupabaseRef.current = true;
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar configuração da IA do Supabase (mantendo localStorage/default nesta sessão, sem regravar o banco):', e);
+      }
+    })();
+  }, [user]);
+
+  // 🔴 2026-09-03: REMOVIDO o efeito que salvava `aiConfig` (snapshot
+  // inteiro em memória) no Supabase a cada mudança de estado. Esse efeito
+  // era a causa real de uma edição feita direto via SQL (ex:
+  // `dailyLossLimit`) ser revertida sozinha minutos depois: qualquer aba já
+  // aberta ANTES do ajuste manual mantinha o valor velho em memória, e a
+  // próxima mudança de config feita pelo usuário NAQUELA aba — mesmo em um
+  // campo não relacionado — disparava este efeito e regravava a coluna
+  // `config` inteira por cima do ajuste manual, silenciosamente. 2ª
+  // ocorrência confirmada em 2026-09-03 (1ª em 2026-09-02, mitigada na
+  // época só "fechar todas as abas antes de editar via SQL"). Persistência
+  // de edição do usuário agora é feita campo a campo, com merge no
+  // servidor, direto em `updateAIConfig` — ver `patchUserAIConfig`.
+
   // === FASE 2: HIDRATAÇÃO A PARTIR DO SUPABASE (fonte de verdade, sobrepõe o localStorage) ===
   // localStorage acima é só um cache rápido pro primeiro paint; assim que o usuário loga,
   // busca a sessão DEMO ativa no Supabase (se existir) e usa ela como estado real.
@@ -655,6 +895,33 @@ export function useApexLogic(
     hasHydratedFromSupabaseRef.current = true;
 
     (async () => {
+      // 🔴 FIX 2026-09-11 (achado do Cleber: "abre no saldo demo", saldo
+      // LIVE "oscilando" com o do DEMO): este efeito roda 1x por mount e
+      // hidrata o portfolio a partir da SESSÃO DEMO (lastCompleted/
+      // ai_trades), sem NUNCA checar se o usuário tem corretora real
+      // conectada — o guard `executionMode !== 'DEMO'` acima é morto (client
+      // não seta mais 'LIVE' nesse campo desde que a execução real ficou
+      // dinâmica, ver TradingContext.tsx). Corrida real: este bloco (async,
+      // várias chamadas em sequência) podia terminar DEPOIS do primeiro tick
+      // do reconcile() de 5s já ter carregado o saldo real da MetaAPI,
+      // sobrescrevendo de volta pro valor DEMO — dava exatamente esse efeito
+      // de "abre/some real, cai pro demo". Checa 1x aqui (mesma fonte de
+      // verdade do reconcile(), `broker_credentials`) e pula toda escrita de
+      // balance/equity abaixo se houver corretora real conectada — a sessão
+      // DEMO continua hidratando em segundo plano (orderHistory/activeOrders),
+      // só o saldo exibido é que não pode vir daqui quando é LIVE.
+      let isBrokerConnectedNow = false;
+      try {
+        const { getBrokerCredentialsStatus } = await import('../services/BrokerClient');
+        const status = await getBrokerCredentialsStatus();
+        isBrokerConnectedNow = !!status.configured;
+      } catch {
+        // Falha ao checar -- assume não conectado (mesmo default de sempre
+        // desta hidratação DEMO); o reconcile() de 5s é quem tem a lógica
+        // real de preservar estado numa falha transitória, não este efeito
+        // que só roda 1x.
+      }
+
       // 🔴 FIX 2026-08-03 (achado do Cleber: "histórico só mostra as últimas
       // 3 ordens"): `orderHistory` nunca era hidratado do Supabase — só
       // acumulava trades fechados durante a aba/sessão de navegador atual
@@ -670,16 +937,16 @@ export function useApexLogic(
             id: t.id!,
             symbol: t.symbol,
             side: t.side,
-            amount: t.quantity,
-            price: t.entry_price,
-            currentPrice: t.exit_price ?? t.entry_price,
-            currentProfit: t.net_pnl ?? t.pnl ?? 0,
+            amount: Number(t.quantity),
+            price: Number(t.entry_price),
+            currentPrice: Number(t.exit_price ?? t.entry_price),
+            currentProfit: Number(t.net_pnl ?? t.pnl ?? 0),
             closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
-            tp: t.take_profit ?? t.entry_price,
-            sl: t.stop_loss ?? t.entry_price,
-            originalSl: t.stop_loss ?? t.entry_price,
+            tp: Number(t.take_profit ?? t.entry_price),
+            sl: Number(t.stop_loss ?? t.entry_price),
+            originalSl: Number(t.stop_loss ?? t.entry_price),
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
-            ai_confidence: t.ai_confidence ?? 50,
+            ai_confidence: Number(t.ai_confidence ?? 50),
             timestamp: new Date(t.entry_time).getTime(),
             reasoning: t.ai_reasoning || '',
             indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
@@ -690,9 +957,119 @@ export function useApexLogic(
         console.warn('[useApexLogic] Falha ao restaurar histórico de trades do Supabase (mantendo localStorage):', e);
       }
 
+      // Ordens pendentes (limit/stop) — independente de haver sessão RUNNING
+      // (é uma intenção do usuário, não uma métrica de sessão). Sem isto a
+      // ordem sumia a cada reload/fechamento de aba (achado 2026-08-26).
       try {
-        const restored = await persistenceRef.current.restoreActiveSession();
-        if (!restored?.session) return;
+        const openPendingOrders = await persistenceRef.current.getUserOpenPendingOrders();
+        if (openPendingOrders.length > 0) {
+          setPendingOrders(openPendingOrders.map((o): PendingOrderVisual => ({
+            id: o.id!,
+            symbol: o.symbol,
+            side: o.side,
+            orderType: o.order_type,
+            volume: o.volume,
+            triggerPrice: o.trigger_price,
+            stopLoss: o.stop_loss ?? undefined,
+            takeProfit: o.take_profit ?? undefined,
+            timestamp: o.created_at ? new Date(o.created_at).getTime() : Date.now(),
+          })));
+          console.log(`[useApexLogic] ☁️ Ordens pendentes restauradas do Supabase: ${openPendingOrders.length}`);
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao restaurar ordens pendentes do Supabase:', e);
+      }
+
+      try {
+        let restored = await persistenceRef.current.restoreActiveSession();
+
+        // 🔴 Ver nota em LAST_RESET_MARKER_KEY: se um Reset acabou de rodar
+        // (marcador recente, mesma sessão ou sem id registrado) e o Supabase
+        // ainda devolve essa sessão como RUNNING, é a janela de corrida do
+        // `endSession` assíncrono ainda não confirmado — não é uma sessão
+        // legítima. Ignora o dado (equity/posições antigos) e reforça o
+        // encerramento em vez de restaurar.
+        try {
+          const rawMarker = localStorage.getItem(LAST_RESET_MARKER_KEY);
+          if (rawMarker && restored?.session) {
+            const marker = JSON.parse(rawMarker) as { t: number; sessionId: string | null };
+            const isFresh = Date.now() - marker.t < RESET_MARKER_STALE_MS;
+            const sameSession = !marker.sessionId || marker.sessionId === restored.session.id;
+            // 🔴 2026-09-15 (achado do Cleber: BTCUSD LONG real some do
+            // Dashboard de novo ao recarregar logo após um Reset, mesmo com
+            // `endSession` já blindado contra posição OPEN): esta checagem
+            // tratava QUALQUER sessão RUNNING encontrada dentro da janela de
+            // 30s como "resíduo de corrida" e a descartava aqui no cliente,
+            // incondicionalmente -- mesmo quando `endSession` (acima) já
+            // tinha recusado de propósito encerrar essa sessão por ela ter
+            // posição aberta de verdade. Sem checar isso, o cliente pisava
+            // na decisão do servidor e escondia uma posição real e legítima.
+            // Só trata como resíduo de corrida se não houver posição OPEN.
+            let hasOpen = false;
+            if (isFresh && sameSession) {
+              try {
+                hasOpen = await aiPersistence.hasOpenTrades(restored.session.id!);
+              } catch (err) {
+                console.warn('[useApexLogic] Falha ao checar posição aberta antes de descartar sessão pós-Reset (mantendo sessão por segurança):', err);
+                hasOpen = true;
+              }
+            }
+            if (isFresh && sameSession && !hasOpen) {
+              console.warn('[useApexLogic] ⚠️ Sessão RUNNING sem posição aberta encontrada logo após Reset — descartando como resíduo de corrida e reforçando endSession.');
+              persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
+              restored = null;
+            }
+          }
+          if (!restored?.session) localStorage.removeItem(LAST_RESET_MARKER_KEY);
+        } catch { /* ignore */ }
+
+        if (!restored?.session) {
+          // 🔴 FIX 2026-08-21 (achado do Cleber: "as posições ainda estão no
+          // Dash mesmo após Hard Refresh" depois de um Reset feito em OUTRO
+          // navegador/aba): sem sessão RUNNING no Supabase, este bloco nunca
+          // tocava `activeOrders` — deixando o navegador confiar pra sempre
+          // no cache de `localStorage` (hidratado sem checar nada, logo
+          // acima), mesmo quando o Supabase (fonte de verdade em DEMO, ver
+          // nota "CLIENTE PERDE AUTORIDADE" mais abaixo) diz que não há
+          // posição legítima aberta. Em DEMO, sem sessão RUNNING não pode
+          // haver posição real — qualquer coisa em `activeOrders` nesse
+          // ponto é resíduo de cache de uma sessão já encerrada/pausada
+          // alhures.
+          setActiveOrders([]);
+          // Mesmo raciocínio pra Curva de Equity (achado 2026-08-21, mesma
+          // sessão): sem sessão RUNNING, qualquer `equityHistory` em memória
+          // é resíduo de cache local de uma sessão já encerrada — inclusive
+          // de um Reset feito em outro navegador/aba, que nunca teve como
+          // limpar o `localStorage` daqui.
+          setEquityHistory([]);
+          // 🆕 FIX 2026-08-20 (achado do Cleber: "desliguei a IA e ela voltou
+          // pro zero, preciso ver evolução real de capital ao longo do
+          // tempo"): sem sessão RUNNING pra restaurar, o portfolio ficava no
+          // INITIAL_STATE ($100 fixo) até o próximo "Iniciar AI" — que por
+          // sua vez usa `portfolioRef.current.balance` como saldo inicial da
+          // sessão nova (useApexLogic.ts, startLogic), descartando o
+          // resultado real da sessão anterior. Continuidade de capital entre
+          // sessões DEMO é decisão de produto explícita: cada sessão deve
+          // herdar o saldo final da última encerrada, não recomeçar do zero.
+          try {
+            const lastCompleted = await persistenceRef.current.getLastCompletedSession('DEMO');
+            if (lastCompleted?.final_balance != null && !isBrokerConnectedNow) {
+              setPortfolio(prev => ({
+                ...prev,
+                balance: lastCompleted.final_balance!,
+                equity: lastCompleted.final_equity ?? lastCompleted.final_balance!,
+                peakEquity: Math.max(prev.peakEquity ?? 0, lastCompleted.final_equity ?? lastCompleted.final_balance!),
+                dayAnchorEquity: lastCompleted.final_equity ?? lastCompleted.final_balance!,
+                dayAnchorBalance: lastCompleted.final_balance!,
+                dayAnchorUtcDay: 0,
+              }));
+              console.log(`[useApexLogic] ☁️ Capital herdado da última sessão encerrada: $${lastCompleted.final_balance}`);
+            }
+          } catch (e) {
+            console.warn('[useApexLogic] Falha ao herdar capital da última sessão encerrada:', e);
+          }
+          return;
+        }
 
         const { session, openTrades, lastSnapshot } = restored;
 
@@ -706,7 +1083,13 @@ export function useApexLogic(
         // de mais acima (localStorage, "Always start inactive") é
         // sobrescrito aqui de propósito porque o Supabase é a fonte de
         // verdade, não o cache local.
-        setIsActive(true);
+        //
+        // 🔴 2026-08-31 (mesmo achado do stopLogic): `restoreActiveSession()`
+        // agora também pode devolver uma sessão STOPPED (getActiveSession
+        // inclui RUNNING+STOPPED, ver AITradingPersistenceService.ts) --
+        // "Desligar IA" continua parecendo desligado num reload, mesmo com
+        // as posições ainda aparecendo na tela até fecharem sozinhas.
+        setIsActive(session.status === 'RUNNING');
 
         // Sessão restaurada (não uma nova) — o "início" pro gate de perda
         // diária é quando ELA começou, não agora (senão um reload no meio
@@ -715,26 +1098,33 @@ export function useApexLogic(
           sessionStartedAtRef.current = new Date(session.created_at).getTime();
         }
 
-        if (openTrades.length > 0) {
-          setActiveOrders(openTrades.map((t): TradeVisual => ({
+        // 🔴 2026-09-11: mesmo filtro do reconcile() abaixo -- em LIVE, só
+        // posição REAL (is_live_execution=true) entra no Dashboard, nunca
+        // uma tentativa simulada da IA misturada com dinheiro de verdade.
+        const visibleOpenTrades = openTrades.filter(t => !isBrokerConnectedNow || t.is_live_execution === true);
+        if (visibleOpenTrades.length > 0) {
+          setActiveOrders(visibleOpenTrades.map((t): TradeVisual => ({
             id: t.id!, // id do banco vira o id local (onTradeClose cai no fallback e usa o mesmo id)
             symbol: t.symbol,
             side: t.side,
-            amount: t.quantity,
-            price: t.entry_price,
-            currentPrice: t.entry_price,
-            tp: t.take_profit ?? t.entry_price,
-            sl: t.stop_loss ?? t.entry_price,
-            originalSl: t.stop_loss ?? t.entry_price,
+            amount: Number(t.quantity),
+            price: Number(t.entry_price),
+            currentPrice: Number(t.entry_price),
+            tp: Number(t.take_profit ?? t.entry_price),
+            sl: Number(t.stop_loss ?? t.entry_price),
+            slIsReal: t.stop_loss != null,
+            tpIsReal: t.take_profit != null,
+            filledAtQuote: t.is_test_data === true, // motor: entrada no ask/bid (spread já no preço)
+            originalSl: Number(t.stop_loss ?? t.entry_price),
             leverage: 1.5, // não persistido em ai_trades; único valor usado hoje pelo motor
-            ai_confidence: t.ai_confidence ?? 50,
+            ai_confidence: Number(t.ai_confidence ?? 50),
             timestamp: new Date(t.entry_time).getTime(),
             reasoning: t.ai_reasoning || '',
             indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
           })));
         }
 
-        if (lastSnapshot) {
+        if (lastSnapshot && !isBrokerConnectedNow) {
           setPortfolio(prev => ({
             ...prev,
             balance: lastSnapshot.balance,
@@ -749,6 +1139,47 @@ export function useApexLogic(
             dayAnchorBalance: lastSnapshot.balance,
             dayAnchorUtcDay: 0, // força re-ancoragem no próximo tick do dia corrente
           }));
+        }
+
+        // 🔴 FIX 2026-09-03 (achado: Dashboard mostrando saldo "resetado" em
+        // $100 de manhã, sem nenhuma operação visível): `lastSnapshot` acima
+        // só é gravado pelo navegador aberto -- o motor headless
+        // (`llm-active-brain/`) segue operando a sessão a noite inteira
+        // sozinho sem nunca escrever um snapshot novo. O snapshot mais
+        // recente então fica preso no valor da CRIAÇÃO da sessão, ignorando
+        // todo PnL realizado desde então (não era ausência de dado, era
+        // dado stale). Sobrescreve balance/equity com o saldo real
+        // calculado direto de `ai_trades` (initial_balance + soma de
+        // net_pnl fechado) sempre que houver trade fechado -- fonte de
+        // verdade que não depende de nenhuma aba estar aberta.
+        try {
+          if (session.id && session.initial_balance != null) {
+            sessionInitialBalanceRef.current = session.initial_balance;
+            const realizedPnl = await persistenceRef.current.getSessionRealizedPnl(session.id);
+            const realBalance = session.initial_balance + realizedPnl;
+            // Sem posição aberta, equity = balance; com posição aberta, o
+            // próximo tick de preço (poll já existente mais abaixo no hook)
+            // recalcula equity com PnL flutuante real -- aqui só evita
+            // mostrar equity errado (herdado do snapshot stale) no instante
+            // do reload, antes do primeiro tick.
+            const realEquity = realBalance;
+            if (!isBrokerConnectedNow) setPortfolio(prev => ({
+              ...prev,
+              balance: realBalance,
+              equity: realEquity,
+              peakEquity: Math.max(prev.peakEquity ?? realEquity, realEquity),
+              dayAnchorEquity: realEquity,
+              dayAnchorBalance: realBalance,
+              dayAnchorUtcDay: 0,
+            }));
+            if (!isBrokerConnectedNow) {
+              console.log(`[useApexLogic] 💰 Saldo DEMO recalculado de ai_trades (fonte de verdade, ignora snapshot stale): $${realBalance.toFixed(2)} (inicial $${session.initial_balance} + PnL realizado $${realizedPnl.toFixed(2)})`);
+            } else {
+              console.log('[useApexLogic] 💰 Corretora real conectada -- pulando hidratação de saldo DEMO (reconcile() de 5s cuida do saldo real via MetaAPI).');
+            }
+          }
+        } catch (e) {
+          console.warn('[useApexLogic] Falha ao recalcular saldo real a partir de ai_trades (mantendo snapshot):', e);
         }
 
         // Curva de equity real: reconstrói a partir dos snapshots já
@@ -771,13 +1202,15 @@ export function useApexLogic(
           console.warn('[useApexLogic] Falha ao restaurar curva de equity real:', e);
         }
 
-        if (!lastSnapshot && session.initial_balance) {
-          setPortfolio(prev => ({
-            ...prev,
-            balance: session.initial_balance!,
-            equity: session.initial_equity ?? session.initial_balance!,
-          }));
-        }
+        // 🔴 REMOVIDO 2026-09-03 (achado: o log já mostrava "$103.21 recalculado
+        // de ai_trades" e a tela mesmo assim ficava em $100): este bloco
+        // rodava DEPOIS do recálculo correto acima (linha ~1095) e sobrescrevia
+        // balance/equity de volta pro `session.initial_balance` cru sempre que
+        // `!lastSnapshot` -- que é sempre verdade nesta sessão (zero snapshots
+        // desde que o ai-runner foi desligado). O bloco acima já cobre esse
+        // exato caso (sem snapshot, recalcula de ai_trades) e só deixa de
+        // atualizar em caso de erro real (preservando o estado anterior via
+        // catch) -- nunca precisa deste fallback que reintroduz o bug.
 
         console.log(`[useApexLogic] ☁️ Sessão DEMO restaurada do Supabase: ${session.id} (${openTrades.length} posições abertas)`);
       } catch (e) {
@@ -813,19 +1246,162 @@ export function useApexLogic(
   // `activeOrders` mudando — mesma fonte que este polling já atualiza.
   // Reaproveitado aqui: loga quando este polling detecta um `id` de posição
   // que não existia no estado anterior.
+  // 2026-08-20: o polling fixo de 15s (ver histórico do bloco de comentário
+  // acima) tinha uma falha real observada — quando `isActive` estava false
+  // no momento em que o servidor fechou uma posição, a reconciliação nem
+  // rodava, e a tela ficou mostrando uma posição já fechada por bem mais que
+  // 15s. Trocado por Supabase Realtime (`postgres_changes` em `ai_trades`,
+  // filtrado por `session_id` via RLS) — reconcilia assim que o servidor
+  // grava a mudança, não em ciclos fixos. Polling mantido como fallback
+  // (agora 30s, só rede de segurança) caso a subscription caia e não
+  // reconecte. Requer `ai_trades` na publication `supabase_realtime` —
+  // ver supabase/migrations/20260820_add_ai_trades_to_realtime.sql.
+  // 🔴 FIX 2026-09-02 (achado do Cleber: posição BTCUSD real, aberta pelo
+  // servidor com a sessão em STOPPED — "Desligar IA" continua só
+  // monitorando/gerenciando posições, nunca as fecha à força — nunca
+  // apareceu no Dashboard): este efeito inteiro (poll + Realtime) dependia
+  // de `isActive`, o toggle LOCAL do navegador ("IA ligada" na tela), que o
+  // mount seta pra `false` sempre que a sessão está STOPPED (linha ~1038).
+  // Com a sessão STOPPED, o servidor seguiu decidindo e abriu a posição
+  // normalmente (o guard de `open_position` só bloqueia isso quando o
+  // AGENTE lê `status==='STOPPED'`, ciclo a ciclo — não trava
+  // instantaneamente no exato timestamp do stop), mas o cliente nunca mais
+  // sincronizou nada depois do mount porque este bloco simplesmente não
+  // rodava. A hidratação de mount só pega o que já existia no load; o resto
+  // fica invisível até um reload completo. Isto é dado read-only (nenhuma
+  // decisão de trade é tomada aqui), então não há razão pra depender do
+  // toggle local — só precisa haver uma sessão real (RUNNING ou STOPPED,
+  // ambas cobertas por getActiveSession/persistenceRef.getSessionId()).
   useEffect(() => {
-    if (!isActive || executionMode !== 'DEMO') return;
+    if (executionMode !== 'DEMO') return;
 
-    const POLL_MS = 15_000;
+    // 🔴 2026-09-06 (pedido do Cleber, achado ao vivo: candle encostou no
+    // alvo/stop, o motor fechou a posicao em ~5s (stop-watchdog em
+    // index.ts), mas a linha continuou no grafico por ate 30s -- o cliente
+    // so re-sincronizava com o banco nesse intervalo). Apertado pra
+    // acompanhar a cadencia real do watchdog mecanico do motor.
+    const POLL_MS = 5_000;
     let cancelled = false;
 
     const reconcile = async () => {
-      const sessionId = persistenceRef.current.getSessionId();
+      let sessionId = persistenceRef.current.getSessionId();
       if (!sessionId) return;
+      // 🔴 FIX 2026-09-04 (achado ao vivo do Cleber: "se aparecer alguma
+      // posição ela tem que aparecer imediatamente no dashboard,
+      // independente de qualquer command+shift+r"): `sessionId` acima é lido
+      // de um ref que só é setado UMA VEZ, no mount (restoreActiveSession).
+      // Quando a sessão ativa muda ENQUANTO a aba já está aberta (ex: motor
+      // atinge o limite de perda diária, marca a sessão antiga COMPLETED e
+      // cria uma nova RUNNING automaticamente — aconteceu ao vivo hoje), este
+      // reconcile() continuava polling pra sempre o ID da sessão MORTA, sem
+      // nenhum trade novo aparecendo, até um reload completo (que reroda o
+      // restoreActiveSession do mount). Checagem leve aqui (só o id, não o
+      // objeto inteiro) a cada poll -- se mudou, resincroniza de verdade via
+      // restoreActiveSession() (já atualiza o ref internamente) antes de
+      // continuar o reconcile deste tick com o id CORRETO.
+      if (user?.id) {
+        try {
+          const { data: activeSessionRow } = await supabase
+            .from('ai_sessions')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('strategy_name', 'LLM_ACTIVE_BRAIN_MT5')
+            .in('status', ['RUNNING', 'STOPPED'])
+            .order('started_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (activeSessionRow?.id && activeSessionRow.id !== sessionId) {
+            console.log(`[useApexLogic] 🔄 Sessão ativa mudou (${sessionId} -> ${activeSessionRow.id}) -- resincronizando sem esperar reload.`);
+            await persistenceRef.current.restoreActiveSession();
+            sessionId = persistenceRef.current.getSessionId() ?? sessionId;
+          }
+        } catch (err) {
+          // Falha transitória nesta checagem extra nunca deve travar o
+          // reconcile normal abaixo -- só perde a chance de detectar a troca
+          // de sessão NESTE tick, tenta de novo no próximo poll.
+          console.warn('[useApexLogic] Falha ao checar troca de sessão ativa (não bloqueia reconcile):', err);
+        }
+      }
       try {
-        const trades = await persistenceRef.current.getSessionTrades(sessionId);
+        // 🔴 FIX 2026-08-28 (achado do Cleber: posição some e reaparece do
+        // Dashboard/gráfico a cada ~30s): `persistenceRef.current.getSessionTrades`
+        // engole qualquer erro de rede/Supabase internamente e devolve `[]`
+        // (AITradingPersistenceService.ts) — indistinguível de "sessão sem
+        // nenhum trade". Uma falha transitória de rede virava, aos olhos deste
+        // `reconcile()`, "0 posições abertas" e `setActiveOrders([])` apagava
+        // a posição real da tela até o próximo poll (30s) ter sucesso e
+        // repopular. Consulta direto ao Supabase aqui (sem o wrapper que
+        // engole erro) pra deixar a falha propagar pro catch já existente
+        // deste bloco, que corretamente MANTÉM o estado anterior em vez de
+        // tratar erro como "sem posição".
+        const { data: tradesData, error: tradesError } = await supabase
+          .from('ai_trades')
+          .select('*')
+          .eq('session_id', sessionId)
+          .order('entry_time', { ascending: false });
+        if (tradesError) throw tradesError;
         if (cancelled) return;
-        const open = trades.filter(t => t.status === 'OPEN');
+        const trades = (tradesData || []) as AITrade[];
+        // 🔴 2026-09-11 (achado do Cleber: "não está computando com o dinheiro
+        // de verdade" -- Dashboard misturava posição SIMULADA da IA (ex.
+        // BNBUSD, nunca enviada à corretora) junto das posições REAIS na
+        // mesma lista/Patrimônio/Risco da Conta, sem nenhuma distinção,
+        // confirmado comparando com o terminal MetaTrader real). Quando o
+        // usuário tem broker conectado (LIVE), só posições com
+        // `is_live_execution=true` (ordem de fato enviada à corretora,
+        // coluna nova de hoje) entram no Dashboard -- uma tentativa da IA que
+        // caiu no fallback simulado (ex: circuit breaker travado) não deve
+        // aparecer misturada com dinheiro real. Em DEMO (sem broker
+        // conectado) nada muda, todo trade já é simulado por definição.
+        const isLiveConnected = brokerConnectedCacheRef.current.connected;
+        const open = trades.filter(t => t.status === 'OPEN' && (!isLiveConnected || t.is_live_execution === true));
+
+        // 🔴 FIX 2026-08-27 (achado do Cleber: "operação de NAS100 sumiu do
+        // Dash como se nunca tivesse existido"): este `reconcile()` sempre só
+        // sincronizou `activeOrders` a partir do Realtime de `ai_trades` —
+        // quando o servidor fecha uma posição (TP/SL/trailing), ela some da
+        // lista de abertas mas NUNCA foi empurrada pra `orderHistory` (só a
+        // hidratação de mount, acima, faz isso — e roda só uma vez). Resultado:
+        // todo fechamento do servidor durante uma sessão de navegador ativa
+        // ficava invisível na tela até o próximo reload completo, mesmo com o
+        // registro intacto em `ai_trades` o tempo todo. Corrigido: mesmo
+        // formato de mapeamento já usado na hidratação de mount (linhas
+        // ~832-849), aplicado aqui pros fechamentos que o Realtime acabou de
+        // detectar e que ainda não estão em `orderHistory` (dedupe por `id`).
+        const closed = trades.filter(t => t.status === 'CLOSED');
+        if (closed.length > 0) {
+          setOrderHistory(prev => {
+            const existingIds = new Set(prev.map(o => o.id));
+            const newlyClosed = closed.filter(t => !existingIds.has(t.id!));
+            if (newlyClosed.length === 0) return prev;
+            for (const t of newlyClosed) {
+              const pnl = Number(t.net_pnl ?? t.pnl ?? 0);
+              addLogRef.current(`${pnl >= 0 ? '✅' : '🛑'} SAÍDA ${t.side}: ${t.symbol} @ $${Number(t.exit_price ?? t.entry_price).toFixed(2)} — ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (fechada pelo servidor)`);
+            }
+            return [
+              ...prev,
+              ...newlyClosed.map((t): TradeVisual => ({
+                id: t.id!,
+                symbol: t.symbol,
+                side: t.side,
+                amount: Number(t.quantity),
+                price: Number(t.entry_price),
+                currentPrice: Number(t.exit_price ?? t.entry_price),
+                currentProfit: Number(t.net_pnl ?? t.pnl ?? 0),
+                closedAt: t.exit_time ? new Date(t.exit_time).getTime() : undefined,
+                tp: Number(t.take_profit ?? t.entry_price),
+                sl: Number(t.stop_loss ?? t.entry_price),
+                originalSl: Number(t.stop_loss ?? t.entry_price),
+                leverage: 1.5,
+                ai_confidence: Number(t.ai_confidence ?? 50),
+                timestamp: new Date(t.entry_time).getTime(),
+                reasoning: t.ai_reasoning || '',
+                indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+              })),
+            ];
+          });
+        }
+
         setActiveOrders(prev => {
           // Preserva `currentPrice`/`currentProfit` já calculados localmente
           // pro tick de PnL (linha ~1235) — só sincroniza QUAIS posições
@@ -833,39 +1409,251 @@ export function useApexLogic(
           const prevById = new Map(prev.map(o => [o.id, o]));
           for (const t of open) {
             if (!prevById.has(t.id!)) {
-              addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${t.entry_price.toFixed(2)} (aberta pelo servidor)`);
+              addLogRef.current(`✅ ENTRADA ${t.side}: ${t.symbol} @ $${Number(t.entry_price).toFixed(2)} (aberta pelo servidor)`);
             }
           }
-          return open.map((t): TradeVisual => {
+          const next = open.map((t): TradeVisual => {
             const existing = prevById.get(t.id!);
+            // 🔴 FIX 2026-09-01 (achado do Cleber: linha de entrada/SL/TP nunca
+            // aparecia no gráfico pra posição real nenhuma): `entry_price`/
+            // `stop_loss`/`take_profit`/`quantity` são colunas `numeric` no
+            // Postgres — o supabase-js devolve `numeric` como STRING (preserva
+            // precisão), não como number. `order.price.toFixed()` em
+            // ChartView.tsx (renderPositionOverlays) quebrava silenciosamente
+            // nessa string (TypeError, capturado pelo try/catch mudo do
+            // desenho) — a linha nunca era criada, pra nenhum ativo, sempre que
+            // a posição vinha do servidor (LLM Brain). Trades abertos pela
+            // boleta manual do cliente nunca tiveram esse bug, por já nascerem
+            // com number literal. `Number()` aqui na origem cobre todo mundo
+            // que consome `TradeVisual` depois.
+            const stopLossNum = Number(t.stop_loss ?? t.entry_price);
             return {
               id: t.id!,
               symbol: t.symbol,
               side: t.side,
-              amount: t.quantity,
-              price: t.entry_price,
-              currentPrice: existing?.currentPrice ?? t.entry_price,
+              amount: Number(t.quantity),
+              price: Number(t.entry_price),
+              currentPrice: existing?.currentPrice ?? Number(t.entry_price),
               currentProfit: existing?.currentProfit,
-              tp: t.take_profit ?? t.entry_price,
-              sl: t.stop_loss ?? t.entry_price,
-              originalSl: existing?.originalSl ?? t.stop_loss ?? t.entry_price,
+              tp: Number(t.take_profit ?? t.entry_price),
+              sl: stopLossNum,
+              slIsReal: t.stop_loss != null,
+              tpIsReal: t.take_profit != null,
+              filledAtQuote: t.is_test_data === true,
+              originalSl: existing?.originalSl ?? stopLossNum,
+              brokerPositionId: t.broker_position_id ?? null,
               leverage: 1.5,
-              ai_confidence: t.ai_confidence ?? 50,
+              ai_confidence: Number(t.ai_confidence ?? 50),
               timestamp: new Date(t.entry_time).getTime(),
               reasoning: t.ai_reasoning || '',
               indicators: t.indicators_snapshot || { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+              // 🔴 2026-08-28: fonte do contador "movimentos do stop"
+              // (ATRTrailingStopManager.tsx) migrou pra cá — antes vinha do
+              // cálculo LOCAL de trailing no loop de 1s (linha ~1935), removido
+              // em DEMO por ser a mesma causa raiz da divergência entre o SL
+              // exibido e o que o servidor executa (ver comentário grande na
+              // função do PNL loop). Incrementa quando ESTA reconciliação
+              // detecta que `stop_loss` mudou desde a última leitura confirmada
+              // do servidor — subconta se o servidor mover o stop mais de uma
+              // vez entre dois polls (POLL_MS), mas nunca fabrica um movimento
+              // que não aconteceu, ao contrário do cálculo local antigo.
+              trailMoves: existing && t.stop_loss != null && existing.sl !== stopLossNum
+                ? (existing.trailMoves || 0) + 1
+                : (existing?.trailMoves || 0),
             };
           });
+
+          // 🔴 2026-08-28: sem este guard, cada poll (POLL_MS) trocava a
+          // referência do array mesmo quando nada mudou no servidor —
+          // ChartView.tsx observa `activeOrders` por referência e
+          // redesenhava (remove+recria) TODAS as linhas de entrada/SL/TP a
+          // cada 30s, causando o piscar visível no gráfico. Só troca a
+          // referência quando algo que afeta o desenho de fato mudou.
+          const unchanged =
+            next.length === prev.length &&
+            next.every((o, i) => {
+              const p = prev[i];
+              return (
+                p &&
+                p.id === o.id &&
+                p.price === o.price &&
+                p.tp === o.tp &&
+                p.sl === o.sl &&
+                p.trailMoves === o.trailMoves
+              );
+            });
+          return unchanged ? prev : next;
         });
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
       }
+
+      // 🔴 2026-09-08 (pedido explícito do Cleber: "ao clicar em conectar
+      // conta live, espero que entre meu saldo real na plataforma no lugar
+      // dos 100 dólares"): quando o usuário tem broker REAL conectado
+      // (broker_credentials, checado via getBrokerCredentialsStatus), o
+      // saldo/equity exibidos vêm da MetaAPI de verdade (getAccountInfo),
+      // não do cálculo simulado abaixo — union deliberada: mesmo bloco de
+      // reconciliação de 5s, pra não competir com ele (uma tentativa
+      // anterior, um poller separado em FinancialHUD.tsx, perdia a corrida
+      // contra este e ficava sempre voltando pro simulado). Cache de 20s no
+      // "está conectado?" (checagem leve, sem custo de MetaAPI) pra não
+      // bater no banco a cada 5s; falha transitória de getAccountInfo aqui
+      // PRESERVA o saldo real anterior (não cai pro simulado por engano).
+      const now = Date.now();
+      if (now - brokerConnectedCacheRef.current.checkedAtMs > 20_000) {
+        try {
+          const { getBrokerCredentialsStatus } = await import('../services/BrokerClient');
+          const status = await getBrokerCredentialsStatus();
+          brokerConnectedCacheRef.current = { connected: !!status.configured, checkedAtMs: now };
+        } catch {
+          // Falha ao checar -- mantém o último estado conhecido (fail-closed
+          // só significa "não muda de opinião sem confirmação").
+        }
+      }
+      if (brokerConnectedCacheRef.current.connected) {
+        let accountInfo: Awaited<ReturnType<typeof import('../services/BrokerClient')['getAccountInfo']>> = null;
+        try {
+          const { getAccountInfo } = await import('../services/BrokerClient');
+          accountInfo = await getAccountInfo();
+          if (cancelled) return;
+        } catch (e) {
+          console.warn('[useApexLogic] Falha ao sincronizar saldo real da MetaAPI (mantendo último valor conhecido):', e);
+        }
+        if (accountInfo) {
+          setPortfolio(prev => {
+            const equity = accountInfo!.equity ?? accountInfo!.balance;
+            if (
+              prev.balance === accountInfo!.balance &&
+              prev.equity === equity &&
+              prev.margin === accountInfo!.margin &&
+              prev.freeMargin === accountInfo!.freeMargin &&
+              prev.marginLevel === accountInfo!.marginLevel
+            ) return prev;
+            return {
+              ...prev,
+              balance: accountInfo!.balance,
+              equity,
+              margin: accountInfo!.margin,
+              freeMargin: accountInfo!.freeMargin,
+              marginLevel: accountInfo!.marginLevel,
+            };
+          });
+          if (!cancelled) setLastPositionSyncAt(Date.now());
+          return;
+        }
+        // 🔴 FIX 2026-09-13 (achado do Cleber: voltou de LIVE pra DEMO e o
+        // Dashboard ficou preso em $100 para sempre, mesmo com a sessão DEMO
+        // real tendo 28 trades fechados e 2 posições abertas no banco):
+        // `getAccountInfo()` (BrokerClient.ts) engole erro internamente e
+        // devolve `null` em vez de lançar -- então quando `brokerConnectedCacheRef`
+        // ainda acha "conectado" (cache de 20s, ou uma falha transitória no
+        // credentials/status que faz o cache "manter o último estado
+        // conhecido" indefinidamente) mas não há mais corretora de verdade,
+        // este bloco SEMPRE devolvia `null` e um `return` incondicional logo
+        // abaixo travava a reconciliação aqui pra sempre -- nunca chegava no
+        // recálculo de saldo DEMO (via ai_trades) mais abaixo. Sem
+        // `accountInfo` real, não trava mais: cai pro recálculo DEMO deste
+        // mesmo tick em vez de esperar o cache expirar (que, se
+        // credentials/status também estiver falhando, nunca expira de
+        // verdade -- "mantém último conhecido" vira permanente).
+      }
+
+      // 🆕 2026-08-18: junto com a perda de autoridade de fechamento do
+      // cliente (ver PNL LOOP acima), o balance também precisa vir do
+      // servidor agora — sem isto o Dashboard ficaria travado no valor de
+      // quando a IA foi ligada, já que o cliente parou de recalcular balance
+      // a partir de fechamento próprio. `getEquityCurve` reaproveita o mesmo
+      // endpoint já usado pra reconstruir a curva de equity no mount
+      // (`getSessionSnapshots`); pega só o snapshot mais recente.
+      try {
+        const snapshots = await persistenceRef.current.getEquityCurve(sessionId);
+        if (cancelled) return;
+        if (snapshots.length > 0) {
+          const latest = snapshots[snapshots.length - 1];
+          setPortfolio(prev => {
+            if (prev.balance === latest.balance && prev.equity === latest.equity) return prev;
+            return {
+              ...prev,
+              balance: latest.balance,
+              // Equity fica só de referência aqui — o PNL LOOP recalcula equity
+              // real (balance + não-realizado ao vivo) no próximo tick usando o
+              // balance recém-sincronizado.
+              equity: latest.equity,
+              currentDrawdown: latest.drawdown || 0,
+            };
+          });
+        } else if (sessionInitialBalanceRef.current != null) {
+          // 🔴 FIX 2026-09-03 (achado: Dashboard preso em $100 com a aba
+          // aberta a noite inteira, sem nenhum reload): `ai_portfolio_snapshots`
+          // não recebe NENHUMA linha nova desde que o motor mecânico
+          // (`ai-runner`, único escritor desta tabela em DEMO) foi desligado
+          // definitivamente em 2026-08-31 — `snapshots` fica sempre vazio daqui
+          // pra frente, e o `return` antigo aqui fazia este poll (que roda o
+          // tempo todo, independente de reload) nunca atualizar balance/equity
+          // de novo. O recálculo de mount (linha ~1094, direto de `ai_trades`)
+          // só roda uma vez — sem reload, uma sessão de horas nunca via os
+          // fechamentos que o `llm-active-brain` foi fazendo sozinho. Mesmo
+          // recálculo aplicado aqui, a cada poll, como fonte contínua.
+          //
+          // 🔴 FIX 2026-09-03 (achado: saldo "alternando" entre $100 e o
+          // valor real a cada poll): `getSessionRealizedPnl` engole erro de
+          // rede internamente e devolve `0` — uma falha transitória de
+          // Supabase virava, aos olhos deste bloco, "PnL realizado é zero",
+          // sobrescrevendo o saldo certo por $100 até o próximo poll ter
+          // sucesso. Mesma causa raiz (e mesmo fix) já aplicado pra
+          // `getSessionTrades` no bloco de posições abertas, acima: consulta
+          // direta ao Supabase aqui, sem o wrapper que mascara erro, deixando
+          // a falha propagar pro `catch` deste bloco — que corretamente
+          // preserva o saldo anterior em vez de tratar erro como "zero".
+          const { data: closedTrades, error: pnlError } = await supabase
+            .from('ai_trades')
+            .select('net_pnl')
+            .eq('session_id', sessionId)
+            .eq('status', 'CLOSED');
+          if (pnlError) throw pnlError;
+          if (cancelled) return;
+          const realizedPnl = (closedTrades || []).reduce((sum, t: any) => sum + (Number(t.net_pnl) || 0), 0);
+          const realBalance = sessionInitialBalanceRef.current + realizedPnl;
+          setPortfolio(prev => {
+            if (prev.balance === realBalance) return prev;
+            return { ...prev, balance: realBalance };
+          });
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao reconciliar balance do Supabase:', e);
+      }
+
+      if (!cancelled) setLastPositionSyncAt(Date.now());
     };
 
     reconcile();
     const interval = setInterval(reconcile, POLL_MS);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [isActive, executionMode]);
+
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    (async () => {
+      const sessionId = persistenceRef.current.getSessionId();
+      if (!sessionId || cancelled) return;
+      channel = supabase
+        .channel(`ai-trades-sync-${sessionId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'ai_trades', filter: `session_id=eq.${sessionId}` },
+          () => { if (!cancelled) reconcile(); }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[useApexLogic] Realtime de ai_trades falhou, seguindo só com polling de fallback:', status);
+          }
+        });
+    })();
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [executionMode]);
 
   // 🔒 TÓPICO 7 (hardening): sincroniza os thresholds de risco com o servidor
   // (KV store, ver /server/risk-config) sempre que o usuário logado mudar
@@ -1000,6 +1788,184 @@ export function useApexLogic(
   }, []);
   useEffect(() => { addLogRef.current = addLog; }, [addLog]);
 
+  // === "LOGS DO SISTEMA" REAIS DO LLM BRAIN (2026-09-06) ===
+  // 🔴 Achado do Cleber: o painel "Logs do Sistema" (AITrader.tsx) ficava
+  // sempre vazio ("Nenhuma atividade ainda...") em modo DEMO -- causa raiz
+  // catalogada desde 2026-08-17 (ver comentário no efeito de reconciliação
+  // acima): aquele painel só recebia linha via addLog() dentro do ciclo de
+  // trading que rodava NO NAVEGADOR. Desde que o motor mecânico foi
+  // desligado e o LLM Brain (llm-active-brain/, processo Node local/
+  // servidor) virou o motor único, nenhum ciclo roda mais no navegador --
+  // o painel nunca mais recebia nada, mesmo com a IA operando de verdade.
+  // Canal real agora: `ai_brain_activity_log` (nova tabela, ver migration
+  // 20260906_add_ai_brain_activity_log.sql), gravada pelo próprio
+  // llm-active-brain a cada consulta de cotação, chamada de ferramenta,
+  // pensamento (log_thought) e decisão (open/close/increase_position) --
+  // nunca fabricado, sempre o que o modelo realmente fez. Mesmo padrão do
+  // efeito de sync de `ai_trades` acima: fetch inicial + Realtime, escopado
+  // à sessão ativa.
+  useEffect(() => {
+    if (executionMode !== 'DEMO') return;
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let subscribedSessionId: string | null = null;
+
+    const typeLabel: Record<string, string> = {
+      cycle_start: '🔄',
+      thinking: '⏳',
+      thought: '🧠',
+      tool_call: '🔍',
+      decision: '✅ EXECUTION:',
+      error: '⚠️ RISK:',
+      news: '📰',
+    };
+    // 🔴 2026-09-07 (achado do Cleber via print: "EXECUTION" verde aparecia
+    // pra TENTATIVA de abrir posição que o código recusou -- ex: "Tentou
+    // abrir COMPRA em NAS100 -- ... Posicao NAO aberta"). Causa: todo evento
+    // type='decision' (open/close/increase_position, sucesso OU bloqueio)
+    // usava o mesmo rótulo fixo "✅ EXECUTION:", e AITrader.tsx colore a
+    // linha de verde só checando se o texto contém "EXECUTION" -- sem saber
+    // se a ferramenta teve sucesso. Mesma checagem que já existe em
+    // `maybePlayPositionOpenSound` (result sem chave `error` = sucesso real,
+    // ver tools.ts) reaproveitada aqui: só usa "✅ EXECUTION:" (fica verde)
+    // quando o resultado realmente virou posição; para tentativa bloqueada,
+    // usa "🚫 TENTATIVA:" (não contém a palavra "EXECUTION", fica com a cor
+    // neutra padrão em AITrader.tsx).
+    const decisionLabel = (detail: unknown): string => {
+      const d = detail as { name?: string; result?: unknown } | undefined;
+      const isPositionTool = d?.name === 'open_position' || d?.name === 'close_position' || d?.name === 'increase_position';
+      const result = d?.result as { error?: unknown } | undefined;
+      const hasError = result && typeof result === 'object' && 'error' in result;
+      if (isPositionTool && hasError) return '🚫 TENTATIVA:';
+      return typeLabel.decision;
+    };
+    // 🔴 O wrapper que renderiza `recentLogs` (AITrader.tsx) carimba TODA
+    // linha com `new Date().toLocaleTimeString()` no momento da renderização
+    // -- correto pra log ao vivo (a linha chega ~1s depois do evento real via
+    // Realtime), mas mentiroso pro backfill inicial (até 50 linhas antigas,
+    // carimbadas com "agora" mesmo tendo acontecido minutos atrás). Embutido
+    // aqui o horário REAL (`created_at`) de cada linha pra nunca depender só
+    // do carimbo (potencialmente falso) do wrapper -- dado honesto sempre.
+    const formatRow = (row: { type: string; symbol: string | null; message: string; created_at: string; detail?: unknown }) => {
+      const label = row.type === 'decision' ? decisionLabel(row.detail) : (typeLabel[row.type] ?? 'ℹ️');
+      return `${new Date(row.created_at).toLocaleTimeString('pt-BR')} ${label} ${row.symbol ? `[${row.symbol}] ` : ''}${row.message}`;
+    };
+
+    // 🔊 2026-09-06: som ao abrir posicao nova (pedido do Cleber) -- so
+    // decision cujo detail.name e realmente "open_position" E o resultado
+    // da ferramenta nao veio com `error` (ver tools.ts, todo bloqueio
+    // devolve `{ error: "..." }`, sucesso nunca tem essa chave). Preferencia
+    // do usuario (liga/desliga) fica em Configuracoes > Geral, persistida
+    // via localStorage -- ver src/app/lib/positionOpenSound.ts.
+    const maybePlayPositionOpenSound = (row: { type: string; detail?: unknown }) => {
+      if (row.type !== 'decision') return;
+      const detail = row.detail as { name?: string; result?: unknown } | undefined;
+      if (detail?.name !== 'open_position') return;
+      const result = detail.result as { error?: unknown } | undefined;
+      if (result && typeof result === 'object' && 'error' in result) return;
+      playPositionOpenSound();
+    };
+
+    // 🔴 2026-09-07 (achado do Cleber: "os logs não dizem o que está
+    // acontecendo" com o motor ativamente operando e gravando de verdade no
+    // Supabase). Causa: este efeito lia `persistenceRef.current.getSessionId()`
+    // UMA VEZ no mount e nunca mais -- se o sessionId da aba não bater com o
+    // da sessão `LLM_ACTIVE_BRAIN_MT5` que o motor realmente usa (mount que
+    // correu antes de `restoreActiveSession()` resolver, orfã `Apex AI`
+    // criada por `startLogic()` quando o ref ainda estava vazio, ou rotação
+    // de sessão por teto de perda diária), o painel ficava preso pra sempre
+    // ouvindo um session_id morto, sem nenhum jeito de se recuperar sem F5 --
+    // exatamente o mesmo bug que o `reconcile()` de trades (linha ~1224) já
+    // corrige há dias, só que nunca replicado aqui. Mesmo fix: função
+    // reutilizável que (re)faz o backfill + a assinatura Realtime pra um
+    // sessionId específico, chamada de novo sempre que a checagem de 5s
+    // abaixo detectar troca de sessão real no banco.
+    const setupForSession = async (sessionId: string) => {
+      if (cancelled || sessionId === subscribedSessionId) return;
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+      subscribedSessionId = sessionId;
+
+      try {
+        const { data, error } = await supabase
+          .from('ai_brain_activity_log')
+          .select('type, symbol, message, created_at, detail')
+          .eq('session_id', sessionId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        if (!cancelled && data && data.length > 0) {
+          // Mais antigo primeiro na hora de inserir -- cada addLog() prepende,
+          // então o resultado final fica com o mais recente no topo (mesma
+          // ordem que a assinatura Realtime abaixo vai continuar produzindo).
+          [...data].reverse().forEach((row) => addLog(formatRow(row)));
+        }
+      } catch (e) {
+        console.warn('[useApexLogic] Falha ao buscar log inicial de atividade do LLM Brain (não bloqueia a tela):', e);
+      }
+
+      if (cancelled || sessionId !== subscribedSessionId) return;
+      channel = supabase
+        .channel(`ai-brain-activity-${sessionId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'ai_brain_activity_log', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            if (cancelled) return;
+            const row = payload.new as { type: string; symbol: string | null; message: string; created_at: string; detail?: unknown };
+            addLog(formatRow(row));
+            maybePlayPositionOpenSound(row);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[useApexLogic] Realtime de ai_brain_activity_log falhou:', status);
+          }
+        });
+    };
+
+    const checkAndSync = async () => {
+      if (cancelled) return;
+      // Mesma fonte de verdade do `reconcile()` de trades: a sessão RUNNING/
+      // STOPPED real do motor único (LLM_ACTIVE_BRAIN_MT5), não o que a aba
+      // acha que é a sessão atual.
+      if (user?.id) {
+        try {
+          const { data: activeSessionRow } = await supabase
+            .from('ai_sessions')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('strategy_name', 'LLM_ACTIVE_BRAIN_MT5')
+            .in('status', ['RUNNING', 'STOPPED'])
+            .order('started_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (activeSessionRow?.id) {
+            await setupForSession(activeSessionRow.id);
+            return;
+          }
+        } catch (err) {
+          console.warn('[useApexLogic] Falha ao checar sessão real do LLM Brain pro painel de logs (não bloqueia):', err);
+        }
+      }
+      // Fallback: sem user.id resolvido ainda ou sem sessão LLM Brain
+      // encontrada, usa o que a aba já tem localmente (pode ser null).
+      const fallbackId = persistenceRef.current.getSessionId();
+      if (fallbackId) await setupForSession(fallbackId);
+    };
+
+    checkAndSync();
+    const syncInterval = setInterval(checkAndSync, 5_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(syncInterval);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [executionMode, addLog, user?.id]);
+
   // === HEALTH CHECK (Every 5 seconds) ===
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1011,6 +1977,22 @@ export function useApexLogic(
       // disparava e ficava mostrado no Dashboard mesmo assim, dando a
       // impressão errada de que a operação livre estava sob restrição da IA.
       if (!isActiveRef.current) {
+        setHealthStatus({ isHealthy: true, lastCheckTimestamp: Date.now(), issues: [] });
+        return;
+      }
+
+      // 🔒 2026-08-18: em modo DEMO quem decide abrir/fechar posição é o
+      // `ai-runner` no servidor (via pg_cron), não este loop do navegador —
+      // ver o comentário do "SAFE MODE GUARDIAN" mais abaixo. Um Safe Mode
+      // disparado aqui só pausa o `isActive` local e mostra o banner: não
+      // pausa o motor real, que segue tickando e abrindo posição normalmente
+      // (confirmado ao vivo em 2026-08-18: trade novo aberto pelo servidor
+      // enquanto o banner "SAFE MODE ATIVADO" já estava na tela). Resultado
+      // líquido era só assustar o usuário em fase de teste/demonstração, sem
+      // nenhuma proteção de verdade por trás — decisão do Cleber: não avaliar
+      // Safe Mode em DEMO. Em LIVE isso permanece ativo (dinheiro real,
+      // execução real fica sob controle deste mesmo navegador).
+      if (configRef.current.executionMode === 'DEMO') {
         setHealthStatus({ isHealthy: true, lastCheckTimestamp: Date.now(), issues: [] });
         return;
       }
@@ -1192,14 +2174,28 @@ export function useApexLogic(
         // ✅ USAR vixDataSources.ts ao invés de Yahoo Finance direto
         const { fetchVIXData } = await import('@/app/utils/vixDataSources');
         const vixData = await fetchVIXData();
-        
+
+        // 🔒 2026-08-21: `fetchVIXData` devolve um valor FABRICADO
+        // (`dataQuality: 'FALLBACK'`, ~18.71 ± ruído aleatório) quando as 3
+        // fontes reais falham — nunca alimentar isso no motor (TailRiskGuard
+        // reagiria, ou deixaria de reagir, a um número inventado como se
+        // fosse VIX real). Mantém o último valor REAL em cache em vez de
+        // sobrescrever com a fabricação.
+        if (vixData.dataQuality === 'FALLBACK') {
+          console.warn('[VIX] ⚠️ Todas as fontes reais falharam — descartando fallback fabricado, mantendo último VIX real em cache');
+          return cachedVIXRef.current;
+        }
+
         cachedVIXRef.current = vixData.value;
         lastVIXFetchRef.current = now;
         console.log(`[VIX] 🔄 VIX atualizado: ${cachedVIXRef.current.toFixed(2)} (Fonte: ${vixData.source})`);
         return cachedVIXRef.current;
       } catch (error) {
-        console.warn('[VIX] ⚠️ Erro ao buscar VIX, usando último valor');
-        return cachedVIXRef.current || 15; // Fallback
+        // 🔒 2026-08-21: sem fallback fabricado aqui também — `0` é o
+        // contrato que o chamador (`state.cachedVIX > 0 ? ... : null`) já
+        // trata como "sem VIX disponível", nunca um número inventado.
+        console.warn('[VIX] ⚠️ Erro ao buscar VIX, usando último valor real em cache (sem fabricar)');
+        return cachedVIXRef.current;
       }
     };
 
@@ -1266,7 +2262,24 @@ export function useApexLogic(
       }
     };
 
+    const fetchJarvisMultiplierCached = async () => {
+      const now = Date.now();
+      if (now - lastJarvisMultiplierFetchRef.current < JARVIS_MULTIPLIER_CACHE_DURATION) {
+        return cachedJarvisMultiplierRef.current;
+      }
+      lastJarvisMultiplierFetchRef.current = now;
+      try {
+        const { supabase } = await import('@/lib/supabaseClient');
+        cachedJarvisMultiplierRef.current = await fetchJarvisSizeMultiplier(supabase);
+      } catch (error) {
+        console.warn('[JARVIS] ⚠️ Erro ao buscar multiplicador de tamanho, seguindo neutro (1x) neste ciclo:', error);
+      }
+      return cachedJarvisMultiplierRef.current;
+    };
+
     const tradingInterval = setInterval(() => {
+      (async () => {
+      const jarvisSizeMultiplier = await fetchJarvisMultiplierCached();
       runTradingCycle(
         {
           activeOrders,
@@ -1304,6 +2317,7 @@ export function useApexLogic(
             };
           },
           applyEffect: applyTradingCycleEffect,
+          jarvisSizeMultiplier,
         },
       ).then((result) => {
         lastTradeTimestampRef.current = result.nextLastTradeTimestamp;
@@ -1313,6 +2327,9 @@ export function useApexLogic(
         for (const effect of result.effects) applyTradingCycleEffect(effect);
       }).catch((error) => {
         console.error('[TRADING] ❌ Erro não tratado no ciclo de trading:', error);
+      });
+      })().catch((error) => {
+        console.error('[TRADING] ❌ Erro não tratado ao buscar multiplicador do Jarvis:', error);
       });
     }, 5000); // 🚀 OTIMIZAÇÃO #3: REDUZIDO de 15s para 5s (200% mais rápido!) ⚡
 
@@ -1366,6 +2383,7 @@ export function useApexLogic(
         const { getBatchedMT5Data } = await import('@/app/services/RealMarketDataService');
         const uniqueSymbols = Array.from(new Set(activeOrdersRef.current.map(o => o.symbol)));
         const priceMap = new Map<string, number>();
+        const quoteMap = new Map<string, { bid: number; ask: number }>(); // lado de fechamento (posição do motor)
         try {
           const batchResult = await getBatchedMT5Data(uniqueSymbols);
           for (const symbol of uniqueSymbols) {
@@ -1379,6 +2397,7 @@ export function useApexLogic(
             // descartado na origem — sem cotação nova, mantém-se a anterior.
             if (data && Number.isFinite(data.price) && data.price > 0) {
               priceMap.set(symbol, data.price);
+              if (Number.isFinite(data.bid) && Number.isFinite(data.ask) && data.bid! > 0 && data.ask! > 0) quoteMap.set(symbol, { bid: data.bid!, ask: data.ask! });
             } else if (data) {
               console.warn(`[PNL LOOP] ⚠️ Preço inválido descartado para ${symbol}:`, data.price);
             }
@@ -1435,53 +2454,82 @@ export function useApexLogic(
                 // pular o trailing inteiro quando não há SL real definido (0 = sem
                 // stop, nunca deve gerar um "stop fantasma").
                 let effectiveSl = order.sl;
+                let trailMoved = false;
 
-                // 🆕 BREAKEVEN AUTOMÁTICO EM +1R (2026-08-17). Independente de
-                // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
-                // mover ainda mais a favor): quando o trade anda a favor a mesma
-                // distância do risco original (1R), o stop sobe pro preço de
-                // entrada. É o mecanismo que corta a perda média pra ~0 a partir
-                // desse ponto sem precisar prever direção melhor — puro
-                // gerenciamento de saída, não previsão. Ancorado em `originalSl`
-                // (imutável, gravado uma vez na abertura) pelo mesmo motivo do
-                // trailing abaixo: `order.sl` é reescrito a cada tick.
-                if (order.originalSl > 0) {
-                  const originalRisk = Math.abs(order.price - order.originalSl);
-                  if (originalRisk > 0) {
-                    const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
-                    if (favorableMove >= originalRisk) {
-                      effectiveSl = order.side === 'LONG'
-                        ? Math.max(effectiveSl, order.price)
-                        : Math.min(effectiveSl, order.price);
+                // 🔴 FIX 2026-08-28 (achado do Cleber: "existem duas linhas de stop
+                // diferentes — a que você vê e a que executa", classificado por ele
+                // como sério o bastante pra risco jurídico/credibilidade). Causa
+                // raiz: mesmo em DEMO — onde desde 2026-08-18 o `ai-runner` (servidor)
+                // é a ÚNICA entidade com autoridade de fechar posição — este loop
+                // recalculava breakeven+trailing com SEU PRÓPRIO ATR/preço a cada 1s
+                // e gravava o resultado em `order.sl`, sobrescrevendo o valor que a
+                // reconciliação (linha ~1121 acima) tinha acabado de sincronizar do
+                // banco. Como os dois cálculos rodam sobre feeds independentes, a
+                // linha desenhada na tela quase nunca era a mesma que o servidor de
+                // fato ia usar pra fechar. Em DEMO, este bloco não tinha NENHUM efeito
+                // sobre quando a posição fecha (`hitSL` abaixo já é sempre `false` em
+                // DEMO via `clientHasCloseAuthority`) — só maquiava o número exibido.
+                // Fix: em DEMO, nunca recalcula — `effectiveSl` fica exatamente igual
+                // a `order.sl`, que só muda quando a reconciliação trouxer o valor
+                // real gravado pelo servidor. O que o usuário vê passa a ser,
+                // literalmente, o mesmo dado que decide o fechamento.
+                //
+                // Em LIVE o cliente ainda tem autoridade de fechamento própria (fora
+                // do escopo auditado nesta sessão — ver comentário em
+                // `clientHasCloseAuthority` abaixo), por isso mantém o cálculo local
+                // aqui: sem ele, LIVE perderia proteção de stop de verdade.
+                if (configRef.current.executionMode !== 'DEMO') {
+                  // 🆕 BREAKEVEN AUTOMÁTICO (2026-08-17). Independente de
+                  // stopLossMode (roda mesmo em FIXO, trailing DINAMICO abaixo pode
+                  // mover ainda mais a favor): quando o trade anda a favor
+                  // `BREAKEVEN_TRIGGER_R` vezes a distância do risco original, o
+                  // stop sobe pro preço de entrada. É o mecanismo que corta a perda
+                  // média pra ~0 a partir desse ponto sem precisar prever direção
+                  // melhor — puro gerenciamento de saída, não previsão. Ancorado em
+                  // `originalSl` (imutável, gravado uma vez na abertura) pelo mesmo
+                  // motivo do trailing abaixo: `order.sl` é reescrito a cada tick.
+                  //
+                  // 2026-08-25: gatilho passou de +1R para +1,5R. A constante é
+                  // compartilhada com o motor de servidor (positionManager.ts) de
+                  // propósito — divergência entre as duas cópias dessa lógica já
+                  // causou balance divergente em produção (2026-08-18).
+                  if (order.originalSl > 0) {
+                    const originalRisk = Math.abs(order.price - order.originalSl);
+                    if (originalRisk > 0) {
+                      const favorableMove = order.side === 'LONG' ? nextPrice - order.price : order.price - nextPrice;
+                      if (favorableMove >= originalRisk * BREAKEVEN_TRIGGER_R) {
+                        effectiveSl = order.side === 'LONG'
+                          ? Math.max(effectiveSl, order.price)
+                          : Math.min(effectiveSl, order.price);
+                      }
                     }
                   }
-                }
 
-                let trailMoved = false;
-                if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
-                  // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
-                  // (mesmo `calculateATR` do resto do motor), não mais fixa na distância
-                  // de entrada — é o que o widget "ATR Trailing Stop" da UI sempre
-                  // anunciou fazer, mas nunca fazia de fato (achado da auditoria de
-                  // config: card com número hardcoded, ATRTrailingStopManager.tsx com
-                  // mock data explícito). Busca no MESMO cache de candles (60s) já
-                  // mantido pelo ciclo de análise — sem chamada de rede extra aqui. Só
-                  // usa ATR real e recente (< 5min); sem candle fresco pro símbolo,
-                  // cai pro fallback antigo (distância fixa da entrada) — nunca
-                  // fabrica um ATR.
-                  const freshAtr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
-                  const atrDistance = freshAtr !== null ? freshAtr * configRef.current.atrTrailingMultiplier : null;
+                  if (configRef.current.stopLossMode === 'DINAMICO' && order.originalSl > 0) {
+                    // 🆕 2026-08-04: distância de trailing real via ATR do próprio ativo
+                    // (mesmo `calculateATR` do resto do motor), não mais fixa na distância
+                    // de entrada — é o que o widget "ATR Trailing Stop" da UI sempre
+                    // anunciou fazer, mas nunca fazia de fato (achado da auditoria de
+                    // config: card com número hardcoded, ATRTrailingStopManager.tsx com
+                    // mock data explícito). Busca no MESMO cache de candles (60s) já
+                    // mantido pelo ciclo de análise — sem chamada de rede extra aqui. Só
+                    // usa ATR real e recente (< 5min); sem candle fresco pro símbolo,
+                    // cai pro fallback antigo (distância fixa da entrada) — nunca
+                    // fabrica um ATR.
+                    const freshAtr = getFreshAtr(order.symbol, configRef.current.atrTrailingPeriod);
+                    const atrDistance = freshAtr !== null ? freshAtr * configRef.current.atrTrailingMultiplier : null;
 
-                  const originalSlDistance = Math.abs(order.price - order.originalSl);
-                  const trailDistance = atrDistance ?? originalSlDistance;
-                  const trailedSl = order.side === 'LONG'
-                    ? nextPrice - trailDistance
-                    : nextPrice + trailDistance;
+                    const originalSlDistance = Math.abs(order.price - order.originalSl);
+                    const trailDistance = atrDistance ?? originalSlDistance;
+                    const trailedSl = order.side === 'LONG'
+                      ? nextPrice - trailDistance
+                      : nextPrice + trailDistance;
 
-                  effectiveSl = order.side === 'LONG'
-                    ? Math.max(effectiveSl, trailedSl)
-                    : Math.min(effectiveSl, trailedSl);
-                  trailMoved = effectiveSl !== order.sl;
+                    effectiveSl = order.side === 'LONG'
+                      ? Math.max(effectiveSl, trailedSl)
+                      : Math.min(effectiveSl, trailedSl);
+                    trailMoved = effectiveSl !== order.sl;
+                  }
                 }
 
                 // ✅ LOG DE DEBUG (apenas para primeira iteração)
@@ -1491,45 +2539,75 @@ export function useApexLogic(
                   console.log(`[PNL LOOP] ${order.symbol} ${order.side}: Preço $${currentPrice.toFixed(2)} | TP: $${order.tp.toFixed(2)} (${distanceToTP.toFixed(2)} de distância) | SL: $${effectiveSl.toFixed(2)} (${distanceToSL.toFixed(2)} de distância)${configRef.current.stopLossMode === 'DINAMICO' && effectiveSl !== order.sl ? ' [trailing]' : ''}`);
                 }
 
-                // Calculate P&L
-                const pnl = calculatePnLWithLeverage(
-                    order.symbol,
-                    order.price,
-                    nextPrice,
-                    order.side,
-                    order.amount,
-                    order.leverage
-                );
+                // Calculate P&L (mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo)
+                // 🔴 2026-10-20 (Cleber: "spread é um custo só, o da entrada"): posição do motor entrou no ask/bid, então é
+                // marcada no lado de FECHAMENTO (LONG→bid, SHORT→ask) e o spread já está na diferença de preço. Só
+                // a comissão entra como custo -- antes o card descontava o spread de novo por cima.
+                const closeQuote = order.filledAtQuote ? quoteMap.get(order.symbol) : undefined;
+                const markPrice = closeQuote ? (order.side === 'LONG' ? closeQuote.bid : closeQuote.ask) : nextPrice;
+                const pnl = calculateEngineConsistentPnL(order.price, markPrice, order.side, order.amount);
 
-                totalUnrealizedPnL += pnl;
+                // 🔴 2026-09-23 (pedido do Cleber): o não-realizado mostrado ao
+                // usuário passa a ser LÍQUIDO do custo round-trip estimado desde o
+                // 1º tick -- antes ele via +$4 na tela e o trade fechava em -$20
+                // (o custo só aparecia no fechamento). O usuário não opera no
+                // escuro: o número da posição aberta é o mesmo que será gravado.
+                // `pnl` segue bruto só pra decisão de fechamento/log abaixo.
+                const { costUsd: closeCostUsd } = order.filledAtQuote
+                  ? calculateCommissionOnlyCost(order.symbol, order.amount, order.price)
+                  : calculateRoundTripCost(order.symbol, order.amount, order.price);
+                const pnlNet = pnl - closeCostUsd;
+
+                totalUnrealizedPnL += pnlNet;
                 totalExposure += order.amount * nextPrice * order.leverage;
 
                 // Check TP/SL — tp/sl igual a 0 significa "não definido" (ordem manual
                 // sem alvo/stop), nunca um preço de gatilho real. Sem esse guard, uma
                 // ordem LONG sem TP fechava sozinha no primeiro tick (nextPrice >= 0 é
                 // sempre verdadeiro), e o mesmo pro SL de uma SHORT sem stop.
-                const hitTP = order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
-                const hitSL = effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
+                //
+                // 🔒 CLIENTE PERDE AUTORIDADE DE FECHAR TRADE EM DEMO (2026-08-18).
+                // Achado: cliente e servidor (`ai-runner`) rodavam essa MESMA decisão
+                // em paralelo, cada um com seu próprio feed de preço e seu próprio
+                // `effectiveSl` (trailing/breakeven calculados independentemente,
+                // nunca sincronizados) — e cada um gravava fechamento e balance por
+                // conta própria. Reconciliação trade a trade confirmou 2 casos reais
+                // de balance corrompido causados exatamente por essa duplicidade (ver
+                // NEXT_SESSION.md). Em DEMO, `ai-runner` (`positionManager.ts`) é
+                // agora a ÚNICA entidade que fecha posição e grava balance — reflete
+                // pra cá via o polling de reconciliação (linha ~816 abaixo), que já
+                // sincroniza `activeOrders` e agora também `portfolio`. Em LIVE isso
+                // não muda nesta sessão (fora de escopo: a integração com
+                // `/broker/execute` não foi auditada aqui).
+                const clientHasCloseAuthority = configRef.current.executionMode !== 'DEMO';
+                const hitTP = clientHasCloseAuthority && order.tp > 0 && (order.side === 'LONG' ? nextPrice >= order.tp : nextPrice <= order.tp);
+                const hitSL = clientHasCloseAuthority && effectiveSl > 0 && (order.side === 'LONG' ? nextPrice <= effectiveSl : nextPrice >= effectiveSl);
 
+                // 💸 Custo de execução (spread + slippage) — cobrado no FECHAMENTO,
+                // round-trip, mesma fonte (`ExecutionCost.ts` → `CostModel.ts`) que o
+                // `ai-runner` usa no servidor. Até 2026-08-23 este caminho gravava
+                // `commission: 0`, e o PnL saía de preço médio nas duas pontas.
+                // `pnl` (acima) segue BRUTO — é o que alimenta o não-realizado da UI;
+                // `pnlNet` é o que move balance e vai pro banco como `net_pnl`.
                 if (hitTP) {
-                    realizedPnL += pnl;
-                    logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnl.toFixed(2)}`);
+                    realizedPnL += pnlNet;
+                    logsToAdd.push(`🎯 ALVO ATINGIDO: ${order.symbol} +$${pnlNet.toFixed(2)} (custo $${closeCostUsd.toFixed(4)})`);
                     // Close position
-                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
-                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'TP' });
+                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnlNet, closedAt: Date.now() }]);
+                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, costUsd: closeCostUsd, reason: 'TP' });
                 } else if (hitSL) {
-                    realizedPnL += pnl;
-                    logsToAdd.push(`🛡️ STOP ATINGIDO: ${order.symbol} ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
+                    realizedPnL += pnlNet;
+                    logsToAdd.push(`🛡️ STOP ATINGIDO: ${order.symbol} ${pnlNet >= 0 ? '+' : ''}$${pnlNet.toFixed(2)} (custo $${closeCostUsd.toFixed(4)})`);
                     // Close position
-                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnl, closedAt: Date.now() }]);
-                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, reason: 'SL' });
+                    setOrderHistory(prev => [...prev, { ...order, sl: effectiveSl, currentPrice: nextPrice, currentProfit: pnlNet, closedAt: Date.now() }]);
+                    closedForPersistenceRef.current.push({ id: order.id, exitPrice: nextPrice, pnl, costUsd: closeCostUsd, reason: 'SL' });
                 } else {
                     // Keep position open WITH UPDATED PROFIT (e SL "andado" se DINAMICO)
                     nextActiveOrders.push({
                         ...order,
                         sl: effectiveSl,
-                        currentPrice: nextPrice,
-                        currentProfit: pnl, // ✅ CRITICAL: Update profit for UI display
+                        currentPrice: markPrice, // preço de FECHAMENTO p/ posição do motor (ask/bid); mid p/ as demais
+                        currentProfit: pnlNet, // ✅ LÍQUIDO do custo estimado (ver comentário acima) -- fonte única da UI
                         trailMoves: trailMoved ? (order.trailMoves || 0) + 1 : order.trailMoves, // 🆕 contador real pro widget ATR Trailing Stop
                     });
                 }
@@ -1549,6 +2627,17 @@ export function useApexLogic(
 
         // Update portfolio after setState
         setPortfolio(prev => {
+           // 🔴 2026-09-09 (achado ao vivo do Cleber: saldo real da MetaAPI
+           // "pisca e volta pro $100 sozinho"): este loop roda a cada 1s e
+           // recalcula balance/equity a partir do PnL SIMULADO de
+           // `activeOrders` (só trades gravados em `ai_trades`) -- sem
+           // nenhuma noção de que existe conta REAL conectada. Quando há
+           // broker conectado, `reconcile()` (5s) já mantém balance/equity
+           // REAIS via `getAccountInfo()` -- este loop, rodando 5x mais
+           // rápido, sobrescrevia esse valor de volta pro cálculo simulado a
+           // cada tick. Guard: com broker conectado, este loop NUNCA mexe em
+           // balance/equity -- só quem faz isso é `reconcile()`.
+           if (brokerConnectedCacheRef.current.connected) return prev;
            const { realizedPnL, totalUnrealizedPnL, totalExposure } = pnlLoopRef.current;
            const newBalance = prev.balance + realizedPnL;
            const newEquity = newBalance + totalUnrealizedPnL;
@@ -1591,25 +2680,22 @@ export function useApexLogic(
         // Fase 2: persiste fechamentos por TP/SL deste tick (fire-and-forget)
         if (configRef.current.executionMode === 'DEMO' && closedForPersistenceRef.current.length > 0) {
           closedForPersistenceRef.current.forEach(closed => {
-            persistenceRef.current.onTradeClose(closed.id, closed.exitPrice, closed.pnl, 0, closed.reason);
+            persistenceRef.current.onTradeClose(closed.id, closed.exitPrice, closed.pnl, closed.costUsd ?? 0, closed.reason);
           });
           closedForPersistenceRef.current = [];
         }
 
-        // Fase 2: snapshot periódico do portfólio (throttle de 60s)
-        if (configRef.current.executionMode === 'DEMO') {
-          const now = Date.now();
-          if (now - lastSnapshotAtRef.current > 60000) {
-            lastSnapshotAtRef.current = now;
-            const p = portfolioRef.current;
-            persistenceRef.current.savePortfolioSnapshot({
-              balance: p.balance,
-              equity: p.equity,
-              openPositionsValue: p.openPositionsValue,
-              currentDrawdown: p.currentDrawdown,
-            });
-          }
-        }
+        // ❌ REMOVIDO 2026-08-18 (junto com a perda de autoridade de fechamento
+        // acima): o cliente escrevia snapshot de portfólio aqui a cada 60s em
+        // DEMO, usando `balance` calculado a partir do SEU PRÓPRIO
+        // `realizedPnL` local. Com o fechamento de posição agora exclusivo do
+        // `ai-runner`, esse `realizedPnL` fica sempre 0 no cliente — escrever
+        // esse balance "congelado" por cima do que o servidor acabou de gravar
+        // recriaria exatamente o bug que motivou a mudança (balance travado/
+        // sobrescrito por um escritor que não sabe do fechamento real). O
+        // `ai-runner` (`persistPortfolioSnapshot`) é agora o único escritor de
+        // `ai_portfolio_snapshots` em DEMO; o cliente só lê (polling de
+        // reconciliação, linha ~816 abaixo).
         })();
     }, 1000); // Update every 1 second
 
@@ -1617,15 +2703,16 @@ export function useApexLogic(
   }, []);
 
   // === START/STOP/PAUSE ===
-  const startLogic = useCallback(() => {
+  const startLogic = useCallback(async () => {
     console.log('[START LOGIC] 🚀 Tentando iniciar AI...');
     console.log('[START LOGIC] Safe Mode:', isSafeModeRef.current);
-    
+    stopDrainWatcher(); // nova sessão vai assumir a reconciliação normal (linha ~964)
+
     if (isSafeModeRef.current) {
       toast.warning('Sistema em Safe Mode. Resolva os problemas antes de continuar.');
       return;
     }
-    
+
     console.log('[START LOGIC] ✅ Iniciando sistema...');
     setIsActive(true);
     setIsPaused(false);
@@ -1634,6 +2721,27 @@ export function useApexLogic(
 
     // Fase 2: garante uma sessão DEMO no Supabase (reaproveita a restaurada no mount, se houver)
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
+      // 🔴 2026-09-07 (Cleber: "não existe nada em programação que podemos
+      // fazer para iniciar somente uma única sessão?" -- este era o ponto de
+      // origem da corrida: o ref local (`currentSessionId`) só é setado pelo
+      // `restoreActiveSession()` do mount, e esse `await` pode não ter
+      // resolvido ainda quando o usuário clica "Ligar IA" logo depois de
+      // abrir a aba. Sem checar o banco aqui, este branch criava uma sessão
+      // NOVA "Apex AI" mesmo já existindo uma sessão real RUNNING/STOPPED
+      // (LLM_ACTIVE_BRAIN_MT5) -- a órfã que mascarava Dashboard/Logs/
+      // Gráfico até um F5. Confere a fonte de verdade (banco) uma última vez
+      // ANTES de criar; se existir sessão real, adota/religa em vez de
+      // duplicar. Camada 2 de defesa (a 1ª é esta aqui, evita a corrida na
+      // origem; a 2ª é a migration `20260907_enforce_single_running_session_
+      // per_user.sql`, um índice único parcial em (user_id, mode) WHERE
+      // status='RUNNING' que torna IMPOSSÍVEL a duplicata mesmo se este
+      // código regredir de novo -- `createSession` trata a violação como
+      // caso normal, ver AITradingPersistenceService.ts).
+      const restored = await persistenceRef.current.restoreActiveSession();
+      if (restored && persistenceRef.current.currentSessionId) {
+        persistenceRef.current.resumeSession();
+        return;
+      }
       persistenceErrorNotifiedRef.current = false;
       sessionStartedAtRef.current = Date.now();
       persistenceRef.current.startSession({
@@ -1644,86 +2752,84 @@ export function useApexLogic(
         initialEquity: portfolioRef.current.equity,
         config: configRef.current,
       });
+    } else if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
+      // 🔴 2026-08-31 (mesmo achado do stopLogic): "Desligar IA" agora só
+      // marca a sessão STOPPED (não a encerra) -- religar precisa voltar
+      // essa MESMA sessão pra RUNNING, nunca criar uma nova (senão o motor
+      // volta a operar em cima de duas sessões concorrentes, ou a sessão
+      // STOPPED anterior fica presa pra sempre com posições órfãs de novo).
+      persistenceRef.current.resumeSession();
     }
-  }, [addLog]);
+  }, [addLog, stopDrainWatcher]);
 
   const stopLogic = useCallback(() => {
-    // 🚨 PROTEÇÃO CRÍTICA: Fechar TODAS as posições abertas antes de desligar
-    if (activeOrders.length > 0) {
-      console.warn('[STOP LOGIC] ⚠️ DESLIGANDO COM POSIÇÕES ABERTAS - FECHANDO TUDO!');
-      
-      const closingOrders = activeOrders;
-      let totalRealizedPnL = 0;
-
-      closingOrders.forEach(order => {
-        const currentPrice = order.currentPrice || order.price;
-        const tradePnL = calculatePnLWithLeverage(
-          order.symbol,
-          order.price,
-          currentPrice,
-          order.side,
-          order.amount,
-          order.leverage
-        );
-        totalRealizedPnL += tradePnL;
-
-        console.log(`[FORCE CLOSE] 🚨 Fechando ${order.symbol} ${order.side}: P&L = $${tradePnL.toFixed(2)}`);
-
-        if (configRef.current.executionMode === 'DEMO') {
-          persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
-        }
-      });
-
-      setPortfolio(prev => ({
-        ...prev,
-        balance: prev.balance + totalRealizedPnL,
-        equity: prev.balance + totalRealizedPnL,
-        openPositionsValue: 0,
-      }));
-
-      setOrderHistory(prev => [...prev, ...closingOrders.map(o => ({ 
-        ...o, 
-        currentPrice: o.currentPrice || o.price,
-        currentProfit: calculatePnLWithLeverage(
-          o.symbol,
-          o.price,
-          o.currentPrice || o.price,
-          o.side,
-          o.amount,
-          o.leverage
-        ),
-        closedAt: Date.now() 
-      }))]);
-      
-      setActiveOrders([]);
-      
-      addLog(`🚨 Sistema APEX Parado - ${closingOrders.length} posições fechadas automaticamente. P&L Total: $${totalRealizedPnL.toFixed(2)}`);
-      // ❌ REMOVIDO TOAST AMARELO - toast.warning(`${closingOrders.length} posições fechadas ao desligar AI!`);
+    // 🆕 2026-08-21 (pedido do Cleber): não fecha mais posições abertas à
+    // força ao parar a IA — isso cortava trades com R:R alto (ex: take-profit
+    // 1:3) no preço de mercado do instante do Stop, antes de atingirem o
+    // alvo, transformando o que seria "perde pouco, ganha muito" em "empata
+    // sempre". Só para de abrir posição NOVA; as posições já abertas
+    // continuam sendo monitoradas de verdade até bater TP/SL/gate de risco.
+    //
+    // 🔴 2026-08-31 (pedido do Cleber, achado ao vivo, bug real corrigido):
+    // até aqui esta função chamava `endSession()`, que marca a sessão como
+    // COMPLETED. Isso funcionava com o motor mecânico antigo (comentário
+    // removido explicava: "o watchdog do ai-runner busca por session_id
+    // direto, independente do status da sessão"), mas essa premissa morreu
+    // em 2026-08-31 quando o `ai-runner` foi desligado definitivamente e o
+    // Cérebro LLM Ativo virou motor único: ele só enxerga sessão
+    // RUNNING/STOPPED (`listEligibleMt5Sessions`), NUNCA COMPLETED. Resultado
+    // confirmado ao vivo: desligar a IA fazia a sessão sumir do motor por
+    // completo, o próximo ciclo criava uma sessão NOVA zerada em $100, e as
+    // posições abertas da sessão antiga ficavam órfãs pra sempre (5 posições
+    // BTCUSD presas assim, corrigidas manualmente nesta sessão). Trocado por
+    // `stopSession()` (status='STOPPED', não encerra nada) -- reconhecido
+    // tanto aqui (getActiveSession acima) quanto no motor
+    // (listEligibleMt5Sessions/open_position em llm-active-brain), que
+    // recusa abrir posição nova nesse status mas segue monitorando as
+    // existentes até fechar sozinhas. `startLogic` religa a MESMA sessão
+    // (resumeSession), sem criar uma nova.
+    const pendingCount = activeOrders.length;
+    if (pendingCount > 0) {
+      addLog(`🛑 Sistema APEX Parado - ${pendingCount} posição(ões) aberta(s) seguem monitoradas pelo servidor até fechar por TP/SL. Nenhuma posição nova será aberta.`);
     } else {
       addLog('🛑 Sistema APEX Parado');
     }
 
-    // 🆕 FIX 2026-08-17 (achado ao investigar "IA religada mas config antiga
-    // continua rodando"): "Desligar AI" nunca encerrava a sessão no Supabase
-    // — só zerava estado local (`setIsActive(false)`). A sessão ficava
-    // RUNNING no banco pra sempre, e o runner server-side (`ai-runner` via
-    // pg_cron) continuava operando com a config antiga indefinidamente,
-    // mesmo com a tela mostrando "desligado". Pior: como `sessionIdRef`
-    // também não era limpo, o próximo "Iniciar AI" via `startLogic` (guard
-    // `!persistenceRef.current.currentSessionId`) nunca criava sessão nova —
-    // só um reload de página resolvia (achado ao vivo nesta sessão,
-    // precisou de intervenção manual direto no banco). `endSession` já
-    // limpa `sessionIdRef.current` sozinho (useAIPersistence.ts:166), então
-    // chamar aqui resolve os dois problemas de uma vez: sessão morre de
-    // verdade no banco, e o próximo start cria uma sessão nova sem precisar
-    // recarregar a página.
+    const endedSessionId = configRef.current.executionMode === 'DEMO'
+      ? persistenceRef.current.getSessionId()
+      : null;
     if (configRef.current.executionMode === 'DEMO' && persistenceRef.current.currentSessionId) {
-      persistenceRef.current.endSession(portfolioRef.current.balance, portfolioRef.current.equity);
+      persistenceRef.current.stopSession();
+    }
+
+    // Continua de olho nas posições que ficaram pro watchdog fechar, já que
+    // o polling normal de reconciliação (linha ~964) só roda com
+    // `isActive=true` e a sessão que ele consultava acabou de ser encerrada.
+    // Some da tela (activeOrders) só quando o servidor de fato marcar a
+    // posição como fechada — nunca fabrica o fechamento aqui no cliente.
+    stopDrainWatcher();
+    if (pendingCount > 0 && endedSessionId) {
+      drainWatcherRef.current = setInterval(async () => {
+        try {
+          const trades = await persistenceRef.current.getSessionTrades(endedSessionId);
+          const stillOpen = new Set(trades.filter(t => t.status === 'OPEN').map(t => t.id));
+          setActiveOrders(prev => {
+            const remaining = prev.filter(o => stillOpen.has(o.id));
+            if (remaining.length !== prev.length) {
+              addLog(`✅ ${prev.length - remaining.length} posição(ões) fechada(s) pelo servidor após o Stop.`);
+            }
+            return remaining;
+          });
+          if (stillOpen.size === 0) stopDrainWatcher();
+        } catch (e) {
+          console.warn('[STOP LOGIC] Falha ao verificar posições remanescentes pós-Stop:', e);
+        }
+      }, 15_000);
     }
 
     setIsActive(false);
     setIsPaused(false);
-  }, [activeOrders, addLog]);
+  }, [activeOrders, addLog, stopDrainWatcher]);
 
   const pauseLogic = useCallback(() => {
     setIsPaused(true);
@@ -1737,9 +2843,48 @@ export function useApexLogic(
 
   // === RESET ===
   const resetLogic = useCallback(() => {
+    // 🔴 Marca ANTES de disparar o endSession assíncrono — ver nota em
+    // LAST_RESET_MARKER_KEY acima. Cobre o caso de reload no meio da janela
+    // de rede em que a sessão ainda aparece RUNNING no Supabase.
+    try {
+      localStorage.setItem(LAST_RESET_MARKER_KEY, JSON.stringify({
+        t: Date.now(),
+        sessionId: persistenceRef.current.currentSessionId || null,
+      }));
+    } catch { /* ignore */ }
+
     // Fase 2: encerra a sessão DEMO no Supabase (próximo start cria uma nova, zerada)
     if (persistenceRef.current.currentSessionId) {
       persistenceRef.current.endSession(INITIAL_STATE.portfolio.balance, INITIAL_STATE.portfolio.equity);
+    }
+    // 🔴 2026-08-31 (pedido do Cleber): "Reinicialização Total" precisa
+    // resetar TAMBÉM a sessão do LLM Active Brain (motor de IA principal,
+    // roda no servidor) -- sem isto, uma sessão que zerou o saldo (crédito
+    // negativo) travava pra sempre, impedindo qualquer posição nova de
+    // abrir (risco por trade sobre saldo negativo nunca cabe no lote
+    // mínimo). Fire-and-forget, mesmo padrão do endSession acima.
+    //
+    // 🔴 2026-09-16 (achado do Cleber: posições reais "desapareciam" do
+    // Dashboard logo após o Reset, mesmo continuando OPEN de verdade no
+    // banco -- confirmado via SQL que a realocação pra sessão nova já
+    // funcionava certo): a causa era só o `setActiveOrders([])` explícito
+    // abaixo, que apagava a posição da tela na hora, ANTES do
+    // `resetLlmActiveBrainSession` (assíncrono) terminar de realocar --
+    // deixando a tela vazia até o próximo poll do `reconcile()` (até 5s)
+    // resincronizar. `resetLlmActiveBrainSession` agora já atualiza o
+    // `sessionIdRef` pro id da sessão nova na hora (ver useAIPersistence.ts),
+    // então basta NÃO apagar `activeOrders` aqui -- se a posição continuar
+    // aberta de verdade, ela é o MESMO registro (mesmo id, só o
+    // `session_id` mudou), e o próximo `reconcile()` já lê da sessão certa
+    // sem nenhum flash de "sumiu e voltou".
+    persistenceRef.current.resetLlmActiveBrainSession(INITIAL_STATE.portfolio.balance);
+    // Reset explícito = "começar do zero" pra Performance também — sem isto,
+    // trades fechados de semanas atrás (inclusive registros comprovadamente
+    // contaminados por bugs já corrigidos no motor) reapareciam na tela
+    // depois de qualquer reload, porque a hidratação busca TODO o histórico
+    // do usuário, sem filtro de sessão. Não apaga nada no banco.
+    if (configRef.current.executionMode === 'DEMO') {
+      persistenceRef.current.recordHistoryReset();
     }
     // Reset explícito = "começar do zero" — reinicia o relógio do gate de
     // perda diária junto, senão perdas da tentativa descartada continuam
@@ -1748,8 +2893,16 @@ export function useApexLogic(
 
     setIsActive(false);
     setIsPaused(false);
-    setActiveOrders([]);
+    // (ver comentário grande acima, junto de `resetLlmActiveBrainSession`)
+    // `activeOrders` NÃO é zerado aqui de propósito -- uma posição real
+    // aberta sobrevive ao Reset (realocada pra sessão nova), o próprio
+    // `reconcile()` decide se ela continua ou não a partir do banco.
     setOrderHistory([]); // ✅ Limpa histórico de trades
+    // 🔴 FIX 2026-08-21 (achado do Cleber: "Curva de Equity" do Dashboard
+    // continuava mostrando o mergulho da sessão anterior depois do Reset):
+    // faltava aqui — `equityHistory` é state próprio, não faz parte de
+    // `orderHistory`/`portfolio`, então sobrevivia ao reset intocado.
+    setEquityHistory([]);
     setPortfolio(INITIAL_STATE.portfolio);
     setHouseStats(INITIAL_STATE.houseStats);
     setPerformanceMetrics(INITIAL_STATE.performanceMetrics);
@@ -1776,21 +2929,20 @@ export function useApexLogic(
     const closingOrders = activeOrders;
     let totalRealizedPnL = 0;
 
-    closingOrders.forEach(order => {
+    const closedWithPnL = closingOrders.map(order => {
       const currentPrice = order.currentPrice || order.price;
-      const tradePnL = calculatePnLWithLeverage(
-        order.symbol,
-        order.price,
-        currentPrice,
-        order.side,
-        order.amount,
-        order.leverage
-      );
-      totalRealizedPnL += tradePnL;
+      // Mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo.
+      const tradePnL = calculateEngineConsistentPnL(order.price, currentPrice, order.side, order.amount);
+      // 💸 Fechamento manual também paga spread — ver ExecutionCost.ts.
+      const { costUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+      const tradePnLNet = tradePnL - costUsd;
+      totalRealizedPnL += tradePnLNet;
 
       if (configRef.current.executionMode === 'DEMO') {
-        persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+        persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, costUsd, 'MANUAL');
       }
+
+      return { ...order, currentPrice, currentProfit: tradePnLNet, closedAt: Date.now() };
     });
 
     setPortfolio(prev => ({
@@ -1800,7 +2952,7 @@ export function useApexLogic(
       openPositionsValue: 0,
     }));
 
-    setOrderHistory(prev => [...prev, ...closingOrders.map(o => ({ ...o, closedAt: Date.now() }))]);
+    setOrderHistory(prev => [...prev, ...closedWithPnL]);
     setActiveOrders([]);
     addLog(`🚨 Todas as posições foram fechadas. P&L Total: $${totalRealizedPnL.toFixed(2)}`);
   }, [activeOrders, addLog]);
@@ -1818,7 +2970,12 @@ export function useApexLogic(
     entryPrice: number;
     stopLoss?: number;
     takeProfit?: number;
-  }): { success: boolean; error?: string; tradeId?: string } => {
+    // Preenchidos só pelo Pyramiding ao adicionar um layer — pyramidGroupId
+    // precisa ser o id de BANCO do trade raiz (resolvido via
+    // resolveDbTradeId), nunca o id local do React.
+    pyramidGroupId?: string;
+    pyramidLayer?: number;
+  }): { success: boolean; error?: string; tradeId?: string; netted?: boolean; message?: string } => {
     console.error('🟢[useApexLogic] openManualPosition chamado', params);
     const asset = getAssetBySymbol(params.symbol);
     if (!asset) {
@@ -1829,7 +2986,67 @@ export function useApexLogic(
       return { success: false, error: 'Volume ou preço inválido' };
     }
 
-    const amountUsd = params.volume * asset.lotSize * params.entryPrice;
+    // Choke point único: toda ordem (manual, Pyramiding, Estágios 3/4) passa
+    // por aqui — sem isto um layer de Pyramiding ou uma conversão $→lote a
+    // montante podia abrir posição com fração de lote abaixo do mínimo real
+    // do ativo (ex: 0.0021 lote de BTC com mínimo 0.01). Ver CLAUDE.md,
+    // pendência "mínimo de contratos por ativo".
+    const lotCheck = floorToLotStep(params.symbol, params.volume);
+    if (lotCheck.error) {
+      console.warn('[useApexLogic] openManualPosition: lote abaixo do mínimo', params.symbol, params.volume, lotCheck.error);
+      return { success: false, error: lotCheck.error };
+    }
+    const volume = lotCheck.volume;
+
+    // Par com base USD (USDTWD, USDJPY, USDCNH...): o preço é cotado na moeda
+    // estrangeira, então lote*lotSize*preço daria o nocional em TWD/JPY, não
+    // em USD (USDTWD: 31.830 "USD" em vez de ~1.000 -> PnL e comissão ~32x
+    // inflados, achado 2026-09-23). O nocional em USD é o próprio lote*lotSize.
+    const isUsdBasePair = /^USD[A-Z]{3}$/.test(params.symbol.toUpperCase());
+    const amountUsd = isUsdBasePair
+      ? volume * asset.lotSize
+      : volume * asset.lotSize * params.entryPrice;
+
+    // 🔴 2026-10-21 (Cleber: "a plataforma e de trade, nao de hedge"): NETTING. Uma ordem CONTRARIA no mesmo ativo (a mercado ou
+    // ordem pendente que disparou) reduz/fecha a posicao aberta (a mais antiga primeiro) ao preco da ordem, e so abre posicao NOVA com
+    // o que sobrar. Antes abria uma posicao oposta e deixava as duas abertas (lock/hedge: custo em dobro, nada fechava). So DEMO e so no
+    // modo NETTING (padrao); no modo HEDGING (chave em Configuracoes) a ordem contraria abre posicao oposta, como antes. So DEMO:
+    // em LIVE quem decide e a conta da corretora. Mesmo calculo de P&L/custo do fechamento manual (closeManualPosition).
+    // 🔴 2026-10-21 (achado ao vivo: venda 0,01 @84.450 + compra 0,01 @84.718 deixou uma compra-poeira de US$2,68): a comparacao tem que ser em
+    // UNIDADES do ativo (nocional / preco), nunca em dolares -- o nocional de cada ponta foi calculado no preco DAQUELA ponta.
+    const incomingUnits = amountUsd / params.entryPrice;
+    let remainingUnits = incomingUnits;
+    let nettedAny = false;
+    if (configRef.current.executionMode === 'DEMO' && getAccountMode() === 'NETTING') {
+      const opposites = activeOrdersRef.current
+        .filter((o) => o.symbol === params.symbol && o.side !== params.side && !o.brokerPositionId)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      for (const opp of opposites) {
+        if (remainingUnits <= incomingUnits * 0.001) break;
+        const oppUnits = opp.amount / opp.price;
+        const closeUnits = Math.min(oppUnits, remainingUnits);
+        const isFull = closeUnits >= oppUnits * 0.999;
+        const closeUsd = isFull ? opp.amount : closeUnits * opp.price; // nocional da parte fechada, no preco de ENTRADA da posicao
+        const grossPnl = calculateEngineConsistentPnL(opp.price, params.entryPrice, opp.side, closeUsd);
+        const { costUsd } = calculateRoundTripCost(opp.symbol, closeUsd, opp.price);
+        const netPnl = grossPnl - costUsd;
+        if (isFull) {
+          persistenceRef.current.onTradeClose(opp.id, params.entryPrice, grossPnl, costUsd, 'MANUAL');
+        } else {
+          persistenceRef.current.onTradePartialClose(opp.id, closeUsd, params.entryPrice, grossPnl, costUsd);
+        }
+        setPortfolio((prev) => ({ ...prev, balance: prev.balance + netPnl, equity: prev.balance + netPnl }));
+        setOrderHistory((prev) => [...prev, { ...opp, amount: closeUsd, currentPrice: params.entryPrice, currentProfit: netPnl, closedAt: Date.now() }]);
+        setActiveOrders((prev) => (isFull ? prev.filter((o) => o.id !== opp.id) : prev.map((o) => (o.id === opp.id ? { ...o, amount: o.amount - closeUsd } : o))));
+        addLog(`🔁 NETTING: ordem ${params.side} ${isFull ? 'fechou' : 'reduziu'} ${opp.side} de ${params.symbol} (${closeUnits.toFixed(6)} un.) @ $${params.entryPrice.toFixed(2)} — P&L líquido: $${netPnl.toFixed(2)} (bruto $${grossPnl.toFixed(2)}, custo $${costUsd.toFixed(2)})`);
+        remainingUnits -= closeUnits;
+        nettedAny = true;
+      }
+      if (nettedAny && remainingUnits <= incomingUnits * 0.001) {
+        return { success: true, netted: true, message: `Posição ${params.side === 'LONG' ? 'vendida' : 'comprada'} de ${params.symbol} fechada/reduzida (netting).` };
+      }
+    }
+    const openUsd = nettedAny ? remainingUnits * params.entryPrice : amountUsd;
 
     if (configRef.current.executionMode === 'DEMO' && !persistenceRef.current.currentSessionId) {
       sessionStartedAtRef.current = Date.now();
@@ -1847,17 +3064,21 @@ export function useApexLogic(
       id: `manual-${Date.now()}-${Math.random()}`,
       symbol: params.symbol,
       side: params.side,
-      amount: amountUsd,
+      amount: openUsd,
       price: params.entryPrice,
       currentPrice: params.entryPrice,
       tp: params.takeProfit ?? 0,
       sl: params.stopLoss ?? 0,
+      slIsReal: params.stopLoss != null,
+      tpIsReal: params.takeProfit != null,
       originalSl: params.stopLoss ?? 0,
       leverage: asset.leverage || 1,
       ai_confidence: 100,
       timestamp: Date.now(),
       reasoning: 'Ordem manual do usuário',
       indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+      pyramidGroupId: params.pyramidGroupId,
+      pyramidLayer: params.pyramidLayer,
     };
 
     setActiveOrders(prev => {
@@ -1865,7 +3086,7 @@ export function useApexLogic(
       console.error('🟢[useApexLogic] openManualPosition: setActiveOrders', { antes: prev.length, depois: next.length, newTrade });
       return next;
     });
-    addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s)`);
+    addLog(`✅ ORDEM MANUAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${volume} lote(s)`);
 
     if (configRef.current.executionMode === 'DEMO') {
       persistenceRef.current.onTradeOpen({
@@ -1881,8 +3102,86 @@ export function useApexLogic(
         timestamp: newTrade.timestamp,
         reasoning: newTrade.reasoning,
         indicators: newTrade.indicators,
+        pyramidGroupId: newTrade.pyramidGroupId ?? null,
+        pyramidLayer: newTrade.pyramidLayer ?? null,
       });
     }
+
+    return { success: true, tradeId: newTrade.id };
+  }, [addLog]);
+
+  // 🔴 2026-09-09 (achado ao vivo do Cleber: posição real aberta pela boleta
+  // manual em LIVE nunca aparecia no Gráfico): `createMarketBuyOrder`/
+  // `createMarketSellOrder` (OrderTicket.tsx, ramo LIVE) só gravavam em
+  // `broker_order_executions` (ledger de auditoria/parceiros), nunca em
+  // `ai_trades` — o Gráfico/Dashboard só leem posição aberta de
+  // `activeOrders`, que só é populado a partir de `ai_trades`. Espelha
+  // `openManualPosition` acima, mas grava no banco SEMPRE (não só em DEMO)
+  // e carrega `broker_position_id` (id real da MetaAPI), mesma convenção já
+  // usada pelo llm-active-brain.
+  const recordLiveManualPosition = useCallback((params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    brokerPositionId: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): { success: boolean; error?: string; tradeId?: string } => {
+    const asset = getAssetBySymbol(params.symbol);
+    if (!asset) return { success: false, error: `Ativo desconhecido: ${params.symbol}` };
+    const amountUsd = params.volume * asset.lotSize * params.entryPrice;
+
+    if (!persistenceRef.current.currentSessionId) {
+      sessionStartedAtRef.current = Date.now();
+      persistenceRef.current.startSession({
+        strategyName: 'Ordem Manual (LIVE)',
+        symbols: [params.symbol],
+        timeframe: configRef.current.timeframe || '15m',
+        initialBalance: portfolioRef.current.balance,
+        initialEquity: portfolioRef.current.equity,
+        config: configRef.current,
+      });
+    }
+
+    const newTrade: TradeVisual = {
+      id: `manual-live-${Date.now()}-${Math.random()}`,
+      symbol: params.symbol,
+      side: params.side,
+      amount: amountUsd,
+      price: params.entryPrice,
+      currentPrice: params.entryPrice,
+      tp: params.takeProfit ?? 0,
+      sl: params.stopLoss ?? 0,
+      slIsReal: params.stopLoss != null,
+      tpIsReal: params.takeProfit != null,
+      originalSl: params.stopLoss ?? 0,
+      leverage: asset.leverage || 1,
+      ai_confidence: 100,
+      timestamp: Date.now(),
+      reasoning: 'Ordem manual do usuário (LIVE)',
+      indicators: { rsi: 50, macd: 'NEUTRAL', trend: 'NEUTRAL' },
+      brokerPositionId: params.brokerPositionId,
+    };
+
+    setActiveOrders(prev => [...prev, newTrade]);
+    addLog(`✅ ORDEM REAL ${params.side}: ${params.symbol} @ $${params.entryPrice.toFixed(2)} — ${params.volume} lote(s) (LIVE)`);
+
+    persistenceRef.current.onTradeOpen({
+      id: newTrade.id,
+      symbol: newTrade.symbol,
+      side: newTrade.side,
+      amount: newTrade.amount,
+      price: newTrade.price,
+      tp: newTrade.tp,
+      sl: newTrade.sl,
+      leverage: newTrade.leverage,
+      ai_confidence: newTrade.ai_confidence,
+      timestamp: newTrade.timestamp,
+      reasoning: newTrade.reasoning,
+      indicators: newTrade.indicators,
+      brokerPositionId: params.brokerPositionId,
+    });
 
     return { success: true, tradeId: newTrade.id };
   }, [addLog]);
@@ -1901,6 +3200,11 @@ export function useApexLogic(
   // fabrica um número, e a UI (PyramidingConfigPanel.tsx) desabilita essas
   // opções pra não sugerir que funcionam.
   const pyramidStateRef = useRef<Map<string, { layers: number; lastLayerPrice: number; breakEvenApplied: boolean }>>(new Map());
+  // Trailing stop do Pyramiding (2026-08-19) — chave é o id do order se
+  // `trailingStopPerLayer`, senão a chave do grupo (`pyramidGroupId ?? id`
+  // da raiz). Guarda o melhor preço já visto a favor do trade (high-water
+  // mark), nunca o SL em si — o SL ratcheta a partir daqui + distância.
+  const pyramidTrailingHwmRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!isActive || isPaused || isSafeMode) return;
@@ -1963,6 +3267,24 @@ export function useApexLogic(
         const newSl = slDistance > 0 ? (order.side === 'LONG' ? currentPrice - slDistance : currentPrice + slDistance) : undefined;
         const newTp = tpDistance > 0 ? (order.side === 'LONG' ? currentPrice + tpDistance : currentPrice - tpDistance) : undefined;
 
+        // Gate de risco real — sempre ativo (Pyramiding ligado já inclui a
+        // proteção, sem opt-in separado, ver comentário em
+        // evaluatePyramidLayerRiskGate). Recusa o layer sem contar como
+        // "tentativa consumida" — pode disparar de novo no próximo tick se
+        // o cenário melhorar.
+        const riskGate = evaluatePyramidLayerRiskGate(order.symbol, order.side, currentPrice, newTp);
+        if (!riskGate.approved) {
+          addLog(`🛑 PYRAMIDING: layer recusado em ${order.symbol} — ${riskGate.reason}`);
+          continue;
+        }
+
+        const isFirstLayer = state.layers === 1;
+        // pyramid_group_id precisa ser o id de BANCO da raiz, não o id local
+        // do React — sem isto o FK gravado no banco fica errado (achado
+        // 2026-08-19, ver migration 20260819_add_pyramid_group_columns.sql).
+        const groupDbId = persistenceRef.current.resolveDbTradeId(order.id);
+        const newLayerNumber = state.layers + 1;
+
         const result = openManualPosition({
           symbol: order.symbol,
           side: order.side,
@@ -1970,9 +3292,12 @@ export function useApexLogic(
           entryPrice: currentPrice,
           stopLoss: newSl,
           takeProfit: newTp,
+          pyramidGroupId: groupDbId,
+          pyramidLayer: newLayerNumber,
         });
 
         if (result.success && result.tradeId) {
+          if (isFirstLayer) persistenceRef.current.markPyramidRoot(order.id);
           state.layers += 1;
           state.lastLayerPrice = currentPrice;
           const layerNumber = state.layers;
@@ -1988,7 +3313,86 @@ export function useApexLogic(
             setActiveOrders(prev => prev.map(o => o.id === groupId
               ? { ...o, sl: o.price, originalSl: o.price }
               : o));
+            // Persiste no banco — sem isto o ajuste só existia em memória e o
+            // ai-runner (autoridade real de fechamento em DEMO desde 2026-08-18)
+            // nunca via o novo SL, tornando este break-even um no-op silencioso.
+            // Achado e corrigido 2026-08-19.
+            persistenceRef.current.updateTradeStopLoss(groupId, order.price);
             addLog(`🛡️ PYRAMIDING: break-even aplicado em ${order.symbol} (${state.layers} layers)`);
+          }
+        }
+      }
+
+      // Trailing Stop do Pyramiding (núcleo real, 2026-08-19 — antes era
+      // decorativo: config existia, motor nunca lia). Ratcheta o SL a favor
+      // do trade conforme o preço avança, nunca solta de volta — mesma regra
+      // do trailing normal (positionManager.ts/useApexLogic PNL loop), só que
+      // com a distância/tipo PRÓPRIOS do Pyramiding (`trailingStopType`/
+      // `trailingStopDistance`), não os do trailing de posição única.
+      // `trailingStopPerLayer=true`: cada camada tem seu próprio high-water
+      // mark e SL, ratchetados independentemente. `false`: uma única "melhor
+      // marca" por grupo, e o mesmo SL calculado é aplicado a TODAS as
+      // camadas do grupo (elas se protegem juntas).
+      if (cfg.trailingStopEnabled) {
+        const distanceFor = (symbol: string, refPrice: number): number | null => {
+          if (cfg.trailingStopType === 'percent') return refPrice * (cfg.trailingStopDistance / 100);
+          if (cfg.trailingStopType === 'pips') return cfg.trailingStopDistance * getPointValue(symbol);
+          if (cfg.trailingStopType === 'atr') {
+            const atr = getFreshAtr(symbol, configRef.current.atrTrailingPeriod);
+            return atr !== null ? atr * cfg.trailingStopDistance : null;
+          }
+          return null;
+        };
+
+        const groupsForTrailing = new Map<string, TradeVisual[]>();
+        for (const order of activeOrdersRef.current) {
+          const key = order.pyramidGroupId ?? order.id;
+          if (!groupsForTrailing.has(key)) groupsForTrailing.set(key, []);
+          groupsForTrailing.get(key)!.push(order);
+        }
+
+        for (const [groupKey, group] of groupsForTrailing) {
+          if (group.length < 2) continue; // sem layer adicionado, não é pyramid de fato — trailing normal já cobre isso
+
+          if (cfg.trailingStopPerLayer) {
+            for (const o of group) {
+              const currentPrice = o.currentPrice || o.price;
+              const distance = distanceFor(o.symbol, currentPrice);
+              if (distance === null || distance <= 0) continue;
+              const prevHwm = pyramidTrailingHwmRef.current.get(o.id) ?? o.price;
+              const newHwm = o.side === 'LONG' ? Math.max(prevHwm, currentPrice) : Math.min(prevHwm, currentPrice);
+              pyramidTrailingHwmRef.current.set(o.id, newHwm);
+              const candidateSl = o.side === 'LONG' ? newHwm - distance : newHwm + distance;
+              const ratchetedSl = o.sl > 0
+                ? (o.side === 'LONG' ? Math.max(o.sl, candidateSl) : Math.min(o.sl, candidateSl))
+                : candidateSl;
+              if (ratchetedSl > 0 && ratchetedSl !== o.sl) {
+                setActiveOrders(prev => prev.map(x => x.id === o.id ? { ...x, sl: ratchetedSl } : x));
+                persistenceRef.current.updateTradeStopLoss(o.id, ratchetedSl);
+              }
+            }
+          } else {
+            const side = group[0].side;
+            const symbol = group[0].symbol;
+            const groupExtremePrice = group.reduce((best, o) => {
+              const cp = o.currentPrice || o.price;
+              return side === 'LONG' ? Math.max(best, cp) : Math.min(best, cp);
+            }, group[0].currentPrice || group[0].price);
+            const distance = distanceFor(symbol, groupExtremePrice);
+            if (distance === null || distance <= 0) continue;
+            const prevHwm = pyramidTrailingHwmRef.current.get(groupKey) ?? groupExtremePrice;
+            const newHwm = side === 'LONG' ? Math.max(prevHwm, groupExtremePrice) : Math.min(prevHwm, groupExtremePrice);
+            pyramidTrailingHwmRef.current.set(groupKey, newHwm);
+            const candidateSl = side === 'LONG' ? newHwm - distance : newHwm + distance;
+            for (const o of group) {
+              const ratchetedSl = o.sl > 0
+                ? (side === 'LONG' ? Math.max(o.sl, candidateSl) : Math.min(o.sl, candidateSl))
+                : candidateSl;
+              if (ratchetedSl > 0 && ratchetedSl !== o.sl) {
+                setActiveOrders(prev => prev.map(x => x.id === o.id ? { ...x, sl: ratchetedSl } : x));
+                persistenceRef.current.updateTradeStopLoss(o.id, ratchetedSl);
+              }
+            }
           }
         }
       }
@@ -2014,8 +3418,16 @@ export function useApexLogic(
             setActiveOrders(prev => prev.map(o => (o.pyramidGroupId === key || o.id === key)
               ? { ...o, sl: o.currentPrice || o.price }
               : o));
+            // Persiste no banco pra cada camada do grupo — mesma correção do
+            // break-even acima: sem isto o ai-runner nunca via o SL movido pro
+            // preço atual e o "emergency stop" não fechava nada de verdade.
+            for (const o of group) {
+              persistenceRef.current.updateTradeStopLoss(o.id, o.currentPrice || o.price);
+            }
             addLog(`🚨 PYRAMIDING EMERGENCY STOP: grupo em ${group[0].symbol} a ${pnlPercent.toFixed(1)}% — fechando todas as camadas`);
             pyramidStateRef.current.delete(key);
+            pyramidTrailingHwmRef.current.delete(key);
+            for (const o of group) pyramidTrailingHwmRef.current.delete(o.id);
           }
         }
       }
@@ -2073,12 +3485,119 @@ export function useApexLogic(
     };
     setPendingOrders(prev => [...prev, newOrder]);
     addLog(`🕓 ORDEM PENDENTE ${params.orderType} ${params.side}: ${params.symbol} @ $${params.triggerPrice.toFixed(2)} — ${params.volume} lote(s)`);
+    // Persiste no Supabase — sem isto a ordem só vivia em useState e sumia
+    // ao fechar a aba/reload (achado do Cleber 2026-08-26). Fire-and-forget,
+    // igual ao onTradeOpen: a UI já respondeu com o estado local.
+    persistenceRef.current.onPendingOrderOpen(newOrder);
     return { success: true, orderId: newOrder.id };
   }, [addLog]);
 
   const cancelManualPendingOrder = useCallback((orderId: string) => {
     setPendingOrders(prev => prev.filter(o => o.id !== orderId));
     addLog(`🗑️ Ordem pendente cancelada: ${orderId}`);
+    persistenceRef.current.onPendingOrderStatusChange(orderId, 'CANCELLED');
+  }, [addLog]);
+
+  // Reposiciona o gatilho de uma ordem pendente já criada (arrastar a linha
+  // no gráfico). Mesma validação de direção do momento da criação — se o
+  // usuário arrastar pro lado errado do preço atual, rejeita e mantém o
+  // valor antigo em vez de deixar uma ordem que nunca vai disparar como
+  // limit/stop.
+  const updateManualPendingOrderPrice = useCallback((
+    orderId: string,
+    newTriggerPrice: number,
+    currentPrice: number
+  ): { success: boolean; error?: string } => {
+    const order = pendingOrdersRef.current.find(o => o.id === orderId);
+    if (!order) {
+      return { success: false, error: 'Ordem pendente não encontrada' };
+    }
+    if (!(newTriggerPrice > 0)) {
+      return { success: false, error: 'Preço inválido' };
+    }
+
+    const isBuy = order.side === 'LONG';
+    const aboveMarket = newTriggerPrice > currentPrice;
+    const validDirection = order.orderType === 'LIMIT'
+      ? (isBuy ? !aboveMarket : aboveMarket)
+      : (isBuy ? aboveMarket : !aboveMarket);
+    if (!validDirection) {
+      return {
+        success: false,
+        error: `${order.orderType === 'LIMIT' ? 'Limit' : 'Stop'} de ${isBuy ? 'compra' : 'venda'} precisa estar ${
+          (order.orderType === 'LIMIT') === isBuy ? 'abaixo' : 'acima'
+        } do preço atual`,
+      };
+    }
+
+    setPendingOrders(prev => prev.map(o => (o.id === orderId ? { ...o, triggerPrice: newTriggerPrice } : o)));
+    addLog(`✏️ Ordem pendente reposicionada: ${order.symbol} ${order.orderType} ${order.side} @ $${newTriggerPrice.toFixed(2)}`);
+    persistenceRef.current.onPendingOrderPriceUpdate(orderId, newTriggerPrice);
+    return { success: true };
+  }, [addLog]);
+
+  // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
+  // edição completa da ordem pendente pela boleta (gatilho/SL/TP/volume
+  // juntos), diferente de `updateManualPendingOrderPrice` (só arrasto no
+  // gráfico, só preço). Cada campo é opcional: só valida/atualiza o que foi
+  // passado, deixando o resto intocado.
+  const updateManualPendingOrder = useCallback((
+    orderId: string,
+    updates: { triggerPrice?: number; stopLoss?: number | null; takeProfit?: number | null; volume?: number },
+    currentPrice: number
+  ): { success: boolean; error?: string } => {
+    const order = pendingOrdersRef.current.find(o => o.id === orderId);
+    if (!order) {
+      return { success: false, error: 'Ordem pendente não encontrada' };
+    }
+
+    const nextTrigger = updates.triggerPrice ?? order.triggerPrice;
+    if (!(nextTrigger > 0)) {
+      return { success: false, error: 'Preço inválido' };
+    }
+    const isBuy = order.side === 'LONG';
+    const aboveMarket = nextTrigger > currentPrice;
+    const validDirection = order.orderType === 'LIMIT'
+      ? (isBuy ? !aboveMarket : aboveMarket)
+      : (isBuy ? aboveMarket : !aboveMarket);
+    if (!validDirection) {
+      return {
+        success: false,
+        error: `${order.orderType === 'LIMIT' ? 'Limit' : 'Stop'} de ${isBuy ? 'compra' : 'venda'} precisa estar ${
+          (order.orderType === 'LIMIT') === isBuy ? 'abaixo' : 'acima'
+        } do preço atual`,
+      };
+    }
+
+    if (updates.volume !== undefined && !(updates.volume > 0)) {
+      return { success: false, error: 'Volume inválido' };
+    }
+    const nextSl = updates.stopLoss === undefined ? order.stopLoss : (updates.stopLoss ?? undefined);
+    const nextTp = updates.takeProfit === undefined ? order.takeProfit : (updates.takeProfit ?? undefined);
+    if (nextSl != null) {
+      const badSl = isBuy ? nextSl >= nextTrigger : nextSl <= nextTrigger;
+      if (badSl) return { success: false, error: `Perda máxima inválida para ${isBuy ? 'compra' : 'venda'}` };
+    }
+    if (nextTp != null) {
+      const badTp = isBuy ? nextTp <= nextTrigger : nextTp >= nextTrigger;
+      if (badTp) return { success: false, error: `Lucro máximo inválido para ${isBuy ? 'compra' : 'venda'}` };
+    }
+
+    setPendingOrders(prev => prev.map(o => (o.id === orderId ? {
+      ...o,
+      triggerPrice: nextTrigger,
+      stopLoss: nextSl,
+      takeProfit: nextTp,
+      volume: updates.volume ?? o.volume,
+    } : o)));
+    addLog(`✏️ Ordem pendente editada: ${order.symbol} ${order.orderType} ${order.side} @ $${nextTrigger.toFixed(2)}`);
+    persistenceRef.current.onPendingOrderDetailsUpdate(orderId, {
+      triggerPrice: updates.triggerPrice,
+      stopLoss: updates.stopLoss,
+      takeProfit: updates.takeProfit,
+      volume: updates.volume,
+    });
+    return { success: true };
   }, [addLog]);
 
   // Chamado a cada tick de preço (ChartView, pro símbolo selecionado) — dispara
@@ -2100,6 +3619,7 @@ export function useApexLogic(
     setPendingOrders(prev => prev.filter(o => !toFill.some(f => f.id === o.id)));
     toFill.forEach((order) => {
       addLog(`⚡ ORDEM PENDENTE DISPAROU: ${order.symbol} ${order.orderType} ${order.side} @ $${price.toFixed(2)}`);
+      persistenceRef.current.onPendingOrderStatusChange(order.id, 'FILLED');
       openManualPosition({
         symbol: order.symbol,
         side: order.side,
@@ -2112,36 +3632,163 @@ export function useApexLogic(
   }, [addLog, openManualPosition]);
 
   // Fechamento manual de uma posição DEMO específica (usada pela boleta/lista de posições).
+  // 🆕 2026-10-15 (Cleber: o preço "furou o stop" numa venda manual e nada fechou -- o stop era uma linha
+  // DESENHADA no gráfico; a ordem manual nasceu com stop_loss=0 e não havia como pôr stop numa posição já
+  // aberta). Define/move o stop de uma posição aberta: valida o lado (venda: stop acima do preço; compra:
+  // abaixo), atualiza o estado local e grava em ai_trades (updateTradeStopLoss, auditado pelo
+  // ai_trades_audit_log), de onde o motor (enforceMt5StopsAndTargets / watchdog de 5s) passa a executá-lo.
+  // Posição REAL (broker_position_id) fica de fora: o stop real é da corretora e não passa por aqui.
+  const setOpenPositionStop = useCallback((tradeId: string, newStop: number, currentPrice: number): { success: boolean; error?: string } => {
+    const order = activeOrdersRef.current.find((o) => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada' };
+    if (order.brokerPositionId) return { success: false, error: 'Posição real: o stop é definido na corretora' };
+    if (!(newStop > 0) || !(currentPrice > 0)) return { success: false, error: 'Preço de stop inválido' };
+    const bad = order.side === 'SHORT' ? newStop <= currentPrice : newStop >= currentPrice;
+    if (bad) {
+      return {
+        success: false,
+        error: order.side === 'SHORT'
+          ? `Stop de venda precisa ficar ACIMA do preço atual (${currentPrice})`
+          : `Stop de compra precisa ficar ABAIXO do preço atual (${currentPrice})`,
+      };
+    }
+    const prevSl = { sl: order.sl, originalSl: order.originalSl, slIsReal: order.slIsReal };
+    setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, sl: newStop, originalSl: newStop, slIsReal: true } : o)));
+    // 2026-10-21: se a gravacao falhar, o poll do servidor devolve o stop antigo (a linha "volta"): avisa e desfaz na hora.
+    void persistenceRef.current.updateTradeStopLoss(tradeId, newStop).then((ok) => {
+      if (ok) return;
+      console.error('[setOpenPositionStop] gravacao do stop FALHOU para', tradeId, newStop);
+      addLog(`⚠️ Stop NÃO gravado (${order.symbol}): voltou ao valor anterior`);
+      setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, ...prevSl } : o)));
+    });
+    addLog(`🛡️ STOP definido: ${order.symbol} ${order.side} @ ${newStop}`);
+    return { success: true };
+  }, [addLog]);
+
+  // 🔴 2026-10-21 (Cleber: "so consigo reposicionar arrastando"): ALVO (take profit) digitado numa posicao DEMO ja aberta, com o mesmo
+  // criterio do stop. Venda: alvo ABAIXO do preco atual; compra: ACIMA. Grava em ai_trades.take_profit (auditado) e o motor passa a executa-lo.
+  const setOpenPositionTarget = useCallback((tradeId: string, newTp: number, currentPrice: number): { success: boolean; error?: string } => {
+    const order = activeOrdersRef.current.find((o) => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada' };
+    if (order.brokerPositionId) return { success: false, error: 'Posição real: o alvo é definido na corretora' };
+    if (!(newTp > 0) || !(currentPrice > 0)) return { success: false, error: 'Preço de alvo inválido' };
+    const bad = order.side === 'SHORT' ? newTp >= currentPrice : newTp <= currentPrice;
+    if (bad) {
+      return {
+        success: false,
+        error: order.side === 'SHORT'
+          ? `Alvo de venda precisa ficar ABAIXO do preço atual (${currentPrice})`
+          : `Alvo de compra precisa ficar ACIMA do preço atual (${currentPrice})`,
+      };
+    }
+    setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, tp: newTp, tpIsReal: true } : o)));
+    void persistenceRef.current.updateTradeTakeProfit(tradeId, newTp);
+    addLog(`🎯 ALVO definido: ${order.symbol} ${order.side} @ ${newTp}`);
+    return { success: true };
+  }, [addLog]);
+
   const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
     if (!order) return;
 
-    const tradePnL = calculatePnLWithLeverage(
-      order.symbol,
-      order.price,
-      currentPrice,
-      order.side,
-      order.amount,
-      order.leverage
-    );
+    // Mesma fórmula do fechamento real no servidor — ver comentário no topo do arquivo.
+    const tradePnL = calculateEngineConsistentPnL(order.price, currentPrice, order.side, order.amount);
+
+    // 💸 Fechamento manual de posição única também paga spread — ver ExecutionCost.ts.
+    const { costUsd } = calculateRoundTripCost(order.symbol, order.amount, order.price);
+    const tradePnLNet = tradePnL - costUsd;
 
     if (configRef.current.executionMode === 'DEMO') {
-      persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, 0, 'MANUAL');
+      persistenceRef.current.onTradeClose(order.id, currentPrice, tradePnL, costUsd, 'MANUAL');
     }
 
     setPortfolio(prev => ({
       ...prev,
-      balance: prev.balance + tradePnL,
-      equity: prev.balance + tradePnL,
+      balance: prev.balance + tradePnLNet,
+      equity: prev.balance + tradePnLNet,
     }));
-    setOrderHistory(prev => [...prev, { ...order, closedAt: Date.now() }]);
+    setOrderHistory(prev => [...prev, { ...order, currentPrice, currentProfit: tradePnLNet, closedAt: Date.now() }]);
     setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
-    addLog(`✅ Posição manual fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
+    addLog(`✅ Posição manual fechada: ${order.symbol} — P&L líquido: $${tradePnLNet.toFixed(2)} (bruto $${tradePnL.toFixed(2)}, custo $${costUsd.toFixed(2)})`);
+  }, [addLog]);
+
+  // 🔴 2026-09-09 (pedido explícito do Cleber: "consigo controlar fechamento
+  // pela boleta do gráfico?"): fecha uma posição REAL na corretora
+  // (`closePosition` real via /broker/execute) — fail-closed, só marca
+  // CLOSED no banco DEPOIS de confirmar que fechou de verdade na MetaAPI,
+  // nunca antes (mesma disciplina do liveExecution.ts do llm-active-brain).
+  const closeLiveManualPosition = useCallback(async (tradeId: string): Promise<{ success: boolean; error?: string }> => {
+    const order = activeOrdersRef.current.find(o => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada.' };
+    if (!order.brokerPositionId) return { success: false, error: 'Esta posição não tem id real da corretora (não é LIVE).' };
+
+    const { closePosition, getPositions } = await import('../services/BrokerClient');
+
+    // A resposta de fechamento não traz sempre um preço de saída pronto —
+    // busca o preço atual da posição ANTES de fechar (aproximação real mais
+    // próxima do preço de saída de fato); sem isso, nunca fabrica preço, só
+    // usa o último preço conhecido localmente como último recurso.
+    let exitPrice = order.currentPrice ?? order.price;
+    try {
+      const positions = await getPositions();
+      const target = positions.find((p: any) => String(p.id) === order.brokerPositionId);
+      if (target && Number.isFinite(target.currentPrice)) exitPrice = target.currentPrice;
+    } catch {
+      // mantém a aproximação acima.
+    }
+
+    const result = await closePosition(order.brokerPositionId);
+    if (!result.success) return { success: false, error: result.error || result.message || 'Falha ao fechar na corretora.' };
+
+    const tradePnL = calculateEngineConsistentPnL(order.price, exitPrice, order.side, order.amount);
+    persistenceRef.current.onTradeClose(order.id, exitPrice, tradePnL, 0, 'MANUAL');
+    setOrderHistory(prev => [...prev, { ...order, currentPrice: exitPrice, currentProfit: tradePnL, closedAt: Date.now() }]);
+    setActiveOrders(prev => prev.filter(o => o.id !== tradeId));
+    addLog(`✅ Posição REAL fechada: ${order.symbol} — P&L: $${tradePnL.toFixed(2)}`);
+    return { success: true };
   }, [addLog]);
 
   // === UPDATE AI CONFIG ===
+  // 🔴 2026-08-25: agora persiste automaticamente a config no Supabase
   const updateAIConfig = useCallback((config: Partial<AIConfig>) => {
-    setAIConfig(prev => ({ ...prev, ...config }));
+    // 🔴 2026-09-03: persiste só o PATCH (campos de fato alterados nesta
+    // chamada) via merge no servidor, nunca o snapshot `aiConfig` inteiro em
+    // memória — ver `patchUserAIConfig` em AITradingPersistenceService.ts
+    // pro porquê (2ª ocorrência do bug de aba desatualizada sobrescrevendo
+    // edição feita direto via SQL).
+    persistenceRef.current?.patchUserAIConfig?.(config).catch((e: unknown) => {
+      console.warn('[useApexLogic] Falha ao aplicar patch de configuração da IA no Supabase:', e);
+    });
+
+    setAIConfig(prev => {
+      const newConfig = { ...prev, ...config };
+
+      // Salvar a config na sessão (throttled com debounce via useRef)
+      const sessionId = persistenceRef.current?.getSessionId?.();
+      if (sessionId) {
+        // Usar um ref para throttle: só salva se passou tempo mínimo desde último save
+        const now = Date.now();
+        if (!updateAIConfigTimeoutRef.current) {
+          updateAIConfigTimeoutRef.current = now;
+          aiPersistence.saveSessionConfig(sessionId, newConfig)
+            .catch(err => console.error('[useApexLogic] Erro ao salvar config:', err));
+        }
+        // Schedular próximo save em 3 segundos (evita saturar Supabase)
+        if (updateAIConfigDebounceRef.current) {
+          clearTimeout(updateAIConfigDebounceRef.current);
+        }
+        updateAIConfigDebounceRef.current = setTimeout(() => {
+          updateAIConfigTimeoutRef.current = 0;
+          const latestSessionId = persistenceRef.current?.getSessionId?.();
+          if (latestSessionId) {
+            aiPersistence.saveSessionConfig(latestSessionId, newConfig)
+              .catch(err => console.error('[useApexLogic] Erro ao salvar config (debounce):', err));
+          }
+        }, 3000);
+      }
+
+      return newConfig;
+    });
   }, []);
 
   // === CONNECT TO MT5 ===
@@ -2278,6 +3925,12 @@ export function useApexLogic(
   }, [addLog]);
 
   // === UPDATE PORTFOLIO (for MT5 sync with equity) ===
+  // 🔴 2026-09-11 (achado do Cleber ao vivo: "Atividade da IA" inundado de
+  // linhas repetidas "Portfolio MT5: Balance..."): este poll roda a cada 5s
+  // (TradingContext.tsx) e antes logava incondicionalmente, mesmo sem
+  // mudança nenhuma de saldo/equity -- afogava o raciocínio real da LLM no
+  // mesmo feed. Agora só loga quando balance/equity mudam de verdade.
+  const lastLoggedPortfolioRef = useRef<{ balance: number; equity: number } | null>(null);
   const updatePortfolioFromMT5 = useCallback((data: { balance: number; equity: number }) => {
     console.log('[updatePortfolioFromMT5] 🎯 CHAMADA RECEBIDA:', data);
     console.log('[updatePortfolioFromMT5] 📊 Portfolio ANTES:', {
@@ -2285,7 +3938,7 @@ export function useApexLogic(
       equity: portfolioRef.current?.equity,
       initialBalance: portfolioRef.current?.initialBalance
     });
-    
+
     setPortfolio(prev => {
       const updated = {
         ...prev,
@@ -2302,55 +3955,94 @@ export function useApexLogic(
       console.log('[updatePortfolioFromMT5] ✅ Portfolio ATUALIZADO:', updated);
       return updated;
     });
-    
-    const floatingPnL = data.equity - data.balance;
-    addLog(`💰 Portfolio MT5: Balance $${data.balance.toFixed(2)} | Equity $${data.equity.toFixed(2)} | PnL ${floatingPnL >= 0 ? '+' : ''}$${floatingPnL.toFixed(2)}`);
+
+    const last = lastLoggedPortfolioRef.current;
+    const changed = !last || Math.abs(last.balance - data.balance) >= 0.01 || Math.abs(last.equity - data.equity) >= 0.01;
+    if (changed) {
+      lastLoggedPortfolioRef.current = { balance: data.balance, equity: data.equity };
+      const floatingPnL = data.equity - data.balance;
+      addLog(`💰 Portfolio MT5: Balance $${data.balance.toFixed(2)} | Equity $${data.equity.toFixed(2)} | PnL ${floatingPnL >= 0 ? '+' : ''}$${floatingPnL.toFixed(2)}`);
+    }
   }, [addLog]);
 
   // === SYNC POSITIONS FROM MT5 ===
+  // 🔴 2026-09-11 (achado do Cleber ao vivo: posição "piscando", entrando e
+  // sumindo do Dashboard): esta função fazia `setActiveOrders(convertedOrders)`
+  // -- um REPLACE total -- toda vez que chamada. Desde que o polling contínuo
+  // de LIVE foi ligado (TradingContext.tsx, a cada 5s), ela passou a competir
+  // com o reconcile() de `ai_trades` (também a cada 5s, roda pra QUALQUER
+  // sessão do llm-active-brain, LIVE ou DEMO -- ver comentário em
+  // useApexLogic.ts sobre `executionMode` nunca virar 'LIVE'): o mesmo
+  // posição real (aberta pelo llm-active-brain, MESMA conta MetaAPI) nasce
+  // com um `id` diferente em cada caminho (uuid do `ai_trades` vs `mt5-<id
+  // da corretora>`) -- cada tick de um caminho apagava/recriava a linha do
+  // outro, causando o piscar. Corrigido pra MERGE em vez de replace: nunca
+  // cria uma entrada `mt5-*` pra um símbolo que já está representado por uma
+  // entrada de `ai_trades` (id sem esse prefixo) -- só preenche o que
+  // realmente não está sendo rastreado por `ai_trades` (ex: posição aberta
+  // manualmente direto no MetaTrader, fora do app).
   const syncPositionsFromMT5 = useCallback((positions: any[]) => {
-    console.log('[syncPositionsFromMT5] 🎯 SINCRONIZANDO', positions.length, 'POSIÇÕES');
-    
-    const convertedOrders: TradeVisual[] = positions.map((pos: any) => {
-      const side: 'LONG' | 'SHORT' = pos.type === 'POSITION_TYPE_BUY' ? 'LONG' : 'SHORT';
-      const profit = pos.profit || 0;
-      
-      console.log('[syncPositionsFromMT5] 📍 Convertendo:', {
-        symbol: pos.symbol,
-        side,
-        openPrice: pos.openPrice,
-        currentPrice: pos.currentPrice,
-        volume: pos.volume,
-        profit
+    setActiveOrders(prev => {
+      const symbolsTrackedElsewhere = new Set(
+        prev.filter(o => !o.id.startsWith('mt5-')).map(o => o.symbol)
+      );
+      const incomingBySymbol = new Map(positions.map((pos: any) => [pos.symbol, pos]));
+
+      // Mantém entradas não-mt5 intocadas; descarta entradas mt5-* cujo
+      // símbolo não existe mais na lista real da corretora (posição fechada).
+      const kept = prev.filter(o => !o.id.startsWith('mt5-') || incomingBySymbol.has(o.symbol));
+
+      const newOnes: TradeVisual[] = positions
+        .filter((pos: any) => !symbolsTrackedElsewhere.has(pos.symbol) && !kept.some(o => o.id === `mt5-${pos.id}`))
+        .map((pos: any) => {
+          const side: 'LONG' | 'SHORT' = pos.type === 'POSITION_TYPE_BUY' ? 'LONG' : 'SHORT';
+          const profit = pos.profit || 0;
+          return {
+            id: `mt5-${pos.id || Math.random()}`,
+            symbol: pos.symbol,
+            side,
+            amount: pos.volume * 100,
+            price: pos.openPrice,
+            currentPrice: pos.currentPrice,
+            currentProfit: profit,
+            tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
+            sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+            originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+            leverage: pos.leverage || 1,
+            ai_confidence: 75,
+            timestamp: pos.time || Date.now(),
+            reasoning: `MT5 Import - ${side} @ ${pos.openPrice}`,
+            indicators: {
+              rsi: 50,
+              macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
+              trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
+            },
+          };
+        });
+
+      // Atualiza preço/lucro corrente das mt5-* já existentes (sem trocar id).
+      const updatedKept = kept.map(o => {
+        if (!o.id.startsWith('mt5-')) return o;
+        const pos = incomingBySymbol.get(o.symbol);
+        if (!pos) return o;
+        return { ...o, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
       });
-      
-      return {
-        id: `mt5-${pos.id || Math.random()}`,
-        symbol: pos.symbol,
-        side,
-        amount: pos.volume * 100, // Volume em lotes convertido para capital estimado
-        price: pos.openPrice,
-        currentPrice: pos.currentPrice,
-        currentProfit: profit,
-        tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
-        sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
-        originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
-        leverage: pos.leverage || 1,
-        ai_confidence: 75, // Posição já aberta
-        timestamp: pos.time || Date.now(),
-        reasoning: `MT5 Import - ${side} @ ${pos.openPrice}`,
-        indicators: {
-          rsi: 50,
-          macd: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-          trend: side === 'LONG' ? 'BULLISH' : 'BEARISH',
-        },
-      };
+
+      return [...updatedKept, ...newOnes];
     });
-    
-    setActiveOrders(convertedOrders);
-    console.log('[syncPositionsFromMT5] ✅', convertedOrders.length, 'posições sincronizadas!');
-    addLog(`📊 Sincronizado ${convertedOrders.length} posições do MT5`);
-  }, [addLog]);
+  }, []);
+
+  // === RECONCILIAÇÃO CONTÍNUA EM LIVE ===
+  // 🔴 2026-09-11: a 1ª versão deste polling (removida) checava
+  // `executionMode`/`isConnectedToMT5` -- campos LEGADOS que, por comentário
+  // já existente em TradingContext.tsx ("executionMode é campo legado que
+  // nada mais seta pra 'LIVE' no client"), nunca mais ficam verdadeiros na
+  // arquitetura atual. Resultado: o polling nunca rodava de verdade, mesmo
+  // com a corretora real conectada -- o sinal correto (`isLiveConnected`,
+  // lido de `broker_credentials` via `getBrokerCredentialsStatus`) só existe
+  // em TradingContext, uma camada acima deste hook. Ver o efeito equivalente
+  // em TradingContext.tsx, que chama `syncPositionsFromMT5`/
+  // `updatePortfolioFromMT5` (abaixo) a cada 5s usando o sinal certo.
 
   return {
     // State
@@ -2373,6 +4065,7 @@ export function useApexLogic(
     candlesSinceLastTrade,
     maxCandlesBeforeForceEntry,
     equityHistory,
+    lastPositionSyncAt,
 
     // Actions
     startLogic,
@@ -2382,10 +4075,16 @@ export function useApexLogic(
     resetLogic,
     forceCloseAll,
     openManualPosition,
+    recordLiveManualPosition,
     closeManualPosition,
+    setOpenPositionStop,
+    setOpenPositionTarget,
+    closeLiveManualPosition,
     pendingOrders,
     openManualPendingOrder,
     cancelManualPendingOrder,
+    updateManualPendingOrderPrice,
+    updateManualPendingOrder,
     checkPendingOrderTriggers,
     updateAIConfig,
     connectToMT5,

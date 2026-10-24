@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Calendar, DollarSign, Target, Zap, ArrowLeftRight, Settings, AlertTriangle, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, DollarSign, Target, Zap, ArrowLeftRight, Settings, AlertTriangle, Activity, Download, Clock, ShieldAlert, Filter } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { SlippageSimulator } from './admin/SlippageSimulator';
-import { LatencyBenchmark } from './performance/LatencyBenchmark'; // Added import
 import { TradeEfficiencyPanel } from './performance/TradeEfficiencyPanel';
-import { ErrorBoundary } from './ErrorBoundary';
 
 type Period = '7d' | '30d' | '90d' | '1y' | 'all';
 
@@ -17,13 +15,59 @@ const periods: { value: Period; label: string }[] = [
   { value: 'all', label: 'MAX' },
 ];
 
+const PERIOD_MS: Record<Period, number | null> = {
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+  '90d': 90 * 24 * 60 * 60 * 1000,
+  '1y': 365 * 24 * 60 * 60 * 1000,
+  all: null,
+};
+
 export function Performance() {
-  const { portfolio, houseStats, activeOrders, tradeHistory } = useTradingContext();
+  const { portfolio, tradeHistory: fullTradeHistory } = useTradingContext();
   const [period, setPeriod] = useState<Period>('30d');
   const [mounted, setMounted] = useState(false);
-  
+
   // Simulation State
   const [showSimulator, setShowSimulator] = useState(false);
+
+  // Filtros da tabela de histórico de trades
+  const [assetFilter, setAssetFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'BUY' | 'SELL'>('all');
+  const [resultFilter, setResultFilter] = useState<'all' | 'WIN' | 'LOSS'>('all');
+
+  // Filtro real de período — antes o seletor 7D/30D/90D/1A/MAX não afetava
+  // nenhum dado exibido na tela (UI morta). Agora filtra o histórico de
+  // trades por timestamp antes de qualquer cálculo derivado.
+  const tradeHistory = React.useMemo(() => {
+    const validHistory = Array.isArray(fullTradeHistory) ? fullTradeHistory : [];
+    const windowMs = PERIOD_MS[period];
+    if (windowMs === null) return validHistory;
+    const cutoff = Date.now() - windowMs;
+    return validHistory.filter((t: any) => t && Number(t.timestamp) >= cutoff);
+  }, [fullTradeHistory, period]);
+
+  // Win Rate / Profit Factor calculados direto do histórico real de trades
+  // fechados (mesma fonte que a Curva de Capital e a tabela abaixo), em vez
+  // de `houseStats`, que só é escrito na hidratação/reset e nunca é
+  // recalculado quando um trade fecha durante a sessão.
+  const safeStats = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const closed = validHistory.filter((t: any) => t && t.closedAt);
+    let totalWins = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    closed.forEach((t: any) => {
+      const profit = Number(t.currentProfit) || 0;
+      if (profit > 0) {
+        totalWins += 1;
+        grossProfit += profit;
+      } else if (profit < 0) {
+        grossLoss += Math.abs(profit);
+      }
+    });
+    return { totalTrades: closed.length, totalWins, grossProfit, grossLoss };
+  }, [tradeHistory]);
 
   // SAFE GUARDS (Moved to top level)
   const safePortfolio = React.useMemo(() => ({
@@ -31,13 +75,6 @@ export function Performance() {
     initialBalance: Number(portfolio?.initialBalance) || 100,
     balance: Number(portfolio?.balance) || 0
   }), [portfolio]);
-
-  const safeStats = React.useMemo(() => ({
-    totalTrades: Number(houseStats?.totalTrades) || 0,
-    totalWins: Number(houseStats?.totalWins) || 0,
-    grossProfit: Number(houseStats?.grossProfit) || 0,
-    grossLoss: Number(houseStats?.grossLoss) || 0
-  }), [houseStats]);
 
   React.useEffect(() => {
     // Delay rendering of charts to ensure container has dimensions
@@ -105,8 +142,6 @@ export function Performance() {
             equity.push({
                 date: 'Inicio',
                 balance: runningBalance,
-                ai: runningBalance,
-                manual: runningBalance
             });
 
             // Add points for each trade (simplified)
@@ -132,8 +167,6 @@ export function Performance() {
                  equity.push({
                      date: dateStr,
                      balance: runningBalance,
-                     ai: runningBalance, // Assuming all AI
-                     manual: runningBalance // Placeholder
                  });
             });
             
@@ -147,20 +180,20 @@ export function Performance() {
         } else {
              // ✅ SEM TRADES: Retornar dados vazios ao invés de mockados
              const equity = [
-                 { date: 'Inicio', balance: safePortfolio.initialBalance || 100, ai: 100, manual: 100 }
+                 { date: 'Inicio', balance: safePortfolio.initialBalance || 100 }
              ];
-             
+
              // Preencher 10 pontos para o gráfico não ficar vazio
              for (let i = 1; i < 10; i++) {
                  equity.push({ ...equity[0], date: '.' });
              }
-             
+
              return { equity, trades: [] }; // ✅ Array vazio de trades
         }
     } catch (err) {
         // ✅ FALLBACK: Dados vazios ao invés de mockados
         const equity = [
-            { date: 'Inicio', balance: safePortfolio.initialBalance || 100, ai: 100, manual: 100 }
+            { date: 'Inicio', balance: safePortfolio.initialBalance || 100 }
         ];
         
         // Preencher 10 pontos para o gráfico não ficar vazio
@@ -208,25 +241,25 @@ export function Performance() {
       });
   }, [tradeHistory, safePortfolio.initialBalance]);
 
+  // Distribuição por número de trades por ativo (unidade consistente — antes
+  // misturava volume real (amount×leverage) com peso fixo=1 quando faltava
+  // dado de posição, distorcendo a fatia de quem tinha volume desconhecido).
   const assetDistribution = React.useMemo(() => {
     const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
     const palette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
     const byAsset = new Map<string, number>();
-    let total = 0;
     validHistory.forEach((t: any) => {
       if (!t) return;
       const symbol = t.symbol || 'Desconhecido';
-      const volume = Math.abs(Number(t.amount) || 0) * (Number(t.leverage) || 1);
-      const weight = volume > 0 ? volume : 1; // sem valor de posição real, conta como 1 trade
-      byAsset.set(symbol, (byAsset.get(symbol) || 0) + weight);
-      total += weight;
+      byAsset.set(symbol, (byAsset.get(symbol) || 0) + 1);
     });
+    const total = validHistory.length;
     if (total === 0) return [];
     return Array.from(byAsset.entries())
       .sort(([, a], [, b]) => b - a)
-      .map(([name, weight], idx) => ({
+      .map(([name, count], idx) => ({
         name,
-        value: Math.round((weight / total) * 1000) / 10,
+        value: Math.round((count / total) * 1000) / 10,
         color: palette[idx % palette.length],
       }));
   }, [tradeHistory]);
@@ -251,7 +284,107 @@ export function Performance() {
         bestKey = k;
       }
     });
-    return { value: bestVal, label: new Date(bestKey).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) };
+    // `bestKey` é uma data UTC ("YYYY-MM-DD"). `new Date(bestKey)` a
+    // interpreta como meia-noite UTC; formatar isso no fuso local (Brasil,
+    // UTC-3) empurra pro dia anterior (achado 2026-08-21: valor batia com
+    // 04/08 no banco, mas o rótulo mostrava "03 de agosto"). Formata em UTC
+    // pra manter o mesmo dia usado no agrupamento acima.
+    const [y, m, d] = bestKey.split('-').map(Number);
+    const label = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', timeZone: 'UTC' });
+    return { value: bestVal, label };
+  }, [tradeHistory]);
+
+  // Melhor/Pior trade e tempo médio de operação — calculados aqui (não vêm
+  // de `performanceMetrics` do contexto) porque esse precisa respeitar o
+  // filtro de período da tela; `performanceMetrics` é sobre o histórico
+  // inteiro, sem filtro.
+  const tradeExtremes = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const closed = validHistory.filter((t: any) => t && t.closedAt && !isNaN(Number(t.timestamp)));
+    if (closed.length === 0) return null;
+    let best = -Infinity;
+    let worst = Infinity;
+    let holdSum = 0;
+    let holdCount = 0;
+    closed.forEach((t: any) => {
+      const p = Number(t.currentProfit) || 0;
+      if (p > best) best = p;
+      if (p < worst) worst = p;
+      const closedAt = Number(t.closedAt);
+      const openedAt = Number(t.timestamp);
+      if (!isNaN(closedAt) && !isNaN(openedAt) && closedAt > openedAt) {
+        holdSum += closedAt - openedAt;
+        holdCount += 1;
+      }
+    });
+    return {
+      bestTrade: best === -Infinity ? 0 : best,
+      worstTrade: worst === Infinity ? 0 : worst,
+      avgHoldMinutes: holdCount > 0 ? (holdSum / holdCount) / 1000 / 60 : null,
+    };
+  }, [tradeHistory]);
+
+  // Drawdown é métrica histórica da conta (não por trade), então não segue o
+  // filtro de período — mostra o pior drawdown já atingido, ponto.
+  const maxDrawdown = Number(portfolio?.maxDrawdownReached ?? portfolio?.currentDrawdown) || 0;
+
+  // Performance por ativo — conecta com o trabalho de scorecard de ativo
+  // (ver SESSAO_2026-08-21_PLANO_SCORECARD_PERFORMANCE_ATIVO.md). Esta
+  // tabela é a versão simples: PnL líquido e win rate real por símbolo,
+  // só com o que já está disponível em `tradeHistory`.
+  const assetPerformance = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const closed = validHistory.filter((t: any) => t && t.closedAt);
+    const bySymbol = new Map<string, { trades: number; wins: number; netPnl: number }>();
+    closed.forEach((t: any) => {
+      const symbol = t.symbol || 'Desconhecido';
+      const profit = Number(t.currentProfit) || 0;
+      const entry = bySymbol.get(symbol) || { trades: 0, wins: 0, netPnl: 0 };
+      entry.trades += 1;
+      if (profit > 0) entry.wins += 1;
+      entry.netPnl += profit;
+      bySymbol.set(symbol, entry);
+    });
+    return Array.from(bySymbol.entries())
+      .map(([symbol, stats]) => ({
+        symbol,
+        trades: stats.trades,
+        winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+        netPnl: stats.netPnl,
+      }))
+      .sort((a, b) => b.netPnl - a.netPnl);
+  }, [tradeHistory]);
+
+  // Performance por horário do dia e dia da semana — não é sinal de edge
+  // (contraria a decisão de produto do projeto: cérebro é de execução, não
+  // de alfa), é só uma lente operacional pra ver quando o resultado real
+  // tende a ser melhor/pior, calculada no fuso local do navegador.
+  const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const timePatterns = React.useMemo(() => {
+    const validHistory = Array.isArray(tradeHistory) ? tradeHistory : [];
+    const closed = validHistory.filter((t: any) => t && t.closedAt && !isNaN(Number(t.timestamp)));
+    const byHour = new Map<number, { trades: number; netPnl: number }>();
+    const byWeekday = new Map<number, { trades: number; netPnl: number }>();
+    closed.forEach((t: any) => {
+      const d = new Date(Number(t.timestamp));
+      if (isNaN(d.getTime())) return;
+      const profit = Number(t.currentProfit) || 0;
+      const hour = d.getHours();
+      const weekday = d.getDay();
+      const h = byHour.get(hour) || { trades: 0, netPnl: 0 };
+      h.trades += 1; h.netPnl += profit;
+      byHour.set(hour, h);
+      const w = byWeekday.get(weekday) || { trades: 0, netPnl: 0 };
+      w.trades += 1; w.netPnl += profit;
+      byWeekday.set(weekday, w);
+    });
+    const byHourArr = Array.from(byHour.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([hour, stats]) => ({ label: `${String(hour).padStart(2, '0')}h`, netPnl: Math.round(stats.netPnl * 100) / 100, trades: stats.trades }));
+    const byWeekdayArr = Array.from(byWeekday.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([weekday, stats]) => ({ label: WEEKDAY_LABELS[weekday], netPnl: Math.round(stats.netPnl * 100) / 100, trades: stats.trades }));
+    return { byHour: byHourArr, byWeekday: byWeekdayArr };
   }, [tradeHistory]);
 
   // Real Metrics Calculation - Safety Checks
@@ -267,9 +400,41 @@ export function Performance() {
     ? ((safeStats.totalWins / safeStats.totalTrades) * 100) 
     : 0;
     
-  const profitFactor = safeStats.grossLoss > 0 
-    ? (safeStats.grossProfit / safeStats.grossLoss) 
-    : safeStats.grossProfit > 0 ? 100 : 0; // Cap at 100 instead of infinite/99.9 for cleaner UI
+  const profitFactor = safeStats.grossLoss > 0
+    ? (safeStats.grossProfit / safeStats.grossLoss)
+    : safeStats.grossProfit > 0 ? Infinity : 0; // sem perdas: fator é literalmente infinito, não um valor arbitrário
+
+  const availableAssets = React.useMemo(
+    () => Array.from(new Set(baseData.trades.map((t) => t.asset))).sort(),
+    [baseData.trades]
+  );
+
+  const filteredTrades = React.useMemo(() => {
+    return baseData.trades.filter((t) => {
+      if (assetFilter !== 'all' && t.asset !== assetFilter) return false;
+      if (typeFilter !== 'all' && t.type !== typeFilter) return false;
+      if (resultFilter !== 'all' && t.result !== resultFilter) return false;
+      return true;
+    });
+  }, [baseData.trades, assetFilter, typeFilter, resultFilter]);
+
+  // Export CSV local — não depende de serviço externo, só serializa o que já
+  // está na tela (respeitando os filtros ativos), pro usuário auditar offline
+  // ou levar pra imposto de renda.
+  const exportTradesCsv = () => {
+    const header = ['Data/Hora', 'Ativo', 'Tipo', 'Resultado', 'Lucro (USD)', 'ROI (%)'];
+    const rows = filteredTrades.map((t) => [t.date, t.asset, t.type, t.result, t.profit.toFixed(2), t.roi.toFixed(2)]);
+    const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trades_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   if (!portfolio) {
       return <div className="p-8 text-center text-slate-500">Carregando dados de performance...</div>;
@@ -327,13 +492,6 @@ export function Performance() {
         </div>
       )}
 
-      {/* Latency Benchmark Section (New) */}
-      <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden">
-           <ErrorBoundary>
-               <LatencyBenchmark />
-           </ErrorBoundary>
-      </div>
-
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden group">
@@ -371,7 +529,7 @@ export function Performance() {
             </div>
             <span className="text-xs font-bold uppercase tracking-widest">Profit Factor</span>
           </div>
-          <p className="text-3xl font-bold text-white tracking-tight">{profitFactor.toFixed(2)}</p>
+          <p className="text-3xl font-bold text-white tracking-tight">{Number.isFinite(profitFactor) ? profitFactor.toFixed(2) : '∞'}</p>
           <p className="text-[10px] text-purple-400 mt-2 uppercase tracking-wider font-bold">
             Bruto: ${safeStats.grossProfit.toFixed(0)} / Perda: ${safeStats.grossLoss.toFixed(0)}
           </p>
@@ -393,6 +551,67 @@ export function Performance() {
         </div>
       </div>
 
+      {/* Risk & Trade Extremes */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden group">
+          <div className="flex items-center gap-2 text-red-400 mb-3">
+            <div className="p-1.5 bg-red-500/10 rounded border border-red-500/20">
+               <ShieldAlert className="w-4 h-4" />
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest">Drawdown Máximo</span>
+          </div>
+          <p className="text-3xl font-bold text-white tracking-tight">{maxDrawdown.toFixed(2)}%</p>
+          <p className="text-[10px] text-red-400 mt-2 uppercase tracking-wider font-bold">
+            Pior queda já registrada
+          </p>
+        </div>
+
+        <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden group">
+          <div className="flex items-center gap-2 text-emerald-400 mb-3">
+            <div className="p-1.5 bg-emerald-500/10 rounded border border-emerald-500/20">
+               <TrendingUp className="w-4 h-4" />
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest">Melhor Trade</span>
+          </div>
+          <p className="text-3xl font-bold text-white tracking-tight">
+            {tradeExtremes ? tradeExtremes.bestTrade.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }) : '—'}
+          </p>
+          <p className="text-[10px] text-emerald-400 mt-2 uppercase tracking-wider font-bold">
+            {tradeExtremes ? 'No período' : 'Sem trades ainda'}
+          </p>
+        </div>
+
+        <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden group">
+          <div className="flex items-center gap-2 text-red-400 mb-3">
+            <div className="p-1.5 bg-red-500/10 rounded border border-red-500/20">
+               <TrendingDown className="w-4 h-4" />
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest">Pior Trade</span>
+          </div>
+          <p className="text-3xl font-bold text-white tracking-tight">
+            {tradeExtremes ? tradeExtremes.worstTrade.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }) : '—'}
+          </p>
+          <p className="text-[10px] text-red-400 mt-2 uppercase tracking-wider font-bold">
+            {tradeExtremes ? 'No período' : 'Sem trades ainda'}
+          </p>
+        </div>
+
+        <div className="bg-neutral-950 border border-white/5 rounded-xl p-6 relative overflow-hidden group">
+          <div className="flex items-center gap-2 text-blue-400 mb-3">
+            <div className="p-1.5 bg-blue-500/10 rounded border border-blue-500/20">
+               <Clock className="w-4 h-4" />
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest">Tempo Médio</span>
+          </div>
+          <p className="text-3xl font-bold text-white tracking-tight">
+            {tradeExtremes?.avgHoldMinutes != null ? `${tradeExtremes.avgHoldMinutes.toFixed(0)}min` : '—'}
+          </p>
+          <p className="text-[10px] text-blue-400 mt-2 uppercase tracking-wider font-bold">
+            Duração média por trade
+          </p>
+        </div>
+      </div>
+
       {/* Equity Curve */}
       <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
         <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Curva de Capital</h2>
@@ -404,14 +623,6 @@ export function Performance() {
                   <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorAI" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorManual" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
@@ -433,22 +644,6 @@ export function Performance() {
                   strokeWidth={2}
                   fill="url(#colorBalance)"
                   name="Total"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="ai"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  fill="url(#colorAI)"
-                  name="AI Trader"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="manual"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fill="url(#colorManual)"
-                  name="Manual"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -555,10 +750,161 @@ export function Performance() {
         </div>
       </div>
 
+      {/* Asset Performance Table */}
+      <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
+        <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Performance por Ativo</h2>
+        {assetPerformance.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <Activity className="w-8 h-8 text-slate-600 mb-2" />
+            <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">Sem trades no período</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/5">
+                  <th className="text-left py-3 px-4 text-[10px] text-slate-500 font-bold uppercase tracking-widest">Ativo</th>
+                  <th className="text-right py-3 px-4 text-[10px] text-slate-500 font-bold uppercase tracking-widest">Trades</th>
+                  <th className="text-right py-3 px-4 text-[10px] text-slate-500 font-bold uppercase tracking-widest">Win Rate</th>
+                  <th className="text-right py-3 px-4 text-[10px] text-slate-500 font-bold uppercase tracking-widest">PnL Líquido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assetPerformance.map((row) => (
+                  <tr key={row.symbol} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <td className="py-3 px-4 text-xs font-bold text-white tracking-wide">{row.symbol}</td>
+                    <td className="py-3 px-4 text-xs text-slate-400 font-mono text-right">{row.trades}</td>
+                    <td className="py-3 px-4 text-xs text-slate-400 font-mono text-right">{row.winRate.toFixed(1)}%</td>
+                    <td className={`py-3 px-4 text-sm font-bold font-mono text-right ${row.netPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {row.netPnl >= 0 ? '+' : ''}${row.netPnl.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Time-of-Day & Weekday Patterns — lente operacional, não sinal de edge */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
+          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">PnL por Horário</h2>
+          <p className="text-[10px] text-slate-600 mb-6">Fuso local do navegador — padrão operacional, não previsão de resultado</p>
+          <div className="h-[240px] w-full">
+            {timePatterns.byHour.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <Clock className="w-8 h-8 text-slate-600 mb-2" />
+                <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">Sem trades no período</p>
+              </div>
+            ) : mounted ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={timePatterns.byHour}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                  <XAxis dataKey="label" stroke="#525252" tick={{ fontSize: 9 }} interval={1} />
+                  <YAxis stroke="#525252" tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#000', border: '1px solid #262626', borderRadius: '8px', fontSize: '12px' }}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    formatter={(value: number, _name, props: any) => [`$${value.toFixed(2)} (${props.payload.trades} trades)`, 'PnL']}
+                  />
+                  <Bar dataKey="netPnl" radius={[4, 4, 0, 0]}>
+                    {timePatterns.byHour.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.netPnl >= 0 ? '#10b981' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="w-full h-full bg-white/5 animate-pulse rounded" />
+            )}
+          </div>
+        </div>
+
+        <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
+          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">PnL por Dia da Semana</h2>
+          <p className="text-[10px] text-slate-600 mb-6">Fuso local do navegador — padrão operacional, não previsão de resultado</p>
+          <div className="h-[240px] w-full">
+            {timePatterns.byWeekday.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <Calendar className="w-8 h-8 text-slate-600 mb-2" />
+                <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">Sem trades no período</p>
+              </div>
+            ) : mounted ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={timePatterns.byWeekday}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                  <XAxis dataKey="label" stroke="#525252" tick={{ fontSize: 10 }} />
+                  <YAxis stroke="#525252" tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#000', border: '1px solid #262626', borderRadius: '8px', fontSize: '12px' }}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    formatter={(value: number, _name, props: any) => [`$${value.toFixed(2)} (${props.payload.trades} trades)`, 'PnL']}
+                  />
+                  <Bar dataKey="netPnl" radius={[4, 4, 0, 0]}>
+                    {timePatterns.byWeekday.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.netPnl >= 0 ? '#10b981' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="w-full h-full bg-white/5 animate-pulse rounded" />
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Trade History */}
       <div className="bg-neutral-950 border border-white/5 rounded-xl p-6">
-        <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Histórico de Trades</h2>
-        
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Histórico de Trades</h2>
+
+          {baseData.trades.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 text-slate-600">
+                <Filter className="w-3.5 h-3.5" />
+              </div>
+              <select
+                value={assetFilter}
+                onChange={(e) => setAssetFilter(e.target.value)}
+                className="bg-black border border-white/10 rounded-md text-xs text-slate-300 px-2 py-1.5 uppercase tracking-wider font-bold focus:outline-none focus:border-white/30"
+              >
+                <option value="all">Todos os ativos</option>
+                {availableAssets.map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as any)}
+                className="bg-black border border-white/10 rounded-md text-xs text-slate-300 px-2 py-1.5 uppercase tracking-wider font-bold focus:outline-none focus:border-white/30"
+              >
+                <option value="all">Compra e Venda</option>
+                <option value="BUY">Compra</option>
+                <option value="SELL">Venda</option>
+              </select>
+              <select
+                value={resultFilter}
+                onChange={(e) => setResultFilter(e.target.value as any)}
+                className="bg-black border border-white/10 rounded-md text-xs text-slate-300 px-2 py-1.5 uppercase tracking-wider font-bold focus:outline-none focus:border-white/30"
+              >
+                <option value="all">Win e Loss</option>
+                <option value="WIN">Só Wins</option>
+                <option value="LOSS">Só Losses</option>
+              </select>
+              <button
+                onClick={exportTradesCsv}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-white/10 text-xs font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-white/30 transition-all"
+                title="Exportar trades filtrados para CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                CSV
+              </button>
+            </div>
+          )}
+        </div>
+
         {baseData.trades.length === 0 ? (
           // ✅ MENSAGEM QUANDO NÃO HÁ TRADES
           <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -570,6 +916,18 @@ export function Performance() {
             </p>
             <p className="text-slate-600 text-xs">
               Inicie a AI ou execute operações manuais para ver o histórico
+            </p>
+          </div>
+        ) : filteredTrades.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-16 h-16 rounded-full bg-slate-800/50 border border-slate-700/50 flex items-center justify-center mb-4">
+              <Filter className="w-8 h-8 text-slate-600" />
+            </div>
+            <p className="text-slate-500 font-bold text-sm uppercase tracking-wider mb-1">
+              Nenhum trade bate com os filtros
+            </p>
+            <p className="text-slate-600 text-xs">
+              Ajuste os filtros acima para ver o histórico
             </p>
           </div>
         ) : (
@@ -587,7 +945,7 @@ export function Performance() {
                 </tr>
               </thead>
               <tbody>
-                {baseData.trades.map((trade) => (
+                {filteredTrades.map((trade) => (
                   <tr
                     key={trade.id}
                     className="border-b border-white/5 hover:bg-white/5 transition-colors"

@@ -1,13 +1,87 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Building2, CreditCard, DollarSign, FileText, ArrowUpRight, ArrowDownRight, RefreshCw, ShieldCheck, Zap } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Building2, CreditCard, DollarSign, FileText, ArrowUpRight, ArrowDownRight, RefreshCw, ShieldCheck, Zap, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useFinanceStore } from '../../../hooks/useFinanceStore';
-import { useTradingContext } from '../../contexts/TradingContext';
+import { supabase } from '@/lib/supabaseClient';
 import { format } from 'date-fns';
+
+// 🔴 2026-09-11 (auditoria pedida pelo Cleber -- achado real): esta tela
+// inteira estava quase 100% fabricada -- gráfico de fluxo de caixa, 3 contas
+// bancárias, obrigações fiscais e os 4 números abaixo (Receita YTD, Despesas,
+// Cash Runway, Provisão Fiscal) eram arrays/strings hardcoded no componente,
+// sem tabela nenhuma por trás. `houseStats` (card de comissão) também nunca
+// era calculado -- ficava em $0 pra sempre. Corrigido aqui: card de comissão
+// agora consulta `/admin/commission-summary` (agregado real de
+// `ai_trades.commission`, calculado no motor via commissionModel.ts). O
+// resto (contas bancárias, impostos, fluxo de caixa, YTD) segue mockado --
+// fora do escopo desta rodada, marcado explicitamente como tal na UI abaixo
+// em vez de continuar se passando por dado real.
+interface PlatformCommissionByAsset {
+  symbol: string;
+  trades: number;
+  notionalUsd: number;
+  accruedUsd: number;
+}
+
+interface PlatformCommissionCashFlowPoint {
+  day: string;
+  dayTotalUsd: number;
+  cumulativeUsd: number;
+}
+
+interface CommissionSummary {
+  totalClosedTrades: number;
+  demo: { trades: number; totalCommissionUsd: number; totalNetPnlUsd: number; totalGrossPnlUsd: number };
+  live: {
+    trades: number;
+    totalCommissionUsd: number;
+    totalNetPnlUsd: number;
+    totalGrossPnlUsd: number;
+    platformCommissionAccruedUsd: number;
+    platformCommissionByAsset: PlatformCommissionByAsset[];
+    platformCommissionCashFlow: PlatformCommissionCashFlowPoint[];
+    note: string;
+  };
+  last30Days: { trades: number; totalCommissionUsd: number };
+}
+
+function useCommissionSummary() {
+  const [summary, setSummary] = useState<CommissionSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) throw new Error('Sessão expirada — faça login novamente');
+        const res = await fetch(
+          `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/server/admin/commission-summary`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const json = await res.json();
+        if (!cancelled) setSummary(json);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Falha ao carregar comissão real');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return { summary, loading, error };
+}
 
 const data = [
   { name: 'Jan', revenue: 45000, expenses: 32000 },
@@ -32,27 +106,58 @@ const taxes = [
 
 export function FinanceModule() {
   const { sales, revenue } = useFinanceStore();
-  const { houseStats } = useTradingContext();
+  const { summary, loading: commissionLoading, error: commissionError } = useCommissionSummary();
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* HOUSE REVENUE CARD (NEW) */}
+        {/* HOUSE REVENUE CARD — dado real (achado 2026-09-11: antes ficava
+            sempre $0, `houseStats` nunca era calculado em lugar nenhum) */}
         <Card className="bg-emerald-900/20 border-emerald-500/30 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-bl-full -mr-4 -mt-4 pointer-events-none"></div>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-            <CardTitle className="text-sm font-medium text-emerald-400">Comissões da Casa (AI)</CardTitle>
+            <CardTitle className="text-sm font-medium text-emerald-400">Comissões da Casa (DEMO)</CardTitle>
             <DollarSign className="h-4 w-4 text-emerald-400" />
           </CardHeader>
           <CardContent className="relative z-10">
-            <div className="text-2xl font-bold text-white">US$ {houseStats?.totalRevenue.toFixed(2) || '0.00'}</div>
-            <p className="text-xs text-emerald-500/80 flex items-center mt-1">
-              <ArrowUpRight className="h-3 w-3 mr-1" /> {houseStats?.totalTrades || 0} trades comissionados
-            </p>
-            <div className="mt-3 pt-3 border-t border-emerald-500/20 flex justify-between text-[10px] text-slate-400">
-               <span>Volume: US${((houseStats?.totalVolume || 0)/1000).toFixed(1)}k</span>
-               <span>Fee Média: 20%</span>
+            {commissionError ? (
+              <div className="text-xs text-rose-400 flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> {commissionError}</div>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-white">
+                  {commissionLoading ? '...' : `US$ ${(summary?.demo.totalCommissionUsd ?? 0).toFixed(2)}`}
+                </div>
+                <p className="text-xs text-emerald-500/80 flex items-center mt-1">
+                  <ArrowUpRight className="h-3 w-3 mr-1" /> {summary?.demo.trades ?? 0} trades comissionados
+                </p>
+                <div className="mt-3 pt-3 border-t border-emerald-500/20 flex justify-between text-[10px] text-slate-400">
+                   <span>Últimos 30d: US${(summary?.last30Days.totalCommissionUsd ?? 0).toFixed(2)}</span>
+                   <span>{summary?.last30Days.trades ?? 0} trades</span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* HOUSE REVENUE CARD — LIVE (dinheiro real). 2026-09-11: receita
+            PRÓPRIA da plataforma sobre volume real executado, calculada por
+            ativo com taxa de mercado real (ver platformCommission.ts) —
+            substitui o número sempre-zero de antes. Ainda é ACCRUED (o que
+            deveria ter sido cobrado), não dinheiro já recebido — não existe
+            mecanismo de cobrança efetiva ainda, deixado explícito abaixo. */}
+        <Card className="bg-amber-900/10 border-amber-500/20 relative overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-amber-400">Comissões da Casa (LIVE)</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-amber-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-white">
+              {commissionLoading ? '...' : `US$ ${(summary?.live.platformCommissionAccruedUsd ?? 0).toFixed(2)}`}
             </div>
+            <p className="text-xs text-amber-500/80 mt-1">{summary?.live.trades ?? 0} trades reais fechados</p>
+            <p className="text-[10px] text-amber-600/80 mt-2 leading-snug">
+              Acumulado (accrued) sobre volume real, por ativo — ainda sem mecanismo de cobrança efetiva (fatura/débito/gateway). Ver detalhe por ativo abaixo.
+            </p>
           </CardContent>
         </Card>
 
@@ -69,7 +174,119 @@ export function FinanceModule() {
             </p>
           </CardContent>
         </Card>
+      </div>
 
+      {/* 🔴 2026-09-11: comissão própria da casa (LIVE) por ativo — dado real
+          (ai_trades real, taxa por classe de ativo pesquisada no mercado, ver
+          platformCommission.ts). Pedido do Cleber: "quanto arrecadamos, aonde
+          está esse dinheiro, tudo bem esclarecido em gráficos". */}
+      {summary && summary.live.platformCommissionByAsset.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-amber-400" /> Caixa da Comissão (LIVE) — Saldo Acumulado
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Lançamentos reais de <code className="text-slate-500">platform_commission_ledger</code>, 1 por trade real fechado, taxa travada no momento — ainda ACCRUED, sem mecanismo de cobrança do usuário implementado.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {summary.live.platformCommissionCashFlow.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 italic text-sm">
+                  Nenhum lançamento no caixa ainda — a tabela só passa a acumular a partir do 1º trade real fechado após esta migration.
+                </div>
+              ) : (
+                <div className="h-[240px]" style={{ minHeight: '240px' }}>
+                  <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
+                    <LineChart data={summary.live.platformCommissionCashFlow}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <XAxis dataKey="day" stroke="#64748b" />
+                      <YAxis stroke="#64748b" tickFormatter={(value) => `$${Number(value).toFixed(2)}`} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
+                        itemStyle={{ color: '#f8fafc' }}
+                        formatter={(value: number) => [`US$ ${Number(value).toFixed(2)}`, 'Saldo acumulado']}
+                      />
+                      <Line type="monotone" dataKey="cumulativeUsd" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-amber-400" /> Comissão da Casa (LIVE) por Ativo
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Acumulado real sobre volume executado na corretora, taxa calibrada por classe de ativo (pesquisa de mercado, ver código).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[240px]" style={{ minHeight: '240px' }}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
+                  <BarChart data={summary.live.platformCommissionByAsset}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="symbol" stroke="#64748b" />
+                    <YAxis stroke="#64748b" tickFormatter={(value) => `$${Number(value).toFixed(2)}`} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
+                      itemStyle={{ color: '#f8fafc' }}
+                      formatter={(value: number) => [`US$ ${Number(value).toFixed(2)}`, 'Comissão acumulada']}
+                    />
+                    <Bar dataKey="accruedUsd" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="col-span-full bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">Detalhe por Ativo</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="relative overflow-x-auto">
+                <table className="w-full text-sm text-left text-slate-400">
+                  <thead className="text-xs text-slate-500 uppercase bg-slate-900/50">
+                    <tr>
+                      <th scope="col" className="px-4 py-2">Ativo</th>
+                      <th scope="col" className="px-4 py-2">Trades reais</th>
+                      <th scope="col" className="px-4 py-2">Notional operado (US$)</th>
+                      <th scope="col" className="px-4 py-2">Comissão acumulada (US$)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.live.platformCommissionByAsset.map((row) => (
+                      <tr key={row.symbol} className="bg-slate-900/20 border-b border-slate-800">
+                        <td className="px-4 py-2 font-medium text-white">{row.symbol}</td>
+                        <td className="px-4 py-2">{row.trades}</td>
+                        <td className="px-4 py-2">{row.notionalUsd.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-2 text-amber-400 font-bold">{row.accruedUsd.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 🔴 2026-09-11: tudo abaixo (YTD/Despesas/Cash Runway/Provisão,
+          contas bancárias, obrigações fiscais, fluxo de caixa) é dado de
+          EXEMPLO hardcoded no componente -- nunca foi real, achado na
+          auditoria desta sessão. Marcado explicitamente em vez de continuar
+          se passando por real. Fora do escopo desta rodada (era sobre
+          comissão); reconstruir com dado real é trabalho separado. */}
+      <div className="flex items-center gap-2 px-1 text-amber-400/90 text-xs font-bold uppercase tracking-wider">
+        <AlertTriangle className="h-3.5 w-3.5" /> Seções abaixo: dados de exemplo (mock), não refletem números reais da empresa
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-slate-900/50 border-slate-800">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-slate-400">Receita Total (YTD)</CardTitle>

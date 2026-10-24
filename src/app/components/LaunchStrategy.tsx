@@ -18,8 +18,8 @@ export function LaunchStrategy() {
   const [expandedSection, setExpandedSection] = useState<string | null>('overview');
 
   return (
-    <div className="min-h-screen bg-black text-white p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="w-full h-full p-4 overflow-y-auto bg-black text-white custom-scrollbar">
+      <div className="w-full space-y-8">
         {/* Header */}
         <div className="border-b border-gray-800 pb-6">
           <div className="flex items-center gap-3 mb-3">

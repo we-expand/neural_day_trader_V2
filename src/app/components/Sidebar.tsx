@@ -1,14 +1,16 @@
 import React, { memo } from 'react';
-import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, Compass, ShoppingBag, Users, Layers, BarChart3, Scale, Rocket, MessageSquare, Brain, Beaker, Mic, Zap, ScrollText } from 'lucide-react';
+import { LayoutDashboard, Wallet, LineChart, Bot, TrendingUp, Settings, Sparkles, ShieldCheck, ShoppingBag, Users, Network, Layers, BarChart3, Scale, Rocket, Brain, Beaker, Mic, ScrollText} from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
-type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'pyramiding' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs';
+type View = 'dashboard' | 'wallet' | 'funds' | 'assets' | 'chart' | 'ai-trader' | 'performance' | 'settings' | 'system' | 'dev-lab' | 'innovation' | 'strategy' | 'store' | 'partners' | 'prop-challenge' | 'social' | 'competitive-analysis' | 'quantum-analysis' | 'ai-voice' | 'live-trading-test' | 'operation-logs' | 'jarvis';
 
 interface SidebarProps {
   currentView: View;
   onViewChange: (view: View) => void;
   isAdmin?: boolean;
   onLogout?: () => void;
+  isOpenOnMobile?: boolean;
+  onCloseMobile?: () => void;
 }
 
 const menuItems = [
@@ -17,20 +19,42 @@ const menuItems = [
   { id: 'chart' as View, label: 'Gráfico', icon: LineChart },
   { id: 'ai-trader' as View, label: 'AI Trader', icon: Bot },
   { id: 'ai-voice' as View, label: 'AI Trader Voice', icon: Mic },
-  { id: 'innovation' as View, label: 'IA Preditiva', icon: Sparkles },
+  { id: 'innovation' as View, label: 'Inteligência de Mercado', icon: Sparkles },
   { id: 'performance' as View, label: 'Performance', icon: TrendingUp },
   { id: 'store' as View, label: 'Marketplace', icon: ShoppingBag },
-  { id: 'partners' as View, label: 'Parceiros', icon: Users },
+  { id: 'partners' as View, label: 'Parceiros IB', icon: Network },
   { id: 'settings' as View, label: 'Configurações', icon: Settings },
 ];
 
-export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmin, onLogout }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmin, onLogout, isOpenOnMobile, onCloseMobile }: SidebarProps) {
   const handleViewChange = (view: View) => {
     onViewChange(view);
+    onCloseMobile?.();
   };
 
   return (
-    <aside id="app-sidebar" className="w-80 bg-black border-r border-white/5 flex flex-col h-screen font-sans">
+    <>
+      {/* Overlay escuro atrás do drawer, só em mobile (< md) quando aberto.
+          z-[500]/z-[510] — acima de QUALQUER overlay de tela, inclusive a
+          boleta do Gráfico (z-[220], deliberadamente alto pra vencer
+          camadas internas do klinecharts). Achado real 2026-09-15: sem
+          isso, abrir o menu em cima do Gráfico deixava a boleta "vazando"
+          por cima da navegação — a intenção de navegar sempre tem que
+          vencer, não o contrário. */}
+      {isOpenOnMobile && (
+        <div
+          className="fixed inset-0 bg-black/60 z-[500] md:hidden"
+          onClick={onCloseMobile}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        id="app-sidebar"
+        className={`w-80 max-w-[85vw] bg-black border-r border-white/5 flex flex-col h-screen font-sans
+          fixed inset-y-0 left-0 z-[510] transition-transform duration-200
+          ${isOpenOnMobile ? 'translate-x-0' : '-translate-x-full'}
+          md:relative md:translate-x-0 md:z-auto`}
+      >
       {/* ✅ LOGO — só ícone SVG, sem texto lateral */}
       <div
         className="px-6 py-6 border-b border-white/5 flex justify-center cursor-pointer hover:bg-white/[0.03] transition-colors"
@@ -102,30 +126,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               </button>
 
               <button
-                onClick={() => handleViewChange('strategy')}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'strategy'
-                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-cyan-300'
-                }`}
-              >
-                <Compass className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Estratégia</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('pyramiding')}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'pyramiding'
-                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-amber-400'
-                }`}
-              >
-                <Layers className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Pyramiding</span>
-              </button>
-
-              <button
                 onClick={() => handleViewChange('competitive-analysis')}
                 className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
                   currentView === 'competitive-analysis'
@@ -162,42 +162,6 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
               </button>
 
               <button
-                onClick={() => handleViewChange('trader-insights' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'trader-insights'
-                    ? 'bg-pink-500/10 text-pink-400 border-pink-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-pink-400'
-                }`}
-              >
-                <MessageSquare className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Insights Traders</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('quantum-analysis' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'quantum-analysis'
-                    ? 'bg-gray-500/10 text-gray-400 border-gray-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-gray-400'
-                }`}
-              >
-                <Brain className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Análise Quântica</span>
-              </button>
-
-              <button
-                onClick={() => handleViewChange('live-trading-test' as View)}
-                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
-                  currentView === 'live-trading-test'
-                    ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-red-400'
-                }`}
-              >
-                <Zap className="w-5 h-5 shrink-0" />
-                <span className="text-sm font-medium tracking-wide">Trading ao Vivo</span>
-              </button>
-
-              <button
                 onClick={() => handleViewChange('operation-logs' as View)}
                 className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
                   currentView === 'operation-logs'
@@ -208,10 +172,23 @@ export const Sidebar = memo(function Sidebar({ currentView, onViewChange, isAdmi
                 <ScrollText className="w-5 h-5 shrink-0" />
                 <span className="text-sm font-medium tracking-wide">Logs de Operações</span>
               </button>
+
+              <button
+                onClick={() => handleViewChange('jarvis' as View)}
+                className={`w-full flex items-center gap-4 px-5 py-3.5 mx-auto rounded-xl transition-all duration-200 border border-transparent group ${
+                  currentView === 'jarvis'
+                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                    : 'text-slate-400 hover:bg-white/5 hover:text-cyan-400'
+                }`}
+              >
+                <Brain className="w-5 h-5 shrink-0" />
+                <span className="text-sm font-medium tracking-wide">Jarvis</span>
+              </button>
             </div>
           </div>
         )}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 });

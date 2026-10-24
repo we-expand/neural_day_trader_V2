@@ -17,6 +17,29 @@ export interface ChartTemplateConfig {
   // onde o usuário tinha deixado a visão no momento de salvar.
   barSpace: number | null;
   offsetRightDistance: number | null;
+  // 🆕 POSIÇÃO REAL de scroll horizontal. `offsetRightDistance` acima NÃO é
+  // posição: na klinecharts é a folga fixa configurada à direita do último
+  // candle, e reescrevê-la (`setOffsetRightDistance`) recalcula
+  // `_lastBarRightSideDiffBarCount = offset / barSpace`, ou seja EMPURRA o
+  // gráfico de volta pro tempo real. Salvar/restaurar aquilo achando que era
+  // "onde o usuário deixou o gráfico" era a razão de a posição nunca segurar.
+  //
+  // A posição de verdade é guardada como uma ÂNCORA: um candle (por timestamp,
+  // não por índice — o dataset cresce a cada refresh) e a coordenada X em
+  // pixels onde ele estava na tela. Restaurar = colocar o mesmo candle no mesmo
+  // X. Medido no browser contra a klinecharts 9.8.10 (ver histórico da sessão):
+  // reconstruir a posição a partir de `visibleRange` em vez de pixels erra meia
+  // barra por vez (a lib arredonda `realTo = round(diff + total + 0.5)`), o que
+  // com o refresh de 30s vira uma deriva contínua — o gráfico "anda sozinho".
+  // Opcionais: templates salvos antes disso não têm.
+  anchorTimestamp?: number | null;
+  anchorX?: number | null;
+  // 🆕 Desenhos manuais do usuário (trendline, Fibonacci, formas, texto, emoji...).
+  // Só usado no estado de SESSÃO (sessionStorage) pra sobreviver à troca de aba da
+  // plataforma (ChartView desmonta/remonta a cada navegação) — não persistido em
+  // Templates nomeados nem no Setup Favorito, escopo mantido igual ao que já existia
+  // pra indicadores/timeframe. Opcional: sessões salvas antes desta mudança não têm.
+  userDrawings?: Array<{ name: string; points: unknown; styles: unknown; extendData: unknown; lock: boolean; visible: boolean }>;
 }
 
 export interface ChartTemplate {

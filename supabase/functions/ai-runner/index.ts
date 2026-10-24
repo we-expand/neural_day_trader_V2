@@ -36,11 +36,35 @@ import type { Candle } from '../../../src/app/services/indicators/TechnicalIndic
 import { PRESET_STRATEGIES } from '../../../src/app/data/presetStrategies.ts';
 import { getServiceClient } from './lib/serviceClient.ts';
 import { createRunnerPersistence } from './lib/persistence.ts';
-import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, type OpenPosition } from './lib/positionManager.ts';
+import { tickPositionManager, persistPositionClose, persistTrailingStopUpdate, persistPortfolioSnapshot, evaluatePyramidGroups, evaluateSinglePositionPartialTP, checkGapWindowBreaches, type OpenPosition, type PyramidGroupPosition } from './lib/positionManager.ts';
+import { PARTIAL_TP_PERCENT, PARTIAL_TP_TRIGGER_R } from '../../../src/app/services/risk/TradeFrictionControls.ts';
+import { fetchRealNewsEvents, fetchRealVIX } from './lib/marketContext.ts';
+import { fetchJarvisSizeMultiplier } from '../../../src/app/services/strategy/jarvisSizeMultiplier.ts';
+import { getRelevantCurrencies } from '../../../src/app/services/risk/NewsCurrencyRelevance.ts';
+import { runShadowDecisionAndLog } from './lib/decisionBrain.ts';
 
-const MAX_RUNTIME_MS = 45_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
+// 🔴 2026-08-27: 45s → 55s (achado do Cleber: SL síncrono via polling, não
+// ordem nativa na corretora — motor 100% virtual em DEMO, ver
+// `positionManager.ts:162`). Com 45s de loop + cron de ~1min, existia uma
+// janela cega de ~15s por minuto sem NENHUMA checagem de preço — dado real
+// mostrou trades fechando 1,3+ pontos além do stop registrado (ex:
+// SOLUSD `fe0adc2e`: stop em 95,01, fechou a 96,37). Subir pra 55s reduz
+// a janela cega pra ~5s. Não subimos pra 60s cheio: não existe lock contra
+// invocação concorrente do cron, e um empate exato no minuto arriscaria
+// duas invocações processando a mesma sessão ao mesmo tempo (posição
+// duplicada) — risco pior que o gap que estamos fechando.
+const MAX_RUNTIME_MS = 55_000; // folga sob o timeout de função Edge (invocada a cada ~1min por cron)
 const POSITION_TICK_MS = 1_000;
 const TRADING_CYCLE_TICK_MS = 5_000;
+// 🔴 FIX 2026-08-25 (achado do Cleber: Curva de Equity não representava
+// fielmente a evolução real após reset): `persistPortfolioSnapshot` só era
+// chamado em `applyRealizedPnLAndSnapshot`, ou seja, só no fechamento de um
+// trade — confirmado com dado real do Supabase: sessão de hoje (10:36 UTC,
+// $100 inicial) teve só 6 snapshots em 4h30 de vida, o primeiro já a
+// $101,99 (quase 2h depois do início). Sem heartbeat, a curva do Dashboard
+// (hidratada desses snapshots) nunca ancora no valor real de início e fica
+// com saltos grandes e desconexos entre fechamentos, em vez de contínua.
+const HEARTBEAT_SNAPSHOT_MS = 5 * 60 * 1000;
 
 interface RunnerSessionState {
   sessionId: string;
@@ -49,6 +73,7 @@ interface RunnerSessionState {
   activeOrders: TradeVisual[];
   portfolio: PortfolioState;
   orderHistory: TradeVisual[]; // trades fechados hoje (pra gates de risco/revenge) — carregado uma vez por invocação
+  lastSnapshotAt: number; // epoch ms do último snapshot em `ai_portfolio_snapshots` — gate do heartbeat (ver heartbeatSnapshotTick)
   candleBuffer: Map<string, { candles: Candle[]; fetchedAt: number }>;
   lastTradeTimestamp: number;
   lastTradedSymbol: string | null;
@@ -58,6 +83,49 @@ interface RunnerSessionState {
   cachedVIX: number;
   isActive: boolean;
   persistence: ReturnType<typeof createRunnerPersistence>;
+  positionTickFailureStreak: number;
+  // Pyramiding (2026-08-19) — layers já dispara no client (openManualPosition
+  // grava pyramid_group_id/pyramid_layer, migration 20260819), mas Partial
+  // TP e fechar-em-reversão exigem fechar posição, autoridade só do
+  // servidor. `triggeredPartialLayers` evita disparar o mesmo layer 2x
+  // dentro da mesma invocação (efêmero de propósito — cross-invocação, se o
+  // layer já foi parcialmente fechado, o próximo maxLayerInGroup não muda,
+  // então não re-dispara mesmo sem este cache; ele só existe pra não
+  // fechar 2x no mesmo segundo). `reversalSignalCache` guarda a última
+  // leitura de `ai_decisions` por símbolo — sinal REAL já persistido pelo
+  // próprio motor, nunca fabricado aqui — refrescada a cada tradingCycleTick
+  // (5s) pra não bater no banco a cada tick de 1s do position manager.
+  triggeredPartialLayers: Map<string, Set<number>>;
+  reversalSignalCache: Map<string, 'LONG' | 'SHORT'>;
+  reversalSignalCacheAt: number;
+  // TP parcial genérico fora de pyramiding (2026-08-28) — espelha
+  // `ai_trades.partial_tp_taken` (migration 20260828), carregado uma vez
+  // por invocação em loadSession e atualizado em memória quando dispara
+  // nesta mesma invocação (evita reconsulta ao banco a cada tick de 1s).
+  partialTpTakenIds: Set<string>;
+  // NEXUS (Fase 2, 2026-08-24) — throttle do tick de alerta proativo, mesmo
+  // padrão do reversalSignalCache acima (não bater no LLM a cada 5s).
+  nexusAlertCheckedAt: number;
+}
+
+const POSITION_TICK_FAILURE_ALERT_THRESHOLD = 10; // ~10s de falha consecutiva de preço dentro da mesma invocação
+
+/**
+ * Carrega uma sessão pro watchdog: mesmo carregamento de estado de
+ * `loadSession`, mas força `isActive = false` (nunca roda `tradingCycleTick`
+ * — só existe pra dar tick no `positionManagerTick` de posições `OPEN` cuja
+ * sessão não está `RUNNING`). Existe pra fechar a lacuna que causou posições
+ * zumbis em produção (2026-08-19): o handler principal só busca sessões
+ * `status='RUNNING'`, então uma posição `OPEN` cuja sessão saiu desse status
+ * (pausada, parada, cron desabilitado no meio do caminho) nunca mais tinha
+ * TP/SL monitorado — nem client (que já para de fechar em DEMO desde
+ * 2026-08-18) nem servidor. Ver NEXT_SESSION.md item 2.
+ */
+async function loadWatchdogSession(row: Record<string, any>): Promise<RunnerSessionState | null> {
+  const s = await loadSession(row);
+  if (!s) return null;
+  s.isActive = false;
+  return s;
 }
 
 async function loadSession(row: Record<string, any>): Promise<RunnerSessionState | null> {
@@ -97,6 +165,8 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     reasoning: t.ai_reasoning ?? '',
     indicators: t.indicators_snapshot ?? {},
     currentProfit: 0,
+    pyramidGroupId: t.pyramid_group_id ?? undefined,
+    pyramidLayer: t.pyramid_layer ?? undefined,
   }));
 
   const orderHistory: TradeVisual[] = (closedToday ?? []).map((t: any) => ({
@@ -142,6 +212,7 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     activeOrders,
     portfolio,
     orderHistory,
+    lastSnapshotAt: snap?.timestamp ? new Date(snap.timestamp).getTime() : 0,
     candleBuffer: new Map(),
     lastTradeTimestamp: 0,
     lastTradedSymbol: null,
@@ -151,7 +222,112 @@ async function loadSession(row: Record<string, any>): Promise<RunnerSessionState
     cachedVIX: 0,
     isActive: true,
     persistence: createRunnerPersistence(sessionId, userId),
+    positionTickFailureStreak: 0,
+    triggeredPartialLayers: new Map(),
+    reversalSignalCache: new Map(),
+    reversalSignalCacheAt: 0,
+    nexusAlertCheckedAt: 0,
+    partialTpTakenIds: new Set((openTrades ?? []).filter((t: any) => t.partial_tp_taken).map((t: any) => t.id)),
   };
+}
+
+/**
+ * Aplica PnL realizado (fechamento total, parcial, ou reversão) ao
+ * balance/equity em memória (pro RISK_GATE desta mesma invocação enxergar)
+ * e grava snapshot no banco — mesma lógica que já existia inline pro
+ * fechamento normal de TP/SL, extraída aqui pra ser reaproveitada pelo
+ * Pyramiding (Partial TP/reversão também realizam PnL, 2026-08-19).
+ */
+async function applyRealizedPnLAndSnapshot(s: RunnerSessionState, realizedPnL: number): Promise<void> {
+  const newBalance = s.portfolio.balance + realizedPnL;
+  const totalUnrealizedPnL = s.activeOrders.reduce((sum, o) => {
+    const price = o.currentPrice && o.currentPrice > 0 ? o.currentPrice : o.price;
+    const pnl = o.side === 'LONG'
+      ? (price - o.price) * (o.amount / o.price)
+      : (o.price - price) * (o.amount / o.price);
+    return sum + pnl;
+  }, 0);
+  const newEquity = newBalance + totalUnrealizedPnL;
+  const peakEquity = Math.max(s.portfolio.peakEquity ?? newEquity, newEquity);
+  const anchor = s.portfolio.dayAnchorEquity ?? newEquity;
+  const currentDrawdown = anchor > 0 && newEquity < anchor ? ((anchor - newEquity) / anchor) * 100 : 0;
+  s.portfolio = { ...s.portfolio, balance: newBalance, equity: newEquity, peakEquity, currentDrawdown };
+
+  await persistPortfolioSnapshot({
+    sessionId: s.sessionId,
+    userId: s.userId,
+    balance: newBalance,
+    equity: newEquity,
+    currentDrawdown,
+  });
+  s.lastSnapshotAt = Date.now();
+}
+
+/**
+ * Heartbeat da Curva de Equity (2026-08-25): grava um snapshot periódico
+ * mesmo sem nenhum trade fechar, usando o equity corrente (balance +
+ * PnL não-realizado das posições abertas, com `currentPrice` já atualizado
+ * por `positionManagerTick` neste tick). Sem isto, a curva só se move nos
+ * fechamentos de trade — que podem levar horas — e nunca reflete a
+ * variação real e contínua de equity entre eles.
+ */
+async function heartbeatSnapshotTick(s: RunnerSessionState): Promise<void> {
+  if (Date.now() - s.lastSnapshotAt < HEARTBEAT_SNAPSHOT_MS) return;
+
+  const totalUnrealizedPnL = s.activeOrders.reduce((sum, o) => {
+    const price = o.currentPrice && o.currentPrice > 0 ? o.currentPrice : o.price;
+    const pnl = o.side === 'LONG'
+      ? (price - o.price) * (o.amount / o.price)
+      : (o.price - price) * (o.amount / o.price);
+    return sum + pnl;
+  }, 0);
+  const equity = s.portfolio.balance + totalUnrealizedPnL;
+  const peakEquity = Math.max(s.portfolio.peakEquity ?? equity, equity);
+  const anchor = s.portfolio.dayAnchorEquity ?? equity;
+  const currentDrawdown = anchor > 0 && equity < anchor ? ((anchor - equity) / anchor) * 100 : 0;
+  s.portfolio = { ...s.portfolio, equity, peakEquity, currentDrawdown };
+
+  await persistPortfolioSnapshot({
+    sessionId: s.sessionId,
+    userId: s.userId,
+    balance: s.portfolio.balance,
+    equity,
+    currentDrawdown,
+  });
+  s.lastSnapshotAt = Date.now();
+}
+
+/**
+ * Lê a decisão mais recente do próprio motor (`ai_decisions`, gravada por
+ * `runTradingCycle` a cada símbolo avaliado no ciclo de trading) por
+ * símbolo — fonte REAL de sinal de reversão, nunca fabricada aqui. Cache
+ * de ~`TRADING_CYCLE_TICK_MS` pra não bater no banco a cada tick de 1s do
+ * position manager. Símbolo não avaliado recentemente = sem entrada no
+ * mapa = `closeAllOnReversal` não dispara pra ele (melhor não fechar do
+ * que fechar com base em ausência de dado).
+ */
+async function refreshReversalSignalCache(s: RunnerSessionState, symbols: string[]): Promise<void> {
+  if (symbols.length === 0) return;
+  if (Date.now() - s.reversalSignalCacheAt < TRADING_CYCLE_TICK_MS) return;
+  s.reversalSignalCacheAt = Date.now();
+  const sb = getServiceClient();
+  const since = new Date(Date.now() - 15 * 60_000).toISOString(); // janela de frescor: 15min
+  const { data, error } = await sb
+    .from('ai_decisions')
+    .select('symbol, decision, timestamp')
+    .eq('session_id', s.sessionId)
+    .in('symbol', symbols)
+    .in('decision', ['BUY', 'SELL'])
+    .gte('timestamp', since)
+    .order('timestamp', { ascending: false });
+  if (error) {
+    console.error('[ai-runner] refreshReversalSignalCache falhou:', error);
+    return;
+  }
+  for (const row of data ?? []) {
+    if (s.reversalSignalCache.has(row.symbol)) continue; // já tem a mais recente (ordenado desc)
+    s.reversalSignalCache.set(row.symbol, row.decision === 'BUY' ? 'LONG' : 'SHORT');
+  }
 }
 
 async function positionManagerTick(s: RunnerSessionState): Promise<void> {
@@ -161,13 +337,24 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
     entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
   }));
 
-  const { closed, slUpdates, prices } = await tickPositionManager({
+  const { closed, slUpdates, prices, priceFetchFailed } = await tickPositionManager({
     positions,
     timeframe: normalizeTf(s.config.timeframe),
     stopLossMode: s.config.stopLossMode,
     atrTrailingPeriod: s.config.atrTrailingPeriod || 14,
     atrTrailingMultiplier: s.config.atrTrailingMultiplier || 2.0,
   });
+
+  // Falha de fetch de preço hoje só logava uma vez por tick e seguia
+  // (`continue` silencioso indefinido, achado 2026-08-19). Sem streak visível,
+  // uma posição pode ficar dezenas de ticks sem preço real sem nada de
+  // diferente aparecer no log além do mesmo erro repetido. Escala pra um
+  // marcador distinto (grepável) quando a falha persiste — não é alerta de
+  // verdade (não existe canal pra isso ainda), só torna o problema visível.
+  s.positionTickFailureStreak = priceFetchFailed ? s.positionTickFailureStreak + 1 : 0;
+  if (s.positionTickFailureStreak > 0 && s.positionTickFailureStreak % POSITION_TICK_FAILURE_ALERT_THRESHOLD === 0) {
+    console.error(`[ai-runner] ALERTA: sessão ${s.sessionId} sem preço real por ${s.positionTickFailureStreak} ticks consecutivos (~${s.positionTickFailureStreak}s) — ${s.activeOrders.length} posição(ões) aberta(s) sem TP/SL monitorado neste intervalo.`);
+  }
 
   for (const [id, newSl] of slUpdates) {
     const order = s.activeOrders.find(o => o.id === id);
@@ -182,8 +369,108 @@ async function positionManagerTick(s: RunnerSessionState): Promise<void> {
     const closedIds = new Set(closed.map(c => c.id));
     s.activeOrders = s.activeOrders.filter(o => !closedIds.has(o.id));
     for (const c of closed) {
-      console.log(`[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} (pnl=${c.pnl.toFixed(2)})`);
+      // PnL do log é o LÍQUIDO (já com custo de execução descontado desde
+      // 2026-08-23). O bruto e o custo aparecem ao lado pra o operador enxergar
+      // quanto do resultado o spread está comendo — foi justamente essa parcela
+      // invisível que fez a amostra de 17→23/08 parecer −US$14 quando era −US$29.
+      console.log(
+        `[ai-runner] ${c.reason} atingido: ${c.symbol} @ ${c.exitPrice} — ` +
+        `${c.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${c.pnl >= 0 ? '+' : '-'}$${Math.abs(c.pnl).toFixed(2)} ` +
+        `(bruto ${c.grossPnl >= 0 ? '+' : '-'}$${Math.abs(c.grossPnl).toFixed(2)} − custo $${c.costUsd.toFixed(4)})`,
+      );
       await persistPositionClose(s.sessionId, c);
+    }
+    // Atualiza balance/equity em memória (pro RISK_GATE desta mesma invocação
+    // enxergar o fechamento) e grava snapshot — sem isto o balance gravado no
+    // banco fica travado no valor do último snapshot do CLIENTE indefinidamente
+    // sempre que o servidor fecha uma posição sem o cliente saber (achado
+    // 2026-08-18, ver comentário em persistPortfolioSnapshot).
+    const realizedPnL = closed.reduce((sum, c) => sum + c.pnl, 0);
+    await applyRealizedPnLAndSnapshot(s, realizedPnL);
+  }
+
+  // Pyramiding — Take Profit Parcial e Fechar em Reversão (2026-08-19). Só
+  // avalia se sobrou pelo menos 1 grupo com 2+ camadas (`length < 2` já
+  // filtra dentro de evaluatePyramidGroups, mas o find abaixo evita o custo
+  // de refresh do cache de sinal quando não há nenhum grupo pra avaliar).
+  const pyramidCfg = s.config.pyramiding;
+  const pyramidGroupCounts = new Map<string, number>();
+  for (const o of s.activeOrders) {
+    const key = o.pyramidGroupId ?? o.id;
+    pyramidGroupCounts.set(key, (pyramidGroupCounts.get(key) ?? 0) + 1);
+  }
+  const hasRealPyramidGroup = [...pyramidGroupCounts.values()].some(count => count >= 2);
+  if (pyramidCfg?.enabled && hasRealPyramidGroup) {
+    if (pyramidCfg.closeAllOnReversal) {
+      const groupSymbols = [...new Set(
+        s.activeOrders
+          .filter(o => (pyramidGroupCounts.get(o.pyramidGroupId ?? o.id) ?? 0) >= 2)
+          .map(o => o.symbol)
+      )];
+      await refreshReversalSignalCache(s, groupSymbols);
+    }
+    const positionsForPyramid: PyramidGroupPosition[] = s.activeOrders.map(o => ({
+      id: o.id, symbol: o.symbol, side: o.side, amount: o.amount,
+      entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
+      pyramidGroupId: o.pyramidGroupId ?? null, pyramidLayer: o.pyramidLayer ?? null,
+      currentPrice: o.currentPrice,
+    }));
+    const updates = await evaluatePyramidGroups({
+      sessionId: s.sessionId,
+      userId: s.userId,
+      positions: positionsForPyramid,
+      cfg: pyramidCfg,
+      reversalSignalBySymbol: s.reversalSignalCache,
+      triggeredPartialLayersByGroup: s.triggeredPartialLayers,
+    });
+    if (updates.length > 0) {
+      let realizedPnL = 0;
+      for (const u of updates) {
+        realizedPnL += u.pnl;
+        if (u.fullyClosed) {
+          s.activeOrders = s.activeOrders.filter(o => o.id !== u.orderId);
+        } else {
+          const order = s.activeOrders.find(o => o.id === u.orderId);
+          if (order) order.amount = u.remainingAmount;
+        }
+        console.log(`[ai-runner] PYRAMIDING: ${u.fullyClosed ? 'fechado 100%' : `fechado ${u.closedAmount.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`} — trade ${u.orderId} — ${u.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${u.pnl >= 0 ? '+' : '-'}$${Math.abs(u.pnl).toFixed(2)}`);
+      }
+      await applyRealizedPnLAndSnapshot(s, realizedPnL);
+    }
+  }
+
+  // TP parcial genérico fora de pyramiding (2026-08-28, ver
+  // positionManager.ts). Exclui QUALQUER posição de grupo de pyramiding
+  // real (2+ camadas) — mesmo com pyramiding desligado ou sem TP parcial
+  // configurado ali, pra nunca competir com o mecanismo de layer do
+  // pyramiding num mesmo grupo (escopo deliberadamente simples: uma
+  // posição pertence a exatamente um dos dois mecanismos, nunca aos dois).
+  if (s.activeOrders.length > 0) {
+    const positionsForPartial: OpenPosition[] = s.activeOrders
+      .filter(o => (pyramidGroupCounts.get(o.pyramidGroupId ?? o.id) ?? 0) < 2 && !s.partialTpTakenIds.has(o.id))
+      .map(o => ({
+        id: o.id, symbol: o.symbol, side: o.side, amount: o.amount,
+        entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
+      }));
+    if (positionsForPartial.length > 0) {
+      const partialUpdates = await evaluateSinglePositionPartialTP({
+        sessionId: s.sessionId, userId: s.userId, positions: positionsForPartial, currentPrices: prices,
+      });
+      if (partialUpdates.length > 0) {
+        let realizedPnL = 0;
+        for (const u of partialUpdates) {
+          realizedPnL += u.pnl;
+          s.partialTpTakenIds.add(u.orderId);
+          const order = s.activeOrders.find(o => o.id === u.orderId);
+          if (u.fullyClosed) {
+            s.activeOrders = s.activeOrders.filter(o => o.id !== u.orderId);
+          } else if (order) {
+            order.amount = u.remainingAmount;
+          }
+          console.log(`[ai-runner] TP PARCIAL (${PARTIAL_TP_PERCENT}% em +${PARTIAL_TP_TRIGGER_R}R): ${order?.symbol ?? u.orderId} — GANHO de +$${u.pnl.toFixed(2)} (resta ${u.remainingAmount.toFixed(2)})`);
+        }
+        await applyRealizedPnLAndSnapshot(s, realizedPnL);
+      }
     }
   }
 }
@@ -210,6 +497,8 @@ async function tradingCycleTick(s: RunnerSessionState): Promise<void> {
     cachedVIX: s.cachedVIX,
   };
 
+  const jarvisSizeMultiplier = await fetchJarvisSizeMultiplier(getServiceClient());
+
   const deps: TradingCycleDeps = {
     strategies: PRESET_STRATEGIES,
     executionMode: 'DEMO',
@@ -223,6 +512,47 @@ async function tradingCycleTick(s: RunnerSessionState): Promise<void> {
     fetchNewsCached: async () => s.cachedNewsEvents,
     fetchVIXCached: async () => s.cachedVIX,
     // getWsPrice deliberadamente omitido — sem WebSocket no servidor, cai pro REST (RealMarketDataService).
+    jarvisSizeMultiplier,
+    // Modo sombra do cérebro de decisão (2026-08-28) — só o driver servidor
+    // fornece este dep (o browser, via useApexLogic.ts, não passa
+    // onDecisionPoint, então roda inerte lá). Fire-and-forget de propósito:
+    // `runShadowDecisionAndLog` nunca é aguardado aqui, então uma chamada de
+    // LLM lenta ou fora do ar NUNCA atrasa nem afeta o ciclo real de trading.
+    onDecisionPoint: (info) => {
+      const upcomingHighImpactNews = s.cachedNewsEvents
+        .filter(e => e.impact === 'high')
+        .map(e => ({ currency: e.currency, minutesAway: Math.round((e.time - Date.now()) / 60000) }))
+        .filter(e => e.minutesAway >= -5 && e.minutesAway <= 240);
+      void runShadowDecisionAndLog({
+        sessionId: s.sessionId,
+        userId: s.userId,
+        mechanicalAction: info.mechanicalAction,
+        mechanicalStage: info.mechanicalAction === 'REJECT' ? 'REJECTED_STAGES_3_9' : null,
+        entryPriceSnapshot: info.entryPriceSnapshot,
+        atrSnapshot: info.atrSnapshot,
+        context: {
+          symbol: info.symbol,
+          strategySide: info.strategySide,
+          strategyConfidence: info.strategyConfidence,
+          rsi: info.rsi,
+          macdHistogram: info.macdHistogram,
+          macdHistogramPrev: info.macdHistogramPrev,
+          adx: info.adx,
+          // Market Score/regime/estrutura ainda não disponíveis neste payload
+          // (ver comentário em runTradingCycle.ts, onDecisionPoint) — null é
+          // o valor real conhecido agora, não um placeholder escondido.
+          marketScoreClassification: null,
+          marketScoreValue: null,
+          marketScoreRegime: null,
+          structureBias: null,
+          priceChangePercent24h: 0,
+          upcomingHighImpactNews,
+          userMarketMode: s.config.marketMode,
+          userDirection: s.config.direction,
+          sessionTimeUtc: new Date().toISOString(),
+        },
+      });
+    },
   };
 
   let result;
@@ -282,7 +612,140 @@ function applyEffects(s: RunnerSessionState, effects: TradingCycleEffect[]): voi
   }
 }
 
+const NEXUS_ALERT_TICK_MS = 15 * 60_000; // não bater no LLM a cada 5s — checa a cada 15min por sessão
+const NEXUS_CALENDAR_LOOKAHEAD_MS = 60 * 60_000; // evento de calendário dentro da próxima hora
+
+/**
+ * NEXUS (Fase 2) — alerta proativo gerado no servidor, roda mesmo se o
+ * usuário não estiver com a tela aberta. Reaproveita exatamente o mesmo dado
+ * (cachedNewsEvents, mesma janela do gate de notícia do motor) já carregado
+ * por `tradingCycleTick` — nunca busca notícia/calendário por conta própria.
+ * Só chama o LLM (nexus-brain) quando há algo real e relevante pra avisar;
+ * caso contrário não gasta chamada nenhuma.
+ */
+async function nexusAlertTick(s: RunnerSessionState): Promise<void> {
+  // Throttle via BANCO, não memória: cada invocação desta function roda por
+  // no máximo MAX_RUNTIME_MS (45s), muito menor que NEXUS_ALERT_TICK_MS
+  // (15min) — um contador em memória seria reiniciado a cada chamada do cron
+  // (a cada ~1min) e nunca segurar o throttle de verdade. `nexusAlertCheckedAt`
+  // ainda existe pra evitar rodar 2x dentro da MESMA invocação (loop de runSession).
+  const now = Date.now();
+  if (now - s.nexusAlertCheckedAt < NEXUS_ALERT_TICK_MS) return;
+  s.nexusAlertCheckedAt = now;
+
+  const nexusSecret = Deno.env.get('NEXUS_SHARED_SECRET');
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  if (!nexusSecret || !supabaseUrl) return; // NEXUS não configurado neste ambiente — silencioso, não é erro
+
+  const symbols = Array.from(new Set([...(s.config.activeAssets ?? []), ...s.activeOrders.map((o) => o.symbol)]));
+  if (symbols.length === 0) return;
+
+  const sb = getServiceClient();
+
+  for (const symbol of symbols) {
+    // Já existe alerta recente pra este ativo/usuário? Único jeito real de
+    // dar throttle entre invocações (o cron chama esta function ~1x/min, bem
+    // mais frequente que os 15min de intervalo desejado).
+    const { data: lastAlert } = await sb
+      .from('nexus_alerts')
+      .select('created_at')
+      .eq('user_id', s.userId)
+      .eq('symbol', symbol)
+      .gte('created_at', new Date(now - NEXUS_ALERT_TICK_MS).toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (lastAlert) continue;
+
+    const relevantCurrencies = getRelevantCurrencies(symbol);
+    const upcomingHighImpact = s.cachedNewsEvents.filter(
+      (e) => relevantCurrencies.includes((e.currency || '').toUpperCase()) && e.impact === 'high' && e.time - now >= 0 && e.time - now <= NEXUS_CALENDAR_LOOKAHEAD_MS
+    );
+
+    const { data: recentGuardEvents } = await sb
+      .from('price_guard_events')
+      .select('event_type, deviation_pct, created_at')
+      .eq('symbol', symbol)
+      .eq('event_type', 'suspicious_deviation')
+      .gte('created_at', new Date(now - NEXUS_ALERT_TICK_MS).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (upcomingHighImpact.length === 0 && (!recentGuardEvents || recentGuardEvents.length === 0)) continue;
+
+    const contextPackage = {
+      symbol,
+      agendaEconomicaRelevante: upcomingHighImpact,
+      guardaDePrecoRecente: recentGuardEvents ?? [],
+    };
+
+    try {
+      const res = await fetch(`${supabaseUrl}/functions/v1/nexus-brain`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-nexus-secret': nexusSecret },
+        body: JSON.stringify({ userId: s.userId, contextPackage }),
+      });
+      if (!res.ok) {
+        console.error(`[ai-runner] nexus-brain retornou ${res.status} pro alerta de ${symbol}`);
+        continue;
+      }
+      const { text } = await res.json();
+      if (!text) continue;
+
+      await sb.from('nexus_alerts').insert({
+        user_id: s.userId,
+        session_id: s.sessionId,
+        symbol,
+        severity: recentGuardEvents && recentGuardEvents.length > 0 ? 'critical' : 'warning',
+        kind: recentGuardEvents && recentGuardEvents.length > 0 ? 'price_guard' : 'calendar',
+        message: text,
+        context_json: contextPackage,
+      });
+    } catch (err) {
+      console.error(`[ai-runner] Falha ao gerar alerta NEXUS pra ${symbol}:`, err);
+    }
+  }
+}
+
+/**
+ * Checagem de janela cega (ver positionManager.ts, `checkGapWindowBreaches`)
+ * — roda UMA VEZ no início da invocação, antes do loop de 1s, pra pegar
+ * qualquer SL/TP cruzado enquanto o runner estava parado (ou entre dois
+ * ticks de 1s da invocação anterior) antes que o loop normal de preço
+ * pontual sequer comece.
+ */
+async function gapWindowCheckTick(s: RunnerSessionState): Promise<void> {
+  if (s.activeOrders.length === 0) return;
+  const positions: OpenPosition[] = s.activeOrders.map(o => ({
+    id: o.id, symbol: o.symbol, side: o.side, amount: o.amount,
+    entryPrice: o.price, tp: o.tp, sl: o.sl, originalSl: o.originalSl,
+  }));
+
+  const closed = await checkGapWindowBreaches(positions);
+  if (closed.length === 0) return;
+
+  const closedIds = new Set(closed.map(c => c.id));
+  s.activeOrders = s.activeOrders.filter(o => !closedIds.has(o.id));
+  for (const c of closed) {
+    console.log(
+      `[ai-runner] JANELA CEGA — ${c.reason} cruzado durante o gap: ${c.symbol} @ ${c.exitPrice} — ` +
+      `${c.pnl >= 0 ? 'GANHO' : 'PERDA'} de ${c.pnl >= 0 ? '+' : '-'}$${Math.abs(c.pnl).toFixed(2)}`,
+    );
+    await persistPositionClose(s.sessionId, c);
+  }
+  const realizedPnL = closed.reduce((sum, c) => sum + c.pnl, 0);
+  await applyRealizedPnLAndSnapshot(s, realizedPnL);
+}
+
 async function runSession(s: RunnerSessionState, deadline: number): Promise<void> {
+  // NEXUS (Fase 2) — checagem proativa de risco/calendário, uma vez por
+  // invocação (o próprio throttle interno decide se já é hora de fato).
+  // Roda antes do loop de tick pra nunca competir por tempo com posição/TP-SL.
+  await nexusAlertTick(s);
+
+  // Janela cega (2026-08-28) — antes de QUALQUER tick de preço pontual,
+  // fecha o que já deveria ter fechado enquanto o runner estava parado.
+  await gapWindowCheckTick(s);
+
   let lastPositionTick = 0;
   let lastTradingTick = 0;
   while (Date.now() < deadline) {
@@ -290,6 +753,7 @@ async function runSession(s: RunnerSessionState, deadline: number): Promise<void
     if (now - lastPositionTick >= POSITION_TICK_MS) {
       lastPositionTick = now;
       await positionManagerTick(s);
+      await heartbeatSnapshotTick(s);
     }
     if (s.isActive && now - lastTradingTick >= TRADING_CYCLE_TICK_MS) {
       lastTradingTick = now;
@@ -306,7 +770,19 @@ async function runSession(s: RunnerSessionState, deadline: number): Promise<void
   // Persiste estado final da sessão (status + snapshot de portfolio) antes de sair.
   const sb = getServiceClient();
   if (!s.isActive) {
-    await sb.from('ai_sessions').update({ status: 'PAUSED' }).eq('id', s.sessionId);
+    // 🔴 FIX 2026-08-21 (achado do Cleber: sessão ficou "PAUSED" no banco
+    // mesmo depois de um Reset explícito do cliente, que grava
+    // status='COMPLETED' + ended_at via `endSession`): esta invocação do
+    // runner não sabe que o cliente já encerrou a sessão nesse meio tempo —
+    // sem o `.eq('status', 'RUNNING')` abaixo, este UPDATE sobrescrevia
+    // COMPLETED de volta pra PAUSED sempre que a corrida caía desse lado
+    // (client termina primeiro, runner grava por cima depois). Efeito
+    // colateral real: `getLastCompletedSession` (herança de capital entre
+    // sessões) parava de achar essa sessão — ficava presa em PAUSED, não
+    // COMPLETED — e a próxima sessão herdava saldo de uma sessão MAIS
+    // ANTIGA, errado. Com o guard, este UPDATE só aplica se a sessão ainda
+    // estiver RUNNING no banco (ninguém a encerrou explicitamente antes).
+    await sb.from('ai_sessions').update({ status: 'PAUSED' }).eq('id', s.sessionId).eq('status', 'RUNNING');
   }
 }
 
@@ -328,12 +804,67 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
   }
 
-  if (!sessions || sessions.length === 0) {
-    return new Response(JSON.stringify({ sessions: 0 }), { status: 200 });
+  const runningIds = new Set((sessions ?? []).map((s: any) => s.id));
+
+  // WATCHDOG (item 2 de NEXT_SESSION.md, 2026-08-19): posição zumbi = posição
+  // `OPEN` cuja sessão não está mais `RUNNING` (pausada, parada, cron
+  // desabilitado no meio de uma sessão ativa) e por isso nunca mais recebe
+  // tick de TP/SL — nem do client (que já não fecha em DEMO desde 2026-08-18)
+  // nem do handler principal (que só olha `status='RUNNING'`). Busca toda
+  // sessão DEMO com pelo menos uma posição `OPEN`, independente do status, e
+  // roda pra ela SÓ o `positionManagerTick` (nunca `tradingCycleTick` —
+  // `loadWatchdogSession` força `isActive = false`, então nenhuma entrada
+  // nova é aberta por uma sessão não-RUNNING).
+  const { data: openTradeSessions, error: openTradeErr } = await sb
+    .from('ai_trades')
+    .select('session_id')
+    .eq('status', 'OPEN');
+  if (openTradeErr) {
+    console.error('[ai-runner] Falha ao listar posições OPEN pro watchdog (seguindo só com sessões RUNNING):', openTradeErr);
+  }
+  const orphanSessionIds = [...new Set((openTradeSessions ?? []).map((t: any) => t.session_id))]
+    .filter(id => !runningIds.has(id));
+
+  let orphanSessions: Record<string, any>[] = [];
+  if (orphanSessionIds.length > 0) {
+    const { data, error: orphanErr } = await sb
+      .from('ai_sessions')
+      .select('*')
+      .in('id', orphanSessionIds)
+      .eq('mode', 'DEMO');
+    if (orphanErr) {
+      console.error('[ai-runner] Falha ao carregar sessões órfãs pro watchdog:', orphanErr);
+    } else {
+      orphanSessions = data ?? [];
+    }
+  }
+
+  if ((!sessions || sessions.length === 0) && orphanSessions.length === 0) {
+    return new Response(JSON.stringify({ sessions: 0, watchdog: 0 }), { status: 200 });
   }
 
   const deadline = Date.now() + MAX_RUNTIME_MS;
-  const loaded = (await Promise.all(sessions.map(loadSession))).filter((s): s is RunnerSessionState => s !== null);
+  const loaded = (await Promise.all((sessions ?? []).map(loadSession))).filter((s): s is RunnerSessionState => s !== null);
+  const watchdogLoaded = (await Promise.all(orphanSessions.map(loadWatchdogSession))).filter((s): s is RunnerSessionState => s !== null);
+  if (watchdogLoaded.length > 0) {
+    console.log(`[ai-runner] Watchdog: ${watchdogLoaded.length} sessão(ões) não-RUNNING com posição OPEN — monitorando só TP/SL.`);
+  }
+
+  // 🔒 Achado 2026-08-21: `cachedNewsEvents`/`cachedVIX` saíam de `loadSession`
+  // sempre vazios/zero (stub morto) — o gate de notícias e o VIX do
+  // TailRiskGuard nunca tinham dado real pra checar NESTE driver (browser já
+  // funcionava). Uma busca só por invocação, aplicada a todas as sessões
+  // `loaded` (watchdog não avalia `tradingCycleTick`, não precisa). Falha de
+  // rede já é tratada dentro de `fetchRealNewsEvents`/`fetchRealVIX` como
+  // "sem dado" (lista vazia / `null`), nunca fabricada.
+  if (loaded.length > 0) {
+    const [realNewsEvents, realVix] = await Promise.all([fetchRealNewsEvents(), fetchRealVIX()]);
+    console.log(`[ai-runner] Contexto de mercado real: ${realNewsEvents.length} evento(s) de agenda econômica, VIX ${realVix !== null ? realVix.toFixed(2) : 'indisponível'}.`);
+    for (const s of loaded) {
+      s.cachedNewsEvents = realNewsEvents;
+      s.cachedVIX = realVix ?? 0;
+    }
+  }
 
   // Sessões rodam em SÉRIE, nunca em paralelo — a conta MetaAPI da plataforma é
   // compartilhada entre todos os usuários (ver CLAUDE.md, "Risco crônico
@@ -343,14 +874,21 @@ Deno.serve(async (req) => {
   // Promise.all aqui, 3 sessões RUNNING disparavam candle fetch simultâneo e
   // toda tentativa de 15m falhava. O driver do browser nunca teve esse
   // problema porque só roda uma sessão por vez (a do usuário logado na aba).
+  // Watchdog roda DEPOIS das sessões RUNNING — TP/SL de zumbis pode esperar
+  // alguns segundos a mais, prioridade é a sessão ativa do usuário.
   for (const s of loaded) {
+    if (Date.now() >= deadline) break;
+    await runSession(s, deadline);
+  }
+  for (const s of watchdogLoaded) {
     if (Date.now() >= deadline) break;
     await runSession(s, deadline);
   }
 
   return new Response(JSON.stringify({
     sessions: loaded.length,
-    summary: loaded.map(s => ({ sessionId: s.sessionId, activeOrders: s.activeOrders.length, isActive: s.isActive })),
+    watchdog: watchdogLoaded.length,
+    summary: [...loaded, ...watchdogLoaded].map(s => ({ sessionId: s.sessionId, activeOrders: s.activeOrders.length, isActive: s.isActive })),
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 });
 

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import {
   Users, Search, Filter, Download, Eye, Mail, Phone, MapPin,
-  Calendar, Briefcase, Target, TrendingUp, AlertCircle, X, ChevronDown, ChevronUp
+  Calendar, Briefcase, Target, TrendingUp, AlertCircle, X, ChevronDown, ChevronUp,
+  Globe, Wifi, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from '@/lib/supabaseClient';
 
 interface UserDataEntry {
   id: string;
@@ -34,6 +36,23 @@ interface UserDataEntry {
   privacyAccepted: boolean;
   marketingConsent: boolean;
   dataProcessingConsent: boolean;
+  // 🆕 2026-09-09: telemetria real (IP/geolocalização/dispositivo/presença),
+  // correlacionada por email com /telemetry/users -- null quando o usuário
+  // nunca abriu o app desde que a coleta foi ligada.
+  telemetry?: TelemetryEntry | null;
+}
+
+interface TelemetryEntry {
+  userId: string;
+  email: string | null;
+  ip: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  isp: string | null;
+  device: { os: string | null; browser: string | null; screen: string | null; connection: string | null; language: string | null } | null;
+  lastSeenAt: string | null;
+  isOnline: boolean;
 }
 
 export function UserDataDashboard() {
@@ -51,18 +70,51 @@ export function UserDataDashboard() {
 
   const fetchUserData = async () => {
     try {
-      const response = await fetch(
-        `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/server/user-data`,
-        {
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-        }
-      );
+      // 🚨 FIX (2026-09-09): esta rota exige JWT real de admin (requireAdmin,
+      // ver supabase/functions/server/index.ts) -- mandava a anon key pública
+      // aqui, que nunca teria passado nesse gate (mesma classe de bug já
+      // corrigida em UserIntelligence.tsx na auditoria de 2026-08-03).
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        toast.error('Sessão expirada — faça login novamente');
+        setLoading(false);
+        return;
+      }
+
+      const [response, telemetryResponse] = await Promise.all([
+        fetch(
+          `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/server/user-data`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        ),
+        // 🆕 2026-09-09: telemetria real (IP/geolocalização/dispositivo/presença)
+        fetch(
+          `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/server/telemetry/users`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        ).catch(() => null),
+      ]);
 
       if (response.ok) {
         const data = await response.json();
-        setUsers(data.users || []);
+
+        let telemetryByEmail = new Map<string, TelemetryEntry>();
+        if (telemetryResponse && telemetryResponse.ok) {
+          const telemetryData = await telemetryResponse.json().catch(() => null);
+          if (telemetryData?.telemetry) {
+            telemetryByEmail = new Map(
+              telemetryData.telemetry
+                .filter((t: TelemetryEntry) => !!t.email)
+                .map((t: TelemetryEntry) => [t.email!.toLowerCase(), t])
+            );
+          }
+        }
+
+        const usersWithTelemetry = (data.users || []).map((u: UserDataEntry) => ({
+          ...u,
+          telemetry: telemetryByEmail.get((u.email || '').toLowerCase()) || null,
+        }));
+
+        setUsers(usersWithTelemetry);
       } else {
         toast.error('Erro ao carregar dados de usuários');
       }
@@ -71,6 +123,29 @@ export function UserDataDashboard() {
       toast.error('Erro de conexão');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const deleteTelemetry = async (entry: UserDataEntry) => {
+    if (!entry.telemetry?.userId) return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        toast.error('Sessão expirada — faça login novamente');
+        return;
+      }
+      const response = await fetch(
+        `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/server/telemetry/${entry.telemetry.userId}`,
+        { method: 'DELETE', headers: { 'Authorization': `Bearer ${accessToken}` } }
+      );
+      if (!response.ok) throw new Error('Falha ao remover telemetria');
+      toast.success('Telemetria do usuário removida (LGPD)');
+      setSelectedUser(prev => prev ? { ...prev, telemetry: null } : prev);
+      setUsers(prev => prev.map(u => u.id === entry.id ? { ...u, telemetry: null } : u));
+    } catch (error) {
+      console.error('Erro ao remover telemetria:', error);
+      toast.error('Falha ao remover telemetria');
     }
   };
 
@@ -85,7 +160,8 @@ export function UserDataDashboard() {
       'Tipo Doc', 'Número Doc', 'CEP', 'Rua', 'Número', 'Complemento',
       'Bairro', 'Cidade', 'Estado', 'País', 'Profissão', 'Renda Mensal',
       'Experiência Trading', 'Objetivo Investimento', 'Tolerância Risco',
-      'Horas/Semana', 'Data Cadastro', 'Marketing Consent'
+      'Horas/Semana', 'Data Cadastro', 'Marketing Consent',
+      'IP (último registrado)', 'Localização aproximada', 'Dispositivo', 'Última atividade'
     ];
 
     const csvData = users.map(user => [
@@ -111,7 +187,11 @@ export function UserDataDashboard() {
       user.riskTolerance,
       user.tradingHoursPerWeek,
       new Date(user.timestamp).toLocaleString('pt-BR'),
-      user.marketingConsent ? 'SIM' : 'NÃO'
+      user.marketingConsent ? 'SIM' : 'NÃO',
+      user.telemetry?.ip || '',
+      [user.telemetry?.city, user.telemetry?.region, user.telemetry?.country].filter(Boolean).join(', '),
+      user.telemetry?.device ? `${user.telemetry.device.os || ''} ${user.telemetry.device.screen || ''}`.trim() : '',
+      user.telemetry?.lastSeenAt ? new Date(user.telemetry.lastSeenAt).toLocaleString('pt-BR') : '',
     ]);
 
     const csv = [
@@ -498,6 +578,58 @@ export function UserDataDashboard() {
                     <ConsentBadge label="Processamento de Dados (LGPD)" accepted={selectedUser.dataProcessingConsent} />
                     <ConsentBadge label="Marketing" accepted={selectedUser.marketingConsent} optional />
                   </div>
+                </div>
+
+                {/* 🆕 2026-09-09: Rastreamento de sessão (IP/geolocalização/dispositivo/
+                    presença) -- real, ligado via UserTracker.tsx, base legal são os
+                    Termos de Uso acima. Correlacionado por email com /telemetry/users
+                    (chaves diferentes: este registro é da onboarding/KV, a telemetria
+                    usa o user_id real do Supabase Auth). */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-bold text-cyan-500 uppercase tracking-wider flex items-center gap-2">
+                      <Globe className="w-4 h-4" />
+                      Rastreamento de Sessão
+                    </h4>
+                    {selectedUser.telemetry && (
+                      <button
+                        onClick={() => deleteTelemetry(selectedUser)}
+                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-red-400 hover:text-white hover:bg-red-600/80 border border-red-500/30 rounded-lg transition-all"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Excluir dados de rastreamento
+                      </button>
+                    )}
+                  </div>
+                  {selectedUser.telemetry ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <InfoField label="IP" value={selectedUser.telemetry.ip || '—'} icon={<Globe className="w-4 h-4" />} />
+                      <InfoField
+                        label="Localização aproximada"
+                        value={[selectedUser.telemetry.city, selectedUser.telemetry.region, selectedUser.telemetry.country].filter(Boolean).join(', ') || 'Não resolvida'}
+                        icon={<MapPin className="w-4 h-4" />}
+                      />
+                      {selectedUser.telemetry.isp && (
+                        <InfoField label="Provedor de rede" value={selectedUser.telemetry.isp} icon={<Wifi className="w-4 h-4" />} />
+                      )}
+                      <InfoField
+                        label="Dispositivo"
+                        value={`${selectedUser.telemetry.device?.os || '—'} · ${selectedUser.telemetry.device?.screen || '—'}`}
+                      />
+                      <InfoField
+                        label="Última atividade"
+                        value={selectedUser.telemetry.lastSeenAt ? new Date(selectedUser.telemetry.lastSeenAt).toLocaleString('pt-BR') : '—'}
+                        icon={<Calendar className="w-4 h-4" />}
+                      />
+                      <InfoField label="Status" value={selectedUser.telemetry.isOnline ? 'Online agora' : 'Offline'} />
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-black/30 border border-dashed border-white/10 rounded-lg text-center">
+                      <p className="text-xs text-slate-500">
+                        Nenhum registro de telemetria correlacionado a este email (usuário ainda não abriu o app logado desde que a coleta foi ligada).
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
