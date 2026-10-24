@@ -4,9 +4,10 @@
  * (`research/MeasuredSpreads.ts`) — é dela que sai o custo (commissionModel.ts).
  * Ver research/COST_SOURCE_OF_TRUTH.md.
  *
- * BTCUSD é roteado pra Binance no servidor (spread ~0,00001%, não é o da
- * corretora); o spread real de BTC vem do proxy BTCEUR (mesmo instrumento, mesma
- * corretora) e é gravado sob 'BTCUSD' com source 'proxy:BTCEUR'.
+ * BTCUSD é roteado pra Binance no servidor (/mt5-prices: spread ~0,00001%, não é o da
+ * corretora). Desde 2026-10-24 o spread de BTC vem do tick BRUTO do broker (rota /broker-tick,
+ * Infinox) e é gravado sob 'BTCUSD' com source 'broker_tick'. O proxy BTCEUR deixou de ser
+ * gravado como BTCUSD (as linhas 'proxy:BTCEUR' antigas saem da mediana em 7 dias).
  */
 import { createClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
@@ -42,8 +43,25 @@ async function sample(): Promise<void> {
   for (const t of json.prices) {
     if (!t?.symbol || !(t.bid > 0) || !(t.ask > 0) || t.ask < t.bid) continue;
     const spread_pct = ((t.ask - t.bid) / t.bid) * 100;
-    if (t.symbol === "BTCEUR") rows.push({ symbol: "BTCUSD", bid: t.bid, ask: t.ask, spread_pct, source: "proxy:BTCEUR" });
     rows.push({ symbol: t.symbol, bid: t.bid, ask: t.ask, spread_pct, source: "broker_tick" });
+  }
+  // BTCUSD real da corretora (a rota acima devolve o da Binance). Falha aqui nao derruba as outras amostras.
+  try {
+    const bt = await fetch(`${config.neuralSupabaseUrl}/functions/v1/server/broker-tick`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: ["BTCUSD"] }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (bt.ok) {
+      const bj: any = await bt.json();
+      const t = Array.isArray(bj?.ticks) ? bj.ticks.find((x: any) => x?.symbol === "BTCUSD") : null;
+      if (t && t.bid > 0 && t.ask > 0 && t.ask >= t.bid) {
+        rows.push({ symbol: "BTCUSD", bid: t.bid, ask: t.ask, spread_pct: ((t.ask - t.bid) / t.bid) * 100, source: "broker_tick" });
+      }
+    }
+  } catch (err) {
+    console.warn("[spreadCollector] BTCUSD do broker indisponivel (segue sem amostra de BTC):", err instanceof Error ? err.message : err);
   }
   if (rows.length === 0) return;
   const { error } = await supa().from("market_spread_samples").insert(rows);

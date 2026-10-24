@@ -6697,6 +6697,41 @@ app.get('/binance-klines', async (c) => {
   }
 });
 
+// 2026-10-24 (Cleber: "custo do BTC tem que ser o real da Infinox"): /mt5-prices manda o BTCUSD para a Binance (spread de ~0,00001%), entao o
+// spread REAL da corretora nao aparecia em lugar nenhum e o custo usava o proxy BTCEUR. Esta rota devolve o tick BRUTO do broker (bid/ask),
+// sem cache e sem passar pelo atalho da Binance, e NAO mexe no preco que o app exibe. Uso: coletor de spread (llm-active-brain/src/spreadCollector.ts).
+app.post('/broker-tick', async (c) => {
+  try {
+    const { symbols } = await c.req.json();
+    if (!Array.isArray(symbols) || symbols.length === 0 || symbols.length > 10 || !symbols.every((s: unknown) => typeof s === 'string' && /^[A-Z0-9]{3,12}$/.test(s))) {
+      return c.json({ error: true, message: 'symbols invalido (1 a 10 simbolos, A-Z0-9)' }, 400);
+    }
+    const metaapiToken = await getMetaApiToken();
+    const metaapiAccountId = Deno.env.get('METAAPI_ACCOUNT_ID');
+    if (!metaapiToken || !metaapiAccountId) return c.json({ error: true, message: 'MetaAPI nao configurada' }, 400);
+    const ticks = await Promise.all((symbols as string[]).map(async (symbol) => {
+      try {
+        const res = await metaApiFetchWithFailover(
+          metaapiToken, metaapiAccountId, 'client',
+          (base) => `${base}/users/current/accounts/${metaapiAccountId}/symbols/${symbol}/current-tick?keepSubscription=true`,
+          { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } },
+        );
+        if (!res.ok) return { symbol, error: `HTTP ${res.status}` };
+        const t = await res.json();
+        const bid = Number(t.bid);
+        const ask = Number(t.ask);
+        if (!(bid > 0) || !(ask > 0)) return { symbol, error: 'tick sem bid/ask' };
+        return { symbol, bid, ask, time: t.time ?? null };
+      } catch (e: any) {
+        return { symbol, error: e?.message || 'erro' };
+      }
+    }));
+    return c.json({ source: 'broker_tick', ticks });
+  } catch (error: any) {
+    return c.json({ error: true, message: error?.message || 'Erro desconhecido' }, 500);
+  }
+});
+
 // ⚠️ LEGADO — usada só por ApiTester.tsx (debug manual), NÃO pelo pipeline
 // real de preço. Mantida como está pra não quebrar a ferramenta de debug,
 // mas o fallback "Dados simulados realistas baseados em preços reais
