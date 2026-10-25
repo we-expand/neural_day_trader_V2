@@ -45,26 +45,26 @@ async function sample(): Promise<void> {
     const spread_pct = ((t.ask - t.bid) / t.bid) * 100;
     rows.push({ symbol: t.symbol, bid: t.bid, ask: t.ask, spread_pct, source: "broker_tick" });
   }
-  // BTCUSD real da corretora (a rota acima devolve o da Binance). Falha aqui nao derruba as outras amostras.
-  try {
-    const bt = await fetch(`${config.neuralSupabaseUrl}/functions/v1/server/broker-tick`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: ["BTCUSD"] }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (bt.ok) {
-      const bj: any = await bt.json();
-      const t = Array.isArray(bj?.ticks) ? bj.ticks.find((x: any) => x?.symbol === "BTCUSD") : null;
-      if (t && t.bid > 0 && t.ask > 0 && t.ask >= t.bid) {
-        rows.push({ symbol: "BTCUSD", bid: t.bid, ask: t.ask, spread_pct: ((t.ask - t.bid) / t.bid) * 100, source: "broker_tick" });
-      }
-    }
-  } catch (err) {
-    console.warn("[spreadCollector] BTCUSD do broker indisponivel (segue sem amostra de BTC):", err instanceof Error ? err.message : err);
-  }
   if (rows.length === 0) return;
   const { error } = await supa().from("market_spread_samples").insert(rows);
+  if (error) throw error;
+}
+
+/** BTCUSD real da corretora (a rota /mt5-prices devolve o da Binance). Independente de sample(): um timeout do lote geral nao pode impedir esta amostra. */
+async function sampleBtcBroker(): Promise<void> {
+  const res = await fetch(`${config.neuralSupabaseUrl}/functions/v1/server/broker-tick`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols: ["BTCUSD"] }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`broker-tick HTTP ${res.status}`);
+  const json: any = await res.json();
+  const t = Array.isArray(json?.ticks) ? json.ticks.find((x: any) => x?.symbol === "BTCUSD") : null;
+  if (!t || !(t.bid > 0) || !(t.ask > 0) || t.ask < t.bid) throw new Error(`tick BTCUSD invalido (${t?.error ?? "sem bid/ask"})`);
+  const { error } = await supa().from("market_spread_samples").insert([
+    { symbol: "BTCUSD", bid: t.bid, ask: t.ask, spread_pct: ((t.ask - t.bid) / t.bid) * 100, source: "broker_tick" },
+  ]);
   if (error) throw error;
 }
 
@@ -82,6 +82,11 @@ async function tick(): Promise<void> {
     await sample();
   } catch (err) {
     console.warn("[spreadCollector] falha ao amostrar (segue com o spread ja medido):", err instanceof Error ? err.message : err);
+  }
+  try {
+    await sampleBtcBroker();
+  } catch (err) {
+    console.warn("[spreadCollector] BTCUSD do broker indisponivel (segue sem amostra de BTC):", err instanceof Error ? err.message : err);
   }
   try {
     await reload();
