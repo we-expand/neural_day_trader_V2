@@ -477,6 +477,7 @@ import { fetchCandles, fetchCandlesCacheOnly, type CandleData } from '@/app/serv
 import { lastCompletedSessionPivots, type SessionPivotsResult } from '@/app/services/analysis/sessionPivots';
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
+import { isMarketOpen } from '@/app/utils/marketHours';
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 import { getContractSpec } from '@/config/contractSpecs'; // 💰 pipSize real por ativo (pts de risco/alvo)
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
@@ -7371,7 +7372,14 @@ export function ChartView({
       // 🛡️ isInitialLoadRef: enquanto o histórico do símbolo/timeframe atual ainda não
       // carregou, nunca aplicar tick no gráfico — updateData num gráfico vazio cria um
       // candle órfão gigante (o "bug que depois volta ao normal").
-      if (chartInstanceRef.current && chartDataRef.current.length > 0 && !isInitialLoadRef.current) {
+      // 🐛 FIX 2026-10-26 (BVSPX/1H com dezenas de velas planas O=H=L=C e
+      // volume repetido depois do fechamento de sexta): com o mercado fechado
+      // o polling segue devolvendo o último preço em cache, e a virada de vela
+      // abaixo criava uma vela nova por tick até "alcançar" o relógio — velas
+      // sintéticas que o refresh incremental do servidor nunca apaga. Com o
+      // mercado fechado não existe vela em formação: não mexe no gráfico.
+      const marketOpenForCandles = isMarketOpen(selectedSymbol).isOpen;
+      if (marketOpenForCandles && chartInstanceRef.current && chartDataRef.current.length > 0 && !isInitialLoadRef.current) {
         const chart = chartInstanceRef.current;
         const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
 
@@ -7390,16 +7398,22 @@ export function ChartView({
         // candle "velho" seguia sendo esticado por até 30s depois do
         // cronômetro chegar a zero, ficando visualmente fora de sincronia.
         const intervalMs = TIMEFRAME_INTERVALS_MS[timeframe];
-        const candleTurnedOver = !deviatesTooMuch &&
-          Date.now() - lastCandle.timestamp >= intervalMs;
+        const elapsedIntervals = Math.floor((Date.now() - lastCandle.timestamp) / intervalMs);
+        const candleTurnedOver = !deviatesTooMuch && elapsedIntervals >= 1;
 
         const updatedCandle = (deviatesTooMuch || candleTurnedOver)
           ? {
               ...lastCandle,
+              // Salta direto pro intervalo atual (mesma grade do servidor) em
+              // vez de +1 intervalo por tick — sem isso, depois de um buraco
+              // (aba em segundo plano, abertura do pregão) nascia uma escada
+              // de velas planas, uma por tick, até alcançar o relógio.
               timestamp: candleTurnedOver
-                ? lastCandle.timestamp + intervalMs
+                ? lastCandle.timestamp + elapsedIntervals * intervalMs
                 : lastCandle.timestamp,
-              open: newPrice, high: newPrice, low: newPrice, close: newPrice
+              open: newPrice, high: newPrice, low: newPrice, close: newPrice,
+              // Vela nova não herda o volume da anterior (vinha copiado via spread).
+              ...(candleTurnedOver ? { volume: 0 } : {})
             }
           : {
               ...lastCandle,
