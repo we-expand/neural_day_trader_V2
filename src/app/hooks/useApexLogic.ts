@@ -1469,20 +1469,33 @@ export function useApexLogic(
           // redesenhava (remove+recria) TODAS as linhas de entrada/SL/TP a
           // cada 30s, causando o piscar visível no gráfico. Só troca a
           // referência quando algo que afeta o desenho de fato mudou.
+          // 🔴 2026-10-26 (Cleber, vídeo: linhas de posição abertas direto no
+          // MetaTrader "piscam" no gráfico): posição aberta fora do app entra
+          // em `activeOrders` com id `mt5-<id da corretora>` via
+          // syncPositionsFromMT5 (nunca está em `ai_trades`). Este reconcile
+          // substituía a lista INTEIRA só por `open` (ai_trades), apagando
+          // essas entradas; a sync as recolocava no tick seguinte — linha
+          // removida/recriada a cada ~5s. Preserva as `mt5-*` cujo símbolo
+          // não é rastreado por `ai_trades` (mesma regra da própria sync);
+          // quem as remove de verdade é a sync, quando a posição some da
+          // corretora.
+          const trackedSymbols = new Set(next.map((o) => o.symbol));
+          const mt5Imported = prev.filter((o) => o.id.startsWith('mt5-') && !trackedSymbols.has(o.symbol));
+          const merged = mt5Imported.length > 0 ? [...next, ...mt5Imported] : next;
+          const prevById2 = new Map(prev.map((o) => [o.id, o]));
           const unchanged =
-            next.length === prev.length &&
-            next.every((o, i) => {
-              const p = prev[i];
+            merged.length === prev.length &&
+            merged.every((o) => {
+              const p = prevById2.get(o.id);
               return (
                 p &&
-                p.id === o.id &&
                 p.price === o.price &&
                 p.tp === o.tp &&
                 p.sl === o.sl &&
                 p.trailMoves === o.trailMoves
               );
             });
-          return unchanged ? prev : next;
+          return unchanged ? prev : merged;
         });
       } catch (e) {
         console.warn('[useApexLogic] Falha ao reconciliar posições abertas do Supabase:', e);
