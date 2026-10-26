@@ -478,6 +478,23 @@ import { lastCompletedSessionPivots, type SessionPivotsResult } from '@/app/serv
 import { getPrecisionForSymbol, padIntegerPart } from '@/app/utils/priceFormatter';
 import { getRealMarketData, subscribeToSymbol, getBatchedMT5Data, type RealMarketData } from '@/app/services/RealMarketDataService';
 import { isMarketOpen } from '@/app/utils/marketHours';
+
+// Preço ao vivo a mais de 10% da última vela real não é movimento de mercado
+// (nenhum índice/forex gap tanto entre pregões) — é preço quebrado da fonte.
+const MAX_TICK_DEVIATION_FROM_HISTORY = 0.10;
+function isOffFromHistory(price: number, referenceClose: number): boolean {
+  return referenceClose > 0 && Math.abs(price - referenceClose) / referenceClose > MAX_TICK_DEVIATION_FROM_HISTORY;
+}
+
+// Fechamento do pregão anterior: close da última vela antes de 00:00 UTC de hoje.
+function getPreviousSessionClose(candles: { timestamp: number; close: number }[]): number | null {
+  const todayStartUtc = new Date();
+  todayStartUtc.setUTCHours(0, 0, 0, 0);
+  for (let i = candles.length - 1; i >= 0; i--) {
+    if (candles[i].timestamp < todayStartUtc.getTime()) return candles[i].close > 0 ? candles[i].close : null;
+  }
+  return null;
+}
 import { debugLog, DEBUG_CONFIG } from '@/app/config/debug'; // 🔥 Sistema de debug otimizado
 import { getContractSpec } from '@/config/contractSpecs'; // 💰 pipSize real por ativo (pts de risco/alvo)
 import { useTradingContext } from '@/app/contexts/TradingContext'; // 🔥 NOVO: Contexto global
@@ -6480,6 +6497,13 @@ export function ChartView({
           // 🎯 BUSCAR PREÇO ATUAL DA BINANCE (ticker mais recente)
           let currentPriceFromTicker = 0;
           const lastCandle = candles[candles.length - 1];
+          // Variação exatamente 0/0 = a rota não trouxe o fechamento anterior: usa o das velas.
+          const resolveDailyChange = (price: number, change: number, changePercent: number) => {
+            if (change !== 0 || changePercent !== 0) return { change, changePercent };
+            const prevClose = getPreviousSessionClose(candles);
+            if (!prevClose) return { change, changePercent };
+            return { change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+          };
 
           // 🎯 BUSCAR DADOS COM ROTEAMENTO INTELIGENTE (funciona para TODOS os ativos)
           // Já disparado em paralelo com fetchCandles acima — só aguarda aqui.
@@ -6491,14 +6515,20 @@ export function ChartView({
           if (paintedFromCache) {
             marketDataPromise.then((md) => {
               if (cancelled || !md || !(md.price > 0) || !md.isRealData || typeof md.change !== 'number' || typeof md.changePercent !== 'number') return;
+              if (isOffFromHistory(md.price, lastCandle.close)) return;
+              const { change, changePercent } = resolveDailyChange(md.price, md.change, md.changePercent);
               setCurrentPrice(md.price);
-              setOpenPrice(md.price - md.change);
-              setDailyChange(md.change);
-              setDailyChangePercent(md.changePercent);
-              setIsPositive(md.changePercent >= 0);
+              setOpenPrice(md.price - change);
+              setDailyChange(change);
+              setDailyChangePercent(changePercent);
+              setIsPositive(changePercent >= 0);
             });
           }
-          if (routedData && routedData.price > 0) {
+          if (routedData && routedData.price > 0 && isOffFromHistory(routedData.price, lastCandle.close)) {
+            console.warn('[ChartView] 🚨 Preço ao vivo descartado: desvia >10% da última vela real.', {
+              symbol: selectedSymbol, price: routedData.price, lastClose: lastCandle.close, source: routedData.source
+            });
+          } else if (routedData && routedData.price > 0) {
             marketData = routedData;
             currentPriceFromTicker = marketData.price;
             console.log('[ChartView] 🎯 Dados obtidos via', marketData.source.toUpperCase() + ':', {
@@ -6513,12 +6543,12 @@ export function ChartView({
 
           // 🔥 SE TEMOS DADOS DA API, USAR ELES (não calcular manualmente!)
           if (marketData && marketData.price > 0 && marketData.isRealData && typeof marketData.change === 'number' && typeof marketData.changePercent === 'number') {
+            const { change, changePercent } = resolveDailyChange(marketData.price, marketData.change, marketData.changePercent);
             setCurrentPrice(marketData.price);
-            const estimatedOpenPrice = marketData.price - marketData.change;
-            setOpenPrice(estimatedOpenPrice);
-            setDailyChange(marketData.change);
-            setDailyChangePercent(marketData.changePercent);
-            setIsPositive(marketData.changePercent >= 0);
+            setOpenPrice(marketData.price - change);
+            setDailyChange(change);
+            setDailyChangePercent(changePercent);
+            setIsPositive(changePercent >= 0);
 
             console.log(`[ChartView] ✅ Usando valores DIRETOS da ${marketData.source.toUpperCase()}:`, {
               price: marketData.price.toFixed(2),
@@ -7321,8 +7351,36 @@ export function ChartView({
       }
 
       const newPrice = marketData.price;
-      const change = marketData.change || 0;
-      const changePercent = marketData.changePercent || 0;
+      const historyLoaded = chartDataRef.current.length > 0 && !isInitialLoadRef.current;
+
+      // 🐛 FIX 2026-10-26 (BVSPX abriu a semana mostrando 167.116,60 com o
+      // histórico real fechando sexta em 204.334 — Yahoo ^BVSP confirma ~205k):
+      // tick que se afasta mais de 10% da última vela REAL carregada não é
+      // movimento de mercado, é preço quebrado da fonte. Antes ele reiniciava
+      // a vela no preço novo (o "despenhadeiro" vertical) e virava o preço do
+      // cabeçalho. Agora é descartado e a tela fica no último dado confiável.
+      if (historyLoaded && isOffFromHistory(newPrice, chartDataRef.current[chartDataRef.current.length - 1].close)) {
+        console.warn('[ChartView] 🚨 Tick descartado: desvia >10% do histórico real carregado.', {
+          symbol: selectedSymbol,
+          tick: newPrice,
+          lastClose: chartDataRef.current[chartDataRef.current.length - 1].close,
+          source: marketData.source
+        });
+        return;
+      }
+
+      // Variação 0,00% exata com preço vindo da corretora = a rota não conseguiu
+      // o fechamento anterior (acontece com BVSPX). Calcula contra o fechamento
+      // do pregão anterior nas próprias velas em vez de exibir +0,00%.
+      let change = marketData.change || 0;
+      let changePercent = marketData.changePercent || 0;
+      if (change === 0 && changePercent === 0 && historyLoaded) {
+        const prevClose = getPreviousSessionClose(chartDataRef.current);
+        if (prevClose) {
+          change = newPrice - prevClose;
+          changePercent = (change / prevClose) * 100;
+        }
+      }
 
       // 🔥 LOG FORÇADO (não depende de DEBUG)
       console.log(`[🎯 CHARTVIEW] 🚨🚨🚨 CALLBACK EXECUTADO!`, {
@@ -7383,14 +7441,9 @@ export function ChartView({
         const chart = chartInstanceRef.current;
         const lastCandle = chartDataRef.current[chartDataRef.current.length - 1];
 
-        // 🛡️ GUARDA: se o preço novo desviar mais de 10% do candle existente,
-        // esse candle não pertence a este ativo/período (resíduo de troca de
-        // símbolo/timeframe que escapou do reset) — em vez de esticar high/low
-        // a partir de um open/low completamente desconectado (gerava um candle
-        // gigante indo do preço antigo até o novo, ex: open~1900 + close~65000
-        // no BTCUSD), reinicia o candle inteiro no preço atual.
-        const deviatesTooMuch = lastCandle.close > 0 &&
-          Math.abs(newPrice - lastCandle.close) / lastCandle.close > 0.10;
+        // Desvio >10% já foi descartado lá em cima; sobra só o caso de vela com
+        // close inválido (<=0), que é reiniciada no preço atual.
+        const deviatesTooMuch = !(lastCandle.close > 0);
 
         // 🕐 Detecta virada de candle localmente a partir do MESMO timestamp
         // que alimenta o cronômetro (lastCandle.timestamp), em vez de esperar
@@ -7421,14 +7474,6 @@ export function ChartView({
               high: Math.max(lastCandle.high, newPrice),
               low: Math.min(lastCandle.low, newPrice)
             };
-
-        if (deviatesTooMuch) {
-          console.warn('[ChartView] ⚠️ Candle com desvio >10% detectado (provável resíduo de troca de ativo/timeframe) — candle reiniciado no preço atual em vez de esticado.', {
-            symbol: selectedSymbol,
-            oldClose: lastCandle.close,
-            newPrice
-          });
-        }
 
         try {
           const updatedData = [...chartDataRef.current];
